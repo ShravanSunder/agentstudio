@@ -324,7 +324,9 @@ final class RenameWrappingTextView: NSTextView {
             return true
         }
 
-        if charactersIgnoringModifiers == RenameEditorKey.cancelCharacter {
+        if charactersIgnoringModifiers == RenameEditorKey.cancelCharacter
+            || event.keyCode == RenameEditorKey.cancelKeyCode
+        {
             onCancel?()
             return true
         }
@@ -337,4 +339,5 @@ final class RenameWrappingTextView: NSTextView {
 private enum RenameEditorKey {
     static let commitCharacters: Set<String> = ["\r", "\u{3}"]
     static let cancelCharacter = "\u{1b}"
+    static let cancelKeyCode: UInt16 = 53
 }

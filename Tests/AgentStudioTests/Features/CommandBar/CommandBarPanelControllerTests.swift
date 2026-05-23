@@ -22,10 +22,20 @@ struct CommandBarPanelControllerTests {
         )
     }
 
+    private func makeController(
+        commandBarSurface: CommandBarSurfaceAtom = CommandBarSurfaceAtom()
+    ) -> CommandBarPanelController {
+        CommandBarPanelController(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared,
+            commandBarSurface: commandBarSurface
+        )
+    }
+
     @Test
     func test_init_stateIsNotVisible() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
 
         // Assert
         #expect(!controller.state.isVisible)
@@ -37,8 +47,7 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_noPrefix_setsStateVisible() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
 
         // Act
         controller.show(parentWindow: window)
@@ -51,8 +60,7 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_withCommandPrefix_setsCommandScope() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
 
         // Act
         controller.show(prefix: ">", parentWindow: window)
@@ -65,8 +73,7 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_withPanePrefix_setsPaneScope() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
 
         // Act
         controller.show(prefix: "$", parentWindow: window)
@@ -81,12 +88,7 @@ struct CommandBarPanelControllerTests {
     func test_show_publishesCommandBarSurfaceScope() {
         let commandBarSurface = CommandBarSurfaceAtom()
         let workspaceWindowId = UUID()
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(),
-            repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
-            commandBarSurface: commandBarSurface
-        )
+        let controller = makeController(commandBarSurface: commandBarSurface)
 
         controller.show(prefix: ">", parentWindow: window, workspaceWindowId: workspaceWindowId)
 
@@ -98,12 +100,7 @@ struct CommandBarPanelControllerTests {
     func test_switchPrefix_updatesCommandBarSurfaceScope() {
         let commandBarSurface = CommandBarSurfaceAtom()
         let workspaceWindowId = UUID()
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(),
-            repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
-            commandBarSurface: commandBarSurface
-        )
+        let controller = makeController(commandBarSurface: commandBarSurface)
 
         controller.show(prefix: ">", parentWindow: window, workspaceWindowId: workspaceWindowId)
         controller.show(prefix: "$", parentWindow: window, workspaceWindowId: workspaceWindowId)
@@ -117,12 +114,7 @@ struct CommandBarPanelControllerTests {
         let commandBarSurface = CommandBarSurfaceAtom()
         let firstWindowId = UUID()
         let secondWindowId = UUID()
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(),
-            repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
-            commandBarSurface: commandBarSurface
-        )
+        let controller = makeController(commandBarSurface: commandBarSurface)
 
         controller.show(prefix: ">", parentWindow: window, workspaceWindowId: firstWindowId)
         controller.show(prefix: "$", parentWindow: window, workspaceWindowId: secondWindowId)
@@ -135,8 +127,7 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_dismiss_afterShow_resetsState() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
         #expect(!controller.state.isVisible)
 
         // Arrange
@@ -155,12 +146,7 @@ struct CommandBarPanelControllerTests {
     func test_dismiss_clearsCommandBarSurfaceScope() {
         let commandBarSurface = CommandBarSurfaceAtom()
         let workspaceWindowId = UUID()
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(),
-            repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
-            commandBarSurface: commandBarSurface
-        )
+        let controller = makeController(commandBarSurface: commandBarSurface)
         controller.show(parentWindow: window, workspaceWindowId: workspaceWindowId)
 
         controller.dismiss()
@@ -171,8 +157,7 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_dismiss_whenNotVisible_noOp() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
 
         // Arrange — not visible
         #expect(!controller.state.isVisible)
@@ -188,8 +173,7 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_samePrefixTwice_preservesState() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
 
         // Arrange — show with no prefix
         controller.show(parentWindow: window)
@@ -206,8 +190,7 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_sameCommandPrefixTwice_preservesQueryAndNavigation() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
 
         // Arrange
         controller.show(prefix: ">", parentWindow: window)
@@ -231,8 +214,7 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_differentPrefix_switchesInPlace() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
 
         // Arrange — open with no prefix
         controller.show(parentWindow: window)
@@ -249,8 +231,7 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_switchFromCommandToPane_switchesInPlace() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
 
         // Arrange — open with ">"
         controller.show(prefix: ">", parentWindow: window)
@@ -269,8 +250,7 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_fullLifecycle_showQueryPushDismiss() {
-        let controller = CommandBarPanelController(
-            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
+        let controller = makeController()
 
         // Act — show
         controller.show(prefix: ">", parentWindow: window)

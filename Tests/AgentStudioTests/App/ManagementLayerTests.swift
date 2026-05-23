@@ -303,6 +303,44 @@ struct ManagementLayerTests {
         }
     }
 
+    @Test("management layer escape passes through when a rename transient owns a popover editor")
+    func test_managementLayer_keyPolicy_escapePassesThroughTransientSurfaceWhenWorkspaceWindowLosesKey()
+        async
+    {
+        let transientKinds: [(String, TransientKeyboardSurfaceKind)] = [
+            ("tab rename", .tabRename(tabId: UUID())),
+            ("arrangement panel", .arrangementPanel(tabId: UUID())),
+            ("arrangement rename", .arrangementRename(tabId: UUID(), arrangementId: UUID())),
+            ("pane inbox", .paneInbox(parentPaneId: UUID())),
+            ("editor chooser", .editorChooser(paneId: UUID())),
+        ]
+
+        for (label, transientKind) in transientKinds {
+            withTestAtomRegistry { atoms in
+                let monitor = makeMonitor()
+                let workspaceWindowId = UUID()
+                atoms.managementLayer.activate()
+                atoms.windowLifecycle.recordWindowRegistered(workspaceWindowId)
+                atoms.windowLifecycle.recordWindowBecameKey(workspaceWindowId)
+                _ = atoms.transientKeyboardSurface.present(
+                    transientKind,
+                    workspaceWindowId: workspaceWindowId
+                )
+                atoms.windowLifecycle.recordWindowResignedFocused(workspaceWindowId)
+                atoms.windowLifecycle.recordWindowResignedKey(workspaceWindowId)
+
+                let decision = monitor.keyDownDecision(
+                    keyCode: 53,
+                    modifierFlags: [],
+                    charactersIgnoringModifiers: nil
+                )
+
+                #expect(decision == .passThrough, "\(label) should keep Escape local to the transient surface")
+                #expect(atoms.managementLayer.isActive, "\(label) should not deactivate management mode")
+            }
+        }
+    }
+
     @Test("toggleManagementLayer has expected command definition")
     func test_toggleManagementLayer_commandDefinition() async {
         withTestAtomRegistry { _ in

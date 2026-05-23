@@ -44,7 +44,7 @@ final class CommandBarPanelController {
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
         notificationInboxCommands: InboxNotificationCommands? = nil,
-        commandBarSurface: CommandBarSurfaceAtom = CommandBarSurfaceAtom()
+        commandBarSurface: CommandBarSurfaceAtom
     ) {
         self.store = store
         self.repoCache = repoCache

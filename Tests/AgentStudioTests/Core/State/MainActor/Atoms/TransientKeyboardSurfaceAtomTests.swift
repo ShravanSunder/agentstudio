@@ -47,6 +47,27 @@ struct TransientKeyboardSurfaceAtomTests {
         #expect(atom.topSurface(for: UUID()) == nil)
     }
 
+    @Test("replace updates kind atomically while preserving token and stack order")
+    func replaceUpdatesKindAtomicallyWhilePreservingTokenAndStackOrder() {
+        let atom = TransientKeyboardSurfaceAtom()
+        let workspaceWindowId = UUID()
+        let tabId = UUID()
+        let arrangementId = UUID()
+        let firstToken = atom.present(.tabRename(tabId: UUID()), workspaceWindowId: workspaceWindowId)
+        let secondToken = atom.present(.arrangementPanel(tabId: tabId), workspaceWindowId: workspaceWindowId)
+
+        atom.replace(
+            secondToken,
+            with: .arrangementRename(tabId: tabId, arrangementId: arrangementId),
+            workspaceWindowId: workspaceWindowId
+        )
+
+        #expect(atom.surfaces.map(\.token) == [firstToken, secondToken])
+        #expect(
+            atom.topSurface(for: workspaceWindowId)?.kind
+                == .arrangementRename(tabId: tabId, arrangementId: arrangementId))
+    }
+
     @Test("mixed transient kinds remain token scoped and window scoped")
     func mixedTransientKindsRemainTokenScopedAndWindowScoped() {
         let atom = TransientKeyboardSurfaceAtom()

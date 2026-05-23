@@ -47,4 +47,28 @@ struct TerminalAppOwnedShortcutPolicyTests {
             AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(
                 .showCommandBarEverything, context: context))
     }
+
+    @Test("terminal app-owned shortcuts are allowed in the main window chain")
+    func terminalAppOwnedShortcutsAreAllowedInMainWindowChain() {
+        let context = KeyboardRoutingContext(
+            stableOwner: .mainWindowChain,
+            activeSurface: .stable(.mainWindowChain),
+            workspaceWindowId: UUID()
+        )
+
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.nextTab, context: context))
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.newTab, context: context))
+    }
+
+    @Test("terminal app-owned shortcuts are blocked when sidebar owns keyboard")
+    func terminalAppOwnedShortcutsAreBlockedWhenSidebarOwnsKeyboard() {
+        let context = KeyboardRoutingContext(
+            stableOwner: .sidebar(.inbox),
+            activeSurface: .stable(.sidebar(.inbox)),
+            workspaceWindowId: UUID()
+        )
+
+        #expect(!AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.nextTab, context: context))
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.newTab, context: context))
+    }
 }

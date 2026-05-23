@@ -32,7 +32,11 @@ extension KeyboardRoutingContext {
             uiState: uiState
         )
         let resolvedWorkspaceWindowId =
-            workspaceWindowId ?? windowLifecycle.focusedWindowId ?? windowLifecycle.keyWindowId
+            workspaceWindowId
+            ?? windowLifecycle.focusedWindowId
+            ?? windowLifecycle.keyWindowId
+            ?? commandBarSurface.activeSurface?.workspaceWindowId
+            ?? transientKeyboardSurface.topAnySurface?.workspaceWindowId
 
         let activeSurface: ActiveKeyboardSurface
         if let commandBarScope = commandBarSurface.activeScope(for: resolvedWorkspaceWindowId) {

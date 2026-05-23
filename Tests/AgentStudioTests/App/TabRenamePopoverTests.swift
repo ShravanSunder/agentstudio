@@ -78,6 +78,30 @@ struct TabRenamePopoverTests {
     }
 
     @Test
+    func renameEditorCancelsEscapeKeyCodeEvenWhenCharactersAreEmpty() {
+        var text = "agent-vm | live-validation-2 | agent-vm"
+        var isFocused = false
+        var cancelCount = 0
+
+        let container = makeContainer(
+            text: Binding(
+                get: { text },
+                set: { text = $0 }
+            ),
+            isFocused: Binding(
+                get: { isFocused },
+                set: { isFocused = $0 }
+            ),
+            onCommit: {},
+            onCancel: { cancelCount += 1 }
+        )
+
+        container.textEditorForTesting.keyDown(with: keyDown("", keyCode: 53))
+
+        #expect(cancelCount == 1)
+    }
+
+    @Test
     func clickingEmptyEditorSpace_focusesFieldAndPlacesCaretAtEnd() {
         var text = "agent-vm | live-validation-2 | agent-vm"
         var isFocused = false
@@ -171,4 +195,5 @@ struct TabRenamePopoverTests {
             keyCode: keyCode
         )!
     }
+
 }

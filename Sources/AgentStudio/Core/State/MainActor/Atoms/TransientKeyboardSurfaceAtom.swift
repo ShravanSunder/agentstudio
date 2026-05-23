@@ -28,6 +28,23 @@ final class TransientKeyboardSurfaceAtom {
         surfaces.removeAll { $0.token == token }
     }
 
+    func replace(
+        _ token: TransientKeyboardSurfaceToken,
+        with kind: TransientKeyboardSurfaceKind,
+        workspaceWindowId: UUID
+    ) {
+        guard let index = surfaces.firstIndex(where: { $0.token == token }) else {
+            let surface = TransientKeyboardSurface(workspaceWindowId: workspaceWindowId, kind: kind)
+            surfaces.append(surface)
+            return
+        }
+        surfaces[index] = TransientKeyboardSurface(
+            token: token,
+            workspaceWindowId: workspaceWindowId,
+            kind: kind
+        )
+    }
+
     func dismissAll() {
         surfaces.removeAll()
     }

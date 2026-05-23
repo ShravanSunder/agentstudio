@@ -3,14 +3,7 @@ import Foundation
 @MainActor
 enum AppShortcutDispatchPolicy {
     static func shouldRouteAppOwnedKeyEvent(context: KeyboardRoutingContext) -> Bool {
-        switch context.activeSurface {
-        case .commandBar:
-            return false
-        case .transient(let surface):
-            return shouldDispatchFromTransientSurface(surface: surface)
-        case .stable:
-            return true
-        }
+        shouldEvaluateStableOwnerPolicy(context: context)
     }
 
     static func shouldDispatchGlobalShortcut(
@@ -21,15 +14,8 @@ enum AppShortcutDispatchPolicy {
             return context.stableOwner != .otherWindow
         }
 
-        switch context.activeSurface {
-        case .commandBar:
-            return false
-        case .transient(let surface):
-            guard shouldDispatchFromTransientSurface(surface: surface) else { return false }
-            return shouldDispatchGlobalShortcut(shortcut, keyboardOwner: context.stableOwner)
-        case .stable(let owner):
-            return shouldDispatchGlobalShortcut(shortcut, keyboardOwner: owner)
-        }
+        guard shouldEvaluateStableOwnerPolicy(context: context) else { return false }
+        return shouldDispatchGlobalShortcut(shortcut, keyboardOwner: context.stableOwner)
     }
 
     static func shouldDispatchTerminalAppOwnedShortcut(
@@ -40,19 +26,13 @@ enum AppShortcutDispatchPolicy {
             return context.stableOwner != .otherWindow
         }
 
-        switch context.activeSurface {
-        case .commandBar:
-            return false
-        case .transient(let surface):
-            guard shouldDispatchFromTransientSurface(surface: surface) else { return false }
+        guard shouldEvaluateStableOwnerPolicy(context: context) else { return false }
+
+        switch context.stableOwner {
+        case .mainWindowChain, .managementLayer:
             return shortcut.spec.contexts.contains(.terminalAppOwned)
-        case .stable(let owner):
-            switch owner {
-            case .mainWindowChain, .managementLayer:
-                return shortcut.spec.contexts.contains(.terminalAppOwned)
-            case .sidebar, .otherWindow:
-                return false
-            }
+        case .sidebar, .otherWindow:
+            return false
         }
     }
 
@@ -88,6 +68,17 @@ enum AppShortcutDispatchPolicy {
             return shouldDispatchFromMainWindowChain(shortcut)
         case .sidebar(let surface):
             return shouldDispatchFromSidebar(shortcut, surface: surface)
+        }
+    }
+
+    private static func shouldEvaluateStableOwnerPolicy(context: KeyboardRoutingContext) -> Bool {
+        switch context.activeSurface {
+        case .commandBar:
+            return false
+        case .transient(let surface):
+            return shouldDispatchFromTransientSurface(surface: surface)
+        case .stable:
+            return true
         }
     }
 

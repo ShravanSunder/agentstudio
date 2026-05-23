@@ -39,10 +39,16 @@ struct TransientKeyboardSurfaceRegistrationModifier: ViewModifier {
 
     private func replace(with kind: TransientKeyboardSurfaceKind) {
         let stableWindowId = registeredWindowId ?? workspaceWindowId ?? resolveCurrentWorkspaceWindowId()
-        dismiss()
-        guard let stableWindowId else { return }
+        guard let stableWindowId else {
+            dismiss()
+            return
+        }
         registeredWindowId = stableWindowId
-        register(kind)
+        guard let token else {
+            register(kind)
+            return
+        }
+        atom(\.transientKeyboardSurface).replace(token, with: kind, workspaceWindowId: stableWindowId)
     }
 
     private func resolveCurrentWorkspaceWindowId() -> UUID? {

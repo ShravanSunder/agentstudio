@@ -88,6 +88,46 @@ struct KeyboardRoutingContextSurfaceTests {
         #expect(context.activeSurface == .transient(.arrangementPanel(tabId: tabId)))
     }
 
+    @Test("transient remains active when its workspace window temporarily loses key focus")
+    func transientRemainsActiveWhenWorkspaceWindowTemporarilyLosesKeyFocus() {
+        let transientKinds: [(String, TransientKeyboardSurfaceKind)] = [
+            ("tab rename", .tabRename(tabId: UUID())),
+            ("arrangement panel", .arrangementPanel(tabId: UUID())),
+            ("arrangement rename", .arrangementRename(tabId: UUID(), arrangementId: UUID())),
+            ("pane inbox", .paneInbox(parentPaneId: UUID())),
+            ("editor chooser", .editorChooser(paneId: UUID())),
+        ]
+
+        for (label, transientKind) in transientKinds {
+            let windowLifecycle = WindowLifecycleAtom()
+            let managementLayer = ManagementLayerAtom()
+            let uiState = UIStateAtom()
+            let commandBarSurface = CommandBarSurfaceAtom()
+            let transientSurface = TransientKeyboardSurfaceAtom()
+            let workspaceWindowId = makeKeyWindow(windowLifecycle)
+            _ = transientSurface.present(
+                transientKind,
+                workspaceWindowId: workspaceWindowId
+            )
+            windowLifecycle.recordWindowResignedFocused(workspaceWindowId)
+            windowLifecycle.recordWindowResignedKey(workspaceWindowId)
+
+            let context = KeyboardRoutingContext.current(
+                windowLifecycle: windowLifecycle,
+                managementLayer: managementLayer,
+                uiState: uiState,
+                commandBarSurface: commandBarSurface,
+                transientKeyboardSurface: transientSurface
+            )
+
+            #expect(context.workspaceWindowId == workspaceWindowId, "\(label) should resolve its workspace window")
+            #expect(
+                context.activeSurface == .transient(transientKind),
+                "\(label) should remain the active keyboard surface"
+            )
+        }
+    }
+
     @Test("stable owner is active when no overlay is active")
     func stableOwnerIsActiveWhenNoOverlayIsActive() {
         let windowLifecycle = WindowLifecycleAtom()
