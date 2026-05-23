@@ -93,6 +93,14 @@ extension InboxNotificationRouterTests {
         let drawerPane = try #require(
             fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
         )
+        let drawerId = try #require(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.drawerId)
+        let tabId = try #require(fixture.tabLayout.activeTabId)
+        fixture.tabLayout.arrangementAtom.addDrawerPaneView(
+            drawerId: drawerId,
+            parentPaneId: parentPaneId.uuid,
+            drawerPaneId: drawerPane.id,
+            inTab: tabId
+        )
         makeWindowKey(fixture.windowLifecycle)
         await Task.yield()
         #expect(fixture.attendedPane.attendedPaneId == parentPaneId.uuid)

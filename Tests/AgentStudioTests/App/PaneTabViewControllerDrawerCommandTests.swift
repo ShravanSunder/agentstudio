@@ -268,10 +268,11 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
     }
 
-    @Test("option-k in main row is consumed without opening the drawer")
-    func optionK_mainPane_isConsumedWithoutEnteringDrawer() throws {
+    @Test("option-k in main row falls through without a concrete pane command")
+    func optionK_mainPane_fallsThroughWithoutConcreteCommand() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        configureMainWindowKeyboardOwner()
 
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: parent.id)
@@ -295,15 +296,17 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
+        #expect(
+            !harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
         #expect(harness.store.pane(parent.id)?.drawer?.isExpanded == false)
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 
-    @Test("option-i in main row is consumed without app-owned navigation")
-    func optionI_mainPane_isConsumedWithoutNavigation() throws {
+    @Test("option-i in main row falls through without a concrete pane command")
+    func optionI_mainPane_fallsThroughWithoutConcreteCommand() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        configureMainWindowKeyboardOwner()
 
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: parent.id)
@@ -327,7 +330,8 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
+        #expect(
+            !harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 
@@ -335,6 +339,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func optionJ_afterClosingEmptyDrawer_movesMainRow() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        configureMainWindowKeyboardOwner()
 
         let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
@@ -384,10 +389,56 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(harness.store.drawerView(forParent: parent.id)?.activeChildId == drawerPane.id)
     }
 
+    @Test("focusDrawerPane1 focuses first drawer pane by drawer layout order")
+    func executeFocusDrawerPane1_focusesFirstDrawerPaneByLayoutOrder() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (parent, drawerPanes) = try makeDrawerOrdinalPaneSet(in: harness, paneCount: 3)
+        harness.store.setActiveDrawerPane(drawerPanes[2].id, in: parent.id)
+        atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parent.id, paneId: drawerPanes[2].id)
+
+        harness.controller.execute(.focusDrawerPane1)
+
+        #expect(harness.store.drawerView(forParent: parent.id)?.activeChildId == drawerPanes[0].id)
+        #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parent.id, paneId: drawerPanes[0].id))
+    }
+
+    @Test("out-of-range focusDrawerPane ordinal is unavailable and no-ops")
+    func executeFocusDrawerPane4_outOfRangeIsUnavailableAndNoOps() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (parent, drawerPanes) = try makeDrawerOrdinalPaneSet(in: harness, paneCount: 3)
+
+        #expect(harness.controller.canExecute(.focusDrawerPane4) == false)
+
+        harness.controller.execute(.focusDrawerPane4)
+
+        #expect(harness.store.drawerView(forParent: parent.id)?.activeChildId == drawerPanes[0].id)
+    }
+
+    @Test("focusDrawerPane ordinal expands collapsed and minimized target before focusing")
+    func executeFocusDrawerPane2_expandsCollapsedAndMinimizedTargetBeforeFocusing() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (parent, drawerPanes) = try makeDrawerOrdinalPaneSet(in: harness, paneCount: 3)
+        harness.store.toggleDrawer(for: parent.id)
+        #expect(harness.store.minimizeDrawerPane(drawerPanes[1].id, in: parent.id))
+
+        harness.controller.execute(.focusDrawerPane2)
+
+        let updatedDrawer = try #require(harness.store.pane(parent.id)?.drawer)
+        let updatedDrawerView = try #require(harness.store.drawerView(forParent: parent.id))
+        #expect(updatedDrawer.isExpanded)
+        #expect(!updatedDrawerView.minimizedPaneIds.contains(drawerPanes[1].id))
+        #expect(updatedDrawerView.activeChildId == drawerPanes[1].id)
+        #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parent.id, paneId: drawerPanes[1].id))
+    }
+
     @Test("option-ijkl uses drawer movement after selecting a drawer pane directly")
     func optionIJKL_afterDirectDrawerSelection_staysInDrawerScope() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        configureMainWindowKeyboardOwner()
 
         let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
@@ -436,6 +487,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func targetedNavigateDrawerPane_updatesFocusOwnerAndDrawerKeyboardScope() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        configureMainWindowKeyboardOwner()
 
         let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
@@ -840,5 +892,35 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(drawerPaneIdsAfter == drawerPaneIdsBefore)
         expectWebviewContent(createdPane, issuePrefix: "collapsed drawer browser creation")
         #expect(harness.controller.managementNavigationScopeDescriptionForTesting == "mainRow")
+    }
+
+    private func makeDrawerOrdinalPaneSet(
+        in harness: PaneTabViewControllerCommandHarness,
+        paneCount: Int
+    ) throws -> (parent: Pane, drawerPanes: [Pane]) {
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+        atom(\.workspaceFocusOwner).focusMainPane(parent.id)
+
+        let firstDrawerPane = try #require(harness.store.addDrawerPane(to: parent.id))
+        var drawerPanes = [firstDrawerPane]
+        for _ in 1..<paneCount {
+            let anchorPaneId = try #require(harness.store.drawerView(forParent: parent.id)?.layout.paneIds.last)
+            let drawerPane = try #require(
+                harness.store.insertDrawerPane(
+                    in: parent.id,
+                    at: anchorPaneId,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            )
+            drawerPanes.append(drawerPane)
+        }
+        harness.store.setActiveDrawerPane(firstDrawerPane.id, in: parent.id)
+        return (parent, drawerPanes)
     }
 }

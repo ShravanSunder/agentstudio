@@ -5,6 +5,7 @@ import SwiftUI
 /// Shows pane visibility toggles, arrangement chips, and save controls.
 struct ArrangementPanel: View {
     let tabId: UUID
+    let workspaceWindowId: UUID?
     let panes: [PaneVisibilityInfo]
     let arrangements: [ArrangementInfo]
     @Bindable var inlineRenameState: ArrangementInlineRenameState
@@ -18,7 +19,7 @@ struct ArrangementPanel: View {
     @State private var hoveredArrangementId: UUID?
     @State private var isSaveButtonHovered = false
     @State private var hasClaimedFocus = false
-    @FocusState private var focusedArrangementId: UUID?
+    @State private var focusedArrangementId: UUID?
 
     private var displayState: ArrangementPanelDisplayState {
         ArrangementPanelDisplayState(
@@ -26,6 +27,13 @@ struct ArrangementPanel: View {
             arrangements: arrangements,
             allowsMinimizedBarToggle: showsMinimizedBarToggle
         )
+    }
+
+    private var transientSurfaceKind: TransientKeyboardSurfaceKind {
+        if let editingArrangementId = inlineRenameState.editingArrangementId {
+            return .arrangementRename(tabId: tabId, arrangementId: editingArrangementId)
+        }
+        return .arrangementPanel(tabId: tabId)
     }
 
     var body: some View {
@@ -117,6 +125,7 @@ struct ArrangementPanel: View {
         }
         .padding(10)
         .frame(minWidth: 400, idealWidth: 475, maxWidth: 575)
+        .transientKeyboardSurface(transientSurfaceKind, workspaceWindowId: workspaceWindowId)
         .onAppear {
             guard highlightPaneId != nil else { return }
             highlightVisible = true
@@ -189,28 +198,34 @@ struct ArrangementPanel: View {
     private func arrangementChip(_ arrangement: ArrangementInfo) -> some View {
         Group {
             if inlineRenameState.editingArrangementId == arrangement.id {
-                TextField(
-                    "Arrangement name",
+                ArrangementRenameTextField(
                     text: Binding(
                         get: { inlineRenameState.draftName },
                         set: { inlineRenameState.setDraftName($0) }
-                    )
-                )
-                .textFieldStyle(.plain)
-                .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-                .foregroundStyle(.primary)
-                .focused($focusedArrangementId, equals: arrangement.id)
-                .frame(minWidth: 72)
-                .onSubmit(commitInlineRename)
-                .onExitCommand(perform: cancelInlineRename)
-                .onAppear {
-                    Task { @MainActor in
-                        focusedArrangementId = arrangement.id
-                        hasClaimedFocus = true
-                        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
-                            editor.selectAll(nil)
+                    ),
+                    isFocused: Binding(
+                        get: { focusedArrangementId == arrangement.id },
+                        set: { isFocused in
+                            if isFocused {
+                                focusedArrangementId = arrangement.id
+                                hasClaimedFocus = true
+                            } else if focusedArrangementId == arrangement.id {
+                                focusedArrangementId = nil
+                            }
                         }
-                    }
+                    ),
+                    font: .systemFont(
+                        ofSize: AppStyles.General.Typography.textXs,
+                        weight: .semibold
+                    ),
+                    onCommit: commitInlineRename,
+                    onCancel: cancelInlineRename
+                )
+                .foregroundStyle(.primary)
+                .frame(minWidth: 72)
+                .onAppear {
+                    focusedArrangementId = arrangement.id
+                    hasClaimedFocus = true
                 }
                 .onDisappear {
                     hasClaimedFocus = false

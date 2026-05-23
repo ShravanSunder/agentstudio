@@ -65,7 +65,8 @@ struct PaneLeafContainerPaneInboxTests {
                 actionDispatcher: makeNoOpPaneActionDispatcher(),
                 onPaneFocusTrigger: { _ in },
                 onOpenPaneGitHub: { _ in },
-                paneInboxPresentation: presentation
+                paneInboxPresentation: presentation,
+                workspaceWindowId: nil
             )
             .frame(width: 360, height: 240)
         )

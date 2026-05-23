@@ -5,6 +5,12 @@ struct DrawerGridLayout: Codable, Hashable {
     var bottomRow: Layout?
     var rowSplitRatio: Double
 
+    private enum CodingKeys: String, CodingKey {
+        case topRow
+        case bottomRow
+        case rowSplitRatio
+    }
+
     init(
         topRow: Layout = Layout(),
         bottomRow: Layout? = nil,
@@ -13,6 +19,15 @@ struct DrawerGridLayout: Codable, Hashable {
         self.topRow = topRow
         self.bottomRow = bottomRow
         self.rowSplitRatio = rowSplitRatio
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            topRow: try container.decode(Layout.self, forKey: .topRow),
+            bottomRow: try container.decodeIfPresent(Layout.self, forKey: .bottomRow),
+            rowSplitRatio: try container.decodeIfPresent(Double.self, forKey: .rowSplitRatio) ?? 0.5
+        )
     }
 
     var paneIds: [UUID] {

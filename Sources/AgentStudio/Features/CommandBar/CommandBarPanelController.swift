@@ -22,6 +22,7 @@ final class CommandBarPanelController {
     private let repoCache: RepoCacheAtom
     private let dispatcher: CommandDispatcher
     private let notificationInboxCommands: InboxNotificationCommands?
+    private let commandBarSurface: CommandBarSurfaceAtom
 
     // MARK: - Panel
 
@@ -30,6 +31,7 @@ final class CommandBarPanelController {
 
     /// The parent window the command bar is attached to.
     private weak var parentWindow: NSWindow?
+    private var workspaceWindowId: UUID?
 
     var isKeyWindow: Bool {
         panel?.isKeyWindow == true
@@ -41,12 +43,14 @@ final class CommandBarPanelController {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
-        notificationInboxCommands: InboxNotificationCommands? = nil
+        notificationInboxCommands: InboxNotificationCommands? = nil,
+        commandBarSurface: CommandBarSurfaceAtom
     ) {
         self.store = store
         self.repoCache = repoCache
         self.dispatcher = dispatcher
         self.notificationInboxCommands = notificationInboxCommands
+        self.commandBarSurface = commandBarSurface
         state.loadRecents()
     }
 
@@ -54,23 +58,26 @@ final class CommandBarPanelController {
 
     /// Show the command bar. If already visible with a different prefix, switch in-place.
     /// If already visible with the same prefix (or no prefix), preserve current state.
-    func show(parentWindow: NSWindow) {
-        show(mode: .defaultScope(.everything), parentWindow: parentWindow)
+    func show(parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
+        show(mode: .defaultScope(.everything), parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
     }
 
-    func show(prefix: String, parentWindow: NSWindow) {
-        show(mode: .prefix(prefix), parentWindow: parentWindow)
+    func show(prefix: String, parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
+        show(mode: .prefix(prefix), parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
     }
 
-    func show(defaultRootScope: CommandBarScope, parentWindow: NSWindow) {
-        show(mode: .defaultScope(defaultRootScope), parentWindow: parentWindow)
+    func show(defaultRootScope: CommandBarScope, parentWindow: NSWindow, workspaceWindowId: UUID? = nil) {
+        show(mode: .defaultScope(defaultRootScope), parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
     }
 
     private func show(
         mode: CommandBarState.OpenMode,
-        parentWindow: NSWindow
+        parentWindow: NSWindow,
+        workspaceWindowId requestedWorkspaceWindowId: UUID?
     ) {
+        let resolvedWorkspaceWindowId = requestedWorkspaceWindowId ?? workspaceWindowId ?? UUID()
         self.parentWindow = parentWindow
+        workspaceWindowId = resolvedWorkspaceWindowId
 
         if state.isVisible {
             let currentPrefix = normalizedPrefix(for: state.currentScope)
@@ -83,6 +90,8 @@ final class CommandBarPanelController {
                 }
 
             if currentPrefix == normalizedRequestedPrefix {
+                publishCurrentSurface()
+                movePanel(to: parentWindow)
                 return
             } else {
                 switch mode {
@@ -91,6 +100,8 @@ final class CommandBarPanelController {
                 case .defaultScope:
                     state.show(defaultScope: defaultRootScope(for: mode))
                 }
+                publishCurrentSurface()
+                movePanel(to: parentWindow)
                 return
             }
         }
@@ -102,6 +113,7 @@ final class CommandBarPanelController {
         case .defaultScope(let defaultRootScope):
             state.show(defaultScope: defaultRootScope)
         }
+        publishCurrentSurface()
         presentPanel(parentWindow: parentWindow)
     }
 
@@ -110,7 +122,14 @@ final class CommandBarPanelController {
         guard state.isVisible else { return }
 
         state.dismiss()
+        commandBarSurface.dismiss(workspaceWindowId: workspaceWindowId)
         dismissPanel()
+        workspaceWindowId = nil
+    }
+
+    private func publishCurrentSurface() {
+        guard let workspaceWindowId else { return }
+        commandBarSurface.present(scope: state.currentScope, workspaceWindowId: workspaceWindowId)
     }
 
     // MARK: - Panel Presentation
@@ -171,6 +190,22 @@ final class CommandBarPanelController {
         })
 
         controllerLogger.debug("Command bar panel presented")
+    }
+
+    private func movePanel(to parentWindow: NSWindow) {
+        guard let panel else { return }
+
+        if panel.parent !== parentWindow {
+            panel.parent?.removeChildWindow(panel)
+            parentWindow.addChildWindow(panel, ordered: .above)
+            backdropView?.removeFromSuperview()
+            backdropView = nil
+            showBackdrop(on: parentWindow)
+        }
+
+        panel.positionRelativeTo(parentWindow: parentWindow)
+        panel.updateHeight(parentWindow: parentWindow)
+        panel.makeKeyAndOrderFront(nil)
     }
 
     private var currentContext: WorkspacePaneFocus {
@@ -247,9 +282,9 @@ final class CommandBarPanelController {
         case .showPrefix(let prefix):
             guard let parentWindow else { return false }
             if let prefix {
-                show(prefix: prefix, parentWindow: parentWindow)
+                show(prefix: prefix, parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
             } else {
-                show(parentWindow: parentWindow)
+                show(parentWindow: parentWindow, workspaceWindowId: workspaceWindowId)
             }
             return true
         case .executeRow(let item):

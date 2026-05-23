@@ -272,8 +272,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         #expect(harness.store.pane(parentPane.id) != nil)
     }
 
-    @Test("terminal termination delivered through AppEventBus removes panes hidden from the active arrangement")
-    func terminalProcessTermination_deliveredThroughAppEventBus_removesHiddenOwnedPane() async {
+    @Test("terminal termination delivered through AppEventBus removes minimized panes from the active arrangement")
+    func terminalProcessTermination_deliveredThroughAppEventBus_removesMinimizedOwnedPane() async {
         let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -286,9 +286,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
             content: .webview(WebviewState(url: URL(string: "https://example.com/b-\(UUID().uuidString)")!)),
             metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "B"), title: "B")
         )
-        let hiddenPane = harness.store.createPane(
+        let minimizedPane = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/c-\(UUID().uuidString)")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Hidden"), title: "Hidden")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Minimized"), title: "Minimized")
         )
 
         let tab = Tab(paneId: paneA.id)
@@ -296,29 +296,23 @@ struct TerminalPaneMountViewExitBehaviorTests {
         harness.store.insertPane(
             paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         harness.store.insertPane(
-            hiddenPane.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after,
+            minimizedPane.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after,
             sizingMode: .halveTarget)
-        guard
-            let focusArrangementId = harness.store.createArrangement(
-                name: "Focus",
-                inTab: tab.id
-            )
-        else {
-            Issue.record("Expected focus arrangement creation to succeed")
+        guard harness.store.minimizePane(minimizedPane.id, inTab: tab.id) else {
+            Issue.record("Expected pane minimization to succeed")
             return
         }
-        harness.store.switchArrangement(to: focusArrangementId, inTab: tab.id)
-        #expect(harness.store.tab(tab.id)?.panes.contains(hiddenPane.id) == true)
-        #expect(harness.store.tab(tab.id)?.paneIds.contains(hiddenPane.id) == false)
+        #expect(harness.store.tab(tab.id)?.panes.contains(minimizedPane.id) == true)
+        #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds.contains(minimizedPane.id) == true)
 
         await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
-        AppEventBus.post(.terminalProcessTerminated(paneId: hiddenPane.id))
+        AppEventBus.post(.terminalProcessTerminated(paneId: minimizedPane.id))
 
-        await eventually("hidden owned pane should be removed without closing the whole tab") {
-            harness.store.pane(hiddenPane.id) == nil
+        await eventually("minimized owned pane should be removed without closing the whole tab") {
+            harness.store.pane(minimizedPane.id) == nil
         }
         #expect(harness.store.tab(tab.id) != nil)
-        #expect(harness.store.tab(tab.id)?.panes.contains(hiddenPane.id) == false)
+        #expect(harness.store.tab(tab.id)?.panes.contains(minimizedPane.id) == false)
         #expect(Set(harness.store.tab(tab.id)?.paneIds ?? []) == Set([paneA.id, paneB.id]))
     }
 

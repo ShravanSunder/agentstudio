@@ -11,4 +11,11 @@ struct GhosttyAppHandleTests {
 
         #expect(overrideContents.contains("scroll-to-bottom = no-keystroke, no-output"))
     }
+
+    @Test("ghostty config override removes cmd-k clear scrollback binding")
+    func configOverrideRemovesCmdKClearScrollbackBinding() {
+        let overrideContents = Ghostty.AppHandle.scrollBehaviorOverrideContents
+
+        #expect(overrideContents.contains("keybind = cmd+k=unbind"))
+    }
 }

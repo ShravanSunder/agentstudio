@@ -67,6 +67,7 @@ struct DrawerPanel: View {
     /// Active drag's source pane id, used to omit self/adjacent
     /// targets from the visuals dict the overlay paints (R1, R2, R8).
     let dragSourcePaneId: UUID?
+    let workspaceWindowId: UUID?
 
     @State private var drawerPaneFrames: [UUID: CGRect] = [:]
     @State private var drawerActionDispatcher: PaneTabActionDispatcher
@@ -107,7 +108,8 @@ struct DrawerPanel: View {
         paneInboxPresentation: PaneInboxPresentation?,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTarget: DrawerRearrangeTarget?,
-        dragSourcePaneId: UUID?
+        dragSourcePaneId: UUID?,
+        workspaceWindowId: UUID? = nil
     ) {
         self.layout = layout
         self.parentPaneId = parentPaneId
@@ -129,6 +131,7 @@ struct DrawerPanel: View {
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTarget = dropTarget
         self.dragSourcePaneId = dragSourcePaneId
+        self.workspaceWindowId = workspaceWindowId
         self._drawerActionDispatcher = State(
             initialValue: PaneTabActionDispatcher(
                 dispatch: { paneAction in
@@ -177,6 +180,7 @@ struct DrawerPanel: View {
             tabId: tabId,
             activePaneId: activeChildId,
             minimizedPaneIds: minimizedPaneIds,
+            ordinalMap: PaneOrdinalMap(orderedPaneIds: layout.paneIds),
             collapsedPaneWidth: managementLayer.isActive || showsMinimizedPanes ? CollapsedPaneBar.barWidth : 0,
             onSaveArrangement: nil,
             closeTransitionCoordinator: closeTransitionCoordinator,
@@ -189,7 +193,8 @@ struct DrawerPanel: View {
             useDrawerFramePreference: true,
             isInactivePersistentTab: false,
             paneInboxPresentation: paneInboxPresentation,
-            onOpenPaneGitHub: onOpenPaneGitHub
+            onOpenPaneGitHub: onOpenPaneGitHub,
+            workspaceWindowId: workspaceWindowId
         )
     }
 

@@ -36,4 +36,20 @@ struct RepoExplorerFocusTests {
 
         #expect(uiState.sidebarHasFocus == false)
     }
+
+    @Test("focus bridge publishes repos surface focus")
+    func focusBridgePublishesReposSurfaceFocus() {
+        let uiState = UIStateAtom()
+        let view = RepoExplorerFocusableView()
+        view.onFocusChange = { hasFocus in
+            uiState.setSidebarHasFocus(hasFocus)
+        }
+
+        #expect(view.acceptsFirstResponder)
+        #expect(view.becomeFirstResponder())
+        #expect(uiState.sidebarHasFocus == true)
+
+        #expect(view.resignFirstResponder())
+        #expect(uiState.sidebarHasFocus == false)
+    }
 }

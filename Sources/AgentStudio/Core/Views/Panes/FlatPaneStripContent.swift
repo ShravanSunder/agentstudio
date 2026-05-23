@@ -28,6 +28,7 @@ struct FlatPaneStripContent: View {
     let tabId: UUID
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let ordinalMap: PaneOrdinalMap
     let collapsedPaneWidth: CGFloat
     let onSaveArrangement: (() -> Void)?
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
@@ -41,6 +42,7 @@ struct FlatPaneStripContent: View {
     let isInactivePersistentTab: Bool
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
+    let workspaceWindowId: UUID?
     @State private var isSplitResizing = false
 
     var body: some View {
@@ -68,7 +70,9 @@ struct FlatPaneStripContent: View {
                                 actionDispatcher: actionDispatcher,
                                 onSaveArrangement: onSaveArrangement,
                                 dropTargetCoordinateSpace: coordinateSpaceName,
-                                useDrawerFramePreference: useDrawerFramePreference
+                                useDrawerFramePreference: useDrawerFramePreference,
+                                ordinal: ordinalMap.ordinal(forPaneId: paneId),
+                                workspaceWindowId: workspaceWindowId
                             )
                             .frame(width: collapsedPaneWidth)
                         }
@@ -98,7 +102,9 @@ struct FlatPaneStripContent: View {
                             paneInboxPresentation: paneInboxPresentation,
                             onOpenPaneGitHub: onOpenPaneGitHub,
                             viewRegistry: viewRegistry,
-                            paneSlot: paneSlot
+                            paneSlot: paneSlot,
+                            ordinal: ordinalMap.ordinal(forPaneId: segment.paneId),
+                            workspaceWindowId: workspaceWindowId
                         )
                         .id("\(segment.paneId.uuidString)-registered=\(paneSlot.host != nil)")
                         .frame(width: segment.frame.width, height: segment.frame.height)
@@ -143,55 +149,63 @@ private struct PaneSegmentSlotView: View {
     let onOpenPaneGitHub: (UUID) -> Void
     let viewRegistry: ViewRegistry
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
+    let ordinal: Int?
+    let workspaceWindowId: UUID?
 
     var body: some View {
-        if segment.isMinimized {
-            if collapsedPaneWidth > 0 {
-                CollapsedPaneBar(
-                    paneId: segment.paneId,
+        ZStack {
+            if segment.isMinimized {
+                if collapsedPaneWidth > 0 {
+                    CollapsedPaneBar(
+                        paneId: segment.paneId,
+                        tabId: tabId,
+                        closeTransitionCoordinator: closeTransitionCoordinator,
+                        actionDispatcher: actionDispatcher,
+                        onSaveArrangement: onSaveArrangement,
+                        dropTargetCoordinateSpace: coordinateSpaceName,
+                        useDrawerFramePreference: useDrawerFramePreference,
+                        ordinal: ordinal,
+                        workspaceWindowId: workspaceWindowId
+                    )
+                }
+            } else if let paneHost = paneSlot.host {
+                PaneLeafContainer(
+                    paneHost: paneHost,
                     tabId: tabId,
+                    isActive: segment.paneId == activePaneId,
+                    isSplit: layout.isSplit,
+                    isSplitResizing: isSplitResizing,
+                    store: store,
+                    repoCache: repoCache,
                     closeTransitionCoordinator: closeTransitionCoordinator,
                     actionDispatcher: actionDispatcher,
-                    onSaveArrangement: onSaveArrangement,
+                    onPaneFocusTrigger: onPaneFocusTrigger,
+                    onOpenPaneGitHub: onOpenPaneGitHub,
                     dropTargetCoordinateSpace: coordinateSpaceName,
-                    useDrawerFramePreference: useDrawerFramePreference
+                    useDrawerFramePreference: useDrawerFramePreference,
+                    paneInboxPresentation: paneInboxPresentation,
+                    ordinal: ordinal,
+                    workspaceWindowId: workspaceWindowId
                 )
-            }
-        } else if let paneHost = paneSlot.host {
-            PaneLeafContainer(
-                paneHost: paneHost,
-                tabId: tabId,
-                isActive: segment.paneId == activePaneId,
-                isSplit: layout.isSplit,
-                isSplitResizing: isSplitResizing,
-                store: store,
-                repoCache: repoCache,
-                closeTransitionCoordinator: closeTransitionCoordinator,
-                actionDispatcher: actionDispatcher,
-                onPaneFocusTrigger: onPaneFocusTrigger,
-                onOpenPaneGitHub: onOpenPaneGitHub,
-                dropTargetCoordinateSpace: coordinateSpaceName,
-                useDrawerFramePreference: useDrawerFramePreference,
-                paneInboxPresentation: paneInboxPresentation
-            )
-            .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
-        } else {
-            switch PaneSegmentMissingHostDisposition.resolve(
-                isRetired: viewRegistry.isRetired(for: segment.paneId),
-                isInitialRestorePending: viewRegistry.isInitialRestorePending,
-                isInactivePersistentTab: isInactivePersistentTab
-            ) {
-            case .deferredInitialRestore:
-                Color.clear
+                .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
+            } else {
+                switch PaneSegmentMissingHostDisposition.resolve(
+                    isRetired: viewRegistry.isRetired(for: segment.paneId),
+                    isInitialRestorePending: viewRegistry.isInitialRestorePending,
+                    isInactivePersistentTab: isInactivePersistentTab
+                ) {
+                case .deferredInitialRestore:
+                    Color.clear
 
-            case .deferredInactiveTabRestore:
-                Color.clear
+                case .deferredInactiveTabRestore:
+                    Color.clear
 
-            case .retiredTransition:
-                Color.clear
+                case .retiredTransition:
+                    Color.clear
 
-            case .unexpectedMissingHost:
-                UnexpectedMissingPaneHostPlaceholder(paneId: segment.paneId)
+                case .unexpectedMissingHost:
+                    UnexpectedMissingPaneHostPlaceholder(paneId: segment.paneId)
+                }
             }
         }
     }

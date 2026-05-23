@@ -9,6 +9,7 @@ extension Ghostty {
         private let configHandle: ghostty_config_t
         static let scrollBehaviorOverrideContents = """
             scroll-to-bottom = no-keystroke, no-output
+            keybind = cmd+k=unbind
             """
 
         var app: ghostty_app_t {

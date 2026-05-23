@@ -64,7 +64,11 @@ struct InboxNotificationRouterTests {
             tabLayout: tabLayout,
             attendedPane: attendedPane,
             focusTracker: tracker,
-            traceRuntime: traceRuntime
+            traceRuntime: traceRuntime,
+            drawerView: { parentPaneId in
+                guard let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId else { return nil }
+                return tabLayout.activeTab?.activeArrangement.drawerViews[drawerId]
+            }
         )
         await router.start()
 

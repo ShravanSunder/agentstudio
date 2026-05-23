@@ -67,6 +67,7 @@ struct CustomTabBar: View {
     var onPaneAction: ((PaneActionCommand) -> Void)?
     var onSaveArrangement: ((UUID) -> Void)?
     var onOpenRepoInTab: (() -> Void)?
+    var workspaceWindowId: UUID?
 
     @State private var scrollOffset: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
@@ -107,7 +108,8 @@ struct CustomTabBar: View {
                         adapter: adapter,
                         arrangementInlineRenameState: arrangementInlineRenameState,
                         onPaneAction: onPaneAction,
-                        onSaveArrangement: onSaveArrangement
+                        onSaveArrangement: onSaveArrangement,
+                        workspaceWindowId: workspaceWindowId
                     )
                 }
                 .padding(.leading, AppStyles.General.Spacing.loose)
@@ -419,6 +421,7 @@ private struct TabBarArrangementButton: View {
     @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
     let onPaneAction: ((PaneActionCommand) -> Void)?
     let onSaveArrangement: ((UUID) -> Void)?
+    let workspaceWindowId: UUID?
 
     @State private var isPanelPresented = false
     @State private var isHovered = false
@@ -498,6 +501,7 @@ private struct TabBarArrangementButton: View {
             if let tab = activeTab, let onPaneAction, let onSaveArrangement {
                 ArrangementPanel(
                     tabId: tab.id,
+                    workspaceWindowId: workspaceWindowId,
                     panes: tab.panes,
                     arrangements: tab.arrangements,
                     inlineRenameState: arrangementInlineRenameState,
@@ -844,7 +848,8 @@ struct TabBarEmptyState: View {
                     onCommand: { _, _ in },
                     onAdd: {},
                     onPaneAction: { _ in },
-                    onSaveArrangement: { _ in }
+                    onSaveArrangement: { _ in },
+                    workspaceWindowId: nil
                 )
 
                 Spacer()

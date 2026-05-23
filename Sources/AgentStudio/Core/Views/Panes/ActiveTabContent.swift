@@ -16,6 +16,7 @@ struct ActiveTabContent: View {
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let paneInboxPresentation: PaneInboxPresentation? = nil
     let onOpenPaneGitHub: (UUID) -> Void
+    let workspaceWindowId: UUID? = nil
 
     private static func traceBody(
         activeTabId: UUID?,
@@ -63,7 +64,8 @@ struct ActiveTabContent: View {
                 viewRegistry: viewRegistry,
                 appLifecycleStore: appLifecycleStore,
                 paneInboxPresentation: paneInboxPresentation,
-                onOpenPaneGitHub: onOpenPaneGitHub
+                onOpenPaneGitHub: onOpenPaneGitHub,
+                workspaceWindowId: workspaceWindowId
             )
             .background(AppStyles.Shell.PaneChrome.background)
         }

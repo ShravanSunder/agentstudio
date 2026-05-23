@@ -822,9 +822,13 @@ extension PaneCoordinator {
             let shouldSnapshotPane: Bool
             if tab.id == store.tabLayoutAtom.activeTabId {
                 if isDrawerChild {
-                    shouldSnapshotPane = closingPane.parentPaneId.map { tab.activePaneIds.contains($0) } ?? false
+                    shouldSnapshotPane =
+                        closingPane.parentPaneId.map { parentPaneId in
+                            arrangementView.activeVisiblePaneIds(forTab: tab.id).contains(parentPaneId)
+                                && arrangementView.drawerVisiblePaneIds(forParent: parentPaneId).contains(paneId)
+                        } ?? false
                 } else {
-                    shouldSnapshotPane = tab.activePaneIds.contains(paneId)
+                    shouldSnapshotPane = arrangementView.activeVisiblePaneIds(forTab: tab.id).contains(paneId)
                 }
             } else {
                 shouldSnapshotPane = false

@@ -192,6 +192,7 @@ struct PaneInboxNotificationPopoverTests {
 
         let popover = PaneInboxNotificationPopover(
             parentPaneId: parentPaneId,
+            workspaceWindowId: nil,
             paneIds: [parentPaneId],
             inboxAtom: inboxAtom,
             presentationAtom: presentationAtom,
@@ -227,6 +228,7 @@ struct PaneInboxNotificationPopoverTests {
                 let hostingView = NSHostingView(
                     rootView: PaneInboxNotificationPopover(
                         parentPaneId: parentPaneId,
+                        workspaceWindowId: nil,
                         paneIds: [parentPaneId],
                         inboxAtom: inboxAtom,
                         presentationAtom: PaneInboxPresentationAtom(),
@@ -285,6 +287,7 @@ struct PaneInboxNotificationPopoverTests {
                 let hostingView = NSHostingView(
                     rootView: PaneInboxNotificationPopover(
                         parentPaneId: parentPaneId,
+                        workspaceWindowId: nil,
                         paneIds: [parentPaneId],
                         inboxAtom: inboxAtom,
                         presentationAtom: PaneInboxPresentationAtom(),
@@ -335,6 +338,7 @@ struct PaneInboxNotificationPopoverTests {
         let hostingView = NSHostingView(
             rootView: PaneInboxNotificationPopover(
                 parentPaneId: parentPaneId,
+                workspaceWindowId: nil,
                 paneIds: [parentPaneId],
                 inboxAtom: inboxAtom,
                 presentationAtom: PaneInboxPresentationAtom(),

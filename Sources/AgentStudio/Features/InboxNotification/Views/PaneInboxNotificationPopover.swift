@@ -9,6 +9,7 @@ private let paneInboxNotificationPopoverLogger = Logger(
 @MainActor
 struct PaneInboxNotificationPopover: View {
     let parentPaneId: UUID
+    let workspaceWindowId: UUID?
     let paneIds: [UUID]
     let inboxAtom: InboxNotificationAtom
     let presentationAtom: PaneInboxPresentationAtom
@@ -31,6 +32,7 @@ struct PaneInboxNotificationPopover: View {
             width: AppStyles.Components.PaneInbox.popoverWidth,
             height: AppStyles.Components.PaneInbox.popoverHeight
         )
+        .transientKeyboardSurface(.paneInbox(parentPaneId: parentPaneId), workspaceWindowId: workspaceWindowId)
         .background(Self.surfaceBackground.color)
         .background(
             SelectablePopoverKeyboardBridge(

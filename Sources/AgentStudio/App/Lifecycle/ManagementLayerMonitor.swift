@@ -19,6 +19,8 @@ import Observation
 final class ManagementLayerMonitor {
     /// Whether management layer is currently active
     private var managementLayer: ManagementLayerAtom { atom(\.managementLayer) }
+    private var windowLifecycle: WindowLifecycleAtom { atom(\.windowLifecycle) }
+    private var transientKeyboardSurface: TransientKeyboardSurfaceAtom { atom(\.transientKeyboardSurface) }
 
     var isActive: Bool { managementLayer.isActive }
 
@@ -94,6 +96,17 @@ final class ManagementLayerMonitor {
         modifierFlags: NSEvent.ModifierFlags,
         charactersIgnoringModifiers: String?
     ) -> KeyDownDecision {
+        let keyboardContext = KeyboardRoutingContext.current(
+            windowLifecycle: windowLifecycle,
+            managementLayer: managementLayer,
+            uiState: atom(\.uiState),
+            commandBarSurface: atom(\.commandBarSurface),
+            transientKeyboardSurface: transientKeyboardSurface
+        )
+        guard AppShortcutDispatchPolicy.shouldRouteAppOwnedKeyEvent(context: keyboardContext) else {
+            return .passThrough
+        }
+
         if keyCode == 53 {
             return .deactivateAndConsume
         }

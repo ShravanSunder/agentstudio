@@ -30,11 +30,14 @@ enum AppCommand: String, CaseIterable {
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
     case focusNextPane, focusPrevPane
+    case focusPane1, focusPane2, focusPane3, focusPane4, focusPane5
+    case focusPane6, focusPane7, focusPane8, focusPane9
     case toggleSplitZoom
     case minimizePane
     case expandPane
     // Arrangement commands
     case switchArrangement
+    case cycleArrangement
     case saveArrangement
     case deleteArrangement
     case renameArrangement
@@ -44,6 +47,8 @@ enum AppCommand: String, CaseIterable {
     case focusDrawerPaneLeft
     case focusDrawerPaneDown
     case focusDrawerPaneRight
+    case focusDrawerPane1, focusDrawerPane2, focusDrawerPane3, focusDrawerPane4, focusDrawerPane5
+    case focusDrawerPane6, focusDrawerPane7, focusDrawerPane8, focusDrawerPane9
     case detachDrawerPane
     case addDrawerPane
     case toggleDrawer

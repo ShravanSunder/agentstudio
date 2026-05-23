@@ -9,6 +9,30 @@ struct ManagementLayerTests {
         ManagementLayerMonitor(startKeyboardMonitoring: false)
     }
 
+    private func expectManagementPassThrough(
+        for transientSurface: TransientKeyboardSurfaceKind,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        withTestAtomRegistry { atoms in
+            let monitor = makeMonitor()
+            let workspaceWindowId = UUID()
+            atoms.windowLifecycle.recordWindowRegistered(workspaceWindowId)
+            atoms.windowLifecycle.recordWindowBecameKey(workspaceWindowId)
+            _ = atoms.transientKeyboardSurface.present(
+                transientSurface,
+                workspaceWindowId: workspaceWindowId
+            )
+
+            let decision = monitor.keyDownDecision(
+                keyCode: 35,
+                modifierFlags: [],
+                charactersIgnoringModifiers: "p"
+            )
+
+            #expect(decision == .passThrough, sourceLocation: sourceLocation)
+        }
+    }
+
     @Test("defaults to inactive")
     func test_managementLayer_defaultsToInactive() async {
         withTestAtomRegistry { _ in
@@ -125,6 +149,31 @@ struct ManagementLayerTests {
             )
             #expect(decision == .dispatch(.managementLayerCreateTerminal))
         }
+    }
+
+    @Test("transient surface suppresses management layer plain command dispatch")
+    func test_managementLayer_keyPolicy_transientSurfaceSuppressesPlainCommandDispatch() async {
+        expectManagementPassThrough(for: .tabRename(tabId: UUID()))
+    }
+
+    @Test("management layer passes through while arrangement panel owns keyboard")
+    func test_managementLayer_keyPolicy_arrangementPanelPassesThrough() async {
+        expectManagementPassThrough(for: .arrangementPanel(tabId: UUID()))
+    }
+
+    @Test("management layer passes through while arrangement rename owns keyboard")
+    func test_managementLayer_keyPolicy_arrangementRenamePassesThrough() async {
+        expectManagementPassThrough(for: .arrangementRename(tabId: UUID(), arrangementId: UUID()))
+    }
+
+    @Test("management layer passes through while pane inbox owns keyboard")
+    func test_managementLayer_keyPolicy_paneInboxPassesThrough() async {
+        expectManagementPassThrough(for: .paneInbox(parentPaneId: UUID()))
+    }
+
+    @Test("management layer passes through while editor chooser owns keyboard")
+    func test_managementLayer_keyPolicy_editorChooserPassesThrough() async {
+        expectManagementPassThrough(for: .editorChooser(paneId: UUID()))
     }
 
     @Test("management layer key policy dispatches B to create browser")
@@ -251,6 +300,44 @@ struct ManagementLayerTests {
                 charactersIgnoringModifiers: nil
             )
             #expect(decision == .deactivateAndConsume)
+        }
+    }
+
+    @Test("management layer escape passes through when a rename transient owns a popover editor")
+    func test_managementLayer_keyPolicy_escapePassesThroughTransientSurfaceWhenWorkspaceWindowLosesKey()
+        async
+    {
+        let transientKinds: [(String, TransientKeyboardSurfaceKind)] = [
+            ("tab rename", .tabRename(tabId: UUID())),
+            ("arrangement panel", .arrangementPanel(tabId: UUID())),
+            ("arrangement rename", .arrangementRename(tabId: UUID(), arrangementId: UUID())),
+            ("pane inbox", .paneInbox(parentPaneId: UUID())),
+            ("editor chooser", .editorChooser(paneId: UUID())),
+        ]
+
+        for (label, transientKind) in transientKinds {
+            withTestAtomRegistry { atoms in
+                let monitor = makeMonitor()
+                let workspaceWindowId = UUID()
+                atoms.managementLayer.activate()
+                atoms.windowLifecycle.recordWindowRegistered(workspaceWindowId)
+                atoms.windowLifecycle.recordWindowBecameKey(workspaceWindowId)
+                _ = atoms.transientKeyboardSurface.present(
+                    transientKind,
+                    workspaceWindowId: workspaceWindowId
+                )
+                atoms.windowLifecycle.recordWindowResignedFocused(workspaceWindowId)
+                atoms.windowLifecycle.recordWindowResignedKey(workspaceWindowId)
+
+                let decision = monitor.keyDownDecision(
+                    keyCode: 53,
+                    modifierFlags: [],
+                    charactersIgnoringModifiers: nil
+                )
+
+                #expect(decision == .passThrough, "\(label) should keep Escape local to the transient surface")
+                #expect(atoms.managementLayer.isActive, "\(label) should not deactivate management mode")
+            }
         }
     }
 

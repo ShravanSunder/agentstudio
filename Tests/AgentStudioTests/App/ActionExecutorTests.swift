@@ -351,7 +351,7 @@ final class ActionExecutorTests {
         #expect(!(store.tabs[0].isSplit))
     }
 
-    // MARK: - Execute: insertPane (existingPane)
+    // MARK: - Execute: movePaneAcrossTabs
 
     @Test
     func test_execute_movePaneAcrossTabs_movesPaneBetweenTabs() {
@@ -733,7 +733,7 @@ final class ActionExecutorTests {
         // Assert: all 3 views are still in the ViewRegistry
         #expect(viewRegistry.view(for: pA.id) != nil)  // View A should still be registered after arrangement switch
         #expect(viewRegistry.view(for: pB.id) != nil)  // View B should still be registered after arrangement switch
-        #expect(viewRegistry.view(for: pC.id) != nil)  // View C should still be registered even though hidden
+        #expect(viewRegistry.view(for: pC.id) != nil)
         #expect(viewRegistry.registeredPaneIds == Set([pA.id, pB.id, pC.id]))
 
         // Verify the store keeps all panes in the active arrangement.
@@ -764,7 +764,7 @@ final class ActionExecutorTests {
         viewRegistry.register(viewB, for: pB.id)
         viewRegistry.register(viewC, for: pC.id)
 
-        // Create custom arrangement with only pane A
+        // Create a complete custom arrangement.
         let customArrId = store.createArrangement(
             name: "Solo",
             inTab: tab.id

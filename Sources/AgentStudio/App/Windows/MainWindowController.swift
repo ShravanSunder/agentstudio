@@ -73,6 +73,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         // Create and set content view controller
         let splitVC = MainSplitViewController(
             store: store,
+            workspaceWindowId: windowId,
             actionExecutor: actionExecutor,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,

@@ -18,6 +18,7 @@ struct FlatTabStripContainer: View {
     let appLifecycleStore: AppLifecycleAtom
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
+    let workspaceWindowId: UUID?
 
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
@@ -33,6 +34,17 @@ struct FlatTabStripContainer: View {
     /// filter (R1-R18). Only one drag is active at a time across
     /// main + drawer.
     @State private var activeDragSourcePaneId: UUID?
+
+    private struct PrimaryPaneLayerState {
+        let metrics: FlatTabStripMetrics
+        let effectiveVisiblePaneIds: [UUID]
+        let rendersMinimizedBars: Bool
+        let effectiveCollapsedWidth: CGFloat
+        let mainOrdinalMap: PaneOrdinalMap
+        let isInactivePersistentTab: Bool
+        let closingPaneIds: Set<UUID>
+    }
+
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
     }
@@ -53,7 +65,8 @@ struct FlatTabStripContainer: View {
         viewRegistry: ViewRegistry,
         appLifecycleStore: AppLifecycleAtom,
         paneInboxPresentation: PaneInboxPresentation? = nil,
-        onOpenPaneGitHub: @escaping (UUID) -> Void
+        onOpenPaneGitHub: @escaping (UUID) -> Void,
+        workspaceWindowId: UUID? = nil
     ) {
         self.layout = layout
         self.tabId = tabId
@@ -71,6 +84,7 @@ struct FlatTabStripContainer: View {
         self.appLifecycleStore = appLifecycleStore
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
+        self.workspaceWindowId = workspaceWindowId
     }
 
     private var onSaveArrangement: (() -> Void)? {
@@ -115,6 +129,7 @@ struct FlatTabStripContainer: View {
                 minimizedPaneIds: minimizedPaneIds,
                 collapsedPaneWidth: effectiveCollapsedWidth
             )
+            let mainOrdinalMap = PaneOrdinalMap(orderedPaneIds: layout.paneIds)
             let surfaceId = "tab:\(tabId)"
             let renderedPaneIds: Set<UUID> = {
                 if let zoomedPaneId {
@@ -128,110 +143,25 @@ struct FlatTabStripContainer: View {
                 return Set(effectiveVisiblePaneIds)
             }()
             let closingPaneIds = closeTransitionCoordinator.closingPaneIds
+            let primaryPaneLayerState = PrimaryPaneLayerState(
+                metrics: metrics,
+                effectiveVisiblePaneIds: effectiveVisiblePaneIds,
+                rendersMinimizedBars: rendersMinimizedBars,
+                effectiveCollapsedWidth: effectiveCollapsedWidth,
+                mainOrdinalMap: mainOrdinalMap,
+                isInactivePersistentTab: isInactivePersistentTab,
+                closingPaneIds: closingPaneIds
+            )
 
             ZStack(alignment: .topLeading) {
-                if let zoomedPane = zoomedPaneLeafContainer() {
-                    ZStack(alignment: .topTrailing) {
-                        zoomedPane
-                            .id(zoomedPaneId)
-                            .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
-                        Text("ZOOM")
-                            .font(
-                                .system(size: AppStyles.General.Typography.textSm, weight: .medium, design: .monospaced)
-                            )
-                            .foregroundStyle(.white.opacity(AppStyles.General.Foreground.secondary))
-                            .padding(.horizontal, AppStyles.General.Spacing.standard)
-                            .padding(.vertical, AppStyles.General.Layout.paneGap)
-                            .background(Capsule().fill(.white.opacity(AppStyles.General.Stroke.muted)))
-                            .padding(AppStyles.General.Spacing.loose)
-                            .allowsHitTesting(false)
-                    }
-                } else if effectiveVisiblePaneIds.isEmpty {
-                    EmptyArrangementPlaceholderView()
-                } else if metrics.allMinimized {
-                    if rendersMinimizedBars {
-                        HStack(spacing: 0) {
-                            ForEach(layout.paneIds, id: \.self) { paneId in
-                                CollapsedPaneBar(
-                                    paneId: paneId,
-                                    tabId: tabId,
-                                    closeTransitionCoordinator: closeTransitionCoordinator,
-                                    actionDispatcher: actionDispatcher,
-                                    onSaveArrangement: onSaveArrangement,
-                                    dropTargetCoordinateSpace: "tabContainer"
-                                )
-                                .frame(width: CollapsedPaneBar.barWidth)
-                            }
-                            Spacer()
-                        }
-                    }
-                } else {
-                    FlatPaneStripContent(
-                        layout: layout,
-                        tabId: tabId,
-                        activePaneId: activePaneId,
-                        minimizedPaneIds: minimizedPaneIds,
-                        collapsedPaneWidth: effectiveCollapsedWidth,
-                        onSaveArrangement: onSaveArrangement,
-                        closeTransitionCoordinator: closeTransitionCoordinator,
-                        actionDispatcher: actionDispatcher,
-                        onPaneFocusTrigger: onPaneFocusTrigger,
-                        store: store,
-                        repoCache: repoCache,
-                        viewRegistry: viewRegistry,
-                        coordinateSpaceName: "tabContainer",
-                        useDrawerFramePreference: false,
-                        isInactivePersistentTab: isInactivePersistentTab,
-                        paneInboxPresentation: paneInboxPresentation,
-                        onOpenPaneGitHub: onOpenPaneGitHub
-                    )
-                    .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: closingPaneIds)
-                    .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: minimizedPaneIds)
-                }
+                primaryPaneLayer(primaryPaneLayerState)
 
-                DrawerPanelOverlay(
-                    store: store,
-                    repoCache: repoCache,
-                    viewRegistry: viewRegistry,
-                    appLifecycleStore: appLifecycleStore,
-                    closeTransitionCoordinator: closeTransitionCoordinator,
-                    tabId: tabId,
-                    paneFrames: paneFrames,
-                    tabSize: tabGeometry.size,
-                    iconBarFrame: iconBarFrame,
-                    actionDispatcher: actionDispatcher,
-                    onPaneFocusTrigger: onPaneFocusTrigger,
-                    paneInboxPresentation: paneInboxPresentation,
-                    onOpenPaneGitHub: onOpenPaneGitHub,
-                    drawerDropTarget: drawerDropTarget,
-                    dismissCoordinateView: drawerDismissCoordinateView,
-                    dragSourcePaneId: activeDragSourcePaneId
+                drawerPanelOverlay(tabSize: tabGeometry.size)
+
+                mainSplitManagementOverlay(
+                    containerBounds: containerBounds,
+                    mainSplitDragCaptureEnabled: mainSplitDragCaptureEnabled
                 )
-
-                if managementLayer.isActive && mainSplitDragCaptureEnabled {
-                    let activeVisual: DropTargetVisual? =
-                        dropTarget.flatMap { activeTarget in
-                            PaneDragCoordinator.visual(
-                                for: activeTarget,
-                                paneFrames: paneFrames,
-                                containerBounds: containerBounds,
-                                minimizedPaneIds: minimizedPaneIds,
-                                sourcePaneId: activeDragSourcePaneId
-                            )
-                        }
-                    PaneDropTargetOverlay(visual: activeVisual)
-                        .allowsHitTesting(false)
-
-                    SplitContainerDropCaptureOverlay(
-                        paneFrames: paneFrames,
-                        containerBounds: containerBounds,
-                        minimizedPaneIds: minimizedPaneIds,
-                        target: $dropTarget,
-                        sourcePaneId: $activeDragSourcePaneId,
-                        isManagementLayerActive: true,
-                        actionDispatcher: actionDispatcher
-                    )
-                }
 
                 tabLevelDrawerCapture(expandedDrawerParentPaneId: expandedDrawerParentPaneId)
             }
@@ -300,6 +230,139 @@ struct FlatTabStripContainer: View {
     }
 
     @ViewBuilder
+    private func primaryPaneLayer(_ state: PrimaryPaneLayerState) -> some View {
+        if let zoomedPane = zoomedPaneLeafContainer() {
+            ZStack(alignment: .topLeading) {
+                zoomedPane
+                    .id(zoomedPaneId)
+                    .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
+                zoomBadge()
+            }
+        } else if state.effectiveVisiblePaneIds.isEmpty {
+            EmptyArrangementPlaceholderView()
+        } else if state.metrics.allMinimized {
+            if state.rendersMinimizedBars {
+                HStack(spacing: 0) {
+                    ForEach(layout.paneIds, id: \.self) { paneId in
+                        CollapsedPaneBar(
+                            paneId: paneId,
+                            tabId: tabId,
+                            closeTransitionCoordinator: closeTransitionCoordinator,
+                            actionDispatcher: actionDispatcher,
+                            onSaveArrangement: onSaveArrangement,
+                            dropTargetCoordinateSpace: "tabContainer",
+                            ordinal: state.mainOrdinalMap.ordinal(forPaneId: paneId),
+                            workspaceWindowId: workspaceWindowId
+                        )
+                        .frame(width: CollapsedPaneBar.barWidth)
+                    }
+                    Spacer()
+                }
+            }
+        } else {
+            FlatPaneStripContent(
+                layout: layout,
+                tabId: tabId,
+                activePaneId: activePaneId,
+                minimizedPaneIds: minimizedPaneIds,
+                ordinalMap: state.mainOrdinalMap,
+                collapsedPaneWidth: state.effectiveCollapsedWidth,
+                onSaveArrangement: onSaveArrangement,
+                closeTransitionCoordinator: closeTransitionCoordinator,
+                actionDispatcher: actionDispatcher,
+                onPaneFocusTrigger: onPaneFocusTrigger,
+                store: store,
+                repoCache: repoCache,
+                viewRegistry: viewRegistry,
+                coordinateSpaceName: "tabContainer",
+                useDrawerFramePreference: false,
+                isInactivePersistentTab: state.isInactivePersistentTab,
+                paneInboxPresentation: paneInboxPresentation,
+                onOpenPaneGitHub: onOpenPaneGitHub,
+                workspaceWindowId: workspaceWindowId
+            )
+            .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: state.closingPaneIds)
+            .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: minimizedPaneIds)
+        }
+    }
+
+    private func zoomBadge() -> some View {
+        VStack {
+            HStack {
+                Spacer()
+                Text("ZOOM")
+                    .font(
+                        .system(
+                            size: AppStyles.General.Typography.textSm,
+                            weight: .medium,
+                            design: .monospaced
+                        )
+                    )
+                    .foregroundStyle(.white.opacity(AppStyles.General.Foreground.secondary))
+                    .padding(.horizontal, AppStyles.General.Spacing.standard)
+                    .padding(.vertical, AppStyles.General.Layout.paneGap)
+                    .background(Capsule().fill(.white.opacity(AppStyles.General.Stroke.muted)))
+                    .padding(AppStyles.General.Spacing.loose)
+                    .allowsHitTesting(false)
+            }
+            Spacer()
+        }
+    }
+
+    private func drawerPanelOverlay(tabSize: CGSize) -> DrawerPanelOverlay {
+        DrawerPanelOverlay(
+            store: store,
+            repoCache: repoCache,
+            viewRegistry: viewRegistry,
+            appLifecycleStore: appLifecycleStore,
+            closeTransitionCoordinator: closeTransitionCoordinator,
+            tabId: tabId,
+            paneFrames: paneFrames,
+            tabSize: tabSize,
+            iconBarFrame: iconBarFrame,
+            actionDispatcher: actionDispatcher,
+            onPaneFocusTrigger: onPaneFocusTrigger,
+            paneInboxPresentation: paneInboxPresentation,
+            onOpenPaneGitHub: onOpenPaneGitHub,
+            drawerDropTarget: drawerDropTarget,
+            dismissCoordinateView: drawerDismissCoordinateView,
+            workspaceWindowId: workspaceWindowId,
+            dragSourcePaneId: activeDragSourcePaneId
+        )
+    }
+
+    @ViewBuilder
+    private func mainSplitManagementOverlay(
+        containerBounds: CGRect,
+        mainSplitDragCaptureEnabled: Bool
+    ) -> some View {
+        if managementLayer.isActive && mainSplitDragCaptureEnabled {
+            let activeVisual: DropTargetVisual? =
+                dropTarget.flatMap { activeTarget in
+                    PaneDragCoordinator.visual(
+                        for: activeTarget,
+                        paneFrames: paneFrames,
+                        containerBounds: containerBounds,
+                        minimizedPaneIds: minimizedPaneIds,
+                        sourcePaneId: activeDragSourcePaneId
+                    )
+                }
+            PaneDropTargetOverlay(visual: activeVisual)
+                .allowsHitTesting(false)
+
+            SplitContainerDropCaptureOverlay(
+                paneFrames: paneFrames,
+                containerBounds: containerBounds,
+                minimizedPaneIds: minimizedPaneIds,
+                target: $dropTarget,
+                sourcePaneId: $activeDragSourcePaneId,
+                isManagementLayerActive: true,
+                actionDispatcher: actionDispatcher
+            )
+        }
+    }
+
+    @ViewBuilder
     private func tabLevelDrawerCapture(expandedDrawerParentPaneId: UUID?) -> some View {
         if DrawerDragOwnershipPolicy.drawerCaptureEnabled(
             managementLayerActive: managementLayer.isActive,
@@ -354,6 +417,7 @@ struct FlatTabStripContainer: View {
         guard let zoomedPaneId, let zoomedView = viewRegistry.view(for: zoomedPaneId) else {
             return nil
         }
+        let ordinal = PaneOrdinalMap(orderedPaneIds: layout.paneIds).ordinal(forPaneId: zoomedPaneId)
 
         return PaneLeafContainer(
             paneHost: zoomedView,
@@ -367,7 +431,9 @@ struct FlatTabStripContainer: View {
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,
             onOpenPaneGitHub: onOpenPaneGitHub,
-            paneInboxPresentation: paneInboxPresentation
+            paneInboxPresentation: paneInboxPresentation,
+            ordinal: ordinal,
+            workspaceWindowId: workspaceWindowId
         )
     }
 

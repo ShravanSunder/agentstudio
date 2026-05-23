@@ -20,6 +20,16 @@ extension AppCommand {
         .selectTab6, .selectTab7, .selectTab8, .selectTab9,
     ]
 
+    static let focusPaneCommands: [AppCommand] = [
+        .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+        .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+    ]
+
+    static let focusDrawerPaneCommands: [AppCommand] = [
+        .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4, .focusDrawerPane5,
+        .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+    ]
+
     var definition: CommandSpec {
         switch self {
         case .closeTab:
@@ -266,6 +276,24 @@ extension AppCommand {
                 icon: .system(.arrowLeftCircle),
                 helpText: "Move focus to the previous pane"
             )
+        case .focusPane1:
+            return hiddenFocusPaneDefinition(index: 1)
+        case .focusPane2:
+            return hiddenFocusPaneDefinition(index: 2)
+        case .focusPane3:
+            return hiddenFocusPaneDefinition(index: 3)
+        case .focusPane4:
+            return hiddenFocusPaneDefinition(index: 4)
+        case .focusPane5:
+            return hiddenFocusPaneDefinition(index: 5)
+        case .focusPane6:
+            return hiddenFocusPaneDefinition(index: 6)
+        case .focusPane7:
+            return hiddenFocusPaneDefinition(index: 7)
+        case .focusPane8:
+            return hiddenFocusPaneDefinition(index: 8)
+        case .focusPane9:
+            return hiddenFocusPaneDefinition(index: 9)
         case .toggleSplitZoom:
             return CommandSpec(
                 command: self,
@@ -304,6 +332,17 @@ extension AppCommand {
                 label: "Switch Arrangement",
                 icon: .system(.rectangle3Group),
                 helpText: "Switch the active tab to a saved arrangement"
+            )
+        case .cycleArrangement:
+            return CommandSpec(
+                command: self,
+                shortcut: .cycleArrangement,
+                label: "Cycle Arrangement",
+                icon: .system(.rectangle3Group),
+                helpText: "Switch to the next arrangement in the active tab",
+                visibleWhen: [.hasActiveTab, .hasArrangements],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .saveArrangement:
             return CommandSpec(
@@ -364,6 +403,24 @@ extension AppCommand {
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
+        case .focusDrawerPane1:
+            return hiddenFocusDrawerPaneDefinition(index: 1)
+        case .focusDrawerPane2:
+            return hiddenFocusDrawerPaneDefinition(index: 2)
+        case .focusDrawerPane3:
+            return hiddenFocusDrawerPaneDefinition(index: 3)
+        case .focusDrawerPane4:
+            return hiddenFocusDrawerPaneDefinition(index: 4)
+        case .focusDrawerPane5:
+            return hiddenFocusDrawerPaneDefinition(index: 5)
+        case .focusDrawerPane6:
+            return hiddenFocusDrawerPaneDefinition(index: 6)
+        case .focusDrawerPane7:
+            return hiddenFocusDrawerPaneDefinition(index: 7)
+        case .focusDrawerPane8:
+            return hiddenFocusDrawerPaneDefinition(index: 8)
+        case .focusDrawerPane9:
+            return hiddenFocusDrawerPaneDefinition(index: 9)
         case .detachDrawerPane:
             return CommandSpec(
                 command: self,
@@ -677,8 +734,7 @@ extension AppCommand {
                 icon: .system(.magnifyingglass),
                 helpText: "Open quick find",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarCommands:
             return CommandSpec(
@@ -688,8 +744,7 @@ extension AppCommand {
                 icon: .system(.command),
                 helpText: "Open the command palette",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarPanes:
             return CommandSpec(
@@ -699,8 +754,7 @@ extension AppCommand {
                 icon: .system(.terminal),
                 helpText: "Open the pane picker",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarRepos:
             return CommandSpec(
@@ -710,8 +764,7 @@ extension AppCommand {
                 icon: .system(.folder),
                 helpText: "Open the repo and worktree picker",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .openWebview:
             return CommandSpec(
@@ -770,6 +823,34 @@ extension AppCommand {
             helpText: "Select tab \(index)",
             visibleWhen: [.hasActiveTab],
             commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
+            isHiddenInCommandBar: true
+        )
+    }
+
+    private func hiddenFocusPaneDefinition(index: Int) -> CommandSpec {
+        CommandSpec(
+            command: self,
+            shortcut: focusPaneShortcut(index: index),
+            label: "Focus Pane \(index)",
+            icon: .system(.rectangleSplit2x1),
+            helpText: "Focus pane \(index)",
+            visibleWhen: [.hasActiveTab],
+            commandBarGroupName: "Focus",
+            commandBarGroupPriority: CommandBarGroupPriority.focus,
+            isHiddenInCommandBar: true
+        )
+    }
+
+    private func hiddenFocusDrawerPaneDefinition(index: Int) -> CommandSpec {
+        CommandSpec(
+            command: self,
+            shortcut: focusDrawerPaneShortcut(index: index),
+            label: "Focus Drawer Pane \(index)",
+            icon: .system(.rectangleBottomhalfInsetFilled),
+            helpText: "Focus drawer pane \(index)",
+            visibleWhen: [.hasActivePane],
+            commandBarGroupName: "Focus",
+            commandBarGroupPriority: CommandBarGroupPriority.focus,
             isHiddenInCommandBar: true
         )
     }
@@ -838,6 +919,38 @@ extension AppCommand {
         case 9: return .selectTab9
         default:
             preconditionFailure("Unsupported tab shortcut index \(index)")
+        }
+    }
+
+    private func focusPaneShortcut(index: Int) -> AppShortcut {
+        switch index {
+        case 1: return .focusPane1
+        case 2: return .focusPane2
+        case 3: return .focusPane3
+        case 4: return .focusPane4
+        case 5: return .focusPane5
+        case 6: return .focusPane6
+        case 7: return .focusPane7
+        case 8: return .focusPane8
+        case 9: return .focusPane9
+        default:
+            preconditionFailure("Unsupported pane focus shortcut index \(index)")
+        }
+    }
+
+    private func focusDrawerPaneShortcut(index: Int) -> AppShortcut {
+        switch index {
+        case 1: return .focusDrawerPane1
+        case 2: return .focusDrawerPane2
+        case 3: return .focusDrawerPane3
+        case 4: return .focusDrawerPane4
+        case 5: return .focusDrawerPane5
+        case 6: return .focusDrawerPane6
+        case 7: return .focusDrawerPane7
+        case 8: return .focusDrawerPane8
+        case 9: return .focusDrawerPane9
+        default:
+            preconditionFailure("Unsupported drawer pane focus shortcut index \(index)")
         }
     }
 }
