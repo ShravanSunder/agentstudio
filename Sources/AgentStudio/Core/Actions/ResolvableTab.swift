@@ -22,11 +22,6 @@ protocol ResolvableTab: Identifiable where ID == UUID {
     func previousPaneId(before paneId: UUID) -> UUID?
 }
 
-extension ResolvableTab {
-    var validationActiveArrangementId: UUID? { nil }
-    var arrangementSnapshots: [ArrangementSnapshot] { [] }
-}
-
 // MARK: - Tab Conformance
 
 extension Tab: ResolvableTab {

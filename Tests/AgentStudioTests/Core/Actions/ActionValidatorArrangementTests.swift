@@ -3,7 +3,7 @@ import Testing
 
 @testable import AgentStudio
 
-@Suite(.serialized)
+@Suite
 final class WorkspaceCommandValidatorArrangementTests {
 
     private struct ArrangementFixture {
@@ -81,6 +81,45 @@ final class WorkspaceCommandValidatorArrangementTests {
     }
 
     @Test
+    func test_arrangementCommands_missingTab_fail() {
+        let tabId = UUID()
+        let arrangementId = UUID()
+        let snapshot = makeSnapshot(tabs: [])
+        let cases: [(action: PaneActionCommand, expected: ActionValidationError)] = [
+            (
+                .createArrangement(tabId: tabId, name: "Focus"),
+                .tabNotFound(tabId: tabId)
+            ),
+            (
+                .removeArrangement(tabId: tabId, arrangementId: arrangementId),
+                .tabNotFound(tabId: tabId)
+            ),
+            (
+                .switchArrangement(tabId: tabId, arrangementId: arrangementId),
+                .tabNotFound(tabId: tabId)
+            ),
+            (
+                .renameArrangement(tabId: tabId, arrangementId: arrangementId, name: "Focus"),
+                .tabNotFound(tabId: tabId)
+            ),
+            (
+                .setShowsMinimizedPanes(tabId: tabId, value: false),
+                .tabNotFound(tabId: tabId)
+            ),
+        ]
+
+        for testCase in cases {
+            let result = WorkspaceCommandValidator.validate(testCase.action, state: snapshot)
+
+            if case .failure(let error) = result {
+                #expect(error == testCase.expected)
+            } else {
+                Issue.record("Expected tabNotFound for \(testCase.action)")
+            }
+        }
+    }
+
+    @Test
     func test_createArrangement_emptyName_fails() {
         let (tab, tabId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
@@ -92,6 +131,23 @@ final class WorkspaceCommandValidatorArrangementTests {
 
         if case .failure(.emptyName) = result { return }
         Issue.record("Expected emptyName error")
+    }
+
+    @Test
+    func test_createArrangement_validName_succeeds() {
+        let fixture = makeArrangementFixture()
+        let snapshot = makeSnapshot(tabs: [fixture.tab])
+
+        let result = WorkspaceCommandValidator.validate(
+            .createArrangement(tabId: fixture.tabId, name: "Focus"),
+            state: snapshot
+        )
+
+        guard case .success(let validated) = result else {
+            Issue.record("Expected success")
+            return
+        }
+        #expect(validated.action == .createArrangement(tabId: fixture.tabId, name: "Focus"))
     }
 
     @Test
@@ -109,6 +165,28 @@ final class WorkspaceCommandValidatorArrangementTests {
             return
         }
         #expect(validated.action == .createArrangement(tabId: tabId, name: "Focus Mode"))
+    }
+
+    @Test
+    func test_createArrangement_emptyArrangementSnapshots_allowFixtureValidation() {
+        let tabId = UUID()
+        let paneId = UUIDv7.generate()
+        let tab = TabSnapshot(
+            id: tabId,
+            visiblePaneIds: [paneId],
+            ownedPaneIds: [paneId],
+            activePaneId: paneId,
+            activeArrangementId: UUID(),
+            arrangements: []
+        )
+        let snapshot = makeSnapshot(tabs: [tab])
+
+        let result = WorkspaceCommandValidator.validate(
+            .createArrangement(tabId: tabId, name: "Fixture"),
+            state: snapshot
+        )
+
+        #expect((try? result.get()) != nil)
     }
 
     @Test
@@ -335,6 +413,19 @@ final class WorkspaceCommandValidatorArrangementTests {
             return
         }
         Issue.record("Expected arrangementNotFound error")
+    }
+
+    @Test
+    func test_setShowsMinimizedPanes_validTab_succeeds() {
+        let fixture = makeArrangementFixture()
+        let snapshot = makeSnapshot(tabs: [fixture.tab])
+
+        let result = WorkspaceCommandValidator.validate(
+            .setShowsMinimizedPanes(tabId: fixture.tabId, value: false),
+            state: snapshot
+        )
+
+        #expect((try? result.get()) != nil)
     }
 
     @Test

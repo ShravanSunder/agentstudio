@@ -280,6 +280,9 @@ enum WorkspaceCommandValidator {
             guard let tab = state.tab(tabId) else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
+            // Switching arrangements is also the repair path for a stale active arrangement.
+            // Validate only the requested target here; the other arrangement commands fail
+            // closed when the active arrangement is stale.
             guard tab.arrangement(arrangementId) != nil else {
                 return .failure(.arrangementNotFound(tabId: tabId, arrangementId: arrangementId))
             }
@@ -423,6 +426,9 @@ enum WorkspaceCommandValidator {
         return nil
     }
 
+    /// Fail closed when a tab snapshot reports a stale active arrangement.
+    /// Empty arrangement snapshots mean the caller has no arrangement context
+    /// available, which is allowed for legacy/pure validation fixtures.
     private static func validateActiveArrangementState(tabId: UUID, tab: TabSnapshot) -> ActionValidationError? {
         guard let activeArrangementId = tab.activeArrangementId,
             !tab.arrangements.isEmpty,
