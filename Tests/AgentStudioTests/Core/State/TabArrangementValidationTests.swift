@@ -122,4 +122,31 @@ struct TabArrangementValidationTests {
         #expect(Set(validated[0].allPaneIds) == Set([parentPane, drawerPane]))
         #expect(validated[0].arrangements[0].drawerViews[drawerId]?.layout.paneIds == [drawerPane])
     }
+
+    @Test
+    func validate_preservesCanonicalAllPaneIdsWhenArrangementLayoutIsCorrupt() {
+        let canonicalPane = UUID()
+        let corruptPane = UUID()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: corruptPane),
+            activePaneId: MainPaneId(corruptPane)
+        )
+        let state = TabArrangementState(
+            tabId: UUID(),
+            allPaneIds: [canonicalPane],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            zoomedPaneId: nil
+        )
+
+        let validated = TabArrangementValidation.validating([state])
+
+        let repairedLayout = validated[0].arrangements[0].layout
+        #expect(validated[0].allPaneIds == [canonicalPane])
+        #expect(repairedLayout.paneIds == [canonicalPane])
+        #expect(!repairedLayout.contains(corruptPane))
+        #expect(validated[0].arrangements[0].activePaneId == MainPaneId(canonicalPane))
+    }
 }

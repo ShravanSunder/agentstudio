@@ -56,13 +56,8 @@ enum TabArrangementValidation {
                 }
             }
 
-            let allArrangementPaneIds = Set(
-                updatedStates[tabIndex].arrangements.flatMap { arrangement in
-                    arrangement.layout.paneIds + arrangement.drawerViews.flatMap { $0.value.layout.paneIds }
-                })
-            updatedStates[tabIndex].allPaneIds = Array(allArrangementPaneIds)
-
-            let duplicatePaneIds = allArrangementPaneIds.intersection(seenPaneIds)
+            let canonicalPaneIds = Set(updatedStates[tabIndex].allPaneIds)
+            let duplicatePaneIds = canonicalPaneIds.intersection(seenPaneIds)
             if !duplicatePaneIds.isEmpty {
                 logger.warning(
                     "validating: removing \(duplicatePaneIds.count) duplicate pane(s) from tab \(updatedStates[tabIndex].tabId)"
@@ -76,12 +71,24 @@ enum TabArrangementValidation {
 
             let validPaneIds = Set(updatedStates[tabIndex].allPaneIds)
             for arrangementIndex in updatedStates[tabIndex].arrangements.indices {
-                let arrangementPaneIds = Set(updatedStates[tabIndex].arrangements[arrangementIndex].layout.paneIds)
                 updatedStates[tabIndex].arrangements[arrangementIndex].drawerViews =
                     TabArrangementRepairRules.pruningInvalidDrawerViewPaneIds(
                         validPaneIds: validPaneIds,
                         from: updatedStates[tabIndex].arrangements[arrangementIndex].drawerViews
                     )
+                let drawerPaneIds = Set(
+                    updatedStates[tabIndex].arrangements[arrangementIndex].drawerViews.flatMap {
+                        $0.value.layout.paneIds
+                    }
+                )
+                let canonicalMainPaneIds = updatedStates[tabIndex].allPaneIds.filter {
+                    !drawerPaneIds.contains($0)
+                }
+                updatedStates[tabIndex].arrangements[arrangementIndex].layout = reconcilingMainLayout(
+                    updatedStates[tabIndex].arrangements[arrangementIndex].layout,
+                    canonicalMainPaneIds: canonicalMainPaneIds
+                )
+                let arrangementPaneIds = Set(updatedStates[tabIndex].arrangements[arrangementIndex].layout.paneIds)
                 updatedStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds =
                     updatedStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.filtering(
                         toRawPaneIds: validPaneIds.intersection(arrangementPaneIds)
@@ -117,6 +124,42 @@ enum TabArrangementValidation {
             return shouldDrop
         }
         return updatedStates
+    }
+
+    private static func reconcilingMainLayout(
+        _ layout: Layout,
+        canonicalMainPaneIds: [UUID]
+    ) -> Layout {
+        var updatedLayout = layout
+        let canonicalSet = Set(canonicalMainPaneIds)
+
+        for paneId in updatedLayout.paneIds where !canonicalSet.contains(paneId) {
+            updatedLayout =
+                updatedLayout.removing(
+                    paneId: paneId,
+                    sizingMode: .proportional
+                ) ?? Layout.autoTiled(updatedLayout.paneIds.filter { $0 != paneId })
+        }
+
+        for paneId in canonicalMainPaneIds where !updatedLayout.contains(paneId) {
+            updatedLayout = appendingPane(paneId, to: updatedLayout)
+        }
+
+        return updatedLayout
+    }
+
+    private static func appendingPane(_ paneId: UUID, to layout: Layout) -> Layout {
+        guard let targetPaneId = layout.paneIds.last else {
+            return Layout(paneId: paneId)
+        }
+
+        return layout.inserting(
+            paneId: paneId,
+            at: targetPaneId,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .proportional
+        ) ?? Layout.autoTiled(layout.paneIds + [paneId])
     }
 
     private static func defaultArrangement(for tabIndex: Int, arrangementStates: [TabArrangementState])
