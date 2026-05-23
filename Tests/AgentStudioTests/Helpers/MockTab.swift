@@ -9,6 +9,8 @@ struct MockTab: ResolvableTab {
     var activePaneId: UUID?
     var visiblePaneIds: [UUID]
     var ownedPaneIds: [UUID]
+    var validationActiveArrangementId: UUID?
+    var arrangementSnapshots: [ArrangementSnapshot]
     var isSplit: Bool { visiblePaneIds.count > 1 }
 
     var neighbors: [UUID: [SplitFocusDirection: UUID]] = [:]
@@ -20,14 +22,22 @@ struct MockTab: ResolvableTab {
         activePaneId: UUID?,
         allPaneIds: [UUID],
         ownedPaneIds: [UUID]? = nil,
+        validationActiveArrangementId: UUID? = nil,
+        arrangementSnapshots: [ArrangementSnapshot]? = nil,
         neighbors: [UUID: [SplitFocusDirection: UUID]] = [:],
         nextPanes: [UUID: UUID] = [:],
         previousPanes: [UUID: UUID] = [:]
     ) {
+        let defaultArrangementId = validationActiveArrangementId ?? arrangementSnapshots?.first?.id ?? UUID()
         self.id = id
         self.activePaneId = activePaneId
         self.visiblePaneIds = allPaneIds
         self.ownedPaneIds = ownedPaneIds ?? allPaneIds
+        self.validationActiveArrangementId = defaultArrangementId
+        self.arrangementSnapshots =
+            arrangementSnapshots ?? [
+                ArrangementSnapshot(id: defaultArrangementId, isDefault: true)
+            ]
         self.neighbors = neighbors
         self.nextPanes = nextPanes
         self.previousPanes = previousPanes

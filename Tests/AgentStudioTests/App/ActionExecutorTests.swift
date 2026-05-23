@@ -354,7 +354,7 @@ final class ActionExecutorTests {
     // MARK: - Execute: insertPane (existingPane)
 
     @Test
-    func test_execute_insertPane_existingPane_movesPane() {
+    func test_execute_movePaneAcrossTabs_movesPaneBetweenTabs() {
         // Arrange — p2 in tab2, move to tab1 next to p1
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
@@ -365,19 +365,76 @@ final class ActionExecutorTests {
 
         // Act
         executor.execute(
-            .insertPane(
-                source: .existingPane(paneId: p2.id, sourceTabId: tab2.id),
-                targetTabId: tab1.id,
-                targetPaneId: p1.id,
-                direction: .right,
-                sizingMode: .halveTarget
-            ))
+            .movePaneAcrossTabs(
+                CrossTabPaneMoveRequest(
+                    paneId: p2.id,
+                    sourceTabId: tab2.id,
+                    destTabId: tab1.id,
+                    targetPaneId: p1.id,
+                    direction: .horizontal,
+                    position: .after
+                )
+            )
+        )
 
         // Assert — tab2 was removed (last pane extracted), tab1 now has split
         #expect(store.tabs.count == 1)
         #expect(store.tabs[0].isSplit)
         #expect(store.tabs[0].paneIds.contains(p1.id))
         #expect(store.tabs[0].paneIds.contains(p2.id))
+    }
+
+    @Test
+    func test_execute_insertPane_existingPane_sameTabMovesPane() {
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: p1.id)
+        store.appendTab(tab)
+        store.insertPane(
+            p2.id,
+            inTab: tab.id,
+            at: p1.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+
+        executor.execute(
+            .insertPane(
+                source: .existingPane(paneId: p2.id, sourceTabId: tab.id),
+                targetTabId: tab.id,
+                targetPaneId: p1.id,
+                direction: .left,
+                sizingMode: .halveTarget
+            )
+        )
+
+        #expect(store.tabs.count == 1)
+        #expect(store.tab(tab.id)?.paneIds == [p2.id, p1.id])
+    }
+
+    @Test
+    func test_execute_insertPane_existingPane_crossTabRequest_isRejected() {
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab1 = Tab(paneId: p1.id)
+        let tab2 = Tab(paneId: p2.id)
+        store.appendTab(tab1)
+        store.appendTab(tab2)
+
+        executor.execute(
+            .insertPane(
+                source: .existingPane(paneId: p2.id, sourceTabId: tab2.id),
+                targetTabId: tab1.id,
+                targetPaneId: p1.id,
+                direction: .right,
+                sizingMode: .halveTarget
+            )
+        )
+
+        #expect(store.tabs.count == 2)
+        #expect(store.tab(tab1.id)?.paneIds == [p1.id])
+        #expect(store.tab(tab2.id)?.paneIds == [p2.id])
     }
 
     // MARK: - Execute: mergeTab
@@ -565,7 +622,7 @@ final class ActionExecutorTests {
         store.insertPane(
             pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
-        // Create custom arrangement with only panes A and B
+        // Create custom arrangement as another complete view over A, B, C.
         let arrId = store.createArrangement(
             name: "Focus",
             inTab: tab.id
@@ -574,13 +631,11 @@ final class ActionExecutorTests {
         // Act: switch to custom arrangement via executor
         executor.execute(.switchArrangement(tabId: tab.id, arrangementId: arrId))
 
-        // Assert: tab.paneIds returns only A and B (from active arrangement)
+        // Assert: arrangements are complete views; switching changes arrangement identity, not membership.
         let updatedTab = store.tab(tab.id)!
         #expect(updatedTab.activeArrangementId == arrId)
-        #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id]))
-        // Pane C is still owned by the tab but not visible in active arrangement
+        #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id, pC.id]))
         #expect(updatedTab.panes.contains(pC.id))
-        #expect(!(updatedTab.paneIds.contains(pC.id)))
     }
 
     @Test
@@ -602,9 +657,9 @@ final class ActionExecutorTests {
             inTab: tab.id
         )!
 
-        // Switch to custom (only A)
+        // Switch to custom; it remains a complete view over all panes.
         executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
-        #expect(store.tab(tab.id)!.paneIds == [pA.id])
+        #expect(Set(store.tab(tab.id)!.paneIds) == Set([pA.id, pB.id, pC.id]))
 
         // Act: switch back to default
         let defaultArrId = store.tab(tab.id)!.defaultArrangement.id
@@ -666,13 +721,13 @@ final class ActionExecutorTests {
         viewRegistry.register(viewB, for: pB.id)
         viewRegistry.register(viewC, for: pC.id)
 
-        // Create custom arrangement with only panes A and B
+        // Create custom arrangement as another complete view over all panes.
         let customArrId = store.createArrangement(
             name: "Focus",
             inTab: tab.id
         )!
 
-        // Act: switch to custom arrangement (hides pane C)
+        // Act: switch to custom arrangement
         executor.execute(.switchArrangement(tabId: tab.id, arrangementId: customArrId))
 
         // Assert: all 3 views are still in the ViewRegistry
@@ -681,10 +736,9 @@ final class ActionExecutorTests {
         #expect(viewRegistry.view(for: pC.id) != nil)  // View C should still be registered even though hidden
         #expect(viewRegistry.registeredPaneIds == Set([pA.id, pB.id, pC.id]))
 
-        // Verify the store correctly reflects only A and B as visible
+        // Verify the store keeps all panes in the active arrangement.
         let updatedTab = store.tab(tab.id)!
-        #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id]))
-        // But pane C is still owned by the tab
+        #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id, pC.id]))
         #expect(updatedTab.panes.contains(pC.id))
     }
 

@@ -217,7 +217,9 @@ enum WorkspaceCommandResolver {
                     id: tab.id,
                     visiblePaneIds: visiblePaneIds(tab),
                     ownedPaneIds: tab.ownedPaneIds,
-                    activePaneId: tab.activePaneId
+                    activePaneId: tab.activePaneId,
+                    activeArrangementId: tab.validationActiveArrangementId,
+                    arrangements: tab.arrangementSnapshots
                 )
             },
             activeTabId: activeTabId,
