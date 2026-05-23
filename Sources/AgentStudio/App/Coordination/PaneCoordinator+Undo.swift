@@ -181,6 +181,8 @@ extension PaneCoordinator {
         Self.logger.warning(
             "recoverActiveArrangementIfNeeded: switched tab \(tabId) to non-empty arrangement \(fallbackArrangement.id)"
         )
+        // Recovery deliberately bypasses command validation: the active arrangement
+        // is already known to be unusable, so switching is the repair operation.
         store.tabLayoutAtom.switchArrangement(to: fallbackArrangement.id, inTab: tabId)
     }
 

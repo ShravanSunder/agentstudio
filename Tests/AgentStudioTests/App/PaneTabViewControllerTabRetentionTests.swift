@@ -234,6 +234,91 @@ struct PaneTabViewControllerTabRetentionTests {
     }
 
     @Test
+    func selectingTabViaCommand_restoresExpandedDrawerPaneFocus() async throws {
+        let harness = makeHarness()
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Parent"),
+            provider: .zmx
+        )
+        let otherPane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Other"),
+            provider: .zmx
+        )
+        let parentTab = Tab(paneId: parentPane.id, name: "Parent")
+        let otherTab = Tab(paneId: otherPane.id, name: "Other")
+        harness.store.appendTab(parentTab)
+        harness.store.appendTab(otherTab)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        try registerAttachedPaneHost(parentPane.id, in: harness)
+        try registerAttachedPaneHost(drawerPane.id, in: harness)
+        try registerAttachedPaneHost(otherPane.id, in: harness)
+        harness.store.setActiveTab(parentTab.id)
+        harness.store.setActivePane(parentPane.id, inTab: parentTab.id)
+        atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        harness.controller.selectTab(at: 1)
+        harness.controller.view.layoutSubtreeIfNeeded()
+        harness.controller.selectTab(at: 0)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let drawerHost = try #require(harness.viewRegistry.view(for: drawerPane.id))
+        await eventually("tab round trip should restore drawer pane responder") {
+            harness.window.firstResponder === drawerHost
+        }
+        #expect(harness.store.activeTabId == parentTab.id)
+        #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
+        #expect(harness.window.firstResponder === drawerHost)
+    }
+
+    @Test
+    func selectingTabViaCommand_restoresExpandedEmptyDrawerFocus() async throws {
+        let harness = makeHarness()
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Parent"),
+            provider: .zmx
+        )
+        let otherPane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Other"),
+            provider: .zmx
+        )
+        let parentTab = Tab(paneId: parentPane.id, name: "Parent")
+        let otherTab = Tab(paneId: otherPane.id, name: "Other")
+        harness.store.appendTab(parentTab)
+        harness.store.appendTab(otherTab)
+        try registerAttachedPaneHost(parentPane.id, in: harness)
+        try registerAttachedPaneHost(otherPane.id, in: harness)
+        harness.store.setActiveTab(parentTab.id)
+        harness.store.setActivePane(parentPane.id, inTab: parentTab.id)
+        harness.store.toggleDrawer(for: parentPane.id)
+        atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPane.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        harness.controller.selectTab(at: 1)
+        harness.controller.view.layoutSubtreeIfNeeded()
+        harness.controller.selectTab(at: 0)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let contentView = try #require(harness.window.contentView)
+        await eventually("tab round trip should restore empty drawer responder") {
+            harness.window.firstResponder === contentView
+        }
+        #expect(harness.store.activeTabId == parentTab.id)
+        #expect(atom(\.workspaceFocusOwner).owner == .emptyDrawer(parentPaneId: parentPane.id))
+        #expect(harness.window.firstResponder === contentView)
+    }
+
+    @Test
     func activeTabChanges_doNotDismantleStillExistingTabHosts() throws {
         let harness = makeHarness()
         defer {

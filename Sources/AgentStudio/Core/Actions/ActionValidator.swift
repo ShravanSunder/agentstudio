@@ -32,6 +32,9 @@ enum ActionValidationError: Error, Equatable {
     case crossTabTargetNotFound(paneId: UUID, tabId: UUID)
     case tabReorderIndexOutOfRange(index: Int)
     case crossTabInsertPaneRequest(paneId: UUID, sourceTabId: UUID, targetTabId: UUID)
+    case arrangementNotFound(tabId: UUID, arrangementId: UUID)
+    case defaultArrangementCannotBeRemoved(tabId: UUID, arrangementId: UUID)
+    case defaultArrangementCannotBeRenamed(tabId: UUID, arrangementId: UUID)
 }
 
 enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConvertible {
@@ -245,14 +248,72 @@ enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
-        // Arrangement actions — validate tab exists
-        case .createArrangement(let tabId, _),
-            .removeArrangement(let tabId, _),
-            .switchArrangement(let tabId, _),
-            .renameArrangement(let tabId, _, _),
-            .setShowsMinimizedPanes(let tabId, _):
-            guard state.tab(tabId) != nil else {
+        case .createArrangement(let tabId, let name):
+            guard let tab = state.tab(tabId) else {
                 return .failure(.tabNotFound(tabId: tabId))
+            }
+            if let staleActiveError = validateActiveArrangementState(tabId: tabId, tab: tab) {
+                return .failure(staleActiveError)
+            }
+            let normalizedName = Tab.normalizedName(name)
+            guard !normalizedName.isEmpty else {
+                return .failure(.emptyName)
+            }
+            return .success(ValidatedAction(.createArrangement(tabId: tabId, name: normalizedName)))
+
+        case .removeArrangement(let tabId, let arrangementId):
+            guard let tab = state.tab(tabId) else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            if let staleActiveError = validateActiveArrangementState(tabId: tabId, tab: tab) {
+                return .failure(staleActiveError)
+            }
+            guard let arrangement = tab.arrangement(arrangementId) else {
+                return .failure(.arrangementNotFound(tabId: tabId, arrangementId: arrangementId))
+            }
+            guard !arrangement.isDefault else {
+                return .failure(.defaultArrangementCannotBeRemoved(tabId: tabId, arrangementId: arrangementId))
+            }
+            return .success(ValidatedAction(action))
+
+        case .switchArrangement(let tabId, let arrangementId):
+            guard let tab = state.tab(tabId) else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            // Switching arrangements is also the repair path for a stale active arrangement.
+            // Validate only the requested target here; the other arrangement commands fail
+            // closed when the active arrangement is stale.
+            guard tab.arrangement(arrangementId) != nil else {
+                return .failure(.arrangementNotFound(tabId: tabId, arrangementId: arrangementId))
+            }
+            return .success(ValidatedAction(action))
+
+        case .renameArrangement(let tabId, let arrangementId, let name):
+            guard let tab = state.tab(tabId) else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            if let staleActiveError = validateActiveArrangementState(tabId: tabId, tab: tab) {
+                return .failure(staleActiveError)
+            }
+            let normalizedName = Tab.normalizedName(name)
+            guard !normalizedName.isEmpty else {
+                return .failure(.emptyName)
+            }
+            guard let arrangement = tab.arrangement(arrangementId) else {
+                return .failure(.arrangementNotFound(tabId: tabId, arrangementId: arrangementId))
+            }
+            guard !arrangement.isDefault else {
+                return .failure(.defaultArrangementCannotBeRenamed(tabId: tabId, arrangementId: arrangementId))
+            }
+            return .success(
+                ValidatedAction(.renameArrangement(tabId: tabId, arrangementId: arrangementId, name: normalizedName)))
+
+        case .setShowsMinimizedPanes(let tabId, _):
+            guard let tab = state.tab(tabId) else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            if let staleActiveError = validateActiveArrangementState(tabId: tabId, tab: tab) {
+                return .failure(staleActiveError)
             }
             return .success(ValidatedAction(action))
 
@@ -363,6 +424,20 @@ enum WorkspaceCommandValidator {
             return .paneNotFound(paneId: paneId, tabId: tabId)
         }
         return nil
+    }
+
+    /// Fail closed when a tab snapshot reports a stale active arrangement.
+    /// Empty arrangement snapshots mean the caller has no arrangement context
+    /// available, which is allowed for legacy/pure validation fixtures.
+    private static func validateActiveArrangementState(tabId: UUID, tab: TabSnapshot) -> ActionValidationError? {
+        guard let activeArrangementId = tab.activeArrangementId,
+            !tab.arrangements.isEmpty,
+            tab.arrangement(activeArrangementId) == nil
+        else {
+            return nil
+        }
+
+        return .arrangementNotFound(tabId: tabId, arrangementId: activeArrangementId)
     }
 
     /// Validate that a pane is not already present in any layout.

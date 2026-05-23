@@ -1,5 +1,12 @@
 import Foundation
 
+/// Snapshot of a single arrangement's command-validation identity.
+/// Carries only what the validator needs: existence and default ownership.
+struct ArrangementSnapshot: Equatable {
+    let id: UUID
+    let isDefault: Bool
+}
+
 /// Snapshot of a single tab's structural state.
 /// Contains ONLY IDs and counts — no NSView references.
 struct TabSnapshot: Equatable {
@@ -7,6 +14,24 @@ struct TabSnapshot: Equatable {
     let visiblePaneIds: [UUID]
     let ownedPaneIds: [UUID]
     let activePaneId: UUID?
+    let activeArrangementId: UUID?
+    let arrangements: [ArrangementSnapshot]
+
+    init(
+        id: UUID,
+        visiblePaneIds: [UUID],
+        ownedPaneIds: [UUID],
+        activePaneId: UUID?,
+        activeArrangementId: UUID? = nil,
+        arrangements: [ArrangementSnapshot] = []
+    ) {
+        self.id = id
+        self.visiblePaneIds = visiblePaneIds
+        self.ownedPaneIds = ownedPaneIds
+        self.activePaneId = activePaneId
+        self.activeArrangementId = activeArrangementId
+        self.arrangements = arrangements
+    }
 
     var isSplit: Bool { visiblePaneIds.count > 1 }
     var visiblePaneCount: Int { visiblePaneIds.count }
@@ -18,6 +43,10 @@ struct TabSnapshot: Equatable {
 
     func showsPane(_ paneId: UUID) -> Bool {
         visiblePaneIds.contains(paneId)
+    }
+
+    func arrangement(_ arrangementId: UUID) -> ArrangementSnapshot? {
+        arrangements.first { $0.id == arrangementId }
     }
 }
 

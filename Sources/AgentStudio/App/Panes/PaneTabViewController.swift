@@ -511,17 +511,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func preferredVisibleFocusPaneId() -> UUID? {
-        let navigationScope = normalizedWorkspaceNavigationFocusScope()
-
-        if case .drawer(let parentPaneId) = navigationScope,
-            let drawerPaneId = visibleActiveDrawerPaneId(for: parentPaneId)
-        {
+        switch normalizedWorkspaceNavigationScopeState() {
+        case .drawerPane(_, let drawerPaneId):
             return drawerPaneId
+        case .emptyDrawer:
+            return nil
+        case .mainPane(let paneId):
+            return paneId
         }
-
-        return store.tabLayoutAtom.activeTabId
-            .flatMap { store.tabLayoutAtom.tab($0) }?
-            .activePaneId
     }
 
     private func scheduleSelectionDrivenRefocus() {
@@ -544,10 +541,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             selectTab: { [weak self] tabId in
                 guard let self else { return }
                 self.selectTabAndRestoreVisibleViews(tabId)
-                atom(\.workspaceFocusOwner).focusMainPane(
-                    self.store.tabLayoutAtom.tab(tabId)?.activePaneId
-                )
-                self.managementNavigationScope = .mainRow
+                self.restoreFocusOwnerForSelectedTab()
             },
             selectPane: { [weak self] tabId, paneId in
                 guard let self else { return }
@@ -597,6 +591,42 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func selectTabAndRestoreVisibleViews(_ tabId: UUID) {
         store.tabLayoutAtom.setActiveTab(tabId)
         executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
+    }
+
+    private func restoreFocusOwnerForSelectedTab() {
+        guard let parentPaneId = activeMainPaneId() else {
+            applyWorkspaceFocusOwner(.mainPane(paneId: nil))
+            return
+        }
+
+        let requestedFocusOwner: WorkspaceFocusOwner =
+            if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true {
+                .emptyDrawer(parentPaneId: parentPaneId)
+            } else {
+                .mainPane(paneId: parentPaneId)
+            }
+
+        applyWorkspaceFocusOwner(
+            WorkspaceFocusOwnerNormalizer.normalize(
+                requested: requestedFocusOwner,
+                context: currentWorkspaceFocusOwnerContext()
+            )
+        )
+    }
+
+    private func applyWorkspaceFocusOwner(_ owner: WorkspaceFocusOwner) {
+        switch owner {
+        case .mainPane(let paneId):
+            atom(\.workspaceFocusOwner).focusMainPane(paneId)
+            managementNavigationScope = .mainRow
+        case .drawerPane(let parentPaneId, let drawerPaneId):
+            atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPaneId, paneId: drawerPaneId)
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+        case .emptyDrawer(let parentPaneId):
+            atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            _ = clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
+        }
     }
 
     private func recordSelectionDrivenRefocusSuppression(tabId: UUID?, paneId: UUID?) {
