@@ -330,6 +330,22 @@ extension PaneCoordinator {
                     target: .pane(PaneId(uuid: paneId))
                 )
             }
+        case .scrollPageUp(_, let paneId):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                _ = await self.dispatchRuntimeCommand(
+                    .terminal(.scrollPageUp),
+                    target: .pane(PaneId(uuid: paneId))
+                )
+            }
+        case .jumpToPrompt(_, let paneId, let delta):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                _ = await self.dispatchRuntimeCommand(
+                    .terminal(.jumpToPrompt(delta: delta)),
+                    target: .pane(PaneId(uuid: paneId))
+                )
+            }
 
         case .insertPaneRequest(let request):
             executeInsertPane(

@@ -187,7 +187,7 @@ final class AppCommandTests {
         #expect(!(def.requiresManagementLayer))
         #expect(def.visibleWhen.isEmpty)
         #expect(def.commandBarGroupName == "Commands")
-        #expect(def.commandBarGroupPriority == 7)
+        #expect(def.commandBarGroupPriority == 8)
         #expect(!def.isHiddenInCommandBar)
     }
 
@@ -309,15 +309,59 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_scrollToBottom_definition_usesPaneCommandGroupAndShortcut() {
-        let def = CommandDispatcher.shared.definition(for: .scrollToBottom)
+    func test_arrangementShortcutDefinitions_useTabGroupAndShortcuts() {
+        let show = CommandDispatcher.shared.definition(for: .switchArrangement)
+        let previous = CommandDispatcher.shared.definition(for: .previousArrangement)
+        let next = CommandDispatcher.shared.definition(for: .nextArrangement)
 
-        #expect(def.command == .scrollToBottom)
-        #expect(def.shortcut == .scrollToBottom)
-        #expect(def.label == "Scroll to Bottom")
-        #expect(def.commandBarGroupName == "Pane")
-        #expect(def.requiresManagementLayer == false)
-        #expect(def.visibleWhen == [.hasActivePane])
+        #expect(show.command == .switchArrangement)
+        #expect(show.shortcut == .showArrangementPanel)
+        #expect(show.label == "Show Arrangements")
+        #expect(show.commandBarGroupName == "Tab")
+
+        #expect(previous.command == .previousArrangement)
+        #expect(previous.shortcut == .previousArrangement)
+        #expect(previous.label == "Previous Arrangement")
+        #expect(previous.commandBarGroupName == "Tab")
+
+        #expect(next.command == .nextArrangement)
+        #expect(next.shortcut == .nextArrangement)
+        #expect(next.label == "Next Arrangement")
+        #expect(next.commandBarGroupName == "Tab")
+    }
+
+    @MainActor
+
+    @Test
+    func test_terminalScrollAndPromptDefinitions_useTerminalGroupAndShortcuts() {
+        let scroll = CommandDispatcher.shared.definition(for: .scrollToBottom)
+        let pageUp = CommandDispatcher.shared.definition(for: .scrollPageUp)
+        let previousPrompt = CommandDispatcher.shared.definition(for: .jumpToPreviousPrompt)
+        let nextPrompt = CommandDispatcher.shared.definition(for: .jumpToNextPrompt)
+
+        #expect(scroll.command == .scrollToBottom)
+        #expect(scroll.shortcut == .scrollToBottom)
+        #expect(scroll.label == "Scroll to Bottom")
+        #expect(scroll.commandBarGroupName == "Terminal")
+        #expect(scroll.visibleWhen == [.hasActivePane, .paneIsTerminal])
+
+        #expect(pageUp.command == .scrollPageUp)
+        #expect(pageUp.shortcut == .scrollPageUp)
+        #expect(pageUp.label == "Page Up")
+        #expect(pageUp.commandBarGroupName == "Terminal")
+        #expect(pageUp.visibleWhen == [.hasActivePane, .paneIsTerminal])
+
+        #expect(previousPrompt.command == .jumpToPreviousPrompt)
+        #expect(previousPrompt.shortcut == .jumpToPreviousPrompt)
+        #expect(previousPrompt.label == "Previous Prompt")
+        #expect(previousPrompt.commandBarGroupName == "Terminal")
+        #expect(previousPrompt.visibleWhen == [.hasActivePane, .paneIsTerminal])
+
+        #expect(nextPrompt.command == .jumpToNextPrompt)
+        #expect(nextPrompt.shortcut == .jumpToNextPrompt)
+        #expect(nextPrompt.label == "Next Prompt")
+        #expect(nextPrompt.commandBarGroupName == "Terminal")
+        #expect(nextPrompt.visibleWhen == [.hasActivePane, .paneIsTerminal])
     }
 
     @MainActor

@@ -173,6 +173,9 @@ struct CollapsedPaneBar: View {
         .buttonStyle(.plain)
         .onHover { isArrangementHovered = $0 }
         .help(LocalActionSpec.arrangements.actionSpec.helpText)
+        .onChange(of: atom(\.arrangementPanelPresentation).pendingRequest?.id) { _, _ in
+            openArrangementPopoverIfRequested()
+        }
         .popover(
             isPresented: Binding(
                 get: { isArrangementPanelPresented },
@@ -207,6 +210,18 @@ struct CollapsedPaneBar: View {
                 showsMinimizedBarToggle: false
             )
         }
+    }
+
+    private func openArrangementPopoverIfRequested() {
+        let presentationAtom = atom(\.arrangementPanelPresentation)
+        guard
+            let request = presentationAtom.pendingRequest,
+            request.tabId == tabId,
+            request.workspaceWindowId == nil || request.workspaceWindowId == workspaceWindowId
+        else { return }
+
+        isArrangementPanelPresented = true
+        presentationAtom.consume(request)
     }
 
     @ViewBuilder

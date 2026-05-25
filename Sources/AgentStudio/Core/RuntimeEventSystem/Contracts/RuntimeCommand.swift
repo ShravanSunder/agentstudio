@@ -46,6 +46,8 @@ enum TerminalCommand: Sendable {
     case resize(cols: Int, rows: Int)
     case clearScrollback
     case scrollToBottom
+    case scrollPageUp
+    case jumpToPrompt(delta: Int)
 }
 
 enum BrowserCommand: Sendable {

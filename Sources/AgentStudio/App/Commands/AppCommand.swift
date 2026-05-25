@@ -26,6 +26,9 @@ enum AppCommand: String, CaseIterable {
     case movePaneToTab
     case focusPane
     case scrollToBottom
+    case scrollPageUp
+    case jumpToPreviousPrompt
+    case jumpToNextPrompt
     case splitRight, splitLeft
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
@@ -37,6 +40,8 @@ enum AppCommand: String, CaseIterable {
     case expandPane
     // Arrangement commands
     case switchArrangement
+    case previousArrangement
+    case nextArrangement
     case cycleArrangement
     case saveArrangement
     case deleteArrangement

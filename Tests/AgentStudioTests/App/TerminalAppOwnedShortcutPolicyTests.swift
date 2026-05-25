@@ -60,6 +60,23 @@ struct TerminalAppOwnedShortcutPolicyTests {
         #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.newTab, context: context))
     }
 
+    @Test("prompt shortcuts are terminal owned only")
+    func promptShortcutsAreTerminalOwnedOnly() {
+        let context = KeyboardRoutingContext(
+            stableOwner: .mainWindowChain,
+            activeSurface: .stable(.mainWindowChain),
+            workspaceWindowId: UUID()
+        )
+
+        #expect(!AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(.jumpToPreviousPrompt, context: context))
+        #expect(!AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(.jumpToNextPrompt, context: context))
+        #expect(!AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(.scrollPageUp, context: context))
+        #expect(
+            AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.jumpToPreviousPrompt, context: context))
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.jumpToNextPrompt, context: context))
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.scrollPageUp, context: context))
+    }
+
     @Test("terminal app-owned shortcuts are blocked when sidebar owns keyboard")
     func terminalAppOwnedShortcutsAreBlockedWhenSidebarOwnsKeyboard() {
         let context = KeyboardRoutingContext(

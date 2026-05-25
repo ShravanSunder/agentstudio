@@ -32,7 +32,7 @@ struct CommandBarArrangementCommandVisibilityTests {
     }
 
     @Test
-    func commandsScope_showsCycleArrangementWhenTabHasSavedArrangement() {
+    func commandsScope_showsArrangementCommandsWhenTabHasSavedArrangement() {
         let store = WorkspaceStore()
         let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Primary"))
         var tab = Tab(paneId: pane.id)
@@ -54,6 +54,9 @@ struct CommandBarArrangementCommandVisibilityTests {
         )
         let ids = Set(items.map(\.id))
 
-        #expect(ids.contains("cmd-cycleArrangement"))
+        #expect(ids.contains("cmd-switchArrangement"))
+        #expect(ids.contains("cmd-previousArrangement"))
+        #expect(ids.contains("cmd-nextArrangement"))
+        #expect(!ids.contains("cmd-cycleArrangement"))
     }
 }

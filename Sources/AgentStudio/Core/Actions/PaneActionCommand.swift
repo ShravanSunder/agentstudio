@@ -69,6 +69,8 @@ enum PaneActionCommand: Equatable, Hashable {
     case closePane(tabId: UUID, paneId: UUID)
     case extractPaneToTab(tabId: UUID, paneId: UUID)
     case scrollToBottom(tabId: UUID, paneId: UUID)
+    case scrollPageUp(tabId: UUID, paneId: UUID)
+    case jumpToPrompt(tabId: UUID, paneId: UUID, delta: Int)
 
     // Split operations
     case insertPaneRequest(PaneInsertRequest)

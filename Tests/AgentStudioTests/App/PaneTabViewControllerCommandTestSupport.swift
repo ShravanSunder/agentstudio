@@ -23,11 +23,13 @@ struct PaneTabViewControllerCommandHarness {
     let controller: PaneTabViewController
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let viewRegistry: ViewRegistry
+    let runtimeRegistry: RuntimeRegistry
     let surfaceManager: MockPaneTabCommandSurfaceManager
     let windowLifecycleStore: WindowLifecycleAtom
     let tempDir: URL
     let tabRenamePopoverState: TabRenamePopoverState
     let arrangementInlineRenameState: ArrangementInlineRenameState
+    let arrangementPanelPresentation: ArrangementPanelPresentationAtom
     let paneInboxPresenter: PaneInboxNotificationPresenter
     let launchRecorder: PaneTabViewControllerCommandLaunchRecorder
 }
@@ -35,18 +37,21 @@ struct PaneTabViewControllerCommandHarness {
 @MainActor
 func makeHarness(
     createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized),
-    closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
+    closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
+    arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom()
 ) -> Harness {
     makePaneTabViewControllerCommandHarness(
         createSurfaceResult: createSurfaceResult,
-        closeTransitionCoordinator: closeTransitionCoordinator
+        closeTransitionCoordinator: closeTransitionCoordinator,
+        arrangementPanelPresentation: arrangementPanelPresentation
     )
 }
 
 @MainActor
 func makePaneTabViewControllerCommandHarness(
     createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized),
-    closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
+    closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
+    arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom()
 ) -> PaneTabViewControllerCommandHarness {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-pane-tab-command-\(UUID().uuidString)")
@@ -117,6 +122,7 @@ func makePaneTabViewControllerCommandHarness(
         closeTransitionCoordinator: closeTransitionCoordinator,
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,
+        arrangementPanelPresentation: arrangementPanelPresentation,
         registersAsCommandHandler: false
     )
     return PaneTabViewControllerCommandHarness(
@@ -126,11 +132,13 @@ func makePaneTabViewControllerCommandHarness(
         controller: controller,
         closeTransitionCoordinator: closeTransitionCoordinator,
         viewRegistry: viewRegistry,
+        runtimeRegistry: runtimeRegistry,
         surfaceManager: surfaceManager,
         windowLifecycleStore: windowLifecycleStore,
         tempDir: tempDir,
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,
+        arrangementPanelPresentation: arrangementPanelPresentation,
         paneInboxPresenter: paneInboxPresenter,
         launchRecorder: launchRecorder
     )

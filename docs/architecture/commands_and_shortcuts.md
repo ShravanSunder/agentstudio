@@ -92,6 +92,24 @@ keyboard shortcuts. If a command works from a button but not from
 `Cmd-P`, the execution owner is probably wrong or the command is using a
 side channel instead of the same binding/state model as the button.
 
+## Navigation And Terminal Shortcut Map
+
+| Command | Shortcut | Owner | Notes |
+| --- | --- | --- | --- |
+| `prevTab` | `⌘J` | `PaneTabViewController` | Selects previous tab in the active workspace window. |
+| `nextTab` | `⌘L` | `PaneTabViewController` | Selects next tab in the active workspace window. |
+| `focusPane1...9` | `⌘1...9` | `PaneTabViewController` | Focuses visible pane ordinal in the active arrangement. |
+| `switchArrangement` | `⌘⌥I` | `PaneTabViewController` + arrangement panel presentation atom | Shows the arrangement surface for the active tab. |
+| `previousArrangement` | `⌘⌥J` | `PaneTabViewController` | Selects previous arrangement in the current tab. |
+| `nextArrangement` | `⌘⌥L` | `PaneTabViewController` | Selects next arrangement in the current tab. |
+| `scrollToBottom` | `⌘⇧K` | Terminal runtime | Terminal-owned; dispatches `scroll_to_bottom`. |
+| `scrollPageUp` | `⌘⇧I` | Terminal runtime | Terminal-owned; dispatches `scroll_page_up`. |
+| `jumpToPreviousPrompt` | `⌘⇧J` | Terminal runtime | Terminal-owned; dispatches `jump_to_prompt:-1`. |
+| `jumpToNextPrompt` | `⌘⇧L` | Terminal runtime | Terminal-owned; dispatches `jump_to_prompt:1`. |
+| `showInboxNotifications` | `⌘U` | `AppDelegate` shell | Shows the inbox sidebar notification surface. |
+| `showPaneInboxNotifications` | `⌘⇧U` | `PaneTabViewController` | Shows notifications scoped to the active pane/drawer family. |
+| Ghostty clear scrollback | none | `GhosttySurfaceView` host override | `⌘K` is swallowed and never forwarded to Ghostty. |
+
 ## Multiple bindings per command — `alternateTriggers`
 
 A command can have one **primary** trigger plus any number of
@@ -141,9 +159,10 @@ find a match, so each new context is a small cost on every keystroke.
 
 Keyboard interpretation resolves in this precedence order:
 
-1. `ActiveKeyboardSurface.commandBar(scope:)`
-2. `ActiveKeyboardSurface.transient(kind:)`
-3. `ActiveKeyboardSurface.stable(owner:)`
+1. Command-bar activation reservation.
+2. `ActiveKeyboardSurface.commandBar(scope:)`
+3. `ActiveKeyboardSurface.transient(kind:)`
+4. `ActiveKeyboardSurface.stable(owner:)`
 
 Stable owners are long-lived focus regions:
 
@@ -166,6 +185,11 @@ shortcut layer but dispatches `AppCommand.showCommandBarRepos`. It belongs in
 both `.global` and `.terminalAppOwned` contexts so a focused terminal pane can
 decode it directly rather than relying on AppKit main-menu fallback.
 
+Command bar activation is not a transient-surface allowance. It is a
+higher-precedence reservation checked before active surface policy. The
+reserved activations are `⌘T`, `⌘P`, `⌘⇧P`, and `⌘⌥P`; they are still blocked
+when the stable owner is `.otherWindow`.
+
 Transient surfaces are temporary pane-local keyboard islands:
 
 - `.tabRename(tabId:)`
@@ -174,12 +198,33 @@ Transient surfaces are temporary pane-local keyboard islands:
 - `.paneInbox(parentPaneId:)`
 - `.editorChooser(paneId:)`
 
-Transient surfaces suppress app/global/management shortcuts while their local
-responder handles local keys such as Return, Escape, arrows, and number
-selection. SwiftUI/AppKit surfaces that know their owning workspace window pass
-that `workspaceWindowId` into registration; the key/focused-window fallback is
-only a last-resort resolution path. A transient surface keeps the same workspace
+Transient surfaces suppress app/global/management shortcuts by default while
+their local responder handles local keys such as Return, Escape, arrows, and
+number selection. A transient surface may explicitly allow a small set of
+app-owned shortcuts it owns. Those allow/block decisions live in
+`AppShortcutDispatchPolicy` as exhaustive switches; adding an `AppShortcut` or
+`TransientKeyboardSurfaceKind` must force a compile-time classification.
+
+Current surface-owned app shortcuts:
+
+- `.arrangementPanel(tabId:)` allows `.previousArrangement`, `.nextArrangement`,
+  `.prevTab`, and `.nextTab`. While it is open, `⌘1...9` is interpreted as
+  `selectTab1...9` so the user can jump tabs without closing the panel first.
+- `.tabRename(tabId:)`, `.arrangementRename(tabId:arrangementId:)`,
+  `.paneInbox(parentPaneId:)`, and `.editorChooser(paneId:)` own no app
+  shortcuts.
+
+SwiftUI/AppKit surfaces that know their owning workspace window pass that
+`workspaceWindowId` into registration; the key/focused-window fallback is only
+a last-resort resolution path. A transient surface keeps the same workspace
 owner across kind changes such as arrangement panel to arrangement rename.
+
+Arrangement panel presentation is tab-local. Command dispatch may create a
+request in `ArrangementPanelPresentationAtom`, but the tab bar or collapsed bar
+consumes that request only when its tab matches. Switching tabs while the tab
+bar arrangement panel is open closes that panel instead of retargeting it to
+the new active tab. Pane inbox popovers are pane-local panels; inbox sidebar
+remains the stable `.sidebar(.inbox)` surface.
 
 This suppression intentionally includes destructive global shortcuts such as
 `closeWindow`. When a transient popover or editor is open, local cancellation

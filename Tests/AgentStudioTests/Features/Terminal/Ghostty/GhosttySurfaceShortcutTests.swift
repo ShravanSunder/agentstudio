@@ -15,7 +15,7 @@ final class GhosttySurfaceShortcutTests {
         // Assert — command bar shortcuts, drawer-pane creation, and terminal navigation are registered
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.count >= 5,
-            "Expected app-owned shortcuts to include ⌘P, ⌘⇧P, ⌘⌥P, ⌘⇧D, and ⌘⌥K"
+            "Expected app-owned shortcuts to include ⌘P, ⌘⇧P, ⌘⌥P, ⌘⇧D, and terminal navigation"
         )
     }
 
@@ -65,11 +65,26 @@ final class GhosttySurfaceShortcutTests {
     }
 
     @Test
-    func test_appOwnedShortcuts_containsCmdOptionKScrollToBottom() {
+    func test_appOwnedShortcuts_containsCmdShiftKScrollToBottom() {
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollToBottom),
             "Expected scroll-to-bottom in appOwnedShortcuts"
         )
+    }
+
+    @Test
+    func terminalHostSuppressedTriggers_swallowCmdKClearScrollback() {
+        let trigger = ShortcutTrigger(key: .character(.k), modifiers: [.command])
+
+        #expect(Ghostty.SurfaceView.shouldSuppressTerminalHostTrigger(trigger))
+    }
+
+    @Test
+    func appOwnedTerminalShortcuts_includeScrollAndPromptNavigation() {
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollToBottom))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollPageUp))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.jumpToPreviousPrompt))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.jumpToNextPrompt))
     }
 
     @Test

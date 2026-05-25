@@ -205,7 +205,9 @@ enum WorkspaceCommandValidator {
             .resizePaneByDelta(let tabId, let paneId, _, _),
             .minimizePane(let tabId, let paneId),
             .expandPane(let tabId, let paneId),
-            .scrollToBottom(let tabId, let paneId):
+            .scrollToBottom(let tabId, let paneId),
+            .scrollPageUp(let tabId, let paneId),
+            .jumpToPrompt(let tabId, let paneId, _):
             if let error = validateTabContainsPane(tabId: tabId, paneId: paneId, state: state) {
                 return .failure(error)
             }

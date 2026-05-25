@@ -16,6 +16,7 @@ final class AtomRegistry {
     let inboxNotificationPrefs: InboxNotificationPrefsAtom
     let inboxSidebarState: InboxSidebarStateAtom
     let paneInboxPresentationState: PaneInboxPresentationAtom
+    let arrangementPanelPresentation: ArrangementPanelPresentationAtom
     let uiState: UIStateAtom
     let managementLayer: ManagementLayerAtom
     let commandBarSurface: CommandBarSurfaceAtom
@@ -40,6 +41,7 @@ final class AtomRegistry {
         inboxNotificationPrefs: InboxNotificationPrefsAtom = .init(),
         inboxSidebarState: InboxSidebarStateAtom = .init(),
         paneInboxPresentationState: PaneInboxPresentationAtom = .init(),
+        arrangementPanelPresentation: ArrangementPanelPresentationAtom = .init(),
         uiState: UIStateAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
         commandBarSurface: CommandBarSurfaceAtom = .init(),
@@ -74,6 +76,7 @@ final class AtomRegistry {
         self.inboxNotificationPrefs = inboxNotificationPrefs
         self.inboxSidebarState = inboxSidebarState
         self.paneInboxPresentationState = paneInboxPresentationState
+        self.arrangementPanelPresentation = arrangementPanelPresentation
         self.uiState = uiState
         self.managementLayer = managementLayer
         self.commandBarSurface = commandBarSurface

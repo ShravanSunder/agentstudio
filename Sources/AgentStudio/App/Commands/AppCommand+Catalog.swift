@@ -4,14 +4,15 @@ import Foundation
 
 extension AppCommand {
     private enum CommandBarGroupPriority {
-        static let pane = 0
-        static let focus = 1
-        static let tab = 2
-        static let repo = 3
-        static let window = 4
-        static let webview = 5
-        static let auth = 6
-        static let miscellaneous = 7
+        static let terminal = 0
+        static let pane = 1
+        static let focus = 2
+        static let tab = 3
+        static let repo = 4
+        static let window = 5
+        static let webview = 6
+        static let auth = 7
+        static let miscellaneous = 8
     }
 
     /// Ordered array of tab selection commands (⌘1 through ⌘9)
@@ -201,11 +202,47 @@ extension AppCommand {
                 shortcut: .scrollToBottom,
                 label: "Scroll to Bottom",
                 icon: .system(.arrowDownToLine),
-                helpText: "Scroll the active terminal pane to the bottom of its scrollback",
-                appliesTo: [.pane, .floatingTerminal],
-                visibleWhen: [.hasActivePane],
-                commandBarGroupName: "Pane",
-                commandBarGroupPriority: CommandBarGroupPriority.pane
+                helpText: "Scroll the active terminal pane to the bottom",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane, .paneIsTerminal],
+                commandBarGroupName: "Terminal",
+                commandBarGroupPriority: CommandBarGroupPriority.terminal
+            )
+        case .scrollPageUp:
+            return CommandSpec(
+                command: self,
+                shortcut: .scrollPageUp,
+                label: "Page Up",
+                icon: .system(.arrowUp),
+                helpText: "Scroll the active terminal pane up by one page",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane, .paneIsTerminal],
+                commandBarGroupName: "Terminal",
+                commandBarGroupPriority: CommandBarGroupPriority.terminal
+            )
+        case .jumpToPreviousPrompt:
+            return CommandSpec(
+                command: self,
+                shortcut: .jumpToPreviousPrompt,
+                label: "Previous Prompt",
+                icon: .system(.arrowUp),
+                helpText: "Jump to the previous shell prompt in terminal scrollback",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane, .paneIsTerminal],
+                commandBarGroupName: "Terminal",
+                commandBarGroupPriority: CommandBarGroupPriority.terminal
+            )
+        case .jumpToNextPrompt:
+            return CommandSpec(
+                command: self,
+                shortcut: .jumpToNextPrompt,
+                label: "Next Prompt",
+                icon: .system(.arrowDown),
+                helpText: "Jump to the next shell prompt in terminal scrollback",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane, .paneIsTerminal],
+                commandBarGroupName: "Terminal",
+                commandBarGroupPriority: CommandBarGroupPriority.terminal
             )
         case .splitRight:
             return CommandSpec(
@@ -329,20 +366,43 @@ extension AppCommand {
             )
         case .switchArrangement:
             return arrangementDefinition(
-                label: "Switch Arrangement",
+                shortcut: .showArrangementPanel,
+                label: "Show Arrangements",
                 icon: .system(.rectangle3Group),
-                helpText: "Switch the active tab to a saved arrangement"
+                helpText: "Show arrangements for the active tab"
+            )
+        case .previousArrangement:
+            return CommandSpec(
+                command: self,
+                shortcut: .previousArrangement,
+                label: "Previous Arrangement",
+                icon: .system(.chevronLeft),
+                helpText: "Switch the active tab to the previous arrangement",
+                visibleWhen: [.hasActiveTab, .hasArrangements],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: CommandBarGroupPriority.tab
+            )
+        case .nextArrangement:
+            return CommandSpec(
+                command: self,
+                shortcut: .nextArrangement,
+                label: "Next Arrangement",
+                icon: .system(.chevronRight),
+                helpText: "Switch the active tab to the next arrangement",
+                visibleWhen: [.hasActiveTab, .hasArrangements],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .cycleArrangement:
             return CommandSpec(
                 command: self,
-                shortcut: .cycleArrangement,
                 label: "Cycle Arrangement",
                 icon: .system(.rectangle3Group),
                 helpText: "Switch to the next arrangement in the active tab",
                 visibleWhen: [.hasActiveTab, .hasArrangements],
                 commandBarGroupName: "Tab",
-                commandBarGroupPriority: CommandBarGroupPriority.tab
+                commandBarGroupPriority: CommandBarGroupPriority.tab,
+                isHiddenInCommandBar: true
             )
         case .saveArrangement:
             return CommandSpec(
@@ -817,7 +877,6 @@ extension AppCommand {
     private func hiddenTabSelectionDefinition(index: Int) -> CommandSpec {
         CommandSpec(
             command: self,
-            shortcut: selectTabShortcut(index: index),
             label: "Select Tab \(index)",
             icon: .system(.rectangleStack),
             helpText: "Select tab \(index)",
@@ -844,7 +903,6 @@ extension AppCommand {
     private func hiddenFocusDrawerPaneDefinition(index: Int) -> CommandSpec {
         CommandSpec(
             command: self,
-            shortcut: focusDrawerPaneShortcut(index: index),
             label: "Focus Drawer Pane \(index)",
             icon: .system(.rectangleBottomhalfInsetFilled),
             helpText: "Focus drawer pane \(index)",
@@ -867,9 +925,15 @@ extension AppCommand {
         )
     }
 
-    private func arrangementDefinition(label: String, icon: CommandIcon, helpText: String) -> CommandSpec {
+    private func arrangementDefinition(
+        shortcut: AppShortcut? = nil,
+        label: String,
+        icon: CommandIcon,
+        helpText: String
+    ) -> CommandSpec {
         CommandSpec(
             command: self,
+            shortcut: shortcut,
             label: label,
             icon: icon,
             helpText: helpText,
@@ -906,22 +970,6 @@ extension AppCommand {
         )
     }
 
-    private func selectTabShortcut(index: Int) -> AppShortcut {
-        switch index {
-        case 1: return .selectTab1
-        case 2: return .selectTab2
-        case 3: return .selectTab3
-        case 4: return .selectTab4
-        case 5: return .selectTab5
-        case 6: return .selectTab6
-        case 7: return .selectTab7
-        case 8: return .selectTab8
-        case 9: return .selectTab9
-        default:
-            preconditionFailure("Unsupported tab shortcut index \(index)")
-        }
-    }
-
     private func focusPaneShortcut(index: Int) -> AppShortcut {
         switch index {
         case 1: return .focusPane1
@@ -938,19 +986,4 @@ extension AppCommand {
         }
     }
 
-    private func focusDrawerPaneShortcut(index: Int) -> AppShortcut {
-        switch index {
-        case 1: return .focusDrawerPane1
-        case 2: return .focusDrawerPane2
-        case 3: return .focusDrawerPane3
-        case 4: return .focusDrawerPane4
-        case 5: return .focusDrawerPane5
-        case 6: return .focusDrawerPane6
-        case 7: return .focusDrawerPane7
-        case 8: return .focusDrawerPane8
-        case 9: return .focusDrawerPane9
-        default:
-            preconditionFailure("Unsupported drawer pane focus shortcut index \(index)")
-        }
-    }
 }
