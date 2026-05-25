@@ -54,6 +54,7 @@ class MainSplitViewController: NSSplitViewController {
     private let actionExecutor: ActionExecutor
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleAtom
+    private let windowLifecycleStore: WindowLifecycleAtom
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
     private let inboxAtom: InboxNotificationAtom
@@ -74,6 +75,7 @@ class MainSplitViewController: NSSplitViewController {
         actionExecutor: ActionExecutor,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
+        windowLifecycleStore: WindowLifecycleAtom = atom(\.windowLifecycle),
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
         inboxAtom: InboxNotificationAtom,
@@ -90,6 +92,7 @@ class MainSplitViewController: NSSplitViewController {
         self.actionExecutor = actionExecutor
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
+        self.windowLifecycleStore = windowLifecycleStore
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
         self.inboxAtom = inboxAtom
@@ -114,6 +117,7 @@ class MainSplitViewController: NSSplitViewController {
             repoCache: repoCache,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
+            windowLifecycleStore: windowLifecycleStore,
             workspaceWindowId: workspaceWindowId,
             executor: actionExecutor,
             tabBarAdapter: tabBarAdapter,

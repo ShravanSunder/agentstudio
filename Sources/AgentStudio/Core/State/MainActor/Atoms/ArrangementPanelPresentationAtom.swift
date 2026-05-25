@@ -4,9 +4,9 @@ import Observation
 struct ArrangementPanelPresentationRequest: Equatable, Identifiable, Sendable {
     let id: UUID
     let tabId: UUID
-    let workspaceWindowId: UUID?
+    let workspaceWindowId: UUID
 
-    init(id: UUID = UUID(), tabId: UUID, workspaceWindowId: UUID?) {
+    init(id: UUID = UUID(), tabId: UUID, workspaceWindowId: UUID) {
         self.id = id
         self.tabId = tabId
         self.workspaceWindowId = workspaceWindowId
@@ -19,7 +19,7 @@ final class ArrangementPanelPresentationAtom {
     private(set) var pendingRequest: ArrangementPanelPresentationRequest?
 
     @discardableResult
-    func present(tabId: UUID, workspaceWindowId: UUID?) -> ArrangementPanelPresentationRequest {
+    func present(tabId: UUID, workspaceWindowId: UUID) -> ArrangementPanelPresentationRequest {
         let request = ArrangementPanelPresentationRequest(
             tabId: tabId,
             workspaceWindowId: workspaceWindowId

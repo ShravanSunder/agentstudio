@@ -15,6 +15,13 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutCatalog_declaresPaneTargetFallbacks() {
+        for shortcut in AppShortcut.allCases {
+            #expect(shortcut.requiresPaneTargetFallback == (shortcut == .addDrawerPane))
+        }
+    }
+
+    @Test
     func shortcutTriggers_areUniqueWithinEachContext() {
         var seen: [ShortcutContext: Set<ShortcutTrigger>] = [:]
 
@@ -129,28 +136,28 @@ struct ShortcutCatalogTests {
     }
 
     @Test
-    func shortcutDecoder_decodesPaneOrdinalShortcutsAndLeavesTabOrdinalsUnbound() {
-        let firstMainPane = ShortcutDecoder.shortcut(
+    func shortcutDecoder_decodesTabAndPaneOrdinalShortcuts() {
+        let firstTab = ShortcutDecoder.shortcut(
             for: .init(key: .character(.digit1), modifiers: [.command]),
             in: .global
         )
-        let ninthMainPaneFromTerminal = ShortcutDecoder.shortcut(
+        let ninthTabFromTerminal = ShortcutDecoder.shortcut(
             for: .init(key: .character(.digit9), modifiers: [.command]),
             in: .terminalAppOwned
         )
-        let firstTabOrdinal = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.digit1), modifiers: [.command, .shift]),
+        let firstMainPane = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.digit1), modifiers: [.option]),
             in: .global
         )
-        let firstDrawerOrdinal = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.digit1), modifiers: [.command, .shift, .option]),
-            in: .global
+        let ninthMainPaneFromTerminal = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.digit9), modifiers: [.option]),
+            in: .terminalAppOwned
         )
 
+        #expect(firstTab == .selectTab1)
+        #expect(ninthTabFromTerminal == .selectTab9)
         #expect(firstMainPane == .focusPane1)
         #expect(ninthMainPaneFromTerminal == .focusPane9)
-        #expect(firstTabOrdinal == nil)
-        #expect(firstDrawerOrdinal == nil)
     }
 
     @Test

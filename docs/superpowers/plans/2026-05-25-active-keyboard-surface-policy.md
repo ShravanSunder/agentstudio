@@ -596,7 +596,7 @@ Replace `openPopoverIfRequested()` with:
         guard
             let request = presentationAtom.pendingRequest,
             request.tabId == adapter.activeTabId,
-            request.workspaceWindowId == nil || request.workspaceWindowId == workspaceWindowId
+            request.workspaceWindowId == workspaceWindowId
         else { return }
 
         presentationState.present(tabId: request.tabId)

@@ -249,10 +249,45 @@ struct PaneTabViewControllerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (tab, _) = try makeOrdinalTab(in: harness, paneCount: 2)
         harness.store.setActiveTab(tab.id)
+        let windowId = UUID()
+        harness.windowLifecycleStore.recordWindowRegistered(windowId)
+        harness.windowLifecycleStore.recordWindowBecameKey(windowId)
 
         harness.controller.execute(.switchArrangement)
 
         #expect(presentation.pendingRequest?.tabId == tab.id)
+        #expect(presentation.pendingRequest?.workspaceWindowId == windowId)
+    }
+
+    @Test("switchArrangement does not request arrangement panel without a workspace window")
+    func executeSwitchArrangement_withoutWorkspaceWindow_doesNotRequestArrangementPanel() throws {
+        let presentation = ArrangementPanelPresentationAtom()
+        let harness = makeHarness(arrangementPanelPresentation: presentation)
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (tab, _) = try makeOrdinalTab(in: harness, paneCount: 2)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.switchArrangement)
+
+        #expect(presentation.pendingRequest == nil)
+    }
+
+    @Test("switchArrangement uses the controller workspace window before lifecycle fallback")
+    func executeSwitchArrangement_prefersControllerWorkspaceWindow() throws {
+        let presentation = ArrangementPanelPresentationAtom()
+        let windowId = UUID()
+        let harness = makeHarness(
+            arrangementPanelPresentation: presentation,
+            workspaceWindowId: windowId
+        )
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (tab, _) = try makeOrdinalTab(in: harness, paneCount: 2)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.switchArrangement)
+
+        #expect(presentation.pendingRequest?.tabId == tab.id)
+        #expect(presentation.pendingRequest?.workspaceWindowId == windowId)
     }
 
     @Test("previous and next arrangement switch active tab arrangement")

@@ -18,8 +18,8 @@ Implement this exact map:
 | --- | --- | --- | --- |
 | Tabs | Previous tab | `⌘J` | Replaces current `⌘⌥J`. |
 | Tabs | Next tab | `⌘L` | Replaces current `⌘⌥L`. |
-| Tabs | Direct tab select | none | Remove `⌘1..9` shortcut binding. Keep `AppCommand.selectTab1...9` only as command identities if existing command-target flows still need them. |
-| Panes | Focus pane 1..9 | `⌘1..9` | Replaces current `⌘⇧1..9`. Applies in global and terminal-app-owned contexts. |
+| Tabs | Direct tab select | `⌘1..9` | Tab ordinal selection is preserved everywhere app-owned shortcuts are allowed. |
+| Panes | Focus pane 1..9 | `⌥1..9` | Pane ordinal selection applies in global and terminal-app-owned contexts. |
 | Panes / drawers | Move spatial focus | `⌥I/J/K/L` | Existing scope-aware path remains: drawer movement uses the same keys when drawer owns focus. |
 | Drawers | Direct drawer pane focus | none | Remove `⌘⇧⌥1..9` shortcut bindings. Keep `AppCommand.focusDrawerPane1...9` if command bar/controller code still references command identities. |
 | Arrangements | Show arrangement surface | `⌘⌥I` | Replaces current cycle arrangement shortcut behavior. |
@@ -37,7 +37,7 @@ Implement this exact map:
 Tradeoffs to keep visible during implementation:
 
 - `⌘⌥I` intentionally changes from "cycle to next arrangement" to "show the arrangement surface". The direct next-arrangement action moves to `⌘⌥L`.
-- `⌘1...9` intentionally changes from tab selection to pane focus in the normal workspace surface. While the arrangement panel is open, that transient surface remaps `⌘1...9` to `selectTab1...9` so tab ordinal selection remains available without closing the panel.
+- `⌘1...9` remains tab selection. `⌥1...9` is the pane ordinal shortcut family.
 - `⌥I/J/K/L` are not global app shortcuts. They are pane/drawer surface-owned keys. When the active keyboard owner is the pane chain and no text/transient surface owns input, Agent Studio consumes all four keys. If there is no valid movement target, the command is a no-op but still returns handled so Ghostty does not receive Alt/Meta input.
 
 ## Copy Since Last Prompt Scope
@@ -165,28 +165,28 @@ func shortcutDecoder_decodesTabAndArrangementShortcuts() {
 }
 
 @Test
-func shortcutDecoder_decodesPaneOrdinalShortcutsAndLeavesTabOrdinalsUnbound() {
-    let firstMainPane = ShortcutDecoder.shortcut(
+func shortcutDecoder_decodesTabAndPaneOrdinalShortcuts() {
+    let firstTab = ShortcutDecoder.shortcut(
         for: .init(key: .character(.digit1), modifiers: [.command]),
         in: .global
     )
-    let ninthMainPaneFromTerminal = ShortcutDecoder.shortcut(
+    let ninthTabFromTerminal = ShortcutDecoder.shortcut(
         for: .init(key: .character(.digit9), modifiers: [.command]),
         in: .terminalAppOwned
     )
-    let firstTabOrdinal = ShortcutDecoder.shortcut(
-        for: .init(key: .character(.digit1), modifiers: [.command, .shift]),
+    let firstMainPane = ShortcutDecoder.shortcut(
+        for: .init(key: .character(.digit1), modifiers: [.option]),
         in: .global
     )
-    let firstDrawerOrdinal = ShortcutDecoder.shortcut(
-        for: .init(key: .character(.digit1), modifiers: [.command, .shift, .option]),
-        in: .global
+    let ninthMainPaneFromTerminal = ShortcutDecoder.shortcut(
+        for: .init(key: .character(.digit9), modifiers: [.option]),
+        in: .terminalAppOwned
     )
 
+    #expect(firstTab == .selectTab1)
+    #expect(ninthTabFromTerminal == .selectTab9)
     #expect(firstMainPane == .focusPane1)
     #expect(ninthMainPaneFromTerminal == .focusPane9)
-    #expect(firstTabOrdinal == nil)
-    #expect(firstDrawerOrdinal == nil)
 }
 
 @Test
@@ -220,7 +220,7 @@ func shortcutDecoder_decodesTerminalScrollAndPromptShortcuts() {
 Run:
 
 ```bash
-mise run test -- --filter "ShortcutCatalogTests/shortcutDecoder_decodesTabAndArrangementShortcuts|ShortcutCatalogTests/shortcutDecoder_decodesPaneOrdinalShortcutsAndLeavesTabOrdinalsUnbound|ShortcutCatalogTests/shortcutDecoder_decodesTerminalScrollAndPromptShortcuts"
+mise run test -- --filter "ShortcutCatalogTests/shortcutDecoder_decodesTabAndArrangementShortcuts|ShortcutCatalogTests/shortcutDecoder_decodesTabAndPaneOrdinalShortcuts|ShortcutCatalogTests/shortcutDecoder_decodesTerminalScrollAndPromptShortcuts"
 ```
 
 Expected: FAIL because `AppShortcut.showArrangementPanel`, `previousArrangement`, `nextArrangement`, `jumpToPreviousPrompt`, and `jumpToNextPrompt` do not exist, and the old shortcut specs still decode.
@@ -268,12 +268,12 @@ case selectTab8
 case selectTab9
 ```
 
-Keep `AppCommand.selectTab1...9` and `AppCommand.focusDrawerPane1...9`; only remove their shortcut bindings.
+Keep `AppCommand.focusDrawerPane1...9` as command identities. Restore `AppShortcut.selectTab1...9` as `⌘1...9` shortcuts.
 
 Also delete every matching switch arm for removed shortcut cases from `AppShortcut.spec` and `AppShortcut.command`:
 
 - Remove the old `.cycleArrangement` spec arm and command mapping.
-- Remove the old `.selectTab1...9` spec arms and command mappings.
+- Restore `.selectTab1...9` spec arms and command mappings.
 - Remove the old `.focusDrawerPane1...9` spec arms and command mappings.
 
 Leaving orphaned switch arms after deleting enum cases will make `AppShortcut.swift` fail to compile.
@@ -330,12 +330,12 @@ case .jumpToNextPrompt:
     )
 ```
 
-Change `focusPaneSpec` by dropping only the `.shift` modifier. The contexts already include `.global` and `.terminalAppOwned` today; keep them unchanged:
+Change `focusPaneSpec` to use only the `.option` modifier. The contexts already include `.global` and `.terminalAppOwned` today; keep them unchanged:
 
 ```swift
 fileprivate static func focusPaneSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {
     .init(
-        trigger: .init(key: .character(key), modifiers: [.command]),
+        trigger: .init(key: .character(key), modifiers: [.option]),
         contexts: [.global, .terminalAppOwned]
     )
 }
@@ -865,9 +865,9 @@ import Observation
 struct ArrangementPanelPresentationRequest: Equatable, Identifiable, Sendable {
     let id: UUID
     let tabId: UUID
-    let workspaceWindowId: UUID?
+    let workspaceWindowId: UUID
 
-    init(id: UUID = UUID(), tabId: UUID, workspaceWindowId: UUID?) {
+    init(id: UUID = UUID(), tabId: UUID, workspaceWindowId: UUID) {
         self.id = id
         self.tabId = tabId
         self.workspaceWindowId = workspaceWindowId
@@ -880,7 +880,7 @@ final class ArrangementPanelPresentationAtom {
     private(set) var pendingRequest: ArrangementPanelPresentationRequest?
 
     @discardableResult
-    func present(tabId: UUID, workspaceWindowId: UUID?) -> ArrangementPanelPresentationRequest {
+    func present(tabId: UUID, workspaceWindowId: UUID) -> ArrangementPanelPresentationRequest {
         let request = ArrangementPanelPresentationRequest(
             tabId: tabId,
             workspaceWindowId: workspaceWindowId
@@ -1067,8 +1067,9 @@ Replace `cycleActiveArrangement()` with:
 ```swift
 private func requestArrangementPanel() {
     guard let activeTabId = store.tabLayoutAtom.activeTabId else { return }
-    let workspaceWindowId = atom(\.windowLifecycle).focusedWindowId
+    guard let workspaceWindowId = atom(\.windowLifecycle).focusedWindowId
         ?? atom(\.windowLifecycle).keyWindowId
+    else { return }
     arrangementPanelPresentation.present(
         tabId: activeTabId,
         workspaceWindowId: workspaceWindowId
@@ -1160,6 +1161,7 @@ Add:
 private func openArrangementPanelIfRequested() {
     guard let request = arrangementPanelPresentation.pendingRequest else { return }
     guard request.tabId == tabId else { return }
+    guard request.workspaceWindowId == workspaceWindowId else { return }
     isArrangementPanelPresented = true
     arrangementPanelPresentation.consume(request)
 }
@@ -1604,9 +1606,10 @@ In `docs/architecture/commands_and_shortcuts.md`, add or update the shortcut tab
 ```markdown
 | Command | Shortcut | Owner | Notes |
 | --- | --- | --- | --- |
+| `selectTab1...9` | `⌘1...9` | PaneTabViewController | Selects tab ordinal in the active workspace window. |
 | `prevTab` | `⌘J` | PaneTabViewController | Selects previous tab in the active workspace window. |
 | `nextTab` | `⌘L` | PaneTabViewController | Selects next tab in the active workspace window. |
-| `focusPane1...9` | `⌘1...9` | PaneTabViewController | Focuses visible pane ordinal in active arrangement. Arrangement panel overrides the same chord to `selectTab1...9`. |
+| `focusPane1...9` | `⌥1...9` | PaneTabViewController | Focuses visible pane ordinal in active arrangement. |
 | `switchArrangement` | `⌘⌥I` | PaneTabViewController + arrangement panel presentation atom | Shows the arrangement surface for the active tab. |
 | `previousArrangement` | `⌘⌥J` | PaneTabViewController | Selects previous arrangement in current tab. |
 | `nextArrangement` | `⌘⌥L` | PaneTabViewController | Selects next arrangement in current tab. |
@@ -1702,7 +1705,7 @@ git diff -- Sources/AgentStudio/App/Commands/AppShortcut.swift \
 Expected:
 
 - Dirty files are only from this plan.
-- `AppShortcut` has no `selectTab1...9` or `focusDrawerPane1...9` shortcut cases.
+- `AppShortcut` has `selectTab1...9` shortcut cases for `⌘1...9` and no `focusDrawerPane1...9` shortcut cases.
 - `scrollToBottom` is `⌘⇧K`.
 - `scrollPageUp` is `⌘⇧I`.
 - `jumpToPreviousPrompt` is `⌘⇧J`.
@@ -1729,7 +1732,7 @@ If no files changed, do not create an empty commit.
 ### Spec coverage
 
 - `⌘J / ⌘L` tab movement: Task 1 and Task 4.
-- `⌘1..9` pane focus: Task 1.
+- `⌘1..9` tab selection and `⌥1..9` pane focus: Task 1.
 - No drawer ordinal shortcuts: Task 1.
 - Drawer movement uses pane movement keys when drawer is active: preserved by the existing scope-aware `⌥I/J/K/L` path; no new shortcut cases are added.
 - `⌘⌥I` arrangement surface: Task 1, Task 3, Task 4.

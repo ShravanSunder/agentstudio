@@ -38,12 +38,16 @@ struct PaneTabViewControllerCommandHarness {
 func makeHarness(
     createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized),
     closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
-    arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom()
+    arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom(),
+    windowLifecycleStore: WindowLifecycleAtom? = nil,
+    workspaceWindowId: UUID? = nil
 ) -> Harness {
     makePaneTabViewControllerCommandHarness(
         createSurfaceResult: createSurfaceResult,
         closeTransitionCoordinator: closeTransitionCoordinator,
-        arrangementPanelPresentation: arrangementPanelPresentation
+        arrangementPanelPresentation: arrangementPanelPresentation,
+        windowLifecycleStore: windowLifecycleStore,
+        workspaceWindowId: workspaceWindowId
     )
 }
 
@@ -51,7 +55,9 @@ func makeHarness(
 func makePaneTabViewControllerCommandHarness(
     createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized),
     closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
-    arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom()
+    arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom(),
+    windowLifecycleStore injectedWindowLifecycleStore: WindowLifecycleAtom? = nil,
+    workspaceWindowId: UUID? = nil
 ) -> PaneTabViewControllerCommandHarness {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-pane-tab-command-\(UUID().uuidString)")
@@ -62,7 +68,7 @@ func makePaneTabViewControllerCommandHarness(
     let surfaceManager = MockPaneTabCommandSurfaceManager(createSurfaceResult: createSurfaceResult)
     let runtimeRegistry = RuntimeRegistry()
     let appLifecycleStore = AppLifecycleAtom()
-    let windowLifecycleStore = WindowLifecycleAtom()
+    let windowLifecycleStore = injectedWindowLifecycleStore ?? WindowLifecycleAtom()
     let tabRenamePopoverState = TabRenamePopoverState()
     let arrangementInlineRenameState = ArrangementInlineRenameState()
     let paneInboxPresenter = PaneInboxNotificationPresenter()
@@ -86,6 +92,8 @@ func makePaneTabViewControllerCommandHarness(
         repoCache: RepoCacheAtom(),
         applicationLifecycleMonitor: applicationLifecycleMonitor,
         appLifecycleStore: appLifecycleStore,
+        windowLifecycleStore: windowLifecycleStore,
+        workspaceWindowId: workspaceWindowId,
         executor: executor,
         tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
         viewRegistry: viewRegistry,

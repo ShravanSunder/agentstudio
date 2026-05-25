@@ -877,6 +877,7 @@ extension AppCommand {
     private func hiddenTabSelectionDefinition(index: Int) -> CommandSpec {
         CommandSpec(
             command: self,
+            shortcut: Self.selectTabShortcut(index: index),
             label: "Select Tab \(index)",
             icon: .system(.rectangleStack),
             helpText: "Select tab \(index)",
@@ -889,7 +890,7 @@ extension AppCommand {
     private func hiddenFocusPaneDefinition(index: Int) -> CommandSpec {
         CommandSpec(
             command: self,
-            shortcut: focusPaneShortcut(index: index),
+            shortcut: Self.focusPaneShortcut(index: index),
             label: "Focus Pane \(index)",
             icon: .system(.rectangleSplit2x1),
             helpText: "Focus pane \(index)",
@@ -968,22 +969,6 @@ extension AppCommand {
             requiresManagementLayer: true,
             isHiddenInCommandBar: true
         )
-    }
-
-    private func focusPaneShortcut(index: Int) -> AppShortcut {
-        switch index {
-        case 1: return .focusPane1
-        case 2: return .focusPane2
-        case 3: return .focusPane3
-        case 4: return .focusPane4
-        case 5: return .focusPane5
-        case 6: return .focusPane6
-        case 7: return .focusPane7
-        case 8: return .focusPane8
-        case 9: return .focusPane9
-        default:
-            preconditionFailure("Unsupported pane focus shortcut index \(index)")
-        }
     }
 
 }

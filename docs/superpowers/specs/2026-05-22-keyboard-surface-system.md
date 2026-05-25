@@ -52,7 +52,7 @@ The implementation must preserve these rules:
 - Repo sidebar and inbox sidebar are stable focus owners. They do not become transient surfaces.
 - Arrangement panel, arrangement rename, pane inbox popover, and editor chooser are transient because they are temporary keyboard islands attached to an existing stable owner.
 - While a transient surface is active, global destructive workspace shortcuts such as `closeWindow` are intentionally blocked. The local responder may close or cancel the transient surface; the app-level shortcut must not close the workspace window from underneath it.
-- Arrangement panel is tab-local. It owns `.previousArrangement`, `.nextArrangement`, `.prevTab`, and `.nextTab` while open. It also maps `⌘1...9` to `selectTab1...9` so tab ordinal selection still works while the panel is open. Arrangement rename is editor-like and owns no app shortcuts.
+- Arrangement panel is tab-local. It owns `.previousArrangement`, `.nextArrangement`, `.prevTab`, `.nextTab`, and `selectTab1...9` while open so tab ordinal selection still works while the panel is open. Arrangement rename is editor-like and owns no app shortcuts.
 - Pane inbox popovers are pane-local panels. Inbox sidebar remains the stable `.sidebar(.inbox)` surface.
 
 ## Surface Taxonomy
@@ -102,7 +102,7 @@ They suppress app/global/management shortcuts by default while their local respo
 
 Current transient-owned app shortcuts:
 
-- `.arrangementPanel`: `.previousArrangement`, `.nextArrangement`, `.prevTab`, `.nextTab`; `⌘1...9` command-digit input overrides to `selectTab1...9`
+- `.arrangementPanel`: `.previousArrangement`, `.nextArrangement`, `.prevTab`, `.nextTab`, `selectTab1...9`
 - `.tabRename`, `.arrangementRename`, `.paneInbox`, `.editorChooser`: none
 
 Command-bar activation is not a transient-surface allowance. It is a higher-precedence reservation evaluated before transient surface policy.

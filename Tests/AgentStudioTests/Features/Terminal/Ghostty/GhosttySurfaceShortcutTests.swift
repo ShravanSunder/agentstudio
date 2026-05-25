@@ -80,11 +80,56 @@ final class GhosttySurfaceShortcutTests {
     }
 
     @Test
+    func terminalAppOwnedShortcutHandler_swallowsRejectedShortcutWithoutDispatch() async throws {
+        try await withIsolatedCommandDispatcher(
+            configure: {},
+            body: {
+                withTestAtomRegistry { atoms in
+                    let windowId = UUID()
+                    let tabId = UUID()
+                    var dispatchedCommands: [AppCommand] = []
+                    atoms.windowLifecycle.recordWindowRegistered(windowId)
+                    atoms.windowLifecycle.recordWindowBecameKey(windowId)
+                    _ = atoms.transientKeyboardSurface.present(
+                        .arrangementPanel(tabId: tabId),
+                        workspaceWindowId: windowId
+                    )
+
+                    let context = KeyboardRoutingContext.current(
+                        windowLifecycle: atoms.windowLifecycle,
+                        managementLayer: atoms.managementLayer,
+                        uiState: atoms.uiState,
+                        commandBarSurface: atoms.commandBarSurface,
+                        transientKeyboardSurface: atoms.transientKeyboardSurface
+                    )
+
+                    let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
+                        trigger: .init(key: .character(.k), modifiers: [.command, .shift]),
+                        context: context,
+                        canDispatch: { _ in true },
+                        dispatch: { dispatchedCommands.append($0) }
+                    )
+
+                    #expect(result == .swallowed)
+                    #expect(dispatchedCommands.isEmpty)
+                }
+            })
+    }
+
+    @Test
     func appOwnedTerminalShortcuts_includeScrollAndPromptNavigation() {
         #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollToBottom))
         #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollPageUp))
         #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.jumpToPreviousPrompt))
         #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.jumpToNextPrompt))
+    }
+
+    @Test
+    func appOwnedTerminalShortcuts_includeTabAndPaneOrdinals() {
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.selectTab1))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.selectTab9))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.focusPane1))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.focusPane9))
     }
 
     @Test

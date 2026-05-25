@@ -58,6 +58,8 @@ struct TerminalAppOwnedShortcutPolicyTests {
 
         #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.nextTab, context: context))
         #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.newTab, context: context))
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.selectTab1, context: context))
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.focusPane1, context: context))
     }
 
     @Test("prompt shortcuts are terminal owned only")

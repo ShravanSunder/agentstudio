@@ -22,6 +22,18 @@ enum AppShortcutDispatchPolicy {
         return shouldDispatchFromActiveSurface(shortcut, context: context)
     }
 
+    static func shouldConsumeUnavailableGlobalShortcut(
+        _ shortcut: AppShortcut,
+        context: KeyboardRoutingContext
+    ) -> Bool {
+        switch context.activeSurface {
+        case .transient(.arrangementPanel):
+            return shouldDispatchFromArrangementPanel(shortcut)
+        case .commandBar, .stable, .transient:
+            return false
+        }
+    }
+
     static func shouldDispatchTerminalAppOwnedShortcut(
         _ shortcut: AppShortcut,
         context: KeyboardRoutingContext
@@ -42,18 +54,6 @@ enum AppShortcutDispatchPolicy {
         }
     }
 
-    static func appCommandOverride(
-        for trigger: ShortcutTrigger,
-        context: KeyboardRoutingContext
-    ) -> AppCommand? {
-        switch context.activeSurface {
-        case .transient(.arrangementPanel):
-            return arrangementPanelCommandOverride(for: trigger, context: context)
-        case .commandBar, .stable, .transient:
-            return nil
-        }
-    }
-
     static func isCommandBarActivationShortcut(_ shortcut: AppShortcut) -> Bool {
         switch shortcut {
         case .newTab, .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:
@@ -63,11 +63,13 @@ enum AppShortcutDispatchPolicy {
             .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .toggleManagementLayer,
             .toggleSidebar, .filterSidebar, .showInboxNotifications, .showPaneInboxNotifications,
-            .showWorktreeSidebar, .newWindow, .closeWindow, .focusPane1, .focusPane2, .focusPane3,
-            .focusPane4, .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9,
-            .managementLayerFocusLeft, .managementLayerFocusRight, .managementLayerEnterDrawer,
-            .managementLayerExitDrawer, .managementLayerOpenDrawer, .managementLayerCreateTerminal,
-            .managementLayerCreateBrowser, .managementLayerExit:
+            .showWorktreeSidebar, .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3,
+            .selectTab4, .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
+            .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
             return false
         }
     }
@@ -131,7 +133,9 @@ enum AppShortcutDispatchPolicy {
 
     private static func shouldDispatchFromArrangementPanel(_ shortcut: AppShortcut) -> Bool {
         switch shortcut {
-        case .previousArrangement, .nextArrangement, .prevTab, .nextTab:
+        case .previousArrangement, .nextArrangement, .prevTab, .nextTab,
+            .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+            .selectTab6, .selectTab7, .selectTab8, .selectTab9:
             return true
         case .closeTab, .undoCloseTab, .newTab, .showArrangementPanel, .addDrawerPane,
             .toggleDrawer, .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
@@ -148,44 +152,6 @@ enum AppShortcutDispatchPolicy {
         }
     }
 
-    private static func arrangementPanelCommandOverride(
-        for trigger: ShortcutTrigger,
-        context: KeyboardRoutingContext
-    ) -> AppCommand? {
-        guard
-            context.workspaceWindowId != nil,
-            context.stableOwner != .otherWindow,
-            trigger.modifiers == [.command],
-            case .character(let key) = trigger.key
-        else {
-            return nil
-        }
-
-        switch key {
-        case .digit1:
-            return .selectTab1
-        case .digit2:
-            return .selectTab2
-        case .digit3:
-            return .selectTab3
-        case .digit4:
-            return .selectTab4
-        case .digit5:
-            return .selectTab5
-        case .digit6:
-            return .selectTab6
-        case .digit7:
-            return .selectTab7
-        case .digit8:
-            return .selectTab8
-        case .digit9:
-            return .selectTab9
-        case .a, .b, .comma, .d, .e, .f, .i, .j, .k, .l, .leftBracket, .m, .n, .o, .p, .r,
-            .rightBracket, .s, .t, .u, .w:
-            return nil
-        }
-    }
-
     private static func shouldDispatchFromMainWindowChain(_ shortcut: AppShortcut) -> Bool {
         switch shortcut {
         case .filterSidebar, .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
@@ -196,11 +162,13 @@ enum AppShortcutDispatchPolicy {
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .toggleManagementLayer,
             .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
             .newWindow, .closeWindow, .showCommandBarEverything, .showCommandBarCommands,
-            .showCommandBarPanes, .focusPane1, .focusPane2, .focusPane3, .focusPane4,
-            .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9,
-            .managementLayerFocusLeft, .managementLayerFocusRight, .managementLayerEnterDrawer,
-            .managementLayerExitDrawer, .managementLayerOpenDrawer, .managementLayerCreateTerminal,
-            .managementLayerCreateBrowser, .managementLayerExit:
+            .showCommandBarPanes, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
+            .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
+            .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
             return true
         }
     }
@@ -219,11 +187,13 @@ enum AppShortcutDispatchPolicy {
             .previousArrangement, .nextArrangement, .addDrawerPane, .toggleDrawer, .scrollToBottom,
             .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .toggleManagementLayer,
-            .showPaneInboxNotifications, .newWindow, .closeWindow, .focusPane1, .focusPane2,
-            .focusPane3, .focusPane4, .focusPane5, .focusPane6, .focusPane7, .focusPane8,
-            .focusPane9, .managementLayerFocusLeft, .managementLayerFocusRight,
-            .managementLayerEnterDrawer, .managementLayerExitDrawer, .managementLayerOpenDrawer,
-            .managementLayerCreateTerminal, .managementLayerCreateBrowser, .managementLayerExit:
+            .showPaneInboxNotifications, .newWindow, .closeWindow, .selectTab1, .selectTab2,
+            .selectTab3, .selectTab4, .selectTab5, .selectTab6, .selectTab7, .selectTab8,
+            .selectTab9, .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
             return false
         }
     }

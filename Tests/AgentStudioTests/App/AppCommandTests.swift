@@ -333,6 +333,30 @@ final class AppCommandTests {
     @MainActor
 
     @Test
+    func test_ordinalShortcutDefinitions_useCommandForTabsAndOptionForPanes() {
+        let firstTab = CommandDispatcher.shared.definition(for: .selectTab1)
+        let ninthTab = CommandDispatcher.shared.definition(for: .selectTab9)
+        let firstPane = CommandDispatcher.shared.definition(for: .focusPane1)
+        let ninthPane = CommandDispatcher.shared.definition(for: .focusPane9)
+
+        #expect(firstTab.shortcut == .selectTab1)
+        #expect(firstTab.keyBinding?.key == "1")
+        #expect(firstTab.keyBinding?.modifiers == [.command])
+        #expect(ninthTab.shortcut == .selectTab9)
+        #expect(ninthTab.keyBinding?.key == "9")
+        #expect(ninthTab.keyBinding?.modifiers == [.command])
+
+        #expect(firstPane.shortcut == .focusPane1)
+        #expect(firstPane.keyBinding?.key == "1")
+        #expect(firstPane.keyBinding?.modifiers == [.option])
+        #expect(ninthPane.shortcut == .focusPane9)
+        #expect(ninthPane.keyBinding?.key == "9")
+        #expect(ninthPane.keyBinding?.modifiers == [.option])
+    }
+
+    @MainActor
+
+    @Test
     func test_terminalScrollAndPromptDefinitions_useTerminalGroupAndShortcuts() {
         let scroll = CommandDispatcher.shared.definition(for: .scrollToBottom)
         let pageUp = CommandDispatcher.shared.definition(for: .scrollPageUp)

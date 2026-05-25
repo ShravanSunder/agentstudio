@@ -62,12 +62,41 @@ extension Ghostty.SurfaceView {
         $0.contexts.contains(.terminalAppOwned)
     }
 
+    enum TerminalAppOwnedShortcutHandling: Equatable {
+        case notHandled
+        case swallowed
+        case dispatched(AppCommand)
+    }
+
     static let terminalHostSuppressedTriggers: Set<ShortcutTrigger> = [
         .init(key: .character(.k), modifiers: [.command])
     ]
 
     static func shouldSuppressTerminalHostTrigger(_ trigger: ShortcutTrigger) -> Bool {
         terminalHostSuppressedTriggers.contains(trigger)
+    }
+
+    static func handleTerminalAppOwnedShortcut(
+        trigger: ShortcutTrigger,
+        context: KeyboardRoutingContext,
+        canDispatch: (AppCommand) -> Bool,
+        dispatch: (AppCommand) -> Void
+    ) -> TerminalAppOwnedShortcutHandling {
+        guard let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
+            Self.appOwnedShortcuts.contains(shortcut)
+        else {
+            return .notHandled
+        }
+
+        guard
+            AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(shortcut, context: context),
+            canDispatch(shortcut.command)
+        else {
+            return .swallowed
+        }
+
+        dispatch(shortcut.command)
+        return .dispatched(shortcut.command)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -87,29 +116,15 @@ extension Ghostty.SurfaceView {
                 transientKeyboardSurface: atom(\.transientKeyboardSurface)
             )
 
-            if let commandOverride = AppShortcutDispatchPolicy.appCommandOverride(
-                for: trigger,
-                context: keyboardContext
+            switch Self.handleTerminalAppOwnedShortcut(
+                trigger: trigger,
+                context: keyboardContext,
+                canDispatch: { CommandDispatcher.shared.canDispatch($0) },
+                dispatch: { CommandDispatcher.shared.dispatch($0) }
             ) {
-                if CommandDispatcher.shared.canDispatch(commandOverride) {
-                    CommandDispatcher.shared.dispatch(commandOverride)
-                }
-                return true
-            }
-
-            if let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
-                Self.appOwnedShortcuts.contains(shortcut)
-            {
-                guard
-                    AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(
-                        shortcut,
-                        context: keyboardContext
-                    ),
-                    CommandDispatcher.shared.canDispatch(shortcut.command)
-                else {
-                    return true
-                }
-                CommandDispatcher.shared.dispatch(shortcut.command)
+            case .notHandled:
+                break
+            case .swallowed, .dispatched:
                 return true
             }
         }

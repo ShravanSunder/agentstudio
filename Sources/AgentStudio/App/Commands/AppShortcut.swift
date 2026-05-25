@@ -189,6 +189,15 @@ enum AppShortcut: String, CaseIterable {
     case showCommandBarEverything
     case showCommandBarCommands
     case showCommandBarPanes
+    case selectTab1
+    case selectTab2
+    case selectTab3
+    case selectTab4
+    case selectTab5
+    case selectTab6
+    case selectTab7
+    case selectTab8
+    case selectTab9
     case focusPane1
     case focusPane2
     case focusPane3
@@ -356,6 +365,24 @@ enum AppShortcut: String, CaseIterable {
                 trigger: .init(key: .character(.p), modifiers: [.command, .option]),
                 contexts: [.global, .terminalAppOwned]
             )
+        case .selectTab1:
+            return Self.selectTabSpec(key: .digit1)
+        case .selectTab2:
+            return Self.selectTabSpec(key: .digit2)
+        case .selectTab3:
+            return Self.selectTabSpec(key: .digit3)
+        case .selectTab4:
+            return Self.selectTabSpec(key: .digit4)
+        case .selectTab5:
+            return Self.selectTabSpec(key: .digit5)
+        case .selectTab6:
+            return Self.selectTabSpec(key: .digit6)
+        case .selectTab7:
+            return Self.selectTabSpec(key: .digit7)
+        case .selectTab8:
+            return Self.selectTabSpec(key: .digit8)
+        case .selectTab9:
+            return Self.selectTabSpec(key: .digit9)
         case .focusPane1:
             return Self.focusPaneSpec(key: .digit1)
         case .focusPane2:
@@ -461,6 +488,24 @@ enum AppShortcut: String, CaseIterable {
             return .showCommandBarCommands
         case .showCommandBarPanes:
             return .showCommandBarPanes
+        case .selectTab1:
+            return .selectTab1
+        case .selectTab2:
+            return .selectTab2
+        case .selectTab3:
+            return .selectTab3
+        case .selectTab4:
+            return .selectTab4
+        case .selectTab5:
+            return .selectTab5
+        case .selectTab6:
+            return .selectTab6
+        case .selectTab7:
+            return .selectTab7
+        case .selectTab8:
+            return .selectTab8
+        case .selectTab9:
+            return .selectTab9
         case .focusPane1:
             return .focusPane1
         case .focusPane2:
@@ -502,13 +547,41 @@ enum AppShortcut: String, CaseIterable {
 }
 
 extension AppShortcut {
+    var requiresPaneTargetFallback: Bool {
+        switch self {
+        case .addDrawerPane:
+            return true
+        case .closeTab, .undoCloseTab, .newTab, .nextTab, .prevTab, .showArrangementPanel,
+            .previousArrangement, .nextArrangement, .toggleDrawer, .scrollToBottom, .scrollPageUp,
+            .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
+            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .toggleManagementLayer,
+            .toggleSidebar, .filterSidebar, .showInboxNotifications, .showPaneInboxNotifications,
+            .showWorktreeSidebar, .newWindow, .closeWindow, .showCommandBarEverything,
+            .showCommandBarCommands, .showCommandBarPanes, .selectTab1, .selectTab2, .selectTab3,
+            .selectTab4, .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
+            .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
+            return false
+        }
+    }
+
     func displayKeyBinding(in context: ShortcutContext) -> KeyBinding? {
         spec.displayTrigger(in: context).keyBinding
     }
 
-    fileprivate static func focusPaneSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {
+    fileprivate static func selectTabSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {
         .init(
             trigger: .init(key: .character(key), modifiers: [.command]),
+            contexts: [.global, .terminalAppOwned]
+        )
+    }
+
+    fileprivate static func focusPaneSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {
+        .init(
+            trigger: .init(key: .character(key), modifiers: [.option]),
             contexts: [.global, .terminalAppOwned]
         )
     }

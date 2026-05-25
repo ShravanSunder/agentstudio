@@ -31,12 +31,12 @@ struct CommandBarSurfaceCommandTests {
         #expect(sidebarInbox?.title == "Toggle Inbox")
         #expect(sidebarInbox?.group == "Window")
         #expect(sidebarInbox?.shortcutTrigger == AppShortcut.showInboxNotifications.trigger)
-        #expect(sidebarInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘I")
+        #expect(sidebarInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘U")
 
         #expect(paneInbox?.title == "Toggle Pane Inbox")
         #expect(paneInbox?.group == "Pane")
         #expect(paneInbox?.shortcutTrigger == AppShortcut.showPaneInboxNotifications.trigger)
-        #expect(paneInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘⇧I")
+        #expect(paneInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘⇧U")
 
         #expect(worktreeSidebar?.title == "Toggle Worktrees")
         #expect(worktreeSidebar?.group == "Window")

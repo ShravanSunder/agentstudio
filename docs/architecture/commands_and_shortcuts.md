@@ -96,9 +96,10 @@ side channel instead of the same binding/state model as the button.
 
 | Command | Shortcut | Owner | Notes |
 | --- | --- | --- | --- |
+| `selectTab1...9` | `⌘1...9` | `PaneTabViewController` | Selects tab ordinal in the active workspace window. |
 | `prevTab` | `⌘J` | `PaneTabViewController` | Selects previous tab in the active workspace window. |
 | `nextTab` | `⌘L` | `PaneTabViewController` | Selects next tab in the active workspace window. |
-| `focusPane1...9` | `⌘1...9` | `PaneTabViewController` | Focuses visible pane ordinal in the active arrangement. |
+| `focusPane1...9` | `⌥1...9` | `PaneTabViewController` | Focuses visible pane ordinal in the active arrangement. |
 | `switchArrangement` | `⌘⌥I` | `PaneTabViewController` + arrangement panel presentation atom | Shows the arrangement surface for the active tab. |
 | `previousArrangement` | `⌘⌥J` | `PaneTabViewController` | Selects previous arrangement in the current tab. |
 | `nextArrangement` | `⌘⌥L` | `PaneTabViewController` | Selects next arrangement in the current tab. |
@@ -208,8 +209,8 @@ app-owned shortcuts it owns. Those allow/block decisions live in
 Current surface-owned app shortcuts:
 
 - `.arrangementPanel(tabId:)` allows `.previousArrangement`, `.nextArrangement`,
-  `.prevTab`, and `.nextTab`. While it is open, `⌘1...9` is interpreted as
-  `selectTab1...9` so the user can jump tabs without closing the panel first.
+  `.prevTab`, `.nextTab`, and `selectTab1...9` so the user can jump tabs
+  without closing the panel first.
 - `.tabRename(tabId:)`, `.arrangementRename(tabId:arrangementId:)`,
   `.paneInbox(parentPaneId:)`, and `.editorChooser(paneId:)` own no app
   shortcuts.

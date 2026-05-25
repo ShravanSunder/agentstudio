@@ -80,6 +80,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let repoCache: RepoCacheAtom
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleAtom
+    private let windowLifecycleStore: WindowLifecycleAtom
     private let workspaceWindowId: UUID?
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
@@ -174,6 +175,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         repoCache: RepoCacheAtom,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
+        windowLifecycleStore: WindowLifecycleAtom = atom(\.windowLifecycle),
         workspaceWindowId: UUID? = nil,
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter,
@@ -202,6 +204,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.repoCache = repoCache
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
+        self.windowLifecycleStore = windowLifecycleStore
         self.workspaceWindowId = workspaceWindowId
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
@@ -1260,7 +1263,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let globalShortcut = ShortcutDecoder.shortcut(for: trigger, in: .global)
 
         let keyboardContext = KeyboardRoutingContext.current(
-            windowLifecycle: atom(\.windowLifecycle),
+            windowLifecycle: windowLifecycleStore,
             managementLayer: atom(\.managementLayer),
             uiState: atom(\.uiState),
             commandBarSurface: atom(\.commandBarSurface),
@@ -1284,22 +1287,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
-        if let commandOverride = AppShortcutDispatchPolicy.appCommandOverride(
-            for: trigger,
-            context: keyboardContext
-        ) {
-            if CommandDispatcher.shared.canDispatch(commandOverride) {
-                CommandDispatcher.shared.dispatch(commandOverride)
-            }
-            return true
-        }
-
         if let shortcut = globalShortcut {
             let shouldDispatchGlobalShortcut = AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
                 shortcut,
                 context: keyboardContext
             )
-            guard shouldDispatchGlobalShortcut || shortcut == .addDrawerPane else {
+            guard shouldDispatchGlobalShortcut || shortcut.requiresPaneTargetFallback else {
                 return false
             }
             guard
@@ -1312,7 +1305,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 CommandDispatcher.shared.dispatch(shortcut.command)
                 return true
             }
-            guard shortcut == .addDrawerPane else {
+            if AppShortcutDispatchPolicy.shouldConsumeUnavailableGlobalShortcut(
+                shortcut,
+                context: keyboardContext
+            ) {
+                return true
+            }
+            guard shortcut.requiresPaneTargetFallback else {
                 return false
             }
             // Empty-drawer creation needs a pane target, so it falls
@@ -1348,6 +1347,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         if shouldHandleScopeAwarePaneTrigger(event: event, keyboardOwner: keyboardOwner),
             isScopeAwarePaneMovementTrigger(trigger)
         {
+            // Consume every reserved option-I/J/K/L chord in pane scope,
+            // even when there is no concrete move, so terminal content
+            // never receives app-owned navigation keystrokes.
             if let command = scopeAwarePaneCommand(for: trigger), canExecute(command) {
                 execute(command)
             }
@@ -1960,8 +1962,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             )
         )
         tabRenamePopover = popover
-        if let workspaceWindowId = workspaceWindowId ?? atom(\.windowLifecycle).focusedWindowId
-            ?? atom(\.windowLifecycle).keyWindowId
+        if let workspaceWindowId = workspaceWindowId ?? windowLifecycleStore.focusedWindowId
+            ?? windowLifecycleStore.keyWindowId
         {
             tabRenameTransientSurfaceToken = atom(\.transientKeyboardSurface).present(
                 .tabRename(tabId: tabId),
@@ -2475,9 +2477,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func requestArrangementPanel() {
         guard let activeTabId = store.tabLayoutAtom.activeTabId else { return }
-        let workspaceWindowId =
-            atom(\.windowLifecycle).focusedWindowId
-            ?? atom(\.windowLifecycle).keyWindowId
+        guard
+            let workspaceWindowId =
+                workspaceWindowId
+                ?? windowLifecycleStore.focusedWindowId
+                ?? windowLifecycleStore.keyWindowId
+        else { return }
         arrangementPanelPresentation.present(
             tabId: activeTabId,
             workspaceWindowId: workspaceWindowId

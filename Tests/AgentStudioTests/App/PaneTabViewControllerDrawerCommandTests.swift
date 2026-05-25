@@ -268,8 +268,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
     }
 
-    @Test("option-k in main row falls through without a concrete pane command")
-    func optionK_mainPane_fallsThroughWithoutConcreteCommand() throws {
+    @Test("option-k in main row is swallowed without a concrete pane command")
+    func optionK_mainPane_isSwallowedWithoutConcreteCommand() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         configureMainWindowKeyboardOwner()
@@ -296,14 +296,13 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(
-            !harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
         #expect(harness.store.pane(parent.id)?.drawer?.isExpanded == false)
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 
-    @Test("option-i in main row falls through without a concrete pane command")
-    func optionI_mainPane_fallsThroughWithoutConcreteCommand() throws {
+    @Test("option-i in main row is swallowed without a concrete pane command")
+    func optionI_mainPane_isSwallowedWithoutConcreteCommand() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         configureMainWindowKeyboardOwner()
@@ -330,8 +329,7 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(
-            !harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 

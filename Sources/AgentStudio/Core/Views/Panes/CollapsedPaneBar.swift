@@ -217,7 +217,7 @@ struct CollapsedPaneBar: View {
         guard
             let request = presentationAtom.pendingRequest,
             request.tabId == tabId,
-            request.workspaceWindowId == nil || request.workspaceWindowId == workspaceWindowId
+            request.workspaceWindowId == workspaceWindowId
         else { return }
 
         isArrangementPanelPresented = true

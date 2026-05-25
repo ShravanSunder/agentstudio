@@ -192,7 +192,7 @@ struct CommandSpec {
         requiresManagementLayer: Bool = false,
         visibleWhen: Set<FocusRequirement> = [],
         commandBarGroupName: String = "Commands",
-        commandBarGroupPriority: Int = 7,
+        commandBarGroupPriority: Int = 8,
         isHiddenInCommandBar: Bool = false
     ) {
         self.command = command
