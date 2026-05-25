@@ -287,6 +287,8 @@ separate database files.
 core delete / topology prune
   -> commit core transaction
   -> WorkspaceMutationCoordinator receives committed deleted ids
+  -> MainActor cursor atoms synchronously clear or reset dangling ids before
+     the UI observes the completed user action
   -> WorkspaceLocalStore runs reconciliation for the affected workspace
      in the same async task before the user action is considered settled
   -> delete local/cache/index rows whose copied core ids no longer resolve

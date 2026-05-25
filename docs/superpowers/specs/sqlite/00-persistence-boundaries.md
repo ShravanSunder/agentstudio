@@ -106,6 +106,7 @@ active_workspace_id
   -> core.sqlite
   -> global app boot/selection concern
   -> chooses which workspace graph to open
+  -> owned by ActiveWorkspaceSelectionAtom, not by per-workspace identity atoms
 
 active_tab_id
 active_arrangement_id

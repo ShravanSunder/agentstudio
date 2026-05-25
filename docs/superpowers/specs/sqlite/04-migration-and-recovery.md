@@ -44,7 +44,20 @@ tables one-for-one, but write-owner atoms should mirror a cohesive table group
 with one lifecycle and one write path. Derived atoms/readers compose those
 write-owner atoms back into the richer UI/domain shapes.
 
+The rejected alternative is "one atom per SQL table." That would make ordinary
+workspace commands update table-shaped fragments such as `pane`, `drawer_pane`,
+`tab_pane`, `arrangement_layout_pane`, and divider rows independently. The
+coordinator would then need to orchestrate a dozen write spots for one semantic
+action. Step 0 keeps mutation ownership aligned with the domain: a pane graph
+mutation may touch several pane tables, and a tab graph mutation may touch
+membership, arrangement, layout, drawer-view, and divider tables in one coherent
+projection.
+
 ```text
+add global core write owner
+  ActiveWorkspaceSelectionAtom
+    -> app_workspace_selection.active_workspace_id
+
 split first
   WorkspaceMetadataAtom
     -> WorkspaceIdentityAtom       core identity
@@ -68,15 +81,15 @@ split first
 
 split before SQLite repositories
   WorkspaceTabShellAtom
-    -> WorkspaceTabShellAtom       core tab shells
-    -> WorkspaceCursorAtom         active workspace/tab cursor
+    -> WorkspaceTabShellAtom       core tab shells only
+    -> WorkspaceCursorAtom         active tab cursor
 
   WorkspacePaneAtom
     -> WorkspacePaneGraphAtom      core pane/drawer membership graph
     -> WorkspaceDrawerCursorAtom   local drawer expansion cursor
 
   WorkspaceTabArrangementAtom
-    -> WorkspaceArrangementGraphAtom     core tab/arrangement/layout graph
+    -> WorkspaceTabGraphAtom       core tab membership + arrangement/layout graph
     -> WorkspaceArrangementCursorAtom    local active arrangement/pane/child
     -> WorkspacePanePresentationAtom     runtime zoom/presentation state
 
@@ -85,13 +98,27 @@ split before SQLite repositories
     -> RecentWorkspaceTargetAtom         local recent target history
 ```
 
-Keep composed read models where they make the UI and command validation easier.
-The Step 0 split should not delete the rich pane/tab values from the UI surface;
-it should move graph, cursor, and runtime ownership into separate atoms while
-retaining derived/composed readers for command validation and views. This keeps
-the SQLite repository work honest: graph repositories do not need to special-case
-local cursor fields, and local stores do not need to understand durable layout
-membership.
+Keep composed read models where they make the UI and command validation easier,
+but make their role explicit. The Step 0 split should not remove rich pane/tab
+values from the UI surface; it should move graph, cursor, and runtime ownership
+into separate atoms while retaining derived/composed readers for command
+validation and views. If today's rich domain structs hide that role boundary,
+rename or split them during Step 0 instead of carrying ambiguous names into the
+SQLite repository work.
+
+Step 0 order:
+
+```text
+1. Split the low-risk local/settings/runtime atoms.
+2. Add ActiveWorkspaceSelectionAtom for the global core selector.
+3. Split WorkspacePaneAtom into graph + drawer cursor.
+4. Split WorkspaceTabShellAtom into shell + tab cursor.
+5. Split WorkspaceTabArrangementAtom into tab graph + arrangement cursor +
+   runtime presentation.
+6. Classify and rename or split mixed domain/read-model/legacy DTO types.
+7. Update derived readers and WorkspaceMutationCoordinator constructor
+   dependencies to consume the new write-owner atoms.
+```
 
 Step 0 does not need to split atoms that already have one lifecycle:
 
@@ -112,10 +139,61 @@ WelcomeAtom                         runtime
 PaneFilesystemProjectionAtom        runtime projection
 ```
 
+## Domain Type Classification And Rename Pass
+
+Before SQLite repositories land, every affected type must answer which role it
+plays:
+
+```text
+SQLite row projection
+  -> storage-facing table shape
+  -> used by repositories and migrations
+
+write-owner atom state
+  -> mutable MainActor state with one lifecycle and one write path
+  -> source for repository projections after a validated mutation
+
+derived read model
+  -> composed value for UI, validators, command snapshots, and tests
+  -> may look like the current rich Pane / Tab / PaneArrangement shapes
+  -> never owns persistence
+
+legacy import DTO
+  -> Codable shape for old JSON files only
+  -> field-routed into core.sqlite, settings.json, and local.sqlite
+```
+
+A type may not remain ambiguously both legacy Codable payload, live write-owner
+state, derived UI read model, and future SQLite row projection. If a current
+type has mixed responsibilities, Step 0 must either split it by lifecycle or
+rename it to the role it actually serves and introduce the missing role-specific
+type. This is part of the safety work, not optional cleanup.
+
+Current high-risk classifications:
+
+```text
+Pane / Drawer
+  graph fields       -> WorkspacePaneGraphAtom state
+  drawer.isExpanded  -> WorkspaceDrawerCursorAtom state
+  UI shape           -> derived pane read model
+  legacy JSON        -> legacy import DTO if Codable fields stay mixed
+
+Tab / PaneArrangement / DrawerView
+  shell/graph fields -> WorkspaceTabShellAtom + WorkspaceTabGraphAtom state
+  active fields      -> WorkspaceCursorAtom + WorkspaceArrangementCursorAtom
+  zoom/presentation  -> WorkspacePanePresentationAtom
+  UI shape           -> derived tab layout read model
+  legacy JSON        -> legacy import DTO if Codable fields stay mixed
+```
+
 ## Legacy Codable Import Contract
 
 Legacy workspace files are decoded through the current Codable domain types, but
 those Codable encoders are not the live persistence contract after cutover.
+Rich fields such as `activeArrangementId`, `activePaneId`, `activeChildId`, and
+`isExpanded` may remain only on legacy import DTOs or composed derived read
+models. They must not remain live write-owner persistence fields, and the type
+names must make that clear.
 
 ```text
 legacy import only
@@ -154,6 +232,21 @@ PaneMetadata.facets
 Tab.zoomedPaneId
   -> not present in legacy JSON; hydrate as nil
 ```
+
+Unsupported legacy JSON `schemaVersion` values are reported as unsupported
+legacy data and quarantined; they are not silently interpreted as v1 and they
+must not overwrite valid SQLite rows. Step 1 import supports the currently
+known workspace payload schema v1 and the current inbox notification payload
+schema v3. If another known legacy version must be supported, add an explicit
+versioned importer before shipping the cutover.
+
+Legacy drawer payloads require a tolerant importer. Current `Drawer` decoding
+throws when the old `activePaneId` key is present, because drawer focus moved to
+per-arrangement `DrawerView.activeChildId`. The SQLite importer must not let
+that historical key quarantine the whole workspace. It should decode through a
+legacy drawer DTO, route resolvable `activePaneId` values to
+`local_arrangement_drawer_cursor.active_child_id`, and fall back to deterministic
+local cursor defaults when the arrangement context cannot be resolved.
 
 ## Step 1A: Core Migration System And Core Rows
 
@@ -195,6 +288,13 @@ rows exist, the app shows the empty/welcome state.
 Legacy JSON archival is not part of Step 1A alone. A workspace's legacy files can
 move to `legacy-imported/` only after core rows, settings JSON, and local SQLite
 rows for that same workspace have all imported successfully.
+
+Step 1A, Step 1B, and Step 1C are implementation checkpoints, not separate
+user-visible cutover releases. Normal boot should not switch to SQLite-backed
+workspace loading until core rows, settings, local cursor/UX rows, and current
+cache rows can all be imported for the active workspace. That avoids a first
+boot where core pane rows are visible before existing repo/worktree enrichment
+and display facets have been restored.
 
 ## Step 1B: Settings File Extraction
 
@@ -260,6 +360,8 @@ boot
   -> open <workspace-id>.local.sqlite
   -> run local migrations
   -> restore local UX memory, cursor rows, and current cache summaries
+  -> if local cursor rows are missing because this is a fresh local database,
+     seed deterministic cursor defaults from the core graph before rendering UI
   -> compose Tab / PaneArrangement domain values:
        core tab_shell + tab_pane + tab_arrangement + layout rows
        local_workspace_cursor.active_tab_id
@@ -277,6 +379,11 @@ Normal boot after successful import does not scan legacy JSON files. Legacy
 JSON scanning is only a migration/recovery path when `core.sqlite` has no
 workspace rows or an incomplete import status says a companion import must
 resume.
+
+If `legacy_workspace_import_status` is empty after migrations, import treats the
+workspace as fresh. If it contains any incomplete records, import resumes only
+those specific workspaces. Migration retry after a partial schema migration must
+not be confused with a partially imported workspace.
 
 Load into memory:
 
@@ -495,3 +602,23 @@ Migration invariants:
   UX memory unless the migration explicitly owns that table
 - reorder migrations and write code must handle `UNIQUE(..., sort_index)` by
   deleting/reinserting the affected ordered child rows inside one transaction
+
+## Documentation Alignment
+
+The Step 0 atom split changes the project mental model, so the implementation
+plan must update the shared docs in the same changeset as the code:
+
+```text
+AGENTS.md
+  -> component table and state-management guidance reflect write-owner atoms,
+     derived readers, ActiveWorkspaceSelectionAtom, and the SQLite store split
+
+docs/architecture/component_architecture.md
+docs/architecture/workspace_data_architecture.md
+docs/architecture/atom_persistence_boundaries.md
+  -> persistence boundaries, store responsibilities, and coordinator flow match
+     the implemented atom/store names
+
+docs/superpowers/specs/sqlite/*
+  -> checkpoint specs stay aligned with the final names and migration ids
+```

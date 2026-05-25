@@ -278,7 +278,7 @@ WorkspaceCoreRepository
   -> workspace.updated_at
   -> legacy_workspace_import_status
 
-App boot / workspace selection
+ActiveWorkspaceSelectionAtom
   -> app_workspace_selection.active_workspace_id
 
 WorkspaceRepositoryTopologyAtom
@@ -298,7 +298,7 @@ WorkspacePaneGraphAtom
 WorkspaceTabShellAtom
   -> tab_shell
 
-WorkspaceArrangementGraphAtom
+WorkspaceTabGraphAtom
   -> tab_pane
   -> tab_arrangement
   -> arrangement_layout_pane
@@ -325,8 +325,14 @@ one drawer child pane
   -> at most one drawer membership
 
 one drawer view
-  -> preserves DrawerGridLayout.rowSplitRatio
+  -> preserves DrawerGridLayout.rowSplitRatio for the fixed top/bottom drawer
+     grid used in Step 1
 ```
+
+`DrawerGridLayout` is a two-row top/bottom model in Step 1. The single
+`row_split_ratio` column intentionally encodes that current model. If drawer
+layout later grows to three or more rows, it requires a real schema migration
+instead of overloading this column.
 
 `drawer_view_layout_pane` makes `row_kind` non-key because a pane should appear
 in at most one row for a drawer view. `row_kind` still participates in the

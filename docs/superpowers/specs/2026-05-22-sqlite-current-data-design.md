@@ -75,12 +75,16 @@ Read and review in this order:
 ```text
 1. Freeze boundaries.
 2. Split lifecycle-mixed atoms into write-owner atoms plus derived readers.
-3. Implement core migrations and core repository tests.
-4. Implement settings extraction.
-5. Implement local UX/cache migrations and repository tests.
-6. Replace observation-driven core snapshot saves with transaction-first writes.
-7. Add recovery/quarantine paths.
-8. Return to session indexing after the foundation is stable.
+3. Classify and rename or split mixed domain/read-model/legacy DTO types before
+   SQLite repositories land.
+4. Update AGENTS.md and architecture docs so the new atom/store boundaries are
+   discoverable outside this spec bundle.
+5. Implement core migrations and core repository tests.
+6. Implement settings extraction.
+7. Implement local UX/cache migrations and repository tests.
+8. Replace observation-driven core snapshot saves with transaction-first writes.
+9. Add recovery/quarantine paths.
+10. Return to session indexing after the foundation is stable.
 ```
 
 ## Non-Goals

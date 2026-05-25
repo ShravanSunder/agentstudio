@@ -134,7 +134,20 @@ derived atom / derived reader
   -> combines write-owner atoms
   -> may look like the rich domain model
   -> never owns persistence
+
+legacy import DTO
+  -> decodes old Codable JSON payloads
+  -> never becomes the live SQLite write model
+
+row projection
+  -> repository-facing SQL table shape
+  -> never becomes the UI read model by accident
 ```
+
+Write-owner atoms are not table models. A single write-owner atom should own the
+set of fields that one validated command must project coherently. SQLite can
+normalize that state into many tables, but SwiftUI and command validation should
+not observe table-shaped fragments for one domain operation.
 
 Step 0 should split lifecycle-mixed atoms before SQLite lands. This includes the
 obvious low-risk atoms and the pane/tab arrangement atoms that would otherwise
@@ -142,6 +155,9 @@ force repository code to route graph, cursor, and runtime fields out of one
 mutable owner.
 
 ```text
+ActiveWorkspaceSelectionAtom -> add
+  core      -> app_workspace_selection.active_workspace_id
+
 WorkspaceMetadataAtom -> split
   core      -> WorkspaceIdentityAtom
   local     -> WorkspaceWindowMemoryAtom
@@ -159,7 +175,7 @@ WorkspaceTabShellAtom -> split
   local     -> WorkspaceCursorAtom
 
 WorkspaceTabArrangementAtom -> split
-  core      -> WorkspaceArrangementGraphAtom
+  core      -> WorkspaceTabGraphAtom
   local     -> WorkspaceArrangementCursorAtom
   runtime   -> WorkspacePanePresentationAtom
 
@@ -191,8 +207,25 @@ Do not split atoms solely because SQLite has multiple tables. Split atoms when
 their fields have different lifecycles or write paths. For pane and arrangement
 state, that condition is already true: drawer expansion, active arrangement,
 active pane, active drawer child, and zoom presentation do not share the same
-durability semantics as pane membership and layout rows. Keep the composed read
-model; split the write owners.
+durability semantics as pane membership and layout rows.
+
+Step 0 must also classify the Swift types that cross those boundaries. If a type
+is both legacy Codable payload and live UI read model today, keep that only as an
+explicit bridge during the split. Rename or split the type when the current name
+would mislead repository work about whether it is a row projection,
+write-owner state, derived read model, or legacy import DTO.
+
+Terminology:
+
+```text
+cursor
+  -> persisted focus/selection state that should survive relaunch
+  -> active tab, active arrangement, active pane, active drawer child
+
+presentation
+  -> runtime-only display override
+  -> zoomed pane and similar transient view state
+```
 
 Existing and planned derived readers should absorb the compatibility cost:
 
@@ -201,10 +234,12 @@ WorkspacePaneGraphAtom
 WorkspaceDrawerCursorAtom
   -> WorkspacePaneDerived
      -> rich Pane values for UI, validators, and command snapshots
+     -> observes WorkspaceRepositoryTopologyAtom and RepoEnrichmentCacheAtom
+        when rendering derived repo/worktree/display facets
 
 WorkspaceTabShellAtom
 WorkspaceCursorAtom
-WorkspaceArrangementGraphAtom
+WorkspaceTabGraphAtom
 WorkspaceArrangementCursorAtom
 WorkspacePanePresentationAtom
   -> WorkspaceTabLayoutDerived
@@ -217,6 +252,16 @@ SidebarExpandedGroupAtom
 SidebarCheckoutColorAtom
   -> sidebar view models / command visibility readers
 ```
+
+Derived readers are allowed to expose rich UI/domain shapes, but those names
+must disclose that they are read models. A mixed value may be convenient for UI
+and validators; it must not be mistaken for the storage contract.
+
+`WorkspaceMutationCoordinator` remains the semantic mutation sequencer after
+Step 0, but its constructor dependencies change from the old mixed atoms to the
+new write-owner atoms. It should receive the graph, cursor, presentation,
+topology, and cache owners it needs rather than reaching through derived readers
+to mutate state.
 
 The same split applies to domain models decoded from legacy JSON:
 
@@ -247,6 +292,12 @@ one ACID transaction, but the UI can apply a single composed atom projection
 from the committed core result plus the intended local cursor result. If the app
 crashes between the two writes, the durable graph survives and local cursor
 state may be stale on relaunch.
+
+Core deletes and topology prunes must synchronously repair in-memory cursor
+atoms before the coordinator returns control to the UI. The local SQLite
+reconciliation write may be part of the same async task, but the MainActor atoms
+must not temporarily expose `active_pane_id`, `active_child_id`, tab membership,
+or drawer expansion state that points at deleted core ids.
 
 Examples:
 
@@ -340,6 +391,11 @@ ON CONFLICT(drawer_id) DO UPDATE SET
 The exact SQL can change, but the transactional behavior must not: there is no
 relaunch state where two drawers are marked expanded because one row flushed and
 the other did not.
+
+The same atomicity applies in memory. `WorkspaceDrawerCursorAtom` exposes one
+semantic method for drawer expansion; that method collapses every other drawer
+cursor in the workspace and then updates the requested drawer before observers
+see the new state.
 
 ## Cache Flow
 
@@ -535,7 +591,7 @@ Required for Step 1 core/local:
   WAL for file-backed databases
   transactions
   ordinary indexes / unique constraints
-  busy_timeout configured for short writer contention
+  busy_timeout=2000 ms for short writer contention
   synchronous=NORMAL for WAL-backed app databases
 
 Allowed but opaque in Step 1:

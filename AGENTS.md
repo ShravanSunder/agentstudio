@@ -178,6 +178,12 @@ These four patterns govern all code. Follow them. Breaking them creates bugs tha
 
 `@Observable @MainActor`, `private(set)` reads, mutation via methods (valtio-style). One atom per domain, one reason to change. No god-atom. Atoms never touch disk.
 
+**Write-owner atoms are not SQL table models.** When moving persistence to SQLite, keep atom boundaries aligned to lifecycle and semantic write ownership, not relational normalization. A write-owner atom may project to multiple normalized tables when one validated user command must update those rows coherently. Use derived readers/atoms to compose rich UI/domain values from several write-owner atoms. Do not create one atom per table such as `pane`, `drawer_pane`, `tab_pane`, and `arrangement_layout_pane`; that pushes table orchestration into coordinators and destroys domain cohesion.
+
+**Disclose atom and type roles.** When adding or splitting atom-backed state, name and document whether each affected type is write-owner atom state, a derived read model, a SQLite row projection, or a legacy import DTO. If a type spans more than one role, either split it or rename it so the role is visible. Do not let `Codable` legacy payload names become the live SQLite storage contract by accident.
+
+**SQLite cutover alignment.** The planned SQLite cutover splits lifecycle-mixed atoms before repository work: workspace identity vs window memory, tab shell vs cursor, pane graph vs drawer cursor, tab graph vs arrangement cursor vs runtime presentation, cache enrichment vs recent targets, and settings/runtime feature state. `active_workspace_id` is global core state and needs its own selection owner. When these boundaries are implemented, update this `AGENTS.md` component table and the architecture docs in the same changeset as the code.
+
 **Path convention (universal):** `<owner>/State/MainActor/Atoms/` for all atoms, whether Core or Feature. Shared atoms in `Core/State/MainActor/Atoms/`; feature-scoped atoms in `Features/<slice>/State/MainActor/Atoms/`. Existing features without the `MainActor/` subpath are grandfathered; new features adopt the full path.
 
 **Composition state vs feature state.** Composition state (app-wide UI shell — which surface is showing, has-focus, collapsed) lives on `UIStateAtom` in Core. Feature state (domain data specific to one feature) lives in feature atoms inside the feature slice. Never add a feature-specific property to a Core atom; never add a feature type to `Core/Models/` just because an atom references it — that forces feature types into Core.

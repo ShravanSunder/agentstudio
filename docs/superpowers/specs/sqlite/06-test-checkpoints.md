@@ -28,6 +28,8 @@ repository code lands.
 
 ## Step 0 Atom Boundary Tests
 
+- ActiveWorkspaceSelectionAtom can update active_workspace_id without hydrating
+  or mutating a WorkspaceIdentityAtom
 - workspace identity can mutate without scheduling local window/sidebar writes
 - sidebar width and window frame can mutate without scheduling core workspace
   writes
@@ -53,6 +55,16 @@ repository code lands.
 - repo enrichment cache can reset without deleting recent workspace targets
 - pane/tab arrangement composed read models still expose the same command
   validation inputs after graph/cursor/runtime atom splits
+- mixed domain structs are classified as write-owner state, derived read model,
+  row projection, or legacy import DTO before SQLite repositories land
+- any renamed/split Pane, Drawer, Tab, PaneArrangement, or DrawerView role keeps
+  explicit tests proving old UI/validator behavior still reads through the
+  derived read model
+- lifecycle-grouped atoms are preserved: creating a pane may project pane,
+  content, tag, drawer, and drawer membership changes through one pane graph
+  write owner instead of table-shaped atoms
+- WorkspaceTabGraphAtom owns tab_pane plus arrangement/layout rows, while
+  WorkspaceTabShellAtom owns shell identity/order only
 
 ## Core Tests
 
@@ -66,6 +78,10 @@ repository code lands.
 - legacy import routes embedded cursor fields to local rows:
   activeTabId, activeArrangementId, activePaneId, activeChildId, drawer
   isExpanded
+- legacy import tolerates pre-DrawerView JSON where Drawer.activePaneId exists
+  and routes the value to local drawer-child cursor state when resolvable
+- unsupported legacy JSON schemaVersion values are reported and quarantined as
+  unsupported legacy data, not silently interpreted as v1
 - partial legacy import resumes if the app crashes after core rows commit but
   before settings/local/cache companion files import
 - legacy import sets deterministic active workspace selection from the newest
@@ -93,6 +109,7 @@ repository code lands.
 - drawer-view row layout rejects the same pane appearing in both top and bottom
   rows
 - drawer view `row_split_ratio` round trips
+- drawer grid layout is treated as the Step 1 two-row top/bottom model
 - schema rejects multiple drawers for one parent pane and one child pane in
   multiple drawers
 - validators reject the same pane appearing in both the main arrangement layout
@@ -123,6 +140,7 @@ repository code lands.
 
 - fresh local database runs all migrations
 - local UX state imports from current UI/sidebar/inbox JSON
+- fresh local database seeds deterministic cursor defaults from the core graph
 - active tab round trips through local cursor rows
 - active arrangement round trips through local cursor rows
 - active pane round trips through local cursor rows
@@ -133,6 +151,8 @@ repository code lands.
   row
 - expanding a drawer writes the target drawer and collapses other drawer cursor
   rows in one local transaction
+- expanding a drawer synchronously collapses other drawer cursor atoms in memory
+  before observers see the mutation
 - detaching the last drawer child preserves the drawer expansion cursor while
   repairing the active drawer child cursor
 - zoomed pane state is not persisted and hydrates as nil
@@ -158,6 +178,8 @@ repository code lands.
 - bad cache_* payload rows rebuild the affected cache table/row family without
   quarantining the whole local database
 - local reconciliation prunes copied core ids after core topology deletes
+- core deletes synchronously clear dangling in-memory cursor ids before the UI
+  observes the completed user action
 - local reconciliation runs after core delete/topology-prune mutations before
   the user action is considered settled
 - deleting local.sqlite does not delete core rows or settings
@@ -194,6 +216,14 @@ semantics so a later migration can write targeted tests.
   falls back to empty/welcome state when none remain
 - workflow/session pointer rows survive cache rebuild once those tables exist
 - runtime-only atoms are not persisted
+
+## Documentation Checkpoints
+
+- AGENTS.md component table reflects the implemented atom/store split
+- architecture docs reflect write-owner atoms, derived readers, and the
+  core/settings/local persistence boundaries
+- SQLite checkpoint docs use the final atom/store names and migration ids
+- no current docs describe atoms as one-to-one SQL table models
 
 ## Capability Tests
 
