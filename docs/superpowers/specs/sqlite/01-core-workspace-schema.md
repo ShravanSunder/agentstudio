@@ -1,0 +1,423 @@
+# Core Workspace Schema
+
+## Status
+
+Checkpoint C2 for the AgentStudio SQLite cutover.
+
+This file owns durable core rows only. Cursor/attention state is specified in
+`02-local-ux-and-cache-schema.md`.
+
+## Scope
+
+`core.sqlite` is global and durable. It stores the workspace catalog and the
+workspace graph:
+
+```text
+<AppDataPaths.rootDirectory()>/core.sqlite
+```
+
+Core owns:
+
+- workspace identity
+- the app-level active workspace selector
+- watched paths
+- repos and worktrees
+- panes, content, metadata, residency, drawer membership
+- tabs, pane membership, arrangements, layouts, minimized layout membership
+- future workflow/worker/session pointer rows
+
+Core does not own:
+
+- active tab
+- active arrangement
+- active pane
+- drawer expansion
+- active drawer child
+- zoomed pane
+- selected sidebar surface
+- window frame or sidebar width
+- cache/index/session facts
+
+## Core Schema Sketch
+
+This is design DDL, not final executable migration text.
+
+```sql
+CREATE TABLE workspace (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE app_workspace_selection (
+    singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+    active_workspace_id TEXT REFERENCES workspace(id) ON DELETE SET NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE legacy_workspace_import_status (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+    source_state_path TEXT NOT NULL,
+    core_imported_at REAL,
+    settings_imported_at REAL,
+    local_imported_at REAL,
+    cache_imported_at REAL,
+    archived_at REAL,
+    last_error TEXT
+);
+
+CREATE TABLE watched_path (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    stable_key TEXT NOT NULL,
+    added_at REAL NOT NULL,
+    UNIQUE(workspace_id, stable_key)
+);
+
+CREATE TABLE repo (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    repo_path TEXT NOT NULL,
+    stable_key TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    UNIQUE(workspace_id, stable_key)
+);
+
+CREATE TABLE worktree (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    repo_id TEXT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    stable_key TEXT NOT NULL,
+    is_main_worktree INTEGER NOT NULL,
+    UNIQUE(workspace_id, stable_key),
+    UNIQUE(repo_id, stable_key)
+);
+
+CREATE TABLE unavailable_repo (
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    repo_id TEXT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+    PRIMARY KEY(workspace_id, repo_id)
+);
+
+CREATE TABLE pane (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    content_type TEXT NOT NULL,
+    execution_backend TEXT NOT NULL,
+    source_kind TEXT NOT NULL,
+    source_repo_id TEXT REFERENCES repo(id) ON DELETE SET NULL,
+    source_worktree_id TEXT REFERENCES worktree(id) ON DELETE SET NULL,
+    launch_directory TEXT,
+    title TEXT NOT NULL,
+    cwd TEXT,
+    checkout_ref TEXT,
+    residency_kind TEXT NOT NULL,
+    pending_undo_expires_at REAL,
+    orphan_reason_kind TEXT,
+    orphan_worktree_path TEXT,
+    kind TEXT NOT NULL,
+    parent_pane_id TEXT REFERENCES pane(id) ON DELETE CASCADE,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE pane_content_terminal (
+    pane_id TEXT PRIMARY KEY REFERENCES pane(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    lifetime TEXT NOT NULL
+);
+
+CREATE TABLE pane_content_webview (
+    pane_id TEXT PRIMARY KEY REFERENCES pane(id) ON DELETE CASCADE,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    show_navigation INTEGER NOT NULL
+);
+
+CREATE TABLE pane_content_code_viewer (
+    pane_id TEXT PRIMARY KEY REFERENCES pane(id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL,
+    scroll_to_line INTEGER
+);
+
+CREATE TABLE pane_content_payload (
+    pane_id TEXT PRIMARY KEY REFERENCES pane(id) ON DELETE CASCADE,
+    payload_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+);
+
+CREATE TABLE pane_tag (
+    pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    PRIMARY KEY(pane_id, tag)
+);
+
+CREATE TABLE drawer (
+    id TEXT PRIMARY KEY,
+    parent_pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
+    UNIQUE(parent_pane_id)
+);
+
+CREATE TABLE drawer_pane (
+    drawer_id TEXT NOT NULL REFERENCES drawer(id) ON DELETE CASCADE,
+    pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
+    sort_index INTEGER NOT NULL,
+    PRIMARY KEY(drawer_id, pane_id),
+    UNIQUE(pane_id),
+    UNIQUE(drawer_id, sort_index)
+);
+
+CREATE TABLE tab_shell (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    sort_index INTEGER NOT NULL,
+    UNIQUE(workspace_id, sort_index)
+);
+
+CREATE TABLE tab_pane (
+    tab_id TEXT NOT NULL REFERENCES tab_shell(id) ON DELETE CASCADE,
+    pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
+    sort_index INTEGER NOT NULL,
+    PRIMARY KEY(tab_id, pane_id),
+    UNIQUE(tab_id, sort_index)
+);
+
+CREATE TABLE tab_arrangement (
+    id TEXT PRIMARY KEY,
+    tab_id TEXT NOT NULL REFERENCES tab_shell(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    is_default INTEGER NOT NULL,
+    shows_minimized_panes INTEGER NOT NULL,
+    sort_index INTEGER NOT NULL,
+    UNIQUE(tab_id, sort_index)
+);
+
+CREATE TABLE arrangement_layout_pane (
+    arrangement_id TEXT NOT NULL REFERENCES tab_arrangement(id) ON DELETE CASCADE,
+    pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
+    sort_index INTEGER NOT NULL,
+    ratio REAL NOT NULL,
+    PRIMARY KEY(arrangement_id, pane_id),
+    UNIQUE(arrangement_id, sort_index)
+);
+
+CREATE TABLE arrangement_layout_divider (
+    arrangement_id TEXT NOT NULL REFERENCES tab_arrangement(id) ON DELETE CASCADE,
+    divider_id TEXT NOT NULL,
+    sort_index INTEGER NOT NULL,
+    PRIMARY KEY(arrangement_id, divider_id),
+    UNIQUE(arrangement_id, sort_index)
+);
+
+CREATE TABLE arrangement_minimized_pane (
+    arrangement_id TEXT NOT NULL REFERENCES tab_arrangement(id) ON DELETE CASCADE,
+    pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
+    PRIMARY KEY(arrangement_id, pane_id)
+);
+
+CREATE TABLE arrangement_drawer_view (
+    arrangement_id TEXT NOT NULL REFERENCES tab_arrangement(id) ON DELETE CASCADE,
+    drawer_id TEXT NOT NULL REFERENCES drawer(id) ON DELETE CASCADE,
+    row_split_ratio REAL NOT NULL,
+    PRIMARY KEY(arrangement_id, drawer_id)
+);
+
+CREATE TABLE drawer_view_layout_pane (
+    arrangement_id TEXT NOT NULL,
+    drawer_id TEXT NOT NULL,
+    row_kind TEXT NOT NULL,
+    pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
+    sort_index INTEGER NOT NULL,
+    ratio REAL NOT NULL,
+    PRIMARY KEY(arrangement_id, drawer_id, pane_id),
+    UNIQUE(arrangement_id, drawer_id, row_kind, sort_index),
+    FOREIGN KEY(arrangement_id, drawer_id)
+        REFERENCES arrangement_drawer_view(arrangement_id, drawer_id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE drawer_view_layout_divider (
+    arrangement_id TEXT NOT NULL,
+    drawer_id TEXT NOT NULL,
+    row_kind TEXT NOT NULL,
+    divider_id TEXT NOT NULL,
+    sort_index INTEGER NOT NULL,
+    PRIMARY KEY(arrangement_id, drawer_id, row_kind, divider_id),
+    UNIQUE(arrangement_id, drawer_id, row_kind, sort_index),
+    FOREIGN KEY(arrangement_id, drawer_id)
+        REFERENCES arrangement_drawer_view(arrangement_id, drawer_id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE drawer_view_minimized_pane (
+    arrangement_id TEXT NOT NULL,
+    drawer_id TEXT NOT NULL,
+    pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
+    PRIMARY KEY(arrangement_id, drawer_id, pane_id),
+    FOREIGN KEY(arrangement_id, drawer_id)
+        REFERENCES arrangement_drawer_view(arrangement_id, drawer_id)
+        ON DELETE CASCADE
+);
+```
+
+## Atom Mapping
+
+```text
+WorkspaceIdentityAtom
+  -> workspace.id
+  -> workspace.name
+  -> workspace.created_at
+
+WorkspaceCoreRepository
+  -> workspace.updated_at
+  -> legacy_workspace_import_status
+
+App boot / workspace selection
+  -> app_workspace_selection.active_workspace_id
+
+WorkspaceRepositoryTopologyAtom
+  -> watched_path
+  -> repo
+  -> worktree
+  -> unavailable_repo
+
+WorkspacePaneGraphAtom
+  -> pane
+  -> pane_content_*
+  -> pane_tag
+  -> drawer
+  -> drawer_pane
+  -> durable PaneMetadata source/cwd/tag fields only
+
+WorkspaceTabShellAtom
+  -> tab_shell
+
+WorkspaceArrangementGraphAtom
+  -> tab_pane
+  -> tab_arrangement
+  -> arrangement_layout_pane
+  -> arrangement_layout_divider
+  -> arrangement_minimized_pane
+  -> arrangement_drawer_view
+  -> drawer_view_layout_pane
+  -> drawer_view_layout_divider
+  -> drawer_view_minimized_pane
+
+WorkspaceTabLayoutDerived
+  -> composed read model, not its own persistence owner
+```
+
+## Invariants
+
+Drawer invariants that are simple to express belong in the schema:
+
+```text
+one parent pane
+  -> at most one drawer
+
+one drawer child pane
+  -> at most one drawer membership
+
+one drawer view
+  -> preserves DrawerGridLayout.rowSplitRatio
+```
+
+`drawer_view_layout_pane` makes `row_kind` non-key because a pane should appear
+in at most one row for a drawer view. `row_kind` still participates in the
+`sort_index` uniqueness rule because ordering is row-local.
+
+`arrangement_minimized_pane` and `shows_minimized_panes` remain core for Step 1
+because they shape the saved arrangement layout. If product behavior later
+treats minimization as pure ephemeral attention state, that can move to local in
+a dedicated migration.
+
+`PaneMetadata.facets` is not stored as one JSON blob. Core stores durable routing
+and workspace identity fields: source repo/worktree ids, launch directory, cwd,
+checkout ref, and tags. Display/cache facets such as repo name, worktree name,
+parent folder label, organization name, origin, and upstream are composed by
+derived readers from core topology plus cache enrichment.
+
+Reorders use delete-then-reinsert for the affected ordered child rows inside one
+transaction in Step 1. This touches more rows than a staged-offset update, but it
+is simpler, deterministic, and acceptable for realistic tab/pane/drawer counts
+in AgentStudio.
+
+A pane belongs to either the main arrangement layout or a single drawer view row
+for that arrangement, never both. SQLite cannot express that cross-table
+exclusion cleanly, so validators and repository tests own the invariant.
+
+Every pane that appears in an arrangement layout table must also appear in
+`tab_pane` for that arrangement's owning tab. This includes
+`arrangement_layout_pane`, `drawer_view_layout_pane`, minimized rows, and drawer
+view minimized rows. SQLite can enforce each table's immediate foreign keys, but
+it cannot cheaply express this cross-table membership invariant without brittle
+triggers. Step 1 keeps the invariant in repository transactions and tests.
+
+Repo reassociation and worktree reconciliation are one core transaction. When a
+discovered worktree set replaces existing rows, the repository uses the same
+delete-then-reinsert strategy as layout reorders for the affected worktree set.
+That avoids transient `UNIQUE(workspace_id, stable_key)` or
+`UNIQUE(repo_id, stable_key)` conflicts when a key is removed and reused in the
+same reconciliation.
+
+## Future Workflow And Session Pointer Sketch
+
+These are core rows because they are user-owned product state. Parsed provider
+facts, token counts, tool histograms, and search text belong in local `index_*`
+tables later.
+
+```sql
+CREATE TABLE workflow (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    archived_at REAL
+);
+
+CREATE TABLE worker (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    primary_repo_id TEXT REFERENCES repo(id) ON DELETE SET NULL,
+    primary_worktree_id TEXT REFERENCES worktree(id) ON DELETE SET NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    archived_at REAL
+);
+
+CREATE TABLE session_pointer (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_session_id TEXT NOT NULL,
+    display_alias TEXT,
+    user_note TEXT,
+    preferred_restore_command TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    archived_at REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(workspace_id, provider, provider_session_id)
+);
+
+CREATE TABLE workflow_session (
+    workflow_id TEXT NOT NULL REFERENCES workflow(id) ON DELETE CASCADE,
+    session_pointer_id TEXT NOT NULL REFERENCES session_pointer(id) ON DELETE CASCADE,
+    worker_id TEXT REFERENCES worker(id) ON DELETE SET NULL,
+    relationship_kind TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY(workflow_id, session_pointer_id)
+);
+```
+
+`ManagementLayerAtom` is not this schema today. It currently stores only runtime
+active/inactive state. Workflow/worker/session-pointer rows are future durable
+product concepts, not a persistence mapping for the current `ManagementLayerAtom`.
