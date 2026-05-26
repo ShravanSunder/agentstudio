@@ -243,8 +243,9 @@ struct CommandBarDataSourceTests {
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
         #expect(tabItem?.title == "agent-studio")
-        #expect(tabItem?.subtitle == "Active Tab")
+        #expect(tabItem?.subtitle == "Tab 1 · Active")
         #expect(paneItem?.title == "Terminal — feature/pane-labels")
+        #expect(paneItem?.subtitle == "Tab 1 · Pane 1 · Active")
     }
 
     @Test
@@ -266,7 +267,7 @@ struct CommandBarDataSourceTests {
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
-        #expect(tabItem?.subtitle == "Active · Tab 1 · 3 panes")
+        #expect(tabItem?.subtitle == "Tab 1 · 3 panes · Active")
     }
 
     @Test
@@ -315,7 +316,7 @@ struct CommandBarDataSourceTests {
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
-        #expect(paneItem?.subtitle == "agent-vm · Tab 1 · Active")
+        #expect(paneItem?.subtitle == "agent-vm · Tab 1 · Pane 1 · Active")
     }
 
     @Test

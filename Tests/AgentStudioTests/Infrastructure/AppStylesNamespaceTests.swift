@@ -36,6 +36,7 @@ struct AppStylesNamespaceTests {
     func commandBarNamespaceOwnsPanelChromeAndRowStyling() {
         #expect(AppStyles.CommandBar.Footer.separatorOpacity == 0.15)
         #expect(AppStyles.CommandBar.Footer.rowHeight == 16)
+        #expect(AppStyles.CommandBar.Rows.groupHeaderFontSize == AppStyles.General.Typography.textSm)
         #expect(AppStyles.CommandBar.Rows.selectedRowCornerRadius == 6)
         #expect(AppStyles.CommandBar.Panel.horizontalPadding == 12)
     }

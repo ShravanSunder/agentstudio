@@ -196,7 +196,7 @@ extension CommandBarDataSource {
             let paneCount = presence.openPanes.count
             let tabCount = presence.distinctTabCount
             if tabCount == 1, let location = presence.openPanes.first {
-                return "● \(paneCount) panes · Tab \(location.tabIndex + 1)"
+                return "● Tab \(location.tabIndex + 1) · \(paneCount) panes"
             }
             return "● \(paneCount) panes · \(tabCount) tabs"
         }
