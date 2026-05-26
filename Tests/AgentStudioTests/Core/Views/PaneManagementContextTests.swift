@@ -36,6 +36,7 @@ struct PaneManagementContextTests {
                 title: "Terminal",
                 facets: PaneContextFacets(cwd: URL(fileURLWithPath: "/tmp/agent-studio/subdir"))
             )
+            store.paneAtom.updatePaneNote(pane.id, note: "Watch release logs")
             atoms.repoCache.setWorktreeEnrichment(
                 WorktreeEnrichment(
                     worktreeId: worktree.id,
@@ -52,6 +53,9 @@ struct PaneManagementContextTests {
             #expect(context.identityRows.first(where: { $0.id == "repo" })?.text == repo.name)
             #expect(context.identityRows.first(where: { $0.id == "branch" })?.text == "main")
             #expect(context.identityRows.first(where: { $0.id == "cwd" })?.text == "subdir")
+            #expect(context.identityRows.last?.id == "note")
+            #expect(context.identityRows.last?.icon == .system("long.text.page.and.pencil"))
+            #expect(context.identityRows.last?.text == "Watch release logs")
             #expect(context.statusChips?.branchStatus.prCount == 2)
             #expect(context.statusChips?.notificationCount == 1)
         }
@@ -117,6 +121,39 @@ struct PaneManagementContextTests {
             #expect(context.identityRows.first(where: { $0.id == "fallback" })?.text == "Floating")
             #expect(context.statusChips == nil)
             #expect(context.showsIdentityBlock == true)
+        }
+    }
+
+    @Test
+    func standaloneCwdUsesAbsolutePathWhenNoWorktreeContextExists() {
+        withTestAtomRegistry { atoms in
+            let persistor = WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(
+                    path: "pane-management-context-\(UUID().uuidString)")
+            )
+            persistor.ensureDirectory()
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout,
+                persistor: persistor
+            )
+
+            let cwd = URL(fileURLWithPath: "/Users/dev/project-dev")
+            let pane = store.createPane(
+                source: .floating(launchDirectory: cwd, title: "Floating"),
+                title: "Floating",
+                facets: PaneContextFacets(cwd: cwd)
+            )
+
+            let context = PaneManagementContext.project(paneId: pane.id, store: store)
+
+            let cwdRow = context.identityRows.first { $0.id == "cwd" }
+            #expect(context.targetPath == cwd)
+            #expect(cwdRow?.text == "/Users/dev/project-dev")
+            #expect(cwdRow?.toolTip == "/Users/dev/project-dev")
+            #expect(context.identityRows.contains { $0.id == "repo" } == false)
+            #expect(context.identityRows.contains { $0.id == "worktree" } == false)
         }
     }
 

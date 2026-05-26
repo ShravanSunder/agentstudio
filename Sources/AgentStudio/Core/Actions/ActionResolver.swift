@@ -144,7 +144,7 @@ enum WorkspaceCommandResolver {
             .showCommandBarEverything, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
-            .openPaneLocationInEditorMenu,
+            .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
             .openWebview, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement, .saveArrangement,

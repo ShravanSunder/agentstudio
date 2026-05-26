@@ -201,6 +201,181 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func updatePaneLiveLocation_resolvesKnownWorktreeAndPreservesLaunchSource() {
+        let repo = store.addRepo(at: URL(filePath: "/tmp/live-identity-repo"))
+        let main = Worktree(
+            repoId: repo.id,
+            name: "main",
+            path: URL(filePath: "/tmp/live-identity-repo"),
+            isMainWorktree: true
+        )
+        let feature = Worktree(
+            repoId: repo.id,
+            name: "feature",
+            path: URL(filePath: "/tmp/live-identity-repo-feature")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main, feature])
+
+        let pane = store.createPane(
+            source: .worktree(worktreeId: main.id, repoId: repo.id, launchDirectory: main.path),
+            title: "Terminal"
+        )
+
+        let cwd = feature.path.appending(path: "Sources")
+        let result = store.paneAtom.updatePaneCWDAndResolvedContext(
+            pane.id,
+            cwd: cwd,
+            resolvedContext: store.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
+        )
+        #expect(result == .applied)
+
+        let updated = store.pane(pane.id)
+        #expect(updated?.metadata.cwd == cwd)
+        #expect(updated?.repoId == repo.id)
+        #expect(updated?.worktreeId == feature.id)
+        #expect(updated?.metadata.repoName == repo.name)
+        #expect(updated?.metadata.worktreeName == "feature")
+
+        guard case .worktree(let launchWorktreeId, let launchRepoId, let launchDirectory) = updated?.metadata.source
+        else {
+            Issue.record("Expected launch source to remain worktree provenance")
+            return
+        }
+        #expect(launchWorktreeId == main.id)
+        #expect(launchRepoId == repo.id)
+        #expect(launchDirectory == main.path)
+    }
+
+    @Test
+    func updatePaneLiveLocation_clearsLiveRepoAndWorktreeWhenCwdLeavesKnownWorktrees() {
+        let repo = store.addRepo(at: URL(filePath: "/tmp/live-clear-repo"))
+        let main = Worktree(
+            repoId: repo.id,
+            name: "main",
+            path: URL(filePath: "/tmp/live-clear-repo"),
+            isMainWorktree: true
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main])
+        let pane = store.createPane(
+            source: .worktree(worktreeId: main.id, repoId: repo.id, launchDirectory: main.path),
+            title: "Terminal"
+        )
+
+        let externalCwd = URL(filePath: "/tmp/outside-known-worktrees")
+        let result = store.paneAtom.updatePaneCWDAndResolvedContext(
+            pane.id,
+            cwd: externalCwd,
+            resolvedContext: store.repositoryTopologyAtom.repoAndWorktree(containing: externalCwd)
+        )
+        #expect(result == .applied)
+
+        let updated = store.pane(pane.id)
+        #expect(updated?.metadata.cwd == externalCwd)
+        #expect(updated?.repoId == nil)
+        #expect(updated?.worktreeId == nil)
+        #expect(updated?.metadata.repoName == nil)
+        #expect(updated?.metadata.worktreeName == nil)
+
+        guard case .worktree(let launchWorktreeId, let launchRepoId, let launchDirectory) = updated?.metadata.source
+        else {
+            Issue.record("Expected launch source to remain worktree provenance")
+            return
+        }
+        #expect(launchWorktreeId == main.id)
+        #expect(launchRepoId == repo.id)
+        #expect(launchDirectory == main.path)
+    }
+
+    @Test
+    func updatePaneLiveLocation_preservesFloatingSourceWhileLiveFacetsFollowKnownCwd() {
+        let repo = store.addRepo(at: URL(filePath: "/tmp/live-floating-repo"))
+        let worktree = Worktree(
+            repoId: repo.id,
+            name: "floating-target",
+            path: URL(filePath: "/tmp/live-floating-repo/floating-target")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        let pane = store.createPane(
+            source: .floating(launchDirectory: URL(filePath: "/tmp/scratch"), title: "scratch"),
+            title: "Scratch Terminal"
+        )
+
+        let changed = store.paneAtom.updatePaneCWDAndResolvedContext(
+            pane.id,
+            cwd: worktree.path,
+            resolvedContext: store.repositoryTopologyAtom.repoAndWorktree(containing: worktree.path)
+        )
+
+        let updated = store.pane(pane.id)
+        #expect(changed == .applied)
+        #expect(updated?.repoId == repo.id)
+        #expect(updated?.worktreeId == worktree.id)
+        guard case .floating(let launchDirectory, let title) = updated?.metadata.source else {
+            Issue.record("Expected launch source to remain floating provenance")
+            return
+        }
+        #expect(launchDirectory == URL(filePath: "/tmp/scratch"))
+        #expect(title == "scratch")
+    }
+
+    @Test
+    func updatePaneLiveLocation_isIdempotentWhenCwdAndResolvedContextAreUnchanged() {
+        let repo = store.addRepo(at: URL(filePath: "/tmp/live-idempotent-repo"))
+        let worktree = Worktree(
+            repoId: repo.id,
+            name: "main",
+            path: URL(filePath: "/tmp/live-idempotent-repo"),
+            isMainWorktree: true
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        let pane = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Terminal"
+        )
+        let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: worktree.path)
+
+        let first = store.paneAtom.updatePaneCWDAndResolvedContext(
+            pane.id,
+            cwd: worktree.path,
+            resolvedContext: resolvedContext
+        )
+        let second = store.paneAtom.updatePaneCWDAndResolvedContext(
+            pane.id,
+            cwd: worktree.path,
+            resolvedContext: resolvedContext
+        )
+
+        #expect(first == .applied)
+        #expect(second == .unchanged)
+    }
+
+    @Test
+    func updatePaneLiveLocation_reportsMissingPaneSeparately() {
+        let result = store.paneAtom.updatePaneCWDAndResolvedContext(
+            UUID(),
+            cwd: URL(filePath: "/tmp/missing-pane"),
+            resolvedContext: nil
+        )
+
+        #expect(result == .paneMissing)
+    }
+
+    @Test("workspace pane atom updates pane note")
+    func workspacePaneAtomUpdatesPaneNote() {
+        let atom = WorkspacePaneAtom()
+        let pane = Pane(
+            id: PaneId().uuid,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "scratch"))
+        )
+        #expect(atom.insertRestoredPane(pane))
+
+        atom.updatePaneNote(pane.id, note: "  Restart backend after deploy  ")
+
+        #expect(atom.pane(pane.id)?.metadata.note == "Restart backend after deploy")
+    }
+
+    @Test
 
     func test_removePane_removesFromPanes() {
         // Arrange

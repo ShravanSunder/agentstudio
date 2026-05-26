@@ -66,7 +66,13 @@ struct CommandBarResultRow: View {
             if let subtitle = item.subtitle {
                 Text(subtitle)
                     .font(.system(size: AppStyles.General.Typography.textSm))
-                    .foregroundStyle(.primary.opacity(isDimmed ? 0.25 : 0.5))
+                    .foregroundStyle(
+                        .primary.opacity(
+                            isDimmed
+                                ? AppStyles.CommandBar.Rows.dimmedTrailingMetadataOpacity
+                                : AppStyles.CommandBar.Rows.trailingMetadataOpacity
+                        )
+                    )
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: AppStyles.CommandBar.Rows.trailingMetadataMaxWidth, alignment: .trailing)
@@ -91,25 +97,46 @@ struct CommandBarResultRow: View {
         let title = displayTitle
         if searchQuery.isEmpty {
             Text(title)
-                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
-                .foregroundStyle(Color.primary.opacity(isDimmed ? 0.4 : 0.88))
+                .font(
+                    .system(
+                        size: AppStyles.General.Typography.textBase,
+                        weight: isSelected ? .semibold : .medium
+                    )
+                )
+                .foregroundStyle(Color.primary.opacity(titleOpacity))
         } else if let matchResult = CommandBarSearch.fuzzyMatch(pattern: searchQuery, in: title) {
             buildHighlightedText(title, ranges: matchResult.matchedRanges)
         } else {
             Text(title)
-                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
-                .foregroundStyle(Color.primary.opacity(isDimmed ? 0.4 : 0.88))
+                .font(
+                    .system(
+                        size: AppStyles.General.Typography.textBase,
+                        weight: isSelected ? .semibold : .medium
+                    )
+                )
+                .foregroundStyle(Color.primary.opacity(titleOpacity))
         }
     }
 
     private func buildHighlightedText(_ text: String, ranges: [Range<String.Index>]) -> some View {
         var result = AttributedString(text)
-        result.font = .system(size: AppStyles.General.Typography.textBase, weight: .medium)
-        result.foregroundColor = Color.primary.opacity(isDimmed ? 0.4 : 0.58)
+        result.font = .system(
+            size: AppStyles.General.Typography.textBase,
+            weight: isSelected ? .semibold : .medium
+        )
+        result.foregroundColor = Color.primary.opacity(
+            isDimmed
+                ? AppStyles.CommandBar.Rows.dimmedRowTitleOpacity
+                : AppStyles.CommandBar.Rows.fuzzyUnmatchedTitleOpacity
+        )
 
         for range in ranges {
             guard let attrRange = Range(range, in: result) else { continue }
-            result[attrRange].foregroundColor = Color.primary.opacity(isDimmed ? 0.6 : 0.95)
+            result[attrRange].foregroundColor = Color.primary.opacity(
+                isDimmed
+                    ? AppStyles.CommandBar.Rows.trailingMetadataOpacity
+                    : AppStyles.CommandBar.Rows.selectedRowTitleOpacity
+            )
             result[attrRange].font = .system(size: AppStyles.General.Typography.textBase, weight: .bold)
         }
 
@@ -118,6 +145,12 @@ struct CommandBarResultRow: View {
 
     private var displayTitle: String {
         item.title
+    }
+
+    private var titleOpacity: Double {
+        if isDimmed { return AppStyles.CommandBar.Rows.dimmedRowTitleOpacity }
+        if isSelected { return AppStyles.CommandBar.Rows.selectedRowTitleOpacity }
+        return AppStyles.CommandBar.Rows.rowTitleOpacity
     }
 
     private var iconColor: Color {

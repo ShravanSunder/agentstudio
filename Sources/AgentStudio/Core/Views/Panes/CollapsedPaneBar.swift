@@ -66,7 +66,7 @@ struct CollapsedPaneBar: View {
 
         VStack(spacing: AppStyles.General.Spacing.standard) {
             if managementLayer.isActive, let ordinal {
-                ManagementOrdinalShortcutHint(ordinal: ordinal)
+                ManagementOrdinalShortcutHint(ordinal: ordinal, variant: .collapsedBar)
             }
 
             expandButton

@@ -6,61 +6,11 @@ private let commandBarWorktreeLogger = Logger(subsystem: "com.agentstudio", cate
 @MainActor
 extension CommandBarDataSource {
     static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
-        var items: [CommandBarItem] = [
-            CommandBarItem(
-                id: "repo-new-empty-tab",
-                title: "New Empty Tab",
-                subtitle: "Blank terminal in watched folder or home",
-                icon: .system(.plusSquare),
-                group: "Repos",
-                groupPriority: 0,
-                keywords: ["new", "empty", "tab", "blank", "terminal"],
-                action: .dispatch(.newTab),
-                command: .newTab
-            )
-        ]
-
-        let repos = store.repositoryTopologyAtom.repos
-        let singleWorktreeRepos =
-            repos
-            .filter { $0.worktrees.count <= 1 }
+        store.repositoryTopologyAtom.repos
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-        let multiWorktreeRepos =
-            repos
-            .filter { $0.worktrees.count > 1 }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-        for repo in singleWorktreeRepos {
-            for worktree in repo.worktrees {
-                let presence = buildWorktreePresence(worktree: worktree, repo: repo, store: store)
-                items.append(
-                    unifiedWorktreeItem(
-                        worktree: worktree,
-                        repo: repo,
-                        presence: presence,
-                        group: "Repos",
-                        groupPriority: 0
-                    ))
+            .map { repo in
+                repoRootItem(repo: repo, store: store)
             }
-        }
-
-        for (repoIndex, repo) in multiWorktreeRepos.enumerated() {
-            let groupName = "\(repo.name) (worktrees)"
-            for worktree in repo.worktrees {
-                let presence = buildWorktreePresence(worktree: worktree, repo: repo, store: store)
-                items.append(
-                    unifiedWorktreeItem(
-                        worktree: worktree,
-                        repo: repo,
-                        presence: presence,
-                        group: groupName,
-                        groupPriority: repoIndex + 1
-                    ))
-            }
-        }
-
-        return items
     }
 
     static func everythingWorktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
@@ -92,11 +42,57 @@ extension CommandBarDataSource {
             icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
             group: group,
             groupPriority: groupPriority,
-            keywords: ["repo", "worktree", "terminal", repo.name, worktree.name],
+            keywords: ["repo", "worktree", "terminal", repo.name, worktree.name, worktree.path.lastPathComponent],
             hasChildren: true,
             action: .worktreeAction(presence: presence),
             command: .openWorktree
         )
+    }
+
+    static func repoRootItem(repo: Repo, store: WorkspaceStore) -> CommandBarItem {
+        let level = buildRepoLevel(repo: repo, store: store)
+        return CommandBarItem(
+            id: "repo-\(repo.id.uuidString)",
+            title: repo.name,
+            subtitle: repoRootSubtitle(repo: repo, store: store),
+            icon: .system(.folder),
+            group: "Repos",
+            groupPriority: 0,
+            keywords: repoRootKeywords(repo: repo),
+            hasChildren: true,
+            action: .navigateRepo(level)
+        )
+    }
+
+    static func repoRootKeywords(repo: Repo) -> [String] {
+        var keywords = ["repo", repo.name, repo.repoPath.lastPathComponent]
+        keywords.append(contentsOf: repo.worktrees.map(\.name))
+        keywords.append(contentsOf: repo.worktrees.map { $0.path.lastPathComponent })
+        return keywords
+    }
+
+    static func repoRootSubtitle(repo: Repo, store: WorkspaceStore) -> String? {
+        let openPanes = repo.worktrees.flatMap { worktree in
+            buildWorktreePresence(worktree: worktree, repo: repo, store: store).openPanes
+        }
+        let openPaneCount = openPanes.count
+        let worktreeCount = repo.worktrees.count
+
+        var parts: [String] = []
+        if worktreeCount == 1 {
+            if let first = openPanes.first, openPaneCount == 1 {
+                parts.append("● Tab \(first.tabIndex + 1) · 1 pane")
+            } else if openPaneCount > 1 {
+                parts.append("● \(openPaneCount) panes")
+            }
+        } else {
+            parts.append("\(worktreeCount) worktrees")
+            if openPaneCount > 0 {
+                parts.append("● \(openPaneCount) open")
+            }
+        }
+
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     static func buildWorktreePresence(
@@ -124,13 +120,74 @@ extension CommandBarDataSource {
         )
     }
 
+    static func buildRepoLevel(repo: Repo, store: WorkspaceStore) -> CommandBarLevel {
+        let defaultWorktree = repo.worktrees.first(where: \.isMainWorktree) ?? repo.worktrees.first
+        var items: [CommandBarItem] = []
+
+        if let defaultWorktree {
+            items.append(
+                copyPathItem(
+                    id: "repo-\(repo.id.uuidString)", path: defaultWorktree.path, group: "Open", groupPriority: 0)
+            )
+            items.append(
+                revealInFinderItem(
+                    id: "repo-\(repo.id.uuidString)",
+                    path: defaultWorktree.path,
+                    group: "Open",
+                    groupPriority: 0
+                )
+            )
+        }
+
+        items.append(
+            contentsOf: repo.worktrees
+                .sorted { lhs, rhs in
+                    if lhs.isMainWorktree != rhs.isMainWorktree {
+                        return lhs.isMainWorktree
+                    }
+                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                }
+                .map { worktree in
+                    let presence = buildWorktreePresence(worktree: worktree, repo: repo, store: store)
+                    let level = buildWorktreeActionsLevel(
+                        worktree: worktree,
+                        presence: presence,
+                        canOpenInCurrentTab: store.tabLayoutAtom.activeTabId != nil
+                    )
+                    return CommandBarItem(
+                        id: "repo-wt-\(worktree.id.uuidString)",
+                        title: worktree.name,
+                        subtitle: worktreePresenceSubtitle(presence: presence, worktree: worktree),
+                        icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
+                        group: "Worktrees",
+                        groupPriority: 1,
+                        keywords: ["repo", "worktree", "terminal", repo.name, worktree.name, worktree.path.path],
+                        hasChildren: true,
+                        action: .navigate(level),
+                        command: .openWorktree
+                    )
+                }
+        )
+
+        return CommandBarLevel(
+            id: "level-repo-\(repo.id.uuidString)",
+            title: repo.name,
+            parentLabel: "Repos",
+            scopeLabel: "Repo",
+            items: items
+        )
+    }
+
     static func buildWorktreeActionsLevel(
+        worktree: Worktree,
         presence: WorktreePresence,
         canOpenInCurrentTab: Bool
     ) -> CommandBarLevel {
         let worktreeId = presence.worktreeId
         let newTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.command])
         var items = [
+            copyPathItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Open", groupPriority: 0),
+            revealInFinderItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Open", groupPriority: 0),
             CommandBarItem(
                 id: "wt-new-tab-\(worktreeId.uuidString)",
                 title: "New pane in new tab",
@@ -140,7 +197,7 @@ extension CommandBarDataSource {
                 groupPriority: 0,
                 action: .dispatchTargeted(.openNewTerminalInTab, target: worktreeId, targetType: .worktree),
                 command: .openNewTerminalInTab
-            )
+            ),
         ]
 
         if canOpenInCurrentTab {
@@ -177,8 +234,62 @@ extension CommandBarDataSource {
             id: "level-wt-\(worktreeId.uuidString)",
             title: presence.worktreeName,
             parentLabel: presence.repoName,
-            scopeLabel: "Worktrees · Actions",
+            scopeLabel: presence.repoName,
             items: items
+        )
+    }
+
+    static func buildWorktreeActionsLevel(
+        presence: WorktreePresence,
+        canOpenInCurrentTab: Bool
+    ) -> CommandBarLevel {
+        let worktree = Worktree(
+            id: presence.worktreeId,
+            repoId: presence.repoId,
+            name: presence.worktreeName,
+            path: URL(filePath: "/tmp/\(presence.worktreeName)"),
+            isMainWorktree: presence.isMainWorktree
+        )
+        return buildWorktreeActionsLevel(
+            worktree: worktree,
+            presence: presence,
+            canOpenInCurrentTab: canOpenInCurrentTab
+        )
+    }
+
+    static func copyPathItem(id: String, path: URL, group: String, groupPriority: Int) -> CommandBarItem {
+        let spec = LocalActionSpec.copyPath.actionSpec
+        return CommandBarItem(
+            id: "\(id)-copy-path",
+            title: spec.label,
+            icon: spec.icon,
+            shortcutTrigger: AppShortcut.copyCurrentPanePath.trigger,
+            group: group,
+            groupPriority: groupPriority,
+            keywords: ["copy", "path", path.path],
+            action: .custom {
+                Task { @MainActor in
+                    PathActions.copyPath(path)
+                }
+            }
+        )
+    }
+
+    static func revealInFinderItem(id: String, path: URL, group: String, groupPriority: Int) -> CommandBarItem {
+        let spec = LocalActionSpec.revealInFinder.actionSpec
+        return CommandBarItem(
+            id: "\(id)-reveal-finder",
+            title: spec.label,
+            icon: spec.icon,
+            shortcutTrigger: AppShortcut.openPaneLocationInFinder.trigger,
+            group: group,
+            groupPriority: groupPriority,
+            keywords: ["reveal", "finder", "open", "path", path.path],
+            action: .custom {
+                Task { @MainActor in
+                    PathActions.revealInFinder(path)
+                }
+            }
         )
     }
 

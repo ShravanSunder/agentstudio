@@ -282,7 +282,7 @@ struct RepoExplorerView: View {
 
                         if let primaryRepo = Self.primaryRepoForGroup(group) {
                             Button(LocalActionSpec.revealInFinder.actionSpec.label) {
-                                openRepoInFinder(primaryRepo.repoPath)
+                                PathActions.revealInFinder(primaryRepo.repoPath)
                             }
                         }
 

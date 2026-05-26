@@ -350,7 +350,24 @@ struct PaneLeafContainer: View {
                     }
                 }
 
-                // Pane controls: minimize + shortcut ordinal + close (top-left, management layer)
+                // Shortcut ordinal: top-center, aligned with management controls.
+                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            if let ordinal {
+                                ManagementOrdinalShortcutHint(ordinal: ordinal)
+                            }
+                            Spacer()
+                        }
+                        .padding(AppStyles.General.Spacing.standard)
+                        Spacer()
+                    }
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
+
+                // Pane controls: minimize + close (top-left, management layer)
                 if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
                     VStack {
                         HStack(spacing: AppStyles.General.Spacing.standard) {
@@ -379,10 +396,6 @@ struct PaneLeafContainer: View {
                             .buttonStyle(.plain)
                             .onHover { isMinimizeHovered = $0 }
                             .help(AppCommand.minimizePane.definition.controlToolTip)
-
-                            if let ordinal {
-                                ManagementOrdinalShortcutHint(ordinal: ordinal)
-                            }
 
                             Button {
                                 beginCloseTransition()

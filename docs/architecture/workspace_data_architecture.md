@@ -96,6 +96,21 @@ Duplicate prevention on discovery: coordinator checks UUID first (existing canon
 
 Pane references: `Pane.metadata.facets.worktreeId` references `CanonicalWorktree.id` (UUID). Since canonical worktrees have stable UUIDs, pane references survive cache rebuilds and repo moves.
 
+Pane metadata has two identity channels:
+
+- `PaneMetadata.source` is fixed launch provenance. It records where the pane
+  started: worktree source or floating source plus launch directory. Do not add
+  `startingRepoId` or `startingWorktreeId` parallel fields.
+- `PaneMetadata.facets` is live identity. Runtime cwd changes refresh
+  `facets.cwd`, `facets.repoId`, and `facets.worktreeId` through
+  `PaneCoordinator`, which already receives surface/runtime cwd facts and can
+  resolve the current repository topology.
+
+If a pane's cwd leaves all known worktrees, live repo/worktree facets clear
+while `source` remains unchanged. User-authored `PaneMetadata.note` is neither
+launch provenance nor derived identity; it is a persisted pane label used for
+collapsed display and `$` search.
+
 ### Tier B: Cache Models
 
 ```swift

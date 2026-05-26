@@ -9,7 +9,7 @@ struct CommandBarGroupHeader: View {
     var body: some View {
         Text(name)
             .font(.system(size: AppStyles.CommandBar.Rows.groupHeaderFontSize, weight: .semibold))
-            .foregroundStyle(Color.accentColor.opacity(0.50))
+            .foregroundStyle(Color.accentColor.opacity(AppStyles.CommandBar.Rows.groupHeaderOpacity))
             .padding(.top, 8)
             .padding(.bottom, 4)
             .padding(.horizontal, 12)

@@ -322,7 +322,7 @@ final class CommandBarPanelController {
             state.recordRecent(itemId: item.id)
             dismiss()
             dispatcher.dispatch(command, target: target, targetType: targetType)
-        case .navigate(let level):
+        case .navigate(let level), .navigateRepo(let level):
             state.pushLevel(level)
         case .custom(let closure):
             state.recordRecent(itemId: item.id)
@@ -352,8 +352,10 @@ final class CommandBarPanelController {
             dismiss()
             dispatcher.dispatch(command, target: target, targetType: targetType)
         case .showActionsMenu:
+            guard let worktree = store.repositoryTopologyAtom.worktree(presence.worktreeId) else { return }
             state.pushLevel(
                 CommandBarDataSource.buildWorktreeActionsLevel(
+                    worktree: worktree,
                     presence: presence,
                     canOpenInCurrentTab: canOpenWorktreeInCurrentTab
                 )

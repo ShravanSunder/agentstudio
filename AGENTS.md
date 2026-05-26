@@ -76,6 +76,15 @@ Search rule of thumb:
 
 Before adding or changing a command, read [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md). Use `AppCommand` for identity, `AppShortcut` for bindings, `CommandSpec` for command-bar/tooltips, and `LocalActionSpec` for UI-only actions. App/window/sidebar shell commands may route through `AppDelegate`; pane, drawer, focus, layout, and workspace commands route through `PaneTabViewController` so keyboard shortcuts, command-bar rows, and drawer buttons share the same resolver.
 
+Command-bar scopes have separate ownership:
+- `>` owns verbs and command execution.
+- `$` owns existing pane/tab navigation.
+- `#` owns repo/worktree locations and opening.
+
+Keep this split explicit. Do not add repo/worktree management rows to `$`, do
+not add arbitrary verbs to `#`, and do not duplicate `LocalActionSpec` labels or
+icons when a sidebar/local action already defines the presentation.
+
 | Component | Owns | Location |
 |-----------|------|----------|
 | `AtomRegistry` | concrete root composition file for Core and Feature atoms plus derived helpers | `Sources/AgentStudio/AtomRegistry.swift` |

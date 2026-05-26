@@ -606,6 +606,30 @@ extension AppCommand {
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
+        case .editPaneNote:
+            return CommandSpec(
+                command: self,
+                shortcut: .editPaneNote,
+                label: "Edit Pane Note",
+                icon: .system(.pencil),
+                helpText: "Set a note for the current pane",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
+            )
+        case .copyCurrentPanePath:
+            return CommandSpec(
+                command: self,
+                shortcut: .copyCurrentPanePath,
+                label: "Copy Current Pane Path",
+                icon: LocalActionSpec.copyPath.actionSpec.icon,
+                helpText: "Copy the current pane path",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
+            )
         case .toggleManagementLayer:
             return CommandSpec(
                 command: self,

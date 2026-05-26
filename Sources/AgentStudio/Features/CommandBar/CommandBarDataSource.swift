@@ -128,7 +128,7 @@ enum CommandBarDataSource {
                 focus: focus,
                 groupName: Group.commands,
                 priority: Priority.commands))
-        items.append(contentsOf: everythingWorktreeItems(store: store))
+        items.append(contentsOf: repoScopeItems(store: store))
         return items
     }
 
@@ -147,10 +147,6 @@ enum CommandBarDataSource {
             let isActive = tab.id == store.tabShellAtom.activeTabId
             let paneCount = tab.activePaneIds.count
 
-            let tabId = tab.id
-            var keywords = ["tab", "switch"]
-            keywords.append(tab.name)
-            keywords.append(contentsOf: tab.arrangements.filter { !$0.isDefault }.map(\.name))
             return CommandBarItem(
                 id: "tab-\(tab.id.uuidString)",
                 title: title,
@@ -162,8 +158,8 @@ enum CommandBarDataSource {
                 icon: .system(.rectangleStack),
                 group: Group.tabs,
                 groupPriority: Priority.tabs,
-                keywords: keywords,
-                action: .dispatchTargeted(.selectTab, target: tabId, targetType: .tab),
+                keywords: keywordsForTab(tab, store: store, repoCache: repoCache),
+                action: .dispatchTargeted(.selectTab, target: tab.id, targetType: .tab),
                 command: .selectTab
             )
         }
@@ -193,6 +189,8 @@ enum CommandBarDataSource {
                     case .worktree: return .pane
                     }
                 }()
+                var paneKeywords = keywordsForPane(pane, store: store, repoCache: repoCache)
+                paneKeywords.append(tabDisplayTitle(tab: tab, store: store, repoCache: repoCache))
                 items.append(
                     CommandBarItem(
                         id: "pane-\(pane.id.uuidString)",
@@ -207,7 +205,7 @@ enum CommandBarDataSource {
                         iconColor: nil,
                         group: Group.panes,
                         groupPriority: Priority.panes,
-                        keywords: keywordsForPane(pane, store: store, repoCache: repoCache),
+                        keywords: stableUniqueKeywords(paneKeywords),
                         action: .dispatchTargeted(.focusPane, target: capturedPaneId, targetType: targetType),
                         command: .focusPane
                     ))
@@ -234,7 +232,6 @@ enum CommandBarDataSource {
             let isActiveTab = tab.id == store.tabShellAtom.activeTabId
 
             // Tab as selectable item
-            let tabId = tab.id
             items.append(
                 CommandBarItem(
                     id: "tab-\(tab.id.uuidString)",
@@ -247,8 +244,8 @@ enum CommandBarDataSource {
                     icon: .system(.rectangleStack),
                     group: tabGroupName,
                     groupPriority: tabIndex,
-                    keywords: ["tab", "switch"],
-                    action: .dispatchTargeted(.selectTab, target: tabId, targetType: .tab),
+                    keywords: keywordsForTab(tab, store: store, repoCache: repoCache),
+                    action: .dispatchTargeted(.selectTab, target: tab.id, targetType: .tab),
                     command: .selectTab
                 ))
 
@@ -264,6 +261,8 @@ enum CommandBarDataSource {
                     case .worktree: return .pane
                     }
                 }()
+                var paneKeywords = keywordsForPane(pane, store: store, repoCache: repoCache)
+                paneKeywords.append(tabTitle)
                 items.append(
                     CommandBarItem(
                         id: "pane-\(pane.id.uuidString)",
@@ -278,7 +277,7 @@ enum CommandBarDataSource {
                         iconColor: nil,
                         group: tabGroupName,
                         groupPriority: tabIndex,
-                        keywords: keywordsForPane(pane, store: store, repoCache: repoCache),
+                        keywords: stableUniqueKeywords(paneKeywords),
                         action: .dispatchTargeted(.focusPane, target: capturedPaneId, targetType: targetType),
                         command: .focusPane
                     ))
@@ -717,7 +716,7 @@ enum CommandBarDataSource {
         }
     }
 
-    private static func keywordsForPane(
+    static func keywordsForPane(
         _ pane: Pane,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
@@ -725,6 +724,9 @@ enum CommandBarDataSource {
         let workspaceRepositoryTopology = store.repositoryTopologyAtom
         let parts = displayParts(for: pane, store: store, repoCache: repoCache)
         var keywords = ["pane"]
+        if let note = parts.note {
+            keywords.append(note)
+        }
         if let repoName = parts.repoName {
             keywords.append(repoName)
         }
@@ -814,6 +816,7 @@ enum CommandBarDataSource {
         guard let pane = store.paneAtom.pane(paneId) else {
             return PaneDisplayParts(
                 primaryLabel: "Terminal",
+                note: nil,
                 repoName: nil,
                 branchName: nil,
                 worktreeFolderName: nil,
@@ -850,6 +853,7 @@ enum CommandBarDataSource {
             let worktreeFolderName = worktree.path.lastPathComponent
             return PaneDisplayParts(
                 primaryLabel: "\(repoName) | \(branchName) | \(worktreeFolderName)",
+                note: pane.metadata.note,
                 repoName: repoName,
                 branchName: branchName,
                 worktreeFolderName: worktreeFolderName,
@@ -860,6 +864,7 @@ enum CommandBarDataSource {
         if let cwdFolderName {
             return PaneDisplayParts(
                 primaryLabel: cwdFolderName,
+                note: pane.metadata.note,
                 repoName: nil,
                 branchName: nil,
                 worktreeFolderName: nil,
@@ -869,6 +874,7 @@ enum CommandBarDataSource {
 
         return PaneDisplayParts(
             primaryLabel: defaultLabel,
+            note: pane.metadata.note,
             repoName: nil,
             branchName: nil,
             worktreeFolderName: nil,

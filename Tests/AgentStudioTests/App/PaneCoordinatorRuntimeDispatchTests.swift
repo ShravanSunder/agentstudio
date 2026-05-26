@@ -432,6 +432,75 @@ struct PaneCoordinatorRuntimeDispatchTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    @Test("runtime cwd changed updates pane worktree identity")
+    func runtimeCwdChangedUpdatesPaneWorktreeIdentity() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-runtime-cwd-identity-\(UUID().uuidString)")
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        store.restore()
+        let coordinator = makeTestPaneCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: MockPaneCoordinatorSurfaceManager(),
+            runtimeRegistry: RuntimeRegistry()
+        )
+
+        let repo = store.addRepo(at: URL(filePath: "/tmp/cwd-identity-repo"))
+        let main = Worktree(
+            repoId: repo.id,
+            name: "main",
+            path: URL(filePath: "/tmp/cwd-identity-repo"),
+            isMainWorktree: true
+        )
+        let feature = Worktree(
+            repoId: repo.id,
+            name: "feature",
+            path: URL(filePath: "/tmp/cwd-identity-repo-feature")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main, feature])
+
+        let pane = store.createPane(
+            source: .worktree(worktreeId: main.id, repoId: repo.id, launchDirectory: main.path),
+            title: "Terminal"
+        )
+        store.appendTab(Tab(paneId: pane.id))
+
+        let fakeRuntime = FakePaneRuntime(paneId: PaneId(uuid: pane.id))
+        coordinator.registerRuntime(fakeRuntime)
+        fakeRuntime.emit(
+            makeRuntimeEnvelope(
+                source: .pane(PaneId(uuid: pane.id)),
+                paneKind: .terminal,
+                seq: 1,
+                commandId: nil,
+                correlationId: nil,
+                timestamp: ContinuousClock().now,
+                epoch: 0,
+                event: .terminal(.cwdChanged(feature.path.appending(path: "Sources").path))
+            )
+        )
+
+        await eventually("runtime cwd should refresh pane identity") {
+            store.pane(pane.id)?.worktreeId == feature.id
+        }
+
+        let updated = store.pane(pane.id)
+        #expect(updated?.metadata.cwd == feature.path.appending(path: "Sources"))
+        #expect(updated?.repoId == repo.id)
+        #expect(updated?.worktreeId == feature.id)
+        #expect(updated?.metadata.worktreeName == "feature")
+
+        guard case .worktree(let launchWorktreeId, _, let launchDirectory) = updated?.metadata.source else {
+            Issue.record("Expected launch source to remain unchanged")
+            return
+        }
+        #expect(launchWorktreeId == main.id)
+        #expect(launchDirectory == main.path)
+
+        try? FileManager.default.removeItem(at: tempDir)
+    }
+
     @Test("runtime terminal closeTab(rightTabs) closes tabs strictly to the right of source")
     func runtimeEventCloseRightTabs() async {
         let tempDir = FileManager.default.temporaryDirectory
@@ -811,139 +880,6 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         try? FileManager.default.removeItem(at: tempDir)
     }
-}
-
-private final class FakePaneRuntime: PaneRuntime {
-    let paneId: PaneId
-    var metadata: PaneMetadata
-    var lifecycle: PaneRuntimeLifecycle = .ready
-    var capabilities: Set<PaneCapability>
-    private let stream: AsyncStream<RuntimeEnvelope>
-    private let continuation: AsyncStream<RuntimeEnvelope>.Continuation
-
-    private(set) var receivedCommands: [RuntimeCommandEnvelope] = []
-    private(set) var receivedCommandIds: [UUID] = []
-
-    init(
-        paneId: PaneId,
-        contentType: PaneContentType = .terminal,
-        capabilities: Set<PaneCapability> = [.input]
-    ) {
-        self.paneId = paneId
-        self.metadata = PaneMetadata(
-            paneId: paneId,
-            contentType: contentType,
-            source: .floating(launchDirectory: nil, title: "Fake"),
-            title: "Fake"
-        )
-        self.capabilities = capabilities
-        let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
-        self.stream = stream
-        self.continuation = continuation
-    }
-
-    func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
-        if let requiredCapability = requiredCapability(for: envelope.command),
-            !capabilities.contains(requiredCapability)
-        {
-            return .failure(
-                .unsupportedCommand(
-                    command: String(describing: envelope.command),
-                    required: requiredCapability
-                )
-            )
-        }
-
-        receivedCommands.append(envelope)
-        receivedCommandIds.append(envelope.commandId)
-        return .success(commandId: envelope.commandId)
-    }
-
-    func subscribe() -> AsyncStream<RuntimeEnvelope> {
-        stream
-    }
-
-    func emit(_ envelope: RuntimeEnvelope) {
-        continuation.yield(envelope)
-    }
-
-    func snapshot() -> PaneRuntimeSnapshot {
-        PaneRuntimeSnapshot(
-            paneId: paneId,
-            metadata: metadata,
-            lifecycle: lifecycle,
-            capabilities: capabilities,
-            lastSeq: 0,
-            timestamp: Date()
-        )
-    }
-
-    func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
-        EventReplayBuffer.ReplayResult(events: [], nextSeq: seq, gapDetected: false)
-    }
-
-    func shutdown(timeout: Duration) async -> [UUID] {
-        continuation.finish()
-        return []
-    }
-
-    private func requiredCapability(for command: RuntimeCommand) -> PaneCapability? {
-        switch command {
-        case .activate, .deactivate, .prepareForClose, .requestSnapshot:
-            return nil
-        case .terminal(let terminalCommand):
-            switch terminalCommand {
-            case .sendInput, .clearScrollback:
-                return .input
-            case .scrollToBottom, .scrollPageUp, .jumpToPrompt:
-                return nil
-            case .resize:
-                return .resize
-            }
-        case .browser:
-            return .navigation
-        case .diff:
-            return .diffReview
-        case .editor:
-            return .editorActions
-        case .plugin:
-            return nil
-        }
-    }
-}
-
-@MainActor
-// swiftlint:disable:next function_parameter_count
-private func makeRuntimeEnvelope(
-    source: EventSource,
-    paneKind: PaneContentType?,
-    seq: UInt64,
-    commandId: UUID?,
-    correlationId: UUID?,
-    timestamp: ContinuousClock.Instant,
-    epoch _: UInt64,
-    event: PaneRuntimeEvent
-) -> RuntimeEnvelope {
-    let paneId: PaneId
-    switch source {
-    case .pane(let resolvedPaneId):
-        paneId = resolvedPaneId
-    case .system, .worktree:
-        paneId = PaneId()
-    }
-
-    return .pane(
-        PaneEnvelope(
-            source: source,
-            seq: seq,
-            timestamp: timestamp,
-            correlationId: correlationId,
-            commandId: commandId,
-            paneId: paneId,
-            paneKind: paneKind ?? .agent,
-            event: event
-        )
-    )
 }
 
 @MainActor
