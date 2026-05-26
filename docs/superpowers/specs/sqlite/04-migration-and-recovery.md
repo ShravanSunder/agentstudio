@@ -82,7 +82,7 @@ split first
 split before SQLite repositories
   WorkspaceTabShellAtom
     -> WorkspaceTabShellAtom       core tab shells only
-    -> WorkspaceCursorAtom         active tab cursor
+    -> WorkspaceTabCursorAtom      active tab cursor
 
   WorkspacePaneAtom
     -> WorkspacePaneGraphAtom      core pane/drawer membership graph
@@ -133,11 +133,20 @@ SessionRuntimeAtom                  runtime
 ManagementLayerAtom                 runtime
 CommandBarSurfaceAtom               runtime
 TransientKeyboardSurfaceAtom        runtime
+ArrangementPanelPresentationAtom    runtime/presentation
 WorkspaceFocusOwnerAtom             runtime
 AttendedPaneAtom                    runtime/derived
 WelcomeAtom                         runtime
 PaneFilesystemProjectionAtom        runtime projection
+KeyboardRoutingContext              runtime shortcut-routing read model
+ActiveKeyboardSurface               runtime shortcut-routing read model
+PaneOrdinalMap                      pure derived helper, not an atom
 ```
+
+Step 0 implementation must start from `main` after the `pane-shortcuts` PR has
+merged. That PR changes keyboard-surface atoms, shortcut routing, action
+snapshots, and validators. Re-run the atom/action survey after rebasing onto the
+merged main before splitting pane/tab graph state.
 
 ## Domain Type Classification And Rename Pass
 
@@ -164,32 +173,61 @@ legacy import DTO
 ```
 
 A type may not remain ambiguously both legacy Codable payload, live write-owner
-state, derived UI read model, and future SQLite row projection. If a current
-type has mixed responsibilities, Step 0 must either split it by lifecycle or
-rename it to the role it actually serves and introduce the missing role-specific
-type. This is part of the safety work, not optional cleanup.
+state, derived UI read model, and future SQLite row projection. Step 0 uses this
+concrete naming policy:
+
+```text
+rich names: Pane / Drawer / Tab / PaneArrangement / DrawerView
+  -> derived read models returned by WorkspacePaneDerived or
+     WorkspaceTabLayoutDerived
+  -> never stored directly by write-owner atoms after the split
+
+Legacy*Payload
+  -> Codable old JSON compatibility only
+  -> import/export DTOs, not live state
+
+*GraphState / *CursorState / *PresentationState
+  -> write-owner atom state
+  -> no accidental Codable legacy contract
+
+*Row
+  -> future SQLite row projection
+  -> repository-facing, not UI-facing
+```
+
+This is part of the safety work, not optional cleanup.
 
 Current high-risk classifications:
 
 ```text
 Pane / Drawer
-  graph fields       -> WorkspacePaneGraphAtom state
-  drawer.isExpanded  -> WorkspaceDrawerCursorAtom state
-  UI shape           -> derived pane read model
-  legacy JSON        -> legacy import DTO if Codable fields stay mixed
+  graph fields       -> WorkspacePaneGraphAtom *GraphState
+  drawer.isExpanded  -> WorkspaceDrawerCursorAtom cursor state
+  UI shape           -> Pane / Drawer from WorkspacePaneDerived
+  legacy JSON        -> LegacyPanePayload / LegacyDrawerPayload
+
+PaneMetadata / PaneContextFacets
+  durable fields     -> WorkspacePaneGraphAtom metadata state
+  display/cache      -> WorkspacePaneDerived from topology + cache
+  legacy JSON        -> LegacyPaneMetadataPayload /
+                        LegacyPaneContextFacetsPayload
 
 Tab / PaneArrangement / DrawerView
-  shell/graph fields -> WorkspaceTabShellAtom + WorkspaceTabGraphAtom state
-  active fields      -> WorkspaceCursorAtom + WorkspaceArrangementCursorAtom
+  shell/graph fields -> WorkspaceTabShellAtom + WorkspaceTabGraphAtom *GraphState
+  active fields      -> WorkspaceTabCursorAtom + WorkspaceArrangementCursorAtom
   zoom/presentation  -> WorkspacePanePresentationAtom
-  UI shape           -> derived tab layout read model
-  legacy JSON        -> legacy import DTO if Codable fields stay mixed
+  UI shape           -> Tab / PaneArrangement / DrawerView from
+                        WorkspaceTabLayoutDerived
+  legacy JSON        -> LegacyTabPayload / LegacyPaneArrangementPayload /
+                        LegacyDrawerViewPayload
 ```
 
 ## Legacy Codable Import Contract
 
-Legacy workspace files are decoded through the current Codable domain types, but
-those Codable encoders are not the live persistence contract after cutover.
+Legacy workspace files are decoded through explicit `Legacy*Payload` DTOs. Those
+DTOs may initially wrap the current Codable domain types during migration, but
+the current type names must not remain the live persistence contract after
+cutover.
 Rich fields such as `activeArrangementId`, `activePaneId`, `activeChildId`, and
 `isExpanded` may remain only on legacy import DTOs or composed derived read
 models. They must not remain live write-owner persistence fields, and the type
@@ -198,7 +236,8 @@ names must make that clear.
 ```text
 legacy import only
   -> WorkspacePersistor.PersistableState
-  -> Pane / Drawer / Tab / PaneArrangement / DrawerView Codable
+  -> LegacyPanePayload / LegacyDrawerPayload / LegacyTabPayload /
+     LegacyPaneArrangementPayload / LegacyDrawerViewPayload Codable
   -> field-routed into core.sqlite + settings.json + local.sqlite
 
 normal operation after cutover

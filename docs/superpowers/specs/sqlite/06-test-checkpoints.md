@@ -41,7 +41,7 @@ repository code lands.
 - inbox collapsed groups persist through the local path while pendingFilter
   remains runtime-only
 - active tab cursor can be tested independently from tab shell ordering if
-  `WorkspaceCursorAtom` lands before SQLite
+  `WorkspaceTabCursorAtom` lands before SQLite
 - pane graph mutations can run without writing drawer expansion cursor state
 - pane metadata display facets can be derived from topology/cache without
   requiring the pane graph atom to own repo/worktree names or remote labels
@@ -52,11 +52,30 @@ repository code lands.
   command explicitly changes focus
 - zoom/presentation state resets independently from persisted arrangement graph
   and local arrangement cursor state
+- after the `pane-shortcuts` PR merges, shortcut/presentation atoms such as
+  ArrangementPanelPresentationAtom, CommandBarSurfaceAtom, and
+  TransientKeyboardSurfaceAtom remain runtime/read inputs and do not acquire
+  SQLite write ownership during Step 0
+- after the `pane-shortcuts` PR merges, ActionStateSnapshot and validators read
+  rich pane/tab state through derived readers rather than reaching separately
+  into graph/cursor atoms
+- KeyboardRoutingContext and ActiveKeyboardSurface remain runtime shortcut
+  routing read models derived from stable owner plus command/transient surfaces
+- PaneOrdinalMap remains a pure helper derived from tab or drawer pane order,
+  not an atom and not a persisted row model
 - repo enrichment cache can reset without deleting recent workspace targets
 - pane/tab arrangement composed read models still expose the same command
   validation inputs after graph/cursor/runtime atom splits
 - mixed domain structs are classified as write-owner state, derived read model,
   row projection, or legacy import DTO before SQLite repositories land
+- `Pane`, `Drawer`, `Tab`, `PaneArrangement`, and `DrawerView` are not stored
+  directly in write-owner atoms after Step 0; they are derived read-model
+  values or compatibility aliases only
+- legacy JSON import uses explicit `Legacy*Payload` DTOs for pane/tab/drawer
+  shapes instead of treating live write-owner state as Codable payload
+- `PaneMetadata` and `PaneContextFacets` are tested by field: durable routing
+  fields live in pane graph state, display/cache fields come from
+  topology/cache-derived readers, and legacy payload fields are import-only
 - any renamed/split Pane, Drawer, Tab, PaneArrangement, or DrawerView role keeps
   explicit tests proving old UI/validator behavior still reads through the
   derived read model
@@ -65,6 +84,69 @@ repository code lands.
   write owner instead of table-shaped atoms
 - WorkspaceTabGraphAtom owns tab_pane plus arrangement/layout rows, while
   WorkspaceTabShellAtom owns shell identity/order only
+- creating a new tab updates WorkspaceTabShellAtom and WorkspaceTabGraphAtom
+  as separate write owners, and optionally WorkspaceTabCursorAtom for focus,
+  without merging shell ownership into the graph atom
+
+## Step 0 Atomicity Matrix Tests
+
+These tests make the write-boundary matrix reviewable. Names may be adjusted to
+match final file layout, but every behavior must have focused coverage before
+SQLite repositories land:
+
+- `WorkspaceTabCursorAtomTests.selectTabRejectsMissingTab`
+  verifies active tab cursor cannot point at a missing shell row.
+- `WorkspaceTabCreationAtomicityTests.createTabProjectsShellGraphAndCursorTogether`
+  verifies new tab shell, default graph, membership, and active cursor project
+  as one composed layout.
+- `WorkspaceTabShellAtomTests.renameAndReorderDoNotTouchTabGraph`
+  verifies shell-only mutations do not dirty tab graph or cursor owners.
+- `WorkspacePaneInsertionAtomicityTests.insertPaneProjectsGraphCursorAndZoomResetTogether`
+  verifies pane graph, tab graph, arrangement cursor, and presentation zoom reset
+  update through one coordinator-visible projection.
+- `WorkspacePaneResidencyAtomicityTests.reactivatePaneProjectsResidencyLayoutCursorAndZoomTogether`
+  verifies reactivation changes residency, layout membership, active pane cursor,
+  and zoom reset together.
+- `WorkspacePaneResidencyAtomicityTests.backgroundPaneRepairsGraphCursorAndEmptyTabTogether`
+  verifies backgrounding a pane removes layout references, changes residency, and
+  repairs affected tab/cursor state including empty-tab cleanup.
+- `WorkspacePaneDeletionAtomicityTests.closePaneClearsDanglingPaneAndTabCursorIdsSynchronously`
+  verifies close/delete clears active pane, active drawer child, related cursor
+  references, and last-pane tab shell/cursor state before UI can observe deleted
+  ids.
+- `WorkspaceTabDeletionAtomicityTests.closeTabClearsPaneGraphCursorsAndPresentationTogether`
+  verifies explicit close-tab removes pane graph, tab shell/graph, tab cursor,
+  arrangement cursor, drawer cursor, and presentation state together.
+- `WorkspacePaneMoveAtomicityTests.crossTabMoveRepairsCursorsAndZoomTogether`
+  verifies source and destination tab graphs/cursors are repaired together and
+  source/destination zoom is cleared as needed.
+- `WorkspaceDrawerMutationAtomicityTests.attachDrawerPaneProjectsMembershipAndCursorTogether`
+  verifies drawer membership/layout and active child projection update together.
+- `WorkspaceDrawerMutationAtomicityTests.detachLastChildUpdatesDrawerViewGraphPreservesExpansionAndClearsActiveChild`
+  verifies drawer-view graph cleanup, drawer expansion preservation, and active
+  child clearing happen together.
+- `WorkspaceDrawerCursorAtomTests.expandDrawerCollapsesOtherDrawersAndDerivedPaneReflectsItAtomically`
+  verifies in-memory mutual exclusion and same-tick derived `Pane.drawer`
+  reflection, not only future SQL transaction shape.
+- `WorkspaceArrangementCursorAtomTests.switchArrangementRestoresRememberedPaneAndDrawerCursor`
+  verifies the new arrangement's remembered active pane and active drawer child
+  are exposed, or deterministic defaults are used.
+- `WorkspacePanePresentationAtomTests.zoomDoesNotMutatePersistedOwners`
+  verifies zoom/presentation is runtime-only.
+- `WorkspaceTopologyPruneAtomicityTests.pruneClearsGraphAndCursorReferencesBeforeReturn`
+  verifies topology deletes/prunes clear graph and cursor references
+  synchronously.
+- `WorkspaceTopologyReassociationAtomicityTests.reassociateRepoRestoresPaneResidencyBeforeReturn`
+  verifies reassociation restores orphaned pane residency before the topology
+  mutation returns.
+- `WorkspaceUndoRestoreAtomicityTests.restoreSnapshotProjectsGraphCursorsAndPresentationTogether`
+  verifies undo restore follows create-tab, insert/reactivate-pane, and drawer
+  attach atomicity rules.
+- `ActionStateSnapshotBoundaryTests.snapshotCallSitesUseDerivedReadersAfterAtomSplit`
+  verifies all production `WorkspaceCommandResolver.snapshot` call sites consume
+  derived read models instead of independently reaching into graph/cursor atoms.
+  Cover at least `ActionExecutor`, `DrawerDropDispatch`, and every
+  `PaneTabViewController` snapshot site.
 
 ## Core Tests
 

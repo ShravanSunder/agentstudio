@@ -122,6 +122,29 @@ Some current atoms and domain values are composed for UI ergonomics even though
 their fields land in different persistence boundaries. Step 1 may keep those
 domain values composed in memory, but persistence must route by field.
 
+Classify every state surface, but do not persist every state surface. Each
+field belongs to one lifecycle lane:
+
+```text
+core graph
+  -> durable workspace structure and validated semantic state
+
+local UX memory
+  -> per-workspace focus, selection, window/sidebar memory, and resettable cache
+     facts
+
+settings
+  -> user preferences outside the workspace graph
+
+runtime / presentation
+  -> transient UI, keyboard, focus, pending-request, health, and display facts
+  -> no SQLite write ownership in Step 1
+
+derived read model
+  -> composed UI/validator shape
+  -> reads lanes, never owns persistence
+```
+
 Atom rule:
 
 ```text
@@ -172,7 +195,7 @@ SidebarCacheAtom -> split
 
 WorkspaceTabShellAtom -> split
   core      -> WorkspaceTabShellAtom
-  local     -> WorkspaceCursorAtom
+  local     -> WorkspaceTabCursorAtom
 
 WorkspaceTabArrangementAtom -> split
   core      -> WorkspaceTabGraphAtom
@@ -209,11 +232,12 @@ state, that condition is already true: drawer expansion, active arrangement,
 active pane, active drawer child, and zoom presentation do not share the same
 durability semantics as pane membership and layout rows.
 
-Step 0 must also classify the Swift types that cross those boundaries. If a type
-is both legacy Codable payload and live UI read model today, keep that only as an
-explicit bridge during the split. Rename or split the type when the current name
-would mislead repository work about whether it is a row projection,
-write-owner state, derived read model, or legacy import DTO.
+Step 0 must also classify the Swift types that cross those boundaries. Rich
+domain names such as `Pane`, `Drawer`, `Tab`, `PaneArrangement`, and
+`DrawerView` may remain public derived read-model names, but write-owner atoms
+must store explicit graph/cursor/presentation state. Legacy JSON uses explicit
+`Legacy*Payload` DTOs, and future SQL repositories use explicit `*Row`
+projections. Do not let one type name mean all four roles.
 
 Terminology:
 
@@ -238,7 +262,7 @@ WorkspaceDrawerCursorAtom
         when rendering derived repo/worktree/display facets
 
 WorkspaceTabShellAtom
-WorkspaceCursorAtom
+WorkspaceTabCursorAtom
 WorkspaceTabGraphAtom
 WorkspaceArrangementCursorAtom
 WorkspacePanePresentationAtom
@@ -257,11 +281,27 @@ Derived readers are allowed to expose rich UI/domain shapes, but those names
 must disclose that they are read models. A mixed value may be convenient for UI
 and validators; it must not be mistaken for the storage contract.
 
+The tab read side has one composed reader: `WorkspaceTabLayoutDerived`. The
+current `WorkspaceTabLayoutAtom` wrapper should be removed or renamed during
+Step 0 because it is not a write-owner atom after shell, cursor, graph,
+arrangement cursor, and presentation state are split. `WorkspaceTabDerived`
+should be renamed into `WorkspaceTabLayoutDerived` unless it has a separate
+documented responsibility.
+
 `WorkspaceMutationCoordinator` remains the semantic mutation sequencer after
 Step 0, but its constructor dependencies change from the old mixed atoms to the
 new write-owner atoms. It should receive the graph, cursor, presentation,
 topology, and cache owners it needs rather than reaching through derived readers
 to mutate state.
+
+The `pane-shortcuts` PR is an input to Step 0. It merged to `main` as
+`6830954a`, so Step 0 starts from a codebase with `CommandBarSurfaceAtom`,
+`TransientKeyboardSurfaceAtom`, `ArrangementPanelPresentationAtom`,
+`KeyboardRoutingContext`, `ActiveKeyboardSurface`, `PaneOrdinalMap`, and the
+expanded `ActionStateSnapshot` validation shape. Shortcut/presentation facts
+remain runtime or derived read inputs; they do not acquire SQLite write
+ownership. Validators should receive rich pane/tab validation facts from
+derived readers rather than reaching separately into graph/cursor atoms.
 
 The same split applies to domain models decoded from legacy JSON:
 
@@ -299,16 +339,49 @@ reconciliation write may be part of the same async task, but the MainActor atoms
 must not temporarily expose `active_pane_id`, `active_child_id`, tab membership,
 or drawer expansion state that points at deleted core ids.
 
+The Step 0 implementation must satisfy this matrix. Each row is a reviewable
+write-boundary contract, not a suggestion:
+
+| Semantic command | Write owners | Synchronous repair / projection rule | Forbidden implementation |
+| --- | --- | --- | --- |
+| Select tab | `WorkspaceTabCursorAtom` | selected id exists in shell; derived tab layout updates immediately | writing active tab through tab shell or tab graph |
+| Create tab | `WorkspaceTabShellAtom`, `WorkspaceTabGraphAtom`, optional `WorkspaceTabCursorAtom` | shell identity, default arrangement graph, membership, and active selection project as one composed layout | merging shell identity into tab graph for command convenience |
+| Rename/reorder tab | `WorkspaceTabShellAtom` | graph and cursor owners do not mutate | routing shell edits through arrangement graph |
+| Insert pane | `WorkspacePaneGraphAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom` | pane graph, layout membership, active pane cursor, and zoom reset project together | storing rich `Pane`/`Tab` directly in graph atoms, letting validators read owners separately, or leaving stale zoom |
+| Reactivate pane | `WorkspacePaneGraphAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom` | backgrounded pane residency, layout membership, active pane cursor, and zoom reset project together | treating residency as unrelated to insertion or leaving stale zoom |
+| Background pane | `WorkspacePaneGraphAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, sometimes `WorkspaceDrawerCursorAtom`, sometimes `WorkspaceTabShellAtom`, sometimes `WorkspaceTabCursorAtom` | pane residency changes to backgrounded, layout references are removed, affected cursors repair, and empty-tab shell/cursor cleanup happens before observation | modeling this as pane-only residency or relying on local reconciliation for cursor/tab cleanup |
+| Close pane | `WorkspacePaneGraphAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, sometimes `WorkspaceDrawerCursorAtom`, sometimes `WorkspaceTabShellAtom`, sometimes `WorkspaceTabCursorAtom` | active pane, active drawer child, drawer expansion, membership, and last-pane tab shell/cursor cleanup repair before deleted ids are observable | relying only on local DB reconciliation after a core delete or forgetting the last-pane tab cleanup path |
+| Close tab | `WorkspacePaneGraphAtom`, `WorkspaceTabShellAtom`, `WorkspaceTabGraphAtom`, `WorkspaceTabCursorAtom`, `WorkspaceArrangementCursorAtom`, `WorkspaceDrawerCursorAtom`, `WorkspacePanePresentationAtom` | all panes and drawer cursors for the tab are removed, active tab moves to next/default/nil, arrangement cursor and zoom state clear before observation | shell-only tab removal or leaving pane/cursor/presentation state behind |
+| Move pane across tabs | `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom` | source/destination graphs update together; both affected cursors repair synchronously; source/destination zoom clears as needed | separate visible source/destination projections or stale zoom |
+| Attach drawer pane | `WorkspacePaneGraphAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom` | drawer membership/layout and active child project together | separate drawer membership table-shaped atom |
+| Detach last drawer pane | `WorkspacePaneGraphAtom`, `WorkspaceTabGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspaceArrangementCursorAtom` | drawer-view graph removes the child, reconstituted drawer preserves expansion, and active child clears synchronously | losing expansion because drawer cursor is treated as core graph state, or forgetting drawer-view graph cleanup |
+| Expand drawer | `WorkspaceDrawerCursorAtom` | one atom method collapses every other drawer and toggles target before observation; `WorkspacePaneDerived` reflects the new values in the same MainActor tick | single-row writes that allow two expanded drawers in memory, or cursor changes not reflected by the derived pane value |
+| Switch arrangement | `WorkspaceArrangementCursorAtom` | new arrangement's remembered active pane and active child are exposed, or deterministic defaults; derived `Tab.activeArrangement` switches immediately | storing active arrangement on `TabGraphState` or leaving old arrangement cursor values visible |
+| Toggle zoom/presentation | `WorkspacePanePresentationAtom` | runtime presentation does not mutate graph/cursor/local persistence | persisting `zoomedPaneId` or placing it in arrangement cursor |
+| Topology prune / hard delete | topology, affected graph owners, affected cursor owners | dangling repo/worktree/pane ids are removed or cleared before the coordinator returns | waiting for next boot/local reconciliation to clear invalid ids |
+| Repo reassociation | `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom` | topology update and orphaned-pane residency restoration project together before the command returns | updating repo/worktree topology while leaving pane residency visibly orphaned |
+| Restore tab/pane from undo snapshot | `WorkspacePaneGraphAtom`, `WorkspaceTabShellAtom`, `WorkspaceTabGraphAtom`, `WorkspaceTabCursorAtom`, `WorkspaceArrangementCursorAtom`, `WorkspaceDrawerCursorAtom`, `WorkspacePanePresentationAtom` as applicable | undo restore follows the same atomicity contract as create tab, insert/reactivate pane, and drawer attach | restoring rich snapshot values into mixed atoms or showing restored shell without pane/arrangement graph |
+| Build validation snapshot | derived readers only | snapshot reads composed pane/tab/topology/runtime facts from derived readers at every production call site | snapshot constructors at any call site reach into graph/cursor atoms directly instead of derived readers |
+
 Examples:
 
 ```text
 insert pane into arrangement
   -> core: arrangement layout rows + tab_pane membership
   -> local: active_pane_id for the arrangement
-  -> projection: atom shows pane inserted and focused
+  -> runtime: clear zoom for the affected tab/arrangement
+  -> projection: atom shows pane inserted, focused, and unzoomed
+
+create new tab
+  -> core: tab shell identity/order
+  -> core: tab membership + default arrangement graph
+  -> local: active_tab_id when the command selects the new tab
+  -> projection: one composed Tab appears selected without merging shell
+     ownership into the graph atom
 
 detach last drawer child
   -> core: parent drawer structure and detached pane structure
+  -> core: arrangement drawer-view graph removes the drawer child
   -> local: preserve prior is_expanded for the reconstituted drawer;
             repair active_child_id to NULL/default
   -> projection: atom shows detached pane and preserved drawer presentation
@@ -351,7 +424,7 @@ Examples:
 
 ```text
 user selects a tab
-  -> WorkspaceCursorAtom.activeTabId updates immediately
+  -> WorkspaceTabCursorAtom.activeTabId updates immediately
   -> WorkspaceLocalStore writes local_workspace_cursor.active_tab_id
 
 user focuses a pane

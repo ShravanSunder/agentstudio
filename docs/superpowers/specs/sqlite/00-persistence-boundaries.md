@@ -147,6 +147,11 @@ Core should not own `workspace_active_tab`, `tab_state.active_arrangement_id`,
 The cutover should name what is not persisted so future implementers do not
 invent a destination table for transient UI/runtime facts.
 
+The rule is classification, not persistence-by-default: every atom or state
+field gets a lane, but only core graph, local UX memory, settings, and cache
+lanes get storage in Step 1. Runtime/presentation and derived read-model lanes
+are intentionally excluded from SQLite.
+
 ```text
 never persisted
   WindowLifecycleAtom
@@ -155,6 +160,7 @@ never persisted
   ManagementLayerAtom
   CommandBarSurfaceAtom
   TransientKeyboardSurfaceAtom
+  ArrangementPanelPresentationAtom
   WorkspaceFocusOwnerAtom
   AttendedPaneAtom
   WelcomeAtom
@@ -167,6 +173,8 @@ never persisted
   PaneInboxPresentationAtom.filterModesByParentPaneId
   TerminalActivityAtom snapshots
   Bridge PaneDomainState / ReviewState.viewedFiles
+  KeyboardRoutingContext / ActiveKeyboardSurface
+  PaneOrdinalMap
 ```
 
 These values are runtime composition facts, derived focus/read models, or

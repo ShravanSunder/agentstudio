@@ -234,7 +234,7 @@ WorkspaceWindowMemoryAtom
   -> local_workspace_window_state.sidebar_width
   -> local_workspace_window_state.window_frame_json
 
-WorkspaceCursorAtom
+WorkspaceTabCursorAtom
   -> local_workspace_cursor.active_tab_id
 
 WorkspaceArrangementCursorAtom
