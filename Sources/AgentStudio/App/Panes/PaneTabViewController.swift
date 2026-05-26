@@ -1287,6 +1287,26 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
+        if let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
+            AppShortcutDispatchPolicy.isSourcePaneTargetedRuntimeCommand(shortcut.command)
+        {
+            // Terminal runtime shortcuts are app-owned reservations.
+            // When AppKit sends them through the pane controller instead
+            // of Ghostty, consume even rejected chords so terminal/default
+            // responders never see commands the app owns.
+            guard
+                AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(
+                    shortcut,
+                    context: keyboardContext
+                ),
+                CommandDispatcher.shared.canDispatch(shortcut.command)
+            else {
+                return true
+            }
+            CommandDispatcher.shared.dispatch(shortcut.command)
+            return true
+        }
+
         if let shortcut = globalShortcut {
             let shouldDispatchGlobalShortcut = AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
                 shortcut,
@@ -1309,6 +1329,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 shortcut,
                 context: keyboardContext
             ) {
+                // Global shortcuts only consume unavailable commands when
+                // the active surface explicitly reserves that chord.
                 return true
             }
             guard shortcut.requiresPaneTargetFallback else {
@@ -2174,7 +2196,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func handleTerminalRuntimeCommand(_ command: AppCommand) -> Bool {
         guard let paneId = focusedTerminalCommandTargetPaneId() else { return false }
+        return dispatchTerminalRuntimeCommand(command, paneId: paneId)
+    }
 
+    private func dispatchTerminalRuntimeCommand(_ command: AppCommand, paneId: UUID) -> Bool {
         let runtimeCommand: RuntimeCommand
         switch command {
         case .scrollToBottom:
@@ -2194,6 +2219,43 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             _ = await self.executor.dispatchRuntimeCommand(runtimeCommand, target: .pane(PaneId(uuid: paneId)))
         }
         return true
+    }
+
+    private func handleTargetedTerminalRuntimeCommand(
+        _ command: AppCommand,
+        target targetId: UUID,
+        targetType: SearchItemType
+    ) -> Bool {
+        guard isPaneTargetType(targetType), canExecuteTargetedTerminalRuntimeCommand(command, target: targetId) else {
+            return false
+        }
+        return dispatchTerminalRuntimeCommand(command, paneId: targetId)
+    }
+
+    private func canExecuteTargetedTerminalRuntimeCommand(
+        _ command: AppCommand,
+        target targetId: UUID
+    ) -> Bool {
+        guard isTerminalRuntimeCommand(command),
+            let pane = store.paneAtom.pane(targetId)
+        else {
+            return false
+        }
+        guard case .terminal = pane.content else { return false }
+        return true
+    }
+
+    private func isTerminalRuntimeCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isPaneTargetType(_ targetType: SearchItemType) -> Bool {
+        targetType == .pane || targetType == .floatingTerminal
     }
 
     private func focusedTerminalCommandTargetPaneId() -> UUID? {
@@ -2366,6 +2428,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         if command == .focusPane && (targetType == .pane || targetType == .floatingTerminal) {
             focusTargetedPane(target)
+            return
+        }
+
+        if handleTargetedTerminalRuntimeCommand(command, target: target, targetType: targetType) {
             return
         }
 
@@ -2732,6 +2798,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
             return paneInboxPresentation != nil && paneInboxTarget(anchorPaneId: target) != nil
+        }
+
+        if canExecuteTargetedTerminalRuntimeCommand(command, target: target),
+            isPaneTargetType(targetType)
+        {
+            return true
         }
 
         if let action = targetedAction(command: command, target: target, targetType: targetType) {

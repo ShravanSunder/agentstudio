@@ -513,6 +513,7 @@ private struct TabBarArrangementButton: View {
                     inlineRenameState: arrangementInlineRenameState,
                     onPaneAction: onPaneAction,
                     onSaveArrangement: { onSaveArrangement(tab.id) },
+                    onDismiss: dismissArrangementPopover,
                     showsMinimizedPanesBinding: Binding(
                         get: { tab.showsMinimizedPanes },
                         set: { onPaneAction(.setShowsMinimizedPanes(tabId: tab.id, value: $0)) }
@@ -531,6 +532,13 @@ private struct TabBarArrangementButton: View {
         .onChange(of: presentationAtom.pendingRequest?.id) { _, _ in
             openPopoverIfRequested()
         }
+    }
+
+    private func dismissArrangementPopover() {
+        guard presentationState.isPresented else { return }
+
+        presentationState.setPresented(false, activeTabId: adapter.activeTabId)
+        popoverToggleGate.recordSystemDismissal()
     }
 
     private func openPopoverIfRenameTargetsActiveTab() {

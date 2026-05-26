@@ -79,8 +79,9 @@ extension Ghostty.SurfaceView {
     static func handleTerminalAppOwnedShortcut(
         trigger: ShortcutTrigger,
         context: KeyboardRoutingContext,
-        canDispatch: (AppCommand) -> Bool,
-        dispatch: (AppCommand) -> Void
+        sourcePaneId: UUID? = nil,
+        canDispatch: (AppCommand, UUID?) -> Bool,
+        dispatch: (AppCommand, UUID?) -> Void
     ) -> TerminalAppOwnedShortcutHandling {
         guard let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
             Self.appOwnedShortcuts.contains(shortcut)
@@ -88,14 +89,21 @@ extension Ghostty.SurfaceView {
             return .notHandled
         }
 
+        let targetPaneId = AppShortcutDispatchPolicy.sourcePaneTarget(
+            for: shortcut.command,
+            sourcePaneId: sourcePaneId
+        )
         guard
             AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(shortcut, context: context),
-            canDispatch(shortcut.command)
+            canDispatch(shortcut.command, targetPaneId)
         else {
+            // Terminal app-owned chords are reserved by Agent Studio.
+            // Swallow rejected matches so they never leak to Ghostty or
+            // host terminal defaults such as clear scrollback.
             return .swallowed
         }
 
-        dispatch(shortcut.command)
+        dispatch(shortcut.command, targetPaneId)
         return .dispatched(shortcut.command)
     }
 
@@ -116,11 +124,29 @@ extension Ghostty.SurfaceView {
                 transientKeyboardSurface: atom(\.transientKeyboardSurface)
             )
 
+            let sourcePaneId =
+                terminalRuntime?.paneId.uuid
+                ?? SurfaceManager.shared
+                .surfaceId(forView: self)
+                .flatMap { SurfaceManager.shared.paneId(for: $0) }
+
             switch Self.handleTerminalAppOwnedShortcut(
                 trigger: trigger,
                 context: keyboardContext,
-                canDispatch: { CommandDispatcher.shared.canDispatch($0) },
-                dispatch: { CommandDispatcher.shared.dispatch($0) }
+                sourcePaneId: sourcePaneId,
+                canDispatch: { command, targetPaneId in
+                    if let targetPaneId {
+                        return CommandDispatcher.shared.canDispatch(command, target: targetPaneId, targetType: .pane)
+                    }
+                    return CommandDispatcher.shared.canDispatch(command)
+                },
+                dispatch: { command, targetPaneId in
+                    if let targetPaneId {
+                        CommandDispatcher.shared.dispatch(command, target: targetPaneId, targetType: .pane)
+                        return
+                    }
+                    CommandDispatcher.shared.dispatch(command)
+                }
             ) {
             case .notHandled:
                 break

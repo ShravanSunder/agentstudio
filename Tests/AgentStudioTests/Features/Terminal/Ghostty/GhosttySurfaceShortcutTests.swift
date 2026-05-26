@@ -106,14 +106,86 @@ final class GhosttySurfaceShortcutTests {
                     let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
                         trigger: .init(key: .character(.k), modifiers: [.command, .shift]),
                         context: context,
-                        canDispatch: { _ in true },
-                        dispatch: { dispatchedCommands.append($0) }
+                        canDispatch: { command, _ in command == .scrollToBottom },
+                        dispatch: { command, _ in dispatchedCommands.append(command) }
                     )
 
                     #expect(result == .swallowed)
                     #expect(dispatchedCommands.isEmpty)
                 }
             })
+    }
+
+    @Test
+    func terminalAppOwnedShortcutHandler_targetsSourcePaneForTerminalRuntimeCommands() {
+        withTestAtomRegistry { atoms in
+            let windowId = UUID()
+            let sourcePaneId = UUID()
+            var dispatches: [(command: AppCommand, paneId: UUID?)] = []
+            atoms.windowLifecycle.recordWindowRegistered(windowId)
+            atoms.windowLifecycle.recordWindowBecameKey(windowId)
+
+            let context = KeyboardRoutingContext.current(
+                windowLifecycle: atoms.windowLifecycle,
+                managementLayer: atoms.managementLayer,
+                uiState: atoms.uiState,
+                commandBarSurface: atoms.commandBarSurface,
+                transientKeyboardSurface: atoms.transientKeyboardSurface
+            )
+
+            let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
+                trigger: .init(key: .character(.k), modifiers: [.command, .shift]),
+                context: context,
+                sourcePaneId: sourcePaneId,
+                canDispatch: { command, paneId in
+                    command == .scrollToBottom && paneId == sourcePaneId
+                },
+                dispatch: { command, paneId in
+                    dispatches.append((command, paneId))
+                }
+            )
+
+            #expect(result == .dispatched(.scrollToBottom))
+            #expect(dispatches.count == 1)
+            #expect(dispatches.first?.command == .scrollToBottom)
+            #expect(dispatches.first?.paneId == sourcePaneId)
+        }
+    }
+
+    @Test
+    func terminalAppOwnedShortcutHandler_doesNotTargetCommandBarShortcutsToSourcePane() {
+        withTestAtomRegistry { atoms in
+            let windowId = UUID()
+            let sourcePaneId = UUID()
+            var dispatches: [(command: AppCommand, paneId: UUID?)] = []
+            atoms.windowLifecycle.recordWindowRegistered(windowId)
+            atoms.windowLifecycle.recordWindowBecameKey(windowId)
+
+            let context = KeyboardRoutingContext.current(
+                windowLifecycle: atoms.windowLifecycle,
+                managementLayer: atoms.managementLayer,
+                uiState: atoms.uiState,
+                commandBarSurface: atoms.commandBarSurface,
+                transientKeyboardSurface: atoms.transientKeyboardSurface
+            )
+
+            let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
+                trigger: .init(key: .character(.p), modifiers: [.command]),
+                context: context,
+                sourcePaneId: sourcePaneId,
+                canDispatch: { command, paneId in
+                    command == .showCommandBarEverything && paneId == nil
+                },
+                dispatch: { command, paneId in
+                    dispatches.append((command, paneId))
+                }
+            )
+
+            #expect(result == .dispatched(.showCommandBarEverything))
+            #expect(dispatches.count == 1)
+            #expect(dispatches.first?.command == .showCommandBarEverything)
+            #expect(dispatches.first?.paneId == nil)
+        }
     }
 
     @Test

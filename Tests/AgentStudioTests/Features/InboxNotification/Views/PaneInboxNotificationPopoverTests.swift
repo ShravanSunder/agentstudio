@@ -225,44 +225,46 @@ struct PaneInboxNotificationPopoverTests {
                 CommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
-                let hostingView = NSHostingView(
-                    rootView: PaneInboxNotificationPopover(
-                        parentPaneId: parentPaneId,
-                        workspaceWindowId: nil,
-                        paneIds: [parentPaneId],
-                        inboxAtom: inboxAtom,
-                        presentationAtom: PaneInboxPresentationAtom(),
-                        onActivate: { _ in },
-                        onFocusPane: { _ in },
-                        onClear: {
-                            didClearLocally = true
-                            inboxAtom.clearPaneInbox(paneIds: [parentPaneId])
-                        },
-                        onClose: {}
+                try withTestAtomRegistry { _ in
+                    let hostingView = NSHostingView(
+                        rootView: PaneInboxNotificationPopover(
+                            parentPaneId: parentPaneId,
+                            workspaceWindowId: nil,
+                            paneIds: [parentPaneId],
+                            inboxAtom: inboxAtom,
+                            presentationAtom: PaneInboxPresentationAtom(),
+                            onActivate: { _ in },
+                            onFocusPane: { _ in },
+                            onClear: {
+                                didClearLocally = true
+                                inboxAtom.clearPaneInbox(paneIds: [parentPaneId])
+                            },
+                            onClose: {}
+                        )
+                        .frame(width: 360, height: 240)
                     )
-                    .frame(width: 360, height: 240)
-                )
-                let window = NSWindow(
-                    contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
-                    styleMask: [.titled, .closable],
-                    backing: .buffered,
-                    defer: false
-                )
-                window.contentView = hostingView
-                window.makeKeyAndOrderFront(nil)
-                defer { window.orderOut(nil) }
-                hostingView.layoutSubtreeIfNeeded()
+                    let window = NSWindow(
+                        contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+                        styleMask: [.titled, .closable],
+                        backing: .buffered,
+                        defer: false
+                    )
+                    window.contentView = hostingView
+                    window.makeKeyAndOrderFront(nil)
+                    defer { window.orderOut(nil) }
+                    hostingView.layoutSubtreeIfNeeded()
 
-                let clearButton = try #require(
-                    findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
-                )
+                    let clearButton = try #require(
+                        findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
+                    )
 
-                pressAccessibleElement(clearButton)
+                    pressAccessibleElement(clearButton)
 
-                #expect(didClearLocally)
-                #expect(commandHandler.executedTargets.isEmpty)
-                #expect(inboxAtom.notifications.first?.isRead == true)
-                #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+                    #expect(didClearLocally)
+                    #expect(commandHandler.executedTargets.isEmpty)
+                    #expect(inboxAtom.notifications.first?.isRead == true)
+                    #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+                }
             }
         )
     }
@@ -284,46 +286,48 @@ struct PaneInboxNotificationPopoverTests {
                 CommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
-                let hostingView = NSHostingView(
-                    rootView: PaneInboxNotificationPopover(
-                        parentPaneId: parentPaneId,
-                        workspaceWindowId: nil,
-                        paneIds: [parentPaneId],
-                        inboxAtom: inboxAtom,
-                        presentationAtom: PaneInboxPresentationAtom(),
-                        onActivate: { activatedNotificationIds.append($0.id) },
-                        onFocusPane: { locallyFocusedPaneIds.append($0) },
-                        onClear: {},
-                        onClose: { didClose = true }
+                try withTestAtomRegistry { _ in
+                    let hostingView = NSHostingView(
+                        rootView: PaneInboxNotificationPopover(
+                            parentPaneId: parentPaneId,
+                            workspaceWindowId: nil,
+                            paneIds: [parentPaneId],
+                            inboxAtom: inboxAtom,
+                            presentationAtom: PaneInboxPresentationAtom(),
+                            onActivate: { activatedNotificationIds.append($0.id) },
+                            onFocusPane: { locallyFocusedPaneIds.append($0) },
+                            onClear: {},
+                            onClose: { didClose = true }
+                        )
+                        .frame(width: 360, height: 240)
                     )
-                    .frame(width: 360, height: 240)
-                )
-                let window = NSWindow(
-                    contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
-                    styleMask: [.titled, .closable],
-                    backing: .buffered,
-                    defer: false
-                )
-                window.contentView = hostingView
-                window.makeKeyAndOrderFront(nil)
-                defer { window.orderOut(nil) }
-                hostingView.layoutSubtreeIfNeeded()
-
-                let row = try #require(
-                    findAccessibleElement(
-                        in: hostingView,
-                        identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
+                    let window = NSWindow(
+                        contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+                        styleMask: [.titled, .closable],
+                        backing: .buffered,
+                        defer: false
                     )
-                )
+                    window.contentView = hostingView
+                    window.makeKeyAndOrderFront(nil)
+                    defer { window.orderOut(nil) }
+                    hostingView.layoutSubtreeIfNeeded()
 
-                pressAccessibleElement(row)
+                    let row = try #require(
+                        findAccessibleElement(
+                            in: hostingView,
+                            identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
+                        )
+                    )
 
-                #expect(activatedNotificationIds == [notification.id])
-                #expect(locallyFocusedPaneIds == [parentPaneId])
-                #expect(commandHandler.executedTargets.isEmpty)
-                #expect(inboxAtom.notifications.first?.isRead == true)
-                #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
-                #expect(didClose)
+                    pressAccessibleElement(row)
+
+                    #expect(activatedNotificationIds == [notification.id])
+                    #expect(locallyFocusedPaneIds == [parentPaneId])
+                    #expect(commandHandler.executedTargets.isEmpty)
+                    #expect(inboxAtom.notifications.first?.isRead == true)
+                    #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+                    #expect(didClose)
+                }
             }
         )
     }
@@ -335,39 +339,41 @@ struct PaneInboxNotificationPopoverTests {
         let inboxAtom = InboxNotificationAtom()
         inboxAtom.append(notification)
 
-        let hostingView = NSHostingView(
-            rootView: PaneInboxNotificationPopover(
-                parentPaneId: parentPaneId,
-                workspaceWindowId: nil,
-                paneIds: [parentPaneId],
-                inboxAtom: inboxAtom,
-                presentationAtom: PaneInboxPresentationAtom(),
-                onActivate: { _ in },
-                onFocusPane: { _ in },
-                onClear: {},
-                onClose: {}
+        try withTestAtomRegistry { _ in
+            let hostingView = NSHostingView(
+                rootView: PaneInboxNotificationPopover(
+                    parentPaneId: parentPaneId,
+                    workspaceWindowId: nil,
+                    paneIds: [parentPaneId],
+                    inboxAtom: inboxAtom,
+                    presentationAtom: PaneInboxPresentationAtom(),
+                    onActivate: { _ in },
+                    onFocusPane: { _ in },
+                    onClear: {},
+                    onClose: {}
+                )
+                .frame(width: 360, height: 240)
             )
-            .frame(width: 360, height: 240)
-        )
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
-        hostingView.layoutSubtreeIfNeeded()
-
-        let row = try #require(
-            findAccessibleElement(
-                in: hostingView,
-                identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
+            let window = NSWindow(
+                contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
             )
-        )
+            window.contentView = hostingView
+            window.makeKeyAndOrderFront(nil)
+            defer { window.orderOut(nil) }
+            hostingView.layoutSubtreeIfNeeded()
 
-        #expect(accessibilityLabel(of: row) == "Body fallback")
+            let row = try #require(
+                findAccessibleElement(
+                    in: hostingView,
+                    identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
+                )
+            )
+
+            #expect(accessibilityLabel(of: row) == "Body fallback")
+        }
     }
 
     @Test("popover uses repo-matched background")

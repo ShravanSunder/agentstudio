@@ -128,11 +128,11 @@ enum SearchItemType: String, CaseIterable {
 // MARK: - KeyBinding
 
 /// A keyboard shortcut binding for a command.
-struct KeyBinding: Codable, Hashable {
+struct KeyBinding: Codable, Hashable, Sendable {
     var key: String
     var modifiers: Set<Modifier>
 
-    enum Modifier: String, Codable, Hashable {
+    enum Modifier: String, Codable, Hashable, Sendable {
         case command
         case control
         case option

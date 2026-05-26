@@ -202,6 +202,7 @@ struct CollapsedPaneBar: View {
                     actionDispatcher.dispatch(action)
                 },
                 onSaveArrangement: { onSaveArrangement?() },
+                onDismiss: dismissArrangementPopover,
                 showsMinimizedPanesBinding: Binding(
                     get: { atom(\.arrangementView).effectiveShowsMinimizedPanes(forTab: tabId) },
                     set: { actionDispatcher.dispatch(.setShowsMinimizedPanes(tabId: tabId, value: $0)) }
@@ -210,6 +211,13 @@ struct CollapsedPaneBar: View {
                 showsMinimizedBarToggle: false
             )
         }
+    }
+
+    private func dismissArrangementPopover() {
+        guard isArrangementPanelPresented else { return }
+
+        isArrangementPanelPresented = false
+        arrangementPopoverToggleGate.recordSystemDismissal()
     }
 
     private func openArrangementPopoverIfRequested() {

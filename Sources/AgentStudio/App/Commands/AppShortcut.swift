@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 // swiftlint:disable identifier_name
-enum ShortcutCharacterKey: String, CaseIterable {
+enum ShortcutCharacterKey: String, CaseIterable, Sendable {
     case a
     case b
     case d
@@ -49,7 +49,7 @@ enum ShortcutCharacterKey: String, CaseIterable {
 }
 // swiftlint:enable identifier_name
 
-enum ShortcutArrowKey: CaseIterable {
+enum ShortcutArrowKey: CaseIterable, Sendable {
     case left
     case right
     case down
@@ -69,7 +69,7 @@ enum ShortcutArrowKey: CaseIterable {
     }
 }
 
-enum ShortcutInputKey: Hashable {
+enum ShortcutInputKey: Hashable, Sendable {
     case character(ShortcutCharacterKey)
     case arrow(ShortcutArrowKey)
     case enter
@@ -89,7 +89,7 @@ enum ShortcutInputKey: Hashable {
     }
 }
 
-struct ShortcutTrigger: Hashable {
+struct ShortcutTrigger: Hashable, Sendable {
     let key: ShortcutInputKey
     let modifiers: Set<KeyBinding.Modifier>
 

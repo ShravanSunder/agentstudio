@@ -11,6 +11,7 @@ struct ArrangementPanel: View {
     @Bindable var inlineRenameState: ArrangementInlineRenameState
     let onPaneAction: (PaneActionCommand) -> Void
     let onSaveArrangement: () -> Void
+    let onDismiss: () -> Void
     let showsMinimizedPanesBinding: Binding<Bool>
     var highlightPaneId: UUID?
     var showsMinimizedBarToggle = true
@@ -125,7 +126,11 @@ struct ArrangementPanel: View {
         }
         .padding(10)
         .frame(minWidth: 400, idealWidth: 475, maxWidth: 575)
-        .transientKeyboardSurface(transientSurfaceKind, workspaceWindowId: workspaceWindowId)
+        .transientKeyboardSurface(
+            transientSurfaceKind,
+            workspaceWindowId: workspaceWindowId,
+            onDismiss: onDismiss
+        )
         .onAppear {
             guard highlightPaneId != nil else { return }
             highlightVisible = true
@@ -139,13 +144,16 @@ struct ArrangementPanel: View {
             }
         }
         .background(
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if inlineRenameState.editingArrangementId != nil {
-                        cancelInlineRename()
+            ZStack {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if inlineRenameState.editingArrangementId != nil {
+                            cancelInlineRename()
+                        }
                     }
-                }
+
+            }
         )
     }
 

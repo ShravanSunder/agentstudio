@@ -90,4 +90,32 @@ struct TerminalAppOwnedShortcutPolicyTests {
         #expect(!AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.nextTab, context: context))
         #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.newTab, context: context))
     }
+
+    @Test("source pane targeting is explicit for terminal runtime commands only")
+    func sourcePaneTargetingIsExplicitForTerminalRuntimeCommandsOnly() {
+        let sourcePaneId = UUID()
+
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .scrollToBottom, sourcePaneId: sourcePaneId) == sourcePaneId
+        )
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .scrollPageUp, sourcePaneId: sourcePaneId) == sourcePaneId)
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .jumpToPreviousPrompt, sourcePaneId: sourcePaneId)
+                == sourcePaneId
+        )
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .jumpToNextPrompt, sourcePaneId: sourcePaneId)
+                == sourcePaneId)
+
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .showCommandBarEverything, sourcePaneId: sourcePaneId)
+                == nil)
+        #expect(AppShortcutDispatchPolicy.sourcePaneTarget(for: .selectTab1, sourcePaneId: sourcePaneId) == nil)
+        #expect(AppShortcutDispatchPolicy.sourcePaneTarget(for: .focusPane1, sourcePaneId: sourcePaneId) == nil)
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .showPaneInboxNotifications, sourcePaneId: sourcePaneId)
+                == nil)
+        #expect(AppShortcutDispatchPolicy.sourcePaneTarget(for: .scrollToBottom, sourcePaneId: nil) == nil)
+    }
 }

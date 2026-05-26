@@ -68,6 +68,35 @@ struct TransientKeyboardSurfaceAtomTests {
                 == .arrangementRename(tabId: tabId, arrangementId: arrangementId))
     }
 
+    @Test("surfaces preserve dismiss policy through present and replace")
+    func surfacesPreserveDismissPolicyThroughPresentAndReplace() {
+        let atom = TransientKeyboardSurfaceAtom()
+        let workspaceWindowId = UUID()
+        let tabId = UUID()
+        let arrangementId = UUID()
+        let panelPolicy = TransientKeyboardSurfacePolicy.dismissable(
+            dismissTriggers: [ShortcutTrigger(key: .character(.i), modifiers: [.command, .option])]
+        )
+        let renamePolicy = TransientKeyboardSurfacePolicy.dismissable(
+            dismissTriggers: [ShortcutTrigger(key: .character(.i), modifiers: [.command, .option])],
+            consumesEscape: false
+        )
+
+        let token = atom.present(
+            .arrangementPanel(tabId: tabId),
+            workspaceWindowId: workspaceWindowId,
+            policy: panelPolicy
+        )
+        atom.replace(
+            token,
+            with: .arrangementRename(tabId: tabId, arrangementId: arrangementId),
+            workspaceWindowId: workspaceWindowId,
+            policy: renamePolicy
+        )
+
+        #expect(atom.topSurface(for: workspaceWindowId)?.policy == renamePolicy)
+    }
+
     @Test("mixed transient kinds remain token scoped and window scoped")
     func mixedTransientKindsRemainTokenScopedAndWindowScoped() {
         let atom = TransientKeyboardSurfaceAtom()

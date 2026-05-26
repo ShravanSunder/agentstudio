@@ -54,6 +54,46 @@ enum AppShortcutDispatchPolicy {
         }
     }
 
+    static func sourcePaneTarget(for command: AppCommand, sourcePaneId: UUID?) -> UUID? {
+        guard let sourcePaneId else { return nil }
+        guard isSourcePaneTargetedRuntimeCommand(command) else { return nil }
+        return sourcePaneId
+    }
+
+    static func isSourcePaneTargetedRuntimeCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
+            return true
+        case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,
+            .selectTab, .nextTab, .prevTab, .selectTab1, .selectTab2, .selectTab3,
+            .selectTab4, .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .splitRight, .splitLeft,
+            .equalizePanes, .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane, .focusPane1, .focusPane2, .focusPane3, .focusPane4,
+            .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9, .toggleSplitZoom,
+            .minimizePane, .expandPane, .switchArrangement, .previousArrangement, .nextArrangement,
+            .cycleArrangement, .saveArrangement, .deleteArrangement, .renameArrangement,
+            .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown,
+            .focusDrawerPaneRight, .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
+            .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7,
+            .focusDrawerPane8, .focusDrawerPane9, .detachDrawerPane, .addDrawerPane,
+            .toggleDrawer, .navigateDrawerPane, .closeDrawerPane,
+            .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
+            .openPaneLocationInEditorMenu, .watchFolder, .removeRepo, .openWorktree,
+            .openWorktreeInPane, .toggleManagementLayer, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar,
+            .showInboxNotifications, .toggleInboxNotificationSort, .clearReadInboxNotifications,
+            .clearAllInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications,
+            .showWorktreeSidebar, .newFloatingTerminal, .newWindow, .closeWindow,
+            .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,
+            .showCommandBarRepos, .openWebview, .signInGitHub, .signInGoogle,
+            .filterSidebar, .openNewTerminalInTab:
+            return false
+        }
+    }
+
     static func isCommandBarActivationShortcut(_ shortcut: AppShortcut) -> Bool {
         switch shortcut {
         case .newTab, .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:

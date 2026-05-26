@@ -20,6 +20,10 @@ struct PaneInboxNotificationPopover: View {
     static let rowChromePolicy = PaneInboxNotificationRow.rowChromePolicy
     static let surfaceBackground = SidebarSurfaceBackground.windowBackgroundColor
 
+    private var transientSurfaceKind: TransientKeyboardSurfaceKind {
+        .paneInbox(parentPaneId: parentPaneId)
+    }
+
     @State private var selectedNotificationId: UUID?
 
     var body: some View {
@@ -32,7 +36,10 @@ struct PaneInboxNotificationPopover: View {
             width: AppStyles.Components.PaneInbox.popoverWidth,
             height: AppStyles.Components.PaneInbox.popoverHeight
         )
-        .transientKeyboardSurface(.paneInbox(parentPaneId: parentPaneId), workspaceWindowId: workspaceWindowId)
+        .transientKeyboardSurface(
+            transientSurfaceKind,
+            workspaceWindowId: workspaceWindowId
+        )
         .background(Self.surfaceBackground.color)
         .background(
             SelectablePopoverKeyboardBridge(
@@ -49,7 +56,10 @@ struct PaneInboxNotificationPopover: View {
                 onDismiss: onClose,
                 matchesAdditionalDismissShortcut: { event in
                     guard let trigger = ShortcutDecoder.decode(event: event) else { return false }
-                    return trigger == AppShortcut.showPaneInboxNotifications.trigger
+                    return TransientKeyboardSurfaceDismissRouter.shouldDismiss(
+                        trigger: trigger,
+                        policy: transientSurfaceKind.defaultPolicy
+                    )
                 }
             )
             .frame(width: 0, height: 0)
