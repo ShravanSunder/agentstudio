@@ -2,10 +2,24 @@
 
 > **Target**: macOS 26 (Tahoe) · Swift 6.2 · WebKit for SwiftUI
 > **Pattern**: Three-stream architecture with push-dominant state sync
-> **First use case**: Diff viewer and code review with Pierre (@pierre/diffs, @pierre/file-tree)
-> **Status**: Phase 1 (bridge infrastructure) and Phase 2 (push pipeline) are implemented in code. Phase 3 (typed JSON-RPC command channel) is complete and closed in LUNA-336.
+> **First use case**: Read-only diff viewer and code review with Pierre CodeView (`@pierre/diffs`) and Trees.
+> **Status (2026-05-22, stale-branch reassessment)**: Bridge transport scaffolding, per-pane `BridgePaneController`, strict navigation, push infrastructure, typed JSON-RPC routing, and Swift fixture tests exist. The content-delivery pipeline is **not complete**: `BridgeSchemeHandler` still serves placeholder app/resource responses, `diff.requestFileContents` and `diff.loadDiff` are registered but stubbed at the RPC layer, `BridgePaneController.loadApp()` always loads `agentstudio://app/index.html`, and there is no committed React/TypeScript client tree in this checkout. Treat `LUNA-337` as the active finish line before downstream diff-viewer work.
 
 > **LUNA-336 closure scope**: sender parity, command ack semantics, and direct-response request handling are implemented and documented here as the closed Phase 3 baseline.
+
+## Current Implementation Reality
+
+This document describes the target bridge architecture and the verified scaffolding already in the app. The following boundary is important for stale-branch work:
+
+| Area | Current state | What remains for LUNA-337 |
+|---|---|---|
+| Pane shell | `PaneContent.bridgePanel`, `BridgePaneController`, `BridgeRuntime`, `BridgePaneMountView`, and view lifecycle registration exist. | Wire source-specific loading so `BridgePaneSource` drives domain data instead of only title/panel metadata. |
+| State/push infrastructure | `BridgeDomainState`, per-pane push plans, revision clock, bootstrap relay, and Swift tests exist. Runtime push envelopes use `payload`; some old fixtures still model `data`. | Keep one canonical push envelope shape and update fixtures/tests when the content pipeline lands. |
+| RPC routing | Typed `RPCRouter` and method contracts exist. Some review/inbox commands are real. Diff/review/agent/system methods that need backend data are mostly stubs. | Implement real `diff.loadDiff`, `diff.requestFileContents`, and any direct-response query methods required by the viewer. |
+| URL scheme | Scheme routing and MIME/path classification exist. | Replace placeholder app HTML and `resource:<fileId>` responses with real bundled-app and file-content resolution, including epoch guards, cancellation, MIME, and traversal checks. |
+| React client | Architecture assumes a React/Zustand/Pierre client, but no `WebApp/`, TypeScript, Vite config, or TS fixture suite is committed here. | Decide the client source location, build pipeline, resource bundling, and Swift/TS contract parity lane before claiming end-to-end parity. |
+
+Downstream tickets (`LUNA-338+`) should not treat this branch as a finished bridge baseline until the remaining LUNA-337 items above are implemented and tested.
 
 ---
 
@@ -21,6 +35,8 @@ React sends commands to Swift via `postMessage` (JSON-RPC 2.0 notifications with
 
 The diff viewer and code review system (powered by Pierre) is the first panel. It supports reviewing diffs from git commits, branch comparisons, and agent-generated snapshots. Future panels reuse the same bridge.
 
+The first panel is not a code editor. Source artifacts are read-only inside the CodeView review surface: no Monaco, no source buffer ownership, no patch application, and no "accept agent change" command from this pane. Review artifacts are editable: annotation notes and comment bodies can be markdown-capable review data. A future markdown whiteboard/editor pane may reuse the bridge, but its editing model is a separate fast-follow concern and is not decided by this document.
+
 ---
 
 ## 2. Architecture Principles
@@ -30,7 +46,9 @@ The diff viewer and code review system (powered by Pierre) is the first panel. I
 3. **Metadata push, content pull** — Swift pushes file manifests (metadata) immediately. React pulls file contents on demand via the data stream when files enter the viewport. This keeps the state stream fast and memory bounded.
 4. **Idempotent commands with acks** — React sends commands with a `commandId` (UUID). Swift deduplicates and acknowledges via state push. Enables optimistic local UI with rollback on rejection.
 5. **Revision-ordered pushes** — Every push envelope carries a monotonic `revision` per store. React drops pushes with `revision <= lastSeen`. Combined with `epoch` for load cancellation.
-6. **Testable at every layer** — Transport, protocol, push pipeline, stores — each layer has a clear contract and can be tested in isolation.
+6. **Read-only source, editable review artifacts** — Code and diff contents are display artifacts in this pane. Comments, annotation notes, and review workflow state are editable review artifacts. Source mutation belongs to a separate pane/workflow.
+7. **TDD-first delivery** — Each slice starts from contract, lifecycle, security, performance, or rendering tests before implementation. Visual rendering alone is not completion.
+8. **Testable at every layer** — Transport, protocol, push pipeline, stores, CodeView adapters, worker/highlighter setup, and annotation rendering each have a clear contract and can be tested in isolation.
 
 ---
 
@@ -45,7 +63,7 @@ The diff viewer and code review system (powered by Pierre) is the first panel. I
 │                                                        │
 │  • DiffManifest: file metadata as keyed collection (per-file EntitySlice)  │
 │  • File contents (served via data stream on demand)   │
-│  • ReviewThread, ReviewComment, ReviewAction           │
+│  • Review annotation/comment model (deferred ticket)   │
 │  • AgentTask: status, completed files, output refs     │
 │  • TimelineEvent: immutable audit log                  │
 │  • Observations AsyncSequence drives state stream     │
@@ -62,7 +80,7 @@ The diff viewer and code review system (powered by Pierre) is the first panel. I
 │                                                          │
 │  • DiffManifest mirror (file list, statuses)            │
 │  • File content LRU cache (~20 files in memory)         │
-│  • Review threads + comments (normalized by ID)          │
+│  • Review annotation markers and comment summaries       │
 │  • Agent task status                                     │
 │  • Derived selectors (filtered files, comment counts)    │
 │  • Revision-tracked: each store knows its last revision  │
@@ -74,12 +92,12 @@ The diff viewer and code review system (powered by Pierre) is the first panel. I
 │  Tier 3: React Local UI State (ephemeral)                 │
 │  Component state, not persisted, not pushed to Swift      │
 │                                                            │
-│  • Draft comment text, cursor position                    │
+│  • Draft markdown comment text, cursor position           │
 │  • File tree expanded/collapsed nodes                     │
 │  • Scroll position, selection, hover state                │
 │  • Search/filter query (applied locally to manifest)      │
 │  • Optimistic UI state (pending comment, pending action)   │
-│  • Pierre rendering state (virtualizer, height caches)    │
+│  • CodeView rendering state (virtualizer, height caches)  │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -311,7 +329,7 @@ idle -> pending(local overlay) -> committed(canonical Swift push)
 |---|---|---|
 | `diff.*` | `diff.requestFileContents`, `diff.loadDiff` | Diff operations |
 | `review.*` | `review.addComment`, `review.resolveThread`, `review.deleteComment` | Review lifecycle |
-| `agent.*` | `agent.requestRewrite`, `agent.cancelTask`, `agent.injectPrompt` | Agent lifecycle |
+| `agent.*` | `agent.requestReview`, `agent.cancelTask`, `agent.injectPrompt` | Agent review workflow lifecycle |
 | `git.*` | `git.status`, `git.fileTree` | Git operations |
 | `system.*` | `system.health`, `system.capabilities`, `system.resyncAgentEvents` | System info + recovery |
 
@@ -433,7 +451,7 @@ try await page.callJavaScript(
 | Monotonic `__epoch` for each diff load | Drop all stale epoch pushes and responses |
 | Exactly-once command semantics at app level | Deduplicate by `__commandId` (sliding window) |
 | No large file buffers on state stream | State stream is metadata-only; file buffers via data stream |
-| Every cross-boundary payload is typed | Validate against shared contract fixtures in Swift + TS tests |
+| Every cross-boundary payload is typed | Validate against Swift contract fixtures now; add TS parity fixtures when the React client tree lands |
 | Every async load is cancellable | Cancel on epoch change, viewport exit, pane teardown |
 
 ---
@@ -1290,8 +1308,8 @@ export const commands = {
             sendCommand("review.unmarkFileViewed", { fileId }),
     },
     agent: {
-        requestRewrite: (params: { source: { type: string; threadIds: string[] }; prompt: string }) =>
-            sendCommand("agent.requestRewrite", params),
+        requestReview: (params: { source: { type: string; threadIds: string[] }; prompt: string }) =>
+            sendCommand("agent.requestReview", params),
         cancelTask: (taskId: string) =>
             sendCommand("agent.cancelTask", { taskId }),
         injectPrompt: (text: string) =>
@@ -2282,157 +2300,138 @@ final class BridgeNavigationDecider: WebPage.NavigationDeciding {
 
 ## 12. Diff Viewer Integration (Pierre)
 
-### 12.1 Pierre Packages
+### 12.1 Product Boundary
 
-The diff viewer uses two Pierre packages:
+The bridge review pane is a read-only source viewer plus editable review artifacts:
 
-| Package | Purpose | Verified Exports (contracted) |
+- Source code and diffs are never edited by this pane.
+- No Monaco/editor buffer ownership is introduced here.
+- No patch application, "accept agent change", or workspace-file mutation command belongs to this surface.
+- Markdown-capable annotation/comment editing is allowed because annotations are review artifacts, not source artifacts.
+- A future markdown whiteboard/editor pane is intentionally separate and only lightly referenced here.
+
+### 12.2 Pierre Packages
+
+The viewer uses Pierre's CodeView API as the primary code surface. CodeView renders one large scroll region containing files, diffs, or both; it owns virtualization, measured layout reconciliation, sticky headers, line selection, annotations, and scroll targeting.
+
+| Package | Purpose | Integration rule |
 |---|---|---|
-| **`@pierre/diffs`** | Diff rendering with syntax highlighting | `@pierre/diffs/react` for React components (`MultiFileDiff`, `PatchDiff`, `FileDiff`), `@pierre/diffs/worker` for worker APIs (`WorkerPoolManager`) |
-| **`@pierre/file-tree`** | File tree sidebar with search | `@pierre/file-tree/react` React entry point and core package APIs from `@pierre/file-tree` |
+| `@pierre/diffs` | File/diff rendering, CodeView, Shiki highlighting, annotations | Use documented package exports only. `CodeView` is the default React surface for the review pane. |
+| `@pierre/diffs/react` | React components, CodeView handle, worker-pool provider | Wrap the review surface in the documented worker-pool provider when worker highlighting is enabled. |
+| `@pierre/diffs/worker` | Worker pool utilities and Shiki off-main-thread highlighting | Own worker creation in the bridge client; validate that the built worker asset is loadable in WKWebView. |
+| `@pierre/trees` | Prepared path input and tree utilities | Prepare large tree input outside the React render path; prefer presorted prepared input when Swift already owns ordering. |
+| `@pierre/trees/react` | File tree model and React host | Use path-first selection/focus/search; do not build a second tree identity model. |
 
-> **Verification rule**: Use only symbols exported by the installed package version. Do not rely on internal symbols or undocumented paths. If a symbol is not in package exports, treat it as unavailable.
+Pierre uses Shiki for syntax highlighting. `LUNA-338` must verify the installed package's documented highlighter/worker path and configure worker-backed or worker-compatible highlighting so large file/diff rendering does not block the main UI thread.
 
-### 12.2 Virtualized Diff Rendering
+### 12.3 CodeView Item Ownership
 
-Pierre provides performant diff rendering with worker-backed highlighting. For large manifests, keep viewport-driven content loading in our bridge regardless of Pierre component shape.
-
-```typescript
-import { MultiFileDiff } from '@pierre/diffs/react';
-import { WorkerPoolManager } from '@pierre/diffs/worker';
-
-// Shared worker pool for syntax highlighting
-const workerManager = new WorkerPoolManager();
-
-function DiffFileView({ fileId }: { fileId: string }) {
-    const manifest = useDiffManifest(fileId);
-    const content = useFileContent(fileId); // LRU cached, fetched via data stream
-
-    if (!content) {
-        // File content not yet loaded — Pierre still renders with approximate height
-        // Content loader triggers fetch when this file enters viewport
-        return <DiffFileSkeleton manifest={manifest} />;
-    }
-
-    return (
-        <MultiFileDiff
-            oldFile={{
-                name: manifest.oldPath ?? manifest.path,
-                contents: content.oldContent ?? '',
-                cacheKey: `${fileId}:old`,  // enables worker highlight caching
-            }}
-            newFile={{
-                name: manifest.path,
-                contents: content.newContent ?? '',
-                cacheKey: `${fileId}:new`,
-            }}
-            options={{
-                theme: 'pierre-dark',
-                diffStyle: 'split',
-            }}
-        />
-    );
-}
-```
-
-**Key behaviors**:
-- Diff components should render from manifest metadata first, then hydrate with content from the data stream
-- Visibility/viewport signals trigger content loading via our priority queue
-- `WorkerPoolManager` offloads syntax highlighting to web workers — critical for 500-file diffs
-- `cacheKey` on `FileContents` enables worker-side AST caching; scrolling back to a file is instant
-
-### 12.3 File Tree (Pierre)
-
-Pierre's file tree APIs vary by version. The currently documented integration model is plugin-oriented (`createFileTree` + React plugin). Use that as the default shape and keep the adapter isolated:
+React should prefer CodeView's imperative item ownership for large or streaming review surfaces: seed with `initialItems`, then use the viewer ref for `addItems`, `updateItem`, `getItem`, and `scrollTo`. Controlled `items` mode is acceptable only for smaller surfaces where updating the full React item array is cheap.
 
 ```typescript
-import { createFileTree } from '@pierre/file-tree';
-import { fileTreeReactPlugin, FileTreeComponent } from '@pierre/file-tree/react';
+import { type CodeViewItem } from '@pierre/diffs';
+import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 
-function DiffSidebar() {
-    const manifest = useDiffManifest();
-    const tree = useMemo(() => createFileTree({
-        plugins: [fileTreeReactPlugin()],
-        files: manifest.files.map((f) => f.path),
-    }), [manifest]);
-
-    return <FileTreeComponent tree={tree} />;
-}
+type ReviewCodeViewItem = CodeViewItem<ReviewAnnotationFixture>;
 ```
 
-**Custom badges**: Pierre's file tree renders `Icon` + `itemName` per node. To show status badges (change type, comment count, viewed), extend the tree item rendering or overlay badges via CSS selectors on `data-file-tree-item` attributes.
+Host-side rules:
 
-**Search/filter**: Built-in via `fileTreeSearchFeature`. Supports `expand-matches` and `collapse-non-matches` modes. Bound to the search input with `data-file-tree-search-input`. Filtering 500 files is pure JS — <16ms, no bridge traffic.
+- Each file/diff item gets a stable ID derived from the Swift content handle.
+- If content, annotations, or collapsed state changes for the same item ID, increment `version`.
+- Use `scrollTo({ type: 'item' | 'line' | 'range', ... })` for navigation rather than pixel offsets.
+- Use CodeView `layout` and `itemMetrics`; do not fake internal padding/gap with external CSS.
+- Run `__devOnlyValidateItemHeights` only in development/tests because it is intentionally expensive.
 
 ### 12.4 Content Loading Lifecycle
 
 ```
-1. Swift pushes DiffManifest via state stream (file paths, sizes, hunk summaries)
-2. React passes manifest to Pierre FileTree + creates diff components per file
-3. Viewport visibility signals determine which files are active
-4. Active file signal fires → content loader triggers
-5. Content loader fetches via agentstudio://resource/file/{id} (data stream)
-6. Content arrives → Pierre renders diff + WorkerPoolManager highlights
-7. User scrolls → Pierre manages visibility transitions:
-   - Files leaving viewport: DOM removed, height cached
-   - Files entering viewport: content fetched (or LRU cache hit), rendered
+1. Swift pushes metadata via the state stream:
+   file paths, diff stats, source identity, content handles, load status,
+   path ordering, and cache keys.
+2. React builds Trees prepared input and CodeView items from metadata.
+3. CodeView/Trees viewport and navigation signals determine active items.
+4. Active item signal fires -> content loader triggers.
+5. Content loader fetches via agentstudio://resource/file/{id}?epoch={epoch}.
+6. Content arrives -> CodeView item updates with incremented version.
+7. Shiki highlighting runs through Pierre's documented highlighter/worker path.
+8. User scrolls -> CodeView reconciles measured layout and live scroll targets.
 ```
 
-### 12.5 Comment Integration
+The bridge data contract is metadata-first and content-on-demand:
 
-Pierre supports annotations via `lineAnnotations` and `renderAnnotation`. Review threads from the Zustand store map to Pierre's annotation API:
-
-```typescript
-function DiffFileWithComments({ fileId }: { fileId: string }) {
-    const content = useFileContent(fileId);
-    const threads = useFileThreads(fileId);
-
-    const annotations = useMemo(() =>
-        threads.map((thread) => ({
-            line: thread.anchor.line,
-            side: thread.anchor.side,
-            data: {
-                threadId: thread.id,
-                isOutdated: thread.isOutdated,
-                commentCount: thread.comments.length,
-                state: thread.state,
-            },
-        })),
-        [threads]
-    );
-
-    // ... render MultiFileDiff with annotations + renderAnnotation
-}
+```text
+BridgePaneSource
+  -> DiffManifest(epoch, sourceId, files[], treeOrder[])
+  -> CodeViewItemDescriptor(id, type, fileId, path, status, cacheKey, annotationSummary)
+  -> ContentHandle(fileId, epoch, byteLength, contentHash, languageOverride?)
+  -> agentstudio://resource/file/{fileId}?epoch={epoch}
 ```
 
-### 12.6 Interaction Models and SLO Budgets
+Swift owns source access, path validation, epoch identity, content hashes, and initial path ordering. React owns viewport-driven hydration, local cancellation, CodeView item versioning, and short-lived render caches. The two sides exchange stable IDs and content handles, not source-buffer ownership.
+
+### 12.5 Worker and Asset Loading Boundary
+
+Worker-backed highlighting is part of the bridge delivery contract, not only viewer UI work:
+
+- The React bundle must create the Pierre worker through the documented bundler path for the chosen client build system.
+- Built worker chunks must be served by the same app-resource channel as the rest of the React app, with the correct JavaScript MIME type.
+- `BridgeSchemeHandler` must distinguish immutable app assets from source/file resources. App assets are addressed under `agentstudio://app/*`; source contents are addressed under `agentstudio://resource/*`.
+- WKWebView tests must prove the worker script can load from the packaged app, not just from a Vite dev server.
+- Service Workers are not a dependency for this pane; dedicated Web Workers are the required performance path.
+- Worker render options that Pierre owns at the pool level, such as theme, line diff type, tokenization limits, language preloads, and `preferredHighlighter`, should be configured once through the worker pool rather than per component.
+- Shiki highlighter creation is expensive; do not create highlighters in render/hot paths. Use Pierre's shared highlighter or worker pool and explicitly preload common languages/themes when the manifest makes them knowable.
+
+This is the place where `LUNA-337` and `LUNA-338` meet: `LUNA-337` must make app and worker assets real, and `LUNA-338` must prove Pierre uses those assets for off-main-thread highlighting in the mounted review pane.
+
+### 12.6 Trees and CodeView Identity Model
+
+Trees and CodeView use different identity shapes; the bridge adapter must preserve both without inventing a third one:
+
+- Trees identity is the canonical file path. Selection, focus, search, and row decorations use path strings.
+- CodeView identity is the stable item ID. Scroll targets, line selection, annotations, collapse state, and item updates use the item ID.
+- The bridge manifest maps `path -> fileId -> itemId` once per epoch.
+- Swift should emit the ordered path list it already knows from git/source discovery. React should use prepared Trees input for large manifests and avoid reshaping/sorting huge path lists during render.
+- CodeView item `cacheKey` should include stable content identity, such as source ID plus content hash or file version. It must change when file contents change.
+- Language overrides are metadata on file/diff contents; default detection comes from filename, but files like `Dockerfile` may need explicit overrides.
+
+### 12.7 Annotation Rendering Boundary
+
+Annotation rendering is a required viewer capability, but the durable annotation/comment domain contract is intentionally deferred to `LUNA-340` after Hunk and Pierre research.
+
+`LUNA-338` should prove only that CodeView can render annotation markers, gutter utilities, and annotation popovers at scale from fixture data. It should not freeze markdown body storage, thread persistence, edit history, or rich-note UX.
+
+The fixture payload for viewer tests can be deliberately small and local to the viewer adapter. It only needs enough data to render a marker and exercise CodeView `version` updates when annotations change.
+
+Hunk contributes review-workflow inspiration here, not UI architecture: structured sidecar notes, line/hunk targeting, live-session review snapshots, navigation, reload, and comment batch flows. The React pane should borrow those concepts as domain workflows while keeping the UI native/WebKit and CodeView-based.
+
+### 12.8 Interaction Models and SLO Budgets
 
 | Interaction | Transport | Local/RPC | Budget (p50/p95) | Optimistic? |
 |---|---|---|---|---|
-| **Draft comment** (typing) | None (tier 3 local) | Local | 16ms / 16ms | N/A |
-| **Submit comment** | Command → state push | RPC | 100ms / 200ms | Yes (pending → committed) |
-| **Resolve thread** | Command → state push | RPC | 50ms / 100ms | Yes |
-| **Mark file viewed** | Command → state push | RPC | 25ms / 60ms | Yes |
-| **Apply file** (accept agent changes) | Command → disk op → push | RPC | 200ms / 400ms | No |
-| **Request agent rewrite** | Command → AgentTask | RPC | 60ms / 150ms | N/A (async) |
+| **Draft annotation/comment** (typing) | None (tier 3 local) | Local | 16ms / 16ms | N/A |
+| **Render annotation marker** | CodeView item update | Local/state push | 16ms / 32ms | N/A |
+| **Submit annotation/comment** | Command -> state push | RPC | 100ms / 200ms | Yes (pending -> committed) |
+| **Resolve annotation/thread** | Command -> state push | RPC | 50ms / 100ms | Yes |
+| **Mark file viewed** | Command -> state push | RPC | 25ms / 60ms | Yes |
+| **Request agent review** | Command -> AgentTask | RPC | 60ms / 150ms | N/A (async) |
 | **Filter files** | None (tier 3 local) | Local | 16ms / 16ms | N/A |
-| **Search in diff** | None (Pierre built-in) | Local | 16ms / 16ms | N/A |
-| **Scroll to file** | Content fetch if needed | Data stream | 50ms / 200ms | N/A |
+| **Search loaded view** | None (Pierre/Trees local) | Local | 16ms / 16ms | N/A |
+| **Scroll to item/line/range** | Content fetch if needed | Data stream | 50ms / 200ms | N/A |
 | **File list load** | State stream push | Push | 50ms / 100ms | N/A |
 | **Agent status update** | Agent event stream | Push | 32ms / 100ms | N/A |
 | **Recovery resync** | Handshake + full push | Push | 500ms / 2000ms | N/A |
 
-### 12.7 Sending Review to Agent
+### 12.9 Sending Review Context to Agent
+
+Agent workflow is split out of the annotation ticket. The review pane may send selected hunks, file ranges, or annotation threads as context, and may receive agent-authored findings or comments. It must not apply patches or mutate source files from this surface.
 
 ```typescript
-function SendToAgentButton({ fileId }: { fileId: string }) {
-    const threads = useFileThreads(fileId);
-
+function SendToAgentButton({ selectedThreadIds }: { selectedThreadIds: string[] }) {
     const handleSend = () => {
-        const threadIds = threads.map((t) => t.id);
-        commands.agent.requestRewrite({
-            source: { type: 'threads', threadIds },
-            prompt: 'Address the review comments in these threads',
+        commands.agent.requestReview({
+            source: { type: 'threads', threadIds: selectedThreadIds },
+            prompt: 'Review this context and respond with findings or comments',
         });
     };
 
@@ -2440,31 +2439,13 @@ function SendToAgentButton({ fileId }: { fileId: string }) {
 }
 ```
 
-Swift handler creates a durable `AgentTask` record and enqueues the work:
-
-```swift
-await router.register(Methods.AgentRequestRewrite.self) { params in
-    guard !params.threadIds.isEmpty else {
-        throw RPCError.invalidParams("threadIds must not be empty")
-    }
-    let task = AgentTask(
-        id: UUID(),
-        source: .threads(threadIds: params.threadIds),
-        prompt: params.prompt,
-        status: .queued,
-        modifiedFiles: [],
-        createdAt: Date()
-    )
-    self.paneState.agentTasks[task.id] = task
-    // Agent runtime picks up queued tasks and streams progress
-}
-```
+The Swift handler creates a durable `AgentTask` record for review workflow state and streams progress/results back through the agent event stream. Actual workspace mutation, if ever introduced, belongs to a separate editing/apply workflow outside this pane.
 
 ---
 
 ## 13. Implementation Phases
 
-Each phase is independently testable and shippable.
+Each phase is independently testable and shippable. Delivery is TDD-first: every bridge/viewer slice starts by writing or updating contract, lifecycle, security, performance, or rendering tests that describe the behavior being implemented. Passing visual render alone is not completion.
 
 ### 13.0 Cross-Session Continuity Artifacts
 
@@ -2486,14 +2467,40 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 | Layer | Focus | Required |
 |---|---|---|
 | Unit (majority) | Reducers, reconciler, envelope parsing, dedupe, epoch/revision rules | Fast and exhaustive |
-| Integration | Swift bridge <-> page world transport, shared fixtures, cancellation, ordering | Deterministic harness |
-| E2E (small set) | User-critical flows: instant comment UX, large diff loading, recovery/resync | Budgeted performance assertions |
+| Integration | Swift bridge <-> page world transport, shared fixtures, cancellation, ordering, resource serving | Deterministic harness |
+| Rendering/performance | CodeView item reconciliation, Shiki/highlighter worker path, Trees filtering, annotation marker updates | Budgeted assertions on target hardware |
+| E2E (small set) | User-critical flows: large diff loading, recovery/resync, annotation UX after `LUNA-340` | Budgeted performance assertions |
 
 **Contract parity rule**:
-- Every bridge payload shape must have fixture-driven tests in BOTH Swift and TypeScript.
-- Additions to contract types are blocked until both suites are updated.
-- Invalid fixtures must fail decoding/validation deterministically in both runtimes.
+- Every bridge payload shape must have fixture-driven tests in Swift now.
+- When the React/TypeScript client is added to this repository, every bridge payload shape must also have TypeScript fixture parity before downstream viewer work claims end-to-end completion.
+- Additions to contract types are blocked until the currently present suite is updated; after the client lands, both suites must update in the same changeset.
+- Invalid fixtures must fail decoding/validation deterministically in every runtime that exists in the repository.
 - Test failures must print `commandId`, `epoch`, `revision`, and method/store names to make CI logs "see-through" without a custom inspector UI.
+
+### 13.2 Current Linear Pathway (2026-05-22)
+
+Current project sequencing is:
+
+`LUNA-347` -> `LUNA-337` -> (`LUNA-338`, `LUNA-339`)
+`LUNA-338` -> (`LUNA-340`, `LUNA-348`)
+(`LUNA-340`, `LUNA-348`) -> `LUNA-377` -> `LUNA-341`
+`LUNA-339` -> `LUNA-341`
+
+With optional hardening tail: `LUNA-337` -> `LUNA-346`.
+
+After merging current `origin/main`, the valid next step is still `LUNA-337`, but the branch is not a completed baseline. Finish `LUNA-337` by replacing placeholders with real content delivery, then let `LUNA-338` and `LUNA-339` branch from that verified baseline. `LUNA-340` is now the annotation/comment system, and `LUNA-377` owns the agent review workflow and timeline.
+
+### 13.3 Current Implementation Checkpoint
+
+| Phase | Status in this checkout | Valid interpretation |
+|---|---|---|
+| Phase 1 transport foundation | Partially implemented. Per-pane controller/configuration, bootstrap, message handler, navigation policy, WebKit spike tests, and scheme classification exist. App/resource bytes are placeholders, and there is no committed React app render path. | Foundation is valid; "React app renders" is not done. |
+| Phase 2 state push pipeline | Implemented on the Swift side: push plans, slices, entity slices, revision clock, bootstrap relay, and tests exist. | Valid as Swift infrastructure; not yet proven against a committed TS/Zustand client. |
+| Phase 3 JSON-RPC channel | Implemented for typed routing, error behavior, sender parity, direct responses, and acks. Several domain methods are intentionally stubbed. | Transport contract is valid; domain methods still need real handlers. |
+| Phase 4 diff viewer/content delivery | Planned, not complete. `BridgePaneController+DiffCommands` updates status/stats only; `BridgeSchemeHandler` and diff RPC handlers do not serve actual file contents. | This is the active `LUNA-337` plus downstream viewer work. |
+| Phase 5 annotation + agent review workflow | Mostly planned. A few review/inbox methods exist, but full annotation/comment lifecycle and agent review workflow are not implemented. | Keep annotations behind completed Phase 4 viewer delivery; keep agent workflow behind annotations and transport hardening. |
+| Phase 6 security hardening | Partially scaffolded by navigation/content-world tests. Full transport hardening is not complete. | Keep `LUNA-348`/`LUNA-341` sequencing. |
 
 ### Phase 1: Transport Foundation
 
@@ -2572,57 +2579,68 @@ Testing prioritizes correctness under protocol failure modes, not snapshot volum
 **Goal**: Full diff viewer renders in a webview pane using metadata push + content pull.
 
 **Deliverables**:
-- `DiffManifest` and `FileManifest` domain models (Swift, §8)
-- `DiffSource` enum: `.agentSnapshot`, `.commit`, `.branchDiff`, `.workspace`
-- State stream: Swift pushes `DiffManifest` (file metadata only) into diff Zustand store
+- Keyed diff metadata contract (`DiffState.files`) and `FileManifest` domain model (Swift, §8)
+- Source contract: `BridgePaneSource` (`.agentSnapshot`, `.commit`, `.branchDiff`, `.workspace`)
+- State stream: Swift pushes keyed diff metadata payload (file metadata only) into diff Zustand store
+- App asset stream: `BridgeSchemeHandler` serves bundled React assets and Pierre worker chunks under `agentstudio://app/*`
 - Data stream: `BridgeSchemeHandler` extended for `agentstudio://resource/file/{id}` — React pulls file contents on demand
 - Priority queue on React side: viewport files (high), hovered files (medium), neighbor files (low), cancel when leaving viewport
 - LRU content cache (~20 files) in React, cleared on epoch change
-- Pierre diff renderer integration (`@pierre/diffs/react`) with viewport-driven content hydration
-- Pierre file tree adapter (`@pierre/file-tree`) for navigation and search
-- Pierre `WorkerPoolManager` offloads syntax highlighting to web workers
+- Pierre CodeView integration (`@pierre/diffs/react`) with viewport-driven content hydration
+- Trees adapter for path-first navigation and search, using prepared input for large manifests
+- Shiki highlighter/worker setup verified against the installed Pierre package version and packaged WKWebView assets
+- Fixture-driven annotation marker rendering in CodeView, without freezing the durable annotation/comment schema
 - Path validation and security hardening for resource URLs
 - Workspace refresh pipeline: event-driven incremental manifest updates + 10-15s safety revalidation
 
 **Tests**:
 - Unit: `DiffManifest` / `FileManifest` Codable round-trip
 - Unit: `BridgeSchemeHandler` validates allowed resource types and rejects forbidden paths
+- Unit: `BridgeSchemeHandler` resolves app assets and worker chunks with expected MIME types and missing-resource errors
 - Unit: Priority queue ordering logic (viewport > hover > neighbor)
 - Unit: LRU cache evicts oldest entries beyond capacity, clears on epoch bump
-- Unit: Pierre diff component renders with mock file contents
-- Integration: Swift pushes `DiffManifest` → FileTree renders file list within 100ms
+- Unit: Trees adapter consumes prepared/presorted manifest input without re-sorting in React render
+- Unit: CodeView item adapter creates stable IDs and increments `version` when content, collapsed state, or fixture annotations change
+- Unit: Shiki highlighter/worker setup is configured through documented Pierre APIs
+- Unit: annotation marker fixtures render without requiring a durable comment schema
+- Integration: Swift pushes diff metadata payload → Trees navigation renders file list within 100ms
 - Integration: React `fetch('agentstudio://resource/file/xyz')` returns correct file content
+- Integration: WKWebView loads packaged React bundle and Pierre worker script from `agentstudio://app/*`
 - Integration: Scroll file into viewport → content pull fires → diff renders within 200ms
 - Integration: Epoch guard: start new diff during active load → stale results discarded
 - Integration: Workspace file change burst (N updates in debounce window) triggers incremental manifest patch, not full reload
 - Performance: Binary channel latency for 100KB, 500KB, 1MB files on target hardware
-- E2E: Open diff pane → FileTree renders → select file → diff renders with syntax highlighting
+- Performance: CodeView renders large mixed file/diff surfaces without blanking during aggressive scroll
+- E2E: Open diff pane → Trees navigation renders → select file → CodeView renders with syntax highlighting
 
-### Phase 5: Review System & Agent Integration
+### Phase 5: Review Annotations and Agent Workflow (LUNA-340 / LUNA-377)
 
-**Goal**: Comment threads, review actions, and agent task lifecycle.
+**Goal**: Editable review artifacts on top of the read-only CodeView surface, followed by agent review workflow. The annotation/comment schema is intentionally defined in `LUNA-340` after Hunk and Pierre research, not in `LUNA-347` or `LUNA-338`.
 
 **Deliverables**:
-- `ReviewThread`, `ReviewComment`, `ReviewAction` domain models (Swift, §8)
-- `AgentTask` with per-file checkpoint status (`running(completedFiles:currentFile:)`)
-- `TimelineEvent` append-only audit log (in-memory v1, designed for `.jsonl` v2)
-- State stream: pushes review state (threads, viewed files) into review Zustand store
-- Agent event stream: batched agent activity (started, fileCompleted, done) via `callJavaScript`
-- Comment anchoring: content hash + line number, `isOutdated` flag when hash changes
-- Comment UI: add, resolve, delete — optimistic local state with commandId acks
-- "Send to Agent" creates durable `AgentTask` with review context, formats comments for terminal injection
-- Agent event Zustand store with sequence-numbered append, gap detection
+- `LUNA-340`: research Hunk and Pierre annotation/comment patterns before freezing the domain model
+- `LUNA-340`: annotation/comment model for markdown-capable review artifacts
+- `LUNA-340`: human-authored and agent-authored annotation display semantics
+- `LUNA-340`: add, edit, delete, resolve/unresolve, pending/failed/committed optimistic states
+- `LUNA-340`: anchor lifecycle and outdated-anchor detection
+- `LUNA-377`: send selected hunks, ranges, files, or annotation threads to an agent as review context
+- `LUNA-377`: `AgentTask` with review-work status (`queued`, `running`, `completed`, `failed`, `cancelled`)
+- `LUNA-377`: agent-authored findings/comments/status events and append-only timeline
+- `LUNA-377`: agent event stream with sequence-numbered append, batching, gap detection, and resync
 
 **Tests**:
-- Unit: `ReviewThread` / `ReviewComment` Codable round-trip
-- Unit: Comment anchor `contextHash` computation and `isOutdated` detection
-- Unit: `AgentTask` state machine transitions
-- Unit: Agent event sequence gap detection logic
-- Integration: Add comment → command with commandId → Swift acks → Zustand thread updated
-- Integration: Resolve thread → push updates thread state → UI reflects
-- Integration: "Send to Agent" → `AgentTask` created → formatted text injected into terminal
-- Integration: Agent event stream batching: 5 rapid events coalesce into 1-2 batched pushes
-- E2E: Full review flow — open diff → add comment → send to agent → agent completes → timeline updated
+- Unit: annotation/comment schema round-trips after the research pass defines it
+- Unit: anchor identity, context hash, and outdated detection
+- Unit: optimistic lifecycle transitions for add/edit/delete/resolve
+- Unit: markdown body rendering/storage decision covered by tests chosen in `LUNA-340`
+- Unit: no annotation/comment command mutates source files
+- Unit: `AgentTask` review-work state machine transitions
+- Unit: agent event sequence gap detection and resync request logic
+- Integration: add annotation/comment → command with commandId → Swift ack → React state updated
+- Integration: resolve/unresolve/delete → push updates UI and rollback on rejection
+- Integration: send review context to agent → `AgentTask` created without source mutation
+- Integration: agent event stream batching: 5 rapid events coalesce into 1-2 batched pushes
+- E2E: open diff → add review annotation/comment → send context to agent → agent result appears in timeline
 
 ### Phase 6: Security Hardening
 
@@ -2658,7 +2676,7 @@ These invariants are cross-cutting rules that apply to ALL phases. Every impleme
 | **G8** | Security is by configuration, not convention | Content worlds, navigation policy, nonce validation — all enforced in code, not docs |
 | **G9** | Unsupported behavior is explicit | Batch rejection returns -32600; unknown methods return -32601; unknown stores log and drop |
 | **G10** | Phases ship independently | Each phase has its own tests and exit criteria; no phase depends on a later phase's deliverables |
-| **G11** | Contract parity is enforced across Swift and TS | Every contract change updates shared fixtures + both test suites |
+| **G11** | Contract parity is enforced for every runtime present in the repo | Swift fixtures are required now; TypeScript parity becomes required when the React client tree lands |
 | **G12** | Optimistic overlay never becomes authoritative | Pending UI entities expire or reconcile; only Swift-pushed state is durable truth |
 
 ### Performance Measurement Harness
@@ -2711,8 +2729,10 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 - [x] Command ack semantics: unique `__commandId` emits one ack; duplicates are idempotent; failures emit rejected ack with reason
 
 #### Phase 4 Exit Criteria
-- [ ] `DiffManifest` push → FileTree renders file list within 100ms (100 files)
-- [ ] Content pull: scroll file into viewport → `fetch('agentstudio://resource/file/{id}')` → diff renders within 200ms
+- [ ] Diff metadata push → Trees navigation renders file list within 100ms (100 files)
+- [ ] Trees receives prepared/presorted input for repo-scale manifests; React render does not sort/shape large path lists
+- [ ] Packaged WKWebView can load `agentstudio://app/index.html`, app JS/CSS assets, and the Pierre worker script with correct MIME types
+- [ ] Content pull: scroll CodeView item into viewport → `fetch('agentstudio://resource/file/{id}')` → diff renders within 200ms
 - [ ] Priority queue: viewport files load before neighbor files (verified with request ordering log)
 - [ ] LRU cache: loading 25+ files evicts oldest, capacity stays at ~20
 - [ ] Epoch guard: start new diff during active load → stale results discarded, cache cleared
@@ -2722,18 +2742,23 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
   - 100KB file: binary channel < 5ms
   - 500KB file: binary channel < 15ms
   - 1MB file: binary channel < 30ms
-- [ ] Pierre diff renderer path renders with syntax highlighting (WorkerPoolManager active)
-- [ ] Pierre `FileTree` search/filter works on 500+ file manifest
+- [ ] Pierre CodeView renders with Shiki syntax highlighting through the documented highlighter/worker path
+- [ ] Worker-pool stats or equivalent test hook proves highlighting work is not blocking the main thread for large fixtures
+- [ ] CodeView `scrollTo` works for item, line, and range targets after layout reconciliation
+- [ ] CodeView fixture annotations render and update via item `version` changes; durable annotation schema remains deferred
+- [ ] Trees search/filter works on 500+ file manifest
 - [ ] Workspace refresh: bursty file changes produce incremental manifest patch (same epoch), not full reset
 
 #### Phase 5 Exit Criteria
-- [ ] Comment add: optimistic local state appears immediately, confirmed by commandAck push
-- [ ] Comment resolve/delete: round-trip correctly with optimistic UI + rollback on rejection
-- [ ] Comment anchor: `contextHash` matches, `isOutdated` detects when file content changes
-- [ ] "Send to Agent" creates `AgentTask`, injects formatted review context into terminal
+- [ ] `LUNA-340`: Hunk/Pierre annotation research captured before schema freeze
+- [ ] `LUNA-340`: annotation/comment add/edit/delete/resolve optimistic local state appears immediately, confirmed by commandAck push
+- [ ] `LUNA-340`: annotation anchor `contextHash` matches, `isOutdated` detects when file content changes
+- [ ] `LUNA-340`: markdown-capable body model is tested after the ticket chooses the schema
+- [ ] `LUNA-340`: annotation/comment commands do not mutate source files
+- [ ] `LUNA-377`: "Send to Agent" creates `AgentTask` from review context without applying patches
 - [ ] Agent event stream: batched at 30-50ms cadence, sequence numbers contiguous
 - [ ] Agent event gap detection: missing sequence triggers re-sync request
-- [ ] `AgentTask` status transitions: `pending` → `running(completedFiles:currentFile:)` → `completed`/`failed`
+- [ ] `AgentTask` status transitions: `queued` → `running` → `completed`/`failed`/`cancelled`
 - [ ] `TimelineEvent` append-only: events cannot be mutated after creation
 
 #### Phase 6 Exit Criteria
@@ -2751,7 +2776,9 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 
 ## 14. File Structure
 
-```
+Current bridge files in this checkout:
+
+```text
 Sources/AgentStudio/Features/Bridge/
 ├── BridgePaneController.swift             # Per-pane controller: WebPage setup, PushPlan lifecycle, PushTransport conformance
 ├── BridgePaneState.swift                  # BridgePaneState, BridgePanelKind, BridgePaneSource
@@ -2762,26 +2789,35 @@ Sources/AgentStudio/Features/Bridge/
 ├── RPCMessageHandler.swift                # WKScriptMessageHandler for postMessage
 ├── BridgeSchemeHandler.swift              # agentstudio:// URL scheme (app + resource)
 ├── BridgeNavigationDecider.swift          # Strict navigation: agentstudio + about only
-├── BridgeBootstrap.swift                  # JS bootstrap script for bridge world
-├── Push/                                  # Declarative push infrastructure (§6)
-│   ├── PushPlan.swift                     # PushPlan, PushPlanBuilder (result builder)
-│   ├── Slice.swift                        # Slice (value-level observation)
-│   ├── EntitySlice.swift                  # EntitySlice (keyed collection, per-entity diff)
-│   ├── PushTransport.swift                # PushTransport protocol, PushLevel, PushOp, StoreKey
-│   ├── RevisionClock.swift                # Monotonic per-store revision counter
-│   └── PushSnapshots.swift                # DiffStatusSlice, ConnectionSlice, EntityDelta (wire types)
-├── Methods/                               # One file per namespace
-│   ├── DiffMethods.swift                  # diff.requestFileContents, diff.loadDiff
-│   ├── ReviewMethods.swift                # review.addComment, review.resolveThread
-│   ├── AgentMethods.swift                 # agent.sendReview, agent.cancelTask
-│   └── SystemMethods.swift                # system.ping, system.getCapabilities
-└── Domain/                                # Bridge-specific domain models
-    ├── BridgeDomainState.swift            # @Observable root: PaneDomainState, DiffState, ReviewState, ConnectionState
-    ├── DiffManifest.swift                 # DiffManifest, FileManifest, HunkSummary, DiffSource
-    ├── ReviewState.swift                  # ReviewThread, ReviewComment, ReviewAction, CommentAnchor
-    ├── AgentTask.swift                    # AgentTask, AgentTaskStatus
-    ├── TimelineEvent.swift                # TimelineEvent, TimelineEventKind (in-memory v1)
-    └── ConnectionState.swift              # Connection health
+├── Runtime/
+│   ├── BridgePaneController.swift         # Per-pane controller + handshake + push plan lifecycle
+│   ├── BridgePaneController+DiffCommands.swift
+│   └── BridgeRuntime.swift
+├── State/
+│   ├── BridgeDomainState.swift            # PaneDomainState, DiffState, ReviewState, ConnectionState
+│   ├── BridgePaneState.swift              # BridgePaneState, BridgePanelKind, BridgePaneSource
+│   └── Push/
+│       ├── PushPlan.swift                 # PushPlan, PushPlanBuilder
+│       ├── Slice.swift                    # Slice (value-level observation)
+│       ├── EntitySlice.swift              # EntitySlice (keyed collection, per-entity diff)
+│       ├── PushTransport.swift            # Push transport protocol + envelopes
+│       ├── RevisionClock.swift            # Monotonic per-store revision counter
+│       └── PushSnapshots.swift            # Snapshot and delta wire types
+├── Transport/
+│   ├── RPCRouter.swift                    # Method registry + dispatch
+│   ├── RPCMethod.swift                    # Typed method contract
+│   ├── RPCMessageHandler.swift            # WKScriptMessage ingress
+│   ├── BridgeSchemeHandler.swift          # agentstudio:// URL scheme (app + resource)
+│   ├── BridgeBootstrap.swift              # Bridge-world bootstrap script
+│   └── Methods/
+│       ├── DiffMethods.swift
+│       ├── ReviewMethods.swift
+│       ├── AgentMethods.swift
+│       ├── InboxMethods.swift
+│       └── SystemMethods.swift
+└── Views/
+    ├── BridgePaneMountView.swift
+    └── BridgePaneContentView.swift
 
 Tests/AgentStudioTests/Features/Bridge/
 ├── BridgePaneControllerTests.swift
@@ -2821,18 +2857,9 @@ WebApp/                                    # React app (Vite + TypeScript)
 ├── vite.config.ts
 └── package.json
 
-Contracts/
-├── bridge/
-│   ├── command.schema.json               # JSON-RPC command envelope extensions
-│   ├── push.schema.json                  # state/agent push envelope schema
-│   └── ack.schema.json                   # commandAck schema
+The target feature-state convention is `Features/Bridge/State/MainActor/{Atoms,Persistence}/`, but current bridge state predates that convention and remains under `Features/Bridge/State/`. This is explicitly grandfathered in [Directory Structure](directory_structure.md); migrate paths in a separate mechanical cleanup, not as part of `LUNA-337` content delivery unless the ticket scope is expanded.
 
-Tests/
-├── BridgeContractFixtures/               # Shared fixture corpus consumed by Swift + TS tests
-│   ├── valid/
-│   ├── invalid/
-│   └── edge/
-```
+Note: React panel source files are not currently committed as a `WebApp/` tree in this repository. This document defines the bridge-side contracts consumed by that client implementation, but TypeScript parity cannot be claimed until that client and its fixture suite are present.
 
 ---
 
@@ -2866,7 +2893,7 @@ Bridge panes (diff viewer, code review) have fundamentally different requirement
 | **Configuration** | Shared static config, default data store | Per-pane config with `userContentController`, `urlSchemeHandlers`, bridge scripts |
 | **Content worlds** | Not used (page world only) | Bridge content world isolates `__bridgeInternal` from page scripts |
 | **Message handlers** | None | `rpc` handler scoped to bridge world |
-| **URL scheme** | Standard schemes | `agentstudio://app/*` serves bundled React app; `agentstudio://resource/*` serves file contents |
+| **URL scheme** | Standard schemes | Target: `agentstudio://app/*` serves bundled React app and `agentstudio://resource/*` serves file contents. Current code routes these paths but still returns placeholders. |
 | **Lifecycle** | Stateless (no observation loops) | `BridgePaneController` runs observation loops, pushes state, handles teardown |
 | **State model** | `WebviewState` (url, title, showNavigation) | `BridgePaneState` (source, panel type — no URL bar, no browser navigation) |
 
@@ -2917,7 +2944,7 @@ case .bridgePanel(let state):
     return mount
 ```
 
-`ActionExecutor` gains a new method:
+An explicit `openDiffViewer(...)` action is still planned; current creation path uses generic pane creation + bridgePanel content wiring. `BridgePaneSource` persists the intended source, but current load behavior does not yet derive a real manifest or content handles from that source.
 
 ```swift
 func openDiffViewer(source: BridgePaneSource? = nil) -> Pane? {
@@ -3051,6 +3078,6 @@ All bridge-specific WebKit APIs verified. Spike tests in `Tests/AgentStudioTests
 3. **React app bundling** — Vite build output bundled as app resources? Or served from disk via the scheme handler? Need to decide the build pipeline and how `BridgeSchemeHandler` locates the built assets.
 4. **WebPage lifecycle when hidden** — How does the WebPage behave when the pane is hidden (backgrounded via view switch)? Does it keep running JS? Do observation loops need to pause to avoid wasted work?
 5. **Pierre license and bundle size** — Verify `@pierre/diffs` license compatibility and evaluate bundle size impact.
-6. **Terminal injection mechanism** — What is the exact API for injecting text into a Ghostty terminal session? Need to trace through `SurfaceManager` → Ghostty C API. Candidate approaches: (a) Ghostty C API `ghostty_surface_write()` for direct terminal input injection, (b) accessibility-based paste simulation, (c) PTY stdin write via file descriptor. Need to spike each approach and determine which works within the Ghostty embedding model.
+6. **Agent review context delivery** — Decide whether `LUNA-377` sends review context to an agent through terminal input, a runtime command, an agent service, or another explicit workflow. This must not create a source-patch apply path inside the CodeView review pane.
 7. **Full-diff search API** — The "metadata push, content pull" model with ~20-file LRU cache (§10.4) means React only holds partial file contents. A "Find in Diff" (Cmd+F) searching across all changed files will fail for files not yet loaded. Solution: add a `diff.search(query)` RPC method that scans full content on the Swift side and returns matches with file IDs and line ranges. React can then display results and trigger content pulls for matched files. This is a Phase 4 UX requirement, not Phase 1-2.
 8. **Optimistic mutation cascading rollback** — The current optimistic model (§5.1.1) handles single-command rollback: React shows optimistic state, Swift confirms or rejects, React rolls back on rejection. But dependent optimistic updates (e.g., create Thread A → add Comment B to A → Swift rejects A) need cascading rollback. Options: (a) batch dependent mutations into a single command, (b) track dependency chains in React's pending state, (c) accept that dependent optimistic mutations are rare enough to handle with a simple "refresh all" on rejection. Decide before Phase 4 review features.

@@ -67,8 +67,8 @@ RUNTIME CLASSES (one per transport):       CONTENT TYPES SERVED:
 INSTANCES (one per pane):
   TerminalRuntime[pane-A]     ← .terminal pane
   TerminalRuntime[pane-B]     ← .terminal pane
-  BridgeRuntime[pane-C]       ← .diff pane (React app)
-  BridgeRuntime[pane-D]       ← .editor pane (React app)
+  BridgeRuntime[pane-C]       ← .diff pane (React app, read-only source)
+  BridgeRuntime[pane-D]       ← .editor pane (React app, separate future concern)
   WebviewRuntime[pane-E]      ← .browser pane
   SwiftPaneRuntime[pane-F]    ← .codeViewer pane
 ```
@@ -89,7 +89,7 @@ RUNTIMES (per-pane, registered in RuntimeRegistry):
   RuntimeRegistry[pane-E] → WebviewRuntime instance
 ```
 
-**Why transport-based, not content-based:** Bridge panes (diff, editor, review, agent) all share WKWebView + JSON-RPC transport. Having separate `DiffRuntime`, `EditorRuntime`, `ReviewRuntime` classes that are 90% identical lifecycle/event/command boilerplate is premature abstraction. The content-specific behavior (what hunks to show, what file to edit) lives in the React app — the Swift runtime only handles lifecycle, event transport, and command dispatch. `BridgeRuntime.contentType` distinguishes behavior where needed.
+**Why transport-based, not content-based:** Bridge panes (diff, editor, review, agent) all share WKWebView + JSON-RPC transport. Having separate `DiffRuntime`, `EditorRuntime`, `ReviewRuntime` classes that are 90% identical lifecycle/event/command boilerplate is premature abstraction. The content-specific behavior lives in the React app — the Swift runtime only handles lifecycle, event transport, and command dispatch. The `.diff` review pane is a read-only source surface with editable review artifacts; future editor or markdown whiteboard panes are separate content types with their own editing model. `BridgeRuntime.contentType` distinguishes behavior where needed.
 
 **Current code status note:** `PaneContent` currently persists `.bridgePanel(BridgePaneState)` and `.codeViewer(CodeViewerState)`. In current mapping, `.bridgePanel(panelKind: .diffViewer)` resolves to `PaneContentType.diff`; `.codeViewer` resolves to `PaneContentType.codeViewer`. `PaneContentType.editor/review/agent` are reserved routing kinds for upcoming bridge panel kinds.
 
@@ -359,7 +359,7 @@ protocol GitForgeBackend: AnyObject {
     /// Subscribe to forge events.
     func subscribe() -> AsyncStream<ForgeEvent>
 
-    /// Execute a forge command (create PR, approve review, etc.)
+    /// Execute a forge command (create PR, submit review, etc.)
     func execute(_ command: ForgeCommand) async -> ActionResult
 
     func disconnect() async
@@ -627,7 +627,7 @@ AGENT PROCESS (Claude/Codex)
   │     finished (exit 0)"     in diff pane
   │                                │
   │                                ▼
-  │                        User approves
+  │                        User completes review
   │                                │
   │                                ▼
   │                        PaneCoordinator
@@ -948,12 +948,12 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
     case navigationCompleted
     case pageLoaded
     case diffLoaded
-    case hunkApproved
+    case hunkMarkedReviewed
     case contentSaved
     case fileOpened
     case unhandled
     case consoleMessage
-    case allApproved
+    case reviewStateChanged
     case diagnosticsUpdated
     case plugin(String)
 
@@ -976,12 +976,12 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
         case .navigationCompleted: return "navigationCompleted"
         case .pageLoaded: return "pageLoaded"
         case .diffLoaded: return "diffLoaded"
-        case .hunkApproved: return "hunkApproved"
+        case .hunkMarkedReviewed: return "hunkMarkedReviewed"
         case .contentSaved: return "contentSaved"
         case .fileOpened: return "fileOpened"
         case .unhandled: return "unhandled"
         case .consoleMessage: return "consoleMessage"
-        case .allApproved: return "allApproved"
+        case .reviewStateChanged: return "reviewStateChanged"
         case .diagnosticsUpdated: return "diagnosticsUpdated"
         case .plugin(let value): return value
         }
@@ -1109,8 +1109,8 @@ enum FilesystemEvent: Sendable {
 /// not routing — an artifact can be for a different worktree than the producer).
 enum ArtifactEvent: Sendable {
     case diffProduced(worktreeId: UUID, artifact: DiffArtifact)
-    case approvalRequested(request: ApprovalRequest)
-    case approvalDecided(decision: ApprovalDecision)
+    case reviewRequested(requestId: UUID, worktreeId: UUID, summary: String)
+    case reviewStateChanged(worktreeId: UUID, summary: ReviewStateSummary)
 }
 
 // Deferred (not in current implementation): prCreated(prUrl: String)
@@ -1815,7 +1815,7 @@ enum BrowserEvent: PaneKindEvent {
 enum ConsoleLevel: String, Sendable { case log, warn, error, debug, info }
 enum DialogKind: String, Sendable { case alert, confirm, prompt }
 
-/// Diff viewer events — hunk review, approval workflow, commenting.
+/// Diff viewer events — navigation, read-only review state, and commenting.
 /// Conforms to PaneKindEvent — self-classifies priority via actionPolicy.
 enum DiffEvent: PaneKindEvent {
     // Navigation within diff
@@ -1823,12 +1823,11 @@ enum DiffEvent: PaneKindEvent {
     case hunkNavigated(hunkId: String, direction: NavigationDirection)
     case fileListScrolled(visibleRange: Range<Int>)
 
-    // Review actions
-    case hunkApproved(hunkId: String)
-    case hunkRejected(hunkId: String, reason: String?)
-    case fileApproved(path: String)
-    case allApproved
-    case allRejected(reason: String?)
+    // Review state. These are review-artifact decisions, not source mutation.
+    case hunkMarkedReviewed(hunkId: String)
+    case hunkMarkedNeedsWork(hunkId: String, reason: String?)
+    case fileMarkedReviewed(path: String)
+    case reviewStateChanged(summary: ReviewStateSummary)
 
     // Comments
     case commentAdded(hunkId: String, lineRange: ClosedRange<Int>, text: String)
@@ -1842,6 +1841,12 @@ enum DiffEvent: PaneKindEvent {
 }
 
 enum NavigationDirection: String, Sendable { case next, previous }
+
+struct ReviewStateSummary: Sendable {
+    let reviewedCount: Int
+    let needsWorkCount: Int
+    let unresolvedCommentCount: Int
+}
 
 struct DiffStats: Sendable {
     let filesChanged: Int
@@ -2072,11 +2077,16 @@ enum DiffCommand: Sendable {
     case loadDiff(DiffArtifact)
     case navigateToFile(path: String)
     case navigateToHunk(hunkId: String)
-    case approveHunk(hunkId: String)
-    case rejectHunk(hunkId: String, reason: String?)
-    case approveAll
+    case selectLineRange(hunkId: String, lineRange: ClosedRange<Int>)
     case addComment(hunkId: String, lineRange: ClosedRange<Int>, text: String)
     case resolveComment(commentId: UUID)
+    case requestAgentReview(context: ReviewContext)
+}
+
+struct ReviewContext: Sendable {
+    let selectedThreadIds: [UUID]
+    let selectedHunkIds: [String]
+    let prompt: String
 }
 
 struct DiffArtifact: Sendable {
@@ -2509,7 +2519,7 @@ func submit(_ envelope: PaneEventEnvelope) {
 > Deferred workflow planning now lives in
 > [Pane Runtime Ticket Mapping (Minimal)](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#deferred-workflow-engine).
 >
-> Tracks temporal workflows spanning multiple panes and events ("agent finishes → create diff → user approves → signal next agent"). Owned by PaneCoordinator. Implementation deferred until multi-agent orchestration (JTBD 6) moves to automated cross-agent handoffs.
+> Tracks temporal workflows spanning multiple panes and events ("agent finishes → create diff → user completes review → signal next agent"). Owned by PaneCoordinator. Implementation deferred until multi-agent orchestration (JTBD 6) moves to automated cross-agent handoffs.
 >
 > Key types: `WorkflowTracker`, `WorkflowStep`, `StepPredicate`, `WorkflowAdvance`. Integration points: `PaneEventEnvelope.correlationId`, `PaneKindEvent.eventName` for step matching, `EventReplayBuffer` for restart recovery.
 
@@ -2840,13 +2850,13 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 | **Browser** | **Navigation** | navigationStarted/Completed/Failed, urlChanged, titleChanged, pageLoaded/Unloaded, linkClicked, downloadRequested, dialog* | `critical` | never |
 | **Browser** | **Console** | consoleMessage, consoleCleared | `lossy` | key: `console` |
 | **Browser** | **Layout** | contentSizeChanged | `lossy` | key: `contentSize` |
-| **Diff** | **Review** | hunkApproved/Rejected, fileApproved, allApproved/Rejected, comment*, diffLoaded/Updated/Closed | `critical` | never |
+| **Diff** | **Review** | hunkMarkedReviewed, hunkMarkedNeedsWork, fileMarkedReviewed, reviewStateChanged, comment*, diffLoaded/Updated/Closed | `critical` | never |
 | **Diff** | **Navigation** | fileSelected, hunkNavigated, fileListScrolled | `lossy` | key: `diffNav` |
 | **Editor** | **File ops** | contentSaved, contentReverted, fileOpened/Closed, languageDetected, diagnostics* | `critical` | never |
 | **Editor** | **Cursor** | cursorMoved, selectionChanged, visibleRangeChanged | `lossy` | key: `cursor` |
 | **Editor** | **Edits** | contentModified | `lossy` | key: `edit` |
 | **Cross** | **Filesystem** | worktreeRegistered, worktreeUnregistered, filesChanged, gitSnapshotChanged, diffAvailable, branchChanged | `critical` | pre-batched by watcher |
-| **Cross** | **Artifacts** | diffProduced, approvalRequested, approvalDecided | `critical` | never |
+| **Cross** | **Artifacts** | diffProduced, reviewRequested, reviewStateChanged | `critical` | never |
 | **Cross** | **Security** | all SecurityEvent cases | `critical` | never |
 | **Cross** | **Errors** | all RuntimeErrorEvent cases | `critical` | never |
 
@@ -3130,7 +3140,7 @@ Two distinct action layers exist with different scopes:
 | Layer | Type | Location | Purpose |
 |-------|------|----------|---------|
 | **Workspace** | `PaneActionCommand` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
-| **Runtime** | `RuntimeCommand` | `Core/RuntimeEventSystem/Contracts/` | Commands to individual runtimes — sendInput, navigate, approveHunk |
+| **Runtime** | `RuntimeCommand` | `Core/RuntimeEventSystem/Contracts/` | Commands to individual runtimes — sendInput, navigate, requestAgentReview |
 
 `PaneActionCommand` flows: User → WorkspaceCommandResolver → WorkspaceCommandValidator → PaneCoordinator → WorkspaceStore.
 `RuntimeCommand` flows: PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.

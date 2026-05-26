@@ -470,7 +470,7 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 
 **Two action layers flow through the coordinator:**
 - **Workspace actions** (`PaneActionCommand` from `Core/Actions/`): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `WorkspaceCommandResolver`, validated by `WorkspaceCommandValidator`, executed against `WorkspaceStore`.
-- **Runtime commands** (`RuntimeCommand` from `Core/RuntimeEventSystem/Contracts/`): commands to individual runtimes (sendInput, navigate, approveHunk, etc.) → dispatched via `RuntimeRegistry.runtime(for:).handleCommand(envelope)`.
+- **Runtime commands** (`RuntimeCommand` from `Core/RuntimeEventSystem/Contracts/`): commands to individual runtimes (sendInput, navigate, requestAgentReview, etc.) → dispatched via `RuntimeRegistry.runtime(for:).handleCommand(envelope)`.
 
 **Key operations:**
 - `execute(_ action: PaneActionCommand)` — dispatch workspace actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, arrangements, drawers, repair)
