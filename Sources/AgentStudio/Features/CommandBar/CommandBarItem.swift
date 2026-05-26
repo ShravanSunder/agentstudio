@@ -61,6 +61,11 @@ enum CommandBarItemKind {
     case other
 }
 
+struct CommandBarItemSecondaryLine: Equatable, Sendable {
+    let text: String
+    let icon: CommandIcon?
+}
+
 // MARK: - CommandBarItem
 
 /// A single result row in the command bar.
@@ -68,6 +73,7 @@ struct CommandBarItem: Identifiable {
     let id: String
     let title: String
     let subtitle: String?
+    let secondaryLine: CommandBarItemSecondaryLine?
     let icon: CommandIcon?
     let iconColor: Color?
     let shortcutTrigger: ShortcutTrigger?
@@ -84,6 +90,7 @@ struct CommandBarItem: Identifiable {
         id: String,
         title: String,
         subtitle: String? = nil,
+        secondaryLine: CommandBarItemSecondaryLine? = nil,
         icon: CommandIcon? = nil,
         iconColor: Color? = nil,
         shortcutTrigger: ShortcutTrigger? = nil,
@@ -98,6 +105,7 @@ struct CommandBarItem: Identifiable {
         self.id = id
         self.title = title
         self.subtitle = subtitle
+        self.secondaryLine = secondaryLine
         self.icon = icon
         self.iconColor = iconColor
         self.shortcutTrigger = shortcutTrigger

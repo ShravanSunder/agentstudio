@@ -201,6 +201,7 @@ enum CommandBarDataSource {
                             paneIndex: paneIndex,
                             isActive: isActive
                         ),
+                        secondaryLine: paneNoteSecondaryLine(pane),
                         icon: iconForPane(pane),
                         iconColor: nil,
                         group: Group.panes,
@@ -273,6 +274,7 @@ enum CommandBarDataSource {
                             paneIndex: paneIndex,
                             isActive: isActive
                         ),
+                        secondaryLine: paneNoteSecondaryLine(pane),
                         icon: iconForPane(pane),
                         iconColor: nil,
                         group: tabGroupName,

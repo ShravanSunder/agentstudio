@@ -257,6 +257,11 @@ enum AppStyles {
             static let iconSize: CGFloat = 16
             static let worktreeOpenIndicatorSize: CGFloat = 6
             static let rowHeight: CGFloat = 36
+            static let rowHeightWithSecondaryLine: CGFloat = 52
+            static let secondaryLineSpacing: CGFloat = 3
+            static let secondaryLineIconSize: CGFloat = 12
+            static let secondaryLineOpacity: Double = 0.58
+            static let selectedSecondaryLineOpacity: Double = 0.72
             static let shortcutSpacing: CGFloat = 4
             static let groupHeaderFontSize: CGFloat = AppStyles.General.Typography.textBase
             static let groupHeaderOpacity: Double = 0.70

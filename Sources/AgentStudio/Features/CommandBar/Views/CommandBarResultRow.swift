@@ -18,26 +18,33 @@ struct CommandBarResultRow: View {
     }
 
     var body: some View {
+        rowContent
+            .padding(.horizontal, AppStyles.CommandBar.Rows.horizontalPadding)
+            .frame(height: rowHeight)
+            .background(
+                RoundedRectangle(cornerRadius: AppStyles.CommandBar.Rows.selectedRowCornerRadius)
+                    .fill(isSelected ? Color.accentColor.opacity(AppStyles.General.Fill.selected) : Color.clear)
+                    .padding(.horizontal, AppStyles.CommandBar.Rows.selectedRowHorizontalInset)
+            )
+            .contentShape(Rectangle())
+            .opacity(isDimmed ? 0.5 : 1.0)
+    }
+
+    // MARK: - Highlighted Title
+
+    @ViewBuilder
+    private var rowContent: some View {
+        if item.secondaryLine == nil {
+            compactRowContent
+        } else {
+            expandedRowContent
+        }
+    }
+
+    private var compactRowContent: some View {
         HStack(spacing: AppStyles.CommandBar.Rows.iconSpacing) {
-            // Icon
-            if let icon = item.icon {
-                iconView(icon)
-            } else {
-                Color.clear.frame(
-                    width: AppStyles.CommandBar.Rows.iconSize,
-                    height: AppStyles.CommandBar.Rows.iconSize
-                )
-            }
-
-            if let openState = item.worktreeOpenState, openState != .notOpen {
-                Circle()
-                    .fill(Color.green.opacity(isDimmed ? 0.3 : 0.7))
-                    .frame(
-                        width: AppStyles.CommandBar.Rows.worktreeOpenIndicatorSize,
-                        height: AppStyles.CommandBar.Rows.worktreeOpenIndicatorSize
-                    )
-            }
-
+            leadingIcon
+            openStateIndicator
             highlightedTitle
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -47,18 +54,72 @@ struct CommandBarResultRow: View {
 
             trailingAccessories
         }
-        .padding(.horizontal, AppStyles.CommandBar.Rows.horizontalPadding)
-        .frame(height: AppStyles.CommandBar.Rows.rowHeight)
-        .background(
-            RoundedRectangle(cornerRadius: AppStyles.CommandBar.Rows.selectedRowCornerRadius)
-                .fill(isSelected ? Color.accentColor.opacity(AppStyles.General.Fill.selected) : Color.clear)
-                .padding(.horizontal, AppStyles.CommandBar.Rows.selectedRowHorizontalInset)
-        )
-        .contentShape(Rectangle())
-        .opacity(isDimmed ? 0.5 : 1.0)
     }
 
-    // MARK: - Highlighted Title
+    private var expandedRowContent: some View {
+        HStack(alignment: .top, spacing: AppStyles.CommandBar.Rows.iconSpacing) {
+            leadingIcon
+            openStateIndicator
+
+            VStack(alignment: .leading, spacing: AppStyles.CommandBar.Rows.secondaryLineSpacing) {
+                HStack(spacing: 0) {
+                    highlightedTitle
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+
+                    Spacer(minLength: AppStyles.CommandBar.Rows.trailingMetadataSpacing)
+
+                    trailingAccessories
+                }
+
+                secondaryLineView
+            }
+            .padding(.top, 1)
+        }
+    }
+
+    @ViewBuilder
+    private var leadingIcon: some View {
+        if let icon = item.icon {
+            iconView(icon)
+        } else {
+            Color.clear.frame(
+                width: AppStyles.CommandBar.Rows.iconSize,
+                height: AppStyles.CommandBar.Rows.iconSize
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var openStateIndicator: some View {
+        if let openState = item.worktreeOpenState, openState != .notOpen {
+            Circle()
+                .fill(Color.green.opacity(isDimmed ? 0.3 : 0.7))
+                .frame(
+                    width: AppStyles.CommandBar.Rows.worktreeOpenIndicatorSize,
+                    height: AppStyles.CommandBar.Rows.worktreeOpenIndicatorSize
+                )
+        }
+    }
+
+    @ViewBuilder
+    private var secondaryLineView: some View {
+        if let secondaryLine = item.secondaryLine {
+            HStack(spacing: 5) {
+                if let icon = secondaryLine.icon {
+                    secondaryLineIcon(icon)
+                }
+
+                Text(secondaryLine.text)
+                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+                    .foregroundStyle(Color.primary.opacity(secondaryLineOpacity))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .layoutPriority(1)
+        }
+    }
 
     @ViewBuilder
     private var trailingAccessories: some View {
@@ -153,6 +214,18 @@ struct CommandBarResultRow: View {
         return AppStyles.CommandBar.Rows.rowTitleOpacity
     }
 
+    private var secondaryLineOpacity: Double {
+        if isDimmed { return AppStyles.CommandBar.Rows.dimmedTrailingMetadataOpacity }
+        if isSelected { return AppStyles.CommandBar.Rows.selectedSecondaryLineOpacity }
+        return AppStyles.CommandBar.Rows.secondaryLineOpacity
+    }
+
+    private var rowHeight: CGFloat {
+        item.secondaryLine == nil
+            ? AppStyles.CommandBar.Rows.rowHeight
+            : AppStyles.CommandBar.Rows.rowHeightWithSecondaryLine
+    }
+
     private var iconColor: Color {
         if isDimmed { return Color.primary.opacity(0.25) }
         if isSelected { return Color.accentColor }
@@ -176,6 +249,27 @@ struct CommandBarResultRow: View {
                 .frame(
                     width: AppStyles.CommandBar.Rows.iconSize,
                     height: AppStyles.CommandBar.Rows.iconSize
+                )
+        }
+    }
+
+    @ViewBuilder
+    private func secondaryLineIcon(_ icon: CommandIcon) -> some View {
+        switch icon {
+        case .system(let systemSymbol):
+            Image(systemName: systemSymbol.rawValue)
+                .font(.system(size: AppStyles.CommandBar.Rows.secondaryLineIconSize, weight: .medium))
+                .foregroundStyle(Color.primary.opacity(secondaryLineOpacity))
+                .frame(
+                    width: AppStyles.CommandBar.Rows.iconSize,
+                    height: AppStyles.CommandBar.Rows.secondaryLineIconSize
+                )
+        case .octicon(let octiconSymbol):
+            OcticonImage(name: octiconSymbol.rawValue, size: AppStyles.CommandBar.Rows.secondaryLineIconSize)
+                .foregroundStyle(Color.primary.opacity(secondaryLineOpacity))
+                .frame(
+                    width: AppStyles.CommandBar.Rows.iconSize,
+                    height: AppStyles.CommandBar.Rows.secondaryLineIconSize
                 )
         }
     }
