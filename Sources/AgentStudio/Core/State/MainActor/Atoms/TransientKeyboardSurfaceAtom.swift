@@ -17,9 +17,14 @@ final class TransientKeyboardSurfaceAtom {
 
     func present(
         _ kind: TransientKeyboardSurfaceKind,
-        workspaceWindowId: UUID
+        workspaceWindowId: UUID,
+        policy: TransientKeyboardSurfacePolicy? = nil
     ) -> TransientKeyboardSurfaceToken {
-        let surface = TransientKeyboardSurface(workspaceWindowId: workspaceWindowId, kind: kind)
+        let surface = TransientKeyboardSurface(
+            workspaceWindowId: workspaceWindowId,
+            kind: kind,
+            policy: policy ?? kind.defaultPolicy
+        )
         surfaces.append(surface)
         return surface.token
     }
@@ -31,17 +36,23 @@ final class TransientKeyboardSurfaceAtom {
     func replace(
         _ token: TransientKeyboardSurfaceToken,
         with kind: TransientKeyboardSurfaceKind,
-        workspaceWindowId: UUID
+        workspaceWindowId: UUID,
+        policy: TransientKeyboardSurfacePolicy? = nil
     ) {
         guard let index = surfaces.firstIndex(where: { $0.token == token }) else {
-            let surface = TransientKeyboardSurface(workspaceWindowId: workspaceWindowId, kind: kind)
+            let surface = TransientKeyboardSurface(
+                workspaceWindowId: workspaceWindowId,
+                kind: kind,
+                policy: policy ?? kind.defaultPolicy
+            )
             surfaces.append(surface)
             return
         }
         surfaces[index] = TransientKeyboardSurface(
             token: token,
             workspaceWindowId: workspaceWindowId,
-            kind: kind
+            kind: kind,
+            policy: policy ?? kind.defaultPolicy
         )
     }
 

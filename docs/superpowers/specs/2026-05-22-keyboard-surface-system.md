@@ -35,7 +35,7 @@ The current policy shape is sound and should be kept:
 The gap is not the command model. The gap is surface resolution:
 
 - command bar activity is currently known by `CommandBarPanelController` and `CommandBarState`, but not by `KeyboardRoutingContext`
-- transient surface state blocks all app/global dispatch, including command bar activation
+- transient surface state needs shortcut-aware ownership; command bar activation is a higher-precedence reservation and must not be modeled as a transient allowance
 - terminal app-owned ingress dispatches shortcuts directly and must consult the same policy
 - command bar activation commands are currently hidden in command bar results, but the target UX requires them to be visible
 
@@ -47,10 +47,13 @@ The implementation must preserve these rules:
 - Command bar activation is still blocked for `otherWindow`; another app or unrelated window must not be stolen from.
 - `AppShortcut.newTab` is the `⌘T` binding for `AppCommand.showCommandBarRepos`, not a tab-creation command. Its contexts must include `.terminalAppOwned` so terminal-host routing can decode it directly.
 - When command bar is active, the command bar panel owns keyboard interpretation and non-command-bar workspace shortcuts do not dispatch through pane/global paths.
-- Transient pane-local surfaces suppress app/global/management shortcuts, but local AppKit or SwiftUI responders still handle their local keys.
+- Transient pane-local surfaces suppress app/global/management shortcuts by default, but local AppKit or SwiftUI responders still handle their local keys.
+- Surface-owned app shortcuts are explicit and compile-time classified in `AppShortcutDispatchPolicy`.
 - Repo sidebar and inbox sidebar are stable focus owners. They do not become transient surfaces.
 - Arrangement panel, arrangement rename, pane inbox popover, and editor chooser are transient because they are temporary keyboard islands attached to an existing stable owner.
 - While a transient surface is active, global destructive workspace shortcuts such as `closeWindow` are intentionally blocked. The local responder may close or cancel the transient surface; the app-level shortcut must not close the workspace window from underneath it.
+- Arrangement panel is tab-local. It owns `.previousArrangement`, `.nextArrangement`, `.prevTab`, `.nextTab`, and `selectTab1...9` while open so tab ordinal selection still works while the panel is open. Arrangement rename is editor-like and owns no app shortcuts.
+- Pane inbox popovers are pane-local panels. Inbox sidebar remains the stable `.sidebar(.inbox)` surface.
 
 ## Surface Taxonomy
 
@@ -95,7 +98,16 @@ Transient surfaces are temporary keyboard islands layered above the stable owner
 - `.paneInbox(parentPaneId:)`
 - `.editorChooser(paneId:)`
 
-They suppress app/global/management shortcuts while their local responder handles local keys such as Return, Escape, arrows, and number selection.
+They suppress app/global/management shortcuts by default while their local responder handles local keys such as Return, Escape, arrows, and number selection.
+
+Current transient-owned app shortcuts:
+
+- `.arrangementPanel`: `.previousArrangement`, `.nextArrangement`, `.prevTab`, `.nextTab`, `selectTab1...9`
+- `.tabRename`, `.arrangementRename`, `.paneInbox`, `.editorChooser`: none
+
+Command-bar activation is not a transient-surface allowance. It is a higher-precedence reservation evaluated before transient surface policy.
+
+Arrangement panel presentation is tab-local. Command dispatch may create a request in `ArrangementPanelPresentationAtom`, but the tab bar or collapsed bar consumes that request only when its tab matches. Tab switching closes an open tab bar arrangement panel. Pane inbox popovers follow the same locality principle at pane scope; the inbox sidebar remains a stable sidebar surface.
 
 Transient registration is workspace-window scoped. Views that know their owning workspace window must pass that `workspaceWindowId` explicitly; the key/focused-window fallback exists only as a last resort for callers that cannot be threaded yet. A registered transient must keep its original workspace owner across kind changes such as arrangement panel to arrangement rename.
 
@@ -103,17 +115,26 @@ Transient registration is workspace-window scoped. Views that know their owning 
 
 Keyboard policy resolves in this order:
 
-1. `commandBar(scope:)`
-2. `transient(kind:)`
-3. `stable(owner:)`
+1. command-bar activation reservation
+2. `commandBar(scope:)`
+3. `transient(kind:)`
+4. `stable(owner:)`
 
-Command bar activation is special:
+Command bar activation is the top reservation:
 
-- allowed through transient surfaces
+- evaluated before transient surface policy
 - allowed through management layer, repo sidebar, inbox sidebar, and main window chain
 - blocked for `otherWindow`
 
 Once command bar is active, it takes precedence. Non-command-bar shortcuts should not dispatch through workspace app-owned paths while command bar owns keyboard interpretation.
+
+### Terminal Host Override Rule
+
+When a focused Ghostty surface receives a key chord that Agent Studio owns in
+`.terminalAppOwned`, the host consumes that key even if the active keyboard
+surface policy blocks dispatch. This prevents blocked or transient surfaces
+from accidentally forwarding host-reserved chords into Ghostty. `⌘K` is also
+explicitly swallowed so Ghostty clear scrollback never fires from Agent Studio.
 
 ## Type Shape
 

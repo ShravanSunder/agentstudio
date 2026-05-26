@@ -62,14 +62,56 @@ extension Ghostty.SurfaceView {
         $0.contexts.contains(.terminalAppOwned)
     }
 
+    enum TerminalAppOwnedShortcutHandling: Equatable {
+        case notHandled
+        case swallowed
+        case dispatched(AppCommand)
+    }
+
+    static func shouldSuppressTerminalHostTrigger(_ trigger: ShortcutTrigger) -> Bool {
+        AppShortcutDispatchPolicy.shouldSuppressTerminalHostTrigger(trigger)
+    }
+
+    static func handleTerminalAppOwnedShortcut(
+        trigger: ShortcutTrigger,
+        context: KeyboardRoutingContext,
+        sourcePaneId: UUID? = nil,
+        canDispatch: (AppCommand, UUID?) -> Bool,
+        dispatch: (AppCommand, UUID?) -> Void
+    ) -> TerminalAppOwnedShortcutHandling {
+        guard let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
+            Self.appOwnedShortcuts.contains(shortcut)
+        else {
+            return .notHandled
+        }
+
+        let targetPaneId = AppShortcutDispatchPolicy.sourcePaneTarget(
+            for: shortcut.command,
+            sourcePaneId: sourcePaneId
+        )
+        guard
+            AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(shortcut, context: context),
+            canDispatch(shortcut.command, targetPaneId)
+        else {
+            // Terminal app-owned chords are reserved by Agent Studio.
+            // Swallow rejected matches so they never leak to Ghostty or
+            // host terminal defaults such as clear scrollback.
+            return .swallowed
+        }
+
+        dispatch(shortcut.command, targetPaneId)
+        return .dispatched(shortcut.command)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
         guard focused else { return false }
 
-        if let trigger = ShortcutDecoder.decode(event: event),
-            let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
-            Self.appOwnedShortcuts.contains(shortcut)
-        {
+        if let trigger = ShortcutDecoder.decode(event: event) {
+            if Self.shouldSuppressTerminalHostTrigger(trigger) {
+                return true
+            }
+
             let keyboardContext = KeyboardRoutingContext.current(
                 windowLifecycle: atom(\.windowLifecycle),
                 managementLayer: atom(\.managementLayer),
@@ -77,17 +119,36 @@ extension Ghostty.SurfaceView {
                 commandBarSurface: atom(\.commandBarSurface),
                 transientKeyboardSurface: atom(\.transientKeyboardSurface)
             )
-            guard
-                AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(
-                    shortcut,
-                    context: keyboardContext
-                ),
-                CommandDispatcher.shared.canDispatch(shortcut.command)
-            else {
-                return false
+
+            let sourcePaneId =
+                terminalRuntime?.paneId.uuid
+                ?? SurfaceManager.shared
+                .surfaceId(forView: self)
+                .flatMap { SurfaceManager.shared.paneId(for: $0) }
+
+            switch Self.handleTerminalAppOwnedShortcut(
+                trigger: trigger,
+                context: keyboardContext,
+                sourcePaneId: sourcePaneId,
+                canDispatch: { command, targetPaneId in
+                    if let targetPaneId {
+                        return CommandDispatcher.shared.canDispatch(command, target: targetPaneId, targetType: .pane)
+                    }
+                    return CommandDispatcher.shared.canDispatch(command)
+                },
+                dispatch: { command, targetPaneId in
+                    if let targetPaneId {
+                        CommandDispatcher.shared.dispatch(command, target: targetPaneId, targetType: .pane)
+                        return
+                    }
+                    CommandDispatcher.shared.dispatch(command)
+                }
+            ) {
+            case .notHandled:
+                break
+            case .swallowed, .dispatched:
+                return true
             }
-            CommandDispatcher.shared.dispatch(shortcut.command)
-            return true
         }
 
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

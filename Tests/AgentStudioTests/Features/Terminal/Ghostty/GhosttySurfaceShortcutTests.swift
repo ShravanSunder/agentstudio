@@ -15,7 +15,7 @@ final class GhosttySurfaceShortcutTests {
         // Assert — command bar shortcuts, drawer-pane creation, and terminal navigation are registered
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.count >= 5,
-            "Expected app-owned shortcuts to include ⌘P, ⌘⇧P, ⌘⌥P, ⌘⇧D, and ⌘⌥K"
+            "Expected app-owned shortcuts to include ⌘P, ⌘⇧P, ⌘⌥P, ⌘⇧D, and terminal navigation"
         )
     }
 
@@ -65,11 +65,143 @@ final class GhosttySurfaceShortcutTests {
     }
 
     @Test
-    func test_appOwnedShortcuts_containsCmdOptionKScrollToBottom() {
+    func test_appOwnedShortcuts_containsCmdShiftKScrollToBottom() {
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollToBottom),
             "Expected scroll-to-bottom in appOwnedShortcuts"
         )
+    }
+
+    @Test
+    func terminalHostSuppressedTriggers_swallowCmdKClearScrollback() {
+        let trigger = ShortcutTrigger(key: .character(.k), modifiers: [.command])
+
+        #expect(Ghostty.SurfaceView.shouldSuppressTerminalHostTrigger(trigger))
+    }
+
+    @Test
+    func terminalAppOwnedShortcutHandler_swallowsRejectedShortcutWithoutDispatch() async throws {
+        try await withIsolatedCommandDispatcher(
+            configure: {},
+            body: {
+                withTestAtomRegistry { atoms in
+                    let windowId = UUID()
+                    let tabId = UUID()
+                    var dispatchedCommands: [AppCommand] = []
+                    atoms.windowLifecycle.recordWindowRegistered(windowId)
+                    atoms.windowLifecycle.recordWindowBecameKey(windowId)
+                    _ = atoms.transientKeyboardSurface.present(
+                        .arrangementPanel(tabId: tabId),
+                        workspaceWindowId: windowId
+                    )
+
+                    let context = KeyboardRoutingContext.current(
+                        windowLifecycle: atoms.windowLifecycle,
+                        managementLayer: atoms.managementLayer,
+                        uiState: atoms.uiState,
+                        commandBarSurface: atoms.commandBarSurface,
+                        transientKeyboardSurface: atoms.transientKeyboardSurface
+                    )
+
+                    let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
+                        trigger: .init(key: .character(.k), modifiers: [.command, .shift]),
+                        context: context,
+                        canDispatch: { command, _ in command == .scrollToBottom },
+                        dispatch: { command, _ in dispatchedCommands.append(command) }
+                    )
+
+                    #expect(result == .swallowed)
+                    #expect(dispatchedCommands.isEmpty)
+                }
+            })
+    }
+
+    @Test
+    func terminalAppOwnedShortcutHandler_targetsSourcePaneForTerminalRuntimeCommands() {
+        withTestAtomRegistry { atoms in
+            let windowId = UUID()
+            let sourcePaneId = UUID()
+            var dispatches: [(command: AppCommand, paneId: UUID?)] = []
+            atoms.windowLifecycle.recordWindowRegistered(windowId)
+            atoms.windowLifecycle.recordWindowBecameKey(windowId)
+
+            let context = KeyboardRoutingContext.current(
+                windowLifecycle: atoms.windowLifecycle,
+                managementLayer: atoms.managementLayer,
+                uiState: atoms.uiState,
+                commandBarSurface: atoms.commandBarSurface,
+                transientKeyboardSurface: atoms.transientKeyboardSurface
+            )
+
+            let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
+                trigger: .init(key: .character(.k), modifiers: [.command, .shift]),
+                context: context,
+                sourcePaneId: sourcePaneId,
+                canDispatch: { command, paneId in
+                    command == .scrollToBottom && paneId == sourcePaneId
+                },
+                dispatch: { command, paneId in
+                    dispatches.append((command, paneId))
+                }
+            )
+
+            #expect(result == .dispatched(.scrollToBottom))
+            #expect(dispatches.count == 1)
+            #expect(dispatches.first?.command == .scrollToBottom)
+            #expect(dispatches.first?.paneId == sourcePaneId)
+        }
+    }
+
+    @Test
+    func terminalAppOwnedShortcutHandler_doesNotTargetCommandBarShortcutsToSourcePane() {
+        withTestAtomRegistry { atoms in
+            let windowId = UUID()
+            let sourcePaneId = UUID()
+            var dispatches: [(command: AppCommand, paneId: UUID?)] = []
+            atoms.windowLifecycle.recordWindowRegistered(windowId)
+            atoms.windowLifecycle.recordWindowBecameKey(windowId)
+
+            let context = KeyboardRoutingContext.current(
+                windowLifecycle: atoms.windowLifecycle,
+                managementLayer: atoms.managementLayer,
+                uiState: atoms.uiState,
+                commandBarSurface: atoms.commandBarSurface,
+                transientKeyboardSurface: atoms.transientKeyboardSurface
+            )
+
+            let result = Ghostty.SurfaceView.handleTerminalAppOwnedShortcut(
+                trigger: .init(key: .character(.p), modifiers: [.command]),
+                context: context,
+                sourcePaneId: sourcePaneId,
+                canDispatch: { command, paneId in
+                    command == .showCommandBarEverything && paneId == nil
+                },
+                dispatch: { command, paneId in
+                    dispatches.append((command, paneId))
+                }
+            )
+
+            #expect(result == .dispatched(.showCommandBarEverything))
+            #expect(dispatches.count == 1)
+            #expect(dispatches.first?.command == .showCommandBarEverything)
+            #expect(dispatches.first?.paneId == nil)
+        }
+    }
+
+    @Test
+    func appOwnedTerminalShortcuts_includeScrollAndPromptNavigation() {
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollToBottom))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollPageUp))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.jumpToPreviousPrompt))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.jumpToNextPrompt))
+    }
+
+    @Test
+    func appOwnedTerminalShortcuts_includeTabAndPaneOrdinals() {
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.selectTab1))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.selectTab9))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.focusPane1))
+        #expect(Ghostty.SurfaceView.appOwnedShortcuts.contains(.focusPane9))
     }
 
     @Test

@@ -242,6 +242,108 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.tab(tab.id)?.activeArrangementId == defaultArrangementId)
     }
 
+    @Test("switchArrangement requests arrangement panel for active tab")
+    func executeSwitchArrangement_requestsArrangementPanel() throws {
+        let presentation = ArrangementPanelPresentationAtom()
+        let harness = makeHarness(arrangementPanelPresentation: presentation)
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (tab, _) = try makeOrdinalTab(in: harness, paneCount: 2)
+        harness.store.setActiveTab(tab.id)
+        let windowId = UUID()
+        harness.windowLifecycleStore.recordWindowRegistered(windowId)
+        harness.windowLifecycleStore.recordWindowBecameKey(windowId)
+
+        harness.controller.execute(.switchArrangement)
+
+        #expect(presentation.pendingRequest?.tabId == tab.id)
+        #expect(presentation.pendingRequest?.workspaceWindowId == windowId)
+    }
+
+    @Test("switchArrangement does not request arrangement panel without a workspace window")
+    func executeSwitchArrangement_withoutWorkspaceWindow_doesNotRequestArrangementPanel() throws {
+        let presentation = ArrangementPanelPresentationAtom()
+        let harness = makeHarness(arrangementPanelPresentation: presentation)
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (tab, _) = try makeOrdinalTab(in: harness, paneCount: 2)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.switchArrangement)
+
+        #expect(presentation.pendingRequest == nil)
+    }
+
+    @Test("switchArrangement uses the controller workspace window before lifecycle fallback")
+    func executeSwitchArrangement_prefersControllerWorkspaceWindow() throws {
+        let presentation = ArrangementPanelPresentationAtom()
+        let windowId = UUID()
+        let harness = makeHarness(
+            arrangementPanelPresentation: presentation,
+            workspaceWindowId: windowId
+        )
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (tab, _) = try makeOrdinalTab(in: harness, paneCount: 2)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.switchArrangement)
+
+        #expect(presentation.pendingRequest?.tabId == tab.id)
+        #expect(presentation.pendingRequest?.workspaceWindowId == windowId)
+    }
+
+    @Test("previous and next arrangement switch active tab arrangement")
+    func executePreviousAndNextArrangement_switchesCurrentTabArrangement() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (tab, _) = try makeOrdinalTab(in: harness, paneCount: 2)
+        let secondArrangementId = try #require(harness.store.tab(tab.id)?.arrangements.last?.id)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.nextArrangement)
+        #expect(harness.store.tab(tab.id)?.activeArrangementId == secondArrangementId)
+
+        harness.controller.execute(.previousArrangement)
+        #expect(harness.store.tab(tab.id)?.activeArrangementId == tab.defaultArrangement.id)
+    }
+
+    @Test("scrollToBottom targets the focused drawer pane")
+    func executeScrollToBottom_targetsFocusedDrawerPane() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parentPane.id, inTab: tab.id)
+
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        let drawerId = try #require(harness.store.pane(parentPane.id)?.drawer?.drawerId)
+        harness.store.tabArrangementAtom.addDrawerPaneView(
+            drawerId: drawerId,
+            parentPaneId: parentPane.id,
+            drawerPaneId: drawerPane.id,
+            inTab: tab.id
+        )
+        harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
+        atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id)
+
+        let parentRuntime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: parentPane.id))
+        let drawerRuntime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: drawerPane.id))
+        harness.runtimeRegistry.register(parentRuntime)
+        harness.runtimeRegistry.register(drawerRuntime)
+
+        harness.controller.execute(.scrollToBottom)
+
+        await waitForRecordedCommands(on: drawerRuntime, count: 1)
+        #expect(parentRuntime.receivedCommands.isEmpty)
+        let command = try #require(drawerRuntime.receivedCommands.first)
+        #expect(command.targetPaneId == PaneId(uuid: drawerPane.id))
+        guard case .terminal(.scrollToBottom) = command.command else {
+            Issue.record("Expected focused drawer pane to receive scrollToBottom")
+            return
+        }
+    }
+
     @Test("openPaneLocationInBookmarkedEditor without bookmark uses the implicit default order")
     func executeOpenPaneLocationInBookmarkedEditor_withoutBookmark_usesImplicitDefaultOrder() {
         let harness = makeHarness()

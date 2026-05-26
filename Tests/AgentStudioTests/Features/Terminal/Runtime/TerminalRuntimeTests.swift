@@ -62,6 +62,34 @@ struct TerminalRuntimeTests {
         #expect(result == .failure(.backendUnavailable(backend: "SurfaceManager")))
     }
 
+    @Test("scrollPageUp terminal command fails without surface")
+    func scrollPageUpTerminalCommandFailsWithoutSurface() async {
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        runtime.transitionToReady()
+
+        let commandEnvelope = makeEnvelope(command: .terminal(.scrollPageUp), paneId: runtime.paneId)
+        let result = await runtime.handleCommand(commandEnvelope)
+
+        #expect(result == .failure(.backendUnavailable(backend: "SurfaceManager")))
+    }
+
+    @Test("jumpToPrompt terminal command fails without surface")
+    func jumpToPromptTerminalCommandFailsWithoutSurface() async {
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        runtime.transitionToReady()
+
+        let commandEnvelope = makeEnvelope(command: .terminal(.jumpToPrompt(delta: -1)), paneId: runtime.paneId)
+        let result = await runtime.handleCommand(commandEnvelope)
+
+        #expect(result == .failure(.backendUnavailable(backend: "SurfaceManager")))
+    }
+
     @Test("non-terminal command families are rejected as unsupported")
     func rejectsUnsupportedCommandFamilies() async {
         let runtime = TerminalRuntime(

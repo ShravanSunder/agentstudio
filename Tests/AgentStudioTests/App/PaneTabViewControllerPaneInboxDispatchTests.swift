@@ -39,10 +39,10 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
         )
     }
 
-    @Test("Cmd-Shift-I app-owned key event reaches PaneInbox command dispatch")
-    func cmdShiftIKeyEventOpensPaneInboxForActiveParentScope() async throws {
+    @Test("Cmd-Shift-U app-owned key event reaches PaneInbox command dispatch")
+    func cmdShiftUKeyEventOpensPaneInboxForActiveParentScope() async throws {
         try await withAsyncTestAtomRegistry { atoms in
-            let harness = makeHarness()
+            let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
 
@@ -57,7 +57,7 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
                     harness.store.appendTab(tab)
                     harness.store.setActiveTab(tab.id)
                     let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
-                    let event = try #require(cmdShiftIEvent())
+                    let event = try #require(cmdShiftUEvent())
 
                     #expect(harness.controller.handleAppOwnedKeyEvent(event))
 
@@ -69,7 +69,7 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
         }
     }
 
-    private func cmdShiftIEvent() -> NSEvent? {
+    private func cmdShiftUEvent() -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -77,10 +77,10 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
             timestamp: 0,
             windowNumber: 0,
             context: nil,
-            characters: "I",
-            charactersIgnoringModifiers: "i",
+            characters: "U",
+            charactersIgnoringModifiers: "u",
             isARepeat: false,
-            keyCode: 34
+            keyCode: 32
         )
     }
 }

@@ -58,6 +58,25 @@ struct TerminalAppOwnedShortcutPolicyTests {
 
         #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.nextTab, context: context))
         #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.newTab, context: context))
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.selectTab1, context: context))
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.focusPane1, context: context))
+    }
+
+    @Test("prompt shortcuts are terminal owned only")
+    func promptShortcutsAreTerminalOwnedOnly() {
+        let context = KeyboardRoutingContext(
+            stableOwner: .mainWindowChain,
+            activeSurface: .stable(.mainWindowChain),
+            workspaceWindowId: UUID()
+        )
+
+        #expect(!AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(.jumpToPreviousPrompt, context: context))
+        #expect(!AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(.jumpToNextPrompt, context: context))
+        #expect(!AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(.scrollPageUp, context: context))
+        #expect(
+            AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.jumpToPreviousPrompt, context: context))
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.jumpToNextPrompt, context: context))
+        #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.scrollPageUp, context: context))
     }
 
     @Test("terminal app-owned shortcuts are blocked when sidebar owns keyboard")
@@ -70,5 +89,33 @@ struct TerminalAppOwnedShortcutPolicyTests {
 
         #expect(!AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.nextTab, context: context))
         #expect(AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(.newTab, context: context))
+    }
+
+    @Test("source pane targeting is explicit for terminal runtime commands only")
+    func sourcePaneTargetingIsExplicitForTerminalRuntimeCommandsOnly() {
+        let sourcePaneId = UUID()
+
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .scrollToBottom, sourcePaneId: sourcePaneId) == sourcePaneId
+        )
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .scrollPageUp, sourcePaneId: sourcePaneId) == sourcePaneId)
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .jumpToPreviousPrompt, sourcePaneId: sourcePaneId)
+                == sourcePaneId
+        )
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .jumpToNextPrompt, sourcePaneId: sourcePaneId)
+                == sourcePaneId)
+
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .showCommandBarEverything, sourcePaneId: sourcePaneId)
+                == nil)
+        #expect(AppShortcutDispatchPolicy.sourcePaneTarget(for: .selectTab1, sourcePaneId: sourcePaneId) == nil)
+        #expect(AppShortcutDispatchPolicy.sourcePaneTarget(for: .focusPane1, sourcePaneId: sourcePaneId) == nil)
+        #expect(
+            AppShortcutDispatchPolicy.sourcePaneTarget(for: .showPaneInboxNotifications, sourcePaneId: sourcePaneId)
+                == nil)
+        #expect(AppShortcutDispatchPolicy.sourcePaneTarget(for: .scrollToBottom, sourcePaneId: nil) == nil)
     }
 }

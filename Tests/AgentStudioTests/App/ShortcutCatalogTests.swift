@@ -15,6 +15,13 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutCatalog_declaresPaneTargetFallbacks() {
+        for shortcut in AppShortcut.allCases {
+            #expect(shortcut.requiresPaneTargetFallback == (shortcut == .addDrawerPane))
+        }
+    }
+
+    @Test
     func shortcutTriggers_areUniqueWithinEachContext() {
         var seen: [ShortcutContext: Set<ShortcutTrigger>] = [:]
 
@@ -53,7 +60,7 @@ struct ShortcutCatalogTests {
         #expect(startContextDefinition.keyBinding?.modifiers == [.command])
         #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
         #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
-        #expect(paneInboxDefinition.keyBinding?.key == "i")
+        #expect(paneInboxDefinition.keyBinding?.key == "u")
         #expect(paneInboxDefinition.keyBinding?.modifiers == [.command, .shift])
         #expect(paneInboxDefinition.actionSpec.label == "Toggle Pane Inbox")
     }
@@ -86,7 +93,7 @@ struct ShortcutCatalogTests {
     @Test
     func shortcutDecoder_decodesSidebarSurfaceShortcuts() {
         let showInbox = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.i), modifiers: [.command]),
+            for: .init(key: .character(.u), modifiers: [.command]),
             in: .global
         )
         let showRepos = ShortcutDecoder.shortcut(
@@ -99,58 +106,68 @@ struct ShortcutCatalogTests {
     }
 
     @Test
-    func shortcutDecoder_decodesTabAndArrangementCyclingShortcuts() {
+    func shortcutDecoder_decodesTabAndArrangementShortcuts() {
         let previousTab = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.j), modifiers: [.command, .option]),
+            for: .init(key: .character(.j), modifiers: [.command]),
             in: .global
         )
         let nextTab = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.l), modifiers: [.command, .option]),
+            for: .init(key: .character(.l), modifiers: [.command]),
             in: .global
         )
-        let cycleArrangement = ShortcutDecoder.shortcut(
+        let showArrangements = ShortcutDecoder.shortcut(
             for: .init(key: .character(.i), modifiers: [.command, .option]),
+            in: .global
+        )
+        let previousArrangement = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.j), modifiers: [.command, .option]),
+            in: .global
+        )
+        let nextArrangement = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.l), modifiers: [.command, .option]),
             in: .global
         )
 
         #expect(previousTab == .prevTab)
         #expect(nextTab == .nextTab)
-        #expect(cycleArrangement == .cycleArrangement)
+        #expect(showArrangements == .showArrangementPanel)
+        #expect(previousArrangement == .previousArrangement)
+        #expect(nextArrangement == .nextArrangement)
     }
 
     @Test
-    func shortcutDecoder_decodesPaneOrdinalShortcuts() {
+    func shortcutDecoder_decodesTabAndPaneOrdinalShortcuts() {
+        let firstTab = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.digit1), modifiers: [.command]),
+            in: .global
+        )
+        let ninthTabFromTerminal = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.digit9), modifiers: [.command]),
+            in: .terminalAppOwned
+        )
         let firstMainPane = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.digit1), modifiers: [.command, .shift]),
+            for: .init(key: .character(.digit1), modifiers: [.option]),
             in: .global
         )
         let ninthMainPaneFromTerminal = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.digit9), modifiers: [.command, .shift]),
-            in: .terminalAppOwned
-        )
-        let firstDrawerPane = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.digit1), modifiers: [.command, .shift, .option]),
-            in: .global
-        )
-        let ninthDrawerPaneFromTerminal = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.digit9), modifiers: [.command, .shift, .option]),
+            for: .init(key: .character(.digit9), modifiers: [.option]),
             in: .terminalAppOwned
         )
 
+        #expect(firstTab == .selectTab1)
+        #expect(ninthTabFromTerminal == .selectTab9)
         #expect(firstMainPane == .focusPane1)
         #expect(ninthMainPaneFromTerminal == .focusPane9)
-        #expect(firstDrawerPane == .focusDrawerPane1)
-        #expect(ninthDrawerPaneFromTerminal == .focusDrawerPane9)
     }
 
     @Test
     func shortcutDecoder_decodesPaneInboxShortcut() {
         let showPaneInbox = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.i), modifiers: [.command, .shift]),
+            for: .init(key: .character(.u), modifiers: [.command, .shift]),
             in: .global
         )
         let terminalShowPaneInbox = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.i), modifiers: [.command, .shift]),
+            for: .init(key: .character(.u), modifiers: [.command, .shift]),
             in: .terminalAppOwned
         )
 
@@ -161,7 +178,7 @@ struct ShortcutCatalogTests {
     @Test
     func shortcutDecoder_decodesSidebarSurfaceShortcutsInTerminalPanes() {
         let showInbox = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.i), modifiers: [.command]),
+            for: .init(key: .character(.u), modifiers: [.command]),
             in: .terminalAppOwned
         )
         let showRepos = ShortcutDecoder.shortcut(
@@ -209,13 +226,33 @@ struct ShortcutCatalogTests {
     }
 
     @Test
-    func shortcutDecoder_decodesScrollToBottomShortcut() {
+    func shortcutDecoder_decodesTerminalScrollAndPromptShortcuts() {
         let scrollToBottom = ShortcutDecoder.shortcut(
-            for: .init(key: .character(.k), modifiers: [.command, .option]),
+            for: .init(key: .character(.k), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+        let previousPrompt = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.j), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+        let nextPrompt = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.l), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+        let pageUp = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+        let ghosttyClearScrollback = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.k), modifiers: [.command]),
             in: .terminalAppOwned
         )
 
         #expect(scrollToBottom == .scrollToBottom)
+        #expect(previousPrompt == .jumpToPreviousPrompt)
+        #expect(nextPrompt == .jumpToNextPrompt)
+        #expect(pageUp == .scrollPageUp)
+        #expect(ghosttyClearScrollback == nil)
     }
 
     @Test

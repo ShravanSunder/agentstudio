@@ -26,6 +26,9 @@ enum AppCommand: String, CaseIterable {
     case movePaneToTab
     case focusPane
     case scrollToBottom
+    case scrollPageUp
+    case jumpToPreviousPrompt
+    case jumpToNextPrompt
     case splitRight, splitLeft
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
@@ -37,6 +40,8 @@ enum AppCommand: String, CaseIterable {
     case expandPane
     // Arrangement commands
     case switchArrangement
+    case previousArrangement
+    case nextArrangement
     case cycleArrangement
     case saveArrangement
     case deleteArrangement
@@ -123,11 +128,11 @@ enum SearchItemType: String, CaseIterable {
 // MARK: - KeyBinding
 
 /// A keyboard shortcut binding for a command.
-struct KeyBinding: Codable, Hashable {
+struct KeyBinding: Codable, Hashable, Sendable {
     var key: String
     var modifiers: Set<Modifier>
 
-    enum Modifier: String, Codable, Hashable {
+    enum Modifier: String, Codable, Hashable, Sendable {
         case command
         case control
         case option
@@ -187,7 +192,7 @@ struct CommandSpec {
         requiresManagementLayer: Bool = false,
         visibleWhen: Set<FocusRequirement> = [],
         commandBarGroupName: String = "Commands",
-        commandBarGroupPriority: Int = 7,
+        commandBarGroupPriority: Int = 8,
         isHiddenInCommandBar: Bool = false
     ) {
         self.command = command

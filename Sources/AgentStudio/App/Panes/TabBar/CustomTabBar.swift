@@ -423,7 +423,7 @@ private struct TabBarArrangementButton: View {
     let onSaveArrangement: ((UUID) -> Void)?
     let workspaceWindowId: UUID?
 
-    @State private var isPanelPresented = false
+    @State private var presentationState = ArrangementPanelTabPresentationState()
     @State private var isHovered = false
     @State private var popoverToggleGate = PopoverToggleGate()
 
@@ -450,15 +450,21 @@ private struct TabBarArrangementButton: View {
         TabBarArrangementChip.nameMaxWidth(isManagementLayerActive: atom(\.managementLayer).isActive)
     }
 
+    private var presentationAtom: ArrangementPanelPresentationAtom {
+        atom(\.arrangementPanelPresentation)
+    }
+
     var body: some View {
         Button {
-            popoverToggleGate.toggle(isPresented: &isPanelPresented)
+            var isPresented = presentationState.isPresented
+            popoverToggleGate.toggle(isPresented: &isPresented)
+            presentationState.setPresented(isPresented, activeTabId: adapter.activeTabId)
         } label: {
             TabBarArrangementChip(
                 index: activeArrangementBadgeNumber,
                 name: activeArrangementName,
                 isHovered: isHovered,
-                isPressed: isPanelPresented,
+                isPressed: presentationState.isPresented,
                 nameMaxWidth: chipNameMaxWidth
             )
             .overlay(alignment: .topTrailing) {
@@ -485,13 +491,13 @@ private struct TabBarArrangementButton: View {
         .help(LocalActionSpec.arrangements.actionSpec.helpText)
         .popover(
             isPresented: Binding(
-                get: { isPanelPresented },
+                get: { presentationState.isPresented },
                 set: { newValue in
-                    if !newValue && isPanelPresented {
-                        isPanelPresented = false
+                    if !newValue && presentationState.isPresented {
+                        presentationState.setPresented(false, activeTabId: adapter.activeTabId)
                         popoverToggleGate.recordSystemDismissal()
                     } else {
-                        isPanelPresented = newValue
+                        presentationState.setPresented(newValue, activeTabId: adapter.activeTabId)
                     }
                 }
             ),
@@ -507,6 +513,7 @@ private struct TabBarArrangementButton: View {
                     inlineRenameState: arrangementInlineRenameState,
                     onPaneAction: onPaneAction,
                     onSaveArrangement: { onSaveArrangement(tab.id) },
+                    onDismiss: dismissArrangementPopover,
                     showsMinimizedPanesBinding: Binding(
                         get: { tab.showsMinimizedPanes },
                         set: { onPaneAction(.setShowsMinimizedPanes(tabId: tab.id, value: $0)) }
@@ -517,9 +524,21 @@ private struct TabBarArrangementButton: View {
         .onChange(of: arrangementInlineRenameState.editingArrangementId) { _, _ in
             openPopoverIfRenameTargetsActiveTab()
         }
-        .onChange(of: adapter.activeTabId) { _, _ in
+        .onChange(of: adapter.activeTabId) { _, newTabId in
+            presentationState.activeTabDidChange(to: newTabId)
             openPopoverIfRenameTargetsActiveTab()
+            openPopoverIfRequested()
         }
+        .onChange(of: presentationAtom.pendingRequest?.id) { _, _ in
+            openPopoverIfRequested()
+        }
+    }
+
+    private func dismissArrangementPopover() {
+        guard presentationState.isPresented else { return }
+
+        presentationState.setPresented(false, activeTabId: adapter.activeTabId)
+        popoverToggleGate.recordSystemDismissal()
     }
 
     private func openPopoverIfRenameTargetsActiveTab() {
@@ -527,10 +546,22 @@ private struct TabBarArrangementButton: View {
             ArrangementPopoverAutoOpen.shouldOpen(
                 editingArrangementId: arrangementInlineRenameState.editingArrangementId,
                 activeTabArrangements: activeTab?.arrangements,
-                isPresented: isPanelPresented
-            )
+                isPresented: presentationState.isPresented
+            ),
+            let activeTabId = adapter.activeTabId
         else { return }
-        isPanelPresented = true
+        presentationState.present(tabId: activeTabId)
+    }
+
+    private func openPopoverIfRequested() {
+        guard
+            let request = presentationAtom.pendingRequest,
+            request.tabId == adapter.activeTabId,
+            request.workspaceWindowId == workspaceWindowId
+        else { return }
+
+        presentationState.present(tabId: request.tabId)
+        presentationAtom.consume(request)
     }
 }
 

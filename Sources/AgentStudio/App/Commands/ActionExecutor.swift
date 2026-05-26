@@ -43,6 +43,13 @@ final class ActionExecutor {
         coordinator.undoStack
     }
 
+    func dispatchRuntimeCommand(
+        _ command: RuntimeCommand,
+        target: RuntimeCommandTarget
+    ) async -> ActionResult {
+        await coordinator.dispatchRuntimeCommand(command, target: target)
+    }
+
     // MARK: - High-Level Operations
 
     /// Open a terminal for a worktree. Creates pane + tab + view.
