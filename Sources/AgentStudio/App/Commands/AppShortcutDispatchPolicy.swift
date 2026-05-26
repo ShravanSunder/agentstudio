@@ -56,11 +56,15 @@ enum AppShortcutDispatchPolicy {
 
     static func sourcePaneTarget(for command: AppCommand, sourcePaneId: UUID?) -> UUID? {
         guard let sourcePaneId else { return nil }
-        guard isSourcePaneTargetedRuntimeCommand(command) else { return nil }
+        guard isTerminalRuntimeCommand(command) else { return nil }
         return sourcePaneId
     }
 
-    static func isSourcePaneTargetedRuntimeCommand(_ command: AppCommand) -> Bool {
+    static func shouldSuppressTerminalHostTrigger(_ trigger: ShortcutTrigger) -> Bool {
+        trigger == ShortcutTrigger(key: .character(.k), modifiers: [.command])
+    }
+
+    static func isTerminalRuntimeCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return true

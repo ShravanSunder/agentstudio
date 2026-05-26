@@ -68,6 +68,123 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
         }
     }
 
+    @Test("cmd k through controller key path is swallowed")
+    func handleAppOwnedKeyEvent_cmdK_swallowsClearScrollback() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            configureMainWindowKeyboardOwner(atoms)
+
+            let event = try #require(
+                makeKeyEvent(
+                    modifierFlags: [.command],
+                    characters: "k",
+                    charactersIgnoringModifiers: "k",
+                    keyCode: 40
+                )
+            )
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    CommandDispatcher.shared.handler = harness.controller
+                    CommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    #expect(harness.controller.handleAppOwnedKeyEvent(event))
+                }
+            )
+        }
+    }
+
+    @Test("cmd shift k is swallowed when sidebar owns keyboard")
+    func handleAppOwnedKeyEvent_cmdShiftK_sidebarFocusSwallowsWithoutDispatch() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            configureMainWindowKeyboardOwner(atoms)
+            atoms.uiState.setSidebarSurface(.inbox)
+            atoms.uiState.setSidebarHasFocus(true)
+
+            let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Pane"))
+            let tab = Tab(paneId: pane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            harness.store.setActivePane(pane.id, inTab: tab.id)
+            atoms.workspaceFocusOwner.focusMainPane(pane.id)
+
+            let runtime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: pane.id))
+            harness.runtimeRegistry.register(runtime)
+
+            let event = try #require(
+                makeKeyEvent(
+                    modifierFlags: [.command, .shift],
+                    characters: "K",
+                    charactersIgnoringModifiers: "k",
+                    keyCode: 40
+                )
+            )
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    CommandDispatcher.shared.handler = harness.controller
+                    CommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    #expect(harness.controller.handleAppOwnedKeyEvent(event))
+                    await waitForRecordedCommands(on: runtime, count: 1, maxTurns: 5)
+                    #expect(runtime.receivedCommands.isEmpty)
+                }
+            )
+        }
+    }
+
+    @Test("cmd shift k is swallowed when focused pane is not terminal")
+    func handleAppOwnedKeyEvent_cmdShiftK_nonTerminalPaneSwallowsWithoutDispatch() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            configureMainWindowKeyboardOwner(atoms)
+
+            let pane = harness.store.createPane(
+                content: .webview(WebviewState(url: try #require(URL(string: "https://example.com")))),
+                metadata: PaneMetadata(
+                    contentType: .browser,
+                    source: .floating(launchDirectory: nil, title: "Browser"),
+                    title: "Browser"
+                )
+            )
+            let tab = Tab(paneId: pane.id)
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+            harness.store.setActivePane(pane.id, inTab: tab.id)
+            atoms.workspaceFocusOwner.focusMainPane(pane.id)
+
+            let runtime = RecordingCommandPaneRuntime(paneId: PaneId(uuid: pane.id))
+            harness.runtimeRegistry.register(runtime)
+
+            let event = try #require(
+                makeKeyEvent(
+                    modifierFlags: [.command, .shift],
+                    characters: "K",
+                    charactersIgnoringModifiers: "k",
+                    keyCode: 40
+                )
+            )
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    CommandDispatcher.shared.handler = harness.controller
+                    CommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    #expect(harness.controller.handleAppOwnedKeyEvent(event))
+                    await waitForRecordedCommands(on: runtime, count: 1, maxTurns: 5)
+                    #expect(runtime.receivedCommands.isEmpty)
+                }
+            )
+        }
+    }
+
     @Test("targeted scrollToBottom targets requested drawer pane")
     func executeTargetedScrollToBottom_targetsRequestedDrawerPane() async throws {
         let harness = makeHarness()

@@ -38,9 +38,13 @@ struct TransientKeyboardSurfaceRegistrationModifier: ViewModifier {
             )
     }
 
-    private func register(_ kind: TransientKeyboardSurfaceKind) {
+    private func register(_ kind: TransientKeyboardSurfaceKind, resolvedWindowId: UUID? = nil) {
         guard token == nil else { return }
-        let resolvedWindowId = workspaceWindowId ?? registeredWindowId ?? resolveCurrentWorkspaceWindowId()
+        let resolvedWindowId =
+            resolvedWindowId
+            ?? workspaceWindowId
+            ?? registeredWindowId
+            ?? resolveCurrentWorkspaceWindowId()
         // Transient surfaces are workspace-window scoped; without a resolved
         // workspace owner, there is no safe policy domain to suppress.
         guard let resolvedWindowId else { return }
@@ -66,7 +70,7 @@ struct TransientKeyboardSurfaceRegistrationModifier: ViewModifier {
         }
         registeredWindowId = stableWindowId
         guard let token else {
-            register(kind)
+            register(kind, resolvedWindowId: stableWindowId)
             return
         }
         atom(\.transientKeyboardSurface).replace(

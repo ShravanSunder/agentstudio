@@ -1260,6 +1260,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         guard let trigger = ShortcutDecoder.decode(event: event) else {
             return false
         }
+
+        if shouldConsumeSuppressedTerminalHostTrigger(trigger) { return true }
+
         let globalShortcut = ShortcutDecoder.shortcut(for: trigger, in: .global)
 
         let keyboardContext = KeyboardRoutingContext.current(
@@ -1287,24 +1290,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
-        if let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
-            AppShortcutDispatchPolicy.isSourcePaneTargetedRuntimeCommand(shortcut.command)
-        {
-            // Terminal runtime shortcuts are app-owned reservations.
-            // When AppKit sends them through the pane controller instead
-            // of Ghostty, consume even rejected chords so terminal/default
-            // responders never see commands the app owns.
-            guard
-                AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(
-                    shortcut,
-                    context: keyboardContext
-                ),
-                CommandDispatcher.shared.canDispatch(shortcut.command)
-            else {
-                return true
-            }
-            CommandDispatcher.shared.dispatch(shortcut.command)
-            return true
+        if let handled = handleTerminalRuntimeShortcut(trigger, context: keyboardContext) {
+            return handled
         }
 
         if let shortcut = globalShortcut {
@@ -1379,6 +1366,36 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         return false
+    }
+
+    private func shouldConsumeSuppressedTerminalHostTrigger(_ trigger: ShortcutTrigger) -> Bool {
+        AppShortcutDispatchPolicy.shouldSuppressTerminalHostTrigger(trigger)
+    }
+
+    private func handleTerminalRuntimeShortcut(
+        _ trigger: ShortcutTrigger,
+        context keyboardContext: KeyboardRoutingContext
+    ) -> Bool? {
+        guard let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
+            AppShortcutDispatchPolicy.isTerminalRuntimeCommand(shortcut.command)
+        else {
+            return nil
+        }
+
+        // Terminal runtime shortcuts are app-owned reservations. When AppKit
+        // sends them through the pane controller instead of Ghostty, consume
+        // even rejected chords so terminal/default responders never see them.
+        guard
+            AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(
+                shortcut,
+                context: keyboardContext
+            ),
+            CommandDispatcher.shared.canDispatch(shortcut.command)
+        else {
+            return true
+        }
+        CommandDispatcher.shared.dispatch(shortcut.command)
+        return true
     }
 
     private func scopeAwarePaneCommand(for trigger: ShortcutTrigger) -> AppCommand? {
@@ -2236,7 +2253,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         _ command: AppCommand,
         target targetId: UUID
     ) -> Bool {
-        guard isTerminalRuntimeCommand(command),
+        guard AppShortcutDispatchPolicy.isTerminalRuntimeCommand(command),
             let pane = store.paneAtom.pane(targetId)
         else {
             return false
@@ -2245,28 +2262,29 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return true
     }
 
-    private func isTerminalRuntimeCommand(_ command: AppCommand) -> Bool {
-        switch command {
-        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
-            return true
-        default:
-            return false
-        }
-    }
-
     private func isPaneTargetType(_ targetType: SearchItemType) -> Bool {
         targetType == .pane || targetType == .floatingTerminal
     }
 
     private func focusedTerminalCommandTargetPaneId() -> UUID? {
+        let candidatePaneId: UUID?
         switch normalizedWorkspaceNavigationScopeState() {
         case .mainPane(let mainPaneId):
-            return mainPaneId ?? activeMainPaneId()
+            candidatePaneId = mainPaneId ?? activeMainPaneId()
         case .emptyDrawer(let parentPaneId):
-            return parentPaneId
+            candidatePaneId = parentPaneId
         case .drawerPane(_, let drawerPaneId):
-            return drawerPaneId
+            candidatePaneId = drawerPaneId
         }
+
+        guard
+            let candidatePaneId,
+            let pane = store.paneAtom.pane(candidatePaneId),
+            case .terminal = pane.content
+        else {
+            return nil
+        }
+        return candidatePaneId
     }
 
     private func handleManagementCommand(_ command: AppCommand) -> Bool {

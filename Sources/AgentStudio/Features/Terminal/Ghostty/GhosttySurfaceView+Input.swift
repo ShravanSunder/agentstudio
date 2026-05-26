@@ -68,12 +68,8 @@ extension Ghostty.SurfaceView {
         case dispatched(AppCommand)
     }
 
-    static let terminalHostSuppressedTriggers: Set<ShortcutTrigger> = [
-        .init(key: .character(.k), modifiers: [.command])
-    ]
-
     static func shouldSuppressTerminalHostTrigger(_ trigger: ShortcutTrigger) -> Bool {
-        terminalHostSuppressedTriggers.contains(trigger)
+        AppShortcutDispatchPolicy.shouldSuppressTerminalHostTrigger(trigger)
     }
 
     static func handleTerminalAppOwnedShortcut(

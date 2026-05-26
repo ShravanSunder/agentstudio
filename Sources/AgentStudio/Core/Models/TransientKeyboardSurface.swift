@@ -29,6 +29,8 @@ enum TransientKeyboardSurfaceKind: Equatable, Sendable {
         case .editorChooser:
             return .dismissable(dismissTriggers: [AppShortcut.openPaneLocationInEditorMenu.trigger])
         case .tabRename:
+            // TabRenamePopover owns Return/Escape inside its AppKit text editor.
+            // Keep the generic transient bridge out of that local responder loop.
             return .blocking
         }
     }
