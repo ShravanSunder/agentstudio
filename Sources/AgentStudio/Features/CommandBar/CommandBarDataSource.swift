@@ -146,17 +146,6 @@ enum CommandBarDataSource {
             let title = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
             let isActive = tab.id == store.tabShellAtom.activeTabId
             let paneCount = tab.activePaneIds.count
-            let subtitle: String = {
-                var parts: [String] = []
-                if isActive {
-                    parts.append("Active")
-                }
-                parts.append("Tab \(index + 1)")
-                if paneCount > 1 {
-                    parts.append("\(paneCount) panes")
-                }
-                return parts.joined(separator: " · ")
-            }()
 
             let tabId = tab.id
             var keywords = ["tab", "switch"]
@@ -165,7 +154,11 @@ enum CommandBarDataSource {
             return CommandBarItem(
                 id: "tab-\(tab.id.uuidString)",
                 title: title,
-                subtitle: subtitle,
+                subtitle: tabLocationSubtitle(
+                    tabIndex: index,
+                    paneCount: paneCount,
+                    isActive: isActive
+                ),
                 icon: .system(.rectangleStack),
                 group: Group.tabs,
                 groupPriority: Priority.tabs,
@@ -189,7 +182,7 @@ enum CommandBarDataSource {
         let workspacePane = store.paneAtom
         var items: [CommandBarItem] = []
         for (tabIndex, tab) in workspaceTab.tabs.enumerated() {
-            for paneId in tab.activePaneIds {
+            for (paneIndex, paneId) in tab.activePaneIds.enumerated() {
                 guard let pane = workspacePane.pane(paneId) else { continue }
                 let isActive = tab.activePaneId == paneId
 
@@ -204,12 +197,11 @@ enum CommandBarDataSource {
                     CommandBarItem(
                         id: "pane-\(pane.id.uuidString)",
                         title: paneDisplayLabel(for: pane, store: store, repoCache: repoCache),
-                        subtitle: paneDisplaySubtitle(
-                            for: tab,
+                        subtitle: paneLocationSubtitle(
+                            tabTitle: tabDisplayTitle(tab: tab, store: store, repoCache: repoCache),
                             tabIndex: tabIndex,
-                            isActive: isActive,
-                            store: store,
-                            repoCache: repoCache
+                            paneIndex: paneIndex,
+                            isActive: isActive
                         ),
                         icon: iconForPane(pane),
                         iconColor: nil,
@@ -247,7 +239,11 @@ enum CommandBarDataSource {
                 CommandBarItem(
                     id: "tab-\(tab.id.uuidString)",
                     title: tabTitle,
-                    subtitle: isActiveTab ? "Active Tab" : nil,
+                    subtitle: tabLocationSubtitle(
+                        tabIndex: tabIndex,
+                        paneCount: nil,
+                        isActive: isActiveTab
+                    ),
                     icon: .system(.rectangleStack),
                     group: tabGroupName,
                     groupPriority: tabIndex,
@@ -257,7 +253,7 @@ enum CommandBarDataSource {
                 ))
 
             // Panes within this tab
-            for paneId in tab.activePaneIds {
+            for (paneIndex, paneId) in tab.activePaneIds.enumerated() {
                 guard let pane = workspacePane.pane(paneId) else { continue }
                 let isActive = tab.activePaneId == paneId
 
@@ -272,7 +268,12 @@ enum CommandBarDataSource {
                     CommandBarItem(
                         id: "pane-\(pane.id.uuidString)",
                         title: paneDisplayLabel(for: pane, store: store, repoCache: repoCache),
-                        subtitle: isActive ? "Active Pane" : nil,
+                        subtitle: paneLocationSubtitle(
+                            tabTitle: nil,
+                            tabIndex: tabIndex,
+                            paneIndex: paneIndex,
+                            isActive: isActive
+                        ),
                         icon: iconForPane(pane),
                         iconColor: nil,
                         group: tabGroupName,
@@ -803,20 +804,6 @@ enum CommandBarDataSource {
             workspaceRepositoryTopology: store.repositoryTopologyAtom,
             repoCache: repoCache
         )
-    }
-
-    private static func paneDisplaySubtitle(
-        for tab: Tab,
-        tabIndex: Int,
-        isActive: Bool,
-        store: WorkspaceStore,
-        repoCache: RepoCacheAtom
-    ) -> String {
-        var parts = [tabDisplayTitle(tab: tab, store: store, repoCache: repoCache), "Tab \(tabIndex + 1)"]
-        if isActive {
-            parts.append("Active")
-        }
-        return parts.joined(separator: " · ")
     }
 
     private static func displayParts(

@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - CommandBarResultRow
 
-/// Single result row: icon, title (with ... for drill-in), subtitle, shortcut badges.
+/// Single result row: icon, title, trailing metadata, drill-in affordance, shortcut badges.
 /// Supports fuzzy match highlighting and dimming for unavailable commands.
 struct CommandBarResultRow: View {
     let item: CommandBarItem
@@ -38,31 +38,14 @@ struct CommandBarResultRow: View {
                     )
             }
 
-            // Title with match highlighting
             highlightedTitle
                 .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
 
-            // Subtitle
-            if let subtitle = item.subtitle {
-                Text(subtitle)
-                    .font(.system(size: AppStyles.General.Typography.textSm))
-                    .foregroundStyle(.primary.opacity(isDimmed ? 0.25 : 0.5))
-                    .lineLimit(1)
-            }
+            Spacer(minLength: AppStyles.CommandBar.Rows.trailingMetadataSpacing)
 
-            Spacer(minLength: 4)
-
-            // Drill-in chevron
-            if item.hasChildren {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
-                    .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.chevronOpacity))
-            }
-
-            // Shortcut badges
-            if let keys = item.shortcutKeys, !keys.isEmpty {
-                CommandBarShortcutBadge(keys: keys)
-            }
+            trailingAccessories
         }
         .padding(.horizontal, AppStyles.CommandBar.Rows.horizontalPadding)
         .frame(height: AppStyles.CommandBar.Rows.rowHeight)
@@ -76,6 +59,32 @@ struct CommandBarResultRow: View {
     }
 
     // MARK: - Highlighted Title
+
+    @ViewBuilder
+    private var trailingAccessories: some View {
+        HStack(spacing: AppStyles.CommandBar.Rows.shortcutSpacing) {
+            if let subtitle = item.subtitle {
+                Text(subtitle)
+                    .font(.system(size: AppStyles.General.Typography.textSm))
+                    .foregroundStyle(.primary.opacity(isDimmed ? 0.25 : 0.5))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: AppStyles.CommandBar.Rows.trailingMetadataMaxWidth, alignment: .trailing)
+            }
+
+            if item.hasChildren {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+                    .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.chevronOpacity))
+            }
+
+            if let keys = item.shortcutKeys, !keys.isEmpty {
+                CommandBarShortcutBadge(keys: keys)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(2)
+    }
 
     @ViewBuilder
     private var highlightedTitle: some View {
@@ -108,7 +117,7 @@ struct CommandBarResultRow: View {
     }
 
     private var displayTitle: String {
-        item.hasChildren ? item.title + "..." : item.title
+        item.title
     }
 
     private var iconColor: Color {

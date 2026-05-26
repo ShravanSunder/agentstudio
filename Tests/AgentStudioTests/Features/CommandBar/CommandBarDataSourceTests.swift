@@ -191,26 +191,6 @@ struct CommandBarDataSourceTests {
         #expect(!withShortcuts.isEmpty)
     }
 
-    @Test
-    func test_commandsScope_includesScrollToBottomInPaneGroup() {
-        let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
-
-        let items = CommandBarDataSource.items(
-            scope: .commands,
-            store: store,
-            repoCache: RepoCacheAtom(),
-            dispatcher: dispatcher
-        )
-
-        let item = items.first { $0.command == .scrollToBottom }
-        #expect(item?.group == "Pane")
-        #expect(item?.shortcutTrigger == AppShortcut.scrollToBottom.trigger)
-    }
-
     // MARK: - Panes Scope
 
     @Test
@@ -263,8 +243,9 @@ struct CommandBarDataSourceTests {
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
         #expect(tabItem?.title == "agent-studio")
-        #expect(tabItem?.subtitle == "Active Tab")
+        #expect(tabItem?.subtitle == "Tab 1 · Active")
         #expect(paneItem?.title == "Terminal — feature/pane-labels")
+        #expect(paneItem?.subtitle == "Tab 1 · Pane 1 · Active")
     }
 
     @Test
@@ -286,7 +267,7 @@ struct CommandBarDataSourceTests {
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
-        #expect(tabItem?.subtitle == "Active · Tab 1 · 3 panes")
+        #expect(tabItem?.subtitle == "Tab 1 · 3 panes · Active")
     }
 
     @Test
@@ -335,7 +316,7 @@ struct CommandBarDataSourceTests {
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
-        #expect(paneItem?.subtitle == "agent-vm · Tab 1 · Active")
+        #expect(paneItem?.subtitle == "agent-vm · Tab 1 · Pane 1 · Active")
     }
 
     @Test

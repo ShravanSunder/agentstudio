@@ -80,6 +80,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let repoCache: RepoCacheAtom
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleAtom
+    private let windowLifecycleStore: WindowLifecycleAtom
     private let workspaceWindowId: UUID?
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
@@ -88,6 +89,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
+    private let arrangementPanelPresentation: ArrangementPanelPresentationAtom
     private let registersAsCommandHandler: Bool
     private var tabRenamePopover: NSPopover?
     private var tabRenameTransientSurfaceToken: TransientKeyboardSurfaceToken?
@@ -173,6 +175,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         repoCache: RepoCacheAtom,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
+        windowLifecycleStore: WindowLifecycleAtom = atom(\.windowLifecycle),
         workspaceWindowId: UUID? = nil,
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter,
@@ -194,12 +197,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
         tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState(),
         arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState(),
+        arrangementPanelPresentation: ArrangementPanelPresentationAtom = atom(\.arrangementPanelPresentation),
         registersAsCommandHandler: Bool = true
     ) {
         self.store = store
         self.repoCache = repoCache
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
+        self.windowLifecycleStore = windowLifecycleStore
         self.workspaceWindowId = workspaceWindowId
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
@@ -211,6 +216,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.tabRenamePopoverState = tabRenamePopoverState
         self.arrangementInlineRenameState = arrangementInlineRenameState
+        self.arrangementPanelPresentation = arrangementPanelPresentation
         self.registersAsCommandHandler = registersAsCommandHandler
         super.init(nibName: nil, bundle: nil)
         setupNotificationObservers()
@@ -1254,10 +1260,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         guard let trigger = ShortcutDecoder.decode(event: event) else {
             return false
         }
+
+        if shouldConsumeSuppressedTerminalHostTrigger(trigger) { return true }
+
         let globalShortcut = ShortcutDecoder.shortcut(for: trigger, in: .global)
 
         let keyboardContext = KeyboardRoutingContext.current(
-            windowLifecycle: atom(\.windowLifecycle),
+            windowLifecycle: windowLifecycleStore,
             managementLayer: atom(\.managementLayer),
             uiState: atom(\.uiState),
             commandBarSurface: atom(\.commandBarSurface),
@@ -1279,6 +1288,43 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             CommandDispatcher.shared.dispatch(shortcut.command)
             return true
+        }
+
+        if let handled = handleTerminalRuntimeShortcut(trigger, context: keyboardContext) {
+            return handled
+        }
+
+        if let shortcut = globalShortcut {
+            let shouldDispatchGlobalShortcut = AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
+                shortcut,
+                context: keyboardContext
+            )
+            guard shouldDispatchGlobalShortcut || shortcut.requiresPaneTargetFallback else {
+                return false
+            }
+            guard
+                shouldDispatchGlobalShortcut
+                    || AppShortcutDispatchPolicy.shouldRouteAppOwnedKeyEvent(context: keyboardContext)
+            else {
+                return false
+            }
+            if CommandDispatcher.shared.canDispatch(shortcut.command) {
+                CommandDispatcher.shared.dispatch(shortcut.command)
+                return true
+            }
+            if AppShortcutDispatchPolicy.shouldConsumeUnavailableGlobalShortcut(
+                shortcut,
+                context: keyboardContext
+            ) {
+                // Global shortcuts only consume unavailable commands when
+                // the active surface explicitly reserves that chord.
+                return true
+            }
+            guard shortcut.requiresPaneTargetFallback else {
+                return false
+            }
+            // Empty-drawer creation needs a pane target, so it falls
+            // through to the targeted app-owned path below.
         }
 
         guard AppShortcutDispatchPolicy.shouldRouteAppOwnedKeyEvent(context: keyboardContext) else {
@@ -1308,30 +1354,48 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let keyboardOwner = keyboardContext.stableOwner
 
         if shouldHandleScopeAwarePaneTrigger(event: event, keyboardOwner: keyboardOwner),
-            let command = scopeAwarePaneCommand(for: trigger),
-            canExecute(command)
+            isScopeAwarePaneMovementTrigger(trigger)
         {
-            execute(command)
-            return true
-        }
-
-        if let shortcut = globalShortcut {
-            guard
-                AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
-                    shortcut,
-                    context: keyboardContext
-                )
-            else {
-                return false
+            // Consume every reserved option-I/J/K/L chord in pane scope,
+            // even when there is no concrete move, so terminal content
+            // never receives app-owned navigation keystrokes.
+            if let command = scopeAwarePaneCommand(for: trigger), canExecute(command) {
+                execute(command)
             }
-            guard CommandDispatcher.shared.canDispatch(shortcut.command) else {
-                return false
-            }
-            CommandDispatcher.shared.dispatch(shortcut.command)
             return true
         }
 
         return false
+    }
+
+    private func shouldConsumeSuppressedTerminalHostTrigger(_ trigger: ShortcutTrigger) -> Bool {
+        AppShortcutDispatchPolicy.shouldSuppressTerminalHostTrigger(trigger)
+    }
+
+    private func handleTerminalRuntimeShortcut(
+        _ trigger: ShortcutTrigger,
+        context keyboardContext: KeyboardRoutingContext
+    ) -> Bool? {
+        guard let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
+            AppShortcutDispatchPolicy.isTerminalRuntimeCommand(shortcut.command)
+        else {
+            return nil
+        }
+
+        // Terminal runtime shortcuts are app-owned reservations. When AppKit
+        // sends them through the pane controller instead of Ghostty, consume
+        // even rejected chords so terminal/default responders never see them.
+        guard
+            AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(
+                shortcut,
+                context: keyboardContext
+            ),
+            CommandDispatcher.shared.canDispatch(shortcut.command)
+        else {
+            return true
+        }
+        CommandDispatcher.shared.dispatch(shortcut.command)
+        return true
     }
 
     private func scopeAwarePaneCommand(for trigger: ShortcutTrigger) -> AppCommand? {
@@ -1368,6 +1432,18 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
         default:
             return nil
+        }
+    }
+
+    private func isScopeAwarePaneMovementTrigger(_ trigger: ShortcutTrigger) -> Bool {
+        switch trigger {
+        case .init(key: .character(.i), modifiers: [.option]),
+            .init(key: .character(.j), modifiers: [.option]),
+            .init(key: .character(.k), modifiers: [.option]),
+            .init(key: .character(.l), modifiers: [.option]):
+            return true
+        default:
+            return false
         }
     }
 
@@ -1925,8 +2001,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             )
         )
         tabRenamePopover = popover
-        if let workspaceWindowId = workspaceWindowId ?? atom(\.windowLifecycle).focusedWindowId
-            ?? atom(\.windowLifecycle).keyWindowId
+        if let workspaceWindowId = workspaceWindowId ?? windowLifecycleStore.focusedWindowId
+            ?? windowLifecycleStore.keyWindowId
         {
             tabRenameTransientSurfaceToken = atom(\.transientKeyboardSurface).present(
                 .tabRename(tabId: tabId),
@@ -2091,6 +2167,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
+        if handleTerminalRuntimeCommand(command) {
+            return
+        }
+
         // Try the validated pipeline for pane/tab structural actions
         if let action = WorkspaceCommandResolver.resolve(
             command: command,
@@ -2117,12 +2197,94 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func handleArrangementCommand(_ command: AppCommand) -> Bool {
         switch command {
-        case .cycleArrangement:
-            cycleActiveArrangement()
+        case .switchArrangement:
+            requestArrangementPanel()
+            return true
+        case .previousArrangement:
+            switchActiveArrangement(delta: -1)
+            return true
+        case .nextArrangement, .cycleArrangement:
+            switchActiveArrangement(delta: 1)
             return true
         default:
             return false
         }
+    }
+
+    private func handleTerminalRuntimeCommand(_ command: AppCommand) -> Bool {
+        guard let paneId = focusedTerminalCommandTargetPaneId() else { return false }
+        return dispatchTerminalRuntimeCommand(command, paneId: paneId)
+    }
+
+    private func dispatchTerminalRuntimeCommand(_ command: AppCommand, paneId: UUID) -> Bool {
+        let runtimeCommand: RuntimeCommand
+        switch command {
+        case .scrollToBottom:
+            runtimeCommand = .terminal(.scrollToBottom)
+        case .scrollPageUp:
+            runtimeCommand = .terminal(.scrollPageUp)
+        case .jumpToPreviousPrompt:
+            runtimeCommand = .terminal(.jumpToPrompt(delta: -1))
+        case .jumpToNextPrompt:
+            runtimeCommand = .terminal(.jumpToPrompt(delta: 1))
+        default:
+            return false
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.executor.dispatchRuntimeCommand(runtimeCommand, target: .pane(PaneId(uuid: paneId)))
+        }
+        return true
+    }
+
+    private func handleTargetedTerminalRuntimeCommand(
+        _ command: AppCommand,
+        target targetId: UUID,
+        targetType: SearchItemType
+    ) -> Bool {
+        guard isPaneTargetType(targetType), canExecuteTargetedTerminalRuntimeCommand(command, target: targetId) else {
+            return false
+        }
+        return dispatchTerminalRuntimeCommand(command, paneId: targetId)
+    }
+
+    private func canExecuteTargetedTerminalRuntimeCommand(
+        _ command: AppCommand,
+        target targetId: UUID
+    ) -> Bool {
+        guard AppShortcutDispatchPolicy.isTerminalRuntimeCommand(command),
+            let pane = store.paneAtom.pane(targetId)
+        else {
+            return false
+        }
+        guard case .terminal = pane.content else { return false }
+        return true
+    }
+
+    private func isPaneTargetType(_ targetType: SearchItemType) -> Bool {
+        targetType == .pane || targetType == .floatingTerminal
+    }
+
+    private func focusedTerminalCommandTargetPaneId() -> UUID? {
+        let candidatePaneId: UUID?
+        switch normalizedWorkspaceNavigationScopeState() {
+        case .mainPane(let mainPaneId):
+            candidatePaneId = mainPaneId ?? activeMainPaneId()
+        case .emptyDrawer(let parentPaneId):
+            candidatePaneId = parentPaneId
+        case .drawerPane(_, let drawerPaneId):
+            candidatePaneId = drawerPaneId
+        }
+
+        guard
+            let candidatePaneId,
+            let pane = store.paneAtom.pane(candidatePaneId),
+            case .terminal = pane.content
+        else {
+            return nil
+        }
+        return candidatePaneId
     }
 
     private func handleManagementCommand(_ command: AppCommand) -> Bool {
@@ -2287,6 +2449,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
+        if handleTargetedTerminalRuntimeCommand(command, target: target, targetType: targetType) {
+            return
+        }
+
         if let action = targetedAction(command: command, target: target, targetType: targetType) {
             dispatchAction(action)
             return
@@ -2393,7 +2559,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         AppCommand.focusPaneCommands.firstIndex(of: command).map { $0 + 1 }
     }
 
-    private func cycleActiveArrangement() {
+    private func requestArrangementPanel() {
+        guard let activeTabId = store.tabLayoutAtom.activeTabId else { return }
+        guard
+            let workspaceWindowId =
+                workspaceWindowId
+                ?? windowLifecycleStore.focusedWindowId
+                ?? windowLifecycleStore.keyWindowId
+        else { return }
+        arrangementPanelPresentation.present(
+            tabId: activeTabId,
+            workspaceWindowId: workspaceWindowId
+        )
+    }
+
+    private func switchActiveArrangement(delta: Int) {
         guard
             let activeTabId = store.tabLayoutAtom.activeTabId,
             let tab = store.tabLayoutAtom.tab(activeTabId),
@@ -2403,8 +2583,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
-        let nextArrangement = tab.arrangements[(activeIndex + 1) % tab.arrangements.count]
-        dispatchAction(.switchArrangement(tabId: tab.id, arrangementId: nextArrangement.id))
+        let count = tab.arrangements.count
+        let nextIndex = (activeIndex + delta + count) % count
+        let arrangement = tab.arrangements[nextIndex]
+        dispatchAction(.switchArrangement(tabId: tab.id, arrangementId: arrangement.id))
     }
 
     private func handlePaneFocusCommand(_ command: AppCommand) -> Bool {
@@ -2636,6 +2818,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return paneInboxPresentation != nil && paneInboxTarget(anchorPaneId: target) != nil
         }
 
+        if canExecuteTargetedTerminalRuntimeCommand(command, target: target),
+            isPaneTargetType(targetType)
+        {
+            return true
+        }
+
         if let action = targetedAction(command: command, target: target, targetType: targetType) {
             let snapshot = WorkspaceCommandResolver.snapshot(
                 from: store.tabLayoutAtom.tabs,
@@ -2706,7 +2894,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return resolvePaneFocusTabSelectionTarget(for: command) != nil
         case .renameTab:
             return store.tabLayoutAtom.activeTabId != nil
-        case .cycleArrangement:
+        case .switchArrangement:
+            return store.tabLayoutAtom.activeTabId != nil
+        case .previousArrangement, .nextArrangement, .cycleArrangement:
             guard
                 let activeTabId = store.tabLayoutAtom.activeTabId,
                 let tab = store.tabLayoutAtom.tab(activeTabId)
@@ -2714,6 +2904,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 return false
             }
             return tab.arrangements.count > 1
+        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
+            return focusedTerminalCommandTargetPaneId() != nil
         case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
             return canExecuteContextualCommand(command)
         case .showPaneInboxNotifications, .clearPaneInboxNotifications:

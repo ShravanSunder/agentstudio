@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 // swiftlint:disable identifier_name
-enum ShortcutCharacterKey: String, CaseIterable {
+enum ShortcutCharacterKey: String, CaseIterable, Sendable {
     case a
     case b
     case d
@@ -19,6 +19,7 @@ enum ShortcutCharacterKey: String, CaseIterable {
     case r
     case s
     case t
+    case u
     case w
     case comma = ","
     case leftBracket = "["
@@ -48,7 +49,7 @@ enum ShortcutCharacterKey: String, CaseIterable {
 }
 // swiftlint:enable identifier_name
 
-enum ShortcutArrowKey: CaseIterable {
+enum ShortcutArrowKey: CaseIterable, Sendable {
     case left
     case right
     case down
@@ -68,7 +69,7 @@ enum ShortcutArrowKey: CaseIterable {
     }
 }
 
-enum ShortcutInputKey: Hashable {
+enum ShortcutInputKey: Hashable, Sendable {
     case character(ShortcutCharacterKey)
     case arrow(ShortcutArrowKey)
     case enter
@@ -88,7 +89,7 @@ enum ShortcutInputKey: Hashable {
     }
 }
 
-struct ShortcutTrigger: Hashable {
+struct ShortcutTrigger: Hashable, Sendable {
     let key: ShortcutInputKey
     let modifiers: Set<KeyBinding.Modifier>
 
@@ -165,10 +166,15 @@ enum AppShortcut: String, CaseIterable {
     case undoCloseTab
     case nextTab
     case prevTab
-    case cycleArrangement
+    case showArrangementPanel
+    case previousArrangement
+    case nextArrangement
     case addDrawerPane
     case toggleDrawer
     case scrollToBottom
+    case scrollPageUp
+    case jumpToPreviousPrompt
+    case jumpToNextPrompt
     case openPaneLocationInBookmarkedEditor
     case openPaneLocationInFinder
     case openPaneLocationInEditorMenu
@@ -183,24 +189,6 @@ enum AppShortcut: String, CaseIterable {
     case showCommandBarEverything
     case showCommandBarCommands
     case showCommandBarPanes
-    case focusPane1
-    case focusPane2
-    case focusPane3
-    case focusPane4
-    case focusPane5
-    case focusPane6
-    case focusPane7
-    case focusPane8
-    case focusPane9
-    case focusDrawerPane1
-    case focusDrawerPane2
-    case focusDrawerPane3
-    case focusDrawerPane4
-    case focusDrawerPane5
-    case focusDrawerPane6
-    case focusDrawerPane7
-    case focusDrawerPane8
-    case focusDrawerPane9
     case selectTab1
     case selectTab2
     case selectTab3
@@ -210,6 +198,15 @@ enum AppShortcut: String, CaseIterable {
     case selectTab7
     case selectTab8
     case selectTab9
+    case focusPane1
+    case focusPane2
+    case focusPane3
+    case focusPane4
+    case focusPane5
+    case focusPane6
+    case focusPane7
+    case focusPane8
+    case focusPane9
     case managementLayerFocusLeft
     case managementLayerFocusRight
     case managementLayerEnterDrawer
@@ -238,17 +235,27 @@ enum AppShortcut: String, CaseIterable {
             )
         case .nextTab:
             return .init(
-                trigger: .init(key: .character(.l), modifiers: [.command, .option]),
+                trigger: .init(key: .character(.l), modifiers: [.command]),
                 contexts: [.global, .terminalAppOwned]
             )
         case .prevTab:
             return .init(
+                trigger: .init(key: .character(.j), modifiers: [.command]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .showArrangementPanel:
+            return .init(
+                trigger: .init(key: .character(.i), modifiers: [.command, .option]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .previousArrangement:
+            return .init(
                 trigger: .init(key: .character(.j), modifiers: [.command, .option]),
                 contexts: [.global, .terminalAppOwned]
             )
-        case .cycleArrangement:
+        case .nextArrangement:
             return .init(
-                trigger: .init(key: .character(.i), modifiers: [.command, .option]),
+                trigger: .init(key: .character(.l), modifiers: [.command, .option]),
                 contexts: [.global, .terminalAppOwned]
             )
         case .addDrawerPane:
@@ -270,7 +277,22 @@ enum AppShortcut: String, CaseIterable {
             )
         case .scrollToBottom:
             return .init(
-                trigger: .init(key: .character(.k), modifiers: [.command, .option]),
+                trigger: .init(key: .character(.k), modifiers: [.command, .shift]),
+                contexts: [.terminalAppOwned]
+            )
+        case .scrollPageUp:
+            return .init(
+                trigger: .init(key: .character(.i), modifiers: [.command, .shift]),
+                contexts: [.terminalAppOwned]
+            )
+        case .jumpToPreviousPrompt:
+            return .init(
+                trigger: .init(key: .character(.j), modifiers: [.command, .shift]),
+                contexts: [.terminalAppOwned]
+            )
+        case .jumpToNextPrompt:
+            return .init(
+                trigger: .init(key: .character(.l), modifiers: [.command, .shift]),
                 contexts: [.terminalAppOwned]
             )
         case .openPaneLocationInBookmarkedEditor:
@@ -305,12 +327,12 @@ enum AppShortcut: String, CaseIterable {
             )
         case .showInboxNotifications:
             return .init(
-                trigger: .init(key: .character(.i), modifiers: [.command]),
+                trigger: .init(key: .character(.u), modifiers: [.command]),
                 contexts: [.global, .terminalAppOwned]
             )
         case .showPaneInboxNotifications:
             return .init(
-                trigger: .init(key: .character(.i), modifiers: [.command, .shift]),
+                trigger: .init(key: .character(.u), modifiers: [.command, .shift]),
                 contexts: [.global, .terminalAppOwned]
             )
         case .showWorktreeSidebar:
@@ -343,42 +365,6 @@ enum AppShortcut: String, CaseIterable {
                 trigger: .init(key: .character(.p), modifiers: [.command, .option]),
                 contexts: [.global, .terminalAppOwned]
             )
-        case .focusPane1:
-            return Self.focusPaneSpec(key: .digit1)
-        case .focusPane2:
-            return Self.focusPaneSpec(key: .digit2)
-        case .focusPane3:
-            return Self.focusPaneSpec(key: .digit3)
-        case .focusPane4:
-            return Self.focusPaneSpec(key: .digit4)
-        case .focusPane5:
-            return Self.focusPaneSpec(key: .digit5)
-        case .focusPane6:
-            return Self.focusPaneSpec(key: .digit6)
-        case .focusPane7:
-            return Self.focusPaneSpec(key: .digit7)
-        case .focusPane8:
-            return Self.focusPaneSpec(key: .digit8)
-        case .focusPane9:
-            return Self.focusPaneSpec(key: .digit9)
-        case .focusDrawerPane1:
-            return Self.focusDrawerPaneSpec(key: .digit1)
-        case .focusDrawerPane2:
-            return Self.focusDrawerPaneSpec(key: .digit2)
-        case .focusDrawerPane3:
-            return Self.focusDrawerPaneSpec(key: .digit3)
-        case .focusDrawerPane4:
-            return Self.focusDrawerPaneSpec(key: .digit4)
-        case .focusDrawerPane5:
-            return Self.focusDrawerPaneSpec(key: .digit5)
-        case .focusDrawerPane6:
-            return Self.focusDrawerPaneSpec(key: .digit6)
-        case .focusDrawerPane7:
-            return Self.focusDrawerPaneSpec(key: .digit7)
-        case .focusDrawerPane8:
-            return Self.focusDrawerPaneSpec(key: .digit8)
-        case .focusDrawerPane9:
-            return Self.focusDrawerPaneSpec(key: .digit9)
         case .selectTab1:
             return Self.selectTabSpec(key: .digit1)
         case .selectTab2:
@@ -397,6 +383,24 @@ enum AppShortcut: String, CaseIterable {
             return Self.selectTabSpec(key: .digit8)
         case .selectTab9:
             return Self.selectTabSpec(key: .digit9)
+        case .focusPane1:
+            return Self.focusPaneSpec(key: .digit1)
+        case .focusPane2:
+            return Self.focusPaneSpec(key: .digit2)
+        case .focusPane3:
+            return Self.focusPaneSpec(key: .digit3)
+        case .focusPane4:
+            return Self.focusPaneSpec(key: .digit4)
+        case .focusPane5:
+            return Self.focusPaneSpec(key: .digit5)
+        case .focusPane6:
+            return Self.focusPaneSpec(key: .digit6)
+        case .focusPane7:
+            return Self.focusPaneSpec(key: .digit7)
+        case .focusPane8:
+            return Self.focusPaneSpec(key: .digit8)
+        case .focusPane9:
+            return Self.focusPaneSpec(key: .digit9)
         case .managementLayerFocusLeft:
             return Self.managementSpec(key: .arrow(.left))
         case .managementLayerFocusRight:
@@ -438,14 +442,24 @@ enum AppShortcut: String, CaseIterable {
             return .nextTab
         case .prevTab:
             return .prevTab
-        case .cycleArrangement:
-            return .cycleArrangement
+        case .showArrangementPanel:
+            return .switchArrangement
+        case .previousArrangement:
+            return .previousArrangement
+        case .nextArrangement:
+            return .nextArrangement
         case .addDrawerPane:
             return .addDrawerPane
         case .toggleDrawer:
             return .toggleDrawer
         case .scrollToBottom:
             return .scrollToBottom
+        case .scrollPageUp:
+            return .scrollPageUp
+        case .jumpToPreviousPrompt:
+            return .jumpToPreviousPrompt
+        case .jumpToNextPrompt:
+            return .jumpToNextPrompt
         case .openPaneLocationInBookmarkedEditor:
             return .openPaneLocationInBookmarkedEditor
         case .openPaneLocationInFinder:
@@ -474,42 +488,6 @@ enum AppShortcut: String, CaseIterable {
             return .showCommandBarCommands
         case .showCommandBarPanes:
             return .showCommandBarPanes
-        case .focusPane1:
-            return .focusPane1
-        case .focusPane2:
-            return .focusPane2
-        case .focusPane3:
-            return .focusPane3
-        case .focusPane4:
-            return .focusPane4
-        case .focusPane5:
-            return .focusPane5
-        case .focusPane6:
-            return .focusPane6
-        case .focusPane7:
-            return .focusPane7
-        case .focusPane8:
-            return .focusPane8
-        case .focusPane9:
-            return .focusPane9
-        case .focusDrawerPane1:
-            return .focusDrawerPane1
-        case .focusDrawerPane2:
-            return .focusDrawerPane2
-        case .focusDrawerPane3:
-            return .focusDrawerPane3
-        case .focusDrawerPane4:
-            return .focusDrawerPane4
-        case .focusDrawerPane5:
-            return .focusDrawerPane5
-        case .focusDrawerPane6:
-            return .focusDrawerPane6
-        case .focusDrawerPane7:
-            return .focusDrawerPane7
-        case .focusDrawerPane8:
-            return .focusDrawerPane8
-        case .focusDrawerPane9:
-            return .focusDrawerPane9
         case .selectTab1:
             return .selectTab1
         case .selectTab2:
@@ -528,6 +506,24 @@ enum AppShortcut: String, CaseIterable {
             return .selectTab8
         case .selectTab9:
             return .selectTab9
+        case .focusPane1:
+            return .focusPane1
+        case .focusPane2:
+            return .focusPane2
+        case .focusPane3:
+            return .focusPane3
+        case .focusPane4:
+            return .focusPane4
+        case .focusPane5:
+            return .focusPane5
+        case .focusPane6:
+            return .focusPane6
+        case .focusPane7:
+            return .focusPane7
+        case .focusPane8:
+            return .focusPane8
+        case .focusPane9:
+            return .focusPane9
         case .managementLayerFocusLeft:
             return .managementLayerFocusLeft
         case .managementLayerFocusRight:
@@ -551,6 +547,27 @@ enum AppShortcut: String, CaseIterable {
 }
 
 extension AppShortcut {
+    var requiresPaneTargetFallback: Bool {
+        switch self {
+        case .addDrawerPane:
+            return true
+        case .closeTab, .undoCloseTab, .newTab, .nextTab, .prevTab, .showArrangementPanel,
+            .previousArrangement, .nextArrangement, .toggleDrawer, .scrollToBottom, .scrollPageUp,
+            .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
+            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .toggleManagementLayer,
+            .toggleSidebar, .filterSidebar, .showInboxNotifications, .showPaneInboxNotifications,
+            .showWorktreeSidebar, .newWindow, .closeWindow, .showCommandBarEverything,
+            .showCommandBarCommands, .showCommandBarPanes, .selectTab1, .selectTab2, .selectTab3,
+            .selectTab4, .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
+            .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
+            return false
+        }
+    }
+
     func displayKeyBinding(in context: ShortcutContext) -> KeyBinding? {
         spec.displayTrigger(in: context).keyBinding
     }
@@ -558,20 +575,13 @@ extension AppShortcut {
     fileprivate static func selectTabSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {
         .init(
             trigger: .init(key: .character(key), modifiers: [.command]),
-            contexts: [.global]
+            contexts: [.global, .terminalAppOwned]
         )
     }
 
     fileprivate static func focusPaneSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {
         .init(
-            trigger: .init(key: .character(key), modifiers: [.command, .shift]),
-            contexts: [.global, .terminalAppOwned]
-        )
-    }
-
-    fileprivate static func focusDrawerPaneSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {
-        .init(
-            trigger: .init(key: .character(key), modifiers: [.command, .shift, .option]),
+            trigger: .init(key: .character(key), modifiers: [.option]),
             contexts: [.global, .terminalAppOwned]
         )
     }

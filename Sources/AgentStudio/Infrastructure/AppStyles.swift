@@ -257,6 +257,9 @@ enum AppStyles {
             static let worktreeOpenIndicatorSize: CGFloat = 6
             static let rowHeight: CGFloat = 36
             static let shortcutSpacing: CGFloat = 4
+            static let groupHeaderFontSize: CGFloat = AppStyles.General.Typography.textSm
+            static let trailingMetadataSpacing: CGFloat = 12
+            static let trailingMetadataMaxWidth: CGFloat = 260
             static let chevronOpacity: Double = 0.3
             static let selectedRowCornerRadius: CGFloat = 6
             static let horizontalPadding: CGFloat = 12

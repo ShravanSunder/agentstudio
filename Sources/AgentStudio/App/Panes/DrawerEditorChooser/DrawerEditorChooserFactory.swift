@@ -31,6 +31,7 @@ enum DrawerEditorChooserFactory {
         onOpenFinder: @escaping () -> Void,
         onOpenEditor: @escaping (EditorTargetId) -> Void
     ) -> DrawerOverlay.TrailingActions {
+        let transientSurfaceKind = TransientKeyboardSurfaceKind.editorChooser(paneId: paneId)
         let items = editorChooser.availableTargets
             .enumerated()
             .map { index, target in
@@ -64,10 +65,16 @@ enum DrawerEditorChooserFactory {
                     },
                     matchesAdditionalDismissShortcut: { event in
                         guard let trigger = ShortcutDecoder.decode(event: event) else { return false }
-                        return trigger == AppShortcut.openPaneLocationInEditorMenu.trigger
+                        return TransientKeyboardSurfaceDismissRouter.shouldDismiss(
+                            trigger: trigger,
+                            policy: transientSurfaceKind.defaultPolicy
+                        )
                     }
                 )
-                .transientKeyboardSurface(.editorChooser(paneId: paneId), workspaceWindowId: workspaceWindowId)
+                .transientKeyboardSurface(
+                    transientSurfaceKind,
+                    workspaceWindowId: workspaceWindowId
+                )
             ),
             editorMenuPresented: Binding(
                 get: { editorChooser.state.openForPaneId == paneId },

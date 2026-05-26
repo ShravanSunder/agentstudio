@@ -76,6 +76,18 @@ enum WorkspaceCommandResolver {
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
             return .scrollToBottom(tabId: tab.id, paneId: paneId)
+        case .scrollPageUp:
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            else { return nil }
+            return .scrollPageUp(tabId: tab.id, paneId: paneId)
+        case .jumpToPreviousPrompt:
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            else { return nil }
+            return .jumpToPrompt(tabId: tab.id, paneId: paneId, delta: -1)
+        case .jumpToNextPrompt:
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            else { return nil }
+            return .jumpToPrompt(tabId: tab.id, paneId: paneId, delta: 1)
         case .extractPaneToTab:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
@@ -135,7 +147,7 @@ enum WorkspaceCommandResolver {
             .openPaneLocationInEditorMenu,
             .openWebview, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
-            .switchArrangement, .cycleArrangement, .saveArrangement,
+            .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement, .saveArrangement,
             .deleteArrangement, .renameArrangement,
             .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown,
             .focusDrawerPaneRight,
@@ -155,7 +167,8 @@ enum WorkspaceCommandResolver {
             .selectTab, .nextTab, .prevTab,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-            .closePane, .focusPane, .scrollToBottom, .extractPaneToTab, .movePaneToTab,
+            .closePane, .focusPane, .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .extractPaneToTab, .movePaneToTab,
             .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
             .focusNextPane, .focusPrevPane,

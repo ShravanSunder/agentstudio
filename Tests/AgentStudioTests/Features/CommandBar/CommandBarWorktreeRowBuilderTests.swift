@@ -134,7 +134,7 @@ struct CommandBarWorktreeRowBuilderTests {
             worktree: worktree
         )
 
-        #expect(subtitle == "● 2 panes · Tab 2")
+        #expect(subtitle == "● Tab 2 · 2 panes")
     }
 
     @Test

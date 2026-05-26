@@ -90,7 +90,7 @@ struct UIActionPresentationTests {
             textOverride: "Open pane inbox"
         )
 
-        #expect(toolTip == "Open pane inbox (⌘⇧I)")
+        #expect(toolTip == "Open pane inbox (⌘⇧U)")
     }
 
     @Test
