@@ -3124,7 +3124,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         closePaneNotePopover()
         guard isViewLoaded else { return }
 
-        let workspaceWindowId =
+        let resolvedWindowId =
             workspaceWindowId ?? windowLifecycleStore.focusedWindowId
             ?? windowLifecycleStore.keyWindowId
         let popover = NSPopover()
@@ -3144,7 +3144,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             )
             .transientKeyboardSurface(
                 .paneNote(paneId: paneId),
-                workspaceWindowId: workspaceWindowId,
+                workspaceWindowId: resolvedWindowId,
                 onDismiss: { [weak self] in
                     self?.closePaneNotePopover()
                 }

@@ -13,6 +13,6 @@ struct ActionResolverArchitectureTests {
         )
         let source = try String(contentsOf: resolverPath, encoding: .utf8)
 
-        #expect(!source.contains("default:\n            return nil"))
+        #expect(source.range(of: #"default\s*:\s*return\s+nil"#, options: .regularExpression) == nil)
     }
 }
