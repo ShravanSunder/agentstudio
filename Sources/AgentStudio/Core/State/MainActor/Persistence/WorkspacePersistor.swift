@@ -119,12 +119,18 @@ struct WorkspacePersistor {
             return .missing
         }
 
-        let canonicalFiles = contents.filter {
-            $0.lastPathComponent.hasSuffix(Self.canonicalSuffix)
-        }
+        let canonicalFiles =
+            contents
+            .filter { $0.lastPathComponent.hasSuffix(Self.canonicalSuffix) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
         guard let fileURL = canonicalFiles.first else {
             return .missing
+        }
+        if canonicalFiles.count > 1 {
+            persistorLogger.warning(
+                "Found \(canonicalFiles.count, privacy: .public) canonical workspace files; loading deterministic first file \(fileURL.lastPathComponent, privacy: .public)"
+            )
         }
 
         return decodeFromFile(fileURL, as: PersistableState.self)

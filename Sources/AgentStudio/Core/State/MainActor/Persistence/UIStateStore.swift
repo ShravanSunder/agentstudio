@@ -35,6 +35,8 @@ final class UIStateStore {
     }
 
     func restore(for workspaceId: UUID) {
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
         switch persistor.loadUI(for: workspaceId) {
         case .loaded(let state):

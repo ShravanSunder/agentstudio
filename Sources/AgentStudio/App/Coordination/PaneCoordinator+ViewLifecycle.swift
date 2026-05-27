@@ -404,7 +404,11 @@ extension PaneCoordinator {
         viewRegistry.unregister(paneId)
         if shouldUnregisterRuntime {
             if UUIDv7.isV7(paneId) {
-                _ = unregisterRuntime(PaneId(uuid: paneId))
+                let runtimePaneId = PaneId(uuid: paneId)
+                _ = unregisterRuntime(runtimePaneId)
+                Task { [paneEventBus] in
+                    await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
+                }
             } else {
                 Self.logger.warning(
                     "Skipping runtime unregister for non-v7 pane id \(paneId.uuidString, privacy: .public)"

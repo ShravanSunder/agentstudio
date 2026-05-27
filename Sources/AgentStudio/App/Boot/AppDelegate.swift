@@ -288,8 +288,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private static var nextTopologySeq: UInt64 = 0
-    private static var nextWorkspaceActivitySeq: UInt64 = 0
-
     /// Build a canonical `.repoDiscovered` topology envelope.
     /// Coordinator-originated events use `.builtin(.coordinator)`;
     /// filesystem-originated events use `.builtin(.filesystemWatcher)`.
@@ -310,11 +308,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     static func makeWorkspaceActivityEnvelope(_ event: WorkspaceActivityEvent) -> RuntimeEnvelope {
-        nextWorkspaceActivitySeq += 1
+        let seq = WorkspaceActivitySequence.next()
         return .system(
             SystemEnvelope(
                 source: .builtin(.coordinator),
-                seq: nextWorkspaceActivitySeq,
+                seq: seq,
                 timestamp: .now,
                 event: .workspaceActivity(event)
             )

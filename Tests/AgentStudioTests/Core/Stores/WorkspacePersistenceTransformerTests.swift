@@ -283,4 +283,55 @@ struct WorkspacePersistenceTransformerTests {
         #expect(state.tabs[0].activeArrangement.layout.paneIds == [persistentPane.id])
         #expect(state.tabs[0].activePaneId == persistentPane.id)
     }
+
+    @Test
+    func makePersistableState_preservesTabWhenDefaultArrangementIsEmptyButCustomArrangementHasPane() {
+        let metadataAtom = WorkspaceMetadataAtom()
+        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+
+        metadataAtom.hydrate(
+            workspaceId: UUID(),
+            workspaceName: "Workspace",
+            createdAt: Date(timeIntervalSince1970: 1000),
+            sidebarWidth: 250,
+            windowFrame: nil
+        )
+
+        let pane = makePane(title: "Persistent")
+        paneAtom.addPane(pane)
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(),
+            activePaneId: nil
+        )
+        let customArrangement = PaneArrangement(
+            name: "Working",
+            isDefault: false,
+            layout: Layout(paneId: pane.id),
+            activePaneId: pane.id
+        )
+        let tab = Tab(
+            name: "Custom only",
+            allPaneIds: [pane.id],
+            arrangements: [defaultArrangement, customArrangement],
+            activeArrangementId: customArrangement.id
+        )
+        tabLayoutAtom.appendTab(tab)
+        tabLayoutAtom.setActiveTab(tab.id)
+
+        let state = WorkspacePersistenceTransformer.makePersistableState(
+            metadataAtom: metadataAtom,
+            repositoryTopologyAtom: topologyAtom,
+            workspacePaneAtom: paneAtom,
+            workspaceTabLayoutAtom: tabLayoutAtom,
+            persistedAt: Date(timeIntervalSince1970: 2000)
+        )
+
+        #expect(state.tabs.map(\.id) == [tab.id])
+        #expect(state.activeTabId == tab.id)
+        #expect(state.tabs[0].activeArrangement.layout.paneIds == [pane.id])
+    }
 }
