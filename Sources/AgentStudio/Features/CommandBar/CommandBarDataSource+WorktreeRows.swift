@@ -1,7 +1,20 @@
+import AppKit
 import Foundation
 import os.log
 
 private let commandBarWorktreeLogger = Logger(subsystem: "com.agentstudio", category: "CommandBarWorktreePresence")
+
+struct CommandBarPathActionFailure: Equatable, Sendable {
+    enum Action: Equatable, Sendable {
+        case copyPath
+        case revealInFinder
+    }
+
+    let action: Action
+    let path: URL
+}
+
+typealias CommandBarPathActionFailureHandler = @MainActor @Sendable (CommandBarPathActionFailure) -> Void
 
 @MainActor
 extension CommandBarDataSource {
@@ -257,7 +270,14 @@ extension CommandBarDataSource {
         )
     }
 
-    static func copyPathItem(id: String, path: URL, group: String, groupPriority: Int) -> CommandBarItem {
+    static func copyPathItem(
+        id: String,
+        path: URL,
+        group: String,
+        groupPriority: Int,
+        pathActions: any PathActionsExecuting = LivePathActionsExecutor(),
+        onPathActionFailure: @escaping CommandBarPathActionFailureHandler = defaultPathActionFailureHandler
+    ) -> CommandBarItem {
         let spec = LocalActionSpec.copyPath.actionSpec
         return CommandBarItem(
             id: "\(id)-copy-path",
@@ -269,13 +289,22 @@ extension CommandBarDataSource {
             keywords: ["copy", "path", path.path],
             action: .custom {
                 Task { @MainActor in
-                    PathActions.copyPath(path)
+                    if !pathActions.copyPath(path) {
+                        onPathActionFailure(CommandBarPathActionFailure(action: .copyPath, path: path))
+                    }
                 }
             }
         )
     }
 
-    static func revealInFinderItem(id: String, path: URL, group: String, groupPriority: Int) -> CommandBarItem {
+    static func revealInFinderItem(
+        id: String,
+        path: URL,
+        group: String,
+        groupPriority: Int,
+        pathActions: any PathActionsExecuting = LivePathActionsExecutor(),
+        onPathActionFailure: @escaping CommandBarPathActionFailureHandler = defaultPathActionFailureHandler
+    ) -> CommandBarItem {
         let spec = LocalActionSpec.revealInFinder.actionSpec
         return CommandBarItem(
             id: "\(id)-reveal-finder",
@@ -287,9 +316,18 @@ extension CommandBarDataSource {
             keywords: ["reveal", "finder", "open", "path", path.path],
             action: .custom {
                 Task { @MainActor in
-                    PathActions.revealInFinder(path)
+                    if !pathActions.revealInFinder(path) {
+                        onPathActionFailure(CommandBarPathActionFailure(action: .revealInFinder, path: path))
+                    }
                 }
             }
+        )
+    }
+
+    private static let defaultPathActionFailureHandler: CommandBarPathActionFailureHandler = { failure in
+        NSSound.beep()
+        commandBarWorktreeLogger.warning(
+            "Command bar path action failed action=\(String(describing: failure.action), privacy: .public) path=\(failure.path.path, privacy: .public)"
         )
     }
 

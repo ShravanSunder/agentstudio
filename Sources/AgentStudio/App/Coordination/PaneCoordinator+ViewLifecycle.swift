@@ -427,7 +427,14 @@ extension PaneCoordinator {
 
     /// Reattach a pane's surface after a view switch.
     func reattachForViewSwitch(paneId: UUID) {
+        restoreVisiblePaneIfNeeded(paneId, forceWhenBoundsExist: true)
         guard let terminal = viewRegistry.terminalView(for: paneId) else {
+            if viewRegistry.view(for: paneId) != nil {
+                Self.logger.debug(
+                    "Skipped terminal reattach for pane \(paneId.uuidString, privacy: .public): restored view is not an attachable terminal host"
+                )
+                return
+            }
             Self.logger.warning(
                 "Unable to reattach pane \(paneId.uuidString, privacy: .public): terminal view not found"
             )

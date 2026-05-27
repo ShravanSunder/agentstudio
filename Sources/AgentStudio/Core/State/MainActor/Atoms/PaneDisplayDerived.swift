@@ -18,6 +18,11 @@ struct CollapsedBarLabelPart: Equatable {
         case system(String)
     }
 
+    enum IconTextSpacing: Equatable {
+        case tight
+        case loose
+    }
+
     enum TextWeight: Equatable {
         case semibold
         case regular
@@ -26,6 +31,7 @@ struct CollapsedBarLabelPart: Equatable {
     let icon: IconKind
     let text: String
     let weight: TextWeight
+    var iconTextSpacing: IconTextSpacing = .tight
 }
 
 private struct WorkspaceContextParts {
@@ -190,7 +196,12 @@ struct PaneDisplayDerived {
 
         let parts = displayParts(for: pane)
         let notePart = parts.note.map {
-            CollapsedBarLabelPart(icon: .system("long.text.page.and.pencil"), text: $0, weight: .semibold)
+            CollapsedBarLabelPart(
+                icon: .system("long.text.page.and.pencil"),
+                text: $0,
+                weight: .semibold,
+                iconTextSpacing: .loose
+            )
         }
 
         if let workspaceContext = resolvedWorkspaceContext(for: pane) {

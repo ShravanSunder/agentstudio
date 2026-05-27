@@ -137,6 +137,55 @@ struct CommandBarWorktreeRowBuilderTests {
     }
 
     @Test
+    func test_pathActionItemsUseInjectedExecutorAndReportFailures() async {
+        let path = URL(filePath: "/tmp/command-bar-injected-path")
+        let recorder = PathActionRecorder(copySucceeds: false, revealSucceeds: false)
+        var failures: [CommandBarPathActionFailure] = []
+
+        let copyItem = CommandBarDataSource.copyPathItem(
+            id: "test",
+            path: path,
+            group: "Open",
+            groupPriority: 0,
+            pathActions: recorder,
+            onPathActionFailure: { failures.append($0) }
+        )
+        let revealItem = CommandBarDataSource.revealInFinderItem(
+            id: "test",
+            path: path,
+            group: "Open",
+            groupPriority: 0,
+            pathActions: recorder,
+            onPathActionFailure: { failures.append($0) }
+        )
+
+        guard case .custom(let copyAction) = copyItem.action else {
+            Issue.record("Expected copy path item to use a custom action")
+            return
+        }
+        guard case .custom(let revealAction) = revealItem.action else {
+            Issue.record("Expected reveal in Finder item to use a custom action")
+            return
+        }
+
+        copyAction()
+        revealAction()
+
+        for _ in 0..<10 {
+            if recorder.copiedPaths == [path], recorder.revealedPaths == [path], failures.count == 2 { break }
+            await Task.yield()
+        }
+
+        #expect(recorder.copiedPaths == [path])
+        #expect(recorder.revealedPaths == [path])
+        #expect(
+            failures == [
+                CommandBarPathActionFailure(action: .copyPath, path: path),
+                CommandBarPathActionFailure(action: .revealInFinder, path: path),
+            ])
+    }
+
+    @Test
     func test_worktreePresenceSubtitle_multiplePanesSingleTab_usesSingleTabFormat() {
         let tabId = UUID()
         let presence = WorktreePresence(
@@ -274,5 +323,29 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(navigateItems.count == 2)
         #expect(navigateItems[0].subtitle == "Tab 2 · Pane 1")
         #expect(navigateItems[1].subtitle == "Tab 2 · Pane 2 · Active")
+    }
+}
+
+@MainActor
+private final class PathActionRecorder: PathActionsExecuting, @unchecked Sendable {
+    var copiedPaths: [URL] = []
+    var revealedPaths: [URL] = []
+
+    private let copySucceeds: Bool
+    private let revealSucceeds: Bool
+
+    init(copySucceeds: Bool, revealSucceeds: Bool) {
+        self.copySucceeds = copySucceeds
+        self.revealSucceeds = revealSucceeds
+    }
+
+    func copyPath(_ path: URL) -> Bool {
+        copiedPaths.append(path)
+        return copySucceeds
+    }
+
+    func revealInFinder(_ path: URL) -> Bool {
+        revealedPaths.append(path)
+        return revealSucceeds
     }
 }

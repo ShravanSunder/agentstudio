@@ -75,7 +75,11 @@ final class CommandBarPanelController {
         parentWindow: NSWindow,
         workspaceWindowId requestedWorkspaceWindowId: UUID?
     ) {
-        let resolvedWorkspaceWindowId = requestedWorkspaceWindowId ?? workspaceWindowId ?? UUID()
+        let resolvedWorkspaceWindowId = requestedWorkspaceWindowId ?? workspaceWindowId
+        if resolvedWorkspaceWindowId == nil {
+            controllerLogger.warning(
+                "Command bar shown without a workspace window id; keyboard surface routing disabled")
+        }
         self.parentWindow = parentWindow
         workspaceWindowId = resolvedWorkspaceWindowId
 

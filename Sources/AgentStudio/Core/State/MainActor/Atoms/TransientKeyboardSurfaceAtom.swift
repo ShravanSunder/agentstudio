@@ -1,9 +1,12 @@
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable
 final class TransientKeyboardSurfaceAtom {
+    private let logger = Logger(subsystem: "com.agentstudio", category: "TransientKeyboardSurfaceAtom")
+
     private(set) var surfaces: [TransientKeyboardSurface] = []
 
     var topAnySurface: TransientKeyboardSurface? {
@@ -40,12 +43,9 @@ final class TransientKeyboardSurfaceAtom {
         policy: TransientKeyboardSurfacePolicy? = nil
     ) {
         guard let index = surfaces.firstIndex(where: { $0.token == token }) else {
-            let surface = TransientKeyboardSurface(
-                workspaceWindowId: workspaceWindowId,
-                kind: kind,
-                policy: policy ?? kind.defaultPolicy
+            logger.warning(
+                "Ignoring transient surface replace for stale token \(token.id.uuidString, privacy: .public)"
             )
-            surfaces.append(surface)
             return
         }
         surfaces[index] = TransientKeyboardSurface(

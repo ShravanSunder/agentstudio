@@ -242,6 +242,9 @@ final class PaneCoordinator {
 
     private func onSurfaceCWDChanged(_ event: SurfaceManager.SurfaceCWDChangeEvent) {
         guard let paneId = event.paneId else { return }
+        // Surface CWD events already arrive as file URLs from the hosting layer.
+        // Runtime envelopes carry raw shell strings, so that path normalizes at
+        // the runtime ingress before entering the shared atom update path.
         updatePaneCWDAndResolvedContext(paneId: paneId, cwd: event.cwd)
     }
 
@@ -446,6 +449,9 @@ final class PaneCoordinator {
         case .tabTitleChanged(let title):
             store.paneAtom.updatePaneTitle(sourcePaneUUID, title: title)
         case .cwdChanged(let cwdPath):
+            // Runtime CWD is a shell string and may contain relative segments;
+            // normalize here so both runtime and surface facts converge in the
+            // shared pane identity update path below.
             updatePaneCWDAndResolvedContext(paneId: sourcePaneUUID, cwd: CWDNormalizer.normalize(cwdPath))
         case .commandFinished(let exitCode, _):
             Self.logger.debug(

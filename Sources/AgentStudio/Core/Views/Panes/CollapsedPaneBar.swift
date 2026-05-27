@@ -251,7 +251,7 @@ struct CollapsedPaneBar: View {
                         .foregroundStyle(.tertiary)
                 }
 
-                HStack(spacing: AppStyles.General.Spacing.tight) {
+                HStack(spacing: iconTextSpacing(for: part.iconTextSpacing)) {
                     iconView(for: part.icon)
                         .foregroundStyle(iconTint)
 
@@ -309,6 +309,15 @@ struct CollapsedPaneBar: View {
             return Color.primary.opacity(0.92)
         case .regular:
             return Color.secondary.opacity(0.92)
+        }
+    }
+
+    private func iconTextSpacing(for spacing: CollapsedBarLabelPart.IconTextSpacing) -> CGFloat {
+        switch spacing {
+        case .tight:
+            AppStyles.General.Spacing.tight
+        case .loose:
+            AppStyles.General.Spacing.loose
         }
     }
 
