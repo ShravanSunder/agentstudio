@@ -224,8 +224,12 @@ struct CollapsedPaneBar: View {
         let presentationAtom = atom(\.arrangementPanelPresentation)
         guard
             let request = presentationAtom.pendingRequest,
-            request.tabId == tabId,
-            request.workspaceWindowId == workspaceWindowId
+            let workspaceWindowId,
+            request.matches(
+                tabId: tabId,
+                workspaceWindowId: workspaceWindowId,
+                placement: .collapsedBar(paneId: paneId)
+            )
         else { return }
 
         isArrangementPanelPresented = true

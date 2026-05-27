@@ -556,8 +556,9 @@ private struct TabBarArrangementButton: View {
     private func openPopoverIfRequested() {
         guard
             let request = presentationAtom.pendingRequest,
-            request.tabId == adapter.activeTabId,
-            request.workspaceWindowId == workspaceWindowId
+            let activeTabId = adapter.activeTabId,
+            let workspaceWindowId,
+            request.matches(tabId: activeTabId, workspaceWindowId: workspaceWindowId, placement: .tabBar)
         else { return }
 
         presentationState.present(tabId: request.tabId)

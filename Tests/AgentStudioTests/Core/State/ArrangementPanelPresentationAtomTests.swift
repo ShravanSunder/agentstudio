@@ -19,6 +19,20 @@ struct ArrangementPanelPresentationAtomTests {
         #expect(atom.pendingRequest?.workspaceWindowId == windowId)
     }
 
+    @Test("requests target exactly one presentation placement")
+    func requestTargetsExactlyOnePresentationPlacement() {
+        let atom = ArrangementPanelPresentationAtom()
+        let windowId = UUID()
+        let tabId = UUID()
+        let paneId = UUID()
+
+        let request = atom.present(tabId: tabId, workspaceWindowId: windowId, placement: .tabBar)
+
+        #expect(request.placement == .tabBar)
+        #expect(request.matches(tabId: tabId, workspaceWindowId: windowId, placement: .tabBar))
+        #expect(!request.matches(tabId: tabId, workspaceWindowId: windowId, placement: .collapsedBar(paneId: paneId)))
+    }
+
     @Test("consume only clears matching request")
     func consumeOnlyClearsMatchingRequest() {
         let atom = ArrangementPanelPresentationAtom()
