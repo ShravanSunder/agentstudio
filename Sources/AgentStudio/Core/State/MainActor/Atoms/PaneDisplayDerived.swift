@@ -5,6 +5,7 @@ private let paneDisplayLogger = Logger(subsystem: "com.agentstudio", category: "
 
 struct PaneDisplayParts: Equatable {
     let primaryLabel: String
+    let note: String?
     let repoName: String?
     let branchName: String?
     let worktreeFolderName: String?
@@ -17,6 +18,11 @@ struct CollapsedBarLabelPart: Equatable {
         case system(String)
     }
 
+    enum IconTextSpacing: Equatable {
+        case tight
+        case loose
+    }
+
     enum TextWeight: Equatable {
         case semibold
         case regular
@@ -25,6 +31,7 @@ struct CollapsedBarLabelPart: Equatable {
     let icon: IconKind
     let text: String
     let weight: TextWeight
+    var iconTextSpacing: IconTextSpacing = .tight
 }
 
 private struct WorkspaceContextParts {
@@ -42,6 +49,7 @@ struct PaneDisplayDerived {
             paneDisplayLogger.warning("displayParts: pane \(paneId.uuidString, privacy: .public) not found")
             return PaneDisplayParts(
                 primaryLabel: "Terminal",
+                note: nil,
                 repoName: nil,
                 branchName: nil,
                 worktreeFolderName: nil,
@@ -73,6 +81,7 @@ struct PaneDisplayDerived {
             .joined(separator: " | ")
             return PaneDisplayParts(
                 primaryLabel: primaryLabel.isEmpty ? defaultLabel : primaryLabel,
+                note: pane.metadata.note,
                 repoName: workspaceContext.repoName,
                 branchName: workspaceContext.branchName,
                 worktreeFolderName: workspaceContext.worktreeName,
@@ -83,6 +92,7 @@ struct PaneDisplayDerived {
         if let cwdFolderName {
             return PaneDisplayParts(
                 primaryLabel: cwdFolderName,
+                note: pane.metadata.note,
                 repoName: nil,
                 branchName: nil,
                 worktreeFolderName: nil,
@@ -92,6 +102,7 @@ struct PaneDisplayDerived {
 
         return PaneDisplayParts(
             primaryLabel: defaultLabel,
+            note: pane.metadata.note,
             repoName: nil,
             branchName: nil,
             worktreeFolderName: nil,
@@ -113,9 +124,12 @@ struct PaneDisplayDerived {
 
     func paneKeywords(for pane: Pane) -> [String] {
         let parts = displayParts(for: pane)
-        return [parts.primaryLabel, parts.repoName, parts.branchName, parts.worktreeFolderName, parts.cwdFolderName]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
+        return [
+            parts.note, parts.primaryLabel, parts.repoName, parts.branchName, parts.worktreeFolderName,
+            parts.cwdFolderName,
+        ]
+        .compactMap { $0 }
+        .filter { !$0.isEmpty }
     }
 
     func resolvedBranchName(
@@ -181,6 +195,14 @@ struct PaneDisplayDerived {
         }
 
         let parts = displayParts(for: pane)
+        let notePart = parts.note.map {
+            CollapsedBarLabelPart(
+                icon: .system("long.text.page.and.pencil"),
+                text: $0,
+                weight: .semibold,
+                iconTextSpacing: .loose
+            )
+        }
 
         if let workspaceContext = resolvedWorkspaceContext(for: pane) {
             var labelParts = [
@@ -200,15 +222,17 @@ struct PaneDisplayDerived {
                     CollapsedBarLabelPart(icon: .octicon("octicon-git-branch"), text: branchName, weight: .regular)
                 )
             }
-            return labelParts
+            return labelParts + [notePart].compactMap { $0 }
         }
 
         if let cwdFolder = parts.cwdFolderName {
             return [CollapsedBarLabelPart(icon: .system("folder"), text: cwdFolder, weight: .regular)]
+                + [notePart].compactMap { $0 }
         }
 
         let label = parts.primaryLabel.isEmpty ? "Terminal" : parts.primaryLabel
         return [CollapsedBarLabelPart(icon: .system("terminal"), text: label, weight: .regular)]
+            + [notePart].compactMap { $0 }
     }
 
     private func resolvedWorkspaceContext(for pane: Pane) -> WorkspaceContextParts? {

@@ -404,7 +404,11 @@ extension PaneCoordinator {
         viewRegistry.unregister(paneId)
         if shouldUnregisterRuntime {
             if UUIDv7.isV7(paneId) {
-                _ = unregisterRuntime(PaneId(uuid: paneId))
+                let runtimePaneId = PaneId(uuid: paneId)
+                _ = unregisterRuntime(runtimePaneId)
+                Task { [paneEventBus] in
+                    await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
+                }
             } else {
                 Self.logger.warning(
                     "Skipping runtime unregister for non-v7 pane id \(paneId.uuidString, privacy: .public)"
@@ -427,7 +431,14 @@ extension PaneCoordinator {
 
     /// Reattach a pane's surface after a view switch.
     func reattachForViewSwitch(paneId: UUID) {
+        restoreVisiblePaneIfNeeded(paneId, forceWhenBoundsExist: true)
         guard let terminal = viewRegistry.terminalView(for: paneId) else {
+            if viewRegistry.view(for: paneId) != nil {
+                Self.logger.debug(
+                    "Skipped terminal reattach for pane \(paneId.uuidString, privacy: .public): restored view is not an attachable terminal host"
+                )
+                return
+            }
             Self.logger.warning(
                 "Unable to reattach pane \(paneId.uuidString, privacy: .public): terminal view not found"
             )

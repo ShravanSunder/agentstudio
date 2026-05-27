@@ -32,6 +32,8 @@ final class SidebarCacheStore {
     }
 
     func restore(for workspaceId: UUID) {
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
         switch persistor.loadSidebarCache(for: workspaceId) {
         case .loaded(let state):

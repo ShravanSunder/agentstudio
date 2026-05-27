@@ -107,9 +107,31 @@ side channel instead of the same binding/state model as the button.
 | `scrollPageUp` | `⌘⇧I` | Terminal runtime | Terminal-owned; dispatches `scroll_page_up`. |
 | `jumpToPreviousPrompt` | `⌘⇧J` | Terminal runtime | Terminal-owned; dispatches `jump_to_prompt:-1`. |
 | `jumpToNextPrompt` | `⌘⇧L` | Terminal runtime | Terminal-owned; dispatches `jump_to_prompt:1`. |
+| `editPaneNote` | `⌘⌥⇧N` | `PaneTabViewController` | Opens the note editor for the active main pane only. |
+| `copyCurrentPanePath` | `⌘⌥⇧O` | `PaneTabViewController` | Copies the active main pane's live cwd, falling back to launch directory. |
 | `showInboxNotifications` | `⌘U` | `AppDelegate` shell | Shows the inbox sidebar notification surface. |
 | `showPaneInboxNotifications` | `⌘⇧U` | `PaneTabViewController` | Shows notifications scoped to the active pane/drawer family. |
 | Ghostty clear scrollback | none | `GhosttySurfaceView` host override | `⌘K` is swallowed and never forwarded to Ghostty. |
+
+## Command Bar Scope Ownership
+
+The command bar is split by ownership, not by implementation convenience:
+
+| Scope | Owns | Does not own |
+|-------|------|--------------|
+| `>` Commands | Dispatchable verbs: close, rename, copy current pane path, edit pane note, arrangement commands. | Repo/worktree browsing. |
+| `$` Pane | Existing pane and tab navigation. Search includes pane title, note, tab title, repo/worktree context, and cwd identity. | Opening new locations or path-management actions. |
+| `#` Repo | Locations and opening: repos, worktrees, worktree path commands, opening a new pane, and navigating to existing panes for that worktree. | Generic verbs and arbitrary pane selection. |
+
+`#` is an object navigator. Root rows represent repos. Repo rows drill into
+worktrees. Worktree rows drill into actions for that concrete filesystem
+location. A chevron means Return drills in; no chevron means Return executes.
+Container rows may expose skip-ahead shortcuts such as `⌘↩` or `⌥↩`; leaf rows
+do not invent modifier variants unless there is a separate, explicit action.
+
+Path actions use `LocalActionSpec.copyPath` and
+`LocalActionSpec.revealInFinder` for labels and icons. The execution helper is
+shared so sidebar context menus and command-bar rows do not drift.
 
 ## Multiple bindings per command — `alternateTriggers`
 
@@ -198,6 +220,7 @@ Transient surfaces are temporary pane-local keyboard islands:
 - `.arrangementRename(tabId:arrangementId:)`
 - `.paneInbox(parentPaneId:)`
 - `.editorChooser(paneId:)`
+- `.paneNote(paneId:)`
 
 Transient surfaces suppress app/global/management shortcuts by default while
 their local responder handles local keys such as Return, Escape, arrows, and
@@ -212,8 +235,8 @@ Current surface-owned app shortcuts:
   `.prevTab`, `.nextTab`, and `selectTab1...9` so the user can jump tabs
   without closing the panel first.
 - `.tabRename(tabId:)`, `.arrangementRename(tabId:arrangementId:)`,
-  `.paneInbox(parentPaneId:)`, and `.editorChooser(paneId:)` own no app
-  shortcuts.
+  `.paneInbox(parentPaneId:)`, `.editorChooser(paneId:)`, and
+  `.paneNote(paneId:)` own no app shortcuts.
 
 SwiftUI/AppKit surfaces that know their owning workspace window pass that
 `workspaceWindowId` into registration; the key/focused-window fallback is only

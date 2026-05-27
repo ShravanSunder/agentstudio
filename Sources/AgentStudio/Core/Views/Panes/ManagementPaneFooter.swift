@@ -68,6 +68,8 @@ struct ManagementPaneIdentityStrip: View {
             return "Worktree \(row.text)"
         case "cwd":
             return "Current directory \(row.text)"
+        case "note":
+            return "Note \(row.text)"
         default:
             return row.text
         }
@@ -83,6 +85,8 @@ struct ManagementPaneIdentityStrip: View {
             return "worktree"
         case "cwd":
             return "cwd"
+        case "note":
+            return "note"
         default:
             return ""
         }

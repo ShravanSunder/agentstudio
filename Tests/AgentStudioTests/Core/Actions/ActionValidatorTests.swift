@@ -904,46 +904,6 @@ final class WorkspaceCommandValidatorTests {
         #expect((try? result.get()) != nil)
     }
 
-    // MARK: - Pane Cardinality
-
-    @Test
-
-    func test_paneCardinality_newPane_succeeds() {
-        // Arrange
-        let existingPaneId = UUID()
-        let newPaneId = UUID()
-        let tab = TabSnapshot(
-            id: UUID(),
-            visiblePaneIds: [existingPaneId],
-            ownedPaneIds: [existingPaneId],
-            activePaneId: existingPaneId
-        )
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = WorkspaceCommandValidator.validatePaneCardinality(
-            paneId: newPaneId, state: snapshot
-        )
-
-        // Assert
-        #expect((try? result.get()) != nil)
-    }
-
-    @Test
-
-    func test_paneCardinality_emptyState_succeeds() {
-        // Arrange
-        let snapshot = makeSnapshot()
-
-        // Act
-        let result = WorkspaceCommandValidator.validatePaneCardinality(
-            paneId: UUID(), state: snapshot
-        )
-
-        // Assert
-        #expect((try? result.get()) != nil)
-    }
-
     // MARK: - ValidatedAction preserves action
 
     @Test

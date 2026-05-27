@@ -12,6 +12,8 @@ typealias Harness = PaneTabViewControllerCommandHarness
 final class PaneTabViewControllerCommandLaunchRecorder {
     var openedEditors: [(id: EditorTargetId, path: URL)] = []
     var revealedPaths: [URL] = []
+    var copiedPaths: [URL] = []
+    var paneNoteRequests: [UUID] = []
     var clearedPaneInboxRequests: [(parentPaneId: UUID, paneIds: [UUID])] = []
 }
 
@@ -127,6 +129,15 @@ func makePaneTabViewControllerCommandHarness(
             launchRecorder.revealedPaths.append(path)
             return true
         },
+        copyPathHandler: { path in
+            launchRecorder.copiedPaths.append(path)
+        },
+        paneNotePresentation: PaneNotePresentation(
+            present: { paneId in
+                launchRecorder.paneNoteRequests.append(paneId)
+            },
+            editorContent: { _, _ in AnyView(EmptyView()) }
+        ),
         closeTransitionCoordinator: closeTransitionCoordinator,
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,

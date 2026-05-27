@@ -4,6 +4,12 @@ import os.log
 
 private let workspacePaneLogger = Logger(subsystem: "com.agentstudio", category: "WorkspacePaneAtom")
 
+enum PaneCWDContextUpdateResult: Equatable {
+    case applied
+    case unchanged
+    case paneMissing
+}
+
 @MainActor
 @Observable
 final class WorkspacePaneAtom {
@@ -125,6 +131,46 @@ final class WorkspacePaneAtom {
         }
         guard panes[paneId]!.metadata.facets.cwd != cwd else { return }
         panes[paneId]!.metadata.updateCWD(cwd)
+    }
+
+    func updatePaneNote(_ paneId: UUID, note: String?) {
+        guard panes[paneId] != nil else {
+            workspacePaneLogger.warning("updatePaneNote: pane \(paneId) not found")
+            return
+        }
+        panes[paneId]!.metadata.updateNote(note)
+    }
+
+    func updatePaneCWDAndResolvedContext(
+        _ paneId: UUID,
+        cwd: URL?,
+        resolvedContext: (repo: Repo, worktree: Worktree)?
+    ) -> PaneCWDContextUpdateResult {
+        guard panes[paneId] != nil else {
+            workspacePaneLogger.warning("updatePaneCWDAndResolvedContext: pane \(paneId) not found")
+            return .paneMissing
+        }
+
+        var facets = panes[paneId]!.metadata.facets
+        facets.cwd = cwd
+        if let resolvedContext {
+            facets.repoId = resolvedContext.repo.id
+            facets.repoName = resolvedContext.repo.name
+            facets.worktreeId = resolvedContext.worktree.id
+            facets.worktreeName = resolvedContext.worktree.name
+        } else {
+            facets.repoId = nil
+            facets.repoName = nil
+            facets.worktreeId = nil
+            facets.worktreeName = nil
+        }
+
+        guard facets != panes[paneId]!.metadata.facets else {
+            return .unchanged
+        }
+
+        panes[paneId]!.metadata.updateFacets(facets)
+        return .applied
     }
 
     func updatePaneWebviewState(_ paneId: UUID, state: WebviewState) {

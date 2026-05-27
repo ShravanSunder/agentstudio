@@ -804,9 +804,7 @@ struct CommandBarDataSourceTests {
             scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert
-        #expect(items.count == 1)
-        #expect(items.first?.title == "New Empty Tab")
-        #expect(items.first?.command == .newTab)
+        #expect(items.isEmpty)
     }
 
     @Test
@@ -829,14 +827,18 @@ struct CommandBarDataSourceTests {
             scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert
-        #expect(items.count == 2)
-        #expect(items.first?.title == "New Empty Tab")
-        #expect(items.first?.command == .newTab)
-        #expect(items.dropFirst().allSatisfy { $0.id.hasPrefix("repo-wt-") })
+        #expect(items.count == 1)
+        #expect(items.allSatisfy { $0.id.hasPrefix("repo-") })
         #expect(items.allSatisfy { $0.group == "Repos" })
 
-        // Main worktree should rely on icon/subtitle rather than title decoration
-        let mainItem = items.first { $0.title.contains("main") }
+        let repoItem = items.first
+        #expect(repoItem?.title == repo.name)
+        #expect(repoItem?.hasChildren == true)
+        guard case .navigateRepo(let level) = repoItem?.action else {
+            Issue.record("Expected repo row to drill into repo level")
+            return
+        }
+        let mainItem = level.items.first { $0.id.hasPrefix("repo-wt-") }
         #expect(mainItem?.title == "main")
         #expect(mainItem?.icon == .system(.starFill))
         #expect(mainItem?.subtitle == "main worktree")
@@ -868,10 +870,15 @@ struct CommandBarDataSourceTests {
             scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let groups = CommandBarDataSource.grouped(items)
 
-        #expect(items.first?.title == "New Empty Tab")
-        #expect(groups.count == 2)
+        #expect(items.first?.title == repo.name)
+        #expect(items.first?.hasChildren == true)
+        #expect(groups.count == 1)
         #expect(groups.first?.name == "Repos")
-        #expect(groups.last?.name == "\(repo.name) (worktrees)")
+        guard case .navigateRepo(let level) = items.first?.action else {
+            Issue.record("Expected repo row to drill into repo level")
+            return
+        }
+        #expect(level.items.filter { $0.id.hasPrefix("repo-wt-") }.count == 2)
     }
 
     // MARK: - Drawer Commands

@@ -39,6 +39,20 @@ final class CollapsedBarLabelPartsTests {
     }
 
     @Test
+    func notePartUsesLooseIconTextSpacing() {
+        AtomScope.$override.withValue(registry) {
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Terminal"))
+            store.paneAtom.updatePaneNote(pane.id, note: "hiii")
+
+            let parts = PaneDisplayDerived().collapsedBarLabelParts(for: pane.id)
+
+            #expect(parts.count == 2)
+            #expect(parts[1].icon == .system("long.text.page.and.pencil"))
+            #expect(parts[1].iconTextSpacing == .loose)
+        }
+    }
+
+    @Test
     func floatingPaneWithoutCwd_returnsTerminalFallback() {
         AtomScope.$override.withValue(registry) {
             let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))

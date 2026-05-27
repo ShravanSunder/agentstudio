@@ -97,6 +97,17 @@ struct CommandBarPanelControllerTests {
     }
 
     @Test
+    func test_showWithoutWorkspaceWindowIdDoesNotPublishSyntheticSurface() {
+        let commandBarSurface = CommandBarSurfaceAtom()
+        let controller = makeController(commandBarSurface: commandBarSurface)
+
+        controller.show(prefix: ">", parentWindow: window)
+
+        #expect(controller.state.isVisible)
+        #expect(commandBarSurface.activeScope == nil)
+    }
+
+    @Test
     func test_switchPrefix_updatesCommandBarSurfaceScope() {
         let commandBarSurface = CommandBarSurfaceAtom()
         let workspaceWindowId = UUID()

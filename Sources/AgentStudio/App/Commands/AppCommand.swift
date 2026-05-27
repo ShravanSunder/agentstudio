@@ -62,6 +62,8 @@ enum AppCommand: String, CaseIterable {
     case openPaneLocationInBookmarkedEditor
     case openPaneLocationInFinder
     case openPaneLocationInEditorMenu
+    case editPaneNote
+    case copyCurrentPanePath
     // Repo commands
     case watchFolder, removeRepo
     case openWorktree

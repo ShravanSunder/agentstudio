@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -53,13 +54,16 @@ struct CommandBarWorktreeRowBuilderTests {
 
         #expect(level.title == "main")
         #expect(level.parentLabel == "repo")
-        #expect(level.items.count == 4)
-        #expect(level.items.filter { $0.group == "Open" }.count == 2)
+        #expect(level.scopeLabel == "repo")
+        #expect(level.items.count == 6)
+        #expect(level.items.filter { $0.group == "Open" }.count == 4)
         #expect(level.items.filter { $0.group == "Navigate to" }.count == 2)
         #expect(level.items.contains { $0.id == "wt-new-tab-\(worktree.id.uuidString)" })
         #expect(level.items.contains { $0.id == "wt-add-pane-\(worktree.id.uuidString)" })
-        #expect(level.items[0].id == "wt-new-tab-\(worktree.id.uuidString)")
-        #expect(level.items[1].id == "wt-add-pane-\(worktree.id.uuidString)")
+        #expect(level.items[0].id == "wt-\(worktree.id.uuidString)-copy-path")
+        #expect(level.items[1].id == "wt-\(worktree.id.uuidString)-reveal-finder")
+        #expect(level.items[2].id == "wt-new-tab-\(worktree.id.uuidString)")
+        #expect(level.items[3].id == "wt-add-pane-\(worktree.id.uuidString)")
     }
 
     @Test
@@ -68,8 +72,8 @@ struct CommandBarWorktreeRowBuilderTests {
 
         let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: false)
 
-        #expect(level.items.count == 1)
-        #expect(level.items[0].id == "wt-new-tab-\(presence.worktreeId.uuidString)")
+        #expect(level.items.count == 3)
+        #expect(level.items[2].id == "wt-new-tab-\(presence.worktreeId.uuidString)")
         #expect(level.items.allSatisfy { $0.id != "wt-add-pane-\(presence.worktreeId.uuidString)" })
     }
 
@@ -80,7 +84,7 @@ struct CommandBarWorktreeRowBuilderTests {
         let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
 
         guard
-            case .dispatchTargeted(.openNewTerminalInTab, let newTabTarget, .worktree) = level.items[0].action
+            case .dispatchTargeted(.openNewTerminalInTab, let newTabTarget, .worktree) = level.items[2].action
         else {
             Issue.record("Expected new-tab row to dispatch existing openNewTerminalInTab command")
             return
@@ -88,12 +92,97 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(newTabTarget == presence.worktreeId)
 
         guard
-            case .dispatchTargeted(.openWorktreeInPane, let splitTarget, .worktree) = level.items[1].action
+            case .dispatchTargeted(.openWorktreeInPane, let splitTarget, .worktree) = level.items[3].action
         else {
             Issue.record("Expected current-tab row to dispatch existing openWorktreeInPane command")
             return
         }
         #expect(splitTarget == presence.worktreeId)
+    }
+
+    @Test
+    func test_buildWorktreeActionsLevel_pathActionsUsePanePathShortcuts() {
+        let presence = makeWorktreePresence(paneCount: 0)
+
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
+
+        let copyPathItem = level.items.first { $0.id == "wt-\(presence.worktreeId.uuidString)-copy-path" }
+        let revealInFinderItem = level.items.first { $0.id == "wt-\(presence.worktreeId.uuidString)-reveal-finder" }
+        #expect(copyPathItem?.shortcutTrigger == AppShortcut.copyCurrentPanePath.trigger)
+        #expect(revealInFinderItem?.shortcutTrigger == AppShortcut.openPaneLocationInFinder.trigger)
+    }
+
+    @Test
+    func test_copyPathItemInvokesCapturedPath() async {
+        let path = URL(filePath: "/tmp/command-bar-captured-path")
+        let item = CommandBarDataSource.copyPathItem(id: "test", path: path, group: "Open", groupPriority: 0)
+
+        guard case .custom(let action) = item.action else {
+            Issue.record("Expected copy path item to use a custom action")
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("before", forType: .string)
+        action()
+
+        var copiedPath: String?
+        for _ in 0..<10 {
+            copiedPath = NSPasteboard.general.string(forType: .string)
+            if copiedPath == path.path { break }
+            await Task.yield()
+        }
+
+        #expect(copiedPath == path.path)
+    }
+
+    @Test
+    func test_pathActionItemsUseInjectedExecutorAndReportFailures() async {
+        let path = URL(filePath: "/tmp/command-bar-injected-path")
+        let recorder = PathActionRecorder(copySucceeds: false, revealSucceeds: false)
+        var failures: [CommandBarPathActionFailure] = []
+
+        let copyItem = CommandBarDataSource.copyPathItem(
+            id: "test",
+            path: path,
+            group: "Open",
+            groupPriority: 0,
+            pathActions: recorder,
+            onPathActionFailure: { failures.append($0) }
+        )
+        let revealItem = CommandBarDataSource.revealInFinderItem(
+            id: "test",
+            path: path,
+            group: "Open",
+            groupPriority: 0,
+            pathActions: recorder,
+            onPathActionFailure: { failures.append($0) }
+        )
+
+        guard case .custom(let copyAction) = copyItem.action else {
+            Issue.record("Expected copy path item to use a custom action")
+            return
+        }
+        guard case .custom(let revealAction) = revealItem.action else {
+            Issue.record("Expected reveal in Finder item to use a custom action")
+            return
+        }
+
+        copyAction()
+        revealAction()
+
+        for _ in 0..<10 {
+            if recorder.copiedPaths == [path], recorder.revealedPaths == [path], failures.count == 2 { break }
+            await Task.yield()
+        }
+
+        #expect(recorder.copiedPaths == [path])
+        #expect(recorder.revealedPaths == [path])
+        #expect(
+            failures == [
+                CommandBarPathActionFailure(action: .copyPath, path: path),
+                CommandBarPathActionFailure(action: .revealInFinder, path: path),
+            ])
     }
 
     @Test
@@ -234,5 +323,29 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(navigateItems.count == 2)
         #expect(navigateItems[0].subtitle == "Tab 2 · Pane 1")
         #expect(navigateItems[1].subtitle == "Tab 2 · Pane 2 · Active")
+    }
+}
+
+@MainActor
+private final class PathActionRecorder: PathActionsExecuting, @unchecked Sendable {
+    var copiedPaths: [URL] = []
+    var revealedPaths: [URL] = []
+
+    private let copySucceeds: Bool
+    private let revealSucceeds: Bool
+
+    init(copySucceeds: Bool, revealSucceeds: Bool) {
+        self.copySucceeds = copySucceeds
+        self.revealSucceeds = revealSucceeds
+    }
+
+    func copyPath(_ path: URL) -> Bool {
+        copiedPaths.append(path)
+        return copySucceeds
+    }
+
+    func revealInFinder(_ path: URL) -> Bool {
+        revealedPaths.append(path)
+        return revealSucceeds
     }
 }

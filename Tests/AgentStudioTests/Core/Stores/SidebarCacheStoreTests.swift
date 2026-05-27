@@ -58,6 +58,39 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
+    func restore_cancelsPendingDebouncedSaveForPreviousWorkspace() async throws {
+        let workspaceAId = UUID()
+        let workspaceBId = UUID()
+        try persistor.saveSidebarCache(
+            .init(
+                workspaceId: workspaceBId,
+                expandedGroups: [SidebarGroupKey("repo:workspace-b")],
+                checkoutColors: [:]
+            )
+        )
+        let atom = SidebarCacheAtom()
+        let clock = TestPushClock()
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
+
+        store.restore(for: workspaceAId)
+        atom.setGroupExpanded(SidebarGroupKey("repo:workspace-a"), isExpanded: true)
+        await clock.waitForPendingSleepCount()
+        store.restore(for: workspaceBId)
+        clock.advance(by: .milliseconds(10))
+        await Task.yield()
+
+        guard case .missing = persistor.loadSidebarCache(for: workspaceAId) else {
+            Issue.record("Expected stale workspace A debounce to be cancelled")
+            return
+        }
+    }
+
+    @Test
     func restore_corruptSidebarCacheFile_fallsBackToDefaultsAndQuarantines() throws {
         let workspaceId = UUID()
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")

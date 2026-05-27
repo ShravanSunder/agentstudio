@@ -162,6 +162,14 @@ The **primary entity** in the window system. Stable identity for any content typ
 | `title` | live | `String` | Display title (updated from shell) |
 | `facets` | live | `PaneContextFacets` | Dynamic grouping: `repoId`, `worktreeId`, `cwd`, `repoName`, `worktreeName`, `parentFolder`, `organizationName`, `origin`, `upstream`, `tags` |
 | `checkoutRef` | live | `String?` | Current git checkout ref |
+| `note` | live | `String?` | User/agent-authored main-pane label. Trimmed on write; blank values are stored as nil. |
+
+`source` is launch provenance and does not change when a shell cds. `facets`
+is live identity and follows cwd via `PaneCoordinator` updates from runtime and
+surface cwd events. Main-pane notes live alongside metadata so minimized labels,
+persistence, and `$` pane search read the same field. Drawer child panes keep
+their own metadata for runtime facts, but note editing is exposed only for main
+layout panes.
 
 **`SessionProvider`** — Backend type for terminal panes:
 - `.ghostty` — Direct Ghostty surface, no session multiplexer

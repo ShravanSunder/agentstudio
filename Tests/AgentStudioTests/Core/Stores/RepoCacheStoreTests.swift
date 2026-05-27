@@ -84,6 +84,37 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func observedCacheChange_autosavesRepoCache() async throws {
+        let workspaceId = UUID()
+        let atom = RepoCacheAtom()
+        let clock = TestPushClock()
+        let store = RepoCacheStore(
+            atom: atom,
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
+        let repo = CanonicalRepo(
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio")
+        )
+
+        store.restore(for: workspaceId)
+        atom.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(10))
+
+        await assertEventuallyMain("repo cache change should autosave") {
+            switch persistor.loadCache(for: workspaceId) {
+            case .loaded(let cache):
+                return cache.repoEnrichmentByRepoId[repo.id] == .awaitingOrigin(repoId: repo.id)
+            case .missing, .corrupt:
+                return false
+            }
+        }
+    }
+
+    @Test
     func restore_corruptCacheFile_fallsBackToDefaults() throws {
         let workspaceId = UUID()
         let corruptURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")

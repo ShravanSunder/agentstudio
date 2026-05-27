@@ -156,7 +156,9 @@ enum WorkspacePersistenceTransformer {
             }
         }
 
-        tabs.removeAll { $0.defaultArrangement.layout.isEmpty }
+        tabs.removeAll { tab in
+            tab.allPaneIds.isEmpty && tab.arrangements.allSatisfy { $0.layout.isEmpty }
+        }
         if let currentActiveTabId = activeTabId, !tabs.contains(where: { $0.id == currentActiveTabId }) {
             activeTabId = tabs.last?.id
         }

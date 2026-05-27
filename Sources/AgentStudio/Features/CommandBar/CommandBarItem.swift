@@ -44,6 +44,8 @@ enum CommandBarAction {
     case dispatchTargeted(AppCommand, target: UUID, targetType: SearchItemType)
     /// Drill into a sub-level (nested navigation)
     case navigate(CommandBarLevel)
+    /// Drill into a repository sub-level.
+    case navigateRepo(CommandBarLevel)
     /// Arbitrary action (e.g., open URL, show dialog)
     case custom(@Sendable () -> Void)
     /// Resolve worktree behavior at selection time based on presence and modifier keys.
@@ -51,11 +53,17 @@ enum CommandBarAction {
 }
 
 enum CommandBarItemKind {
+    case repo
     case tab
     case pane
     case worktree
     case command
     case other
+}
+
+struct CommandBarItemSecondaryLine: Equatable, Sendable {
+    let text: String
+    let icon: CommandIcon?
 }
 
 // MARK: - CommandBarItem
@@ -65,6 +73,7 @@ struct CommandBarItem: Identifiable {
     let id: String
     let title: String
     let subtitle: String?
+    let secondaryLine: CommandBarItemSecondaryLine?
     let icon: CommandIcon?
     let iconColor: Color?
     let shortcutTrigger: ShortcutTrigger?
@@ -81,6 +90,7 @@ struct CommandBarItem: Identifiable {
         id: String,
         title: String,
         subtitle: String? = nil,
+        secondaryLine: CommandBarItemSecondaryLine? = nil,
         icon: CommandIcon? = nil,
         iconColor: Color? = nil,
         shortcutTrigger: ShortcutTrigger? = nil,
@@ -95,6 +105,7 @@ struct CommandBarItem: Identifiable {
         self.id = id
         self.title = title
         self.subtitle = subtitle
+        self.secondaryLine = secondaryLine
         self.icon = icon
         self.iconColor = iconColor
         self.shortcutTrigger = shortcutTrigger
@@ -115,7 +126,7 @@ struct CommandBarItem: Identifiable {
         switch action {
         case .worktreeAction(let presence):
             return presence.openState
-        case .dispatch, .dispatchTargeted, .navigate, .custom:
+        case .dispatch, .dispatchTargeted, .navigate, .navigateRepo, .custom:
             return nil
         }
     }
@@ -128,6 +139,8 @@ struct CommandBarItem: Identifiable {
             return .command
         case .navigate:
             return command == nil ? .other : .command
+        case .navigateRepo:
+            return .repo
         case .custom:
             return .other
         case .dispatchTargeted(let command, _, let targetType):

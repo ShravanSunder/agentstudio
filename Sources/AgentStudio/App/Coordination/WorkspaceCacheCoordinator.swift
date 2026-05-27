@@ -41,11 +41,10 @@ final class WorkspaceCacheCoordinator {
     func startConsuming() {
         guard consumeTask == nil else { return }
         consumeTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let stream = await self.bus.subscribe()
+            guard let stream = await self?.bus.subscribe() else { return }
             for await envelope in stream {
                 if Task.isCancelled { break }
-                self.consume(envelope)
+                self?.consume(envelope)
             }
         }
     }

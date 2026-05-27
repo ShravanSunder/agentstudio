@@ -11,16 +11,16 @@ struct CommandBarScopePill: View {
     var body: some View {
         HStack(spacing: 0) {
             Text(label)
-                .foregroundStyle(.primary.opacity(0.60))
+                .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.scopePillTextOpacity))
                 .lineLimit(1)
 
             Button(action: onDismiss) {
                 Text(" ⊗")
-                    .foregroundStyle(.primary.opacity(0.35))
+                    .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.scopePillDismissOpacity))
             }
             .buttonStyle(.plain)
         }
-        .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
+        .font(.system(size: AppStyles.CommandBar.Rows.scopePillFontSize, weight: .medium))
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(

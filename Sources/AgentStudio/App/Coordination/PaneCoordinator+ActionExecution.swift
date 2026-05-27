@@ -2,7 +2,6 @@ import AppKit
 
 @MainActor
 extension PaneCoordinator {
-    private static var nextWorkspaceActivitySeq: UInt64 = 0
     private static let defaultGitHubURL = URL(string: "https://github.com")!
 
     static func computeSwitchArrangementTransitions(
@@ -719,11 +718,11 @@ extension PaneCoordinator {
     }
 
     private func postRecentTargetOpened(target: RecentWorkspaceTarget) {
-        Self.nextWorkspaceActivitySeq += 1
+        let seq = WorkspaceActivitySequence.next()
         let envelope = RuntimeEnvelope.system(
             SystemEnvelope(
                 source: .builtin(.coordinator),
-                seq: Self.nextWorkspaceActivitySeq,
+                seq: seq,
                 timestamp: .now,
                 event: .workspaceActivity(.recentTargetOpened(target))
             )

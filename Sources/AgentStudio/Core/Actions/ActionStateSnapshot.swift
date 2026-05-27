@@ -16,12 +16,14 @@ struct TabSnapshot: Equatable {
     let activePaneId: UUID?
     let activeArrangementId: UUID?
     let arrangements: [ArrangementSnapshot]
+    let isLayoutSplit: Bool
 
     init(
         id: UUID,
         visiblePaneIds: [UUID],
         ownedPaneIds: [UUID],
         activePaneId: UUID?,
+        isLayoutSplit: Bool? = nil,
         activeArrangementId: UUID? = nil,
         arrangements: [ArrangementSnapshot] = []
     ) {
@@ -31,9 +33,10 @@ struct TabSnapshot: Equatable {
         self.activePaneId = activePaneId
         self.activeArrangementId = activeArrangementId
         self.arrangements = arrangements
+        self.isLayoutSplit = isLayoutSplit ?? (visiblePaneIds.count > 1)
     }
 
-    var isSplit: Bool { visiblePaneIds.count > 1 }
+    var isSplit: Bool { isLayoutSplit }
     var visiblePaneCount: Int { visiblePaneIds.count }
     var ownedPaneCount: Int { ownedPaneIds.count }
 

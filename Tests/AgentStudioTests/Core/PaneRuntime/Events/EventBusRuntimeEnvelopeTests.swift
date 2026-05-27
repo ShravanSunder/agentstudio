@@ -83,6 +83,30 @@ struct EventBusRuntimeEnvelopeTests {
         #expect(coolSeqs == [1, 2, 3])
     }
 
+    @Test("replay source eviction removes closed pane history")
+    func replaySourceEvictionRemovesClosedPaneHistory() async {
+        let bus = EventBus<RuntimeEnvelope>(
+            replayConfiguration: .init(
+                capacityPerSource: 256,
+                sourceKey: { envelope in
+                    envelope.source.description
+                }
+            )
+        )
+        let evictedPane = PaneId()
+        let retainedPane = PaneId()
+
+        _ = await bus.post(makePaneEnvelope(paneId: evictedPane, seq: 1))
+        _ = await bus.post(makePaneEnvelope(paneId: retainedPane, seq: 2))
+        await bus.evictReplay(sourceKey: EventSource.pane(evictedPane).description)
+
+        let stream = await bus.subscribe(bufferingPolicy: .unbounded)
+        var iterator = stream.makeAsyncIterator()
+        let envelope = await iterator.next()
+
+        #expect(envelope?.source == .pane(retainedPane))
+    }
+
     @Test("replay drops are counted when subscriber buffering is smaller than replay snapshot")
     func replayDropsAreCountedForSmallSubscriberBuffer() async {
         let bus = EventBus<RuntimeEnvelope>(

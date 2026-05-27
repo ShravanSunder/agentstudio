@@ -276,6 +276,23 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutDecoder_decodesPaneNoteAndCurrentPathShortcuts() {
+        let editNote = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.n), modifiers: [.command, .option, .shift]),
+            in: .global
+        )
+        let copyPath = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.o), modifiers: [.command, .option, .shift]),
+            in: .terminalAppOwned
+        )
+
+        #expect(editNote == .editPaneNote)
+        #expect(copyPath == .copyCurrentPanePath)
+        #expect(AppShortcut.editPaneNote.command == .editPaneNote)
+        #expect(AppShortcut.copyCurrentPanePath.command == .copyCurrentPanePath)
+    }
+
+    @Test
     func watchFolder_hasNoKeyboardShortcut() {
         let shortcuts = AppShortcut.allCases.filter { $0.command == .watchFolder }
 
