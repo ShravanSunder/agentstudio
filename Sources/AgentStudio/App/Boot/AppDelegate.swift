@@ -380,6 +380,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindowController?.completeLaunchPresentation()
         observeLaunchRestoreReadiness()
         wireLifecycleConsumers()
+        // Install persistence-store observation AFTER all synchronous boot mutations
+        // (canonical restore, pruneStaleCache, window setup, lifecycle wiring) so the
+        // boot window does not spawn debounce Tasks that race with cleanupOrphanZmxSessions.
+        // Workaround for Swift 6.2 / macOS 26.4 LIFO assertion (swift#84793, firebase#15994).
+        repoCacheStore.startObserving()
+        sidebarCacheStore.startObserving()
+        uiStateStore.startObserving()
         if let window = mainWindowController?.window {
             RestoreTrace.log(
                 "mainWindow showWindow frame=\(NSStringFromRect(window.frame)) content=\(NSStringFromRect(window.contentLayoutRect))"

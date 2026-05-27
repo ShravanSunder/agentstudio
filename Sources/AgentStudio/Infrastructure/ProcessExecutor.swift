@@ -1,5 +1,5 @@
 import Darwin
-@preconcurrency import Dispatch
+import Dispatch
 import Foundation
 import os
 
@@ -101,140 +101,110 @@ struct DefaultProcessExecutor: ProcessExecutor {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let stdoutBuffer = LockedDataBuffer()
-        let stderrBuffer = LockedDataBuffer()
-
-        let (terminationStream, terminationContinuation) = AsyncStream.makeStream(of: Int32.self)
-        let (stdoutEOFStream, stdoutEOFContinuation) = AsyncStream.makeStream(of: Void.self)
-        let (stderrEOFStream, stderrEOFContinuation) = AsyncStream.makeStream(of: Void.self)
-
-        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else {
-                handle.readabilityHandler = nil
-                stdoutEOFContinuation.yield(())
-                stdoutEOFContinuation.finish()
-                return
-            }
-            stdoutBuffer.append(chunk)
-        }
-
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else {
-                handle.readabilityHandler = nil
-                stderrEOFContinuation.yield(())
-                stderrEOFContinuation.finish()
-                return
-            }
-            stderrBuffer.append(chunk)
-        }
-
-        process.terminationHandler = { terminatedProcess in
-            terminationContinuation.yield(terminatedProcess.terminationStatus)
-            terminationContinuation.finish()
-        }
-
         try process.run()
 
-        // Track whether our timeout killed the process (vs. normal exit/other signal).
-        let timedOut = LockedFlag()
-
-        // Schedule a timeout that terminates the process if it hangs.
         let timeoutSeconds = timeout
         let hardKillGraceSeconds: TimeInterval = 0.2
-        let timeoutTask = Task { [process] in
-            do {
+
+        // Race the process's wait+read against a sleep timer.
+        // Avoids withCheckedThrowingContinuation (swift#84793) and AsyncStream
+        // continuations yielded from libdispatch handlers (foundation#3276).
+        return try await withThrowingTaskGroup(of: ExecutionOutcome.self) { group in
+            group.addTask {
+                await Self.waitAndReadAll(
+                    process: process,
+                    stdoutPipe: stdoutPipe,
+                    stderrPipe: stderrPipe
+                )
+            }
+            group.addTask {
                 try await Task.sleep(for: .seconds(timeoutSeconds))
-            } catch {
-                return
+                return .timedOut
             }
 
-            guard process.isRunning else { return }
-            processLogger.warning("Process '\(command)' exceeded \(Int(timeoutSeconds))s timeout — terminating")
-            timedOut.set()
-            process.terminate()
-
-            do {
-                try await Task.sleep(for: .seconds(hardKillGraceSeconds))
-            } catch {
-                return
+            guard let first = try await group.next() else {
+                throw ProcessError.timedOut(command: command, seconds: timeoutSeconds)
             }
+            group.cancelAll()
 
-            guard process.isRunning else { return }
-            processLogger.warning(
-                "Process '\(command)' ignored terminate() after \(hardKillGraceSeconds, privacy: .public)s — forcing SIGKILL"
-            )
-            let pid = process.processIdentifier
-            if pid > 0 {
-                _ = kill(pid, SIGKILL)
+            switch first {
+            case .completed(let exitCode, let stdoutData, let stderrData):
+                return ProcessResult(
+                    exitCode: Int(exitCode),
+                    stdout: Self.decodeAndTrim(stdoutData),
+                    stderr: Self.decodeAndTrim(stderrData)
+                )
+            case .timedOut:
+                processLogger.warning(
+                    "Process '\(command, privacy: .public)' exceeded \(Int(timeoutSeconds))s timeout — terminating"
+                )
+                if process.isRunning {
+                    process.terminate()
+                }
+                try? await Task.sleep(for: .seconds(hardKillGraceSeconds))
+                if process.isRunning {
+                    processLogger.warning(
+                        "Process '\(command, privacy: .public)' ignored terminate() after \(hardKillGraceSeconds, privacy: .public)s — forcing SIGKILL"
+                    )
+                    let pid = process.processIdentifier
+                    if pid > 0 {
+                        _ = kill(pid, SIGKILL)
+                    }
+                }
+                throw ProcessError.timedOut(command: command, seconds: timeoutSeconds)
             }
         }
+    }
 
-        var terminationIterator = terminationStream.makeAsyncIterator()
-        var stdoutEOFIterator = stdoutEOFStream.makeAsyncIterator()
-        var stderrEOFIterator = stderrEOFStream.makeAsyncIterator()
+    private enum ExecutionOutcome: Sendable {
+        case completed(exitCode: Int32, stdout: Data, stderr: Data)
+        case timedOut
+    }
 
-        let terminationStatus = await terminationIterator.next()
-        timeoutTask.cancel()
+    /// Blocks the calling thread on `waitUntilExit()` and drains both pipes
+    /// concurrently via libdispatch reads. Must run off the caller's executor;
+    /// `@concurrent` forces escape to the global concurrent executor per SE-0461.
+    @concurrent
+    nonisolated private static func waitAndReadAll(
+        process: Process,
+        stdoutPipe: Pipe,
+        stderrPipe: Pipe
+    ) async -> ExecutionOutcome {
+        let stdoutBuffer = ReadBuffer()
+        let stderrBuffer = ReadBuffer()
+        let group = DispatchGroup()
 
-        _ = await stdoutEOFIterator.next()
-        _ = await stderrEOFIterator.next()
-
-        stdoutPipe.fileHandleForReading.readabilityHandler = nil
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
-
-        guard let terminationStatus else {
-            throw ProcessError.timedOut(command: command, seconds: timeoutSeconds)
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stdoutBuffer.data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
         }
 
-        if timedOut.value {
-            throw ProcessError.timedOut(command: command, seconds: timeoutSeconds)
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stderrBuffer.data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
         }
 
-        return ProcessResult(
-            exitCode: Int(terminationStatus),
-            stdout: stdoutBuffer.utf8String,
-            stderr: stderrBuffer.utf8String
+        process.waitUntilExit()
+        group.wait()
+
+        return .completed(
+            exitCode: process.terminationStatus,
+            stdout: stdoutBuffer.data,
+            stderr: stderrBuffer.data
         )
     }
-}
 
-// MARK: - LockedFlag
-
-/// Thread-safe boolean flag for cross-thread signaling (e.g. timeout detection).
-final class LockedFlag: @unchecked Sendable {
-    private var _value = false
-    private let lock = NSLock()
-
-    var value: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return _value
-    }
-
-    func set() {
-        lock.lock()
-        _value = true
-        lock.unlock()
+    private static func decodeAndTrim(_ data: Data) -> String {
+        (String(data: data, encoding: .utf8) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
-final class LockedDataBuffer: @unchecked Sendable {
-    private var data = Data()
-    private let lock = NSLock()
-
-    func append(_ chunk: Data) {
-        lock.lock()
-        data.append(chunk)
-        lock.unlock()
-    }
-
-    var utf8String: String {
-        lock.lock()
-        let snapshot = data
-        lock.unlock()
-        return String(data: snapshot, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
+/// Synchronization handoff for pipe-drain DispatchQueue blocks. The DispatchGroup
+/// provides happens-before between the writer and reader, so plain unchecked
+/// Sendable is correct here.
+private final class ReadBuffer: @unchecked Sendable {
+    var data = Data()
 }

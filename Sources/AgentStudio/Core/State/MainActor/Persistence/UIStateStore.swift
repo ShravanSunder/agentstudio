@@ -31,6 +31,12 @@ final class UIStateStore {
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
         self.recoveryReporter = recoveryReporter
+    }
+
+    /// Begin observing atom mutations for debounced autosave. Must be called by the
+    /// owner after all boot-time mutations have settled. See `RepoCacheStore.startObserving`
+    /// for the rationale (Swift 6.2 / macOS 26.4 LIFO assertion).
+    func startObserving() {
         observeUIState()
     }
 

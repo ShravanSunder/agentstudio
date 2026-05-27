@@ -100,6 +100,7 @@ struct RepoCacheStoreTests {
         )
 
         store.restore(for: workspaceId)
+        store.startObserving()
         atom.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))

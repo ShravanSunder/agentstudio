@@ -323,6 +323,7 @@ struct UIStateStoreTests {
         )
 
         store.restore(for: workspaceAId)
+        store.startObserving()
         atom.setFilterText("workspace-a-draft")
         await clock.waitForPendingSleepCount()
         store.restore(for: workspaceBId)

@@ -44,6 +44,7 @@ struct SidebarCacheStoreTests {
             persistDebounceDuration: .zero
         )
         store.restore(for: workspaceId)
+        store.startObserving()
 
         atom.setGroupExpanded(SidebarGroupKey("repo:agent-studio"), isExpanded: true)
 
@@ -78,6 +79,7 @@ struct SidebarCacheStoreTests {
         )
 
         store.restore(for: workspaceAId)
+        store.startObserving()
         atom.setGroupExpanded(SidebarGroupKey("repo:workspace-a"), isExpanded: true)
         await clock.waitForPendingSleepCount()
         store.restore(for: workspaceBId)
