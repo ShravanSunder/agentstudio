@@ -66,7 +66,7 @@ struct CollapsedPaneBar: View {
 
         VStack(spacing: AppStyles.General.Spacing.standard) {
             if managementLayer.isActive, let ordinal {
-                ManagementOrdinalShortcutHint(ordinal: ordinal)
+                ManagementOrdinalShortcutHint(ordinal: ordinal, variant: .collapsedBar)
             }
 
             expandButton
@@ -224,8 +224,12 @@ struct CollapsedPaneBar: View {
         let presentationAtom = atom(\.arrangementPanelPresentation)
         guard
             let request = presentationAtom.pendingRequest,
-            request.tabId == tabId,
-            request.workspaceWindowId == workspaceWindowId
+            let workspaceWindowId,
+            request.matches(
+                tabId: tabId,
+                workspaceWindowId: workspaceWindowId,
+                placement: .collapsedBar(paneId: paneId)
+            )
         else { return }
 
         isArrangementPanelPresented = true
@@ -251,7 +255,7 @@ struct CollapsedPaneBar: View {
                         .foregroundStyle(.tertiary)
                 }
 
-                HStack(spacing: AppStyles.General.Spacing.tight) {
+                HStack(spacing: iconTextSpacing(for: part.iconTextSpacing)) {
                     iconView(for: part.icon)
                         .foregroundStyle(iconTint)
 
@@ -309,6 +313,15 @@ struct CollapsedPaneBar: View {
             return Color.primary.opacity(0.92)
         case .regular:
             return Color.secondary.opacity(0.92)
+        }
+    }
+
+    private func iconTextSpacing(for spacing: CollapsedBarLabelPart.IconTextSpacing) -> CGFloat {
+        switch spacing {
+        case .tight:
+            AppStyles.General.Spacing.tight
+        case .loose:
+            AppStyles.General.Spacing.loose
         }
     }
 

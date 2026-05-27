@@ -1,4 +1,4 @@
-// swiftlint:disable cyclomatic_complexity
+// swiftlint:disable cyclomatic_complexity function_body_length
 import Foundation
 
 /// Resolves workspace commands into fully-specified pane actions.
@@ -126,7 +126,39 @@ enum WorkspaceCommandResolver {
             else { return nil }
             return .expandPane(tabId: tab.id, paneId: paneId)
 
-        default:
+        case .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9:
+            return nil
+
+        case .watchFolder, .removeRepo,
+            .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
+            .clearPaneInboxNotifications,
+            .showWorktreeSidebar,
+            .newFloatingTerminal,
+            .newTerminalInTab, .newTab, .undoCloseTab,
+            .newWindow, .closeWindow,
+            .showCommandBarEverything, .showCommandBarCommands,
+            .showCommandBarPanes, .showCommandBarRepos,
+            .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
+            .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
+            .openWebview, .signInGitHub, .signInGoogle,
+            .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
+            .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement, .saveArrangement,
+            .deleteArrangement, .renameArrangement,
+            .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown,
+            .focusDrawerPaneRight,
+            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
+            .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
+            .focusDrawerPane9,
+            .detachDrawerPane,
+            .addDrawerPane, .toggleDrawer,
+            .navigateDrawerPane, .closeDrawerPane,
+            .toggleManagementLayer,
+            .managementLayerFocusLeft, .managementLayerFocusRight,
+            .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
             return nil
         }
     }
@@ -144,7 +176,7 @@ enum WorkspaceCommandResolver {
             .showCommandBarEverything, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
-            .openPaneLocationInEditorMenu,
+            .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
             .openWebview, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement, .saveArrangement,
@@ -249,6 +281,7 @@ enum WorkspaceCommandResolver {
                     visiblePaneIds: visiblePaneIds(tab),
                     ownedPaneIds: tab.ownedPaneIds,
                     activePaneId: tab.activePaneId,
+                    isLayoutSplit: tab.isSplit,
                     activeArrangementId: tab.validationActiveArrangementId,
                     arrangements: tab.arrangementSnapshots
                 )

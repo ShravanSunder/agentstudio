@@ -441,16 +441,4 @@ enum WorkspaceCommandValidator {
 
         return .arrangementNotFound(tabId: tabId, arrangementId: activeArrangementId)
     }
-
-    /// Validate that a pane is not already present in any layout.
-    /// Enforces invariant #3: each paneId at most once across all layouts.
-    static func validatePaneCardinality(
-        paneId: UUID,
-        state: ActionStateSnapshot
-    ) -> Result<Void, ActionValidationError> {
-        if state.allOwnedPaneIds.contains(paneId) {
-            return .failure(.paneAlreadyInLayout(paneId: paneId))
-        }
-        return .success(())
-    }
 }

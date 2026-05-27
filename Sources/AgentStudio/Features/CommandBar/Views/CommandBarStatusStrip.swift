@@ -28,7 +28,7 @@ struct CommandBarStatusStrip: View {
                     Text(label)
                         .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                 }
-                .foregroundStyle(.primary.opacity(0.35))
+                .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.statusContextOpacity))
             }
         }
         .padding(.horizontal, 12)

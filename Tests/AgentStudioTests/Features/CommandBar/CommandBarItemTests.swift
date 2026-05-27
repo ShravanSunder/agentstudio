@@ -169,6 +169,7 @@ struct CommandBarItemTests {
         #expect(item.id == "test-item")
         #expect(item.title == "Test Item")
         #expect(item.subtitle == nil)
+        #expect(item.secondaryLine == nil)
         #expect(item.icon == .system(.terminal))
         #expect(item.iconColor == nil)
         #expect(item.shortcutKeys == nil)
@@ -206,6 +207,10 @@ struct CommandBarItemTests {
             id: "close-tab",
             title: "Close Tab",
             subtitle: "Tab 1",
+            secondaryLine: CommandBarItemSecondaryLine(
+                text: "release smoke",
+                icon: .system(.longTextPageAndPencil)
+            ),
             icon: .system(.xmark),
             iconColor: .red,
             shortcutKeys: keys,
@@ -220,6 +225,12 @@ struct CommandBarItemTests {
         #expect(item.id == "close-tab")
         #expect(item.title == "Close Tab")
         #expect(item.subtitle == "Tab 1")
+        #expect(
+            item.secondaryLine
+                == CommandBarItemSecondaryLine(
+                    text: "release smoke",
+                    icon: .system(.longTextPageAndPencil)
+                ))
         #expect(item.icon == .system(.xmark))
         #expect(item.iconColor == Color.red)
         #expect(item.shortcutKeys?.count == 2)

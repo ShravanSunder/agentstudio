@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio is a macOS terminal application that embeds Ghostty terminal surfaces within a project/worktree management shell. The app uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. State is distributed across independent `@Observable` stores (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style), including app/window lifecycle stores owned by a thin AppKit ingress monitor. A coordinator pattern (`PaneCoordinator`) sequences cross-store operations. Panes are the primary identity — they exist independently of layout, view, or surface. Actions flow through a validated pipeline, and persistence is debounced.
+Agent Studio is a macOS terminal application that embeds Ghostty terminal surfaces within a project/worktree management shell. The app uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. Canonical mutable state is distributed across independent `@MainActor @Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). Persistence wrappers such as `WorkspaceStore`, `RepoCacheStore`, and `UIStateStore` wrap atoms instead of owning broad domains directly. `PaneCoordinator` sequences cross-store and cross-feature operations from the App composition root. Panes are the primary identity — they exist independently of layout, view, or surface. Actions flow through a validated pipeline, and persistence is debounced.
 
 ## System Overview
 
@@ -10,10 +10,11 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 ┌────────────────────────────────────────────────────────────────────────┐
 │                            AppDelegate                                  │
 │                                                                        │
-│  STORES (each @Observable, private(set))                               │
+│  PERSISTENCE WRAPPERS OVER MAIN-ACTOR ATOMS                           │
 │  ┌───────────────┐  ┌─────────────────┐  ┌───────────────┐            │
-│  │WorkspaceStore │  │WorkspaceRepo    │  │WorkspaceUI    │            │
-│  │ (canonical)   │  │Cache (enrichment)│  │Store (prefs)  │            │
+│  │WorkspaceStore │  │RepoCacheStore   │  │UIStateStore   │            │
+│  │metadata/topol │  │RepoCacheAtom    │  │UIStateAtom    │            │
+│  │pane/tab atoms │  │(enrichment)     │  │(app shell)    │            │
 │  └───────┬───────┘  └────────┬────────┘  └───────────────┘            │
 │          │                   │                                         │
 │  ┌───────┴──────────┐  ┌─────┴────────────┐                           │
@@ -49,7 +50,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 ## Architecture Principles
 
 - **Pane as primary entity** — `Pane` is the stable identity across model, runtime, view registry, surface metadata, and restore flows
-- **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (canonical associations), `RepoCacheAtom` (derived enrichment), `UIStateAtom` (presentation prefs + sidebar composition state), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change. Feature atoms live inside their feature slice at `Features/<slice>/State/MainActor/Atoms/` — see [directory_structure.md — Feature Slice Self-Containment](directory_structure.md).
+- **Atomic stores (Jotai-style)** — Each domain has its own `@MainActor @Observable` atom: workspace metadata, repository topology, pane registry, tab layout, repo enrichment, UI shell state, app lifecycle, window lifecycle, terminal surfaces, runtime status, and feature-local state. No god-store. Each atom owns one domain and has one reason to change. Persistence wrappers save atom groups to disk. Feature atoms live inside their feature slice at `Features/<slice>/State/MainActor/Atoms/` — see [directory_structure.md — Feature Slice Self-Containment](directory_structure.md).
 - **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
 - **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
 - **Lifecycle ingress stays separate** — `ApplicationLifecycleMonitor` owns AppKit ingress only. It mutates `AppLifecycleAtom` and `WindowLifecycleAtom`, both `@Observable` atomic stores with `private(set)` mutation surfaces. `WindowLifecycleAtom` holds transient window facts only: key/focus state, terminal container bounds, launch-layout-settle state, and derived readiness; none of those readiness properties are persisted.
@@ -57,6 +58,13 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 - **Surface independence** — Ghostty surfaces are ephemeral runtime resources; the model layer never holds `NSView` references
 - **@MainActor everywhere** — Thread safety enforced at compile time, no runtime races
 - **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
+
+Current atom vocabulary:
+
+- **Atoms** own mutable state and synchronous domain operations, for example `WorkspaceMetadataAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`, `RepoCacheAtom`, `UIStateAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms.
+- **Persistence wrappers** own load/save boundaries and debounced disk I/O, for example `WorkspaceStore`, `RepoCacheStore`, `SidebarCacheStore`, and `UIStateStore`.
+- **Derived readers** compute projections without owning data, for example `WorkspaceFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
+- **Coordinators** sequence mutations across atoms/stores and runtime systems. They own no durable domain state.
 
 ## Coordination Planes
 
@@ -76,17 +84,11 @@ The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain is 
 ## Data Model at a Glance
 
 ```
-WorkspaceStore (canonical associations — workspace.state.json)
-├── repos: [Repo]
-│   └── worktrees: [Worktree]          ← structure-only: id, repoId, name, path, isMainWorktree
-├── panes: [Pane]                       ← primary pane identities
-│   ├── source: .worktree | .floating
-│   ├── provider: .ghostty | .zmx
-│   ├── lifetime: .persistent | .temporary
-│   └── residency: .active | .pendingUndo | .backgrounded
-└── tabs: [Tab]
-    └── layout: Layout                  ← pure value-type split tree
-        └── Node: .leaf(paneId) | .split(Split)
+WorkspaceStore (workspace.state.json persistence wrapper)
+├── WorkspaceMetadataAtom               ← workspace identity and window/sidebar metadata
+├── WorkspaceRepositoryTopologyAtom     ← repos, worktrees, watched paths, availability
+├── WorkspacePaneAtom                   ← panes, metadata/content/residency, drawers
+└── WorkspaceTabLayoutAtom              ← tabs, arrangements, active selection, layout
 
 RepoCacheAtom (derived enrichment — workspace.cache.json, rebuildable)
 ├── repoEnrichmentByRepoId             ← origin, identity, groupKey, displayName
@@ -150,7 +152,7 @@ Each document owns a specific concern. No two documents are authoritative for th
 | [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Four-file model (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Remote zmx daemons and fork strategy | SSH tunnel architecture (Option C), security model, connection lifecycle, case for forking zmx |
 | [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |
-| [Swift-React Bridge](swift_react_bridge_design.md) | Bridge transport for React panes | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation |
+| [Swift-React Bridge](swift_react_bridge_design.md) | Bridge architecture and current LUNA-337 status | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation, read-only CodeView/Shiki review surface, and explicit implemented-vs-planned bridge delivery boundaries |
 | [JTBD & Requirements](jtbd_and_requirements.md) | Product requirements | Jobs to be done, pain points, and requirements for the dynamic window system |
 
 ## Related
@@ -158,3 +160,4 @@ Each document owns a specific concern. No two documents are authoritative for th
 - Component note: `SharedComponents/EditorChooser/` owns the reusable numbered editor chooser menu content and bookmark UI used by host shells such as the drawer toolbar.
 - [Style Guide](../guides/style_guide.md) — macOS design conventions and visual standards
 - [Agent Resources](../guides/agent_resources.md) — Setup procedures, DeepWiki sources, and research guidance
+- Platform docs used by this architecture: [Swift](https://www.swift.org/documentation/), [Swift Package Manager](https://docs.swift.org/package-manager/), [AppKit](https://developer.apple.com/documentation/appkit), [SwiftUI](https://developer.apple.com/documentation/swiftui), [Observation](https://developer.apple.com/documentation/observation), [WebKit](https://developer.apple.com/documentation/webkit), and [Designing for macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos).

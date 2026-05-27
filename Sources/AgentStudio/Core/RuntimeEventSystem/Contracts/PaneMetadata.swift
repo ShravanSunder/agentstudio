@@ -67,6 +67,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
     private(set) var title: String
     private(set) var facets: PaneContextFacets
     private(set) var checkoutRef: String?
+    private(set) var note: String?
 
     init(
         paneId: PaneId = PaneId(),
@@ -76,7 +77,8 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         createdAt: Date = Date(),
         title: String = "Terminal",
         facets: PaneContextFacets = .empty,
-        checkoutRef: String? = nil
+        checkoutRef: String? = nil,
+        note: String? = nil
     ) {
         self.paneId = paneId
         self.contentType = contentType
@@ -91,6 +93,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         )
         self.facets = facets.fillingNilFields(from: sourceFacets)
         self.checkoutRef = checkoutRef
+        self.note = Self.normalizedNote(note)
     }
 
     var terminalSource: TerminalSource {
@@ -117,6 +120,10 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         checkoutRef = newCheckoutRef
     }
 
+    mutating func updateNote(_ newNote: String?) {
+        note = Self.normalizedNote(newNote)
+    }
+
     mutating func updateTags(_ newTags: [String]) {
         facets.tags = newTags
     }
@@ -133,7 +140,8 @@ struct PaneMetadata: Codable, Hashable, Sendable {
             createdAt: createdAt,
             title: title,
             facets: facets,
-            checkoutRef: checkoutRef
+            checkoutRef: checkoutRef,
+            note: note
         )
     }
 
@@ -168,6 +176,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         case title
         case facets
         case checkoutRef
+        case note
     }
 
     init(from decoder: Decoder) throws {
@@ -181,5 +190,12 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         self.title = try container.decode(String.self, forKey: .title)
         self.facets = try container.decode(PaneContextFacets.self, forKey: .facets)
         self.checkoutRef = try container.decodeIfPresent(String.self, forKey: .checkoutRef)
+        self.note = Self.normalizedNote(try container.decodeIfPresent(String.self, forKey: .note))
+    }
+
+    private static func normalizedNote(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

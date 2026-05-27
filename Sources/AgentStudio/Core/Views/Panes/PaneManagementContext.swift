@@ -153,6 +153,17 @@ struct PaneManagementContext: Equatable {
             )
         }
 
+        if let note = displayParts.note {
+            rows.append(
+                PaneManagementIdentityRow(
+                    id: "note",
+                    icon: .system("long.text.page.and.pencil"),
+                    text: note,
+                    toolTip: note
+                )
+            )
+        }
+
         if rows.isEmpty, let fallback = displayParts.cwdFolderName ?? displayParts.primaryLabel.nilIfEmpty {
             rows.append(
                 PaneManagementIdentityRow(
@@ -182,12 +193,7 @@ struct PaneManagementContext: Equatable {
             }
         }
 
-        let components = normalizedTarget.split(separator: "/")
-        if components.count >= 2 {
-            return "…/" + components.suffix(2).joined(separator: "/")
-        }
-
-        return targetPath.lastPathComponent.isEmpty ? normalizedTarget : targetPath.lastPathComponent
+        return normalizedTarget
     }
 }
 

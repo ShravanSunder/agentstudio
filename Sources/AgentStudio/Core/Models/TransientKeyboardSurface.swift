@@ -14,6 +14,7 @@ enum TransientKeyboardSurfaceKind: Equatable, Sendable {
     case arrangementRename(tabId: UUID, arrangementId: UUID)
     case paneInbox(parentPaneId: UUID)
     case editorChooser(paneId: UUID)
+    case paneNote(paneId: UUID)
 
     var defaultPolicy: TransientKeyboardSurfacePolicy {
         switch self {
@@ -28,6 +29,8 @@ enum TransientKeyboardSurfaceKind: Equatable, Sendable {
             return .dismissable(dismissTriggers: [AppShortcut.showPaneInboxNotifications.trigger])
         case .editorChooser:
             return .dismissable(dismissTriggers: [AppShortcut.openPaneLocationInEditorMenu.trigger])
+        case .paneNote:
+            return .dismissable(dismissTriggers: [AppShortcut.editPaneNote.trigger])
         case .tabRename:
             // TabRenamePopover owns Return/Escape inside its AppKit text editor.
             // Keep the generic transient bridge out of that local responder loop.

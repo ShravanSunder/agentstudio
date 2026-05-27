@@ -302,6 +302,40 @@ struct UIStateStoreTests {
     }
 
     @Test
+    func restore_cancelsPendingDebouncedSaveForPreviousWorkspace() async throws {
+        let workspaceAId = UUID()
+        let workspaceBId = UUID()
+        try persistor.saveUI(
+            .init(
+                workspaceId: workspaceBId,
+                filterText: "workspace-b",
+                isFilterVisible: true
+            )
+        )
+        let atom = UIStateAtom()
+        let clock = TestPushClock()
+        let store = UIStateStore(
+            atom: atom,
+            editorChooserAtom: EditorChooserAtom(),
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
+
+        store.restore(for: workspaceAId)
+        atom.setFilterText("workspace-a-draft")
+        await clock.waitForPendingSleepCount()
+        store.restore(for: workspaceBId)
+        clock.advance(by: .milliseconds(10))
+        await Task.yield()
+
+        guard case .missing = persistor.loadUI(for: workspaceAId) else {
+            Issue.record("Expected stale workspace A debounce to be cancelled")
+            return
+        }
+    }
+
+    @Test
     func setBookmarkedEditor_nilClearsStoredBookmark() {
         let atom = EditorChooserAtom()
 

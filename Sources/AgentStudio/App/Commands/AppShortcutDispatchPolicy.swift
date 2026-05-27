@@ -83,8 +83,9 @@ enum AppShortcutDispatchPolicy {
             .focusDrawerPane8, .focusDrawerPane9, .detachDrawerPane, .addDrawerPane,
             .toggleDrawer, .navigateDrawerPane, .closeDrawerPane,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
-            .openPaneLocationInEditorMenu, .watchFolder, .removeRepo, .openWorktree,
-            .openWorktreeInPane, .toggleManagementLayer, .managementLayerFocusLeft,
+            .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
+            .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane, .toggleManagementLayer,
+            .managementLayerFocusLeft,
             .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
             .managementLayerOpenDrawer, .managementLayerCreateTerminal,
             .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar,
@@ -105,15 +106,15 @@ enum AppShortcutDispatchPolicy {
         case .closeTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
             .previousArrangement, .nextArrangement, .addDrawerPane, .toggleDrawer, .scrollToBottom,
             .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
-            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .toggleManagementLayer,
-            .toggleSidebar, .filterSidebar, .showInboxNotifications, .showPaneInboxNotifications,
-            .showWorktreeSidebar, .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3,
-            .selectTab4, .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
-            .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
-            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
-            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
-            .managementLayerExit:
+            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
+            .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .filterSidebar,
+            .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
+            .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
+            .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9, .focusPane1,
+            .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6, .focusPane7,
+            .focusPane8, .focusPane9, .managementLayerFocusLeft, .managementLayerFocusRight,
+            .managementLayerEnterDrawer, .managementLayerExitDrawer, .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal, .managementLayerCreateBrowser, .managementLayerExit:
             return false
         }
     }
@@ -170,7 +171,7 @@ enum AppShortcutDispatchPolicy {
         switch surface {
         case .arrangementPanel:
             return shouldDispatchFromArrangementPanel(shortcut)
-        case .tabRename, .arrangementRename, .paneInbox, .editorChooser:
+        case .tabRename, .arrangementRename, .paneInbox, .editorChooser, .paneNote:
             return false
         }
     }
@@ -184,14 +185,15 @@ enum AppShortcutDispatchPolicy {
         case .closeTab, .undoCloseTab, .newTab, .showArrangementPanel, .addDrawerPane,
             .toggleDrawer, .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
-            .openPaneLocationInEditorMenu, .toggleManagementLayer, .toggleSidebar,
-            .filterSidebar, .showInboxNotifications, .showPaneInboxNotifications,
-            .showWorktreeSidebar, .showCommandBarEverything, .showCommandBarCommands,
-            .showCommandBarPanes, .newWindow, .closeWindow, .focusPane1, .focusPane2,
-            .focusPane3, .focusPane4, .focusPane5, .focusPane6, .focusPane7, .focusPane8,
-            .focusPane9, .managementLayerFocusLeft, .managementLayerFocusRight,
-            .managementLayerEnterDrawer, .managementLayerExitDrawer, .managementLayerOpenDrawer,
-            .managementLayerCreateTerminal, .managementLayerCreateBrowser, .managementLayerExit:
+            .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
+            .toggleManagementLayer, .toggleSidebar, .filterSidebar, .showInboxNotifications,
+            .showPaneInboxNotifications, .showWorktreeSidebar, .showCommandBarEverything,
+            .showCommandBarCommands, .showCommandBarPanes, .newWindow, .closeWindow,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
+            .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser, .managementLayerExit:
             return false
         }
     }
@@ -203,16 +205,16 @@ enum AppShortcutDispatchPolicy {
         case .toggleSidebar, .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab,
             .showArrangementPanel, .previousArrangement, .nextArrangement,
             .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
-            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .toggleManagementLayer,
-            .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
-            .newWindow, .closeWindow, .showCommandBarEverything, .showCommandBarCommands,
-            .showCommandBarPanes, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
-            .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
-            .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
-            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
-            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
-            .managementLayerExit:
+            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
+            .copyCurrentPanePath, .toggleManagementLayer, .showInboxNotifications,
+            .showPaneInboxNotifications, .showWorktreeSidebar, .newWindow, .closeWindow,
+            .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,
+            .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5, .selectTab6,
+            .selectTab7, .selectTab8, .selectTab9, .focusPane1, .focusPane2, .focusPane3,
+            .focusPane4, .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+            .managementLayerFocusLeft, .managementLayerFocusRight, .managementLayerEnterDrawer,
+            .managementLayerExitDrawer, .managementLayerOpenDrawer, .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser, .managementLayerExit:
             return true
         }
     }
@@ -230,14 +232,14 @@ enum AppShortcutDispatchPolicy {
         case .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab, .showArrangementPanel,
             .previousArrangement, .nextArrangement, .addDrawerPane, .toggleDrawer, .scrollToBottom,
             .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
-            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .toggleManagementLayer,
-            .showPaneInboxNotifications, .newWindow, .closeWindow, .selectTab1, .selectTab2,
-            .selectTab3, .selectTab4, .selectTab5, .selectTab6, .selectTab7, .selectTab8,
-            .selectTab9, .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
-            .focusPane6, .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
-            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
-            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
-            .managementLayerExit:
+            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
+            .copyCurrentPanePath, .toggleManagementLayer, .showPaneInboxNotifications,
+            .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
+            .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9, .focusPane1,
+            .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6, .focusPane7,
+            .focusPane8, .focusPane9, .managementLayerFocusLeft, .managementLayerFocusRight,
+            .managementLayerEnterDrawer, .managementLayerExitDrawer, .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal, .managementLayerCreateBrowser, .managementLayerExit:
             return false
         }
     }

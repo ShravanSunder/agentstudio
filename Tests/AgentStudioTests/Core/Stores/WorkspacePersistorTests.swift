@@ -66,6 +66,19 @@ final class WorkspacePersistorTests {
     }
 
     @Test
+    func test_loadMultipleCanonicalFiles_choosesDeterministicFilenameOrder() throws {
+        let laterId = UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")!
+        let earlierId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        try persistor.save(.init(id: laterId, name: "later"))
+        try persistor.save(.init(id: earlierId, name: "earlier"))
+
+        let loaded = persistor.load().value
+
+        #expect(loaded?.id == earlierId)
+        #expect(loaded?.name == "earlier")
+    }
+
+    @Test
     func test_saveAndLoad_withPanes() throws {
         // Arrange
         let pane = makePane(

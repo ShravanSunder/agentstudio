@@ -242,9 +242,28 @@ final class PaneCoordinator {
 
     private func onSurfaceCWDChanged(_ event: SurfaceManager.SurfaceCWDChangeEvent) {
         guard let paneId = event.paneId else { return }
-        store.paneAtom.updatePaneCWD(paneId, cwd: event.cwd)
-        if let cwd = event.cwd {
+        // Surface CWD events already arrive as file URLs from the hosting layer.
+        // Runtime envelopes carry raw shell strings, so that path normalizes at
+        // the runtime ingress before entering the shared atom update path.
+        updatePaneCWDAndResolvedContext(paneId: paneId, cwd: event.cwd)
+    }
+
+    private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {
+        let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
+        let updateResult = store.paneAtom.updatePaneCWDAndResolvedContext(
+            paneId,
+            cwd: cwd,
+            resolvedContext: resolvedContext
+        )
+        switch updateResult {
+        case .applied:
+            guard let cwd else { return }
             paneFilesystemProjectionStore.updatePaneCwd(paneId: paneId, newCwd: cwd)
+        case .unchanged:
+            return
+        case .paneMissing:
+            Self.logger.warning("cwd update ignored for missing pane \(paneId.uuidString, privacy: .public)")
+            return
         }
     }
 
@@ -430,9 +449,10 @@ final class PaneCoordinator {
         case .tabTitleChanged(let title):
             store.paneAtom.updatePaneTitle(sourcePaneUUID, title: title)
         case .cwdChanged(let cwdPath):
-            let cwd = URL(fileURLWithPath: cwdPath)
-            store.paneAtom.updatePaneCWD(sourcePaneUUID, cwd: cwd)
-            paneFilesystemProjectionStore.updatePaneCwd(paneId: sourcePaneUUID, newCwd: cwd)
+            // Runtime CWD is a shell string and may contain relative segments;
+            // normalize here so both runtime and surface facts converge in the
+            // shared pane identity update path below.
+            updatePaneCWDAndResolvedContext(paneId: sourcePaneUUID, cwd: CWDNormalizer.normalize(cwdPath))
         case .commandFinished(let exitCode, _):
             Self.logger.debug(
                 "Terminal commandFinished event received for pane \(sourcePaneUUID.uuidString, privacy: .public) exitCode=\(exitCode, privacy: .public)"

@@ -40,6 +40,7 @@ enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case globe = "globe"
     case house = "house"
     case line3Horizontal = "line.3.horizontal"
+    case longTextPageAndPencil = "long.text.page.and.pencil"
     case macwindowBadgePlus = "macwindow.badge.plus"
     case magnifyingglass = "magnifyingglass"
     case minusCircle = "minus.circle"

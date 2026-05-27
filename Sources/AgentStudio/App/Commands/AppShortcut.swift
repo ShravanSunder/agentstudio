@@ -178,6 +178,8 @@ enum AppShortcut: String, CaseIterable {
     case openPaneLocationInBookmarkedEditor
     case openPaneLocationInFinder
     case openPaneLocationInEditorMenu
+    case editPaneNote
+    case copyCurrentPanePath
     case toggleManagementLayer
     case toggleSidebar
     case filterSidebar
@@ -308,6 +310,16 @@ enum AppShortcut: String, CaseIterable {
         case .openPaneLocationInEditorMenu:
             return .init(
                 trigger: .init(key: .character(.o), modifiers: [.command, .option]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .editPaneNote:
+            return .init(
+                trigger: .init(key: .character(.n), modifiers: [.command, .option, .shift]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .copyCurrentPanePath:
+            return .init(
+                trigger: .init(key: .character(.o), modifiers: [.command, .option, .shift]),
                 contexts: [.global, .terminalAppOwned]
             )
         case .toggleManagementLayer:
@@ -466,6 +478,10 @@ enum AppShortcut: String, CaseIterable {
             return .openPaneLocationInFinder
         case .openPaneLocationInEditorMenu:
             return .openPaneLocationInEditorMenu
+        case .editPaneNote:
+            return .editPaneNote
+        case .copyCurrentPanePath:
+            return .copyCurrentPanePath
         case .toggleManagementLayer:
             return .toggleManagementLayer
         case .toggleSidebar:
@@ -554,16 +570,16 @@ extension AppShortcut {
         case .closeTab, .undoCloseTab, .newTab, .nextTab, .prevTab, .showArrangementPanel,
             .previousArrangement, .nextArrangement, .toggleDrawer, .scrollToBottom, .scrollPageUp,
             .jumpToPreviousPrompt, .jumpToNextPrompt, .openPaneLocationInBookmarkedEditor,
-            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .toggleManagementLayer,
-            .toggleSidebar, .filterSidebar, .showInboxNotifications, .showPaneInboxNotifications,
-            .showWorktreeSidebar, .newWindow, .closeWindow, .showCommandBarEverything,
-            .showCommandBarCommands, .showCommandBarPanes, .selectTab1, .selectTab2, .selectTab3,
-            .selectTab4, .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
-            .focusPane7, .focusPane8, .focusPane9, .managementLayerFocusLeft,
-            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
-            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
-            .managementLayerExit:
+            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
+            .copyCurrentPanePath, .toggleManagementLayer, .toggleSidebar, .filterSidebar,
+            .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
+            .newWindow, .closeWindow, .showCommandBarEverything, .showCommandBarCommands,
+            .showCommandBarPanes, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
+            .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9, .focusPane1,
+            .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6, .focusPane7,
+            .focusPane8, .focusPane9, .managementLayerFocusLeft, .managementLayerFocusRight,
+            .managementLayerEnterDrawer, .managementLayerExitDrawer, .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal, .managementLayerCreateBrowser, .managementLayerExit:
             return false
         }
     }

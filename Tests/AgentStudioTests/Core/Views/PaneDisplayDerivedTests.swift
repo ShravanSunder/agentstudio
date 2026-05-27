@@ -67,6 +67,44 @@ struct PaneDisplayDerivedTests {
         }
     }
 
+    @Test("pane note appears after location parts in collapsed label parts")
+    func paneNoteAppearsAfterLocationPartsInCollapsedLabelParts() {
+        withTestAtomRegistry { atoms in
+            let paneId = PaneId().uuid
+            var metadata = PaneMetadata(
+                source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/project-dev/agent-studio"), title: nil),
+                title: "Terminal"
+            )
+            metadata.updateNote("release smoke")
+            #expect(
+                atoms.workspacePane.insertRestoredPane(
+                    Pane(
+                        id: paneId, content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+                        metadata: metadata)))
+
+            let parts = PaneDisplayDerived().collapsedBarLabelParts(for: paneId)
+
+            #expect(parts.map(\.text) == ["agent-studio", "release smoke"])
+            #expect(parts.last?.icon == .system("long.text.page.and.pencil"))
+            #expect(parts.last?.weight == .semibold)
+        }
+    }
+
+    @Test("pane note participates in pane keywords")
+    func paneNoteParticipatesInPaneKeywords() {
+        var metadata = PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Terminal")
+        metadata.updateNote("gondolin auth logs")
+        let pane = Pane(
+            id: PaneId().uuid,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: metadata
+        )
+
+        let keywords = PaneDisplayDerived().paneKeywords(for: pane)
+
+        #expect(keywords.contains("gondolin auth logs"))
+    }
+
     @Test
     func accentColorHex_returnsStablePaletteEntry_forRepoBackedPane() {
         withTestAtomRegistry { atoms in

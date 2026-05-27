@@ -180,7 +180,7 @@ struct InboxNotificationStoreTests {
             recoveryReporter: { reportedRecovery = $0 }
         )
 
-        try? store.load()
+        try store.load()
 
         #expect(!FileManager.default.fileExists(atPath: url.path))
         #expect(atom.notifications.isEmpty)
@@ -225,9 +225,7 @@ struct InboxNotificationStoreTests {
             recoveryReporter: { reportedRecovery = $0 }
         )
 
-        #expect(throws: Error.self) {
-            try store.load()
-        }
+        try store.load()
 
         #expect(prefs.grouping == .byTab)
         #expect(prefs.bellEnabled == false)
@@ -305,9 +303,7 @@ struct InboxNotificationStoreTests {
             recoveryReporter: { reportedRecovery = $0 }
         )
 
-        #expect(throws: Error.self) {
-            try store.load()
-        }
+        try store.load()
 
         #expect(!FileManager.default.fileExists(atPath: url.path))
         #expect(atom.notifications.isEmpty)
@@ -316,6 +312,60 @@ struct InboxNotificationStoreTests {
         #expect(!prefs.bellEnabled)
         #expect(reportedRecovery?.store == .notificationInbox)
         #expect(reportedRecovery?.recovery == .quarantinedAndReset)
+    }
+
+    @Test("save cancels pending debounced save before writing final snapshot")
+    func saveCancelsPendingDebouncedSaveBeforeWritingFinalSnapshot() async throws {
+        let url = makeTempURL()
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        let clock = TestPushClock()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url,
+            clock: clock,
+            debounceDuration: .milliseconds(10)
+        )
+        let staleNotification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(),
+            kind: .agentDesktopNotification,
+            title: "Stale",
+            body: nil,
+            source: .global,
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+        let finalNotification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(),
+            kind: .agentDesktopNotification,
+            title: "Final",
+            body: nil,
+            source: .global,
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+
+        atom.append(staleNotification)
+        store.scheduleDebouncedSave()
+        await clock.waitForPendingSleepCount()
+        atom.append(finalNotification)
+        try await store.save()
+        #expect(clock.pendingSleepCount == 0)
+        clock.advance(by: .milliseconds(10))
+        await Task.yield()
+
+        let restoredAtom = InboxNotificationAtom()
+        let restoredStore = InboxNotificationStore(
+            inboxAtom: restoredAtom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            fileURL: url
+        )
+        try restoredStore.load()
+
+        #expect(restoredAtom.notifications.map(\.id) == [staleNotification.id, finalNotification.id])
     }
 
     @Test("load defaults bad preference fields independently")

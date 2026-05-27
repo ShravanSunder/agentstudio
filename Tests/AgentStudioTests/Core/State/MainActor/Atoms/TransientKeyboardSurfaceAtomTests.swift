@@ -68,6 +68,23 @@ struct TransientKeyboardSurfaceAtomTests {
                 == .arrangementRename(tabId: tabId, arrangementId: arrangementId))
     }
 
+    @Test("replace ignores stale tokens instead of appending leaked surfaces")
+    func replaceIgnoresStaleTokensInsteadOfAppendingLeakedSurfaces() {
+        let atom = TransientKeyboardSurfaceAtom()
+        let workspaceWindowId = UUID()
+        let existingToken = atom.present(.tabRename(tabId: UUID()), workspaceWindowId: workspaceWindowId)
+        let replacementKind = TransientKeyboardSurfaceKind.arrangementPanel(tabId: UUID())
+
+        atom.replace(
+            TransientKeyboardSurfaceToken(),
+            with: replacementKind,
+            workspaceWindowId: workspaceWindowId
+        )
+
+        #expect(atom.surfaces.map(\.token) == [existingToken])
+        #expect(atom.topSurface(for: workspaceWindowId)?.kind != replacementKind)
+    }
+
     @Test("surfaces preserve dismiss policy through present and replace")
     func surfacesPreserveDismissPolicyThroughPresentAndReplace() {
         let atom = TransientKeyboardSurfaceAtom()

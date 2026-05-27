@@ -125,6 +125,10 @@ actor EventBus<Envelope: Sendable> {
         droppedEventCount
     }
 
+    func evictReplay(sourceKey: String) {
+        replayBySource.removeValue(forKey: sourceKey)
+    }
+
     private func removeSubscriber(_ id: UUID) {
         subscribers.removeValue(forKey: id)
     }

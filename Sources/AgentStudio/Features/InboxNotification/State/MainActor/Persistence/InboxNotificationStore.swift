@@ -164,7 +164,7 @@ final class InboxNotificationStore {
                     quarantinedFilename: quarantinedURL?.lastPathComponent
                 )
             )
-            throw error
+            return
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -182,7 +182,7 @@ final class InboxNotificationStore {
                     quarantinedFilename: quarantinedURL?.lastPathComponent
                 )
             )
-            throw error
+            return
         }
 
         inboxAtom.replaceAll(payload.notifications)
@@ -193,23 +193,13 @@ final class InboxNotificationStore {
     }
 
     func save() async throws {
-        do {
-            let data = try encodedPayloadData()
-            try await Self.writePayloadData(data, to: fileURL)
-        } catch {
-            reportSaveFailed()
-            throw error
-        }
+        cancelPendingDebouncedSave()
+        try await persistCurrentPayloadAsync()
     }
 
     func flush() throws {
-        do {
-            let data = try encodedPayloadData()
-            try Self.writePayloadDataSynchronously(data, to: fileURL)
-        } catch {
-            reportSaveFailed()
-            throw error
-        }
+        cancelPendingDebouncedSave()
+        try persistCurrentPayloadSynchronously()
     }
 
     private func encodedPayloadData() throws -> Data {
@@ -260,10 +250,35 @@ final class InboxNotificationStore {
             }
             guard !Task.isCancelled else { return }
             do {
-                try await save()
+                try await persistCurrentPayloadAsync()
             } catch {
                 inboxNotificationStoreLogger.error("Inbox notification save failed: \(error)")
             }
+        }
+    }
+
+    private func cancelPendingDebouncedSave() {
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = nil
+    }
+
+    private func persistCurrentPayloadAsync() async throws {
+        do {
+            let data = try encodedPayloadData()
+            try await Self.writePayloadData(data, to: fileURL)
+        } catch {
+            reportSaveFailed()
+            throw error
+        }
+    }
+
+    private func persistCurrentPayloadSynchronously() throws {
+        do {
+            let data = try encodedPayloadData()
+            try Self.writePayloadDataSynchronously(data, to: fileURL)
+        } catch {
+            reportSaveFailed()
+            throw error
         }
     }
 

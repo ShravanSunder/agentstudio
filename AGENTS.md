@@ -55,7 +55,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 - `SharedComponents/`
   Reusable UI building blocks that are not themselves product features and do not own host placement. Use this for reusable menu content, row rendering, and small UI-facing models.
 - `Features/`
-  User-facing capability slices such as Terminal, Bridge, CommandBar, Sidebar, and Webview. Features own capability-specific behavior that is broader than a reusable component.
+  User-facing capability slices such as Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification, and feature-owned EditorChooser state. Features own capability-specific behavior that is broader than a reusable component.
 - `Infrastructure/`
   Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`. `Infrastructure/AtomLib` holds generic atom access helpers only; the concrete `AtomRegistry` lives at the source root because it composes Core and Feature atoms.
 
@@ -75,6 +75,15 @@ Search rule of thumb:
 ### Command Specs And Execution Owners
 
 Before adding or changing a command, read [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md). Use `AppCommand` for identity, `AppShortcut` for bindings, `CommandSpec` for command-bar/tooltips, and `LocalActionSpec` for UI-only actions. App/window/sidebar shell commands may route through `AppDelegate`; pane, drawer, focus, layout, and workspace commands route through `PaneTabViewController` so keyboard shortcuts, command-bar rows, and drawer buttons share the same resolver.
+
+Command-bar scopes have separate ownership:
+- `>` owns verbs and command execution.
+- `$` owns existing pane/tab navigation.
+- `#` owns repo/worktree locations and opening.
+
+Keep this split explicit. Do not add repo/worktree management rows to `$`, do
+not add arbitrary verbs to `#`, and do not duplicate `LocalActionSpec` labels or
+icons when a sidebar/local action already defines the presentation.
 
 | Component | Owns | Location |
 |-----------|------|----------|
@@ -127,7 +136,9 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers, events |
 | [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), execution-owner decision tree (`AppDelegate` shell vs `PaneTabViewController` pane/drawer), contexts, alternateTriggers, and where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
+| [Swift-React Bridge](docs/architecture/swift_react_bridge_design.md) | Bridge architecture, content-delivery status, JSON-RPC/push contracts, read-only CodeView/Shiki review surface, and LUNA-337 completion boundary |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
+| [Agent Resources](docs/guides/agent_resources.md) | Bootstrap, official Swift/macOS docs, DeepWiki sources, and research guidance |
 
 ### Plans
 
@@ -301,7 +312,6 @@ agent-studio/
 │   │   ├── Windows/MainWindowController.swift
 │   │   ├── Coordination/PaneCoordinator.swift  # Cross-feature sequencing and orchestration
 │   │   └── Panes/                    # Pane tab management and NSView registry
-│   ├── SharedComponents/             # Reusable UI building blocks
 │   ├── Core/                         # Shared domain — models, stores, pane system
 │   │   ├── Models/                   # Layout, Tab, Pane, Repo, Worktree, SidebarSurface,
 │   │   │                             #   KeyboardOwner, ...

@@ -210,14 +210,13 @@ struct RepoExplorerWorktreeRow: View {
             Divider()
 
             Button {
-                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: worktree.path.path)
+                PathActions.revealInFinder(worktree.path)
             } label: {
                 menuLabel(actionSpec: LocalActionSpec.revealInFinder.actionSpec)
             }
 
             Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(worktree.path.path, forType: .string)
+                PathActions.copyPath(worktree.path)
             } label: {
                 menuLabel(actionSpec: LocalActionSpec.copyPath.actionSpec)
             }

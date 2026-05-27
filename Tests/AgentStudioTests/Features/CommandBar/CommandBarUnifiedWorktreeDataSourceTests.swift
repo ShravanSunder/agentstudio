@@ -17,7 +17,125 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     }
 
     @Test
-    func test_everythingScope_worktreeItemsHavePresenceState() {
+    func test_reposScope_rootRowsAreReposNotWorktrees() {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/root-agent-studio"))
+        let main = Worktree(
+            repoId: repo.id,
+            name: "main",
+            path: URL(filePath: "/tmp/root-agent-studio"),
+            isMainWorktree: true
+        )
+        let feature = Worktree(
+            repoId: repo.id,
+            name: "pane-shortcuts",
+            path: URL(filePath: "/tmp/root-agent-studio.pane-shortcuts")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main, feature])
+
+        let items = CommandBarDataSource.items(
+            scope: .repos,
+            store: store,
+            repoCache: RepoCacheAtom(),
+            dispatcher: dispatcher
+        )
+
+        #expect(items.contains { $0.id == "repo-\(repo.id.uuidString)" })
+        #expect(!items.contains { $0.id == "repo-wt-\(main.id.uuidString)" })
+        #expect(!items.contains { $0.id == "repo-wt-\(feature.id.uuidString)" })
+
+        let repoItem = items.first { $0.id == "repo-\(repo.id.uuidString)" }
+        #expect(repoItem?.title == "root-agent-studio")
+        #expect(repoItem?.subtitle == "2 worktrees")
+        #expect(repoItem?.hasChildren == true)
+        #expect(repoItem?.group == "Repos")
+    }
+
+    @Test
+    func test_reposScope_singleWorktreeRepoStillDrillsIn() {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/single-root-repo"))
+
+        let items = CommandBarDataSource.items(
+            scope: .repos,
+            store: store,
+            repoCache: RepoCacheAtom(),
+            dispatcher: dispatcher
+        )
+
+        let repoItem = items.first { $0.id == "repo-\(repo.id.uuidString)" }
+        #expect(repoItem?.title == "single-root-repo")
+        #expect(repoItem?.hasChildren == true)
+
+        guard case .navigateRepo(let level) = repoItem?.action else {
+            Issue.record("Expected repo root row to navigate")
+            return
+        }
+        #expect(level.title == "single-root-repo")
+        #expect(level.scopeLabel == "Repo")
+    }
+
+    @Test
+    func test_repoLevelShowsOpenCommandsBeforeWorktrees() {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/repo-level-actions"))
+        let main = Worktree(
+            repoId: repo.id,
+            name: "main",
+            path: URL(filePath: "/tmp/repo-level-actions"),
+            isMainWorktree: true
+        )
+        let feature = Worktree(
+            repoId: repo.id,
+            name: "feature",
+            path: URL(filePath: "/tmp/repo-level-actions-feature")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main, feature])
+        guard let storedRepo = store.repos.first else {
+            Issue.record("Expected stored repo")
+            return
+        }
+
+        let level = CommandBarDataSource.buildRepoLevel(repo: storedRepo, store: store)
+
+        #expect(level.title == "repo-level-actions")
+        #expect(level.scopeLabel == "Repo")
+        #expect(level.items.map(\.title).prefix(2) == ["Copy Path", "Reveal in Finder"])
+        #expect(level.items[0].group == "Open")
+        #expect(level.items[1].group == "Open")
+        #expect(level.items.contains { $0.title == "main" && $0.group == "Worktrees" })
+        #expect(level.items.contains { $0.title == "feature" && $0.group == "Worktrees" })
+    }
+
+    @Test
+    func test_worktreeLevelUsesSingleOpenGroupForPathAndPaneActions() {
+        let presence = makeWorktreePresence(paneCount: 1)
+        let worktree = Worktree(
+            repoId: presence.repoId,
+            name: presence.worktreeName,
+            path: URL(filePath: "/tmp/repo/main"),
+            isMainWorktree: presence.isMainWorktree
+        )
+
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(
+            worktree: worktree,
+            presence: presence,
+            canOpenInCurrentTab: true
+        )
+
+        let openTitles = level.items.filter { $0.group == "Open" }.map(\.title)
+        #expect(
+            openTitles == [
+                "Copy Path",
+                "Reveal in Finder",
+                "New pane in new tab",
+                "New pane in current tab",
+            ])
+        #expect(level.items.contains { $0.group == "Navigate to" && $0.title == "Terminal — main" })
+    }
+
+    @Test
+    func test_everythingScope_repoItemsNavigateToRepoLevel() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/everything-wt"))
         let worktree = Worktree(
@@ -44,10 +162,17 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let items = CommandBarDataSource.items(
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
-        let worktreeItem = items.first { $0.title == "main" && $0.group == "Worktrees" }
-        #expect(worktreeItem != nil)
-        #expect(worktreeItem?.worktreeOpenState == .singlePane)
-        #expect(worktreeItem?.group == "Worktrees")
+        let repoItem = items.first { $0.id == "repo-\(repo.id.uuidString)" }
+        #expect(repoItem != nil)
+        #expect(repoItem?.worktreeOpenState == nil)
+        #expect(repoItem?.subtitle == "● Tab 1 · 1 pane")
+        #expect(repoItem?.group == "Repos")
+        #expect(!items.contains { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" })
+        guard case .navigateRepo(let level) = repoItem?.action else {
+            Issue.record("Expected everything-scope repo item to navigate to repo level")
+            return
+        }
+        #expect(level.items.contains { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" })
     }
 
     @Test
@@ -116,7 +241,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     }
 
     @Test
-    func test_everythingScope_worktreeItemsUseUnifiedIds() {
+    func test_everythingScope_usesRepoIdsForLocationRows() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/everything-wt-id"))
         let worktree = Worktree(
@@ -133,10 +258,11 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             $0.id.hasPrefix("wt-") && !$0.id.hasPrefix("wt-choice-") && !$0.id.hasPrefix("wt-new-")
                 && !$0.id.hasPrefix("wt-add-") && !$0.id.hasPrefix("wt-pane-")
         }
-        let unifiedItem = items.first { $0.id == "repo-wt-\(worktree.id.uuidString)" }
+        let repoItem = items.first { $0.id == "repo-\(repo.id.uuidString)" }
 
         #expect(oldStyleItems.isEmpty)
-        #expect(unifiedItem != nil)
+        #expect(repoItem != nil)
+        #expect(!items.contains { $0.id == "repo-wt-\(worktree.id.uuidString)" })
     }
 
     @Test
@@ -185,14 +311,25 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             isMainWorktree: true
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        guard let storedWorktree = store.repos.first?.worktrees.first else {
+            Issue.record("Expected stored worktree")
+            return
+        }
 
         let items = CommandBarDataSource.items(
             scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
-        let item = items.first { $0.title == "main" && $0.group == "Repos" }
+        let item = items.first { $0.id == "repo-\(repo.id.uuidString)" }
         #expect(item != nil)
-        #expect(item?.worktreeOpenState == .notOpen)
+        #expect(item?.worktreeOpenState == nil)
         #expect(item?.hasChildren == true)
+        guard case .navigateRepo(let level) = item?.action else {
+            Issue.record("Expected repo item to navigate")
+            return
+        }
+        let worktreeItem = level.items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
+        #expect(worktreeItem?.subtitle == "main worktree")
+        #expect(worktreeItem?.hasChildren == true)
     }
 
     @Test
@@ -222,19 +359,20 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let items = CommandBarDataSource.items(
             scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
-        let item = items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
-        #expect(item?.worktreeOpenState == .singlePane)
+        let item = items.first { $0.id == "repo-\(repo.id.uuidString)" }
+        #expect(item?.worktreeOpenState == nil)
         #expect(item?.subtitle?.contains("Tab 1") == true)
         #expect(item?.hasChildren == true)
         guard let item else {
-            Issue.record("Expected unified worktree item")
+            Issue.record("Expected repo item")
             return
         }
-        guard case .worktreeAction(let presence) = item.action else {
-            Issue.record("Expected worktreeAction for single-pane worktree")
+        guard case .navigateRepo(let level) = item.action else {
+            Issue.record("Expected repo item to navigate")
             return
         }
-        #expect(presence.worktreeId == storedWorktree.id)
+        let worktreeItem = level.items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
+        #expect(worktreeItem?.subtitle?.contains("Tab 1") == true)
     }
 
     @Test
@@ -275,19 +413,20 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         let items = CommandBarDataSource.items(
             scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
-        let item = items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
-        #expect(item?.worktreeOpenState == .multiplePanes)
+        let item = items.first { $0.id == "repo-\(repo.id.uuidString)" }
+        #expect(item?.worktreeOpenState == nil)
         #expect(item?.subtitle?.contains("2 panes") == true)
         #expect(item?.hasChildren == true)
         guard let item else {
-            Issue.record("Expected unified worktree item")
+            Issue.record("Expected repo item")
             return
         }
-        guard case .worktreeAction(let presence) = item.action else {
-            Issue.record("Expected worktreeAction for multi-pane worktree")
+        guard case .navigateRepo(let level) = item.action else {
+            Issue.record("Expected repo item to navigate")
             return
         }
-        #expect(presence.openState == .multiplePanes)
+        let worktreeItem = level.items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
+        #expect(worktreeItem?.subtitle?.contains("2 panes") == true)
     }
 
     @Test
@@ -317,7 +456,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
 
         let items = CommandBarDataSource.items(
             scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
-        let item = items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
+        let item = items.first { $0.id == "repo-\(repo.id.uuidString)" }
 
         #expect(item?.subtitle == "● Tab 1 · 1 pane")
     }

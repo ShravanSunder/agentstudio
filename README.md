@@ -87,7 +87,7 @@ Dynamic views regroup your entire workspace on demand — by repo, by worktree, 
 
 **"I have to leave to review diffs"** — agents generate diffs constantly and you alt-tab to GitHub or VS Code to review them.
 
-Agent Studio will embed a full diff viewer and code review experience directly in pane drawers — inline diffs with syntax highlighting, file tree navigation, comment threads, and review actions. When an agent finishes a task, its changes appear in the drawer right below it. Review, approve, move on. A VS Code-quality experience without leaving the workspace where your agents are running.
+Agent Studio will embed a full read-only diff viewer and code review experience directly in pane drawers — inline diffs with syntax highlighting, file tree navigation, markdown-capable review comments, annotations, and review actions. When an agent finishes a task, its changes appear in the drawer right below it. Review, comment, send context back to the agent, move on. Source editing and patch application belong to separate panes/workflows.
 
 **"I just gave an agent root access to my machine"** — agents execute shell commands, install packages, and make network requests with your full permissions. One bad tool call and credentials leak, repos corrupt, or packages install that you didn't authorize. No guardrails.
 
@@ -95,9 +95,11 @@ Built-in sandboxing with network isolation (egress firewalls, domain allowlistin
 
 ## Architecture
 
-AppKit-main with SwiftUI views. State distributed across independent `@Observable` stores (`WorkspaceStore`, `SessionRuntime`, `SurfaceManager`) with `private(set)` for unidirectional flow. A coordinator (`PaneCoordinator`) sequences cross-store operations. Immutable layout trees. Sessions exist independently of views or surfaces.
+AppKit-main with SwiftUI views. Canonical app state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms`, with persistence wrappers under `Core/State/MainActor/Persistence`. `WorkspaceStore` wraps workspace-domain atoms, `RepoCacheStore` wraps derived enrichment, and `UIStateStore` wraps app-shell presentation state. `PaneCoordinator` lives in the App composition root and sequences cross-store, cross-feature work without owning domain state.
 
-Built with Swift 6.2, Swift Package Manager, Ghostty (via C API), and Zig build system. Targets macOS 26.
+Pane implementations are feature slices: Terminal owns Ghostty, Webview owns browser panes, Bridge owns the React/WebKit bridge, CodeViewer owns native source viewing, CommandBar owns command-palette state, RepoExplorer owns repo/worktree navigation, and InboxNotification owns notification state. Shared pane layout primitives live in Core; reusable stateless UI primitives live in `SharedComponents`; domain-agnostic utilities live in `Infrastructure`.
+
+Built with Swift 6.2, Swift Package Manager, Swift Testing, AppKit, SwiftUI, Observation, WebKit, Ghostty (via C API), `swift-async-algorithms`, and Zig build tasks. Targets macOS 26.
 
 See the [Architecture Overview](docs/architecture/README.md) for the full system design.
 
@@ -107,6 +109,14 @@ See the [Architecture Overview](docs/architecture/README.md) for the full system
 
 - macOS 26+, Xcode 26+, Swift 6
 - [mise](https://mise.jdx.dev/) (`brew install mise`)
+
+Current platform references for docs and implementation work:
+
+- [Swift documentation](https://www.swift.org/documentation/) and [Swift Package Manager](https://docs.swift.org/package-manager/)
+- [Swift language concurrency guide](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/)
+- [Swift Testing](https://developer.apple.com/documentation/testing)
+- [AppKit](https://developer.apple.com/documentation/appkit), [SwiftUI](https://developer.apple.com/documentation/swiftui), [Observation](https://developer.apple.com/documentation/observation), and [WebKit](https://developer.apple.com/documentation/webkit)
+- [Designing for macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos)
 
 > **Time-based note (as of 2026-04):** Xcode 26.4+ ships a `MacOSX.sdk/usr/lib/libSystem.B.tbd` that omits `arm64-macos` from top-level targets, which breaks zig 0.15.2's bundled linker with `undefined symbol: _abort/_getenv/...` errors when building vendored Ghostty and zmx. Fixed in zig 0.16, not backported to 0.15. Workaround: install **Xcode 26.3** side-by-side at `/Applications/Xcode_26.3.app`, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain` (26.3 ships without it), then `rm -rf ~/.cache/zig` and rebuild. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Remove this note once ghostty bumps to zig 0.16 or Apple ships a fixed SDK.
 
@@ -141,15 +151,18 @@ cd agent-studio
 
 ```
 agent-studio/
-├── Sources/AgentStudio/      # Swift source
-│   ├── App/                  # Window/tab controllers
-│   ├── Ghostty/              # Ghostty C API wrapper
-│   ├── Models/               # TerminalSession, Layout, Tab, Pane
-│   └── Services/             # WorkspaceStore, SessionRuntime, WorktrunkService
+├── Sources/AgentStudio/
+│   ├── App/                  # Composition root: boot, lifecycle, windows, panes, coordination
+│   ├── Core/                 # Shared models, actions, runtime contracts, atoms, persistence, pane UI
+│   ├── Features/             # Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification
+│   ├── SharedComponents/     # Stateless reusable UI primitives
+│   ├── Infrastructure/       # Domain-agnostic utilities and integrations
+│   └── Resources/            # App assets, terminfo, shell integration resources
 ├── Frameworks/               # Generated: GhosttyKit.xcframework (not in git)
+├── Tests/                    # Swift Testing suites plus bridge contract fixtures
 ├── vendor/ghostty/           # Git submodule: Ghostty source
-├── vendor/zmx/               # Session persistence
-├── docs/                     # Architecture and design docs
+├── vendor/zmx/               # Git submodule: zmx session multiplexer
+├── docs/                     # Architecture, guides, plans, specs
 └── Package.swift             # SPM manifest
 ```
 

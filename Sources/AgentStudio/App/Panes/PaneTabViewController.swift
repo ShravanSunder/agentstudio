@@ -92,10 +92,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let arrangementPanelPresentation: ArrangementPanelPresentationAtom
     private let registersAsCommandHandler: Bool
     private var tabRenamePopover: NSPopover?
+    private var paneNotePopover: NSPopover?
     private var tabRenameTransientSurfaceToken: TransientKeyboardSurfaceToken?
     private let installedEditorTargetsProvider: @MainActor () -> [ExternalEditorTarget]
     private let openEditorHandler: OpenEditorHandler
     private let openFinderHandler: @MainActor (URL) -> Bool
+    private let copyPathHandler: @MainActor (URL) -> Void
+    private let paneNotePresentation: PaneNotePresentation?
     private var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
             tabLayoutAtom: store.tabLayoutAtom,
@@ -194,6 +197,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         openFinderHandler: @escaping @MainActor (URL) -> Bool = { path in
             ExternalWorkspaceOpener.openInFinder(path)
         },
+        copyPathHandler: @escaping @MainActor (URL) -> Void = { path in
+            PathActions.copyPath(path)
+        },
+        paneNotePresentation: PaneNotePresentation? = nil,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
         tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState(),
         arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState(),
@@ -213,6 +220,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.installedEditorTargetsProvider = installedEditorTargetsProvider
         self.openEditorHandler = openEditorHandler
         self.openFinderHandler = openFinderHandler
+        self.copyPathHandler = copyPathHandler
+        self.paneNotePresentation = paneNotePresentation
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.tabRenamePopoverState = tabRenamePopoverState
         self.arrangementInlineRenameState = arrangementInlineRenameState
@@ -2026,6 +2035,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func popoverDidClose(_ notification: Notification) {
+        if notification.object as? NSPopover === paneNotePopover {
+            paneNotePopover = nil
+            return
+        }
+
         guard notification.object as? NSPopover === tabRenamePopover else { return }
         dismissTabRenameTransientSurface()
         tabRenamePopover = nil
@@ -2914,6 +2928,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu:
             return selectedPaneManagementContext()?.targetPath != nil
+        case .editPaneNote:
+            return activeMainPaneCommandTarget() != nil
+        case .copyCurrentPanePath:
+            return activeMainPanePath() != nil
         default:
             break
         }
@@ -2978,6 +2996,18 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             atom(\.editorChooser).setAvailableTargets(installedEditorTargetsProvider())
             atom(\.editorChooser).setOpenEditorPane(activePaneId)
+            return true
+        case .editPaneNote:
+            guard let paneId = activeMainPaneCommandTarget() else { return false }
+            if let paneNotePresentation {
+                paneNotePresentation.present(paneId)
+            } else {
+                requestPaneNotePresentation(for: paneId)
+            }
+            return true
+        case .copyCurrentPanePath:
+            guard let path = activeMainPanePath() else { return false }
+            copyPathHandler(path)
             return true
         default:
             return false
@@ -3058,6 +3088,89 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         return PaneManagementContext.project(paneId: paneId, store: store)
+    }
+
+    private func activeMainPaneCommandTarget() -> UUID? {
+        guard case .mainPane(let paneId) = normalizedWorkspaceNavigationScopeState(),
+            let activePaneId = paneId ?? activeMainPaneId(),
+            let pane = store.paneAtom.pane(activePaneId),
+            pane.parentPaneId == nil
+        else {
+            return nil
+        }
+
+        return activePaneId
+    }
+
+    private func requestPaneNotePresentation(for paneId: UUID) {
+        guard store.paneAtom.pane(paneId) != nil else {
+            Self.logger.warning("editPaneNote presentation ignored: pane \(paneId) not found")
+            return
+        }
+
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.presentPaneNotePopover(for: paneId)
+            }
+        }
+    }
+
+    private func presentPaneNotePopover(for paneId: UUID) {
+        guard let pane = store.paneAtom.pane(paneId) else {
+            Self.logger.warning("editPaneNote presentation ignored after defer: pane \(paneId) not found")
+            return
+        }
+
+        closePaneNotePopover()
+        guard isViewLoaded else { return }
+
+        let resolvedWindowId =
+            workspaceWindowId ?? windowLifecycleStore.focusedWindowId
+            ?? windowLifecycleStore.keyWindowId
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.delegate = self
+        popover.contentViewController = NSHostingController(
+            rootView: PaneNotePopover(
+                currentNote: pane.metadata.note,
+                onCommit: { [weak self] note in
+                    guard let self else { return }
+                    self.store.paneAtom.updatePaneNote(paneId, note: note)
+                    self.closePaneNotePopover()
+                },
+                onCancel: { [weak self] in
+                    self?.closePaneNotePopover()
+                }
+            )
+            .transientKeyboardSurface(
+                .paneNote(paneId: paneId),
+                workspaceWindowId: resolvedWindowId,
+                onDismiss: { [weak self] in
+                    self?.closePaneNotePopover()
+                }
+            )
+        )
+        paneNotePopover = popover
+
+        let anchorView = viewRegistry.view(for: paneId) ?? view
+        popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+    }
+
+    private func closePaneNotePopover() {
+        let popover = paneNotePopover
+        paneNotePopover = nil
+        popover?.delegate = nil
+        popover?.close()
+    }
+
+    private func activeMainPanePath() -> URL? {
+        guard let paneId = activeMainPaneCommandTarget(),
+            let pane = store.paneAtom.pane(paneId)
+        else {
+            return nil
+        }
+
+        return pane.metadata.cwd ?? pane.metadata.launchDirectory
     }
 
     private func activePaneIdForChooserRequest() -> UUID? {
