@@ -118,6 +118,9 @@ struct DefaultProcessExecutor: ProcessExecutor {
     }
 }
 
+/// `ProcessExecution` crosses Swift cancellation and Dispatch callback boundaries.
+/// All mutable state below is owned by `queue`; external callbacks only enqueue work
+/// onto that queue, so the unchecked Sendable boundary is limited to queue handoff.
 private final class ProcessExecution: @unchecked Sendable {
     private typealias Continuation = CheckedContinuation<ProcessResult, Error>
 
@@ -133,7 +136,6 @@ private final class ProcessExecution: @unchecked Sendable {
     private let timeoutSeconds: TimeInterval
     private let hardKillGraceSeconds: TimeInterval
     private let queue: DispatchQueue
-    private let lock = NSLock()
 
     private var continuation: Continuation?
     private var stdoutData = Data()
@@ -180,8 +182,8 @@ private final class ProcessExecution: @unchecked Sendable {
     }
 
     private func start(_ continuation: Continuation) {
-        let shouldCancel = installContinuation(continuation)
-        guard !shouldCancel else {
+        self.continuation = continuation
+        guard !cancelRequested else {
             complete(.failure(CancellationError()))
             return
         }
@@ -202,14 +204,6 @@ private final class ProcessExecution: @unchecked Sendable {
         stderrSource?.resume()
         processSource?.resume()
         timeoutSource?.resume()
-    }
-
-    private func installContinuation(_ continuation: Continuation) -> Bool {
-        lock.lock()
-        self.continuation = continuation
-        let shouldCancel = cancelRequested
-        lock.unlock()
-        return shouldCancel
     }
 
     private func configurePipeSources() {
@@ -270,14 +264,12 @@ private final class ProcessExecution: @unchecked Sendable {
     }
 
     private func append(_ data: Data, from kind: PipeKind) {
-        lock.lock()
         switch kind {
         case .stdout:
             stdoutData.append(data)
         case .stderr:
             stderrData.append(data)
         }
-        lock.unlock()
     }
 
     private func markPipeFinished(_ kind: PipeKind) {
@@ -288,47 +280,33 @@ private final class ProcessExecution: @unchecked Sendable {
             stderrSource?.cancel()
         }
 
-        var completion: Result<ProcessResult, Error>?
-        lock.lock()
         switch kind {
         case .stdout:
             stdoutFinished = true
         case .stderr:
             stderrFinished = true
         }
-        completion = completionIfReadyLocked()
-        lock.unlock()
-
+        let completion = completionIfReady()
         if let completion {
             complete(completion)
         }
     }
 
     private func markProcessExited(status: Int32) {
-        var completion: Result<ProcessResult, Error>?
-        lock.lock()
         processExited = true
         terminationStatus = status
-        completion = completionIfReadyLocked()
-        lock.unlock()
-
+        let completion = completionIfReady()
         if let completion {
             complete(completion)
         }
     }
 
     private func markTimedOut() {
-        let shouldTerminate: Bool
-        lock.lock()
         if completed || didTimeout {
-            shouldTerminate = false
-        } else {
-            didTimeout = true
-            shouldTerminate = true
+            return
         }
-        lock.unlock()
+        didTimeout = true
 
-        guard shouldTerminate else { return }
         processLogger.warning(
             "Process '\(self.command, privacy: .public)' exceeded \(Int(self.timeoutSeconds))s timeout - terminating"
         )
@@ -351,7 +329,7 @@ private final class ProcessExecution: @unchecked Sendable {
         }
     }
 
-    private func completionIfReadyLocked() -> Result<ProcessResult, Error>? {
+    private func completionIfReady() -> Result<ProcessResult, Error>? {
         guard processExited, stdoutFinished, stderrFinished else {
             return nil
         }
@@ -367,24 +345,20 @@ private final class ProcessExecution: @unchecked Sendable {
     }
 
     private func cancel() {
-        var shouldTerminate = false
-        var continuationToResume: Continuation?
+        queue.async {
+            self.cancelOnQueue()
+        }
+    }
 
-        lock.lock()
+    private func cancelOnQueue() {
         cancelRequested = true
-        if !completed, let continuation {
-            completed = true
-            continuationToResume = continuation
-            self.continuation = nil
-            shouldTerminate = true
-        }
-        lock.unlock()
+        guard !completed, let continuation else { return }
 
-        if shouldTerminate {
-            terminateForCancellation()
-            cleanupSources()
-        }
-        continuationToResume?.resume(throwing: CancellationError())
+        completed = true
+        self.continuation = nil
+        terminateForCancellation()
+        cleanupSources()
+        continuation.resume(throwing: CancellationError())
     }
 
     private func terminateForCancellation() {
@@ -396,16 +370,12 @@ private final class ProcessExecution: @unchecked Sendable {
     }
 
     private func complete(_ result: Result<ProcessResult, Error>) {
-        let continuationToResume: Continuation?
-        lock.lock()
         if completed {
-            lock.unlock()
             return
         }
         completed = true
-        continuationToResume = continuation
+        let continuationToResume = continuation
         continuation = nil
-        lock.unlock()
 
         cleanupSources()
         continuationToResume?.resume(with: result)
