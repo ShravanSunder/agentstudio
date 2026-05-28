@@ -666,8 +666,13 @@ struct PaneTabViewControllerCommandTests {
 
     @Test("terminated drawer child under a hidden parent does not create undo")
     func handleTerminalProcessTerminated_hiddenDrawerChildClosesWithoutUndoEntry() {
+        atom(\.managementLayer).activate()
         let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        defer {
+            atom(\.managementLayer).deactivate()
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
+        #expect(!atom(\.managementLayer).isActive)
 
         let parentPane = harness.store.createPane(
             source: .floating(launchDirectory: nil, title: "Parent"),

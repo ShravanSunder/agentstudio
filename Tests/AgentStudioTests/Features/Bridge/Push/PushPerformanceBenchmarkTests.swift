@@ -335,6 +335,18 @@ final class PushPerformanceBenchmarkTests {
         defer { plan.stop() }
 
         plan.start()
+        let didScheduleInitialDebounce = await advanceClock(
+            debounceClock,
+            until: { debounceClock.pendingSleepCount > 0 }
+        )
+        #expect(didScheduleInitialDebounce, "Initial empty EntitySlice observation should schedule debounce")
+        debounceClock.advance(by: PushLevel.cold.debounce)
+        let didDrainInitialDebounce = await advanceClock(
+            debounceClock,
+            until: { debounceClock.pendingSleepCount == 0 }
+        )
+        #expect(didDrainInitialDebounce, "Initial empty EntitySlice observation should settle before burst")
+        await Task.yield()
 
         let baselinePushCount = transport.pushCount
 
@@ -377,11 +389,13 @@ final class PushPerformanceBenchmarkTests {
     private func advanceClock(
         _ clock: TestPushClock,
         until condition: @escaping @MainActor () -> Bool,
-        maxSteps: Int = 40,
+        maxSteps: Int = 1000,
         step: Duration = .milliseconds(5)
     ) async -> Bool {
         for _ in 0..<maxSteps {
             if condition() { return true }
+            await Task.yield()
+            guard clock.pendingSleepCount > 0 else { continue }
             clock.advance(by: step)
             await Task.yield()
         }

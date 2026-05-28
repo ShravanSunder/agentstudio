@@ -61,8 +61,12 @@ func makePaneTabViewControllerCommandHarness(
     windowLifecycleStore injectedWindowLifecycleStore: WindowLifecycleAtom? = nil,
     workspaceWindowId: UUID? = nil
 ) -> PaneTabViewControllerCommandHarness {
-    let tempDir = FileManager.default.temporaryDirectory
-        .appending(path: "agentstudio-pane-tab-command-\(UUID().uuidString)")
+    // Command execution still reads the app-global management-layer atom for
+    // visibility and shortcut policy. Reset it so parallel suites cannot leak
+    // management mode into a fresh command harness.
+    atom(\.managementLayer).deactivate()
+
+    let tempDir = makePaneTabCommandHarnessTempDir()
     let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
     store.restore()
     let viewRegistry = ViewRegistry()
@@ -161,6 +165,10 @@ func makePaneTabViewControllerCommandHarness(
         paneInboxPresenter: paneInboxPresenter,
         launchRecorder: launchRecorder
     )
+}
+
+private func makePaneTabCommandHarnessTempDir() -> URL {
+    FileManager.default.temporaryDirectory.appending(path: "agentstudio-pane-tab-command-\(UUID().uuidString)")
 }
 
 @MainActor
