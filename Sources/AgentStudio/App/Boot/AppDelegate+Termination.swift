@@ -84,7 +84,7 @@ extension AppDelegate {
                 completion.resume(continuation, value: true)
             }
             Task {
-                try? await Task.sleep(for: terminationTraceDrainTimeout)
+                try? await Task.sleep(nanoseconds: terminationTraceDrainTimeout.nanosecondsForTaskSleep)
                 completion.resume(continuation, value: false)
             }
         }

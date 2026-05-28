@@ -240,7 +240,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         }
                     }
                     group.addTask {
-                        try await Task.sleep(for: .seconds(30))
+                        try await Task.sleep(nanoseconds: 30_000_000_000)
                         throw CancellationError()
                     }
                     // Wait for whichever finishes first, cancel the other

@@ -208,7 +208,8 @@ struct RepoExplorerView: View {
                 }
             } else {
                 debounceTask = Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(Self.filterDebounceMilliseconds))
+                    try? await Task.sleep(
+                        nanoseconds: Duration.milliseconds(Self.filterDebounceMilliseconds).nanosecondsForTaskSleep)
                     guard !Task.isCancelled else { return }
                     withAnimation(.easeOut(duration: 0.12)) {
                         debouncedQuery = trimmed
