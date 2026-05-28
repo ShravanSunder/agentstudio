@@ -241,20 +241,33 @@ final class PaneRemovalCascadeTests {
 
     @Test
     func test_removePaneFromLayout_whenActiveArrangementBecomesEmpty_switchesBackToDefault() {
-        let (tab, paneIds) = createTabWithPanes(2)
-
-        let soloArrangementId = store.createArrangement(
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout.autoTiled([firstPane.id, secondPane.id]),
+            activePaneId: firstPane.id
+        )
+        let soloArrangement = PaneArrangement(
             name: "Solo",
-            inTab: tab.id
-        )!
-        store.switchArrangement(to: soloArrangementId, inTab: tab.id)
+            isDefault: false,
+            layout: Layout(paneId: secondPane.id),
+            activePaneId: secondPane.id
+        )
+        let tab = Tab(
+            allPaneIds: [firstPane.id, secondPane.id],
+            arrangements: [defaultArrangement, soloArrangement],
+            activeArrangementId: soloArrangement.id
+        )
+        store.appendTab(tab)
 
-        store.removePaneFromLayout(paneIds[1], inTab: tab.id)
+        store.removePaneFromLayout(secondPane.id, inTab: tab.id)
 
         let updatedTab = store.tab(tab.id)!
         #expect(updatedTab.activeArrangementId == updatedTab.defaultArrangement.id)
-        #expect(updatedTab.activePaneId == paneIds[0])
-        #expect(updatedTab.defaultArrangement.layout.contains(paneIds[0]))
+        #expect(updatedTab.activePaneId == firstPane.id)
+        #expect(updatedTab.defaultArrangement.layout.contains(firstPane.id))
     }
 
     @Test

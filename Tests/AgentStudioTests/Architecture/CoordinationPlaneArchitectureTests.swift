@@ -5,6 +5,7 @@ import Testing
 struct CoordinationPlaneArchitectureTests {
     private struct LifecycleCompositionSources {
         let appDelegateSource: String
+        let appDelegateWorkspaceBootSource: String
         let appDelegateRoutingSource: String
         let splitViewControllerSource: String
         let paneTabViewControllerSource: String
@@ -28,6 +29,11 @@ struct CoordinationPlaneArchitectureTests {
         try LifecycleCompositionSources(
             appDelegateSource: String(
                 contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+                encoding: .utf8
+            ),
+            appDelegateWorkspaceBootSource: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
                 encoding: .utf8
             ),
             appDelegateRoutingSource: String(
@@ -189,15 +195,27 @@ struct CoordinationPlaneArchitectureTests {
         #expect(sources.viewRegistrySource.contains("@Observable"))
         #expect(sources.viewRegistrySource.contains("ensureSlot"))
         #expect(sources.viewRegistrySource.contains("removeSlot"))
-        #expect(sources.appDelegateSource.contains("seedSlotsForRestoredPanes()"))
-        if let seedCallRange = sources.appDelegateSource.range(of: "seedSlotsForRestoredPanes()"),
+        #expect(sources.appDelegateSource.contains("bootWorkspaceServices("))
+        #expect(sources.appDelegateWorkspaceBootSource.contains("seedSlotsForRestoredPanes()"))
+        if let bootCallRange = sources.appDelegateSource.range(of: "bootWorkspaceServices("),
             let windowCreationRange = sources.appDelegateSource.range(
                 of: "mainWindowController = MainWindowController("
-            )
+            ),
+            let runtimeBusRange = sources.appDelegateWorkspaceBootSource.range(
+                of: "private func bootEstablishRuntimeBus")
         {
-            #expect(seedCallRange.lowerBound < windowCreationRange.lowerBound)
+            let runtimeBootSource = sources.appDelegateWorkspaceBootSource[runtimeBusRange.lowerBound...]
+            #expect(bootCallRange.lowerBound < windowCreationRange.lowerBound)
+            #expect(runtimeBootSource.contains("seedSlotsForRestoredPanes()"))
+            if let seedCallRange = runtimeBootSource.range(of: "seedSlotsForRestoredPanes()"),
+                let coordinatorRange = runtimeBootSource.range(of: "paneCoordinator = PaneCoordinator(")
+            {
+                #expect(seedCallRange.lowerBound < coordinatorRange.lowerBound)
+            } else {
+                Issue.record("Expected workspace boot to seed restored pane slots before coordinator creation")
+            }
         } else {
-            Issue.record("Expected AppDelegate to seed restored pane slots before main window creation")
+            Issue.record("Expected AppDelegate workspace boot to seed restored pane slots before main window creation")
         }
         #expect(!sources.ghosttySource.contains("AppLifecycleAtom.shared"))
         #expect(!sources.appLifecycleStoreSource.contains("static let shared"))
