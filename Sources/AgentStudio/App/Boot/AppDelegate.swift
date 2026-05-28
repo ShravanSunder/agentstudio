@@ -41,6 +41,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - OAuth
     private var oauthService: OAuthService!
     private var filesystemPipelineBootTask: Task<Void, Never>?
+    private var initialTopologySyncTask: Task<Void, Never>?
+    private var persistenceObservationBootTask: Task<Void, Never>?
     private var terminationDrainTask: Task<Void, Never>?
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?
@@ -48,6 +50,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func recordBootStep(_ step: WorkspaceBootStep) {
         RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
+    }
+
+    private func bootWorkspaceServices(
+        persistor: WorkspacePersistor,
+        paneRuntimeBus: EventBus<RuntimeEnvelope>,
+        filesystemSource: inout FilesystemGitPipeline?
+    ) {
+        // The boot order is the contract:
+        // 1. restore the durable workspace model,
+        // 2. load rebuildable caches without autosave observation,
+        // 3. stand up runtime event producers/consumers,
+        // 4. replay persisted topology through the same coordinator path as live facts,
+        // 5. arm cache/UI autosave only after boot mutations have settled.
+        //
+        // `WorkspaceBootStep.purpose` carries the per-step "why" and is covered by
+        // tests so future boot changes cannot silently become an unlabeled ordering bet.
+        WorkspaceBootSequence.run { [self] step in
+            recordBootStep(step)
+            executeBootStep(
+                step,
+                persistor: persistor,
+                paneRuntimeBus: paneRuntimeBus,
+                filesystemSource: &filesystemSource
+            )
+        }
     }
 
     private func executeBootStep(
@@ -75,6 +102,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             workspaceCacheCoordinator.startConsuming()
         case .triggerInitialTopologySync:
             bootTriggerInitialTopologySync()
+        case .armPersistenceObservation:
+            bootArmPersistenceObservation()
         case .readyForReactiveSidebar:
             break
         }
@@ -134,7 +163,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         _ = persistor
         repoCacheStore.restore(for: store.metadataAtom.workspaceId)
         sidebarCacheStore.restore(for: store.metadataAtom.workspaceId)
-        pruneStaleCache(store: store, repoCache: repoCache)
     }
 
     private func bootLoadUIStore(persistor: WorkspacePersistor) {
@@ -213,7 +241,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func bootTriggerInitialTopologySync() {
-        Task { @MainActor [weak self] in
+        initialTopologySyncTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.replayBootTopology(store: self.store, coordinator: self.workspaceCacheCoordinator)
             if let filesystemPipelineBootTask = self.filesystemPipelineBootTask {
@@ -223,19 +251,52 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    private func bootArmPersistenceObservation() {
+        let topologySyncTask = initialTopologySyncTask
+        persistenceObservationBootTask = Task { @MainActor [weak self] in
+            if let topologySyncTask {
+                await topologySyncTask.value
+            }
+            self?.completeBootPersistenceObservation()
+        }
+    }
+
     // MARK: - Boot Helpers
 
-    private func pruneStaleCache(store: WorkspaceStore, repoCache: RepoCacheAtom) {
+    private func completeBootPersistenceObservation() {
+        // Restore and topology replay intentionally run without debounced persistence
+        // observation. They can mutate cache atoms many times while runtime cleanup and
+        // filesystem discovery are also starting. Arming observation here keeps startup
+        // quiet, then immediately persists any stale cache pruning as an explicit boot
+        // transaction instead of relying on a debounce side effect.
+        repoCacheStore.startObserving()
+        sidebarCacheStore.startObserving()
+        uiStateStore.startObserving()
+
+        if pruneStaleCache(store: store, repoCache: repoCache) {
+            do {
+                try repoCacheStore.flush(for: store.metadataAtom.workspaceId)
+            } catch {
+                appLogger.warning("Failed to persist pruned repo cache during boot: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func pruneStaleCache(store: WorkspaceStore, repoCache: RepoCacheAtom) -> Bool {
         let repos = store.repositoryTopologyAtom.repos
         let validRepoIds = Set(repos.map(\.id))
         let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
+        var didPrune = false
         for repoId in Array(repoCache.repoEnrichmentByRepoId.keys) where !validRepoIds.contains(repoId) {
             repoCache.removeRepo(repoId)
+            didPrune = true
         }
         for worktreeId in Array(repoCache.worktreeEnrichmentByWorktreeId.keys)
         where !validWorktreeIds.contains(worktreeId) {
             repoCache.removeWorktree(worktreeId)
+            didPrune = true
         }
+        return didPrune
     }
 
     private func replayBootTopology(store: WorkspaceStore, coordinator: WorkspaceCacheCoordinator) async {
@@ -345,20 +406,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Set up main menu (doesn't depend on zmx restore)
         setupMainMenu()
 
-        // Create new services following the 10-step workspace boot contract.
+        // Create new services following the workspace boot contract.
         let persistor = WorkspacePersistor()
         let paneRuntimeBus = PaneRuntimeEventBus.shared
         var filesystemSource: FilesystemGitPipeline?
 
-        WorkspaceBootSequence.run { [self] step in
-            recordBootStep(step)
-            executeBootStep(
-                step,
-                persistor: persistor,
-                paneRuntimeBus: paneRuntimeBus,
-                filesystemSource: &filesystemSource
-            )
-        }
+        bootWorkspaceServices(
+            persistor: persistor,
+            paneRuntimeBus: paneRuntimeBus,
+            filesystemSource: &filesystemSource
+        )
 
         // Create main window
         mainWindowController = MainWindowController(
@@ -380,13 +437,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindowController?.completeLaunchPresentation()
         observeLaunchRestoreReadiness()
         wireLifecycleConsumers()
-        // Install persistence-store observation AFTER all synchronous boot mutations
-        // (canonical restore, pruneStaleCache, window setup, lifecycle wiring) so the
-        // boot window does not spawn debounce Tasks that race with cleanupOrphanZmxSessions.
-        // Workaround for Swift 6.2 / macOS 26.4 LIFO assertion (swift#84793, firebase#15994).
-        repoCacheStore.startObserving()
-        sidebarCacheStore.startObserving()
-        uiStateStore.startObserving()
         if let window = mainWindowController?.window {
             RestoreTrace.log(
                 "mainWindow showWindow frame=\(NSStringFromRect(window.frame)) content=\(NSStringFromRect(window.contentLayoutRect))"
@@ -400,6 +450,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     isolated deinit {
         filesystemPipelineBootTask?.cancel()
+        initialTopologySyncTask?.cancel()
+        persistenceObservationBootTask?.cancel()
         launchRestoreObservationTask?.cancel()
         launchRestoreObservationState.cancelDiagnostics()
     }

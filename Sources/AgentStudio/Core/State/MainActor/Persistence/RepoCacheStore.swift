@@ -30,12 +30,12 @@ final class RepoCacheStore {
         self.recoveryReporter = recoveryReporter
     }
 
-    /// Begin observing atom mutations for debounced autosave. Must be called by the
-    /// owner (AppDelegate in production, individual tests in unit tests) after all
-    /// boot-time mutations have settled. Installing observation inside `init` causes
-    /// every boot-time atom mutation (pruneStaleCache, replayBootTopology) to spawn
-    /// a debounce `Task` that races with other boot Tasks and trips the Swift 6.2
-    /// task-allocator LIFO check on macOS 26.4 (swift#84793, firebase#15994).
+    /// Begin observing atom mutations for debounced autosave.
+    ///
+    /// Stores do not observe from `init`: the owner first restores cache state,
+    /// replays boot topology, and prunes stale entries as an explicit boot
+    /// transaction. Production arms this from `WorkspaceBootStep.armPersistenceObservation`;
+    /// tests or future isolated owners must opt in once their initial mutations are done.
     func startObserving() {
         observeCacheState()
     }

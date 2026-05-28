@@ -6,7 +6,7 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AppBootSequenceTests {
-    @Test("boot sequence exposes the 10 architecture-ordered steps")
+    @Test("boot sequence exposes the architecture-ordered steps")
     func orderedStepsMatchesArchitectureContract() {
         #expect(
             WorkspaceBootSequence.orderedSteps == [
@@ -19,6 +19,7 @@ struct AppBootSequenceTests {
                 .startForgeActor,
                 .startCacheCoordinator,
                 .triggerInitialTopologySync,
+                .armPersistenceObservation,
                 .readyForReactiveSidebar,
             ])
     }
@@ -30,5 +31,12 @@ struct AppBootSequenceTests {
             recorded.append(step)
         }
         #expect(recorded == WorkspaceBootSequence.orderedSteps)
+    }
+
+    @Test("every boot step explains why it exists")
+    func bootStepsDocumentTheirPurpose() {
+        for step in WorkspaceBootSequence.orderedSteps {
+            #expect(!step.purpose.isEmpty, "Missing boot purpose for \(step.rawValue)")
+        }
     }
 }
