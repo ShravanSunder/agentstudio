@@ -114,6 +114,7 @@ CREATE TABLE pane (
     source_worktree_id TEXT REFERENCES worktree(id) ON DELETE SET NULL,
     launch_directory TEXT,
     title TEXT NOT NULL,
+    note TEXT,
     cwd TEXT,
     checkout_ref TEXT,
     residency_kind TEXT NOT NULL,
@@ -293,7 +294,7 @@ WorkspacePaneGraphAtom
   -> pane_tag
   -> drawer
   -> drawer_pane
-  -> durable PaneMetadata source/cwd/tag fields only
+  -> durable PaneMetadata source/cwd/title/note/tag fields only
 
 WorkspaceTabShellAtom
   -> tab_shell
@@ -345,9 +346,9 @@ a dedicated migration.
 
 `PaneMetadata.facets` is not stored as one JSON blob. Core stores durable routing
 and workspace identity fields: source repo/worktree ids, launch directory, cwd,
-checkout ref, and tags. Display/cache facets such as repo name, worktree name,
-parent folder label, organization name, origin, and upstream are composed by
-derived readers from core topology plus cache enrichment.
+checkout ref, title, note, and tags. Display/cache facets such as repo name,
+worktree name, parent folder label, organization name, origin, and upstream are
+composed by derived readers from core topology plus cache enrichment.
 
 Reorders use delete-then-reinsert for the affected ordered child rows inside one
 transaction in Step 1. This touches more rows than a staged-offset update, but it

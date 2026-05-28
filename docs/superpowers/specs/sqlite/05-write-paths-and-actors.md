@@ -294,14 +294,18 @@ new write-owner atoms. It should receive the graph, cursor, presentation,
 topology, and cache owners it needs rather than reaching through derived readers
 to mutate state.
 
-The `pane-shortcuts` PR is an input to Step 0. It merged to `main` as
-`6830954a`, so Step 0 starts from a codebase with `CommandBarSurfaceAtom`,
-`TransientKeyboardSurfaceAtom`, `ArrangementPanelPresentationAtom`,
-`KeyboardRoutingContext`, `ActiveKeyboardSurface`, `PaneOrdinalMap`, and the
-expanded `ActionStateSnapshot` validation shape. Shortcut/presentation facts
-remain runtime or derived read inputs; they do not acquire SQLite write
-ownership. Validators should receive rich pane/tab validation facts from
-derived readers rather than reaching separately into graph/cursor atoms.
+The `pane-shortcuts` and `command-bar-repo-worktree-actions` PRs are inputs to
+Step 0. They merged to `main` through `54c99b91`, so Step 0 starts from a
+codebase with `CommandBarSurfaceAtom`, `TransientKeyboardSurfaceAtom`,
+`ArrangementPanelPresentationAtom` with placement, `KeyboardRoutingContext`,
+`ActiveKeyboardSurface`, `PaneOrdinalMap`, pane-note runtime presentation,
+`PaneMetadata.note`, `WorkspaceActivitySequence`, the expanded
+`ActionStateSnapshot` validation shape, and RepoCacheStore autosave observation.
+Shortcut/presentation facts remain runtime or derived read inputs; they do not
+acquire SQLite write ownership. `PaneMetadata.note` is the exception: it is
+durable pane metadata and belongs to the pane graph. Validators should receive
+rich pane/tab validation facts from derived readers rather than reaching
+separately into graph/cursor atoms.
 
 The same split applies to domain models decoded from legacy JSON:
 
@@ -315,6 +319,11 @@ PaneMetadata.facets
   derived/cache
          -> repoName, worktreeName, parentFolder, organizationName, origin,
             upstream
+
+PaneMetadata.note
+  core   -> pane note column owned by WorkspacePaneGraphAtom
+  runtime
+         -> PaneNotePresentation / popover draft state is not persisted
 
 Tab
   core   -> id, name, allPaneIds, arrangements
@@ -560,6 +569,9 @@ WorkspacePersistenceTransformer
 
 RepoCacheStore
   -> routes current cache rows through WorkspaceLocalStore / Repository
+  -> current code now observes RepoCacheAtom directly with debounce; Step 0 must
+     split that observer so cache enrichment and recent targets can route to
+     their own local write owners without reintroducing a mixed cache atom
 
 UIStateStore
   -> splits editor preference to settings and sidebar memory to local.sqlite

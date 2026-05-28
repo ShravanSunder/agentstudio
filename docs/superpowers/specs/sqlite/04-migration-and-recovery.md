@@ -133,7 +133,9 @@ SessionRuntimeAtom                  runtime
 ManagementLayerAtom                 runtime
 CommandBarSurfaceAtom               runtime
 TransientKeyboardSurfaceAtom        runtime
+TransientKeyboardSurfaceKind.paneNote runtime pane-note editor surface
 ArrangementPanelPresentationAtom    runtime/presentation
+PaneNotePresentation                runtime presentation, not an atom
 WorkspaceFocusOwnerAtom             runtime
 AttendedPaneAtom                    runtime/derived
 WelcomeAtom                         runtime
@@ -141,12 +143,15 @@ PaneFilesystemProjectionAtom        runtime projection
 KeyboardRoutingContext              runtime shortcut-routing read model
 ActiveKeyboardSurface               runtime shortcut-routing read model
 PaneOrdinalMap                      pure derived helper, not an atom
+WorkspaceActivitySequence           process-local runtime sequence
 ```
 
-Step 0 implementation must start from `main` after the `pane-shortcuts` PR has
-merged. That PR changes keyboard-surface atoms, shortcut routing, action
-snapshots, and validators. Re-run the atom/action survey after rebasing onto the
-merged main before splitting pane/tab graph state.
+Step 0 implementation must start from `main` after the `pane-shortcuts` and
+`command-bar-repo-worktree-actions` branches have merged. Those PRs change
+keyboard-surface atoms, arrangement-panel presentation placement, pane-note
+runtime presentation, pane metadata, shortcut routing, action snapshots,
+validators, and RepoCacheStore observation. Re-run the atom/action survey after
+rebasing onto merged main before splitting pane/tab graph state.
 
 ## Domain Type Classification And Rename Pass
 
@@ -211,6 +216,7 @@ PaneMetadata / PaneContextFacets
   display/cache      -> WorkspacePaneDerived from topology + cache
   legacy JSON        -> LegacyPaneMetadataPayload /
                         LegacyPaneContextFacetsPayload
+  note               -> durable pane metadata, not popover runtime state
 
 Tab / PaneArrangement / DrawerView
   shell/graph fields -> WorkspaceTabShellAtom + WorkspaceTabGraphAtom *GraphState
@@ -267,6 +273,10 @@ Drawer.isExpanded
 PaneMetadata.facets
   -> core pane source/cwd/tag fields where durable
   -> derived/cache display facets are not imported as core columns
+
+PaneMetadata.note
+  -> core pane note column
+  -> PaneNotePresentation and PaneNotePopover draft state are runtime-only
 
 Tab.zoomedPaneId
   -> not present in legacy JSON; hydrate as nil

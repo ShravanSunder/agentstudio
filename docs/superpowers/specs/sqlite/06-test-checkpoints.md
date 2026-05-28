@@ -56,6 +56,11 @@ repository code lands.
   ArrangementPanelPresentationAtom, CommandBarSurfaceAtom, and
   TransientKeyboardSurfaceAtom remain runtime/read inputs and do not acquire
   SQLite write ownership during Step 0
+- after the `command-bar-repo-worktree-actions` PR merges, pane-note presentation
+  remains runtime but `PaneMetadata.note` is classified as durable pane graph
+  metadata
+- arrangement-panel placement remains runtime presentation state and is not
+  persisted
 - after the `pane-shortcuts` PR merges, ActionStateSnapshot and validators read
   rich pane/tab state through derived readers rather than reaching separately
   into graph/cursor atoms
@@ -74,7 +79,7 @@ repository code lands.
 - legacy JSON import uses explicit `Legacy*Payload` DTOs for pane/tab/drawer
   shapes instead of treating live write-owner state as Codable payload
 - `PaneMetadata` and `PaneContextFacets` are tested by field: durable routing
-  fields live in pane graph state, display/cache fields come from
+  fields plus title/note live in pane graph state, display/cache fields come from
   topology/cache-derived readers, and legacy payload fields are import-only
 - any renamed/split Pane, Drawer, Tab, PaneArrangement, or DrawerView role keeps
   explicit tests proving old UI/validator behavior still reads through the
@@ -181,9 +186,10 @@ SQLite repositories land:
 - repos and worktrees round trip with stable UUIDs and stable keys
 - unavailable repo ids round trip
 - panes round trip through decomposed pane/content/drawer/tag rows
-- PaneMetadata durable source/cwd/tag fields round trip without storing
+- PaneMetadata durable source/cwd/title/note/tag fields round trip without storing
   repoName, worktreeName, origin, upstream, organizationName, or parentFolder as
   core pane columns
+- pane-note popover draft/presentation state is not persisted
 - tabs round trip through shell, membership, arrangement, layout, and
   drawer-view rows
 - every arrangement layout/drawer-view pane row has matching tab_pane

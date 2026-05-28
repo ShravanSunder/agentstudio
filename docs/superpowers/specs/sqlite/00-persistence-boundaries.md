@@ -160,6 +160,7 @@ never persisted
   ManagementLayerAtom
   CommandBarSurfaceAtom
   TransientKeyboardSurfaceAtom
+  TransientKeyboardSurfaceKind.paneNote
   ArrangementPanelPresentationAtom
   WorkspaceFocusOwnerAtom
   AttendedPaneAtom
@@ -175,6 +176,8 @@ never persisted
   Bridge PaneDomainState / ReviewState.viewedFiles
   KeyboardRoutingContext / ActiveKeyboardSurface
   PaneOrdinalMap
+  PaneNotePresentation / PaneNotePopover draft state
+  WorkspaceActivitySequence process-local sequence counter
 ```
 
 These values are runtime composition facts, derived focus/read models, or
@@ -306,6 +309,8 @@ local.sqlite
 Rationale:
 
 - Repos, worktrees, panes, tabs, and watched paths are product truth.
+- Pane notes are product-authored pane metadata and live with the core pane graph;
+  the pane-note popover/draft is runtime presentation only.
 - Active tab is cursor/attention state inside an already-known workspace.
 - Window geometry and sidebar width are relaunch memory. Losing them should not
   damage workspace structure.

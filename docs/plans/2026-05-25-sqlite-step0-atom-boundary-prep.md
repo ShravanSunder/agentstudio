@@ -189,10 +189,11 @@ Expected: a doc-only commit exists before code changes begin.
 
 - [x] **Step 5: Rebase after the `pane-shortcuts` PR merges**
 
-Do not execute Step 0 code from a pre-merge shortcut surface. The
-`pane-shortcuts` PR landed on `main` as squash commit `6830954a`, and this
-worktree has merged `origin/main` before Step 0 code begins. Re-run the
-atom/action survey after any later main refresh.
+Do not execute Step 0 code from a pre-merge shortcut surface. The first
+`pane-shortcuts` PR landed on `main` as squash commit `6830954a`. The follow-up
+`command-bar-repo-worktree-actions` branch landed as PR #144 at merge commit
+`54c99b91`. This worktree has merged `origin/main` through `54c99b91` before
+Step 0 code begins. Re-run the atom/action survey after any later main refresh.
 
 Run:
 
@@ -203,26 +204,29 @@ git merge origin/main
 git diff --name-only HEAD@{1}..HEAD -- Sources/AgentStudio Tests/AgentStudioTests docs/architecture
 ```
 
-Expected: the merged main includes the pane-shortcuts atom/action changes before
-Step 0 implementation starts. If the merge introduces conflicts in the current
-docs-only checkpoint, resolve only the docs/spec conflicts here; do not begin
-atom code edits until the survey below is complete.
+Expected: the merged main includes the pane-shortcuts and command-bar
+repo/worktree atom/action changes before Step 0 implementation starts. If the
+merge introduces conflicts in the current docs-only checkpoint, resolve only the
+docs/spec conflicts here; do not begin atom code edits until the survey below is
+complete.
 
 - [x] **Step 6: Re-survey pane-shortcuts atom and action surfaces**
 
 Run:
 
 ```bash
-rg -n "ArrangementPanelPresentationAtom|CommandBarSurfaceAtom|TransientKeyboardSurfaceAtom|ActionStateSnapshot|KeyboardRoutingContext|ActiveKeyboardSurface|PaneOrdinalMap" Sources/AgentStudio Tests/AgentStudioTests docs/architecture
+rg -n "ArrangementPanelPresentationAtom|CommandBarSurfaceAtom|TransientKeyboardSurfaceAtom|ActionStateSnapshot|KeyboardRoutingContext|ActiveKeyboardSurface|PaneOrdinalMap|PaneNote|updatePaneNote|updatePaneCWDAndResolvedContext|WorkspaceActivitySequence|RepoCacheStore" Sources/AgentStudio Tests/AgentStudioTests docs/architecture
 ```
 
 Expected: record the post-merge owners before editing Step 0 code. The
 post-merge survey found `ArrangementPanelPresentationAtom`,
 `CommandBarSurfaceAtom`, `TransientKeyboardSurfaceAtom`,
-`KeyboardRoutingContext`, `ActiveKeyboardSurface`, `PaneOrdinalMap`, and the
-expanded `ActionStateSnapshot`/validator path. None of these adds SQLite write
-ownership; they add runtime/presentation atoms and derived validation inputs
-that Step 0 must preserve.
+`KeyboardRoutingContext`, `ActiveKeyboardSurface`, `PaneOrdinalMap`,
+`PaneMetadata.note`, `PaneNotePresentation`, `TransientKeyboardSurfaceKind.paneNote`,
+`updatePaneCWDAndResolvedContext`, `WorkspaceActivitySequence`, the expanded
+`ActionStateSnapshot`/validator path, and `RepoCacheStore` autosave observation.
+Most of these add runtime/presentation or derived validation inputs. The durable
+addition is `PaneMetadata.note`, which belongs to the pane graph.
 
 - [x] **Step 7: Amend this plan if pane-shortcuts changed atom boundaries**
 
@@ -234,13 +238,27 @@ The expected current classification is:
 ```text
 ArrangementPanelPresentationAtom
   -> runtime/presentation atom
-  -> owns only pending presentation requests
+  -> owns only pending presentation requests, including placement
   -> no SQLite persistence in Step 0
 
 CommandBarSurfaceAtom
 TransientKeyboardSurfaceAtom
+TransientKeyboardSurfaceKind.paneNote
   -> runtime shortcut/surface ownership
+  -> includes transient pane-note editing surface
   -> preserve as runtime atoms unless merged code adds persisted fields
+
+PaneNotePresentation / PaneNotePopover
+  -> runtime UI presentation
+  -> no SQLite persistence
+
+PaneMetadata.note
+  -> durable pane metadata
+  -> WorkspacePaneGraphAtom / pane.note column
+
+WorkspacePaneAtom.updatePaneCWDAndResolvedContext
+  -> graph write that updates durable cwd/repo/worktree ids
+  -> repo/worktree display names remain derived/cache facts
 
 KeyboardRoutingContext / ActiveKeyboardSurface
   -> runtime read model for shortcut routing
@@ -315,7 +333,7 @@ Atoms are writer-owned lifecycle groups, not SQL table models. A write-owner ato
 | Pane | PaneGraphState in WorkspacePaneGraphAtom | Pane from WorkspacePaneDerived | LegacyPanePayload | pane, pane_content_*, pane_tag |
 | Drawer identity/membership | DrawerGraphState in WorkspacePaneGraphAtom | Drawer from WorkspacePaneDerived | LegacyDrawerPayload | drawer, drawer_pane |
 | Drawer.isExpanded | WorkspaceDrawerCursorAtom | Drawer from WorkspacePaneDerived | LegacyDrawerPayload | local_drawer_cursor.is_expanded |
-| PaneMetadata durable fields | PaneGraphState.metadata | Pane from WorkspacePaneDerived | LegacyPaneMetadataPayload | pane source/cwd/checkout/title/tag columns |
+| PaneMetadata durable fields | PaneGraphState.metadata | Pane from WorkspacePaneDerived | LegacyPaneMetadataPayload | pane source/cwd/checkout/title/note/tag columns |
 | PaneContextFacets durable fields | PaneGraphState.metadata | Pane from WorkspacePaneDerived | LegacyPaneContextFacetsPayload | repo_id, worktree_id, cwd, tags |
 | PaneContextFacets display fields | none | WorkspacePaneDerived from topology + RepoEnrichmentCacheAtom | decoded only as legacy compatibility; cache import/rebuild supplies live values | cache_repo_enrichment/cache_worktree_enrichment |
 | Tab shell | WorkspaceTabShellAtom | Tab from WorkspaceTabLayoutDerived | LegacyTabPayload | tab_shell |
@@ -468,6 +486,9 @@ CommandBarSurfaceAtom
 
 TransientKeyboardSurfaceAtom
   -> runtime transient shortcut surface
+
+TransientKeyboardSurfaceKind.paneNote
+  -> runtime pane-note editor surface
 
 KeyboardRoutingContext / ActiveKeyboardSurface
   -> runtime shortcut-routing read model
@@ -622,7 +643,7 @@ LegacyPanePayload / LegacyDrawerPayload
 
 PaneMetadata / PaneContextFacets
   -> split by field:
-     durable routing fields are graph state
+     durable routing fields plus title/note are graph state
      display/cache fields are derived from topology + RepoEnrichmentCacheAtom
      legacy JSON fields are decoded through LegacyPaneMetadataPayload /
        LegacyPaneContextFacetsPayload
