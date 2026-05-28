@@ -165,9 +165,17 @@ func makePaneTabViewControllerCommandHarness(
 
 @MainActor
 func configureMainWindowKeyboardOwner(_ atoms: AtomRegistry) {
+    configureMainWindowKeyboardOwner(windowLifecycleStore: atoms.windowLifecycle, atoms: atoms)
+}
+
+@MainActor
+func configureMainWindowKeyboardOwner(
+    windowLifecycleStore: WindowLifecycleAtom,
+    atoms: AtomRegistry = AtomScope.store
+) {
     let windowId = UUID()
-    atoms.windowLifecycle.recordWindowRegistered(windowId)
-    atoms.windowLifecycle.recordWindowBecameKey(windowId)
+    windowLifecycleStore.recordWindowRegistered(windowId)
+    windowLifecycleStore.recordWindowBecameKey(windowId)
     atoms.uiState.setSidebarCollapsed(false)
     atoms.uiState.setSidebarHasFocus(false)
     atoms.managementLayer.deactivate()

@@ -100,6 +100,7 @@ struct RepoCacheStoreTests {
         )
 
         store.restore(for: workspaceId)
+        store.startObserving()
         atom.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))
@@ -112,6 +113,47 @@ struct RepoCacheStoreTests {
                 return false
             }
         }
+    }
+
+    @Test
+    func mutationBeforeStartObservingDoesNotScheduleAutosave() async throws {
+        let workspaceId = UUID()
+        let atom = RepoCacheAtom()
+        let clock = TestPushClock()
+        let store = RepoCacheStore(
+            atom: atom,
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
+        let repo = CanonicalRepo(
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio")
+        )
+
+        store.restore(for: workspaceId)
+        atom.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
+        await Task.yield()
+
+        #expect(clock.pendingSleepCount == 0)
+        switch persistor.loadCache(for: workspaceId) {
+        case .missing:
+            break
+        case .loaded, .corrupt:
+            Issue.record("Cache mutation before startObserving() should not autosave")
+        }
+    }
+
+    @Test
+    func autosaveObservationStateIsExplicitlyArmed() {
+        let workspaceId = UUID()
+        let store = RepoCacheStore(atom: RepoCacheAtom(), persistor: persistor)
+
+        #expect(store.isAutosaveObservationActive == false)
+        store.restore(for: workspaceId)
+        #expect(store.isAutosaveObservationActive == false)
+        store.startObserving()
+        #expect(store.isAutosaveObservationActive == true)
     }
 
     @Test

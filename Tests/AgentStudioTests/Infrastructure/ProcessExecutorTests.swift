@@ -238,6 +238,34 @@ final class ProcessExecutorTests {
         #expect(elapsed < .seconds(5))
     }
 
+    @Test
+    func test_execute_cancellationWinsOverProcessTimeout() async throws {
+        // Arrange — cancellation should tear down the child process promptly instead of
+        // waiting for the executor's subprocess timeout path to fire.
+        let cancellationExecutor = DefaultProcessExecutor(timeout: 0.35)
+
+        // Act
+        let task = Task {
+            try await cancellationExecutor.execute(
+                command: "sleep",
+                args: ["20"],
+                cwd: nil,
+                environment: nil
+            )
+        }
+        task.cancel()
+
+        // Assert
+        do {
+            _ = try await task.value
+            Issue.record("Expected CancellationError to be thrown")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            Issue.record("Expected CancellationError, got: \(error)")
+        }
+    }
+
     // MARK: - Regression: Fast Exit (Group 8)
 
     @Test

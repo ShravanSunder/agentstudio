@@ -1,5 +1,5 @@
 import Darwin
-@preconcurrency import Dispatch
+import Dispatch
 import Foundation
 import os
 
@@ -42,11 +42,11 @@ enum ProcessError: Error, LocalizedError {
 
 // MARK: - DefaultProcessExecutor
 
-/// Production executor that spawns real processes on a background thread.
+/// Production executor that spawns real processes and reports completion asynchronously.
 ///
-/// Blocking Foundation calls (`readDataToEndOfFile`, `waitUntilExit`) are
-/// dispatched to `DispatchQueue.global()` so they never block the MainActor.
-/// A configurable timeout terminates hung processes.
+/// The implementation keeps process lifecycle out of `AsyncStream` and task-group races.
+/// Dispatch sources/handlers drive pipe reads, process exit, timeout, and cancellation;
+/// one checked continuation is resumed exactly once.
 struct DefaultProcessExecutor: ProcessExecutor {
     /// Default timeout for process execution.
     let timeout: TimeInterval
@@ -101,140 +101,295 @@ struct DefaultProcessExecutor: ProcessExecutor {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let stdoutBuffer = LockedDataBuffer()
-        let stderrBuffer = LockedDataBuffer()
-
-        let (terminationStream, terminationContinuation) = AsyncStream.makeStream(of: Int32.self)
-        let (stdoutEOFStream, stdoutEOFContinuation) = AsyncStream.makeStream(of: Void.self)
-        let (stderrEOFStream, stderrEOFContinuation) = AsyncStream.makeStream(of: Void.self)
-
-        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else {
-                handle.readabilityHandler = nil
-                stdoutEOFContinuation.yield(())
-                stdoutEOFContinuation.finish()
-                return
-            }
-            stdoutBuffer.append(chunk)
-        }
-
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else {
-                handle.readabilityHandler = nil
-                stderrEOFContinuation.yield(())
-                stderrEOFContinuation.finish()
-                return
-            }
-            stderrBuffer.append(chunk)
-        }
-
-        process.terminationHandler = { terminatedProcess in
-            terminationContinuation.yield(terminatedProcess.terminationStatus)
-            terminationContinuation.finish()
-        }
-
-        try process.run()
-
-        // Track whether our timeout killed the process (vs. normal exit/other signal).
-        let timedOut = LockedFlag()
-
-        // Schedule a timeout that terminates the process if it hangs.
-        let timeoutSeconds = timeout
-        let hardKillGraceSeconds: TimeInterval = 0.2
-        let timeoutTask = Task { [process] in
-            do {
-                try await Task.sleep(for: .seconds(timeoutSeconds))
-            } catch {
-                return
-            }
-
-            guard process.isRunning else { return }
-            processLogger.warning("Process '\(command)' exceeded \(Int(timeoutSeconds))s timeout — terminating")
-            timedOut.set()
-            process.terminate()
-
-            do {
-                try await Task.sleep(for: .seconds(hardKillGraceSeconds))
-            } catch {
-                return
-            }
-
-            guard process.isRunning else { return }
-            processLogger.warning(
-                "Process '\(command)' ignored terminate() after \(hardKillGraceSeconds, privacy: .public)s — forcing SIGKILL"
-            )
-            let pid = process.processIdentifier
-            if pid > 0 {
-                _ = kill(pid, SIGKILL)
-            }
-        }
-
-        var terminationIterator = terminationStream.makeAsyncIterator()
-        var stdoutEOFIterator = stdoutEOFStream.makeAsyncIterator()
-        var stderrEOFIterator = stderrEOFStream.makeAsyncIterator()
-
-        let terminationStatus = await terminationIterator.next()
-        timeoutTask.cancel()
-
-        _ = await stdoutEOFIterator.next()
-        _ = await stderrEOFIterator.next()
-
-        stdoutPipe.fileHandleForReading.readabilityHandler = nil
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
-
-        guard let terminationStatus else {
-            throw ProcessError.timedOut(command: command, seconds: timeoutSeconds)
-        }
-
-        if timedOut.value {
-            throw ProcessError.timedOut(command: command, seconds: timeoutSeconds)
-        }
-
-        return ProcessResult(
-            exitCode: Int(terminationStatus),
-            stdout: stdoutBuffer.utf8String,
-            stderr: stderrBuffer.utf8String
+        let execution = ProcessExecution(
+            command: command,
+            process: process,
+            stdoutPipe: stdoutPipe,
+            stderrPipe: stderrPipe,
+            timeoutSeconds: timeout,
+            hardKillGraceSeconds: 0.2
         )
+        return try await execution.run()
+    }
+
+    fileprivate static func decodeAndTrim(_ data: Data) -> String {
+        (String(data: data, encoding: .utf8) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
-// MARK: - LockedFlag
+/// `ProcessExecution` crosses Swift cancellation and Dispatch callback boundaries.
+/// All mutable state below is owned by `queue`; external callbacks only enqueue work
+/// onto that queue, so the unchecked Sendable boundary is limited to queue handoff.
+private final class ProcessExecution: @unchecked Sendable {
+    private typealias Continuation = CheckedContinuation<ProcessResult, Error>
 
-/// Thread-safe boolean flag for cross-thread signaling (e.g. timeout detection).
-final class LockedFlag: @unchecked Sendable {
-    private var _value = false
-    private let lock = NSLock()
-
-    var value: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return _value
+    private enum PipeKind {
+        case stdout
+        case stderr
     }
 
-    func set() {
-        lock.lock()
-        _value = true
-        lock.unlock()
+    private let command: String
+    private let process: Process
+    private let stdoutPipe: Pipe
+    private let stderrPipe: Pipe
+    private let timeoutSeconds: TimeInterval
+    private let hardKillGraceSeconds: TimeInterval
+    private let queue: DispatchQueue
+
+    private var continuation: Continuation?
+    private var stdoutData = Data()
+    private var stderrData = Data()
+    private var processExited = false
+    private var stdoutFinished = false
+    private var stderrFinished = false
+    private var terminationStatus: Int32 = 0
+    private var didTimeout = false
+    private var cancelRequested = false
+    private var completed = false
+    private var processSource: DispatchSourceProcess?
+    private var stdoutSource: DispatchSourceRead?
+    private var stderrSource: DispatchSourceRead?
+    private var timeoutSource: DispatchSourceTimer?
+
+    init(
+        command: String,
+        process: Process,
+        stdoutPipe: Pipe,
+        stderrPipe: Pipe,
+        timeoutSeconds: TimeInterval,
+        hardKillGraceSeconds: TimeInterval
+    ) {
+        self.command = command
+        self.process = process
+        self.stdoutPipe = stdoutPipe
+        self.stderrPipe = stderrPipe
+        self.timeoutSeconds = timeoutSeconds
+        self.hardKillGraceSeconds = hardKillGraceSeconds
+        queue = DispatchQueue(label: "com.agentstudio.process-executor.\(UUID().uuidString)", qos: .userInitiated)
     }
-}
 
-final class LockedDataBuffer: @unchecked Sendable {
-    private var data = Data()
-    private let lock = NSLock()
-
-    func append(_ chunk: Data) {
-        lock.lock()
-        data.append(chunk)
-        lock.unlock()
+    func run() async throws -> ProcessResult {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                queue.async {
+                    self.start(continuation)
+                }
+            }
+        } onCancel: {
+            cancel()
+        }
     }
 
-    var utf8String: String {
-        lock.lock()
-        let snapshot = data
-        lock.unlock()
-        return String(data: snapshot, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    private func start(_ continuation: Continuation) {
+        self.continuation = continuation
+        guard !cancelRequested else {
+            complete(.failure(CancellationError()))
+            return
+        }
+
+        configureTerminationHandler()
+
+        do {
+            try process.run()
+        } catch {
+            complete(.failure(error))
+            return
+        }
+
+        configurePipeSources()
+        configureProcessSource()
+        configureTimeoutSource()
+        stdoutSource?.resume()
+        stderrSource?.resume()
+        processSource?.resume()
+        timeoutSource?.resume()
+    }
+
+    private func configurePipeSources() {
+        stdoutSource = makeReadSource(pipe: stdoutPipe, kind: .stdout)
+        stderrSource = makeReadSource(pipe: stderrPipe, kind: .stderr)
+    }
+
+    private func makeReadSource(pipe: Pipe, kind: PipeKind) -> DispatchSourceRead {
+        let fileHandle = pipe.fileHandleForReading
+        let source = DispatchSource.makeReadSource(fileDescriptor: fileHandle.fileDescriptor, queue: queue)
+        source.setEventHandler { [self, fileHandle] in
+            let chunk = fileHandle.availableData
+            if chunk.isEmpty {
+                markPipeFinished(kind)
+            } else {
+                append(chunk, from: kind)
+            }
+        }
+        source.setCancelHandler { [fileHandle] in
+            try? fileHandle.close()
+        }
+        return source
+    }
+
+    private func configureTerminationHandler() {
+        process.terminationHandler = { [weak self] terminatedProcess in
+            guard let execution = self else { return }
+            let status = terminatedProcess.terminationStatus
+            execution.queue.async {
+                execution.markProcessExited(status: status)
+            }
+        }
+    }
+
+    private func configureProcessSource() {
+        let source = DispatchSource.makeProcessSource(
+            identifier: process.processIdentifier,
+            eventMask: .exit,
+            queue: queue
+        )
+        source.setEventHandler { [self] in
+            // DispatchSourceProcess is a wakeup/backstop; Foundation's
+            // terminationHandler owns the status because terminationStatus can
+            // still throw if the source fires before Process marks itself exited.
+            guard !process.isRunning else { return }
+            markProcessExited(status: process.terminationStatus)
+        }
+        processSource = source
+    }
+
+    private func configureTimeoutSource() {
+        let source = DispatchSource.makeTimerSource(queue: queue)
+        source.schedule(deadline: .now() + timeoutSeconds)
+        source.setEventHandler { [self] in
+            markTimedOut()
+        }
+        timeoutSource = source
+    }
+
+    private func append(_ data: Data, from kind: PipeKind) {
+        switch kind {
+        case .stdout:
+            stdoutData.append(data)
+        case .stderr:
+            stderrData.append(data)
+        }
+    }
+
+    private func markPipeFinished(_ kind: PipeKind) {
+        switch kind {
+        case .stdout:
+            stdoutSource?.cancel()
+        case .stderr:
+            stderrSource?.cancel()
+        }
+
+        switch kind {
+        case .stdout:
+            stdoutFinished = true
+        case .stderr:
+            stderrFinished = true
+        }
+        let completion = completionIfReady()
+        if let completion {
+            complete(completion)
+        }
+    }
+
+    private func markProcessExited(status: Int32) {
+        processExited = true
+        terminationStatus = status
+        let completion = completionIfReady()
+        if let completion {
+            complete(completion)
+        }
+    }
+
+    private func markTimedOut() {
+        if completed || didTimeout {
+            return
+        }
+        didTimeout = true
+
+        processLogger.warning(
+            "Process '\(self.command, privacy: .public)' exceeded \(Int(self.timeoutSeconds))s timeout - terminating"
+        )
+        if self.process.isRunning {
+            self.process.terminate()
+        }
+        queue.asyncAfter(deadline: .now() + self.hardKillGraceSeconds) { [self] in
+            forceKillIfStillRunning()
+        }
+    }
+
+    private func forceKillIfStillRunning() {
+        guard self.process.isRunning else { return }
+        processLogger.warning(
+            "Process '\(self.command, privacy: .public)' ignored terminate() after \(self.hardKillGraceSeconds, privacy: .public)s - forcing SIGKILL"
+        )
+        let pid = self.process.processIdentifier
+        if pid > 0 {
+            _ = kill(pid, SIGKILL)
+        }
+    }
+
+    private func completionIfReady() -> Result<ProcessResult, Error>? {
+        guard processExited, stdoutFinished, stderrFinished else {
+            return nil
+        }
+        if didTimeout {
+            return .failure(ProcessError.timedOut(command: command, seconds: timeoutSeconds))
+        }
+        let result = ProcessResult(
+            exitCode: Int(terminationStatus),
+            stdout: DefaultProcessExecutor.decodeAndTrim(stdoutData),
+            stderr: DefaultProcessExecutor.decodeAndTrim(stderrData)
+        )
+        return .success(result)
+    }
+
+    private func cancel() {
+        queue.async {
+            self.cancelOnQueue()
+        }
+    }
+
+    private func cancelOnQueue() {
+        cancelRequested = true
+        guard !completed, let continuation else { return }
+
+        completed = true
+        self.continuation = nil
+        terminateForCancellation()
+        cleanupSources()
+        continuation.resume(throwing: CancellationError())
+    }
+
+    private func terminateForCancellation() {
+        guard process.isRunning else { return }
+        process.terminate()
+        queue.asyncAfter(deadline: .now() + hardKillGraceSeconds) { [self] in
+            forceKillIfStillRunning()
+        }
+    }
+
+    private func complete(_ result: Result<ProcessResult, Error>) {
+        if completed {
+            return
+        }
+        completed = true
+        let continuationToResume = continuation
+        continuation = nil
+
+        cleanupSources()
+        continuationToResume?.resume(with: result)
+    }
+
+    private func cleanupSources() {
+        process.terminationHandler = nil
+        timeoutSource?.cancel()
+        processSource?.cancel()
+        stdoutSource?.cancel()
+        stderrSource?.cancel()
+        timeoutSource = nil
+        processSource = nil
+        stdoutSource = nil
+        stderrSource = nil
     }
 }
