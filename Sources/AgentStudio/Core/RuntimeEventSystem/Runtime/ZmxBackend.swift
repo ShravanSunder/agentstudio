@@ -360,7 +360,7 @@ final class ZmxBackend: SessionBackend {
     // MARK: - Helpers
 
     private static func defaultRetrySleep(_ duration: Duration) async {
-        try? await Task.sleep(for: duration)
+        try? await Task.sleep(nanoseconds: duration.nanosecondsForTaskSleep)
     }
 
     private func executeWithRetry(

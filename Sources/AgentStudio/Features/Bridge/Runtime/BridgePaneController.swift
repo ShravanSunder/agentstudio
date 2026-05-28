@@ -238,7 +238,7 @@ final class BridgePaneController {
             let deadline = ContinuousClock.now + .seconds(2)
             while page.isLoading, ContinuousClock.now < deadline {
                 if Task.isCancelled { return }
-                try? await Task.sleep(for: .milliseconds(50))
+                try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
             }
 
             if Task.isCancelled { return }

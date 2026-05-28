@@ -55,4 +55,36 @@ struct AppBootSequenceTests {
         #expect(appDelegateSource.contains("uiStateStore.startObserving()"))
         #expect(appDelegateSource.contains("assertBootPersistenceObservationArmed()"))
     }
+
+    @Test("production code avoids the clock-based Task.sleep overload")
+    func productionCodeAvoidsClockBasedTaskSleep() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let sourceRoot = projectRoot.appending(path: "Sources/AgentStudio")
+        let sourceFiles =
+            FileManager.default
+            .enumerator(at: sourceRoot, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" } ?? []
+        var offenders: [String] = []
+
+        for sourceFile in sourceFiles {
+            let source = try String(contentsOf: sourceFile, encoding: .utf8)
+            for (lineIndex, line) in source.split(separator: "\n", omittingEmptySubsequences: false).enumerated()
+            where line.contains("Task.sleep(for:") {
+                let relativePath = sourceFile.path.replacingOccurrences(of: projectRoot.path + "/", with: "")
+                offenders.append("\(relativePath):\(lineIndex + 1): \(line)")
+            }
+        }
+
+        #expect(
+            offenders.isEmpty,
+            """
+            macOS 26.4 release startup reproduced swift_task_dealloc crashes in the \
+            generic clock-based Task.sleep overload. Use Duration.nanosecondsForTaskSleep \
+            with Task.sleep(nanoseconds:) instead.
+
+            \(offenders.joined(separator: "\n"))
+            """
+        )
+    }
 }
