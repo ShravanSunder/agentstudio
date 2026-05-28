@@ -16,6 +16,10 @@ final class SidebarCacheStore {
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
 
+    var isAutosaveObservationActive: Bool {
+        isObservingCacheState
+    }
+
     init(
         atom: SidebarCacheAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),

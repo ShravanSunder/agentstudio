@@ -133,6 +133,18 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
+    func autosaveObservationStateIsExplicitlyArmed() {
+        let workspaceId = UUID()
+        let store = SidebarCacheStore(atom: SidebarCacheAtom(), persistor: persistor)
+
+        #expect(store.isAutosaveObservationActive == false)
+        store.restore(for: workspaceId)
+        #expect(store.isAutosaveObservationActive == false)
+        store.startObserving()
+        #expect(store.isAutosaveObservationActive == true)
+    }
+
+    @Test
     func flushFailure_reportsSaveFailedRecovery() {
         let workspaceId = UUID()
         let blockedDirectoryURL = FileManager.default.temporaryDirectory

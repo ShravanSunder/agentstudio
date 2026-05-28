@@ -39,4 +39,20 @@ struct AppBootSequenceTests {
             #expect(!step.purpose.isEmpty, "Missing boot purpose for \(step.rawValue)")
         }
     }
+
+    @Test("boot observation step arms every autosaving persistence store")
+    func bootObservationStepArmsEveryAutosavingPersistenceStore() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
+        )
+
+        #expect(appDelegateSource.contains("case .armPersistenceObservation:"))
+        #expect(appDelegateSource.contains("bootArmPersistenceObservation()"))
+        #expect(appDelegateSource.contains("repoCacheStore.startObserving()"))
+        #expect(appDelegateSource.contains("sidebarCacheStore.startObserving()"))
+        #expect(appDelegateSource.contains("uiStateStore.startObserving()"))
+        #expect(appDelegateSource.contains("assertBootPersistenceObservationArmed()"))
+    }
 }

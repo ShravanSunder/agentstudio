@@ -145,6 +145,18 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func autosaveObservationStateIsExplicitlyArmed() {
+        let workspaceId = UUID()
+        let store = RepoCacheStore(atom: RepoCacheAtom(), persistor: persistor)
+
+        #expect(store.isAutosaveObservationActive == false)
+        store.restore(for: workspaceId)
+        #expect(store.isAutosaveObservationActive == false)
+        store.startObserving()
+        #expect(store.isAutosaveObservationActive == true)
+    }
+
+    @Test
     func restore_corruptCacheFile_fallsBackToDefaults() throws {
         let workspaceId = UUID()
         let corruptURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")

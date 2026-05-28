@@ -17,6 +17,10 @@ final class UIStateStore {
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
 
+    var isAutosaveObservationActive: Bool {
+        isObservingUIState
+    }
+
     init(
         atom: UIStateAtom,
         editorChooserAtom: EditorChooserAtom,

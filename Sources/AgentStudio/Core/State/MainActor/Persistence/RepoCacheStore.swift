@@ -16,6 +16,10 @@ final class RepoCacheStore {
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
 
+    var isAutosaveObservationActive: Bool {
+        isObservingCacheState
+    }
+
     init(
         atom: RepoCacheAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
