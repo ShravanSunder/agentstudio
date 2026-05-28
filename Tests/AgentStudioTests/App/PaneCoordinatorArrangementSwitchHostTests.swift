@@ -16,35 +16,39 @@ struct PaneCoordinatorArrangementSwitchHostTests {
 
     @Test("switchArrangement restores a newly visible terminal pane when its host is missing")
     func switchArrangement_restoresMissingNewlyVisibleTerminalView() {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        withTestAtomRegistry { atoms in
+            atoms.managementLayer.deactivate()
 
-        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-        let visiblePane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Visible")
-        let hiddenPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Hidden")
-        let tab = Tab(paneId: visiblePane.id)
-        harness.store.appendTab(tab)
-        harness.store.insertPane(
-            hiddenPane.id,
-            inTab: tab.id,
-            at: visiblePane.id,
-            direction: .horizontal,
-            position: .after,
-            sizingMode: .halveTarget
-        )
-        let allPanesArrangementId = harness.store.createArrangement(name: "All panes", inTab: tab.id)!
-        #expect(harness.store.minimizePane(hiddenPane.id, inTab: tab.id))
-        harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
-        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
-        harness.windowLifecycleStore.recordLaunchLayoutSettled()
+            let harness = makeHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        #expect(harness.coordinator.arrangementView.activeVisiblePaneIds(forTab: tab.id) == [visiblePane.id])
-        #expect(harness.viewRegistry.view(for: hiddenPane.id) == nil)
+            let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let visiblePane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Visible")
+            let hiddenPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Hidden")
+            let tab = Tab(paneId: visiblePane.id)
+            harness.store.appendTab(tab)
+            harness.store.insertPane(
+                hiddenPane.id,
+                inTab: tab.id,
+                at: visiblePane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+            let allPanesArrangementId = harness.store.createArrangement(name: "All panes", inTab: tab.id)!
+            #expect(harness.store.minimizePane(hiddenPane.id, inTab: tab.id))
+            harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
+            harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+            harness.windowLifecycleStore.recordLaunchLayoutSettled()
 
-        harness.coordinator.execute(.switchArrangement(tabId: tab.id, arrangementId: allPanesArrangementId))
+            #expect(harness.coordinator.arrangementView.activeVisiblePaneIds(forTab: tab.id) == [visiblePane.id])
+            #expect(harness.viewRegistry.view(for: hiddenPane.id) == nil)
 
-        #expect(harness.coordinator.arrangementView.activeVisiblePaneIds(forTab: tab.id).contains(hiddenPane.id))
-        #expect(harness.viewRegistry.view(for: hiddenPane.id) != nil)
+            harness.coordinator.execute(.switchArrangement(tabId: tab.id, arrangementId: allPanesArrangementId))
+
+            #expect(harness.coordinator.arrangementView.activeVisiblePaneIds(forTab: tab.id).contains(hiddenPane.id))
+            #expect(harness.viewRegistry.view(for: hiddenPane.id) != nil)
+        }
     }
 
     private struct Harness {
