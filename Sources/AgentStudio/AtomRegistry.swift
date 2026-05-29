@@ -1,7 +1,8 @@
 @MainActor
 final class AtomRegistry {
     let activeWorkspaceSelection: ActiveWorkspaceSelectionAtom
-    let workspaceMetadata: WorkspaceMetadataAtom
+    let workspaceIdentity: WorkspaceIdentityAtom
+    let workspaceWindowMemory: WorkspaceWindowMemoryAtom
     let workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom
     let workspacePane: WorkspacePaneAtom
     let workspaceTabShell: WorkspaceTabShellAtom
@@ -28,7 +29,8 @@ final class AtomRegistry {
 
     init(
         activeWorkspaceSelection: ActiveWorkspaceSelectionAtom = .init(),
-        workspaceMetadata: WorkspaceMetadataAtom = .init(),
+        workspaceIdentity: WorkspaceIdentityAtom = .init(),
+        workspaceWindowMemory: WorkspaceWindowMemoryAtom = .init(),
         workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom = .init(),
         workspacePane: WorkspacePaneAtom = .init(),
         workspaceTabShell: WorkspaceTabShellAtom = .init(),
@@ -53,7 +55,8 @@ final class AtomRegistry {
         welcome: WelcomeAtom = .init()
     ) {
         self.activeWorkspaceSelection = activeWorkspaceSelection
-        self.workspaceMetadata = workspaceMetadata
+        self.workspaceIdentity = workspaceIdentity
+        self.workspaceWindowMemory = workspaceWindowMemory
         self.workspaceRepositoryTopology = workspaceRepositoryTopology
         self.workspacePane = workspacePane
         self.workspaceTabShell = workspaceTabShell

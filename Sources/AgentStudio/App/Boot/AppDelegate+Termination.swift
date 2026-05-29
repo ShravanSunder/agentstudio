@@ -19,19 +19,19 @@ private final class TerminationDrainCompletion: @unchecked Sendable {
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
         do {
-            try repoCacheStore.flush(for: store.metadataAtom.workspaceId)
+            try repoCacheStore.flush(for: store.identityAtom.workspaceId)
         } catch {
             appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
         }
 
         do {
-            try sidebarCacheStore.flush(for: store.metadataAtom.workspaceId)
+            try sidebarCacheStore.flush(for: store.identityAtom.workspaceId)
         } catch {
             appLogger.warning("Sidebar cache flush failed at termination: \(error.localizedDescription)")
         }
 
         do {
-            try uiStateStore.flush(for: store.metadataAtom.workspaceId)
+            try uiStateStore.flush(for: store.identityAtom.workspaceId)
         } catch {
             appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
         }

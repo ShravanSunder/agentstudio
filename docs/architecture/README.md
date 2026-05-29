@@ -61,7 +61,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 
 Current atom vocabulary:
 
-- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceMetadataAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`, `RepoCacheAtom`, `UIStateAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms.
+- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`, `RepoCacheAtom`, `UIStateAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms.
 - **Persistence wrappers** own load/save boundaries and debounced disk I/O, for example `WorkspaceStore`, `RepoCacheStore`, `SidebarCacheStore`, and `UIStateStore`.
 - **Derived readers** compute projections without owning data, for example `WorkspaceFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
 - **Coordinators** sequence mutations across atoms/stores and runtime systems. They own no durable domain state.
@@ -87,7 +87,8 @@ The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain is 
 ActiveWorkspaceSelectionAtom            ← global active workspace id
 
 WorkspaceStore (workspace.state.json persistence wrapper)
-├── WorkspaceMetadataAtom               ← workspace identity and window/sidebar metadata
+├── WorkspaceIdentityAtom               ← workspace id, name, created-at timestamp
+├── WorkspaceWindowMemoryAtom           ← local sidebar width and window frame
 ├── WorkspaceRepositoryTopologyAtom     ← repos, worktrees, watched paths, availability
 ├── WorkspacePaneAtom                   ← panes, metadata/content/residency, drawers
 └── WorkspaceTabLayoutAtom              ← tabs, arrangements, active selection, layout

@@ -130,7 +130,7 @@ final class WorkspaceStoreTests {
 
         #expect(store.flush() == false)
         #expect(reportedRecovery?.store == .workspace)
-        #expect(reportedRecovery?.workspaceId == store.metadataAtom.workspaceId)
+        #expect(reportedRecovery?.workspaceId == store.identityAtom.workspaceId)
         #expect(reportedRecovery?.recovery == .saveFailed)
     }
 

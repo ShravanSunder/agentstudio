@@ -200,7 +200,7 @@ class MainSplitViewController: NSSplitViewController {
         }
 
         guard !isCollapsed, didApplySidebarWidthAfterLayout, let sidebarWidth = currentSidebarWidth() else { return }
-        store.metadataAtom.setSidebarWidth(sidebarWidth)
+        store.windowMemoryAtom.setSidebarWidth(sidebarWidth)
     }
 
     private func applySidebarWidthAfterLayoutIfNeeded() {
@@ -239,7 +239,7 @@ class MainSplitViewController: NSSplitViewController {
 
     private func clampedSidebarWidth(for sidebarItem: NSSplitViewItem) -> CGFloat {
         let sidebarWidth = min(
-            max(store.metadataAtom.sidebarWidth, sidebarItem.minimumThickness),
+            max(store.windowMemoryAtom.sidebarWidth, sidebarItem.minimumThickness),
             sidebarItem.maximumThickness
         )
         return sidebarWidth

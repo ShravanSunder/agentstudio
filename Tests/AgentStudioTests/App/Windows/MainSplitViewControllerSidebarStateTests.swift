@@ -72,7 +72,7 @@ struct MainSplitViewControllerSidebarStateTests {
     func viewDidLoadRestoresSidebarWidthFromWorkspaceMetadata() async {
         await withMainSplitViewControllerHarness(
             withRepos: true,
-            configureWorkspaceMetadata: { $0.setSidebarWidth(320) },
+            configureWorkspaceWindowMemory: { $0.setSidebarWidth(320) },
             body: { harness in
                 layOutMainSplitViewController(harness)
                 await eventually("sidebar should restore persisted workspace width") {
@@ -87,10 +87,10 @@ struct MainSplitViewControllerSidebarStateTests {
     func initialResizeBeforeRestoreDoesNotOverwritePersistedSidebarWidth() async {
         await withMainSplitViewControllerHarness(
             withRepos: true,
-            configureWorkspaceMetadata: { $0.setSidebarWidth(320) },
+            configureWorkspaceWindowMemory: { $0.setSidebarWidth(320) },
             body: { harness in
                 harness.controller.splitViewDidResizeSubviews(Notification(name: .init("test")))
-                #expect(harness.store.metadataAtom.sidebarWidth == 320)
+                #expect(harness.store.windowMemoryAtom.sidebarWidth == 320)
 
                 layOutMainSplitViewController(harness)
                 await eventually("sidebar should still restore persisted workspace width") {
@@ -113,7 +113,7 @@ struct MainSplitViewControllerSidebarStateTests {
 
                 let sidebarWidth = harness.controller.splitViewItems.first?.viewController.view.frame.width ?? 0
                 #expect(sidebarWidth > 300)
-                #expect(abs(harness.store.metadataAtom.sidebarWidth - sidebarWidth) <= 1)
+                #expect(abs(harness.store.windowMemoryAtom.sidebarWidth - sidebarWidth) <= 1)
             }
         )
     }

@@ -4,15 +4,18 @@ import Foundation
 enum WorkspacePersistenceTransformer {
     static func hydrate(
         _ state: WorkspacePersistor.PersistableState,
-        metadataAtom: WorkspaceMetadataAtom,
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
         repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
     ) {
-        metadataAtom.hydrate(
+        identityAtom.hydrate(
             workspaceId: state.id,
             workspaceName: state.name,
-            createdAt: state.createdAt,
+            createdAt: state.createdAt
+        )
+        windowMemoryAtom.hydrate(
             sidebarWidth: state.sidebarWidth,
             windowFrame: state.windowFrame
         )
@@ -39,7 +42,8 @@ enum WorkspacePersistenceTransformer {
     }
 
     static func makePersistableState(
-        metadataAtom: WorkspaceMetadataAtom,
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
         repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
@@ -60,18 +64,18 @@ enum WorkspacePersistenceTransformer {
         pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds, activeTabId: &prunedActiveTabId)
 
         return WorkspacePersistor.PersistableState(
-            id: metadataAtom.workspaceId,
-            name: metadataAtom.workspaceName,
+            id: identityAtom.workspaceId,
+            name: identityAtom.workspaceName,
             repos: canonicalRepos(from: repositoryTopologyAtom.repos),
             worktrees: canonicalWorktrees(from: repositoryTopologyAtom.repos),
             unavailableRepoIds: repositoryTopologyAtom.unavailableRepoIds,
             panes: persistablePanes,
             tabs: prunedTabs,
             activeTabId: prunedActiveTabId,
-            sidebarWidth: metadataAtom.sidebarWidth,
-            windowFrame: metadataAtom.windowFrame,
+            sidebarWidth: windowMemoryAtom.sidebarWidth,
+            windowFrame: windowMemoryAtom.windowFrame,
             watchedPaths: repositoryTopologyAtom.watchedPaths,
-            createdAt: metadataAtom.createdAt,
+            createdAt: identityAtom.createdAt,
             updatedAt: persistedAt
         )
     }

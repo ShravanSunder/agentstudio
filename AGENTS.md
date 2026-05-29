@@ -89,7 +89,8 @@ icons when a sidebar/local action already defines the presentation.
 |-----------|------|----------|
 | `AtomRegistry` | concrete root composition file for Core and Feature atoms plus derived helpers | `Sources/AgentStudio/AtomRegistry.swift` |
 | `ActiveWorkspaceSelectionAtom` | global active workspace id selection, independent from per-workspace metadata hydration | `Core/State/MainActor/Atoms/ActiveWorkspaceSelectionAtom.swift` |
-| `WorkspaceMetadataAtom` | workspace identity plus persisted window/sidebar metadata | `Core/State/MainActor/Atoms/WorkspaceMetadataAtom.swift` |
+| `WorkspaceIdentityAtom` | workspace id, name, and creation timestamp | `Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift` |
+| `WorkspaceWindowMemoryAtom` | local sidebar width and window frame memory | `Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift` |
 | `WorkspaceRepositoryTopologyAtom` | repos, worktrees, watched paths, availability | `Core/State/MainActor/Atoms/WorkspaceRepositoryTopologyAtom.swift` |
 | `WorkspacePaneAtom` | panes, pane metadata/content/residency, drawer state | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` |
 | `WorkspaceTabLayoutAtom` | tabs, arrangements, active selection, zoom/minimize | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` |
@@ -318,7 +319,7 @@ agent-studio/
 │   │   │                             #   KeyboardOwner, ...
 │   │   ├── State/
 │   │   │   └── MainActor/
-│   │   │       ├── Atoms/            # WorkspaceMetadataAtom, WorkspacePaneAtom,
+│   │   │       ├── Atoms/            # WorkspaceIdentityAtom, WorkspacePaneAtom,
 │   │   │       │                     #   UIStateAtom, ManagementLayerAtom,
 │   │   │       │                     #   WorkspaceFocusDerived, KeyboardOwnerDerived, ...
 │   │   │       └── Persistence/      # WorkspaceStore, RepoCacheStore, UIStateStore
@@ -367,7 +368,8 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `PaneCoordinator+Undo` | `App/Coordination/` | Pane close undo support |
 | `PaneCoordinator+ViewLifecycle` | `App/Coordination/` | NSView lifecycle orchestration for panes |
 | `WorkspaceCacheCoordinator` | `App/` | Event bus consumer, updates stores |
-| `WorkspaceMetadataAtom` | `Core/State/MainActor/Atoms/` | Workspace identity plus persisted window/sidebar metadata |
+| `WorkspaceIdentityAtom` | `Core/State/MainActor/Atoms/` | Workspace id, name, and creation timestamp |
+| `WorkspaceWindowMemoryAtom` | `Core/State/MainActor/Atoms/` | Local sidebar width and window frame memory |
 | `WorkspaceRepositoryTopologyAtom` | `Core/State/MainActor/Atoms/` | Repos, worktrees, watched paths, availability |
 | `WorkspacePaneAtom` | `Core/State/MainActor/Atoms/` | Pane registry, pane metadata/content/residency, drawers |
 | `WorkspaceTabLayoutAtom` | `Core/State/MainActor/Atoms/` | Tabs, arrangements, active selection, zoom/minimize |

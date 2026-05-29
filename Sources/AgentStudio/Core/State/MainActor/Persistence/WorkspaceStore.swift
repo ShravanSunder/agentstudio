@@ -10,7 +10,8 @@ private let workspaceStoreLogger = Logger(subsystem: "com.agentstudio", category
 /// mutations live on the owning atoms or `WorkspaceMutationCoordinator`.
 @MainActor
 final class WorkspaceStore {
-    let metadataAtom: WorkspaceMetadataAtom
+    let identityAtom: WorkspaceIdentityAtom
+    let windowMemoryAtom: WorkspaceWindowMemoryAtom
     let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
     let paneAtom: WorkspacePaneAtom
     let tabShellAtom: WorkspaceTabShellAtom
@@ -28,7 +29,8 @@ final class WorkspaceStore {
     private(set) var isDirty: Bool = false
 
     init(
-        metadataAtom: WorkspaceMetadataAtom = WorkspaceMetadataAtom(),
+        identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(),
+        windowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom(),
         repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom = WorkspaceRepositoryTopologyAtom(),
         paneAtom: WorkspacePaneAtom = WorkspacePaneAtom(),
         tabShellAtom: WorkspaceTabShellAtom = WorkspaceTabShellAtom(),
@@ -42,7 +44,8 @@ final class WorkspaceStore {
     ) {
         let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
         let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
-        self.metadataAtom = metadataAtom
+        self.identityAtom = identityAtom
+        self.windowMemoryAtom = windowMemoryAtom
         self.repositoryTopologyAtom = repositoryTopologyAtom
         self.paneAtom = paneAtom
         self.tabShellAtom = resolvedTabShellAtom
@@ -82,7 +85,8 @@ final class WorkspaceStore {
             isRestoringState = true
             WorkspacePersistenceTransformer.hydrate(
                 state,
-                metadataAtom: metadataAtom,
+                identityAtom: identityAtom,
+                windowMemoryAtom: windowMemoryAtom,
                 repositoryTopologyAtom: repositoryTopologyAtom,
                 workspacePaneAtom: paneAtom,
                 workspaceTabLayoutAtom: tabLayoutAtom
@@ -126,11 +130,11 @@ final class WorkspaceStore {
         guard !isObservingPersistedState else { return }
         isObservingPersistedState = true
         withObservationTracking {
-            _ = metadataAtom.workspaceId
-            _ = metadataAtom.workspaceName
-            _ = metadataAtom.createdAt
-            _ = metadataAtom.sidebarWidth
-            _ = metadataAtom.windowFrame
+            _ = identityAtom.workspaceId
+            _ = identityAtom.workspaceName
+            _ = identityAtom.createdAt
+            _ = windowMemoryAtom.sidebarWidth
+            _ = windowMemoryAtom.windowFrame
             _ = repositoryTopologyAtom.repos
             _ = repositoryTopologyAtom.watchedPaths
             _ = repositoryTopologyAtom.unavailableRepoIds
@@ -177,7 +181,8 @@ final class WorkspaceStore {
 
         let persistedAt = Date()
         let state = WorkspacePersistenceTransformer.makePersistableState(
-            metadataAtom: metadataAtom,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
             repositoryTopologyAtom: repositoryTopologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
@@ -202,7 +207,7 @@ final class WorkspaceStore {
         recoveryReporter?(
             .init(
                 store: .workspace,
-                workspaceId: metadataAtom.workspaceId,
+                workspaceId: identityAtom.workspaceId,
                 recovery: .saveFailed
             )
         )

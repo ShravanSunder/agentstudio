@@ -116,7 +116,8 @@ extension AppDelegate {
         atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
         store = WorkspaceStore(
-            metadataAtom: atomStore.workspaceMetadata,
+            identityAtom: atomStore.workspaceIdentity,
+            windowMemoryAtom: atomStore.workspaceWindowMemory,
             repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
             paneAtom: atomStore.workspacePane,
             tabLayoutAtom: atomStore.workspaceTabLayout,
@@ -162,12 +163,12 @@ extension AppDelegate {
 
     private func bootLoadCacheStore(persistor: WorkspacePersistor) {
         _ = persistor
-        repoCacheStore.restore(for: store.metadataAtom.workspaceId)
-        sidebarCacheStore.restore(for: store.metadataAtom.workspaceId)
+        repoCacheStore.restore(for: store.identityAtom.workspaceId)
+        sidebarCacheStore.restore(for: store.identityAtom.workspaceId)
     }
 
     private func bootLoadUIStore(persistor: WorkspacePersistor) {
-        uiStateStore.restore(for: store.metadataAtom.workspaceId)
+        uiStateStore.restore(for: store.identityAtom.workspaceId)
         bootLoadInboxNotificationStore(persistor: persistor)
     }
 
@@ -275,7 +276,7 @@ extension AppDelegate {
 
         if pruneStaleCache(store: store, repoCache: repoCache) {
             do {
-                try repoCacheStore.flush(for: store.metadataAtom.workspaceId)
+                try repoCacheStore.flush(for: store.identityAtom.workspaceId)
             } catch {
                 appLogger.warning("Failed to persist pruned repo cache during boot: \(error.localizedDescription)")
             }

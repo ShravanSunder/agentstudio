@@ -23,7 +23,7 @@ private func makeMainSplitViewControllerHarness(
     withRepos: Bool,
     inboxAtom: InboxNotificationAtom,
     configureUIState: @MainActor (UIStateAtom) -> Void,
-    configureWorkspaceMetadata: @MainActor (WorkspaceMetadataAtom) -> Void,
+    configureWorkspaceWindowMemory: @MainActor (WorkspaceWindowMemoryAtom) -> Void,
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder
 ) -> MainSplitViewControllerHarness {
     let tempDir = FileManager.default.temporaryDirectory
@@ -33,7 +33,8 @@ private func makeMainSplitViewControllerHarness(
     configureUIState(atoms.uiState)
 
     let store = WorkspaceStore(
-        metadataAtom: atoms.workspaceMetadata,
+        identityAtom: atoms.workspaceIdentity,
+        windowMemoryAtom: atoms.workspaceWindowMemory,
         repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
         paneAtom: atoms.workspacePane,
         tabLayoutAtom: atoms.workspaceTabLayout,
@@ -41,7 +42,7 @@ private func makeMainSplitViewControllerHarness(
         persistor: persistor
     )
     store.restore()
-    configureWorkspaceMetadata(atoms.workspaceMetadata)
+    configureWorkspaceWindowMemory(atoms.workspaceWindowMemory)
 
     if withRepos {
         _ = store.addRepo(at: tempDir.appending(path: "repo"))
@@ -102,7 +103,7 @@ func withMainSplitViewControllerHarness<T>(
     withRepos: Bool = true,
     inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
     configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
-    configureWorkspaceMetadata: @MainActor (WorkspaceMetadataAtom) -> Void = { _ in },
+    configureWorkspaceWindowMemory: @MainActor (WorkspaceWindowMemoryAtom) -> Void = { _ in },
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
         AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState, onEscape: onEscape))
     },
@@ -112,7 +113,7 @@ func withMainSplitViewControllerHarness<T>(
         withRepos: withRepos,
         inboxAtom: inboxAtom,
         configureUIState: configureUIState,
-        configureWorkspaceMetadata: configureWorkspaceMetadata,
+        configureWorkspaceWindowMemory: configureWorkspaceWindowMemory,
         sidebarRootViewBuilder: sidebarRootViewBuilder
     )
 
@@ -137,7 +138,7 @@ func withUnloadedMainSplitViewControllerHarness<T>(
     withRepos: Bool = true,
     inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
     configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
-    configureWorkspaceMetadata: @MainActor (WorkspaceMetadataAtom) -> Void = { _ in },
+    configureWorkspaceWindowMemory: @MainActor (WorkspaceWindowMemoryAtom) -> Void = { _ in },
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
         AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState, onEscape: onEscape))
     },
@@ -147,7 +148,7 @@ func withUnloadedMainSplitViewControllerHarness<T>(
         withRepos: withRepos,
         inboxAtom: inboxAtom,
         configureUIState: configureUIState,
-        configureWorkspaceMetadata: configureWorkspaceMetadata,
+        configureWorkspaceWindowMemory: configureWorkspaceWindowMemory,
         sidebarRootViewBuilder: sidebarRootViewBuilder
     )
 

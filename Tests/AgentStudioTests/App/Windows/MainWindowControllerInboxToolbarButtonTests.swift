@@ -204,7 +204,8 @@ private func withMainWindowControllerHarness<T>(
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
     let atoms = AtomRegistry()
     let store = WorkspaceStore(
-        metadataAtom: atoms.workspaceMetadata,
+        identityAtom: atoms.workspaceIdentity,
+        windowMemoryAtom: atoms.workspaceWindowMemory,
         repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
         paneAtom: atoms.workspacePane,
         tabLayoutAtom: atoms.workspaceTabLayout,
