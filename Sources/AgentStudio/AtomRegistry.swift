@@ -1,5 +1,6 @@
 @MainActor
 final class AtomRegistry {
+    let activeWorkspaceSelection: ActiveWorkspaceSelectionAtom
     let workspaceMetadata: WorkspaceMetadataAtom
     let workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom
     let workspacePane: WorkspacePaneAtom
@@ -26,6 +27,7 @@ final class AtomRegistry {
     let welcome: WelcomeAtom
 
     init(
+        activeWorkspaceSelection: ActiveWorkspaceSelectionAtom = .init(),
         workspaceMetadata: WorkspaceMetadataAtom = .init(),
         workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom = .init(),
         workspacePane: WorkspacePaneAtom = .init(),
@@ -50,6 +52,7 @@ final class AtomRegistry {
         sessionRuntime: SessionRuntimeAtom = .init(),
         welcome: WelcomeAtom = .init()
     ) {
+        self.activeWorkspaceSelection = activeWorkspaceSelection
         self.workspaceMetadata = workspaceMetadata
         self.workspaceRepositoryTopology = workspaceRepositoryTopology
         self.workspacePane = workspacePane
