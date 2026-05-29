@@ -29,295 +29,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var viewRegistry: ViewRegistry!
     var paneCoordinator: PaneCoordinator!
     var closeTransitionCoordinator: PaneCloseTransitionCoordinator!
-    private var executor: ActionExecutor!
-    private var tabBarAdapter: TabBarAdapter!
-    private var runtime: SessionRuntime!
+    var executor: ActionExecutor!
+    var tabBarAdapter: TabBarAdapter!
+    var runtime: SessionRuntime!
     var appLifecycleStore: AppLifecycleAtom!
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
     var managementLayerMonitor: ManagementLayerMonitor!
     // MARK: - Command Bar
-    private(set) var commandBarController: CommandBarPanelController!
+    var commandBarController: CommandBarPanelController!
     // MARK: - OAuth
-    private var oauthService: OAuthService!
-    private var filesystemPipelineBootTask: Task<Void, Never>?
+    var oauthService: OAuthService!
+    var filesystemPipelineBootTask: Task<Void, Never>?
+    var initialTopologySyncTask: Task<Void, Never>?
+    var persistenceObservationBootTask: Task<Void, Never>?
     private var terminationDrainTask: Task<Void, Never>?
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?
     let launchRestoreObservationState = AppDelegateLaunchRestoreObservationState()
-
-    private func recordBootStep(_ step: WorkspaceBootStep) {
-        RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
-    }
-
-    private func executeBootStep(
-        _ step: WorkspaceBootStep,
-        persistor: WorkspacePersistor,
-        paneRuntimeBus: EventBus<RuntimeEnvelope>,
-        filesystemSource: inout FilesystemGitPipeline?
-    ) {
-        switch step {
-        case .loadCanonicalStore:
-            bootLoadCanonicalStore()
-        case .loadCacheStore:
-            bootLoadCacheStore(persistor: persistor)
-        case .loadUIStore:
-            bootLoadUIStore(persistor: persistor)
-        case .establishRuntimeBus:
-            bootEstablishRuntimeBus(paneRuntimeBus: paneRuntimeBus, filesystemSource: &filesystemSource)
-        case .startFilesystemActor:
-            bootChainPipelineStep(filesystemSource) { await $0.startFilesystemActor() }
-        case .startGitProjector:
-            bootChainPipelineStep(filesystemSource) { await $0.startGitProjector() }
-        case .startForgeActor:
-            bootChainPipelineStep(filesystemSource) { await $0.startForgeActor() }
-        case .startCacheCoordinator:
-            workspaceCacheCoordinator.startConsuming()
-        case .triggerInitialTopologySync:
-            bootTriggerInitialTopologySync()
-        case .readyForReactiveSidebar:
-            break
-        }
-    }
-
-    // MARK: - Boot Step Implementations
-
-    private func bootLoadCanonicalStore() {
-        atomStore = AtomRegistry()
-        AtomScope.setUp(atomStore)
-        store = WorkspaceStore(
-            metadataAtom: atomStore.workspaceMetadata,
-            repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
-            paneAtom: atomStore.workspacePane,
-            tabLayoutAtom: atomStore.workspaceTabLayout,
-            mutationCoordinator: atomStore.workspaceMutationCoordinator,
-            recoveryReporter: { [weak self] event in
-                self?.recordPersistenceRecovery(event)
-            }
-        )
-        repoCacheStore = RepoCacheStore(
-            atom: atomStore.repoCache,
-            recoveryReporter: { [weak self] event in
-                self?.recordPersistenceRecovery(event)
-            }
-        )
-        sidebarCacheStore = SidebarCacheStore(
-            atom: atomStore.sidebarCache,
-            recoveryReporter: { [weak self] event in
-                self?.recordPersistenceRecovery(event)
-            }
-        )
-        uiStateStore = UIStateStore(
-            atom: atomStore.uiState,
-            editorChooserAtom: atomStore.editorChooser,
-            recoveryReporter: { [weak self] event in
-                self?.recordPersistenceRecovery(event)
-            }
-        )
-        traceRuntime = .fromEnvironment()
-        paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
-        Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
-        store.restore()
-        managementLayerMonitor = ManagementLayerMonitor()
-        appLifecycleStore = AppLifecycleAtom()
-        windowLifecycleStore = atomStore.windowLifecycle
-        applicationLifecycleMonitor = ApplicationLifecycleMonitor(
-            appLifecycleStore: appLifecycleStore,
-            windowLifecycleStore: windowLifecycleStore
-        )
-        RestoreTrace.log(
-            "store.restore complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.panes.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
-        )
-    }
-
-    private func bootLoadCacheStore(persistor: WorkspacePersistor) {
-        _ = persistor
-        repoCacheStore.restore(for: store.metadataAtom.workspaceId)
-        sidebarCacheStore.restore(for: store.metadataAtom.workspaceId)
-        pruneStaleCache(store: store, repoCache: repoCache)
-    }
-
-    private func bootLoadUIStore(persistor: WorkspacePersistor) {
-        uiStateStore.restore(for: store.metadataAtom.workspaceId)
-        bootLoadInboxNotificationStore(persistor: persistor)
-    }
-
-    private func bootEstablishRuntimeBus(
-        paneRuntimeBus: EventBus<RuntimeEnvelope>,
-        filesystemSource: inout FilesystemGitPipeline?
-    ) {
-        runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
-        cleanupOrphanZmxSessions()
-        viewRegistry = ViewRegistry()
-        closeTransitionCoordinator = PaneCloseTransitionCoordinator()
-        seedSlotsForRestoredPanes()
-        let pipeline = FilesystemGitPipeline(
-            bus: paneRuntimeBus,
-            fseventStreamClient: DarwinFSEventStreamClient()
-        )
-        filesystemSource = pipeline
-        watchedFolderCommands = pipeline
-        paneCoordinator = PaneCoordinator(
-            store: store,
-            viewRegistry: viewRegistry,
-            runtime: runtime,
-            surfaceManager: SurfaceManager.shared,
-            runtimeRegistry: .shared,
-            paneEventBus: paneRuntimeBus,
-            closeTransitionCoordinator: closeTransitionCoordinator,
-            filesystemSource: pipeline,
-            windowLifecycleStore: windowLifecycleStore
-        )
-        workspaceCacheCoordinator = WorkspaceCacheCoordinator(
-            bus: paneRuntimeBus,
-            workspaceStore: store,
-            repoCache: repoCache,
-            welcomeAtom: atomStore.welcome,
-            topologyEffectHandler: paneCoordinator,
-            scopeSyncHandler: { [weak pipeline] change in
-                guard let pipeline else { return }
-                await pipeline.applyScopeChange(change)
-            }
-        )
-        paneCoordinator.removeRepoHandler = { [weak self] repoId in
-            self?.workspaceCacheCoordinator.handleRepoRemoval(repoId: repoId)
-            self?.paneCoordinator.syncFilesystemRootsAndActivity()
-        }
-        executor = ActionExecutor(coordinator: paneCoordinator, store: store)
-        tabBarAdapter = TabBarAdapter(store: store, repoCache: repoCache)
-        commandBarController = CommandBarPanelController(
-            store: store,
-            repoCache: repoCache,
-            dispatcher: .shared,
-            notificationInboxCommands: makeInboxNotificationCommands(),
-            commandBarSurface: atomStore.commandBarSurface
-        )
-        bootStartInboxNotificationRouter(bus: paneRuntimeBus)
-        bootStartTerminalActivityRouter(bus: paneRuntimeBus)
-        CommandDispatcher.shared.appCommandRouter = self
-        oauthService = OAuthService()
-    }
-
-    private func bootChainPipelineStep(
-        _ filesystemSource: FilesystemGitPipeline?,
-        action: @escaping @Sendable (FilesystemGitPipeline) async -> Void
-    ) {
-        guard let filesystemSource else { return }
-        let previousTask = filesystemPipelineBootTask
-        filesystemPipelineBootTask = Task {
-            if let previousTask {
-                await previousTask.value
-            }
-            await action(filesystemSource)
-        }
-    }
-
-    private func bootTriggerInitialTopologySync() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.replayBootTopology(store: self.store, coordinator: self.workspaceCacheCoordinator)
-            if let filesystemPipelineBootTask = self.filesystemPipelineBootTask {
-                await filesystemPipelineBootTask.value
-            }
-            self.paneCoordinator.syncFilesystemRootsAndActivity()
-        }
-    }
-
-    // MARK: - Boot Helpers
-
-    private func pruneStaleCache(store: WorkspaceStore, repoCache: RepoCacheAtom) {
-        let repos = store.repositoryTopologyAtom.repos
-        let validRepoIds = Set(repos.map(\.id))
-        let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
-        for repoId in Array(repoCache.repoEnrichmentByRepoId.keys) where !validRepoIds.contains(repoId) {
-            repoCache.removeRepo(repoId)
-        }
-        for worktreeId in Array(repoCache.worktreeEnrichmentByWorktreeId.keys)
-        where !validWorktreeIds.contains(worktreeId) {
-            repoCache.removeWorktree(worktreeId)
-        }
-    }
-
-    private func replayBootTopology(store: WorkspaceStore, coordinator: WorkspaceCacheCoordinator) async {
-        let tabLayout = store.tabLayoutAtom
-        let workspacePane = store.paneAtom
-        let repos = store.repositoryTopologyAtom.repos
-        let watchedPaths = store.repositoryTopologyAtom.watchedPaths
-        let activePaneRepoIds: Set<UUID> = {
-            guard let activeTab = tabLayout.activeTab else { return [] }
-            let repoIds = activeTab.activePaneIds.compactMap { workspacePane.panes[$0]?.repoId }
-            return Set(repoIds)
-        }()
-        let prioritizedRepos = repos.sorted { a, b in
-            let aActive = activePaneRepoIds.contains(a.id)
-            let bActive = activePaneRepoIds.contains(b.id)
-            if aActive != bActive { return aActive }
-            return false
-        }
-        let bus = PaneRuntimeEventBus.shared
-        for repo in prioritizedRepos {
-            await bus.post(
-                Self.makeTopologyEnvelope(
-                    repoPath: repo.repoPath,
-                    source: .builtin(.coordinator)
-                )
-            )
-        }
-
-        if !watchedPaths.isEmpty {
-            await coordinator.syncScope(
-                .updateWatchedFolders(paths: watchedPaths.map(\.path))
-            )
-        }
-    }
-
-    /// Seed pane slots immediately after canonical restore and before any hosting controller exists.
-    /// Restored panes already live in `store.paneAtom.panes`; creating their slots here ensures the first
-    /// SwiftUI read during tab-host creation sees stable slot identity instead of the lazy fallback.
-    func seedSlotsForRestoredPanes() {
-        guard store != nil, viewRegistry != nil else { return }
-        if store.paneAtom.panes.isEmpty {
-            viewRegistry.completeInitialRestore()
-        } else {
-            viewRegistry.beginInitialRestore()
-        }
-        for paneId in store.paneAtom.panes.keys {
-            viewRegistry.ensureSlot(for: paneId)
-        }
-        RestoreTrace.log("seedSlotsForRestoredPanes count=\(store.paneAtom.panes.count)")
-    }
-
-    private static var nextTopologySeq: UInt64 = 0
-    /// Build a canonical `.repoDiscovered` topology envelope.
-    /// Coordinator-originated events use `.builtin(.coordinator)`;
-    /// filesystem-originated events use `.builtin(.filesystemWatcher)`.
-    static func makeTopologyEnvelope(repoPath: URL, source: SystemSource) -> RuntimeEnvelope {
-        nextTopologySeq += 1
-        return .system(
-            SystemEnvelope(
-                source: source,
-                seq: nextTopologySeq,
-                timestamp: .now,
-                event: .topology(
-                    .repoDiscovered(
-                        repoPath: repoPath,
-                        parentPath: repoPath.deletingLastPathComponent()
-                    ))
-            )
-        )
-    }
-
-    static func makeWorkspaceActivityEnvelope(_ event: WorkspaceActivityEvent) -> RuntimeEnvelope {
-        let seq = WorkspaceActivitySequence.next()
-        return .system(
-            SystemEnvelope(
-                source: .builtin(.coordinator),
-                seq: seq,
-                timestamp: .now,
-                event: .workspaceActivity(event)
-            )
-        )
-    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         RestoreTrace.log("appDidFinishLaunching: begin")
@@ -345,20 +74,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Set up main menu (doesn't depend on zmx restore)
         setupMainMenu()
 
-        // Create new services following the 10-step workspace boot contract.
+        // Create new services following the workspace boot contract.
         let persistor = WorkspacePersistor()
         let paneRuntimeBus = PaneRuntimeEventBus.shared
         var filesystemSource: FilesystemGitPipeline?
 
-        WorkspaceBootSequence.run { [self] step in
-            recordBootStep(step)
-            executeBootStep(
-                step,
-                persistor: persistor,
-                paneRuntimeBus: paneRuntimeBus,
-                filesystemSource: &filesystemSource
-            )
-        }
+        bootWorkspaceServices(
+            persistor: persistor,
+            paneRuntimeBus: paneRuntimeBus,
+            filesystemSource: &filesystemSource
+        )
 
         // Create main window
         mainWindowController = MainWindowController(
@@ -393,6 +118,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     isolated deinit {
         filesystemPipelineBootTask?.cancel()
+        initialTopologySyncTask?.cancel()
+        persistenceObservationBootTask?.cancel()
         launchRestoreObservationTask?.cancel()
         launchRestoreObservationState.cancelDiagnostics()
     }
@@ -443,7 +170,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Runs once at startup to prevent accumulation across app restarts.
     /// Called from `applicationDidFinishLaunching` (always main thread).
     @MainActor
-    private func cleanupOrphanZmxSessions() {
+    func cleanupOrphanZmxSessions() {
         let config = SessionConfiguration.detect()
         guard let zmxPath = config.zmxPath else {
             appLogger.debug("zmx not found — skipping orphan cleanup")
@@ -513,7 +240,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         }
                     }
                     group.addTask {
-                        try await Task.sleep(for: .seconds(30))
+                        try await Task.sleep(nanoseconds: 30_000_000_000)
                         throw CancellationError()
                     }
                     // Wait for whichever finishes first, cancel the other

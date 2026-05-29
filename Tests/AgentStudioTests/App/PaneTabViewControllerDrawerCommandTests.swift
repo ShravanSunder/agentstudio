@@ -272,7 +272,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func optionK_mainPane_isSwallowedWithoutConcreteCommand() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        configureMainWindowKeyboardOwner()
+        configureMainWindowKeyboardOwner(windowLifecycleStore: harness.windowLifecycleStore)
 
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: parent.id)
@@ -305,7 +305,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func optionI_mainPane_isSwallowedWithoutConcreteCommand() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        configureMainWindowKeyboardOwner()
+        configureMainWindowKeyboardOwner(windowLifecycleStore: harness.windowLifecycleStore)
 
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: parent.id)
@@ -337,7 +337,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func optionJ_afterClosingEmptyDrawer_movesMainRow() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        configureMainWindowKeyboardOwner()
+        configureMainWindowKeyboardOwner(windowLifecycleStore: harness.windowLifecycleStore)
 
         let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
@@ -436,7 +436,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func optionIJKL_afterDirectDrawerSelection_staysInDrawerScope() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        configureMainWindowKeyboardOwner()
+        configureMainWindowKeyboardOwner(windowLifecycleStore: harness.windowLifecycleStore)
 
         let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
@@ -485,7 +485,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func targetedNavigateDrawerPane_updatesFocusOwnerAndDrawerKeyboardScope() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        configureMainWindowKeyboardOwner()
+        configureMainWindowKeyboardOwner(windowLifecycleStore: harness.windowLifecycleStore)
 
         let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))

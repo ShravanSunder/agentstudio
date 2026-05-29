@@ -16,6 +16,10 @@ final class RepoCacheStore {
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
 
+    var isAutosaveObservationActive: Bool {
+        isObservingCacheState
+    }
+
     init(
         atom: RepoCacheAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
@@ -28,6 +32,15 @@ final class RepoCacheStore {
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
         self.recoveryReporter = recoveryReporter
+    }
+
+    /// Begin observing atom mutations for debounced autosave.
+    ///
+    /// Stores do not observe from `init`: the owner first restores cache state,
+    /// replays boot topology, and prunes stale entries as an explicit boot
+    /// transaction. Production arms this from `WorkspaceBootStep.armPersistenceObservation`;
+    /// tests or future isolated owners must opt in once their initial mutations are done.
+    func startObserving() {
         observeCacheState()
     }
 

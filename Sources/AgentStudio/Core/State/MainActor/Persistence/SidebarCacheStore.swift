@@ -16,6 +16,10 @@ final class SidebarCacheStore {
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
 
+    var isAutosaveObservationActive: Bool {
+        isObservingCacheState
+    }
+
     init(
         atom: SidebarCacheAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
@@ -28,6 +32,13 @@ final class SidebarCacheStore {
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
         self.recoveryReporter = recoveryReporter
+    }
+
+    /// Begin observing atom mutations for debounced autosave.
+    ///
+    /// The owner arms observation after restore-time mutations are complete; see
+    /// `RepoCacheStore.startObserving` for the boot-order rationale.
+    func startObserving() {
         observeCacheState()
     }
 

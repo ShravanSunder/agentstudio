@@ -323,6 +323,7 @@ struct UIStateStoreTests {
         )
 
         store.restore(for: workspaceAId)
+        store.startObserving()
         atom.setFilterText("workspace-a-draft")
         await clock.waitForPendingSleepCount()
         store.restore(for: workspaceBId)
@@ -333,6 +334,22 @@ struct UIStateStoreTests {
             Issue.record("Expected stale workspace A debounce to be cancelled")
             return
         }
+    }
+
+    @Test
+    func autosaveObservationStateIsExplicitlyArmed() {
+        let workspaceId = UUID()
+        let store = UIStateStore(
+            atom: UIStateAtom(),
+            editorChooserAtom: EditorChooserAtom(),
+            persistor: persistor
+        )
+
+        #expect(store.isAutosaveObservationActive == false)
+        store.restore(for: workspaceId)
+        #expect(store.isAutosaveObservationActive == false)
+        store.startObserving()
+        #expect(store.isAutosaveObservationActive == true)
     }
 
     @Test

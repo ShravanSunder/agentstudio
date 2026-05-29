@@ -52,13 +52,17 @@ final class DiffState {
     }
 
     func setFile(_ file: FileManifest) {
-        files[file.id] = file
+        var updatedFiles = files
+        updatedFiles[file.id] = file
+        files = updatedFiles
     }
 
     func mutateFile(id: String, _ transform: (inout FileManifest) -> Void) {
         guard var file = files[id] else { return }
         transform(&file)
-        files[id] = file
+        var updatedFiles = files
+        updatedFiles[id] = file
+        files = updatedFiles
     }
 }
 

@@ -44,6 +44,7 @@ struct SidebarCacheStoreTests {
             persistDebounceDuration: .zero
         )
         store.restore(for: workspaceId)
+        store.startObserving()
 
         atom.setGroupExpanded(SidebarGroupKey("repo:agent-studio"), isExpanded: true)
 
@@ -78,6 +79,7 @@ struct SidebarCacheStoreTests {
         )
 
         store.restore(for: workspaceAId)
+        store.startObserving()
         atom.setGroupExpanded(SidebarGroupKey("repo:workspace-a"), isExpanded: true)
         await clock.waitForPendingSleepCount()
         store.restore(for: workspaceBId)
@@ -128,6 +130,18 @@ struct SidebarCacheStoreTests {
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(atom.checkoutColors.isEmpty)
+    }
+
+    @Test
+    func autosaveObservationStateIsExplicitlyArmed() {
+        let workspaceId = UUID()
+        let store = SidebarCacheStore(atom: SidebarCacheAtom(), persistor: persistor)
+
+        #expect(store.isAutosaveObservationActive == false)
+        store.restore(for: workspaceId)
+        #expect(store.isAutosaveObservationActive == false)
+        store.startObserving()
+        #expect(store.isAutosaveObservationActive == true)
     }
 
     @Test

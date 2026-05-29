@@ -49,6 +49,7 @@ struct UIStateStoreCompositionTests {
             persistDebounceDuration: .zero
         )
         store.restore(for: workspaceId)
+        store.startObserving()
 
         atom.setSidebarCollapsed(true)
         atom.setSidebarSurface(.inbox)

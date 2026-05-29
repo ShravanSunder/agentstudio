@@ -416,7 +416,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         startupPresentationTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await Task.sleep(for: startupGraceDuration)
+                try await Task.sleep(nanoseconds: startupGraceDuration.nanosecondsForTaskSleep)
             } catch is CancellationError {
                 return
             } catch {
