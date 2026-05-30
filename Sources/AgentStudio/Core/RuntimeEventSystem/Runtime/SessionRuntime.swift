@@ -58,8 +58,8 @@ final class SessionRuntime {
     /// Health check timer interval in seconds.
     private let healthCheckInterval: TimeInterval
 
-    /// Clock for scheduling health checks without hard-coding Task.sleep.
-    private let clock: any Clock<Duration>
+    /// Delay scheduler for periodic health checks.
+    private let delay: AsyncDelay
 
     /// Reference to the store (read-only for pane list).
     private weak var store: WorkspaceStore?
@@ -71,12 +71,12 @@ final class SessionRuntime {
         atom: SessionRuntimeAtom = SessionRuntimeAtom(),
         store: WorkspaceStore? = nil,
         healthCheckInterval: TimeInterval = 30,
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: (any Clock<Duration> & Sendable)? = nil
     ) {
         self.atom = atom
         self.store = store
         self.healthCheckInterval = healthCheckInterval
-        self.clock = clock
+        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
     }
 
     isolated deinit {
@@ -147,11 +147,13 @@ final class SessionRuntime {
     /// Start periodic health checks.
     func startHealthChecks() {
         stopHealthChecks()
-        healthCheckTask = Task { [weak self] in
+        let delay = self.delay
+        let healthCheckInterval = self.healthCheckInterval
+        healthCheckTask = Task { [weak self, delay, healthCheckInterval] in
             while !Task.isCancelled {
-                guard let self else { break }
-                try? await self.clock.sleep(for: .seconds(self.healthCheckInterval))
+                try? await delay.wait(.seconds(healthCheckInterval))
                 guard !Task.isCancelled else { break }
+                guard let self else { break }
                 await self.runHealthCheck()
             }
         }

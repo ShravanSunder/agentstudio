@@ -32,16 +32,17 @@ extension EventBus {
     /// - Parameters:
     ///   - timeout: Maximum time to wait for a matching event.
     ///   - clock: Clock for timeout measurement. Inject a test clock for
-    ///     deterministic testing. Defaults to `ContinuousClock()`.
+    ///     deterministic testing. Production defaults to task nanosecond sleep.
     ///   - extract: Tests each envelope and returns an extracted value
     ///     on match, or nil to continue waiting.
     /// - Returns: The extracted result, or nil if the timeout expired or stream ended.
     func waitForFirst<Result: Sendable>(
         timeout: Duration,
-        clock: some Clock<Duration> = ContinuousClock(),
+        clock: (any Clock<Duration> & Sendable)? = nil,
         _ extract: @Sendable @escaping (Envelope) -> Result?
     ) async -> Result? {
-        await withTaskGroup(of: Result?.self) { group in
+        let delay = clock.map(AsyncDelay.clock) ?? .taskSleep
+        return await withTaskGroup(of: Result?.self) { group in
             group.addTask {
                 let stream = await self.subscribe()
                 for await envelope in stream {
@@ -53,7 +54,7 @@ extension EventBus {
             }
 
             group.addTask {
-                try? await clock.sleep(for: timeout)
+                try? await delay.wait(timeout)
                 return nil
             }
 

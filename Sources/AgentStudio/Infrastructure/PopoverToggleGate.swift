@@ -2,16 +2,16 @@ import Foundation
 
 @MainActor
 final class PopoverToggleGate {
-    private let clock: any Clock<Duration>
+    private let delay: AsyncDelay
     private let suppressionWindow: Duration
     private var resetTask: Task<Void, Never>?
     private var suppressNextToggle = false
 
     init(
-        clock: any Clock<Duration> = ContinuousClock(),
+        clock: (any Clock<Duration> & Sendable)? = nil,
         suppressionWindow: Duration = .milliseconds(150)
     ) {
-        self.clock = clock
+        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.suppressionWindow = suppressionWindow
     }
 
@@ -32,11 +32,11 @@ final class PopoverToggleGate {
         suppressNextToggle = true
         resetTask?.cancel()
 
-        let clock = self.clock
+        let delay = self.delay
         let suppressionWindow = self.suppressionWindow
         resetTask = Task { @MainActor [weak self] in
             do {
-                try await clock.sleep(for: suppressionWindow)
+                try await delay.wait(suppressionWindow)
             } catch {
                 return
             }

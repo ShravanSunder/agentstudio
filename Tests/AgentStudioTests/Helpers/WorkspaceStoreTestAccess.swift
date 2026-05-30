@@ -10,7 +10,7 @@ extension WorkspaceStore {
         interactionAtom: WorkspaceTabLayoutAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> & Sendable = ContinuousClock()
     ) {
         self.init(
             metadataAtom: WorkspaceMetadataAtom(),

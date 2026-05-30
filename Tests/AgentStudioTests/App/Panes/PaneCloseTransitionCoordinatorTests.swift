@@ -7,6 +7,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneCloseTransitionCoordinatorTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     @Test("close transition marks pane closing until the injected clock advances")
     func beginClosingPane_marksPaneClosingUntilClockAdvances() async {
         let clock = TestPushClock()
@@ -147,7 +151,6 @@ struct PaneCloseTransitionCoordinatorTests {
 
     @Test("drawer child close transition removes the last drawer pane into empty drawer context")
     func drawerChildCloseTransition_lastDrawerPane_landsInEmptyDrawerContext() async throws {
-        installTestAtomRegistryIfNeeded()
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 

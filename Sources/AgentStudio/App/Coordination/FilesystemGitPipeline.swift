@@ -30,7 +30,7 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Watc
         filesystemMaxFlushLatency: Duration = .seconds(2),
         gitCoalescingWindow: Duration = .milliseconds(200),
         gitPeriodicRefreshInterval: Duration? = .seconds(2),
-        gitSleepClock: any Clock<Duration> = ContinuousClock()
+        gitSleepClock: any Clock<Duration> & Sendable = ContinuousClock()
     ) {
         self.filesystemActor = FilesystemActor(
             bus: bus,

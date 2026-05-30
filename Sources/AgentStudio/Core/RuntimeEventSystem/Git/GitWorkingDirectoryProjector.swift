@@ -19,7 +19,7 @@ actor GitWorkingDirectoryProjector {
     private let envelopeClock: ContinuousClock
     private let coalescingWindow: Duration
     private let periodicRefreshInterval: Duration?
-    private let sleepClock: any Clock<Duration>
+    private let delay: AsyncDelay
     private let subscriptionBufferLimit: Int
 
     private var subscriptionTask: Task<Void, Never>?
@@ -41,7 +41,7 @@ actor GitWorkingDirectoryProjector {
         envelopeClock: ContinuousClock = ContinuousClock(),
         coalescingWindow: Duration = .zero,
         periodicRefreshInterval: Duration? = nil,
-        sleepClock: any Clock<Duration> = ContinuousClock(),
+        sleepClock: (any Clock<Duration> & Sendable)? = nil,
         subscriptionBufferLimit: Int = 256
     ) {
         self.runtimeBus = bus
@@ -49,7 +49,7 @@ actor GitWorkingDirectoryProjector {
         self.envelopeClock = envelopeClock
         self.coalescingWindow = coalescingWindow
         self.periodicRefreshInterval = periodicRefreshInterval
-        self.sleepClock = sleepClock
+        delay = sleepClock.map(AsyncDelay.clock) ?? .taskSleep
         self.subscriptionBufferLimit = subscriptionBufferLimit
     }
 
@@ -180,7 +180,7 @@ actor GitWorkingDirectoryProjector {
             }
             if coalescingWindow > .zero {
                 do {
-                    try await sleepClock.sleep(for: coalescingWindow)
+                    try await delay.wait(coalescingWindow)
                 } catch is CancellationError {
                     return
                 } catch {
@@ -334,11 +334,11 @@ actor GitWorkingDirectoryProjector {
         guard periodicRefreshInterval > .zero else { return }
         guard periodicRefreshTask == nil else { return }
 
-        periodicRefreshTask = Task { [weak self] in
-            guard let self else { return }
+        let delay = self.delay
+        periodicRefreshTask = Task { [weak self, delay, periodicRefreshInterval] in
             while !Task.isCancelled {
                 do {
-                    try await self.sleepClock.sleep(for: periodicRefreshInterval)
+                    try await delay.wait(periodicRefreshInterval)
                 } catch is CancellationError {
                     return
                 } catch {
@@ -348,6 +348,7 @@ actor GitWorkingDirectoryProjector {
                     continue
                 }
                 guard !Task.isCancelled else { return }
+                guard let self else { return }
                 await self.enqueuePeriodicRefreshes()
             }
         }
