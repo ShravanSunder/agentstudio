@@ -884,11 +884,11 @@ git commit -m "Route legacy persistence through split atom boundaries"
 - Modify: `docs/architecture/workspace_data_architecture.md`
 - Modify: `docs/superpowers/specs/sqlite/*.md`
 
-- [ ] **Step 1: Update AGENTS.md component table**
+- [x] **Step 1: Update AGENTS.md component table**
 
 Replace old mixed atom names with the implemented write-owner atoms and derived readers. Keep any compatibility names only if the code still exposes them.
 
-- [ ] **Step 2: Update architecture docs**
+- [x] **Step 2: Update architecture docs**
 
 Make sure architecture docs describe:
 
@@ -901,7 +901,7 @@ future SQLite row projections
 
 They must also say that atoms are not one-to-one SQL table models.
 
-- [ ] **Step 3: Stale name scan**
+- [x] **Step 3: Stale name scan**
 
 Run:
 
@@ -910,10 +910,11 @@ rg -n "Workspace(Cursor|ArrangementGraph)Atom|one atom per table|atom.*SQL table
 ```
 
 Expected: no stale old arrangement-graph atom name and no stale generic
-workspace-cursor atom name; any `Codable` persistence references are explicitly
+workspace-cursor atom name; `one atom per SQL table` appears only as a rejected
+alternative; any `Codable` persistence references are explicitly
 legacy/current-pre-SQLite.
 
-- [ ] **Step 4: Full verification**
+- [x] **Step 4: Full verification**
 
 Run:
 
@@ -921,11 +922,15 @@ Run:
 git diff --check
 mise run lint
 mise run test
+mise run test-e2e
+mise run test-zmx-e2e
+mise run setup
 ```
 
-Expected: diff check and lint exit 0. Full tests exit 0 before the Step 0 checkpoint is called complete.
+Expected: diff check and lint exit 0. Full tests, opt-in E2E lanes, Zmx E2E,
+and setup exit 0 before the Step 0 checkpoint is called complete.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
