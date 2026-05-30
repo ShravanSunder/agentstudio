@@ -9,11 +9,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VERSION="${TAG#v}"
 DRY_RUN="${DRY_RUN:-0}"
-CREDENTIALS_WRITTEN=0
+TAP_DIR=""
 
 cleanup() {
-  if [[ "$CREDENTIALS_WRITTEN" == "1" ]]; then
-    rm -f ~/.git-credentials
+  if [[ -z "${HOMEBREW_TAP_LOCAL_PATH:-}" && -n "$TAP_DIR" && -d "$TAP_DIR" ]]; then
+    find "$TAP_DIR" -mindepth 1 -delete
+    rmdir "$TAP_DIR"
   fi
 }
 trap cleanup EXIT
@@ -34,16 +35,13 @@ esac
 if [[ -n "${HOMEBREW_TAP_LOCAL_PATH:-}" ]]; then
   TAP_DIR="$HOMEBREW_TAP_LOCAL_PATH"
 else
-  TAP_DIR="$(mktemp -d)"
   if [[ -z "${HOMEBREW_TAP_TOKEN:-}" ]]; then
     echo "HOMEBREW_TAP_TOKEN is required when HOMEBREW_TAP_LOCAL_PATH is not set" >&2
     exit 1
   fi
 
-  git config --global credential.helper store
-  echo "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com" > ~/.git-credentials
-  CREDENTIALS_WRITTEN=1
-  git clone https://github.com/ShravanSunder/homebrew-agentstudio.git "$TAP_DIR"
+  TAP_DIR="$(mktemp -d)"
+  git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/ShravanSunder/homebrew-agentstudio.git" "$TAP_DIR"
 fi
 
 mkdir -p "$TAP_DIR/Casks"

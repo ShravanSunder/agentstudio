@@ -54,6 +54,7 @@ struct HomebrewBetaReleaseScriptsTests {
     @Test("tap updater dry run writes only the selected cask")
     func tapUpdaterDryRunWritesOnlySelectedCask() throws {
         let tapRoot = try makeFakeTap()
+        defer { try? FileManager.default.removeItem(at: tapRoot) }
 
         let result = try runScript(
             "scripts/update-homebrew-tap.sh",

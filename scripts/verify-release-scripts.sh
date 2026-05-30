@@ -28,6 +28,11 @@ grep -q 'conflicts_with cask: "agent-studio"' <<<"$beta_cask"
 grep -q '"~/.agent-studio-b"' <<<"$beta_cask"
 
 tap_dir="$(mktemp -d)"
+cleanup() {
+  find "$tap_dir" -mindepth 1 -delete
+  rmdir "$tap_dir"
+}
+trap cleanup EXIT
 mkdir -p "$tap_dir/Casks"
 HOMEBREW_TAP_LOCAL_PATH="$tap_dir" DRY_RUN=1 SKIP_BREW_STYLE=1 \
   "$ROOT_DIR/scripts/update-homebrew-tap.sh" beta v0.0.54-beta.1 "$SHA" >/dev/null
