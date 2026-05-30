@@ -9,6 +9,18 @@ import Foundation
 enum AppDataPaths {
     static let dataDirectoryEnvironmentKey = "AGENTSTUDIO_DATA_DIR"
 
+    enum ReleaseChannel: String {
+        case stable
+        case beta
+
+        static var current: Self {
+            guard let rawValue = Bundle.main.object(forInfoDictionaryKey: "AgentStudioReleaseChannel") as? String else {
+                return .stable
+            }
+            return Self(rawValue: rawValue) ?? .stable
+        }
+    }
+
     static var isDebugBuild: Bool {
         #if DEBUG
             true
@@ -19,6 +31,7 @@ enum AppDataPaths {
 
     static func rootDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        releaseChannel: ReleaseChannel = .current,
         isDebugBuild: Bool = Self.isDebugBuild
     ) -> URL {
         if let override = environment[dataDirectoryEnvironmentKey]?
@@ -28,7 +41,7 @@ enum AppDataPaths {
             return expandPath(override).standardizedFileURL
         }
 
-        let baseName = isDebugBuild ? ".agentstudio-db" : ".agentstudio"
+        let baseName = rootDirectoryName(releaseChannel: releaseChannel, isDebugBuild: isDebugBuild)
         return FileManager.default.homeDirectoryForCurrentUser
             .appending(path: baseName)
             .standardizedFileURL
@@ -36,27 +49,30 @@ enum AppDataPaths {
 
     static func workspacesDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        releaseChannel: ReleaseChannel = .current,
         isDebugBuild: Bool = Self.isDebugBuild
     ) -> URL {
-        rootDirectory(environment: environment, isDebugBuild: isDebugBuild)
+        rootDirectory(environment: environment, releaseChannel: releaseChannel, isDebugBuild: isDebugBuild)
             .appending(path: "workspaces")
             .standardizedFileURL
     }
 
     static func zmxDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        releaseChannel: ReleaseChannel = .current,
         isDebugBuild: Bool = Self.isDebugBuild
     ) -> URL {
-        rootDirectory(environment: environment, isDebugBuild: isDebugBuild)
+        rootDirectory(environment: environment, releaseChannel: releaseChannel, isDebugBuild: isDebugBuild)
             .appending(path: "z")
             .standardizedFileURL
     }
 
     static func surfaceCheckpointURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
+        releaseChannel: ReleaseChannel = .current,
         isDebugBuild: Bool = Self.isDebugBuild
     ) -> URL {
-        rootDirectory(environment: environment, isDebugBuild: isDebugBuild)
+        rootDirectory(environment: environment, releaseChannel: releaseChannel, isDebugBuild: isDebugBuild)
             .appending(path: "surface-checkpoint.json")
             .standardizedFileURL
     }
@@ -87,5 +103,18 @@ enum AppDataPaths {
         }
 
         return URL(fileURLWithPath: rawPath)
+    }
+
+    private static func rootDirectoryName(releaseChannel: ReleaseChannel, isDebugBuild: Bool) -> String {
+        if isDebugBuild {
+            return ".agentstudio-db"
+        }
+
+        switch releaseChannel {
+        case .stable:
+            return ".agentstudio"
+        case .beta:
+            return ".agent-studio-b"
+        }
     }
 }
