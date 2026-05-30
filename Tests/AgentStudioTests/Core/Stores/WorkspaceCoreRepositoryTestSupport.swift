@@ -75,11 +75,72 @@ struct WorkspaceCoreTopologyRepositoryFixture {
             )
         }
     }
+
+    func insertTabShell(workspaceId: UUID, tabId: UUID) throws {
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO tab_shell(id, workspace_id, name, sort_index)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [tabId.uuidString, workspaceId.uuidString, "First", 0]
+            )
+        }
+    }
+
+    func insertTabPane(tabId: UUID, paneId: UUID) throws {
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO tab_pane(tab_id, pane_id, sort_index)
+                    VALUES (?, ?, ?)
+                    """,
+                arguments: [tabId.uuidString, paneId.uuidString, 0]
+            )
+        }
+    }
+
+    func fetchTabPaneCount(tabId: UUID, paneId: UUID) throws -> Int {
+        try databaseQueue.read { database in
+            try Int.fetchOne(
+                database,
+                sql: """
+                    SELECT count(*)
+                    FROM tab_pane
+                    WHERE tab_id = ?
+                    AND pane_id = ?
+                    """,
+                arguments: [tabId.uuidString, paneId.uuidString]
+            ) ?? 0
+        }
+    }
+
+    func fetchPaneContentRouteCounts() throws -> PaneContentRouteCounts {
+        try databaseQueue.read { database in
+            try .init(
+                terminal: fetchCount(database, tableName: "pane_content_terminal"),
+                webview: fetchCount(database, tableName: "pane_content_webview"),
+                codeViewer: fetchCount(database, tableName: "pane_content_code_viewer"),
+                payload: fetchCount(database, tableName: "pane_content_payload")
+            )
+        }
+    }
+
+    private func fetchCount(_ database: Database, tableName: String) throws -> Int {
+        try Int.fetchOne(database, sql: "SELECT count(*) FROM \(tableName)") ?? 0
+    }
 }
 
 struct PaneSourceRecord: Equatable {
     let repoId: UUID?
     let worktreeId: UUID?
+}
+
+struct PaneContentRouteCounts: Equatable {
+    let terminal: Int
+    let webview: Int
+    let codeViewer: Int
+    let payload: Int
 }
 
 extension Collection {

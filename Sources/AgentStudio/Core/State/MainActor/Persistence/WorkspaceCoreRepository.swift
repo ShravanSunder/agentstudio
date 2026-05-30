@@ -150,6 +150,24 @@ enum WorkspaceCoreRepositoryError: Error, Equatable {
     case duplicateWatchedPathStableKey(String)
     case duplicateRepoStableKey(String)
     case duplicateWorktreeStableKey(String)
+    case duplicatePaneId(UUID)
+    case duplicateDrawerId(UUID)
+    case paneBelongsToDifferentWorkspace(paneId: UUID, expectedWorkspaceId: UUID, actualWorkspaceId: UUID)
+    case drawerBelongsToDifferentWorkspace(drawerId: UUID, expectedWorkspaceId: UUID, actualWorkspaceId: UUID)
+    case paneNotFoundInWorkspace(UUID, UUID)
+    case worktreeNotFoundInWorkspace(UUID, UUID)
+    case drawerParentPaneMissing(drawerId: UUID, parentPaneId: UUID)
+    case drawerParentMismatch(drawerId: UUID, expectedParentPaneId: UUID, actualParentPaneId: UUID)
+    case drawerChildPaneMissing(drawerId: UUID, childPaneId: UUID)
+    case drawerChildParentMismatch(childPaneId: UUID, expectedParentPaneId: UUID, actualParentPaneId: UUID)
+    case drawerChildMissingParent(childPaneId: UUID, parentPaneId: UUID)
+    case drawerChildMembershipMissing(childPaneId: UUID, parentPaneId: UUID)
+    case drawerChildListedMultipleTimes(childPaneId: UUID)
+    case drawerChildCannotOwnDrawer(childPaneId: UUID, drawerId: UUID)
+    case paneSourceFacetRepoMismatch(paneId: UUID, sourceRepoId: UUID, facetRepoId: UUID)
+    case paneSourceFacetWorktreeMismatch(paneId: UUID, sourceWorktreeId: UUID, facetWorktreeId: UUID)
+    case panePayloadContentTypeUnsupported(paneId: UUID, contentType: PaneContentType)
+    case paneContentTypeIsImmutable(paneId: UUID, oldContentType: PaneContentType, newContentType: PaneContentType)
     case unavailableRepoNotInTopology(UUID)
     case worktreeBelongsToDifferentWorkspace(
         worktreeId: UUID,
@@ -163,6 +181,9 @@ enum WorkspaceCoreRepositoryError: Error, Equatable {
     case malformedRepoId(String)
     case malformedWorktreeId(String)
     case malformedWatchedPathId(String)
+    case malformedPaneId(String)
+    case malformedDrawerId(String)
+    case malformedPaneContent(String)
 }
 
 private func decodeWorkspaceRecord(_ row: Row) throws -> WorkspaceCoreRepository.WorkspaceRecord {
