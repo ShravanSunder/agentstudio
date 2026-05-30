@@ -246,7 +246,8 @@ SQLite repositories land:
 - fresh local database runs all migrations
 - migration identifiers are stable and run once:
   `001_create_local_cursors`, `002_create_local_workspace_memory`,
-  `003_create_local_notifications`, `004_create_cache_tables`
+  `003_create_local_notifications`, `004_create_cache_tables`,
+  `005_enforce_notification_claim_keys`
 - local boolean columns reject non-boolean integer values
 - local lookup indexes are asserted by name, including cache lookup indexes
 - sidebar surface storage rejects values outside the live surface vocabulary
@@ -289,6 +290,8 @@ SQLite repositories land:
 - notification claim candidate lookup indexes support repository upsert logic
   without rejecting non-coalescing safety claims or distinct active/dismissed
   activity candidates
+- local notification claim-key checks reject unknown lanes and partial claim
+  tuples while allowing absent claim keys
 - notification repository tests assert SQLite append/upsert behavior remains
   equivalent to `InboxNotificationAtom.upsertByClaim`, including lane/session
   merge policy and read/dismiss state

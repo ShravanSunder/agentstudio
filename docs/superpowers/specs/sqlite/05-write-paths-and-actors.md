@@ -520,10 +520,13 @@ mark read / dismiss / clear
 The claim columns in `local_notification_inbox_item` are lookup columns for the
 repository; they are not a simple unique key because the current coalescence rule
 also depends on lane merge policy, activity session, and read/dismiss state.
+The schema still requires the optional claim key to be structurally coherent:
+claim pane id, lane, and semantic appear together, the session id appears only
+with that tuple, and lane values are frozen into shipped migration snapshots.
 Repository tests own the equivalence between SQLite upsert behavior and
-`InboxNotificationAtom.upsertByClaim`. The mergeable claim-lane predicate used
-by the migration comes from `SQLiteInboxNotificationClaimStorage`, not freehand
-SQL strings.
+`InboxNotificationAtom.upsertByClaim`. Current runtime helper vocabulary remains
+checked against `InboxNotificationClaimLane` by schema-contract tests; historical
+migrations must not call those helpers after shipping.
 
 ## Code Placement
 

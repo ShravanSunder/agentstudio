@@ -188,7 +188,21 @@ CREATE TABLE local_notification_inbox_item (
     claim_semantic TEXT,
     claim_session_id TEXT,
     is_read INTEGER NOT NULL CHECK (is_read IN (0, 1)),
-    is_dismissed_from_pane_inbox INTEGER NOT NULL CHECK (is_dismissed_from_pane_inbox IN (0, 1))
+    is_dismissed_from_pane_inbox INTEGER NOT NULL CHECK (is_dismissed_from_pane_inbox IN (0, 1)),
+    CHECK (
+        (
+            claim_pane_id IS NULL
+            AND claim_lane IS NULL
+            AND claim_semantic IS NULL
+            AND claim_session_id IS NULL
+        )
+        OR (
+            claim_pane_id IS NOT NULL
+            AND claim_lane IS NOT NULL
+            AND claim_lane IN ('activity', 'actionNeeded', 'safety')
+            AND claim_semantic IS NOT NULL
+        )
+    )
 );
 ```
 
@@ -204,9 +218,15 @@ coalescence depends on lane, session id, and read/dismissed state; for example,
 safety-lane claims do not coalesce, while activity/action-needed claims can
 coalesce by session even when lane or semantic changes. The SQLite repository
 must query the indexed claim candidates and apply the same atom coalescence rule
-before inserting or updating rows. The `claim_lane` predicate for session-level
-coalescence is generated from `SQLiteInboxNotificationClaimStorage` so the DDL
-stays tied to `InboxNotificationClaimLane.canMergeWithinActivitySession`.
+before inserting or updating rows. Shipped migrations embed frozen literal claim
+lane snapshots; they must not call live helper APIs whose values can change in a
+future release. `WorkspaceLocalSchemaContractTests` keep the current runtime
+storage helper vocabulary aligned with `InboxNotificationClaimLane`.
+The claim-key `CHECK` requires claim columns to be either all absent, or a
+coherent pane/lane/semantic tuple with an optional session id and a known lane.
+`005_enforce_notification_claim_keys` rebuilds the pre-check notification table,
+preserves notification rows, and normalizes malformed legacy claim tuples to an
+absent claim key.
 
 ```sql
 CREATE INDEX idx_local_notification_inbox_item_claim_exact

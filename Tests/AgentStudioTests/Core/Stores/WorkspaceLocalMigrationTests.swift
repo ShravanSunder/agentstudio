@@ -59,8 +59,102 @@ struct WorkspaceLocalMigrationTests {
                 "002_create_local_workspace_memory",
                 "003_create_local_notifications",
                 "004_create_cache_tables",
+                "005_enforce_notification_claim_keys",
             ]
         )
+    }
+
+    @Test("notification claim enforcement migration preserves rows and normalizes malformed claims")
+    func notificationClaimEnforcementMigrationPreservesRowsAndNormalizesMalformedClaims() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let workspaceId = UUID().uuidString
+        let validNotificationId = UUID().uuidString
+        let unknownLaneNotificationId = UUID().uuidString
+        let partialClaimNotificationId = UUID().uuidString
+        let sessionOnlyNotificationId = UUID().uuidString
+        let validSessionId = UUID().uuidString
+
+        try databaseQueue.write { database in
+            try createLegacyNotificationInboxItemBeforeClaimKeyEnforcement(database)
+            try markCompletedLocalMigrationsBeforeClaimKeyEnforcement(database)
+            try insertNotification(
+                database,
+                record: .init(
+                    workspaceId: workspaceId,
+                    id: validNotificationId,
+                    claimPaneId: UUID().uuidString,
+                    claimLane: "activity",
+                    claimSemantic: "unseenActivity",
+                    claimSessionId: validSessionId
+                )
+            )
+            try insertNotification(
+                database,
+                record: .init(
+                    workspaceId: workspaceId,
+                    id: unknownLaneNotificationId,
+                    claimPaneId: UUID().uuidString,
+                    claimLane: "unknown",
+                    claimSemantic: "unseenActivity",
+                    claimSessionId: nil
+                )
+            )
+            try insertNotification(
+                database,
+                record: .init(
+                    workspaceId: workspaceId,
+                    id: partialClaimNotificationId,
+                    claimPaneId: UUID().uuidString,
+                    claimLane: nil,
+                    claimSemantic: "unseenActivity",
+                    claimSessionId: nil
+                )
+            )
+            try insertNotification(
+                database,
+                record: .init(
+                    workspaceId: workspaceId,
+                    id: sessionOnlyNotificationId,
+                    claimPaneId: nil,
+                    claimLane: nil,
+                    claimSemantic: nil,
+                    claimSessionId: UUID().uuidString
+                )
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let migratedRows = try databaseQueue.read { database in
+            try Row.fetchAll(
+                database,
+                sql: """
+                    SELECT id, claim_pane_id, claim_lane, claim_semantic, claim_session_id
+                    FROM local_notification_inbox_item
+                    ORDER BY id
+                    """
+            )
+        }
+        let migratedRowsById = Dictionary(
+            uniqueKeysWithValues: migratedRows.compactMap { row in
+                (row["id"] as String?).map { ($0, row) }
+            })
+        let completedMigrations = try databaseQueue.read { database in
+            try WorkspaceLocalMigrations.migrator.completedMigrations(database)
+        }
+
+        #expect(migratedRowsById.count == 4)
+        #expect(migratedRowsById[validNotificationId]?["claim_lane"] as String? == "activity")
+        #expect(migratedRowsById[validNotificationId]?["claim_semantic"] as String? == "unseenActivity")
+        #expect(migratedRowsById[validNotificationId]?["claim_session_id"] as String? == validSessionId)
+        #expect(migratedRowsById[unknownLaneNotificationId]?["claim_pane_id"] as String? == nil)
+        #expect(migratedRowsById[unknownLaneNotificationId]?["claim_lane"] as String? == nil)
+        #expect(migratedRowsById[unknownLaneNotificationId]?["claim_semantic"] as String? == nil)
+        #expect(migratedRowsById[partialClaimNotificationId]?["claim_pane_id"] as String? == nil)
+        #expect(migratedRowsById[partialClaimNotificationId]?["claim_lane"] as String? == nil)
+        #expect(migratedRowsById[partialClaimNotificationId]?["claim_semantic"] as String? == nil)
+        #expect(migratedRowsById[sessionOnlyNotificationId]?["claim_session_id"] as String? == nil)
+        #expect(completedMigrations.last == "005_enforce_notification_claim_keys")
     }
 
     @Test("active drawer child cursor is scoped by arrangement and drawer")
@@ -353,6 +447,122 @@ struct WorkspaceLocalMigrationTests {
         }
     }
 
+    @Test("notification claim storage allows valid claim keys for every lane with optional session ids")
+    func notificationClaimStorageAllowsValidClaimKeysForEveryLaneWithOptionalSessionIds() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        let workspaceId = UUID().uuidString
+        let claimPaneId = UUID().uuidString
+
+        try databaseQueue.write { database in
+            for claimLane in [
+                SQLiteInboxNotificationClaimStorage.laneActivity,
+                SQLiteInboxNotificationClaimStorage.laneActionNeeded,
+                SQLiteInboxNotificationClaimStorage.laneSafety,
+            ] {
+                try insertNotification(
+                    database,
+                    record: .init(
+                        workspaceId: workspaceId,
+                        id: UUID().uuidString,
+                        claimPaneId: claimPaneId,
+                        claimLane: claimLane,
+                        claimSemantic: "unseenActivity",
+                        claimSessionId: nil
+                    )
+                )
+            }
+
+            let notificationCount = try Int.fetchOne(
+                database,
+                sql: """
+                    SELECT COUNT(*)
+                    FROM local_notification_inbox_item
+                    WHERE workspace_id = ?
+                    """,
+                arguments: [workspaceId]
+            )
+            #expect(notificationCount == 3)
+        }
+    }
+
+    @Test("notification claim storage rejects invalid claim lane")
+    func notificationClaimStorageRejectsInvalidClaimLane() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        expectDatabaseError(containing: "CHECK constraint failed") {
+            try databaseQueue.write { database in
+                try insertNotification(
+                    database,
+                    record: .init(
+                        workspaceId: UUID().uuidString,
+                        id: UUID().uuidString,
+                        claimPaneId: UUID().uuidString,
+                        claimLane: "unknown",
+                        claimSemantic: "unseenActivity",
+                        claimSessionId: nil
+                    )
+                )
+            }
+        }
+
+        expectDatabaseError(containing: "CHECK constraint failed") {
+            try databaseQueue.write { database in
+                try insertNotification(
+                    database,
+                    record: .init(
+                        workspaceId: UUID().uuidString,
+                        id: UUID().uuidString,
+                        claimPaneId: nil,
+                        claimLane: nil,
+                        claimSemantic: nil,
+                        claimSessionId: UUID().uuidString
+                    )
+                )
+            }
+        }
+    }
+
+    @Test("notification claim storage rejects partial claim keys")
+    func notificationClaimStorageRejectsPartialClaimKeys() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        let workspaceId = UUID().uuidString
+
+        expectDatabaseError(containing: "CHECK constraint failed") {
+            try databaseQueue.write { database in
+                try insertNotification(
+                    database,
+                    record: .init(
+                        workspaceId: workspaceId,
+                        id: UUID().uuidString,
+                        claimPaneId: UUID().uuidString,
+                        claimLane: nil,
+                        claimSemantic: "unseenActivity",
+                        claimSessionId: nil
+                    )
+                )
+            }
+        }
+
+        expectDatabaseError(containing: "CHECK constraint failed") {
+            try databaseQueue.write { database in
+                try insertNotification(
+                    database,
+                    record: .init(
+                        workspaceId: workspaceId,
+                        id: UUID().uuidString,
+                        claimPaneId: nil,
+                        claimLane: "activity",
+                        claimSemantic: "unseenActivity",
+                        claimSessionId: nil
+                    )
+                )
+            }
+        }
+    }
+
     @Test("local workspace cursor and window memory round trip")
     func localWorkspaceCursorAndWindowMemoryRoundTrip() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
@@ -534,6 +744,77 @@ private func insertNotification(_ database: Database, record: NotificationRecord
             record.isDismissedFromPaneInbox ? 1 : 0,
         ]
     )
+}
+
+private func createLegacyNotificationInboxItemBeforeClaimKeyEnforcement(_ database: Database) throws {
+    try database.execute(
+        sql: """
+            CREATE TABLE local_notification_inbox_item (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT,
+                source_kind TEXT NOT NULL,
+                pane_id TEXT,
+                tab_id TEXT,
+                tab_display_label TEXT,
+                tab_ordinal INTEGER,
+                repo_id TEXT,
+                repo_name TEXT,
+                worktree_id TEXT,
+                worktree_name TEXT,
+                branch_name TEXT,
+                pane_display_label TEXT,
+                pane_ordinal INTEGER,
+                pane_role TEXT,
+                parent_pane_id TEXT,
+                parent_pane_display_label TEXT,
+                parent_pane_ordinal INTEGER,
+                drawer_ordinal INTEGER,
+                runtime_display_label TEXT,
+                activity_burst_window_id TEXT,
+                activity_session_id TEXT,
+                activity_event_count INTEGER,
+                activity_rows_added INTEGER,
+                activity_threshold_rows INTEGER,
+                activity_latest_rows INTEGER,
+                claim_pane_id TEXT,
+                claim_lane TEXT,
+                claim_semantic TEXT,
+                claim_session_id TEXT,
+                is_read INTEGER NOT NULL CHECK (is_read IN (0, 1)),
+                is_dismissed_from_pane_inbox INTEGER NOT NULL CHECK (
+                    is_dismissed_from_pane_inbox IN (0, 1)
+                )
+            )
+            """
+    )
+}
+
+private func markCompletedLocalMigrationsBeforeClaimKeyEnforcement(_ database: Database) throws {
+    try database.execute(
+        sql: """
+            CREATE TABLE grdb_migrations (
+                identifier TEXT NOT NULL PRIMARY KEY
+            )
+            """
+    )
+    for migrationId in [
+        "001_create_local_cursors",
+        "002_create_local_workspace_memory",
+        "003_create_local_notifications",
+        "004_create_cache_tables",
+    ] {
+        try database.execute(
+            sql: """
+                INSERT INTO grdb_migrations(identifier)
+                VALUES (?)
+                """,
+            arguments: [migrationId]
+        )
+    }
 }
 
 private func insertArrangementDrawerCursor(

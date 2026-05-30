@@ -20,6 +20,7 @@ enum WorkspaceLocalMigrations {
         ("002_create_local_workspace_memory", createLocalWorkspaceMemoryStatements),
         ("003_create_local_notifications", createLocalNotificationStatements),
         ("004_create_cache_tables", createCacheTableStatements),
+        ("005_enforce_notification_claim_keys", enforceNotificationClaimKeyStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -160,15 +161,146 @@ enum WorkspaceLocalMigrations {
         """,
     ]
 
-    private static let createLocalNotificationStatements = [
+    private static let notificationInboxItem005Columns = """
+        id,
+        workspace_id,
+        timestamp,
+        kind,
+        title,
+        body,
+        source_kind,
+        pane_id,
+        tab_id,
+        tab_display_label,
+        tab_ordinal,
+        repo_id,
+        repo_name,
+        worktree_id,
+        worktree_name,
+        branch_name,
+        pane_display_label,
+        pane_ordinal,
+        pane_role,
+        parent_pane_id,
+        parent_pane_display_label,
+        parent_pane_ordinal,
+        drawer_ordinal,
+        runtime_display_label,
+        activity_burst_window_id,
+        activity_session_id,
+        activity_event_count,
+        activity_rows_added,
+        activity_threshold_rows,
+        activity_latest_rows,
+        claim_pane_id,
+        claim_lane,
+        claim_semantic,
+        claim_session_id,
+        is_read,
+        is_dismissed_from_pane_inbox
         """
-        CREATE TABLE local_notification_inbox_collapsed_group (
-            workspace_id TEXT NOT NULL,
-            group_key TEXT NOT NULL,
-            PRIMARY KEY(workspace_id, group_key)
-        )
-        """,
+
+    private static let notificationClaimLane003MergeableSQLValues = "'activity', 'actionNeeded'"
+    private static let notificationClaimLane005AllSQLValues = "'activity', 'actionNeeded', 'safety'"
+    private static let notificationClaimLane005MergeableSQLValues = "'activity', 'actionNeeded'"
+
+    private static let notificationClaimKey005ValidPredicate = """
+        claim_pane_id IS NOT NULL
+            AND claim_lane IS NOT NULL
+            AND claim_lane IN (\(notificationClaimLane005AllSQLValues))
+            AND claim_semantic IS NOT NULL
         """
+
+    private static let createLocalNotificationStatements =
+        [
+            """
+            CREATE TABLE local_notification_inbox_collapsed_group (
+                workspace_id TEXT NOT NULL,
+                group_key TEXT NOT NULL,
+                PRIMARY KEY(workspace_id, group_key)
+            )
+            """,
+            notificationInboxItem003CreateStatement,
+        ] + notificationInboxItem003IndexStatements
+
+    private static var enforceNotificationClaimKeyStatements: [String] {
+        [
+            """
+            DROP INDEX IF EXISTS idx_local_notification_inbox_item_claim_session
+            """,
+            """
+            DROP INDEX IF EXISTS idx_local_notification_inbox_item_claim_exact
+            """,
+            """
+            DROP INDEX IF EXISTS idx_local_notification_inbox_item_worktree_id
+            """,
+            """
+            DROP INDEX IF EXISTS idx_local_notification_inbox_item_repo_id
+            """,
+            """
+            DROP INDEX IF EXISTS idx_local_notification_inbox_item_tab_id
+            """,
+            """
+            DROP INDEX IF EXISTS idx_local_notification_inbox_item_pane_id
+            """,
+            """
+            DROP INDEX IF EXISTS idx_local_notification_inbox_item_workspace_timestamp
+            """,
+            notificationInboxItem005CreateRebuildStatement,
+            """
+            INSERT INTO local_notification_inbox_item_rebuild (
+                \(notificationInboxItem005Columns)
+            )
+            SELECT
+                id,
+                workspace_id,
+                timestamp,
+                kind,
+                title,
+                body,
+                source_kind,
+                pane_id,
+                tab_id,
+                tab_display_label,
+                tab_ordinal,
+                repo_id,
+                repo_name,
+                worktree_id,
+                worktree_name,
+                branch_name,
+                pane_display_label,
+                pane_ordinal,
+                pane_role,
+                parent_pane_id,
+                parent_pane_display_label,
+                parent_pane_ordinal,
+                drawer_ordinal,
+                runtime_display_label,
+                activity_burst_window_id,
+                activity_session_id,
+                activity_event_count,
+                activity_rows_added,
+                activity_threshold_rows,
+                activity_latest_rows,
+                CASE WHEN \(notificationClaimKey005ValidPredicate) THEN claim_pane_id ELSE NULL END,
+                CASE WHEN \(notificationClaimKey005ValidPredicate) THEN claim_lane ELSE NULL END,
+                CASE WHEN \(notificationClaimKey005ValidPredicate) THEN claim_semantic ELSE NULL END,
+                CASE WHEN \(notificationClaimKey005ValidPredicate) THEN claim_session_id ELSE NULL END,
+                is_read,
+                is_dismissed_from_pane_inbox
+            FROM local_notification_inbox_item
+            """,
+            """
+            DROP TABLE local_notification_inbox_item
+            """,
+            """
+            ALTER TABLE local_notification_inbox_item_rebuild
+            RENAME TO local_notification_inbox_item
+            """,
+        ] + notificationInboxItem005IndexStatements
+    }
+
+    private static let notificationInboxItem003CreateStatement = """
         CREATE TABLE local_notification_inbox_item (
             id TEXT PRIMARY KEY,
             workspace_id TEXT NOT NULL,
@@ -207,7 +339,61 @@ enum WorkspaceLocalMigrations {
             is_read INTEGER NOT NULL CHECK (is_read IN (0, 1)),
             is_dismissed_from_pane_inbox INTEGER NOT NULL CHECK (is_dismissed_from_pane_inbox IN (0, 1))
         )
-        """,
+        """
+
+    private static let notificationInboxItem005CreateRebuildStatement = """
+        CREATE TABLE local_notification_inbox_item_rebuild (
+            id TEXT PRIMARY KEY,
+            workspace_id TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT,
+            source_kind TEXT NOT NULL,
+            pane_id TEXT,
+            tab_id TEXT,
+            tab_display_label TEXT,
+            tab_ordinal INTEGER,
+            repo_id TEXT,
+            repo_name TEXT,
+            worktree_id TEXT,
+            worktree_name TEXT,
+            branch_name TEXT,
+            pane_display_label TEXT,
+            pane_ordinal INTEGER,
+            pane_role TEXT,
+            parent_pane_id TEXT,
+            parent_pane_display_label TEXT,
+            parent_pane_ordinal INTEGER,
+            drawer_ordinal INTEGER,
+            runtime_display_label TEXT,
+            activity_burst_window_id TEXT,
+            activity_session_id TEXT,
+            activity_event_count INTEGER,
+            activity_rows_added INTEGER,
+            activity_threshold_rows INTEGER,
+            activity_latest_rows INTEGER,
+            claim_pane_id TEXT,
+            claim_lane TEXT,
+            claim_semantic TEXT,
+            claim_session_id TEXT,
+            is_read INTEGER NOT NULL CHECK (is_read IN (0, 1)),
+            is_dismissed_from_pane_inbox INTEGER NOT NULL CHECK (is_dismissed_from_pane_inbox IN (0, 1)),
+            CHECK (
+                (
+                    claim_pane_id IS NULL
+                    AND claim_lane IS NULL
+                    AND claim_semantic IS NULL
+                    AND claim_session_id IS NULL
+                )
+                OR (
+                    \(notificationClaimKey005ValidPredicate)
+                )
+            )
+        )
+        """
+
+    private static let notificationInboxItem003IndexStatements = [
         """
         CREATE INDEX idx_local_notification_inbox_item_workspace_timestamp
         ON local_notification_inbox_item(workspace_id, timestamp)
@@ -250,7 +436,54 @@ enum WorkspaceLocalMigrations {
         )
         WHERE claim_pane_id IS NOT NULL
             AND claim_session_id IS NOT NULL
-            AND claim_lane IN (\(SQLiteInboxNotificationClaimStorage.mergeableLaneSQLValues))
+            AND claim_lane IN (\(notificationClaimLane003MergeableSQLValues))
+        """,
+    ]
+
+    private static let notificationInboxItem005IndexStatements = [
+        """
+        CREATE INDEX idx_local_notification_inbox_item_workspace_timestamp
+        ON local_notification_inbox_item(workspace_id, timestamp)
+        """,
+        """
+        CREATE INDEX idx_local_notification_inbox_item_pane_id
+        ON local_notification_inbox_item(workspace_id, pane_id)
+        """,
+        """
+        CREATE INDEX idx_local_notification_inbox_item_tab_id
+        ON local_notification_inbox_item(workspace_id, tab_id)
+        """,
+        """
+        CREATE INDEX idx_local_notification_inbox_item_repo_id
+        ON local_notification_inbox_item(workspace_id, repo_id)
+        """,
+        """
+        CREATE INDEX idx_local_notification_inbox_item_worktree_id
+        ON local_notification_inbox_item(workspace_id, worktree_id)
+        """,
+        """
+        CREATE INDEX idx_local_notification_inbox_item_claim_exact
+        ON local_notification_inbox_item(
+            workspace_id,
+            claim_pane_id,
+            claim_lane,
+            claim_semantic,
+            claim_session_id
+        )
+        WHERE claim_pane_id IS NOT NULL
+            AND claim_lane IS NOT NULL
+            AND claim_semantic IS NOT NULL
+        """,
+        """
+        CREATE INDEX idx_local_notification_inbox_item_claim_session
+        ON local_notification_inbox_item(
+            workspace_id,
+            claim_pane_id,
+            claim_session_id
+        )
+        WHERE claim_pane_id IS NOT NULL
+            AND claim_session_id IS NOT NULL
+            AND claim_lane IN (\(notificationClaimLane005MergeableSQLValues))
         """,
     ]
 

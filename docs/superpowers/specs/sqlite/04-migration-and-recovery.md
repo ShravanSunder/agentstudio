@@ -626,12 +626,15 @@ Reserved future core migrations
   005_create_workflows_and_session_pointers
 
 Step 1 local migrations
-  001_create_local_ux_memory
-  002_create_current_cache
+  001_create_local_cursors
+  002_create_local_workspace_memory
+  003_create_local_notifications
+  004_create_cache_tables
+  005_enforce_notification_claim_keys
 
 Reserved future local migrations
-  003_create_session_index
-  004_create_session_search
+  006_create_session_index
+  007_create_session_search
 
 settings file
   schemaVersion: 1
@@ -641,6 +644,8 @@ settings file
 Migration invariants:
 
 - migrations run once and are identifier-stable
+- shipped migration SQL is snapshot-stable; do not route historical migrations
+  through "current schema" helpers that future edits can silently change
 - future migration identifiers shown here are reserved names; either register
   them as no-op stubs immediately or do not include them in the shipped migrator
   until the schema lands
