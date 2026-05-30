@@ -598,7 +598,7 @@ mise run test -- --filter "RepoCacheStoreTests|WorkspaceRepoCacheTests|Workspace
 
 Expected: cache reset does not delete recent workspace targets.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Run:
 
