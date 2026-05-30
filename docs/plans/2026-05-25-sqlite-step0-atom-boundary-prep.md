@@ -333,8 +333,8 @@ Atoms are writer-owned lifecycle groups, not SQL table models. A write-owner ato
 | Pane | PaneGraphState in WorkspacePaneGraphAtom | Pane from WorkspacePaneDerived | LegacyPanePayload | pane, pane_content_*, pane_tag |
 | Drawer identity/membership | DrawerGraphState in WorkspacePaneGraphAtom | Drawer from WorkspacePaneDerived | LegacyDrawerPayload | drawer, drawer_pane |
 | Drawer.isExpanded | WorkspaceDrawerCursorAtom | Drawer from WorkspacePaneDerived | LegacyDrawerPayload | local_drawer_cursor.is_expanded |
-| PaneMetadata durable fields | PaneGraphState.metadata | Pane from WorkspacePaneDerived | LegacyPaneMetadataPayload | pane source/cwd/checkout/title/note/tag columns |
-| PaneContextFacets durable fields | PaneGraphState.metadata | Pane from WorkspacePaneDerived | LegacyPaneContextFacetsPayload | repo_id, worktree_id, cwd, tags |
+| PaneMetadata durable fields | PaneGraphMetadata in WorkspacePaneGraphAtom | Pane from WorkspacePaneDerived | LegacyPaneMetadataPayload | pane source/cwd/checkout/title/note/tag columns |
+| PaneContextFacets durable fields | PaneGraphFacets in WorkspacePaneGraphAtom | Pane from WorkspacePaneDerived | LegacyPaneContextFacetsPayload | repo_id, worktree_id, cwd, tags |
 | PaneContextFacets display fields | none | WorkspacePaneDerived from topology + RepoEnrichmentCacheAtom | decoded only as legacy compatibility; cache import/rebuild supplies live values | cache_repo_enrichment/cache_worktree_enrichment |
 | Tab shell | WorkspaceTabShellAtom | Tab from WorkspaceTabLayoutDerived | LegacyTabPayload | tab_shell |
 | Tab.activeArrangementId | WorkspaceArrangementCursorAtom | Tab from WorkspaceTabLayoutDerived | LegacyTabPayload | local_tab_cursor.active_arrangement_id |
@@ -613,15 +613,18 @@ git commit -m "Split repo enrichment cache from recent targets"
 
 **Files:**
 
-- Modify/Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.swift`
+- Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift`
+- Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift`
+- Modify: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.swift`
 - Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneDerived.swift`
 - Modify: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift`
 - Modify: `Sources/AgentStudio/AtomRegistry.swift`
 - Test: `Tests/AgentStudioTests/Core/Models/PaneTests.swift`
 - Test: `Tests/AgentStudioTests/Core/State/MainActor/Atoms/PaneArrangementInvariantTests.swift`
+- Test: `Tests/AgentStudioTests/Core/State/MainActor/Atoms/WorkspacePaneBoundaryTests.swift`
 - Test: `Tests/AgentStudioTests/Core/Stores/PaneRemovalCascadeTests.swift`
 
-- [ ] **Step 1: Classify pane-related domain types**
+- [x] **Step 1: Classify pane-related domain types**
 
 Decide and document in code names:
 
@@ -629,7 +632,7 @@ Decide and document in code names:
 Pane / Drawer
   -> derived read-model names returned by WorkspacePaneDerived
 
-PaneGraphState / DrawerGraphState
+PaneGraphState / DrawerGraphState / PaneGraphMetadata / PaneGraphFacets
   -> write-owner state held by WorkspacePaneGraphAtom
   -> includes pane identity, content, residency, durable metadata,
      drawer identity, and drawer membership
@@ -649,12 +652,12 @@ PaneMetadata / PaneContextFacets
        LegacyPaneContextFacetsPayload
 ```
 
-Do not leave the graph atom storing the rich `Pane` type directly. `Pane` may
-remain as the composed UI/read-model value only if the graph atom stores
-explicit graph-state structs and the legacy importer decodes explicit
-`Legacy*Payload` structs.
+Do not leave the graph atom storing the rich `Pane`, `PaneMetadata`, or
+`PaneContextFacets` types directly. `Pane` may remain as the composed
+UI/read-model value only if the graph atom stores explicit graph-state structs
+and the legacy importer decodes explicit `Legacy*Payload` structs.
 
-- [ ] **Step 2: Split write owners**
+- [x] **Step 2: Split write owners**
 
 Create or rename:
 
@@ -668,19 +671,22 @@ WorkspaceDrawerCursorAtom
 
 `WorkspaceDrawerCursorAtom` must expose one semantic drawer expansion method that collapses all other drawers in memory before observers see the target drawer expand.
 
-- [ ] **Step 3: Add derived read model**
+- [x] **Step 3: Add derived read model**
 
 Create `WorkspacePaneDerived` so existing UI/validator needs can still read a composed `Pane` shape from graph + cursor + topology/cache facts. It must derive `repoName`, `worktreeName`, `parentFolder`, `organizationName`, `origin`, and `upstream` from topology/cache, not from `WorkspacePaneGraphAtom`.
 
-- [ ] **Step 4: Verify pane behavior**
+- [x] **Step 4: Verify pane behavior**
 
 Run:
 
 ```bash
-mise run test -- --filter "PaneTests|PaneArrangementInvariantTests|PaneRemovalCascadeTests|WorkspacePaneFocusDerivedTests|PaneDisplayDerivedTests"
+mise run test -- --filter "PaneTests|PaneArrangementInvariantTests|PaneRemovalCascadeTests|WorkspacePaneFocusDerivedTests|PaneDisplayDerivedTests|WorkspacePaneBoundaryTests|WorkspacePersistenceTransformerTests|WorkspaceStoreTests/test_repoEnrichmentDisplayChangeDoesNotDirtyWorkspacePersistence|PaneCoordinatorCWDIdentityTests|InboxNotificationIntegrationTests"
 ```
 
-Expected: pane creation, drawer membership, drawer expansion mutual exclusion, and pane display derivation preserve current behavior.
+Expected: pane creation, drawer membership, drawer expansion mutual exclusion,
+pane display derivation, persistence projection, and store dirty-boundary
+behavior preserve current behavior. E2E and Zmx suites are still invoked by the
+runner and remain explicitly skipped unless their env flags are enabled.
 
 - [ ] **Step 5: Commit**
 

@@ -37,7 +37,7 @@ enum WorkspacePersistenceTransformer {
         workspaceTabLayoutAtom.hydrate(
             persistedTabs: state.tabs,
             activeTabId: state.activeTabId,
-            validPaneIds: Set(workspacePaneAtom.panes.keys)
+            validPaneIds: workspacePaneAtom.graphAtom.paneIds
         )
     }
 
@@ -50,7 +50,7 @@ enum WorkspacePersistenceTransformer {
         persistedAt: Date
     ) -> WorkspacePersistor.PersistableState {
         let persistablePanes = Array(
-            workspacePaneAtom.panes.values.filter { pane in
+            workspacePaneAtom.legacyPersistablePanes.values.filter { pane in
                 if case .terminal(let terminalState) = pane.content {
                     return terminalState.lifetime != .temporary
                 }

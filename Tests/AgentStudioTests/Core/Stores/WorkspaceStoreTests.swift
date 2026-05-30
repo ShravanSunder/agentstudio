@@ -1199,6 +1199,89 @@ final class WorkspaceStoreTests {
         #expect(store.isDirty)
     }
 
+    @Test
+    func test_repoEnrichmentDisplayChangeDoesNotDirtyWorkspacePersistence() async throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-derived-display-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        let atoms = AtomRegistry()
+        let clock = TestPushClock()
+        let scopedStore = WorkspaceStore(
+            identityAtom: atoms.workspaceIdentity,
+            windowMemoryAtom: atoms.workspaceWindowMemory,
+            repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
+            paneAtom: atoms.workspacePane,
+            tabShellAtom: atoms.workspaceTabShell,
+            tabArrangementAtom: atoms.workspaceTabArrangement,
+            tabLayoutAtom: atoms.workspaceTabLayout,
+            mutationCoordinator: atoms.workspaceMutationCoordinator,
+            persistor: persistor,
+            persistDebounceDuration: .seconds(1),
+            clock: clock
+        )
+        scopedStore.restore()
+
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
+        let worktreePath = repoPath.appending(path: "sqlite")
+        atoms.workspaceRepositoryTopology.hydrate(
+            runtimeRepos: [
+                Repo(
+                    id: repoId,
+                    name: "agent-studio",
+                    repoPath: repoPath,
+                    worktrees: [
+                        Worktree(id: worktreeId, repoId: repoId, name: "sqlite", path: worktreePath)
+                    ]
+                )
+            ],
+            watchedPaths: [],
+            unavailableRepoIds: []
+        )
+        let pane = atoms.workspacePane.createPane(
+            source: .worktree(worktreeId: worktreeId, repoId: repoId, launchDirectory: worktreePath),
+            facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: worktreePath)
+        )
+        atoms.workspaceTabLayout.appendTab(Tab(paneId: pane.id))
+        #expect(scopedStore.flush())
+        #expect(!scopedStore.isDirty)
+
+        atoms.repoEnrichmentCache.setRepoEnrichment(
+            .resolvedRemote(
+                repoId: repoId,
+                raw: RawRepoOrigin(origin: "origin-url", upstream: "upstream-url"),
+                identity: RepoIdentity(
+                    groupKey: "org",
+                    remoteSlug: "org/agent-studio",
+                    organizationName: "org",
+                    displayName: "agent-studio"
+                ),
+                updatedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        await Task.yield()
+
+        let derivedPane = try #require(scopedStore.pane(pane.id))
+        #expect(derivedPane.metadata.facets.organizationName == "org")
+        #expect(derivedPane.metadata.facets.origin == "origin-url")
+        #expect(!scopedStore.isDirty)
+        #expect(clock.pendingSleepCount == 0)
+        #expect(scopedStore.flush())
+
+        switch persistor.load() {
+        case .loaded(let persistedState):
+            let persistedPane = try #require(persistedState.panes.first)
+            #expect(persistedPane.metadata.facets.organizationName == nil)
+            #expect(persistedPane.metadata.facets.origin == nil)
+            #expect(persistedPane.metadata.facets.upstream == nil)
+        case .missing:
+            Issue.record("Expected workspace state file after flush")
+        case .corrupt(let error):
+            Issue.record("Expected decodable workspace state, got \(error)")
+        }
+    }
+
     // MARK: - Undo
 
     @Test

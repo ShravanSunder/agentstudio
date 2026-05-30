@@ -61,9 +61,9 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 
 Current atom vocabulary:
 
-- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`, `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom`, `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `EditorPreferenceAtom`, `EditorChooserRuntimeAtom`, `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms. `RepoCacheAtom` remains a composed read surface for existing repo/sidebar consumers.
+- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`, `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom`, `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `EditorPreferenceAtom`, `EditorChooserRuntimeAtom`, `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms. `WorkspacePaneAtom` and `RepoCacheAtom` remain composed compatibility/read surfaces for existing consumers while split owners land.
 - **Persistence wrappers** own load/save boundaries and debounced disk I/O, for example `WorkspaceStore`, `RepoCacheStore`, `SidebarCacheStore`, and `UIStateStore`.
-- **Derived readers** compute projections without owning data, for example `WorkspaceFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
+- **Derived readers** compute projections without owning data, for example `WorkspacePaneDerived`, `WorkspaceFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
 - **Coordinators** sequence mutations across atoms/stores and runtime systems. They own no durable domain state.
 
 ## Coordination Planes
@@ -90,7 +90,9 @@ WorkspaceStore (workspace.state.json persistence wrapper)
 ├── WorkspaceIdentityAtom               ← workspace id, name, created-at timestamp
 ├── WorkspaceWindowMemoryAtom           ← local sidebar width and window frame
 ├── WorkspaceRepositoryTopologyAtom     ← repos, worktrees, watched paths, availability
-├── WorkspacePaneAtom                   ← panes, metadata/content/residency, drawers
+├── WorkspacePaneGraphAtom              ← pane identity/content/residency, durable metadata, drawer membership
+├── WorkspaceDrawerCursorAtom           ← local drawer expansion cursor
+├── WorkspacePaneAtom                   ← compatibility facade over pane graph + drawer cursor
 └── WorkspaceTabLayoutAtom              ← tabs, arrangements, active selection, layout
 
 RepoCacheStore (workspace.cache.json, rebuildable/local cache)

@@ -13,6 +13,8 @@ final class WorkspaceStore {
     let identityAtom: WorkspaceIdentityAtom
     let windowMemoryAtom: WorkspaceWindowMemoryAtom
     let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
+    let paneGraphAtom: WorkspacePaneGraphAtom
+    let drawerCursorAtom: WorkspaceDrawerCursorAtom
     let paneAtom: WorkspacePaneAtom
     let tabShellAtom: WorkspaceTabShellAtom
     let tabArrangementAtom: WorkspaceTabArrangementAtom
@@ -32,7 +34,9 @@ final class WorkspaceStore {
         identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(),
         windowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom(),
         repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom = WorkspaceRepositoryTopologyAtom(),
-        paneAtom: WorkspacePaneAtom = WorkspacePaneAtom(),
+        paneGraphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
+        drawerCursorAtom: WorkspaceDrawerCursorAtom = WorkspaceDrawerCursorAtom(),
+        paneAtom: WorkspacePaneAtom? = nil,
         tabShellAtom: WorkspaceTabShellAtom = WorkspaceTabShellAtom(),
         tabArrangementAtom: WorkspaceTabArrangementAtom = WorkspaceTabArrangementAtom(),
         tabLayoutAtom: WorkspaceTabLayoutAtom? = nil,
@@ -44,10 +48,19 @@ final class WorkspaceStore {
     ) {
         let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
         let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
+        let resolvedPaneAtom =
+            paneAtom
+            ?? WorkspacePaneAtom(
+                graphAtom: paneGraphAtom,
+                drawerCursorAtom: drawerCursorAtom,
+                repositoryTopologyAtom: repositoryTopologyAtom
+            )
         self.identityAtom = identityAtom
         self.windowMemoryAtom = windowMemoryAtom
         self.repositoryTopologyAtom = repositoryTopologyAtom
-        self.paneAtom = paneAtom
+        self.paneGraphAtom = resolvedPaneAtom.graphAtom
+        self.drawerCursorAtom = resolvedPaneAtom.drawerCursorAtom
+        self.paneAtom = resolvedPaneAtom
         self.tabShellAtom = resolvedTabShellAtom
         self.tabArrangementAtom = resolvedTabArrangementAtom
         self.tabLayoutAtom =
@@ -60,7 +73,7 @@ final class WorkspaceStore {
             mutationCoordinator
             ?? WorkspaceMutationCoordinator(
                 repositoryTopologyAtom: repositoryTopologyAtom,
-                workspacePaneAtom: paneAtom,
+                workspacePaneAtom: resolvedPaneAtom,
                 workspaceTabShellAtom: resolvedTabShellAtom,
                 workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
@@ -138,7 +151,8 @@ final class WorkspaceStore {
             _ = repositoryTopologyAtom.repos
             _ = repositoryTopologyAtom.watchedPaths
             _ = repositoryTopologyAtom.unavailableRepoIds
-            _ = paneAtom.panes
+            _ = paneGraphAtom.paneStates
+            _ = drawerCursorAtom.expandedDrawerId
             _ = tabLayoutAtom.tabs
             _ = tabLayoutAtom.activeTabId
         } onChange: { [weak self] in

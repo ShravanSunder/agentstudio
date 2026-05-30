@@ -4,6 +4,8 @@ final class AtomRegistry {
     let workspaceIdentity: WorkspaceIdentityAtom
     let workspaceWindowMemory: WorkspaceWindowMemoryAtom
     let workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom
+    let workspacePaneGraph: WorkspacePaneGraphAtom
+    let workspaceDrawerCursor: WorkspaceDrawerCursorAtom
     let workspacePane: WorkspacePaneAtom
     let workspaceTabShell: WorkspaceTabShellAtom
     let workspaceTabArrangement: WorkspaceTabArrangementAtom
@@ -42,7 +44,9 @@ final class AtomRegistry {
         workspaceIdentity: WorkspaceIdentityAtom = .init(),
         workspaceWindowMemory: WorkspaceWindowMemoryAtom = .init(),
         workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom = .init(),
-        workspacePane: WorkspacePaneAtom = .init(),
+        workspacePaneGraph: WorkspacePaneGraphAtom = .init(),
+        workspaceDrawerCursor: WorkspaceDrawerCursorAtom = .init(),
+        workspacePane: WorkspacePaneAtom? = nil,
         workspaceTabShell: WorkspaceTabShellAtom = .init(),
         workspaceTabArrangement: WorkspaceTabArrangementAtom = .init(),
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
@@ -73,7 +77,16 @@ final class AtomRegistry {
         self.workspaceIdentity = workspaceIdentity
         self.workspaceWindowMemory = workspaceWindowMemory
         self.workspaceRepositoryTopology = workspaceRepositoryTopology
-        self.workspacePane = workspacePane
+        self.workspacePaneGraph = workspacePaneGraph
+        self.workspaceDrawerCursor = workspaceDrawerCursor
+        self.workspacePane =
+            workspacePane
+            ?? WorkspacePaneAtom(
+                graphAtom: workspacePaneGraph,
+                drawerCursorAtom: workspaceDrawerCursor,
+                repositoryTopologyAtom: workspaceRepositoryTopology,
+                repoEnrichmentCacheAtom: repoEnrichmentCache
+            )
         self.workspaceTabShell = workspaceTabShell
         self.workspaceTabArrangement = workspaceTabArrangement
         self.workspaceTabLayout = WorkspaceTabLayoutAtom(
@@ -84,7 +97,7 @@ final class AtomRegistry {
             workspaceMutationCoordinator
             ?? WorkspaceMutationCoordinator(
                 repositoryTopologyAtom: workspaceRepositoryTopology,
-                workspacePaneAtom: workspacePane,
+                workspacePaneAtom: self.workspacePane,
                 workspaceTabShellAtom: workspaceTabShell,
                 workspaceTabArrangementAtom: workspaceTabArrangement
             )
@@ -134,6 +147,15 @@ final class AtomRegistry {
 
     var paneDisplay: PaneDisplayDerived {
         PaneDisplayDerived()
+    }
+
+    var workspacePaneDerived: WorkspacePaneDerived {
+        WorkspacePaneDerived(
+            graphAtom: workspacePaneGraph,
+            drawerCursorAtom: workspaceDrawerCursor,
+            repositoryTopologyAtom: workspaceRepositoryTopology,
+            repoEnrichmentCacheAtom: repoEnrichmentCache
+        )
     }
 
     var workspaceLookup: WorkspaceLookupDerived {
