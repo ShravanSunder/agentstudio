@@ -83,31 +83,49 @@ CREATE TABLE repo (
     repo_path TEXT NOT NULL,
     stable_key TEXT NOT NULL,
     created_at REAL NOT NULL,
-    UNIQUE(workspace_id, stable_key)
+    UNIQUE(workspace_id, stable_key),
+    UNIQUE(id, workspace_id)
 );
 
 CREATE TABLE worktree (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-    repo_id TEXT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
+    repo_id TEXT NOT NULL,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
     stable_key TEXT NOT NULL,
     is_main_worktree INTEGER NOT NULL,
     UNIQUE(workspace_id, stable_key),
-    UNIQUE(repo_id, stable_key)
+    UNIQUE(repo_id, stable_key),
+    FOREIGN KEY(repo_id, workspace_id)
+        REFERENCES repo(id, workspace_id)
+        ON DELETE CASCADE
 );
 
 CREATE TABLE unavailable_repo (
     workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-    repo_id TEXT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-    PRIMARY KEY(workspace_id, repo_id)
+    repo_id TEXT NOT NULL,
+    PRIMARY KEY(workspace_id, repo_id),
+    FOREIGN KEY(repo_id, workspace_id)
+        REFERENCES repo(id, workspace_id)
+        ON DELETE CASCADE
 );
 
 CREATE TABLE pane (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-    content_type TEXT NOT NULL,
+    content_type TEXT NOT NULL CHECK (
+        content_type IN (
+            'terminal',
+            'browser',
+            'diff',
+            'editor',
+            'review',
+            'agent',
+            'codeViewer'
+        )
+        OR content_type GLOB 'plugin:?*'
+    ),
     execution_backend TEXT NOT NULL,
     source_kind TEXT NOT NULL,
     source_repo_id TEXT REFERENCES repo(id) ON DELETE SET NULL,
@@ -186,6 +204,7 @@ CREATE TABLE tab_pane (
     pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
     sort_index INTEGER NOT NULL,
     PRIMARY KEY(tab_id, pane_id),
+    UNIQUE(pane_id),
     UNIQUE(tab_id, sort_index)
 );
 
@@ -193,11 +212,15 @@ CREATE TABLE tab_arrangement (
     id TEXT PRIMARY KEY,
     tab_id TEXT NOT NULL REFERENCES tab_shell(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    is_default INTEGER NOT NULL,
-    shows_minimized_panes INTEGER NOT NULL,
+    is_default INTEGER NOT NULL CHECK (is_default IN (0, 1)),
+    shows_minimized_panes INTEGER NOT NULL CHECK (shows_minimized_panes IN (0, 1)),
     sort_index INTEGER NOT NULL,
     UNIQUE(tab_id, sort_index)
 );
+
+CREATE UNIQUE INDEX idx_tab_arrangement_one_default
+ON tab_arrangement(tab_id)
+WHERE is_default = 1;
 
 CREATE TABLE arrangement_layout_pane (
     arrangement_id TEXT NOT NULL REFERENCES tab_arrangement(id) ON DELETE CASCADE,
@@ -266,6 +289,54 @@ CREATE TABLE drawer_view_minimized_pane (
         ON DELETE CASCADE
 );
 ```
+
+`pane.content_type` uses the live pane-graph vocabulary, not the legacy
+`PaneContent` JSON discriminator:
+
+```text
+PaneContentType.terminal       -> "terminal"   -> pane_content_terminal
+PaneContentType.browser        -> "browser"    -> pane_content_webview
+PaneContentType.codeViewer     -> "codeViewer" -> pane_content_code_viewer
+PaneContentType.diff/editor/
+  review/agent/plugin(...)     -> payload-backed pane_content_payload
+```
+
+The table name `pane_content_webview` remains because the browser pane payload
+stores URL/navigation facts, but its discriminator is `browser`. The SQLite
+repository must use the same storage tokens as `SQLitePaneContentTypeStorage`.
+
+The executable migration adds triggers that keep the content tables aligned with
+`pane.content_type`:
+
+```text
+unsupported pane.content_type tokens are rejected on insert
+pane.content_type is immutable after insert
+pane_content_terminal rows require "terminal"
+pane_content_webview rows require "browser"
+pane_content_code_viewer rows require "codeViewer"
+pane_content_payload rows require any other payload-backed token
+```
+
+Those triggers run on insert and on updates that would move a content row to a
+different pane. The repository still owns higher-level payload validation.
+
+The executable migration also adds workspace-ownership triggers for pane links
+that cannot use simple single-column foreign keys:
+
+```text
+pane.parent_pane_id must belong to the same workspace as the child pane
+drawer_pane.pane_id must belong to the drawer parent pane's workspace
+tab_pane.pane_id must belong to the tab workspace
+arrangement_layout_pane.pane_id must belong to the arrangement tab workspace
+arrangement_minimized_pane.pane_id must belong to the arrangement tab workspace
+arrangement_drawer_view.drawer_id must belong to the arrangement tab workspace
+drawer_view_layout_pane.pane_id must belong to the arrangement tab workspace
+drawer_view_minimized_pane.pane_id must belong to the arrangement tab workspace
+```
+
+Those triggers run on insert and on updates that would move either side of the
+link. Without them, a multi-workspace `core.sqlite` could let workspace A's tab
+or drawer claim workspace B's pane.
 
 ## Atom Mapping
 
@@ -339,6 +410,33 @@ instead of overloading this column.
 in at most one row for a drawer view. `row_kind` still participates in the
 `sort_index` uniqueness rule because ordering is row-local.
 
+`tab_pane.UNIQUE(pane_id)` encodes the live model invariant that a pane has one
+owning tab. Cross-tab moves therefore delete membership from the source tab and
+insert it into the destination tab in one transaction.
+
+Every pane-link row is workspace-scoped. `tab_pane`, `drawer_pane`,
+`arrangement_layout_pane`, `arrangement_minimized_pane`,
+`arrangement_drawer_view`, `drawer_view_layout_pane`, and
+`drawer_view_minimized_pane` reject cross-workspace links in the executable
+migration. The schema therefore allows multiple workspace graphs to coexist in
+one `core.sqlite` without a tab or drawer in one workspace claiming a pane from
+another workspace.
+
+`worktree` keeps `workspace_id` for workspace-scoped hydrate queries, but the
+composite repo foreign key makes that denormalized workspace id agree with the
+referenced repo. A worktree for workspace A cannot point at a repo from
+workspace B. `unavailable_repo` uses the same workspace-scoped repo constraint.
+
+`pane.source_repo_id` and `pane.source_worktree_id` remain nullable metadata
+links with `ON DELETE SET NULL`, because panes survive missing repositories and
+worktrees. Executable migrations enforce workspace scope with triggers: when a
+source id is present, it must point at a repo/worktree in the same workspace as
+the pane.
+
+`idx_tab_arrangement_one_default` enforces the live tab model invariant that
+each tab has exactly one default arrangement candidate. Repository/import code
+still ensures at least one default exists during graph construction.
+
 `arrangement_minimized_pane` and `shows_minimized_panes` remain core for Step 1
 because they shape the saved arrangement layout. If product behavior later
 treats minimization as pure ephemeral attention state, that can move to local in
@@ -372,6 +470,18 @@ delete-then-reinsert strategy as layout reorders for the affected worktree set.
 That avoids transient `UNIQUE(workspace_id, stable_key)` or
 `UNIQUE(repo_id, stable_key)` conflicts when a key is removed and reused in the
 same reconciliation.
+
+The executable migration adds lookup indexes for common hydrate and selection
+queries:
+
+```text
+idx_workspace_updated_at
+idx_repo_workspace_id
+idx_worktree_workspace_id
+idx_worktree_repo_id
+idx_pane_workspace_id
+idx_tab_shell_workspace_id
+```
 
 ## Future Workflow And Session Pointer Sketch
 

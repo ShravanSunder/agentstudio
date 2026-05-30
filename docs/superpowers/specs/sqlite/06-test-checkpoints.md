@@ -17,6 +17,17 @@ test target
   -> assert expected tables, indexes, FKs, virtual tables, and pragmas
   -> insert invalid rows to prove constraints reject impossible state
   -> insert valid rows to prove round-trip mapping
+  -> prove pane content tokens use the live PaneContentType vocabulary
+  -> prove unsupported pane content_type tokens are rejected before hydration
+  -> prove workspace-scoped rows reject cross-workspace repo/worktree links,
+     unavailable repo rows, and pane source metadata links
+  -> prove pane-link rows reject cross-workspace tab, drawer, arrangement,
+     drawer-view, and parent-pane links before repository hydration can claim
+     panes from another workspace
+  -> prove each tab rejects multiple default arrangements
+  -> prove drawer, drawer-pane, and tab-pane single-owner constraints reject
+     duplicate ownership for the intended UNIQUE constraint, not an unrelated
+     SQL error
 ```
 
 Use in-memory `DatabaseQueue` for pure schema/constraint tests when possible.
@@ -156,7 +167,9 @@ SQLite repositories land:
 ## Core Tests
 
 - fresh core database runs all migrations
-- migration identifiers are stable and run once
+- migration identifiers are stable and run once:
+  `001_create_workspace`, `002_create_repo_worktree_topology`,
+  `003_create_panes`, `004_create_tabs_and_arrangements`
 - foreign keys are enabled
 - WAL mode is enabled for file-backed databases
 - existing workspace state JSON imports once into core rows
@@ -184,14 +197,18 @@ SQLite repositories land:
 - app workspace selection round trips
 - watched paths round trip
 - repos and worktrees round trip with stable UUIDs and stable keys
+- worktrees cannot point at repos from another workspace
+- unavailable repo rows cannot point at repos from another workspace
 - unavailable repo ids round trip
 - panes round trip through decomposed pane/content/drawer/tag rows
+- pane source repo/worktree ids cannot point outside the pane workspace
 - PaneMetadata durable source/cwd/title/note/tag fields round trip without storing
   repoName, worktreeName, origin, upstream, organizationName, or parentFolder as
   core pane columns
 - pane-note popover draft/presentation state is not persisted
 - tabs round trip through shell, membership, arrangement, layout, and
   drawer-view rows
+- each tab rejects multiple default arrangements
 - every arrangement layout/drawer-view pane row has matching tab_pane
   membership for the owning tab
 - drawer-view row layout rejects the same pane appearing in both top and bottom
@@ -316,7 +333,8 @@ semantics so a later migration can write targeted tests.
 ## Capability Tests
 
 - GRDB-backed connection enables foreign keys
-- file-backed GRDB database uses WAL where required
+- GRDB-backed queue and file-backed writer connections use `busy_timeout=2000`
+- file-backed GRDB database uses WAL and `synchronous=NORMAL` where required
 - FTS5 capability smoke test passes before session search migrations land
 - JSON payload columns round-trip as text without relying on JSON1
 - if JSON1 ever becomes required, the same GRDB-backed connection proves

@@ -401,7 +401,7 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 | `mutationCoordinator: WorkspaceMutationCoordinator` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
 
 **Public role:**
-- owns the four canonical workspace atoms plus `WorkspaceMutationCoordinator`
+- owns the split workspace atom graph plus `WorkspaceMutationCoordinator`
 - restores persisted canonical state into those atoms
 - observes atom changes, marks canonical state dirty, and debounces persistence
 - flushes canonical state to disk on demand
@@ -412,7 +412,7 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 - forwarding mutation methods that belong to the owning atom or coordinator
 
 **Persistence:**
-- `restore()` — Load from disk via `WorkspacePersistor`, hydrate all four atoms through `WorkspacePersistenceTransformer`
+- `restore()` — Load from disk via `WorkspacePersistor`, hydrate workspace atoms through `WorkspacePersistenceTransformer`
 - `flush()` — Cancel pending debounce, persist immediately
 - `observePersistedState()` — Uses `withObservationTracking` on persisted fields across all atoms; triggers debounced save on change
 - `prePersistHook` — Called before each persist (used by `PaneCoordinator` to sync webview states)
@@ -543,6 +543,12 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 ### 3.9.1 Persistence Domain Segregation (Target)
 
 > **Authoritative spec:** [Workspace Data Architecture](workspace_data_architecture.md) defines the complete three-tier model including canonical models (`CanonicalRepo`, `CanonicalWorktree`), enrichment models (`RepoEnrichment`, `WorktreeEnrichment`), and the event-driven enrichment pipeline. This section summarizes the persistence split; the workspace data doc is the source of truth for model shapes and lifecycle flows.
+
+The SQLite foundation now exists as `SQLiteDatabaseFactory`,
+`WorkspaceCoreMigrations`, and repository-facing storage tokens such as
+`SQLitePaneContentTypeStorage`. The live app path still uses the JSON stores
+below until the repository/import cutover replaces them with `core.sqlite`,
+per-workspace `local.sqlite`, and settings JSON.
 
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
@@ -1095,12 +1101,15 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` | Shared app-wide focus reader for command visibility and status UI |
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |
+| `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` | `core.sqlite` migration identifiers and durable workspace schema DDL |
+| `Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift` | Storage tokens that map live `PaneContentType` values to `pane.content_type` |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime status tracking and health checks |
 | `App/Panes/ViewRegistry.swift` | paneId → PaneViewSlot mapping (runtime-only) |
 | `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
 | **Infrastructure** | |
 | `Infrastructure/WorktrunkService.swift` | Git worktree CLI wrapper |
 | `Infrastructure/WorktreeReconciler.swift` | Pure function: matches existing vs discovered worktrees, preserves UUIDs, returns merged list + `WorktreeTopologyDelta` |
+| `Infrastructure/SQLite/SQLiteDatabaseFactory.swift` | Generic GRDB connection setup, pragmas, WAL, and capability-test construction |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
 | `App/Coordination/PaneCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
