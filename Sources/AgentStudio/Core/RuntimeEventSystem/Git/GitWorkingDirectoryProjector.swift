@@ -41,7 +41,7 @@ actor GitWorkingDirectoryProjector {
         envelopeClock: ContinuousClock = ContinuousClock(),
         coalescingWindow: Duration = .zero,
         periodicRefreshInterval: Duration? = nil,
-        sleepClock: (any Clock<Duration>)? = nil,
+        sleepClock: (any Clock<Duration> & Sendable)? = nil,
         subscriptionBufferLimit: Int = 256
     ) {
         self.runtimeBus = bus

@@ -38,7 +38,7 @@ extension EventBus {
     /// - Returns: The extracted result, or nil if the timeout expired or stream ended.
     func waitForFirst<Result: Sendable>(
         timeout: Duration,
-        clock: (any Clock<Duration>)? = nil,
+        clock: (any Clock<Duration> & Sendable)? = nil,
         _ extract: @Sendable @escaping (Envelope) -> Result?
     ) async -> Result? {
         let delay = clock.map(AsyncDelay.clock) ?? .taskSleep

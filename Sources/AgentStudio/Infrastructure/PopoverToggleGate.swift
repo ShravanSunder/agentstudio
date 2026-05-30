@@ -8,7 +8,7 @@ final class PopoverToggleGate {
     private var suppressNextToggle = false
 
     init(
-        clock: (any Clock<Duration>)? = nil,
+        clock: (any Clock<Duration> & Sendable)? = nil,
         suppressionWindow: Duration = .milliseconds(150)
     ) {
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep

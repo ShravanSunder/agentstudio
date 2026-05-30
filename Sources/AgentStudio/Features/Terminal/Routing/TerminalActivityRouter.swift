@@ -64,7 +64,7 @@ final class TerminalActivityRouter {
         traceRuntime: AgentStudioTraceRuntime? = nil,
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
-        unseenActivityClock: (any Clock<Duration>)? = nil,
+        unseenActivityClock: (any Clock<Duration> & Sendable)? = nil,
         nowMilliseconds: @escaping @Sendable () -> Int64 = {
             Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
         }

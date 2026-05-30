@@ -37,7 +37,7 @@ final class WorkspaceStore {
         mutationCoordinator: WorkspaceMutationCoordinator? = nil,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
-        clock: (any Clock<Duration>)? = nil,
+        clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom

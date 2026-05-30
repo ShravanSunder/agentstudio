@@ -14,7 +14,7 @@ final class PaneCloseTransitionCoordinator {
 
     private(set) var closingPaneIds: Set<UUID> = []
 
-    init(clock: (any Clock<Duration>)? = nil) {
+    init(clock: (any Clock<Duration> & Sendable)? = nil) {
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
     }
 

@@ -105,7 +105,7 @@ final class SurfaceManager {
         undoTTL: TimeInterval = 300,
         maxCreationRetries: Int = 2,
         healthCheckInterval: TimeInterval = 2.0,
-        clock: (any Clock<Duration>)? = nil
+        clock: (any Clock<Duration> & Sendable)? = nil
     ) {
         self.undoTTL = undoTTL
         self.maxCreationRetries = maxCreationRetries

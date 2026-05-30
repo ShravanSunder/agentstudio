@@ -85,7 +85,7 @@ actor ForgeActor {
         providerName: String = "github",
         envelopeClock: ContinuousClock = ContinuousClock(),
         pollInterval: Duration = .seconds(45),
-        sleepClock: (any Clock<Duration>)? = nil,
+        sleepClock: (any Clock<Duration> & Sendable)? = nil,
         subscriptionBufferLimit: Int = 256
     ) {
         self.runtimeBus = bus

@@ -25,7 +25,7 @@ final class NotificationReducer {
     private var frameTimer: Task<Void, Never>?
 
     init(
-        clock: (any Clock<Duration>)? = nil,
+        clock: (any Clock<Duration> & Sendable)? = nil,
         tierResolver: (any VisibilityTierResolver)? = nil
     ) {
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep

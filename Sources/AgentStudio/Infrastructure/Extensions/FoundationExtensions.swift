@@ -12,7 +12,7 @@ struct AsyncDelay: Sendable {
         try await Task.sleep(nanoseconds: duration.nanosecondsForTaskSleep)
     }
 
-    static func clock(_ clock: any Clock<Duration>) -> Self {
+    static func clock(_ clock: any Clock<Duration> & Sendable) -> Self {
         Self { duration in
             try await clock.sleep(for: duration)
         }

@@ -27,7 +27,7 @@ final class InboxNotificationStore {
         prefsAtom: InboxNotificationPrefsAtom,
         sidebarStateAtom: InboxSidebarStateAtom = .init(),
         fileURL: URL,
-        clock: (any Clock<Duration>)? = nil,
+        clock: (any Clock<Duration> & Sendable)? = nil,
         debounceDuration: Duration = .milliseconds(500),
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {

@@ -71,7 +71,7 @@ final class SessionRuntime {
         atom: SessionRuntimeAtom = SessionRuntimeAtom(),
         store: WorkspaceStore? = nil,
         healthCheckInterval: TimeInterval = 30,
-        clock: (any Clock<Duration>)? = nil
+        clock: (any Clock<Duration> & Sendable)? = nil
     ) {
         self.atom = atom
         self.store = store
