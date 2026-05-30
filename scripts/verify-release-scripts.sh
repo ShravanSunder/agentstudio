@@ -50,6 +50,9 @@ set -euo pipefail
 
 case "${1:-}" in
   --repository)
+    if [[ "${FAKE_BREW_REPOSITORY_FAIL:-0}" == "1" ]]; then
+      exit 42
+    fi
     echo "$FAKE_HOMEBREW_REPOSITORY"
     ;;
   style)
@@ -83,5 +86,8 @@ chmod +x "$fake_bin/git"
 
 PATH="$fake_bin:$PATH" FAKE_HOMEBREW_REPOSITORY="$fake_homebrew" HOMEBREW_TAP_TOKEN=fake \
   DRY_RUN=1 "$ROOT_DIR/scripts/update-homebrew-tap.sh" beta v0.0.54-beta.1 "$SHA" >/dev/null
+
+PATH="$fake_bin:$PATH" FAKE_BREW_REPOSITORY_FAIL=1 HOMEBREW_TAP_TOKEN=fake \
+  DRY_RUN=1 SKIP_BREW_STYLE=1 "$ROOT_DIR/scripts/update-homebrew-tap.sh" beta v0.0.54-beta.1 "$SHA" >/dev/null
 
 echo "release script verification passed"

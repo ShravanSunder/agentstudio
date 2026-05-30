@@ -16,7 +16,11 @@ cleanup() {
   if [[ "$CLEANUP_TAP_DIR" == "1" && -n "$TAP_DIR" && -d "$TAP_DIR" ]]; then
     find "$TAP_DIR" -mindepth 1 -delete
     rmdir "$TAP_DIR"
-    rmdir "$(dirname "$TAP_DIR")" 2>/dev/null || true
+    local tap_parent
+    tap_parent="$(dirname "$TAP_DIR")"
+    if [[ "$tap_parent" == */ShravanSunder ]]; then
+      rmdir "$tap_parent" 2>/dev/null || true
+    fi
   fi
 }
 trap cleanup EXIT
@@ -24,19 +28,21 @@ trap cleanup EXIT
 make_tap_clone_dir() {
   if command -v brew >/dev/null 2>&1; then
     local brew_repository
-    brew_repository="$(brew --repository)"
-    local tap_parent="$brew_repository/Library/Taps/ShravanSunder"
-    local preferred_tap_dir="$tap_parent/homebrew-agentstudio"
-    mkdir -p "$tap_parent"
-
-    if [[ -e "$preferred_tap_dir" ]]; then
-      mktemp -d "$tap_parent/homebrew-agentstudio-release.XXXXXX"
-    else
-      echo "$preferred_tap_dir"
+    brew_repository="$(brew --repository 2>/dev/null || true)"
+    if [[ -n "$brew_repository" ]]; then
+      local tap_parent="$brew_repository/Library/Taps/ShravanSunder"
+      local preferred_tap_dir="$tap_parent/homebrew-agentstudio"
+      if mkdir -p "$tap_parent" 2>/dev/null; then
+        if [[ -e "$preferred_tap_dir" ]]; then
+          mktemp -d "$tap_parent/homebrew-agentstudio-release.XXXXXX"
+        else
+          echo "$preferred_tap_dir"
+        fi
+        return
+      fi
     fi
-  else
-    mktemp -d
   fi
+  mktemp -d
 }
 
 case "$CHANNEL" in
