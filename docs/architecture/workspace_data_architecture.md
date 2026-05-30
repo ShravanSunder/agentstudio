@@ -2,7 +2,7 @@
 
 > **Status:** Authoritative spec for workspace-level data model, persistence, enrichment pipeline, and sidebar data flow.
 > **Target:** Swift 6.2 / macOS 26
-> **Companion docs:** [Pane Runtime Architecture](pane_runtime_architecture.md) (event envelope contracts, pane-level concerns), [EventBus Design](pane_runtime_eventbus_design.md) (actor threading, connection patterns), [Component Architecture](component_architecture.md) (structural overview)
+> **Companion docs:** [Pane Runtime Architecture](pane_runtime_architecture.md) (event envelope contracts, pane-level concerns), [EventBus Design](pane_runtime_eventbus_design.md) (actor threading, connection patterns), [Component Architecture](component_architecture.md) (structural overview), [Atom Persistence Boundaries](atom_persistence_boundaries.md) (write-owner atom and SQLite boundary model)
 
 ## TL;DR
 

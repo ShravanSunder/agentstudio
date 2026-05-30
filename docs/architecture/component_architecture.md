@@ -1119,6 +1119,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 
 - **[Architecture Overview](README.md)** — System overview and document index
 - **[Workspace Data Architecture](workspace_data_architecture.md)** — Three-tier persistence, enrichment pipeline, event bus contracts, sidebar data flow
+- **[Atom Persistence Boundaries](atom_persistence_boundaries.md)** — Write-owner atom rules, lifecycle lanes, derived read models, and SQLite boundary map
 - **[Pane Runtime Architecture](pane_runtime_architecture.md)** — Pane runtime contracts, RuntimeEnvelope, event taxonomy
 - **[Session Lifecycle](session_lifecycle.md)** — Pane creation, close, undo, restore flows; runtime status; zmx backend
 - **[Surface Architecture](ghostty_surface_architecture.md)** — Ghostty surface ownership, state machine, health monitoring, crash isolation

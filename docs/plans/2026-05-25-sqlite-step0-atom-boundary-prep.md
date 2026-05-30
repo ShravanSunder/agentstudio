@@ -285,7 +285,7 @@ ActionStateSnapshot / ActionValidator
 - Modify: `docs/architecture/workspace_data_architecture.md`
 - Modify: `AGENTS.md`
 
-- [ ] **Step 1: Create the role-disclosure architecture doc**
+- [x] **Step 1: Create the role-disclosure architecture doc**
 
 Create `docs/architecture/atom_persistence_boundaries.md` with these sections:
 
@@ -345,15 +345,15 @@ Atoms are writer-owned lifecycle groups, not SQL table models. A write-owner ato
 | DrawerView.activeChildId | WorkspaceArrangementCursorAtom | DrawerView from WorkspaceTabLayoutDerived | LegacyDrawerViewPayload | local_arrangement_drawer_cursor.active_child_id |
 ```
 
-- [ ] **Step 2: Link the doc from the architecture index**
+- [x] **Step 2: Link the doc from the architecture index**
 
 Update `docs/architecture/README.md` so the new document appears in the architecture doc table.
 
-- [ ] **Step 3: Update component and data architecture docs**
+- [x] **Step 3: Update component and data architecture docs**
 
 Update `docs/architecture/component_architecture.md` and `docs/architecture/workspace_data_architecture.md` so they no longer describe SQLite-bound state as a single mixed `WorkspaceStore` snapshot path.
 
-- [ ] **Step 4: Re-run doc scans**
+- [x] **Step 4: Re-run doc scans**
 
 Run:
 
@@ -361,7 +361,7 @@ Run:
 rg -n "one atom per SQL|Workspace(Cursor|ArrangementGraph)Atom|whole-workspace JSON snapshot" AGENTS.md docs/architecture docs/superpowers/specs
 ```
 
-Expected: no stale old arrangement-graph atom name and no stale generic workspace-cursor atom name; any `whole-workspace JSON snapshot` references are explicitly marked current/pre-Step-0 or legacy.
+Expected: no stale old arrangement-graph atom name and no stale generic workspace-cursor atom name; `one atom per SQL table` appears only as a rejected alternative; any `whole-workspace JSON snapshot` references are explicitly marked current/pre-Step-0 or legacy.
 
 ---
 
@@ -469,7 +469,7 @@ mise run test -- --filter "WorkspaceSidebarStateTests|UIStateStoreCompositionTes
 
 Expected: persisted sidebar memory is independent from runtime focus.
 
-- [ ] **Step 2a: Classify pane-shortcuts runtime atoms if present**
+- [x] **Step 2a: Classify pane-shortcuts runtime atoms if present**
 
 If the `pane-shortcuts` PR has landed, preserve its shortcut/presentation atoms
 as runtime-only unless the merged code introduced explicit persisted fields.

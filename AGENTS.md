@@ -133,6 +133,7 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 |-----|--------|
 | [Component Architecture](docs/architecture/component_architecture.md) | Data model, stores, coordinator, persistence, invariants |
 | [Workspace Data Architecture](docs/architecture/workspace_data_architecture.md) | Three-tier persistence, enrichment pipeline, event bus contracts, sidebar data flow |
+| [Atom Persistence Boundaries](docs/architecture/atom_persistence_boundaries.md) | Atom-to-SQLite boundary model, lifecycle lanes, derived read models, runtime-only surfaces |
 | [Pane Runtime Architecture](docs/architecture/pane_runtime_architecture.md) | Pane runtime contracts (C1-C16), RuntimeEnvelope, event taxonomy |
 | [EventBus Design](docs/architecture/pane_runtime_eventbus_design.md) | Actor threading, connection patterns, multiplexing rule |
 | [Session Lifecycle](docs/architecture/session_lifecycle.md) | Pane identity, creation, close, undo, restore, zmx backend |
