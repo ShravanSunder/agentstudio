@@ -53,6 +53,33 @@ struct WorkspacePaneBoundaryTests {
         #expect(state.drawer?.paneIds.isEmpty == true)
     }
 
+    @Test("Pane graph projection preserves explicitly cleared live worktree facets")
+    func paneGraphProjectionPreservesClearedLiveWorktreeFacets() throws {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let graphAtom = WorkspacePaneGraphAtom()
+        let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom)
+        let pane = paneAtom.createPane(
+            source: .worktree(
+                worktreeId: worktreeId,
+                repoId: repoId,
+                launchDirectory: URL(filePath: "/tmp/project")
+            )
+        )
+
+        let result = paneAtom.updatePaneCWDAndResolvedContext(
+            pane.id,
+            cwd: URL(filePath: "/tmp/outside-project"),
+            resolvedContext: nil
+        )
+        let projectedPane = try #require(paneAtom.pane(pane.id))
+
+        #expect(result == .applied)
+        #expect(projectedPane.metadata.cwd == URL(filePath: "/tmp/outside-project"))
+        #expect(projectedPane.repoId == nil)
+        #expect(projectedPane.worktreeId == nil)
+    }
+
     @Test("Drawer cursor owns expansion and derived panes reflect it atomically")
     func drawerCursorOwnsExpansionAndDerivedPaneReflectsIt() throws {
         let graphAtom = WorkspacePaneGraphAtom()

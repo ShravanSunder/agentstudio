@@ -112,7 +112,8 @@ struct PaneGraphMetadata: Hashable, Sendable {
             title: title,
             facets: facets.paneContextFacets,
             checkoutRef: checkoutRef,
-            note: note
+            note: note,
+            fillNilSourceFacets: false
         )
     }
 }
@@ -174,13 +175,16 @@ struct PaneGraphState: Identifiable, Hashable {
     }
 
     func pane(isDrawerExpanded: Bool) -> Pane {
-        Pane(
+        let graphFacets = metadata.facets.paneContextFacets
+        var pane = Pane(
             id: id,
             content: content,
             metadata: metadata.paneMetadata,
             residency: residency,
             kind: kind.paneKind(isDrawerExpanded: isDrawerExpanded)
         )
+        pane.metadata.updateFacets(graphFacets)
+        return pane
     }
 }
 

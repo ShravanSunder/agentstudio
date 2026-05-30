@@ -277,7 +277,7 @@ final class WorkspaceStoreTests {
     }
 
     @Test
-    func updatePaneLiveLocation_clearsLiveRepoAndWorktreeWhenCwdLeavesKnownWorktrees() {
+    func updatePaneLiveLocation_clearsLiveRepoAndWorktreeWhenCwdLeavesKnownWorktrees() throws {
         let repo = store.addRepo(at: URL(filePath: "/tmp/live-clear-repo"))
         let main = Worktree(
             repoId: repo.id,
@@ -286,10 +286,12 @@ final class WorkspaceStoreTests {
             isMainWorktree: true
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main])
+        let storedWorktree = try #require(store.repos.first { $0.id == repo.id }?.worktrees.first)
         let pane = store.createPane(
-            source: .worktree(worktreeId: main.id, repoId: repo.id, launchDirectory: main.path),
+            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
             title: "Terminal"
         )
+        store.appendTab(Tab(paneId: pane.id))
 
         let externalCwd = URL(filePath: "/tmp/outside-known-worktrees")
         let result = store.paneAtom.updatePaneCWDAndResolvedContext(
@@ -306,14 +308,22 @@ final class WorkspaceStoreTests {
         #expect(updated?.metadata.repoName == nil)
         #expect(updated?.metadata.worktreeName == nil)
 
+        #expect(store.flush())
+        let restoredStore = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        restoredStore.restore()
+        let restoredPane = try #require(restoredStore.pane(pane.id))
+        #expect(restoredPane.metadata.cwd == externalCwd)
+        #expect(restoredPane.repoId == nil)
+        #expect(restoredPane.worktreeId == nil)
+
         guard case .worktree(let launchWorktreeId, let launchRepoId, let launchDirectory) = updated?.metadata.source
         else {
             Issue.record("Expected launch source to remain worktree provenance")
             return
         }
-        #expect(launchWorktreeId == main.id)
+        #expect(launchWorktreeId == storedWorktree.id)
         #expect(launchRepoId == repo.id)
-        #expect(launchDirectory == main.path)
+        #expect(launchDirectory == storedWorktree.path)
     }
 
     @Test
@@ -1365,6 +1375,30 @@ final class WorkspaceStoreTests {
         let persistedDir = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-derived-display-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
+        let worktreePath = repoPath.appending(path: "sqlite")
+        let pane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                source: .worktree(worktreeId: worktreeId, repoId: repoId, launchDirectory: worktreePath),
+                title: "Terminal",
+                facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: worktreePath)
+            )
+        )
+        let tab = Tab(paneId: pane.id)
+        #expect(persistor.ensureDirectory())
+        try persistor.save(
+            .init(
+                repos: [CanonicalRepo(id: repoId, name: "agent-studio", repoPath: repoPath)],
+                worktrees: [CanonicalWorktree(id: worktreeId, repoId: repoId, name: "sqlite", path: worktreePath)],
+                panes: [pane],
+                tabs: [tab],
+                activeTabId: tab.id
+            )
+        )
+
         let atoms = AtomRegistry()
         let clock = TestPushClock()
         let scopedStore = WorkspaceStore(
@@ -1381,32 +1415,15 @@ final class WorkspaceStoreTests {
             clock: clock
         )
         scopedStore.restore()
-
-        let repoId = UUID()
-        let worktreeId = UUID()
-        let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
-        let worktreePath = repoPath.appending(path: "sqlite")
-        atoms.workspaceRepositoryTopology.hydrate(
-            runtimeRepos: [
-                Repo(
-                    id: repoId,
-                    name: "agent-studio",
-                    repoPath: repoPath,
-                    worktrees: [
-                        Worktree(id: worktreeId, repoId: repoId, name: "sqlite", path: worktreePath)
-                    ]
-                )
-            ],
-            watchedPaths: [],
-            unavailableRepoIds: []
-        )
-        let pane = atoms.workspacePane.createPane(
-            source: .worktree(worktreeId: worktreeId, repoId: repoId, launchDirectory: worktreePath),
-            facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: worktreePath)
-        )
-        atoms.workspaceTabLayout.appendTab(Tab(paneId: pane.id))
-        #expect(scopedStore.flush())
+        await Task.yield()
         #expect(!scopedStore.isDirty)
+        #expect(clock.pendingSleepCount == 0)
+
+        let restoredPane = try #require(scopedStore.pane(pane.id))
+        #expect(restoredPane.repoId == repoId)
+        #expect(restoredPane.worktreeId == worktreeId)
+        #expect(restoredPane.metadata.cwd == worktreePath)
+        #expect(scopedStore.activeTabId == tab.id)
 
         atoms.repoEnrichmentCache.setRepoEnrichment(
             .resolvedRemote(

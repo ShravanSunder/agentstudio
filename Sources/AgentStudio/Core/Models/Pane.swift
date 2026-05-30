@@ -71,7 +71,8 @@ struct Pane: Codable, Identifiable, Hashable {
         }
         self.metadata = decodedMetadata.canonicalizedIdentity(
             paneId: PaneId(uuid: id),
-            contentType: Self.contentType(for: content)
+            contentType: Self.contentType(for: content),
+            fillNilSourceFacets: false
         )
         self.residency = try container.decode(SessionResidency.self, forKey: .residency)
         self.kind = try container.decode(PaneKind.self, forKey: .kind)
