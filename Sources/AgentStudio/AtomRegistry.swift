@@ -10,6 +10,8 @@ final class AtomRegistry {
     let workspaceTabLayout: WorkspaceTabLayoutAtom
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
     let windowLifecycle: WindowLifecycleAtom
+    let repoEnrichmentCache: RepoEnrichmentCacheAtom
+    let recentWorkspaceTarget: RecentWorkspaceTargetAtom
     let repoCache: RepoCacheAtom
     let sidebarExpandedGroup: SidebarExpandedGroupAtom
     let sidebarCheckoutColor: SidebarCheckoutColorAtom
@@ -45,7 +47,8 @@ final class AtomRegistry {
         workspaceTabArrangement: WorkspaceTabArrangementAtom = .init(),
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
         windowLifecycle: WindowLifecycleAtom = .init(),
-        repoCache: RepoCacheAtom = .init(),
+        repoEnrichmentCache: RepoEnrichmentCacheAtom = .init(),
+        recentWorkspaceTarget: RecentWorkspaceTargetAtom = .init(),
         sidebarExpandedGroup: SidebarExpandedGroupAtom = .init(),
         sidebarCheckoutColor: SidebarCheckoutColorAtom = .init(),
         terminalActivity: TerminalActivityAtom = .init(),
@@ -86,7 +89,12 @@ final class AtomRegistry {
                 workspaceTabArrangementAtom: workspaceTabArrangement
             )
         self.windowLifecycle = windowLifecycle
-        self.repoCache = repoCache
+        self.repoEnrichmentCache = repoEnrichmentCache
+        self.recentWorkspaceTarget = recentWorkspaceTarget
+        self.repoCache = RepoCacheAtom(
+            enrichmentCacheAtom: repoEnrichmentCache,
+            recentTargetAtom: recentWorkspaceTarget
+        )
         self.sidebarExpandedGroup = sidebarExpandedGroup
         self.sidebarCheckoutColor = sidebarCheckoutColor
         self.sidebarCache = SidebarCacheState(

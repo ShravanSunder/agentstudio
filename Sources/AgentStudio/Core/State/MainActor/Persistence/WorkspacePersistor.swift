@@ -203,6 +203,17 @@ struct WorkspacePersistor {
     }
 
     @discardableResult
+    func quarantineCorruptRepoCacheFile(for workspaceId: UUID) -> URL? {
+        quarantineCorruptFile(
+            sourceURL: cacheFileURL(for: workspaceId),
+            fileName: { timestamp in
+                "\(workspaceId.uuidString).workspace.cache.corrupt-\(timestamp).json"
+            },
+            label: "repo cache"
+        )
+    }
+
+    @discardableResult
     func quarantineCorruptUIFile(for workspaceId: UUID) -> URL? {
         quarantineCorruptFile(
             sourceURL: uiFileURL(for: workspaceId),

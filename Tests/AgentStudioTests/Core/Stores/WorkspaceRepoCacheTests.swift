@@ -1,7 +1,12 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
+
+private final class RepoCacheObservationInvalidationCounter: @unchecked Sendable {
+    var didInvalidate = false
+}
 
 @Suite(.serialized)
 @MainActor
@@ -104,5 +109,88 @@ final class RepoCacheAtomTests {
         store.removeRecentTarget("cwd:/tmp/missing")
 
         #expect(store.recentTargets == [second])
+    }
+
+    @Test
+    func composedRepoCacheRoutesMutationsToSplitOwners() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheAtom(
+            enrichmentCacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom
+        )
+        let repoId = UUID()
+        let target = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/agent-studio"))
+
+        store.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+        store.recordRecentTarget(target)
+
+        #expect(cacheAtom.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
+        #expect(recentTargetAtom.recentTargets == [target])
+    }
+
+    @Test
+    func clearingEnrichmentCacheDoesNotClearRecentTargets() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheAtom(
+            enrichmentCacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom
+        )
+        let repoId = UUID()
+        let target = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/agent-studio"))
+
+        store.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+        store.recordRecentTarget(target)
+
+        cacheAtom.clear()
+
+        #expect(store.repoEnrichmentByRepoId.isEmpty)
+        #expect(store.recentTargets == [target])
+    }
+
+    @Test
+    func composedRepoCacheObservationTracksEnrichmentOwner() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheAtom(
+            enrichmentCacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom
+        )
+        let repoId = UUID()
+        let invalidationCounter = RepoCacheObservationInvalidationCounter()
+
+        withObservationTracking {
+            _ = store.repoEnrichmentByRepoId
+            _ = store.recentTargets
+        } onChange: {
+            invalidationCounter.didInvalidate = true
+        }
+
+        cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+
+        #expect(invalidationCounter.didInvalidate)
+    }
+
+    @Test
+    func composedRepoCacheObservationTracksRecentTargetOwner() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheAtom(
+            enrichmentCacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom
+        )
+        let target = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/agent-studio"))
+        let invalidationCounter = RepoCacheObservationInvalidationCounter()
+
+        withObservationTracking {
+            _ = store.recentTargets
+        } onChange: {
+            invalidationCounter.didInvalidate = true
+        }
+
+        recentTargetAtom.recordRecentTarget(target)
+
+        #expect(invalidationCounter.didInvalidate)
     }
 }

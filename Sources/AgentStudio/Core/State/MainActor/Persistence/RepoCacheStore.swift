@@ -6,7 +6,8 @@ private let repoCacheStoreLogger = Logger(subsystem: "com.agentstudio", category
 
 @MainActor
 final class RepoCacheStore {
-    private let atom: RepoCacheAtom
+    private let cacheAtom: RepoEnrichmentCacheAtom
+    private let recentTargetAtom: RecentWorkspaceTargetAtom
     private let persistor: WorkspacePersistor
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
@@ -21,17 +22,36 @@ final class RepoCacheStore {
     }
 
     init(
+        cacheAtom: RepoEnrichmentCacheAtom,
+        recentTargetAtom: RecentWorkspaceTargetAtom,
+        persistor: WorkspacePersistor = WorkspacePersistor(),
+        persistDebounceDuration: Duration = .milliseconds(500),
+        clock: any Clock<Duration> = ContinuousClock(),
+        recoveryReporter: PersistenceRecoveryReporter? = nil
+    ) {
+        self.cacheAtom = cacheAtom
+        self.recentTargetAtom = recentTargetAtom
+        self.persistor = persistor
+        self.persistDebounceDuration = persistDebounceDuration
+        self.clock = clock
+        self.recoveryReporter = recoveryReporter
+    }
+
+    convenience init(
         atom: RepoCacheAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
-        self.atom = atom
-        self.persistor = persistor
-        self.persistDebounceDuration = persistDebounceDuration
-        self.clock = clock
-        self.recoveryReporter = recoveryReporter
+        self.init(
+            cacheAtom: atom.enrichmentCacheAtom,
+            recentTargetAtom: atom.recentTargetAtom,
+            persistor: persistor,
+            persistDebounceDuration: persistDebounceDuration,
+            clock: clock,
+            recoveryReporter: recoveryReporter
+        )
     }
 
     /// Begin observing atom mutations for debounced autosave.
@@ -51,27 +71,34 @@ final class RepoCacheStore {
         switch persistor.loadCache(for: workspaceId) {
         case .loaded(let cacheState):
             isRestoringState = true
-            atom.hydrate(
+            cacheAtom.hydrate(
                 .init(
                     repoEnrichmentByRepoId: cacheState.repoEnrichmentByRepoId,
                     worktreeEnrichmentByWorktreeId: cacheState.worktreeEnrichmentByWorktreeId,
                     pullRequestCountByWorktreeId: cacheState.pullRequestCountByWorktreeId,
                     notificationCountByWorktreeId: cacheState.notificationCountByWorktreeId,
-                    recentTargets: cacheState.recentTargets,
                     sourceRevision: cacheState.sourceRevision,
                     lastRebuiltAt: cacheState.lastRebuiltAt
                 )
             )
+            recentTargetAtom.hydrate(recentTargets: cacheState.recentTargets)
             isRestoringState = false
         case .missing:
-            break
+            cacheAtom.clear()
+            recentTargetAtom.clear()
         case .corrupt(let error):
-            repoCacheStoreLogger.warning("Cache file corrupt, will rebuild from events: \(error)")
+            let quarantinedURL = persistor.quarantineCorruptRepoCacheFile(for: workspaceId)
+            cacheAtom.clear()
+            recentTargetAtom.clear()
+            repoCacheStoreLogger.warning(
+                "Cache file corrupt; quarantined before resetting cache/local memory: \(error)"
+            )
             recoveryReporter?(
                 .init(
                     store: .repoCache,
                     workspaceId: workspaceId,
-                    recovery: .rebuiltFromEvents
+                    recovery: quarantinedURL == nil ? .quarantineFailed : .quarantinedAndReset,
+                    quarantinedFilename: quarantinedURL?.lastPathComponent
                 )
             )
         }
@@ -88,16 +115,16 @@ final class RepoCacheStore {
         guard !isObservingCacheState else { return }
         isObservingCacheState = true
         withObservationTracking {
-            _ = atom.repoEnrichmentByRepoId
-            _ = atom.worktreeEnrichmentByWorktreeId
-            _ = atom.pullRequestCountByWorktreeId
-            _ = atom.notificationCountByWorktreeId
-            _ = atom.recentTargets
-            _ = atom.sourceRevision
-            _ = atom.lastRebuiltAt
+            _ = cacheAtom.repoEnrichmentByRepoId
+            _ = cacheAtom.worktreeEnrichmentByWorktreeId
+            _ = cacheAtom.pullRequestCountByWorktreeId
+            _ = cacheAtom.notificationCountByWorktreeId
+            _ = recentTargetAtom.recentTargets
+            _ = cacheAtom.sourceRevision
+            _ = cacheAtom.lastRebuiltAt
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
-                // RepoCacheAtom is @MainActor; this traps if that ownership changes.
+                // Repo cache write owners are @MainActor; this traps if ownership changes.
                 guard let self else { return }
                 let shouldIgnore = self.isRestoringState
                 self.isObservingCacheState = false
@@ -131,13 +158,13 @@ final class RepoCacheStore {
             try persistor.saveCache(
                 .init(
                     workspaceId: workspaceId,
-                    repoEnrichmentByRepoId: atom.repoEnrichmentByRepoId,
-                    worktreeEnrichmentByWorktreeId: atom.worktreeEnrichmentByWorktreeId,
-                    pullRequestCountByWorktreeId: atom.pullRequestCountByWorktreeId,
-                    notificationCountByWorktreeId: atom.notificationCountByWorktreeId,
-                    recentTargets: atom.recentTargets,
-                    sourceRevision: atom.sourceRevision,
-                    lastRebuiltAt: atom.lastRebuiltAt
+                    repoEnrichmentByRepoId: cacheAtom.repoEnrichmentByRepoId,
+                    worktreeEnrichmentByWorktreeId: cacheAtom.worktreeEnrichmentByWorktreeId,
+                    pullRequestCountByWorktreeId: cacheAtom.pullRequestCountByWorktreeId,
+                    notificationCountByWorktreeId: cacheAtom.notificationCountByWorktreeId,
+                    recentTargets: recentTargetAtom.recentTargets,
+                    sourceRevision: cacheAtom.sourceRevision,
+                    lastRebuiltAt: cacheAtom.lastRebuiltAt
                 )
             )
         } catch {

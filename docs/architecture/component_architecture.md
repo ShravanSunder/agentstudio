@@ -124,7 +124,7 @@ Models are split across two stores. See [Workspace Data Architecture](workspace_
 | `isMainWorktree` | `Bool` | Whether this is the main checkout |
 | `stableKey` | `String` | SHA-256 of path, derived |
 
-All enrichment (branch, git status, origin, PR counts) lives in `RepoCacheAtom`, populated by the event bus. See the "Three Persistence Tiers" section in workspace_data_architecture.md.
+All enrichment (branch, git status, origin, PR counts) lives in `RepoEnrichmentCacheAtom`, populated by the event bus and exposed through the composed `RepoCacheAtom` read surface. See the "Three Persistence Tiers" section in workspace_data_architecture.md.
 
 > **Files:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
 
@@ -318,7 +318,7 @@ Templates define the initial pane layout when opening a worktree. Not yet wired 
 AppDelegate (creates all services in dependency order)
 ├── AtomRegistry                     ← composition root for all shared atoms
 ├── WorkspaceStore                ← persistence wrapper over four atoms
-├── RepoCacheStore                ← persistence wrapper for RepoCacheAtom
+├── RepoCacheStore                ← persistence wrapper for enrichment cache + recent targets
 ├── UIStateStore                  ← persistence wrapper for sidebar memory
 ├── AppLifecycleAtom             ← app active/terminating state (in-memory)
 ├── WindowLifecycleAtom          ← key/focused window identity, terminal geometry (in-memory)
@@ -530,7 +530,7 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
 - Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
-- Derived enrichment data (`RepoCacheAtom`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. Notification unread counts moved to `InboxNotificationAtom` per LUNA-361 (derived via `unreadCount(forWorktreeId:)`, not cached in this tier).
+- Derived enrichment data (`RepoEnrichmentCacheAtom`) and local recent workspace targets (`RecentWorkspaceTargetAtom`) in `workspace.cache.json`. Enrichment contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts, notification counts while cache-backed, and rebuild metadata. It is written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. `RepoCacheAtom` is the composed read surface for existing repo/sidebar consumers.
 - Workspace-scoped sidebar shell memory (`WorkspaceSidebarMemoryAtom`) in `workspace.ui.json`, with runtime focus kept on `SidebarFocusRuntimeAtom` and composed for UI reads by `WorkspaceSidebarState`
 - Global app preferences and keybindings are stored separately from workspace state
 
@@ -554,7 +554,7 @@ This prevents derived data from silently becoming canonical truth and aligns eac
 #### Store Ownership
 
 - `WorkspaceStore` → canonical workspace model in `workspace.state.json`
-- `RepoCacheAtom` → derived git/wt/gh metadata + status in `workspace.cache.json`
+- `RepoEnrichmentCacheAtom` + `RecentWorkspaceTargetAtom` → derived git/wt/gh metadata, counts, rebuild metadata, and recent target history in `workspace.cache.json`
 - `WorkspaceSidebarMemoryAtom` → workspace-scoped sidebar shell memory (`filterText`, `isFilterVisible`, `sidebarCollapsed`, `sidebarSurface`) in `workspace.ui.json`
 - `SidebarFocusRuntimeAtom` → runtime-only sidebar focus (`sidebarHasFocus`), never written to `workspace.ui.json`
 - `PreferencesStore` → global app preferences in `preferences.global.json`
@@ -633,7 +633,7 @@ Required cache validity fields:
 2. Load `workspace.ui.json` into `WorkspaceSidebarMemoryAtom`
 3. Load global preferences and keybindings into their stores
 4. Load `workspace.cache.json` only if cache revision matches canonical workspace revision
-5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `RepoCacheAtom`
+5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `RepoEnrichmentCacheAtom` through `RepoCacheAtom`
 
 Coordinator owns sequencing, not domain decisions:
 
@@ -650,7 +650,7 @@ Coordinator owns sequencing, not domain decisions:
 #### Rules and Invariants
 
 1. Canonical state never depends on cache correctness
-2. Cache can be deleted at any time without data loss
+2. Enrichment cache can be deleted at any time without canonical data loss; recent target memory resets if the shared cache file is quarantined
 3. Cache must be versioned against canonical state revision
 4. Every persisted file has one owning store and one reason to change
 5. Cross-store flows are coordinator-only sequencing
@@ -683,7 +683,7 @@ Git worktree management via the `wt` CLI tool. Singleton.
 
 > **File:** `Infrastructure/WorktrunkService.swift`
 >
-> Worktree discovery flows through the enrichment pipeline: AppDelegate persists watched scope and triggers the watched-folder command → `FilesystemActor` scans and emits `.repoDiscovered` / `.repoRemoved` → `WorkspaceCacheCoordinator` registers or marks unavailable canonical entries in `WorkspaceStore` and seeds enrichment in `RepoCacheAtom`. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline.
+> Worktree discovery flows through the enrichment pipeline: AppDelegate persists watched scope and triggers the watched-folder command → `FilesystemActor` scans and emits `.repoDiscovered` / `.repoRemoved` → `WorkspaceCacheCoordinator` registers or marks unavailable canonical entries in `WorkspaceStore` and seeds enrichment in `RepoEnrichmentCacheAtom` through the `RepoCacheAtom` read/write facade. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline.
 
 ### 3.12 Command Bar System
 

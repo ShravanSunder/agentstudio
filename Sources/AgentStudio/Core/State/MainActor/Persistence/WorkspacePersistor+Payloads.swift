@@ -200,7 +200,8 @@ extension WorkspacePersistor {
         }
     }
 
-    /// Rebuildable cache snapshot persisted separately from canonical state.
+    /// Cache companion snapshot persisted separately from canonical state.
+    /// Enrichment fields are rebuildable; recent targets are local UX memory.
     struct PersistableCacheState: Codable {
         var schemaVersion: Int
         var workspaceId: UUID

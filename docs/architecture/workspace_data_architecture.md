@@ -21,11 +21,14 @@ TIER A: CANONICAL CONFIG (source of truth, user intent)
   Mutated by: explicit user actions + topology consumer (discovery events)
   Contains: canonical repos, canonical worktrees, panes, tabs, layouts
 
-TIER B: DERIVED CACHE (rebuildable from Tier A + actors)
+TIER B: CACHE FILE (rebuildable enrichment + local target memory)
   File: ~/.agentstudio/workspaces/<id>/workspace.cache.json
-  Owner: RepoCacheAtom (@MainActor, @Observable)
-  Mutated by: WorkspaceCacheCoordinator only (event-driven)
-  Contains: repo enrichment, worktree enrichment, PR counts
+  Owner: RepoEnrichmentCacheAtom + RecentWorkspaceTargetAtom
+  Mutated by: WorkspaceCacheCoordinator for enrichment, workspace activity
+              flows for recent target memory
+  Contains: repo enrichment, worktree enrichment, PR counts,
+           notification counts while they remain cache-backed,
+           local recent workspace targets
            (notification unread counts moved — now derived from
             InboxNotificationAtom.unreadCount(forWorktreeId:)
             per LUNA-361)
@@ -38,6 +41,12 @@ TIER C: UI STATE (preferences, non-structural + composition state)
               (⌘I / ⌘S), and repo sidebar filter actions
   Contains: filter state, sidebar collapsed state, sidebar surface
 ```
+
+Only the enrichment/rebuild metadata slice is rebuildable from actors. Recent
+workspace targets are local UX memory stored in this companion file until the
+SQLite cutover gives them their own local table. If the whole cache file is
+corrupt, `RepoCacheStore` quarantines it and resets both slices; enrichment then
+rebuilds, while recent targets intentionally start empty.
 
 > **Note on composition state.** `sidebarCollapsed` and `sidebarSurface` live on `WorkspaceSidebarMemoryAtom` as workspace-scoped shell memory. `sidebarHasFocus` lives on `SidebarFocusRuntimeAtom` and is runtime-only. `WorkspaceSidebarState` composes both for UI callers. See [directory_structure.md — composition state vs feature state](directory_structure.md).
 
@@ -79,7 +88,7 @@ struct Worktree: Codable, Identifiable, Hashable {
 **What is NOT canonical** (lives in cache, populated by event bus):
 - `organizationName`, `origin`, `upstream` → `RepoEnrichment`
 - `branch`, git snapshot → `WorktreeEnrichment`
-- PR counts → `RepoCacheAtom` dictionaries
+- PR counts → `RepoEnrichmentCacheAtom` dictionaries
 - Notification unread counts → `InboxNotificationAtom.unreadCount(forWorktreeId:)` (per LUNA-361; moved out of `RepoCacheAtom`)
 
 ### Identity Semantics
@@ -265,11 +274,11 @@ PaneCoordinator (ordered post-topology effects)
     → syncFilesystemRootsAndActivity() (register new / unregister removed)
       │
       ▼
-RepoCacheAtom (@Observable, passive)
+RepoEnrichmentCacheAtom + RecentWorkspaceTargetAtom (@Observable, passive)
   → persisted to cache file on debounced schedule
       │
       ▼
-SIDEBAR (pure reader of canonical atoms + RepoCacheAtom + WorkspaceSidebarState)
+SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + WorkspaceSidebarState)
 ```
 
 ### Actor Responsibilities
@@ -327,10 +336,10 @@ handleTopology_*    — CANONICAL mutations (WorkspaceStore)
   For .repoDiscovered with .notScanned:
     → register/reassociate repo only, skip reconciliation (boot replay)
 
-handleEnrichment_*  — DERIVED cache writes (RepoCacheAtom only)
+handleEnrichment_*  — DERIVED cache writes (RepoEnrichmentCacheAtom through RepoCacheAtom)
   Events: .snapshotChanged, .branchChanged, .originChanged, .originUnavailable,
           .pullRequestCountsChanged, .checksUpdated
-  Touches: RepoCacheAtom only
+  Touches: repo enrichment cache only; recent targets are a separate local owner
 
 syncScope_*         — ACTOR registration management
   Operations: register/unregister worktrees with FilesystemActor, ForgeActor
@@ -397,9 +406,9 @@ The sidebar is a pure reader. It reads structure from one store, display data fr
 
 ```
 WorkspaceStore.repos                → canonical repo/worktree structure (what exists)
-RepoCacheAtom.repoEnrichment  → org name, display name, groupKey (how to group)
-RepoCacheAtom.worktreeEnrichment → branch, git status (how to display)
-RepoCacheAtom.pullRequestCounts → PR badges
+RepoCacheAtom.repoEnrichment      → org name, display name, groupKey (how to group)
+RepoCacheAtom.worktreeEnrichment  → branch, git status (how to display)
+RepoCacheAtom.pullRequestCounts   → PR badges
 InboxNotificationAtom.unreadCount(forWorktreeId:) → notification bells
                                  (per LUNA-361; moved from RepoCacheAtom)
 WorkspaceSidebarState          → filter and sidebar shell composition
@@ -459,7 +468,7 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
    b. Does NOT emit topology facts directly
 6. WorkspaceCacheCoordinator.handleTopology(.repoDiscovered):
    a. Idempotent check by stableKey — skip if repo already exists
-   b. Seed enrichment to .awaitingOrigin in RepoCacheAtom
+   b. Seed enrichment to .awaitingOrigin in RepoEnrichmentCacheAtom
 7. PaneCoordinator reacts from topology facts and syncs registered worktree roots
 8. Actors start producing enrichment events → cache updates → sidebar renders
 ```

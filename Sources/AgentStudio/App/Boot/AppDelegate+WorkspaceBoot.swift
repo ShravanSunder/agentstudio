@@ -127,7 +127,8 @@ extension AppDelegate {
             }
         )
         repoCacheStore = RepoCacheStore(
-            atom: atomStore.repoCache,
+            cacheAtom: atomStore.repoEnrichmentCache,
+            recentTargetAtom: atomStore.recentWorkspaceTarget,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }

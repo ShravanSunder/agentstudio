@@ -13,8 +13,8 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 │  PERSISTENCE WRAPPERS OVER MAIN-ACTOR ATOMS                           │
 │  ┌───────────────┐  ┌─────────────────┐  ┌───────────────┐            │
 │  │WorkspaceStore │  │RepoCacheStore   │  │UIStateStore   │            │
-│  │metadata/topol │  │RepoCacheAtom    │  │SidebarMemory  │            │
-│  │pane/tab atoms │  │(enrichment)     │  │(sidebar mem)  │            │
+│  │metadata/topol │  │EnrichmentCache  │  │SidebarMemory  │            │
+│  │pane/tab atoms │  │+RecentTargets   │  │(sidebar mem)  │            │
 │  └───────┬───────┘  └────────┬────────┘  └───────────────┘            │
 │          │                   │                                         │
 │  ┌───────┴──────────┐  ┌─────┴────────────┐                           │
@@ -61,7 +61,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 
 Current atom vocabulary:
 
-- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`, `RepoCacheAtom`, `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `EditorPreferenceAtom`, `EditorChooserRuntimeAtom`, `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms.
+- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`, `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom`, `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `EditorPreferenceAtom`, `EditorChooserRuntimeAtom`, `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms. `RepoCacheAtom` remains a composed read surface for existing repo/sidebar consumers.
 - **Persistence wrappers** own load/save boundaries and debounced disk I/O, for example `WorkspaceStore`, `RepoCacheStore`, `SidebarCacheStore`, and `UIStateStore`.
 - **Derived readers** compute projections without owning data, for example `WorkspaceFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
 - **Coordinators** sequence mutations across atoms/stores and runtime systems. They own no durable domain state.
@@ -93,13 +93,12 @@ WorkspaceStore (workspace.state.json persistence wrapper)
 ├── WorkspacePaneAtom                   ← panes, metadata/content/residency, drawers
 └── WorkspaceTabLayoutAtom              ← tabs, arrangements, active selection, layout
 
-RepoCacheAtom (derived enrichment — workspace.cache.json, rebuildable)
-├── repoEnrichmentByRepoId             ← origin, identity, groupKey, displayName
-├── worktreeEnrichmentByWorktreeId     ← branch, git snapshot
-├── pullRequestCountByWorktreeId       ← PR badges
-└── (notification counts moved — unread bells now derive from
-                                        InboxNotificationAtom.unreadCount(
-                                        forWorktreeId:) per LUNA-361)
+RepoCacheStore (workspace.cache.json, rebuildable/local cache)
+├── RepoEnrichmentCacheAtom            ← origin, identity, branch, git snapshot,
+│                                         PR counts, legacy notification counts,
+│                                         rebuild metadata
+├── RecentWorkspaceTargetAtom          ← local recent workspace targets
+└── RepoCacheAtom                      ← composed read surface for repo/sidebar UI
 
 WorkspaceSidebarMemoryAtom (workspace.ui.json)
 ├── filterText, isFilterVisible

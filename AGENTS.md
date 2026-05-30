@@ -95,7 +95,9 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspacePaneAtom` | panes, pane metadata/content/residency, drawer state | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` |
 | `WorkspaceTabLayoutAtom` | tabs, arrangements, active selection, zoom/minimize | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` |
 | `WorkspaceMutationCoordinator` | cross-atom workspace mutations spanning pane and tab layout state | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` |
-| `RepoCacheAtom` | repo enrichment, branches, git status, PR counts, recent targets | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
+| `RepoEnrichmentCacheAtom` | rebuildable repo/worktree enrichment, PR counts, notification counts, and rebuild metadata | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
+| `RecentWorkspaceTargetAtom` | local recent workspace target history | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
+| `RepoCacheAtom` | UI-facing compatibility read surface over repo enrichment cache + recent targets | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `SidebarExpandedGroupAtom` | local sidebar expanded-group memory | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
 | `SidebarCheckoutColorAtom` | checkout color choices, destined for settings | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
 | `SidebarCacheState` | UI-facing composition surface over sidebar expanded groups + checkout colors | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
@@ -115,7 +117,7 @@ icons when a sidebar/local action already defines the presentation.
 | `InboxSidebarRuntimeAtom` | runtime pending inbox filter handoff | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
 | `InboxSidebarState` | UI-facing composition surface over inbox sidebar memory + runtime atoms | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
-| `RepoCacheStore` | persistence wrapper for `RepoCacheAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
+| `RepoCacheStore` | persistence wrapper for `RepoEnrichmentCacheAtom` + `RecentWorkspaceTargetAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
 | `UIStateStore` | persistence wrapper for workspace sidebar memory and editor chooser bookmark until those stores split | `Core/State/MainActor/Persistence/UIStateStore.swift` |
 | `AppLifecycleAtom` | application active/terminating state | `Core/State/MainActor/Atoms/AppLifecycleAtom.swift` |
 | `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
@@ -123,7 +125,7 @@ icons when a sidebar/local action already defines the presentation.
 | `SurfaceManager` | Ghostty surface lifecycle, health, undo | `Features/Terminal/` |
 | `SessionRuntime` | backend coordination, health checks, zmx/runtime orchestration over `SessionRuntimeAtom` | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` |
 
-**Worktree model is structure-only:** `id`, `repoId` (FK), `name`, `path`, `isMainWorktree`. No branch, no status. All enrichment lives in `RepoCacheAtom`, populated by the event bus.
+**Worktree model is structure-only:** `id`, `repoId` (FK), `name`, `path`, `isMainWorktree`. No branch, no status. All enrichment lives in `RepoEnrichmentCacheAtom`, populated by the event bus and exposed to existing UI readers through `RepoCacheAtom`.
 
 **Event bus pattern:** Mutate the store directly → emit a fact on the bus → coordinator updates the other store. This is NOT CQRS — no command bus, no command handlers. `ApplicationLifecycleMonitor` is ingress-only and mutates lifecycle stores directly from AppKit callbacks. See [State Management Patterns](#state-management-patterns) below and [Event System Design](docs/architecture/workspace_data_architecture.md#event-system-design-what-it-is-and-isnt) for full detail.
 
@@ -386,9 +388,11 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspacePaneAtom` | `Core/State/MainActor/Atoms/` | Pane registry, pane metadata/content/residency, drawers |
 | `WorkspaceTabLayoutAtom` | `Core/State/MainActor/Atoms/` | Tabs, arrangements, active selection, zoom/minimize |
 | `WorkspaceMutationCoordinator` | `Core/State/MainActor/Atoms/` | Cross-atom workspace sequencing for pane + tab layout mutations |
-| `RepoCacheAtom` | `Core/State/MainActor/Atoms/` | Derived enrichment (branches, git status, PR counts) |
+| `RepoEnrichmentCacheAtom` | `Core/State/MainActor/Atoms/` | Derived enrichment (branches, git status, PR counts), counts, and rebuild metadata |
+| `RecentWorkspaceTargetAtom` | `Core/State/MainActor/Atoms/` | Local recent workspace target history |
+| `RepoCacheAtom` | `Core/State/MainActor/Atoms/` | Compatibility read surface over repo enrichment + recent targets |
 | `WorkspaceStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for the workspace-domain atoms |
-| `RepoCacheStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for `RepoCacheAtom` |
+| `RepoCacheStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for repo enrichment cache + recent workspace targets |
 | `UIStateStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for workspace sidebar memory and editor chooser bookmark |
 | `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo |

@@ -84,7 +84,7 @@ struct PersistenceChaosTests {
                 flavor: flavor,
                 store: .repoCache,
                 workspaceId: workspaceId,
-                recovery: .rebuiltFromEvents
+                recovery: .quarantinedAndReset
             )
         }
     }

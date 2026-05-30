@@ -567,7 +567,7 @@ git commit -m "Split low-risk local settings and runtime atoms"
 - Test: `Tests/AgentStudioTests/Core/Stores/RepoCacheStoreTests.swift`
 - Test: `Tests/AgentStudioTests/Core/Stores/WorkspaceRepoCacheTests.swift`
 
-- [ ] **Step 1: Split cache and local target history**
+- [x] **Step 1: Split cache and local target history**
 
 Create or rename state so:
 
@@ -584,11 +584,11 @@ RecentWorkspaceTargetAtom
   -> recentTargets
 ```
 
-- [ ] **Step 2: Preserve current readers**
+- [x] **Step 2: Preserve current readers**
 
 Update command bar, sidebar, and workspace cache coordinator consumers to read the split atoms directly or through a derived reader. Do not make `RepoEnrichmentCacheAtom` own recent targets.
 
-- [ ] **Step 3: Verify focused cache tests**
+- [x] **Step 3: Verify focused cache tests**
 
 Run:
 

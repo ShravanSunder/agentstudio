@@ -64,6 +64,36 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func flushAndRestore_operatesOnSplitCacheAndRecentTargetAtoms() throws {
+        let workspaceId = UUID()
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheStore(
+            cacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom,
+            persistor: persistor
+        )
+        let repoId = UUID()
+        let target = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/agent-studio"))
+
+        cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+        recentTargetAtom.recordRecentTarget(target)
+
+        try store.flush(for: workspaceId)
+
+        let restoredCacheAtom = RepoEnrichmentCacheAtom()
+        let restoredRecentTargetAtom = RecentWorkspaceTargetAtom()
+        RepoCacheStore(
+            cacheAtom: restoredCacheAtom,
+            recentTargetAtom: restoredRecentTargetAtom,
+            persistor: persistor
+        ).restore(for: workspaceId)
+
+        #expect(restoredCacheAtom.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
+        #expect(restoredRecentTargetAtom.recentTargets == [target])
+    }
+
+    @Test
     func flush_operatesOnTheProvidedLiveAtomScope() throws {
         let workspaceId = UUID()
         let atom = RepoCacheAtom()
@@ -116,6 +146,35 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func observedRecentTargetChange_autosavesRecentTargets() async throws {
+        let workspaceId = UUID()
+        let atom = RepoCacheAtom()
+        let clock = TestPushClock()
+        let store = RepoCacheStore(
+            atom: atom,
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
+        let target = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/agent-studio"))
+
+        store.restore(for: workspaceId)
+        store.startObserving()
+        atom.recordRecentTarget(target)
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(10))
+
+        await assertEventuallyMain("recent target change should autosave") {
+            switch persistor.loadCache(for: workspaceId) {
+            case .loaded(let cache):
+                return cache.recentTargets == [target]
+            case .missing, .corrupt:
+                return false
+            }
+        }
+    }
+
+    @Test
     func mutationBeforeStartObservingDoesNotScheduleAutosave() async throws {
         let workspaceId = UUID()
         let atom = RepoCacheAtom()
@@ -157,12 +216,36 @@ struct RepoCacheStoreTests {
     }
 
     @Test
-    func restore_corruptCacheFile_fallsBackToDefaults() throws {
+    func restore_missingCacheFile_clearsExistingSplitState() {
+        let workspaceId = UUID()
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let repoId = UUID()
+        let target = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/agent-studio"))
+        let store = RepoCacheStore(
+            cacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom,
+            persistor: persistor
+        )
+
+        cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+        recentTargetAtom.recordRecentTarget(target)
+
+        store.restore(for: workspaceId)
+
+        #expect(cacheAtom.repoEnrichmentByRepoId.isEmpty)
+        #expect(recentTargetAtom.recentTargets.isEmpty)
+    }
+
+    @Test
+    func restore_corruptCacheFile_quarantinesAndResetsLocalMemory() throws {
         let workspaceId = UUID()
         let corruptURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
         try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
 
         let atom = RepoCacheAtom()
+        atom.setRepoEnrichment(.awaitingOrigin(repoId: UUID()))
+        atom.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/agent-studio")))
         var reportedRecovery: PersistenceRecoveryEvent?
         let repoStore = RepoCacheStore(
             atom: atom,
@@ -179,7 +262,9 @@ struct RepoCacheStoreTests {
         #expect(atom.recentTargets.isEmpty)
         #expect(reportedRecovery?.store == .repoCache)
         #expect(reportedRecovery?.workspaceId == workspaceId)
-        #expect(reportedRecovery?.recovery == .rebuiltFromEvents)
+        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
+        #expect(reportedRecovery?.quarantinedFilename?.contains(".workspace.cache.corrupt-") == true)
+        #expect(FileManager.default.fileExists(atPath: corruptURL.path) == false)
     }
 
     @Test
