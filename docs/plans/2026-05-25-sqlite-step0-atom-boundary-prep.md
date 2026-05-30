@@ -688,7 +688,7 @@ pane display derivation, persistence projection, and store dirty-boundary
 behavior preserve current behavior. E2E and Zmx suites are still invoked by the
 runner and remain explicitly skipped unless their env flags are enabled.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
