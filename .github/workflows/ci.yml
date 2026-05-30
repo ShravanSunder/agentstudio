@@ -138,7 +138,9 @@ jobs:
       - name: Test
         env:
           SWIFT_TEST_WORKERS: "4"
-          SWIFT_TEST_TIMEOUT_SECONDS: "240"
+          # macos-26 runners can spend several minutes in the parallel Swift test
+          # lane under load; this bounds hangs without killing healthy slow runs.
+          SWIFT_TEST_TIMEOUT_SECONDS: "600"
           SWIFT_TEST_INCLUDE_E2E: "0"
           XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-main.xml"
         run: mise run test
