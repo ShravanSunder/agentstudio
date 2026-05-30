@@ -55,7 +55,7 @@ enum WorkspaceLauncherProjector {
         let repoCache = atom(\.repoCache)
         let welcome = atom(\.welcome)
         let repositoryTopology = store.repositoryTopologyAtom
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )

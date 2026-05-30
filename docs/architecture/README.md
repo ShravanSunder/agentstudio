@@ -50,7 +50,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 ## Architecture Principles
 
 - **Pane as primary entity** — `Pane` is the stable identity across model, runtime, view registry, surface metadata, and restore flows
-- **Atomic stores (Jotai-style)** — Each domain has its own `@MainActor @Observable` atom: workspace metadata, repository topology, pane registry, tab layout, repo enrichment, UI shell state, app lifecycle, window lifecycle, terminal surfaces, runtime status, and feature-local state. No god-store. Each atom owns one domain and has one reason to change. Persistence wrappers save atom groups to disk. Feature atoms live inside their feature slice at `Features/<slice>/State/MainActor/Atoms/` — see [directory_structure.md — Feature Slice Self-Containment](directory_structure.md).
+- **Atomic stores (Jotai-style)** — Each domain has its own `@MainActor @Observable` atom: workspace identity, window memory, repository topology, pane graph, drawer cursor, tab shell, tab cursor, tab graph, arrangement cursor, pane presentation, repo enrichment, UI shell state, app lifecycle, window lifecycle, terminal surfaces, runtime status, and feature-local state. No god-store. Each atom owns one domain and has one reason to change. Compatibility facades such as `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, and `WorkspaceTabLayoutAtom` bridge existing call sites while split write owners land. Persistence wrappers save atom groups to disk. Feature atoms live inside their feature slice at `Features/<slice>/State/MainActor/Atoms/` — see [directory_structure.md — Feature Slice Self-Containment](directory_structure.md).
 - **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
 - **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
 - **Lifecycle ingress stays separate** — `ApplicationLifecycleMonitor` owns AppKit ingress only. It mutates `AppLifecycleAtom` and `WindowLifecycleAtom`, both `@Observable` atomic stores with `private(set)` mutation surfaces. `WindowLifecycleAtom` holds transient window facts only: key/focus state, terminal container bounds, launch-layout-settle state, and derived readiness; none of those readiness properties are persisted.
@@ -61,9 +61,9 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 
 Current atom vocabulary:
 
-- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`, `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom`, `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `EditorPreferenceAtom`, `EditorChooserRuntimeAtom`, `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms. `WorkspacePaneAtom` and `RepoCacheAtom` remain composed compatibility/read surfaces for existing consumers while split owners land.
+- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom`, `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom`, `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `EditorPreferenceAtom`, `EditorChooserRuntimeAtom`, `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, `WorkspaceTabLayoutAtom`, and `RepoCacheAtom` remain composed compatibility/read surfaces for existing consumers while split owners land.
 - **Persistence wrappers** own load/save boundaries and debounced disk I/O, for example `WorkspaceStore`, `RepoCacheStore`, `SidebarCacheStore`, and `UIStateStore`.
-- **Derived readers** compute projections without owning data, for example `WorkspacePaneDerived`, `WorkspaceFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
+- **Derived readers** compute projections without owning data, for example `WorkspacePaneDerived`, `WorkspaceTabLayoutDerived`, `WorkspaceFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
 - **Coordinators** sequence mutations across atoms/stores and runtime systems. They own no durable domain state.
 
 ## Coordination Planes
@@ -93,7 +93,14 @@ WorkspaceStore (workspace.state.json persistence wrapper)
 ├── WorkspacePaneGraphAtom              ← pane identity/content/residency, durable metadata, drawer membership
 ├── WorkspaceDrawerCursorAtom           ← local drawer expansion cursor
 ├── WorkspacePaneAtom                   ← compatibility facade over pane graph + drawer cursor
-└── WorkspaceTabLayoutAtom              ← tabs, arrangements, active selection, layout
+├── WorkspaceTabShellAtom               ← tab identity and ordering
+├── WorkspaceTabCursorAtom              ← active tab cursor
+├── WorkspaceTabGraphAtom               ← tab membership and arrangement/layout graph
+├── WorkspaceArrangementCursorAtom      ← active arrangement, active pane, drawer child cursors
+├── WorkspacePanePresentationAtom       ← runtime pane presentation such as zoom
+├── WorkspaceTabArrangementAtom         ← compatibility mutation facade over tab graph/cursors/presentation
+├── WorkspaceTabLayoutAtom              ← compatibility read facade
+└── WorkspaceTabLayoutDerived           ← rich tab read model
 
 RepoCacheStore (workspace.cache.json, rebuildable/local cache)
 ├── RepoEnrichmentCacheAtom            ← origin, identity, branch, git snapshot,

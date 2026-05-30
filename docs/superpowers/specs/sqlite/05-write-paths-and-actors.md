@@ -285,9 +285,9 @@ and validators; it must not be mistaken for the storage contract.
 The tab read side has one composed reader: `WorkspaceTabLayoutDerived`. The
 current `WorkspaceTabLayoutAtom` wrapper should be removed or renamed during
 Step 0 because it is not a write-owner atom after shell, cursor, graph,
-arrangement cursor, and presentation state are split. `WorkspaceTabDerived`
-should be renamed into `WorkspaceTabLayoutDerived` unless it has a separate
-documented responsibility.
+arrangement cursor, and presentation state are split. `WorkspaceTabLayoutDerived`
+is the post-split UI read model name; any remaining wrapper must be documented
+as compatibility-only and must not become a second write owner.
 
 `WorkspaceMutationCoordinator` remains the semantic mutation sequencer after
 Step 0, but its constructor dependencies change from the old mixed atoms to the

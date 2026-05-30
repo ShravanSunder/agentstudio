@@ -102,6 +102,17 @@ struct WorkspaceTabShellAtomTests {
     }
 
     @Test
+    func setActiveTab_rejectsMissingTabId() {
+        let atom = WorkspaceTabShellAtom()
+        let first = TabShell(id: UUID(), name: "One")
+        atom.appendTabShell(first)
+
+        atom.setActiveTab(UUID())
+
+        #expect(atom.activeTabId == first.id)
+    }
+
+    @Test
     func hydrate_withStaleActiveTabId_fallsBackToFirstTab() {
         let pane = UUID()
         let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: pane))

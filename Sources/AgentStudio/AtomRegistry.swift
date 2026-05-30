@@ -7,7 +7,11 @@ final class AtomRegistry {
     let workspacePaneGraph: WorkspacePaneGraphAtom
     let workspaceDrawerCursor: WorkspaceDrawerCursorAtom
     let workspacePane: WorkspacePaneAtom
+    let workspaceTabCursor: WorkspaceTabCursorAtom
     let workspaceTabShell: WorkspaceTabShellAtom
+    let workspaceTabGraph: WorkspaceTabGraphAtom
+    let workspaceArrangementCursor: WorkspaceArrangementCursorAtom
+    let workspacePanePresentation: WorkspacePanePresentationAtom
     let workspaceTabArrangement: WorkspaceTabArrangementAtom
     let workspaceTabLayout: WorkspaceTabLayoutAtom
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
@@ -44,11 +48,15 @@ final class AtomRegistry {
         workspaceIdentity: WorkspaceIdentityAtom = .init(),
         workspaceWindowMemory: WorkspaceWindowMemoryAtom = .init(),
         workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom = .init(),
-        workspacePaneGraph: WorkspacePaneGraphAtom = .init(),
-        workspaceDrawerCursor: WorkspaceDrawerCursorAtom = .init(),
+        workspacePaneGraph: WorkspacePaneGraphAtom? = nil,
+        workspaceDrawerCursor: WorkspaceDrawerCursorAtom? = nil,
         workspacePane: WorkspacePaneAtom? = nil,
-        workspaceTabShell: WorkspaceTabShellAtom = .init(),
-        workspaceTabArrangement: WorkspaceTabArrangementAtom = .init(),
+        workspaceTabCursor: WorkspaceTabCursorAtom? = nil,
+        workspaceTabShell: WorkspaceTabShellAtom? = nil,
+        workspaceTabGraph: WorkspaceTabGraphAtom? = nil,
+        workspaceArrangementCursor: WorkspaceArrangementCursorAtom? = nil,
+        workspacePanePresentation: WorkspacePanePresentationAtom? = nil,
+        workspaceTabArrangement: WorkspaceTabArrangementAtom? = nil,
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
         windowLifecycle: WindowLifecycleAtom = .init(),
         repoEnrichmentCache: RepoEnrichmentCacheAtom = .init(),
@@ -77,29 +85,45 @@ final class AtomRegistry {
         self.workspaceIdentity = workspaceIdentity
         self.workspaceWindowMemory = workspaceWindowMemory
         self.workspaceRepositoryTopology = workspaceRepositoryTopology
-        self.workspacePaneGraph = workspacePaneGraph
-        self.workspaceDrawerCursor = workspaceDrawerCursor
-        self.workspacePane =
-            workspacePane
-            ?? WorkspacePaneAtom(
-                graphAtom: workspacePaneGraph,
-                drawerCursorAtom: workspaceDrawerCursor,
-                repositoryTopologyAtom: workspaceRepositoryTopology,
-                repoEnrichmentCacheAtom: repoEnrichmentCache
-            )
-        self.workspaceTabShell = workspaceTabShell
-        self.workspaceTabArrangement = workspaceTabArrangement
+        let resolvedWorkspacePane = Self.resolveWorkspacePane(
+            workspacePane: workspacePane,
+            graphAtom: workspacePaneGraph,
+            drawerCursorAtom: workspaceDrawerCursor,
+            repositoryTopologyAtom: workspaceRepositoryTopology,
+            repoEnrichmentCacheAtom: repoEnrichmentCache
+        )
+        self.workspacePane = resolvedWorkspacePane
+        self.workspacePaneGraph = resolvedWorkspacePane.graphAtom
+        self.workspaceDrawerCursor = resolvedWorkspacePane.drawerCursorAtom
+
+        let resolvedWorkspaceTabShell = Self.resolveWorkspaceTabShell(
+            workspaceTabShell: workspaceTabShell,
+            cursorAtom: workspaceTabCursor
+        )
+        self.workspaceTabShell = resolvedWorkspaceTabShell
+        self.workspaceTabCursor = resolvedWorkspaceTabShell.cursorAtom
+
+        let resolvedWorkspaceTabArrangement = Self.resolveWorkspaceTabArrangement(
+            workspaceTabArrangement: workspaceTabArrangement,
+            graphAtom: workspaceTabGraph,
+            cursorAtom: workspaceArrangementCursor,
+            presentationAtom: workspacePanePresentation
+        )
+        self.workspaceTabArrangement = resolvedWorkspaceTabArrangement
+        self.workspaceTabGraph = resolvedWorkspaceTabArrangement.graphAtom
+        self.workspaceArrangementCursor = resolvedWorkspaceTabArrangement.cursorAtom
+        self.workspacePanePresentation = resolvedWorkspaceTabArrangement.presentationAtom
         self.workspaceTabLayout = WorkspaceTabLayoutAtom(
-            shellAtom: workspaceTabShell,
-            arrangementAtom: workspaceTabArrangement
+            shellAtom: self.workspaceTabShell,
+            arrangementAtom: self.workspaceTabArrangement
         )
         self.workspaceMutationCoordinator =
             workspaceMutationCoordinator
             ?? WorkspaceMutationCoordinator(
                 repositoryTopologyAtom: workspaceRepositoryTopology,
                 workspacePaneAtom: self.workspacePane,
-                workspaceTabShellAtom: workspaceTabShell,
-                workspaceTabArrangementAtom: workspaceTabArrangement
+                workspaceTabShellAtom: self.workspaceTabShell,
+                workspaceTabArrangementAtom: self.workspaceTabArrangement
             )
         self.windowLifecycle = windowLifecycle
         self.repoEnrichmentCache = repoEnrichmentCache
@@ -145,6 +169,84 @@ final class AtomRegistry {
         self.welcome = welcome
     }
 
+    private static func resolveWorkspacePane(
+        workspacePane: WorkspacePaneAtom?,
+        graphAtom: WorkspacePaneGraphAtom?,
+        drawerCursorAtom: WorkspaceDrawerCursorAtom?,
+        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom
+    ) -> WorkspacePaneAtom {
+        let resolved =
+            workspacePane
+            ?? WorkspacePaneAtom(
+                graphAtom: graphAtom ?? WorkspacePaneGraphAtom(),
+                drawerCursorAtom: drawerCursorAtom ?? WorkspaceDrawerCursorAtom(),
+                repositoryTopologyAtom: repositoryTopologyAtom,
+                repoEnrichmentCacheAtom: repoEnrichmentCacheAtom
+            )
+        if let graphAtom {
+            precondition(
+                resolved.graphAtom === graphAtom,
+                "workspacePane and workspacePaneGraph must reference the same backing owner"
+            )
+        }
+        if let drawerCursorAtom {
+            precondition(
+                resolved.drawerCursorAtom === drawerCursorAtom,
+                "workspacePane and workspaceDrawerCursor must reference the same backing owner"
+            )
+        }
+        return resolved
+    }
+
+    private static func resolveWorkspaceTabShell(
+        workspaceTabShell: WorkspaceTabShellAtom?,
+        cursorAtom: WorkspaceTabCursorAtom?
+    ) -> WorkspaceTabShellAtom {
+        let resolved = workspaceTabShell ?? WorkspaceTabShellAtom(cursorAtom: cursorAtom ?? WorkspaceTabCursorAtom())
+        if let cursorAtom {
+            precondition(
+                resolved.cursorAtom === cursorAtom,
+                "workspaceTabShell and workspaceTabCursor must reference the same backing owner"
+            )
+        }
+        return resolved
+    }
+
+    private static func resolveWorkspaceTabArrangement(
+        workspaceTabArrangement: WorkspaceTabArrangementAtom?,
+        graphAtom: WorkspaceTabGraphAtom?,
+        cursorAtom: WorkspaceArrangementCursorAtom?,
+        presentationAtom: WorkspacePanePresentationAtom?
+    ) -> WorkspaceTabArrangementAtom {
+        let resolved =
+            workspaceTabArrangement
+            ?? WorkspaceTabArrangementAtom(
+                graphAtom: graphAtom ?? WorkspaceTabGraphAtom(),
+                cursorAtom: cursorAtom ?? WorkspaceArrangementCursorAtom(),
+                presentationAtom: presentationAtom ?? WorkspacePanePresentationAtom()
+            )
+        if let graphAtom {
+            precondition(
+                resolved.graphAtom === graphAtom,
+                "workspaceTabArrangement and workspaceTabGraph must reference the same backing owner"
+            )
+        }
+        if let cursorAtom {
+            precondition(
+                resolved.cursorAtom === cursorAtom,
+                "workspaceTabArrangement and workspaceArrangementCursor must reference the same backing owner"
+            )
+        }
+        if let presentationAtom {
+            precondition(
+                resolved.presentationAtom === presentationAtom,
+                "workspaceTabArrangement and workspacePanePresentation must reference the same backing owner"
+            )
+        }
+        return resolved
+    }
+
     var paneDisplay: PaneDisplayDerived {
         PaneDisplayDerived()
     }
@@ -188,8 +290,8 @@ final class AtomRegistry {
         )
     }
 
-    var workspaceTab: WorkspaceTabDerived {
-        WorkspaceTabDerived(
+    var workspaceTab: WorkspaceTabLayoutDerived {
+        WorkspaceTabLayoutDerived(
             shellAtom: workspaceTabShell,
             arrangementAtom: workspaceTabArrangement
         )

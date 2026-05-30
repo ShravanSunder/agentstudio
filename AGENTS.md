@@ -96,7 +96,14 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceDrawerCursorAtom` | local drawer expansion cursor keyed by drawer id | `Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift` |
 | `WorkspacePaneAtom` | compatibility mutation facade over pane graph + drawer cursor | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` |
 | `WorkspacePaneDerived` | UI read model composing rich `Pane` values from pane graph, drawer cursor, topology, and cache facts | `Core/State/MainActor/Atoms/WorkspacePaneDerived.swift` |
-| `WorkspaceTabLayoutAtom` | tabs, arrangements, active selection, zoom/minimize | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` |
+| `WorkspaceTabShellAtom` | tab shell identity and ordering | `Core/State/MainActor/Atoms/WorkspaceTabShellAtom.swift` |
+| `WorkspaceTabCursorAtom` | local active-tab cursor | `Core/State/MainActor/Atoms/WorkspaceTabCursorAtom.swift` |
+| `WorkspaceTabGraphAtom` | tab membership and arrangement/drawer-view layout graph | `Core/State/MainActor/Atoms/WorkspaceTabGraphAtom.swift` |
+| `WorkspaceArrangementCursorAtom` | local active arrangement, active pane, and active drawer-child cursors | `Core/State/MainActor/Atoms/WorkspaceArrangementCursorAtom.swift` |
+| `WorkspacePanePresentationAtom` | runtime-only pane presentation overrides such as tab zoom | `Core/State/MainActor/Atoms/WorkspacePanePresentationAtom.swift` |
+| `WorkspaceTabArrangementAtom` | compatibility mutation facade over tab graph, arrangement cursor, and presentation owners | `Core/State/MainActor/Atoms/WorkspaceTabArrangementAtom.swift` |
+| `WorkspaceTabLayoutAtom` | compatibility tab-layout facade over shell, cursor, graph, arrangement cursor, and presentation owners | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` |
+| `WorkspaceTabLayoutDerived` | UI read model composing rich `Tab`, `PaneArrangement`, and `DrawerView` values from tab write owners | `Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift` |
 | `WorkspaceMutationCoordinator` | cross-atom workspace mutations spanning pane and tab layout state | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` |
 | `RepoEnrichmentCacheAtom` | rebuildable repo/worktree enrichment, PR counts, notification counts, and rebuild metadata | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `RecentWorkspaceTargetAtom` | local recent workspace target history | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
@@ -394,7 +401,14 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceDrawerCursorAtom` | `Core/State/MainActor/Atoms/` | Local drawer expansion cursor |
 | `WorkspacePaneAtom` | `Core/State/MainActor/Atoms/` | Compatibility mutation facade over pane graph + drawer cursor |
 | `WorkspacePaneDerived` | `Core/State/MainActor/Atoms/` | Rich pane read model composed from graph, cursor, topology, and cache facts |
-| `WorkspaceTabLayoutAtom` | `Core/State/MainActor/Atoms/` | Tabs, arrangements, active selection, zoom/minimize |
+| `WorkspaceTabShellAtom` | `Core/State/MainActor/Atoms/` | Tab shell identity and ordering |
+| `WorkspaceTabCursorAtom` | `Core/State/MainActor/Atoms/` | Local active-tab cursor |
+| `WorkspaceTabGraphAtom` | `Core/State/MainActor/Atoms/` | Tab membership and arrangement/drawer-view layout graph |
+| `WorkspaceArrangementCursorAtom` | `Core/State/MainActor/Atoms/` | Local arrangement focus and drawer-child cursors |
+| `WorkspacePanePresentationAtom` | `Core/State/MainActor/Atoms/` | Runtime-only pane presentation overrides |
+| `WorkspaceTabArrangementAtom` | `Core/State/MainActor/Atoms/` | Compatibility mutation facade over tab graph, arrangement cursor, and presentation |
+| `WorkspaceTabLayoutAtom` | `Core/State/MainActor/Atoms/` | Compatibility tab-layout facade over split tab owners |
+| `WorkspaceTabLayoutDerived` | `Core/State/MainActor/Atoms/` | Rich tab read model composed from shell, cursor, graph, arrangement cursor, and presentation |
 | `WorkspaceMutationCoordinator` | `Core/State/MainActor/Atoms/` | Cross-atom workspace sequencing for pane + tab layout mutations |
 | `RepoEnrichmentCacheAtom` | `Core/State/MainActor/Atoms/` | Derived enrichment (branches, git status, PR counts), counts, and rebuild metadata |
 | `RecentWorkspaceTargetAtom` | `Core/State/MainActor/Atoms/` | Local recent workspace target history |

@@ -18,7 +18,28 @@ struct CrossTabPaneMoveMutation: Equatable {
 @MainActor
 @Observable
 final class WorkspaceTabArrangementAtom {
-    private(set) var arrangementStates: [TabArrangementState] = []
+    let graphAtom: WorkspaceTabGraphAtom
+    let cursorAtom: WorkspaceArrangementCursorAtom
+    let presentationAtom: WorkspacePanePresentationAtom
+
+    init(
+        graphAtom: WorkspaceTabGraphAtom = WorkspaceTabGraphAtom(),
+        cursorAtom: WorkspaceArrangementCursorAtom = WorkspaceArrangementCursorAtom(),
+        presentationAtom: WorkspacePanePresentationAtom = WorkspacePanePresentationAtom()
+    ) {
+        self.graphAtom = graphAtom
+        self.cursorAtom = cursorAtom
+        self.presentationAtom = presentationAtom
+    }
+
+    var arrangementStates: [TabArrangementState] {
+        get { composedArrangementStates() }
+        _modify {
+            var states = composedArrangementStates()
+            defer { replaceArrangementStates(states) }
+            yield &states
+        }
+    }
 
     func hydrate(persistedTabs: [Tab], validPaneIds: Set<UUID>) {
         let hydratedStates = persistedTabs.map { tab in
@@ -30,9 +51,10 @@ final class WorkspaceTabArrangementAtom {
                 zoomedPaneId: tab.zoomedPaneId
             )
         }
-        arrangementStates = TabArrangementValidation.validating(
-            TabArrangementValidation.pruningInvalidPaneIds(validPaneIds: validPaneIds, from: hydratedStates)
-        )
+        replaceArrangementStates(
+            TabArrangementValidation.validating(
+                TabArrangementValidation.pruningInvalidPaneIds(validPaneIds: validPaneIds, from: hydratedStates)
+            ))
     }
 
     var allPaneIds: Set<UUID> {
@@ -746,5 +768,61 @@ final class WorkspaceTabArrangementAtom {
             activeChildId: drawerPaneIds[0],
             minimizedPaneIds: []
         )
+    }
+
+    private func replaceArrangementStates(_ states: [TabArrangementState]) {
+        graphAtom.replaceStates(states.map(TabGraphState.init))
+        cursorAtom.replaceStates(states)
+        presentationAtom.replaceStates(states)
+    }
+
+    private func composedArrangementStates() -> [TabArrangementState] {
+        graphAtom.tabStates.map { graphState in
+            let arrangements = graphState.arrangements.map { arrangementGraphState in
+                var arrangement = PaneArrangement(
+                    id: arrangementGraphState.id,
+                    name: arrangementGraphState.name,
+                    isDefault: arrangementGraphState.isDefault,
+                    layout: arrangementGraphState.layout,
+                    minimizedPaneIds: arrangementGraphState.minimizedPaneIds,
+                    showsMinimizedPanes: arrangementGraphState.showsMinimizedPanes,
+                    activePaneId: cursorAtom.activePaneId(forArrangement: arrangementGraphState.id),
+                    drawerViews: Dictionary(
+                        uniqueKeysWithValues: arrangementGraphState.drawerViews.map { drawerId, drawerGraphState in
+                            var drawerView = DrawerView(
+                                layout: drawerGraphState.layout,
+                                activeChildId: cursorAtom.activeChildId(
+                                    forArrangement: arrangementGraphState.id,
+                                    drawerId: drawerId
+                                ),
+                                minimizedPaneIds: drawerGraphState.minimizedPaneIds
+                            )
+                            // DrawerView normalizes nil active children to the first pane.
+                            // Cursor state must win so all-minimized drawers round-trip as nil.
+                            drawerView.activeChildId = cursorAtom.activeChildId(
+                                forArrangement: arrangementGraphState.id,
+                                drawerId: drawerId
+                            )
+                            return (drawerId, drawerView)
+                        }
+                    )
+                )
+                // PaneArrangement also normalizes nil to a fallback pane; preserve the explicit cursor record.
+                arrangement.activePaneId = cursorAtom.activePaneId(forArrangement: arrangementGraphState.id)
+                return arrangement
+            }
+            let activeArrangementId =
+                cursorAtom.activeArrangementId(forTab: graphState.tabId)
+                ?? arrangements.first(where: \.isDefault)?.id
+                ?? arrangements.first?.id
+                ?? UUID()
+            return TabArrangementState(
+                tabId: graphState.tabId,
+                allPaneIds: graphState.allPaneIds,
+                arrangements: arrangements,
+                activeArrangementId: activeArrangementId,
+                zoomedPaneId: presentationAtom.zoomedPaneId(forTab: graphState.tabId)
+            )
+        }
     }
 }

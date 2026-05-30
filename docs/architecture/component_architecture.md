@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-State is distributed across independent `@Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). `ActiveWorkspaceSelectionAtom` owns the global active workspace id, while `WorkspaceStore` is a persistence wrapper over the currently hydrated workspace atoms (`WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`). `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary entity — referenced by UUID across every layer. Tabs own arrangements containing flat pane-strip layouts. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
+State is distributed across independent `@Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). `ActiveWorkspaceSelectionAtom` owns the global active workspace id, while `WorkspaceStore` is a persistence wrapper over the currently hydrated workspace atoms (`WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspacePaneAtom`, `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom`, `WorkspaceTabArrangementAtom`, `WorkspaceTabLayoutAtom`). `WorkspaceTabLayoutDerived` is the rich tab read model. `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary entity — referenced by UUID across every layer. Tabs own arrangements containing flat pane-strip layouts. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
 
 ---
 
@@ -11,7 +11,7 @@ State is distributed across independent `@Observable` atoms (Jotai-style atomic 
 ### 1.1 Architecture Principles
 
 1. **Pane identity is primary** — `Pane` is the primary entity in the window system. `PaneId` (UUID v7) is the single identity used across every layer: `WorkspacePaneGraphAtom`, `WorkspacePaneAtom`, `Layout`, `ViewRegistry`, `SurfaceManager`, `SessionRuntime`, and zmx. A pane exists independently of layout position, tab, or surface and can move between tabs and layout positions while keeping identity.
-2. **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` atom. `ActiveWorkspaceSelectionAtom` owns the global active workspace id, `WorkspaceIdentityAtom` owns hydrated workspace identity, `WorkspaceWindowMemoryAtom` owns local window/sidebar memory, `WorkspaceRepositoryTopologyAtom` owns repos/worktrees, `WorkspacePaneGraphAtom` owns the core pane graph, `WorkspaceDrawerCursorAtom` owns local drawer expansion, and `WorkspaceTabLayoutAtom` owns tabs/arrangements. `WorkspacePaneAtom` remains a compatibility mutation facade over pane graph + drawer cursor while callers migrate to derived readers. `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store — each atom has one domain, one reason to change, testable in isolation.
+2. **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` atom. `ActiveWorkspaceSelectionAtom` owns the global active workspace id, `WorkspaceIdentityAtom` owns hydrated workspace identity, `WorkspaceWindowMemoryAtom` owns local window/sidebar memory, `WorkspaceRepositoryTopologyAtom` owns repos/worktrees, `WorkspacePaneGraphAtom` owns the core pane graph, `WorkspaceDrawerCursorAtom` owns local drawer expansion, `WorkspaceTabShellAtom` owns tab identity/order, `WorkspaceTabCursorAtom` owns active-tab local memory, `WorkspaceTabGraphAtom` owns tab membership and arrangement layout graph, `WorkspaceArrangementCursorAtom` owns arrangement focus cursors, and `WorkspacePanePresentationAtom` owns runtime-only tab zoom. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, and `WorkspaceTabLayoutAtom` remain compatibility mutation/read facades over split owners while callers migrate to derived readers. `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store — each atom has one domain, one reason to change, testable in isolation.
 3. **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers — the compiler enforces the boundary.
 4. **Coordinator for cross-store sequencing** — A coordinator sequences operations across multiple stores for a single user action. Owns no state, contains no domain logic. If a coordinator method contains an `if` that decides what to do with domain data, that logic belongs in a store.
 5. **Explicit layout model** — `Layout` is a flat pane-strip value type with ordered `PaneEntry` items. Leaves reference panes by ID. No `NSView` references, no opaque blobs.
@@ -76,15 +76,21 @@ erDiagram
     WorkspaceStore ||--|| WorkspacePaneGraphAtom : "wraps"
     WorkspaceStore ||--|| WorkspaceDrawerCursorAtom : "wraps"
     WorkspaceStore ||--|| WorkspacePaneAtom : "facade"
-    WorkspaceStore ||--|| WorkspaceTabLayoutAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceTabShellAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceTabCursorAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceTabGraphAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceArrangementCursorAtom : "wraps"
+    WorkspaceStore ||--|| WorkspacePanePresentationAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceTabArrangementAtom : "facade"
+    WorkspaceStore ||--|| WorkspaceTabLayoutAtom : "facade"
 
     WorkspaceRepositoryTopologyAtom ||--o{ Repo : "repos[]"
     Repo ||--o{ Worktree : "worktrees[]"
 
     WorkspacePaneGraphAtom ||--o{ Pane : "pane graph"
     WorkspacePaneAtom ||--o{ Pane : "derived panes[]"
-    WorkspaceTabLayoutAtom ||--o{ Tab : "tabs[]"
-    WorkspaceTabLayoutAtom ||--o| Tab : "activeTabId"
+    WorkspaceTabLayoutDerived ||--o{ Tab : "tabs[]"
+    WorkspaceTabLayoutDerived ||--o| Tab : "activeTabId"
 
     Tab ||--o{ PaneArrangement : "arrangements[]"
     Tab ||--o| Pane : "activePaneId"
@@ -225,7 +231,7 @@ Dynamic views are projections of workspace state into virtual tab groups, used b
 
 ### 2.5 Tab
 
-A tab in the workspace. Contains panes organized into arrangements. Order is implicit — determined by array position in `WorkspaceTabLayoutAtom.tabs`.
+A tab in the workspace. Contains panes organized into arrangements. Order is implicit — determined by array position in `WorkspaceTabShellAtom.tabShells` and exposed through `WorkspaceTabLayoutDerived.tabs`.
 
 | Field | Type | Persisted | Notes |
 |-------|------|-----------|-------|
@@ -385,7 +391,13 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 | `paneGraphAtom: WorkspacePaneGraphAtom` | Core pane graph: identity, content, residency, durable metadata, drawer membership |
 | `drawerCursorAtom: WorkspaceDrawerCursorAtom` | Local drawer expansion cursor |
 | `paneAtom: WorkspacePaneAtom` | Compatibility mutation facade over pane graph + drawer cursor |
-| `tabLayoutAtom: WorkspaceTabLayoutAtom` | Tabs, arrangements, active selection, zoom/minimize |
+| `tabShellAtom: WorkspaceTabShellAtom` | Tab identity and ordering |
+| `tabCursorAtom: WorkspaceTabCursorAtom` | Active tab cursor |
+| `tabGraphAtom: WorkspaceTabGraphAtom` | Tab membership and arrangement/layout graph |
+| `arrangementCursorAtom: WorkspaceArrangementCursorAtom` | Active arrangement, active pane, and drawer child cursors |
+| `panePresentationAtom: WorkspacePanePresentationAtom` | Runtime-only pane presentation such as zoom |
+| `tabArrangementAtom: WorkspaceTabArrangementAtom` | Compatibility mutation facade over tab graph, arrangement cursor, and presentation |
+| `tabLayoutAtom: WorkspaceTabLayoutAtom` | Compatibility read facade over tab shell and arrangement facades |
 | `mutationCoordinator: WorkspaceMutationCoordinator` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
 
 **Public role:**
@@ -1070,7 +1082,14 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift` | Local drawer expansion cursor |
 | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` | Compatibility mutation facade over pane graph + drawer cursor |
 | `Core/State/MainActor/Atoms/WorkspacePaneDerived.swift` | Rich pane read model composed from graph, cursor, topology, and cache facts |
-| `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` | Tabs, arrangements, active selection, zoom/minimize |
+| `Core/State/MainActor/Atoms/WorkspaceTabShellAtom.swift` | Tab identity and ordering |
+| `Core/State/MainActor/Atoms/WorkspaceTabCursorAtom.swift` | Active tab cursor |
+| `Core/State/MainActor/Atoms/WorkspaceTabGraphAtom.swift` | Tab membership and arrangement/layout graph |
+| `Core/State/MainActor/Atoms/WorkspaceArrangementCursorAtom.swift` | Active arrangement, active pane, and drawer child cursors |
+| `Core/State/MainActor/Atoms/WorkspacePanePresentationAtom.swift` | Runtime-only pane presentation such as zoom |
+| `Core/State/MainActor/Atoms/WorkspaceTabArrangementAtom.swift` | Compatibility mutation facade over tab graph, arrangement cursor, and presentation |
+| `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` | Compatibility read facade over tab shell and arrangement facades |
+| `Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift` | Rich tab read model composed from shell, cursor, graph, arrangement cursor, and presentation |
 | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
 | `Core/State/MainActor/Atoms/WorkspaceFocus.swift` | Shared `WorkspaceFocus` and `FocusRequirement` domain types for command visibility and status UI |
 | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` | Shared app-wide focus reader for command visibility and status UI |

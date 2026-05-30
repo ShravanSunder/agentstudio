@@ -188,8 +188,8 @@ struct WorkspacePaneFocusTests {
 @MainActor
 @Suite("WorkspacePaneFocusDerivedProjection")
 struct WorkspacePaneFocusDerivedProjectionTests {
-    private func workspaceTab(for store: WorkspaceStore) -> WorkspaceTabDerived {
-        WorkspaceTabDerived(
+    private func workspaceTab(for store: WorkspaceStore) -> WorkspaceTabLayoutDerived {
+        WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )

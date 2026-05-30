@@ -2,8 +2,8 @@ import Foundation
 import os.log
 
 @MainActor
-struct WorkspaceTabDerived {
-    private static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceTabDerived")
+struct WorkspaceTabLayoutDerived {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceTabLayoutDerived")
     let shellAtom: WorkspaceTabShellAtom
     let arrangementAtom: WorkspaceTabArrangementAtom
 

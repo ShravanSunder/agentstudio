@@ -719,7 +719,7 @@ git commit -m "Split pane graph and drawer cursor atoms"
 - Test: `Tests/AgentStudioTests/Core/State/TabArrangementSelectionRulesTests.swift`
 - Test: `Tests/AgentStudioTests/Core/State/TabArrangementRepairRulesTests.swift`
 
-- [ ] **Step 1: Classify tab and arrangement domain types**
+- [x] **Step 1: Classify tab and arrangement domain types**
 
 Decide and document in code names:
 
@@ -758,7 +758,7 @@ Do not leave `WorkspaceTabGraphAtom` storing the rich `Tab` type directly.
 UI/read-model names only if graph/cursor/presentation atoms store explicit
 role-specific state and persistence code uses explicit `Legacy*Payload` DTOs.
 
-- [ ] **Step 2: Split write owners**
+- [x] **Step 2: Split write owners**
 
 Create or rename the write-owner atoms listed above. `WorkspaceTabGraphAtom` owns tab membership and arrangement/layout graph state. It does not own active cursor state.
 
@@ -773,11 +773,14 @@ new tab command
 
 Do not merge tab shell back into tab graph just to make this command easier.
 
-- [ ] **Step 3: Rebuild `WorkspaceTabLayoutDerived`**
+- [x] **Step 3: Rebuild `WorkspaceTabLayoutDerived`**
 
-Delete or rename the current `WorkspaceTabLayoutAtom` wrapper because it is not a write-owner atom after Step 0. The single read-only composed reader is `WorkspaceTabLayoutDerived`, built from shell, tab cursor, graph, arrangement cursor, and presentation atoms. `WorkspaceTabDerived` should not remain as a second overlapping reader unless it has a distinct documented job.
+Rename `WorkspaceTabDerived` to `WorkspaceTabLayoutDerived`, built from shell,
+tab cursor, graph, arrangement cursor, and presentation atoms. If
+`WorkspaceTabLayoutAtom` remains during Step 0, it is a compatibility-only
+facade over the split owners and must not become a second write owner.
 
-- [ ] **Step 4: Update coordinator and validators**
+- [x] **Step 4: Update coordinator and validators**
 
 Update `WorkspaceMutationCoordinator`, `ActionStateSnapshot`, and tab arrangement validation/mutation helpers so validated commands mutate write owners and read composed values only through derived readers.
 
@@ -798,13 +801,15 @@ insert pane command
   -> WorkspacePaneGraphAtom owns pane identity/content/metadata
   -> WorkspaceTabGraphAtom owns tab_pane + arrangement layout membership
   -> WorkspaceArrangementCursorAtom owns the active pane shift
+  -> WorkspacePanePresentationAtom clears stale zoom
 
 move pane to another tab
   -> WorkspaceTabGraphAtom owns source/destination membership/layout changes
   -> WorkspaceArrangementCursorAtom repairs active pane / drawer child cursors
+  -> WorkspacePanePresentationAtom clears source/destination stale zoom
 ```
 
-- [ ] **Step 5: Verify tab behavior**
+- [x] **Step 5: Verify tab behavior**
 
 Run:
 
@@ -814,7 +819,7 @@ mise run test -- --filter "WorkspaceTabShellAtomTests|WorkspaceTabLayoutDerivedT
 
 Expected: tab shell ordering, tab membership, active selection, arrangement mutations, drawer child cursor, zoom reset, and cross-tab pane movement preserve current behavior.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 

@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct WorkspaceTabDerivedTests {
+struct WorkspaceTabLayoutDerivedTests {
     @Test
     func assembleTab_preservesShellAndArrangementFields() {
         let paneA = UUID()
@@ -28,7 +28,7 @@ struct WorkspaceTabDerivedTests {
             zoomedPaneId: nil
         )
 
-        let tab = WorkspaceTabDerived.assembleTab(shell: shell, arrangementState: state)
+        let tab = WorkspaceTabLayoutDerived.assembleTab(shell: shell, arrangementState: state)
 
         #expect(tab.id == shell.id)
         #expect(tab.name == "Review")
@@ -66,7 +66,7 @@ struct WorkspaceTabDerivedTests {
         arrangementAtom.appendState(secondState)
         arrangementAtom.appendState(firstState)
 
-        let derived = WorkspaceTabDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
+        let derived = WorkspaceTabLayoutDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
 
         #expect(derived.tabs.map(\.id) == [firstShell.id, secondShell.id])
     }
@@ -76,7 +76,7 @@ struct WorkspaceTabDerivedTests {
         let shellAtom = WorkspaceTabShellAtom()
         let arrangementAtom = WorkspaceTabArrangementAtom()
 
-        let derived = WorkspaceTabDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
+        let derived = WorkspaceTabLayoutDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
 
         #expect(derived.activeTab == nil)
     }
@@ -117,7 +117,7 @@ struct WorkspaceTabDerivedTests {
             )
         )
 
-        let derived = WorkspaceTabDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
+        let derived = WorkspaceTabLayoutDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
 
         #expect(derived.tabContaining(paneId: paneB)?.id == secondShell.id)
     }
@@ -157,7 +157,7 @@ struct WorkspaceTabDerivedTests {
             )
         )
 
-        let derived = WorkspaceTabDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
+        let derived = WorkspaceTabLayoutDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
 
         #expect(derived.allPaneIds == Set([paneA, paneB]))
     }

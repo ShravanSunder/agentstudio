@@ -5,8 +5,8 @@ final class WorkspaceTabLayoutAtom {
     let shellAtom: WorkspaceTabShellAtom
     let arrangementAtom: WorkspaceTabArrangementAtom
 
-    private var derived: WorkspaceTabDerived {
-        WorkspaceTabDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
+    private var derived: WorkspaceTabLayoutDerived {
+        WorkspaceTabLayoutDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
     }
 
     init(

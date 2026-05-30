@@ -6,7 +6,7 @@ struct RuntimeTargetResolver {
 
     func resolve(_ target: RuntimeCommandTarget) -> PaneId? {
         let workspacePane = workspaceStore.paneAtom
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: workspaceStore.tabShellAtom,
             arrangementAtom: workspaceStore.tabArrangementAtom
         )

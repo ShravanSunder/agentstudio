@@ -23,7 +23,7 @@ enum GitHubWebviewLaunchResolver {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> URL {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )

@@ -45,7 +45,7 @@ struct SingleTabContent: View {
     }
 
     var body: some View {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
