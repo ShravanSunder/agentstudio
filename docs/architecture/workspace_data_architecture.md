@@ -8,10 +8,10 @@
 
 Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces events on the `EventBus`. A single `WorkspaceCacheCoordinator` consumes all events, writing topology changes to the canonical store and enrichment data to the cache store. The sidebar is a pure reader of all three stores via `@Observable` binding — zero imperative fetches, zero mutations.
 
-SQLite cutover status: the GRDB foundation, `core.sqlite` migrations, and
-repository-facing storage tokens exist, but normal boot still uses the JSON
-stores in this document until the repository and legacy-import phases replace
-the live write path.
+SQLite cutover status: the GRDB foundation, `core.sqlite` migrations,
+per-workspace `local.sqlite` migrations, and repository-facing storage tokens
+exist, but normal boot still uses the JSON stores in this document until the
+repository and legacy-import phases replace the live write path.
 
 ---
 

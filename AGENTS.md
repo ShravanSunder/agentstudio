@@ -90,7 +90,10 @@ icons when a sidebar/local action already defines the presentation.
 | `AtomRegistry` | concrete root composition file for Core and Feature atoms plus derived helpers | `Sources/AgentStudio/AtomRegistry.swift` |
 | `SQLiteDatabaseFactory` | generic GRDB database construction, pragmas, WAL, and capability-test connection setup; no product schema knowledge | `Infrastructure/SQLite/SQLiteDatabaseFactory.swift` |
 | `WorkspaceCoreMigrations` | `core.sqlite` migration identifiers and core workspace schema DDL; repository-facing only, not a live atom read model | `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` |
+| `WorkspaceLocalMigrations` | `<workspace-id>.local.sqlite` migration identifiers and local UX/cache schema DDL; repository-facing only, not a live atom read model | `Core/State/MainActor/Persistence/WorkspaceLocalMigrations.swift` |
 | `SQLitePaneContentTypeStorage` | repository-facing storage tokens for live `PaneContentType` values used by `pane.content_type` and content-table triggers | `Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift` |
+| `SQLiteLocalUXStorage` | repository-facing storage tokens for sidebar surface and recent workspace target vocabulary used by local UX schema checks | `Core/State/MainActor/Persistence/SQLiteLocalUXStorage.swift` |
+| `SQLiteInboxNotificationClaimStorage` | repository-facing storage tokens for inbox claim-lane merge predicates used by local notification schema indexes | `Core/State/MainActor/Persistence/SQLiteInboxNotificationClaimStorage.swift` |
 | `ActiveWorkspaceSelectionAtom` | global active workspace id selection, independent from per-workspace metadata hydration | `Core/State/MainActor/Atoms/ActiveWorkspaceSelectionAtom.swift` |
 | `WorkspaceIdentityAtom` | workspace id, name, and creation timestamp | `Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift` |
 | `WorkspaceWindowMemoryAtom` | local sidebar width and window frame memory | `Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift` |

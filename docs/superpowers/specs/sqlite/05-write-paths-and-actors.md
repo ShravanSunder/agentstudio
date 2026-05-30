@@ -473,6 +473,10 @@ ON CONFLICT(drawer_id) DO UPDATE SET
 The exact SQL can change, but the transactional behavior must not: there is no
 relaunch state where two drawers are marked expanded because one row flushed and
 the other did not.
+Because `idx_local_drawer_cursor_one_expanded_per_workspace` is an immediate
+SQLite unique index, the repository write order must collapse existing expanded
+rows before setting the target drawer to expanded. Tests assert that the inverse
+order fails at the schema boundary.
 
 The same atomicity applies in memory. `WorkspaceDrawerCursorAtom` exposes one
 semantic method for drawer expansion; that method collapses every other drawer
@@ -517,7 +521,9 @@ The claim columns in `local_notification_inbox_item` are lookup columns for the
 repository; they are not a simple unique key because the current coalescence rule
 also depends on lane merge policy, activity session, and read/dismiss state.
 Repository tests own the equivalence between SQLite upsert behavior and
-`InboxNotificationAtom.upsertByClaim`.
+`InboxNotificationAtom.upsertByClaim`. The mergeable claim-lane predicate used
+by the migration comes from `SQLiteInboxNotificationClaimStorage`, not freehand
+SQL strings.
 
 ## Code Placement
 

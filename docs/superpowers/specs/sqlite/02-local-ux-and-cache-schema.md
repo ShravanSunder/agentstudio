@@ -52,9 +52,20 @@ delete local.sqlite
   -> never changes core.sqlite or settings.json
 ```
 
-## Local UX Schema Sketch
+## Executable Migration Identifiers
 
-This is design DDL, not final executable migration text.
+The executable migrator is `WorkspaceLocalMigrations` and currently registers:
+
+```text
+001_create_local_cursors
+002_create_local_workspace_memory
+003_create_local_notifications
+004_create_cache_tables
+```
+
+The DDL below is mirrored by tests in `WorkspaceLocalMigrationTests`.
+
+## Local UX Schema
 
 ```sql
 CREATE TABLE local_workspace_cursor (
@@ -80,9 +91,13 @@ CREATE TABLE local_arrangement_cursor (
 CREATE TABLE local_drawer_cursor (
     drawer_id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL,
-    is_expanded INTEGER NOT NULL,
+    is_expanded INTEGER NOT NULL CHECK (is_expanded IN (0, 1)),
     updated_at REAL NOT NULL
 );
+
+CREATE UNIQUE INDEX idx_local_drawer_cursor_one_expanded_per_workspace
+ON local_drawer_cursor(workspace_id)
+WHERE is_expanded = 1;
 
 CREATE TABLE local_arrangement_drawer_cursor (
     arrangement_id TEXT NOT NULL,
@@ -103,9 +118,9 @@ CREATE TABLE local_workspace_window_state (
 CREATE TABLE local_sidebar_state (
     workspace_id TEXT PRIMARY KEY,
     filter_text TEXT NOT NULL,
-    is_filter_visible INTEGER NOT NULL,
-    sidebar_collapsed INTEGER NOT NULL,
-    sidebar_surface TEXT NOT NULL,
+    is_filter_visible INTEGER NOT NULL CHECK (is_filter_visible IN (0, 1)),
+    sidebar_collapsed INTEGER NOT NULL CHECK (sidebar_collapsed IN (0, 1)),
+    sidebar_surface TEXT NOT NULL CHECK (sidebar_surface IN ('repos', 'inbox')),
     updated_at REAL NOT NULL
 );
 
@@ -123,8 +138,12 @@ CREATE TABLE local_recent_workspace_target (
     subtitle TEXT NOT NULL,
     repo_id TEXT,
     worktree_id TEXT,
-    kind TEXT NOT NULL,
-    last_opened_at REAL NOT NULL
+    kind TEXT NOT NULL CHECK (kind IN ('worktree', 'cwdOnly')),
+    last_opened_at REAL NOT NULL,
+    CHECK (
+        (kind = 'worktree' AND repo_id IS NOT NULL AND worktree_id IS NOT NULL)
+        OR (kind = 'cwdOnly' AND repo_id IS NULL AND worktree_id IS NULL)
+    )
 );
 
 CREATE TABLE local_notification_inbox_collapsed_group (
@@ -168,17 +187,57 @@ CREATE TABLE local_notification_inbox_item (
     claim_lane TEXT,
     claim_semantic TEXT,
     claim_session_id TEXT,
-    is_read INTEGER NOT NULL,
-    is_dismissed_from_pane_inbox INTEGER NOT NULL
+    is_read INTEGER NOT NULL CHECK (is_read IN (0, 1)),
+    is_dismissed_from_pane_inbox INTEGER NOT NULL CHECK (is_dismissed_from_pane_inbox IN (0, 1))
 );
 ```
 
-## Cache Schema Sketch
+The executable migration also creates lookup indexes for workspace-scoped cursor,
+drawer-prune, recent-target, inbox, and cache-prune queries.
+`local_sidebar_state.sidebar_surface`, `local_recent_workspace_target.kind`, and
+the recent-target referent-shape `CHECK` are generated from
+`SQLiteLocalUXStorage`, not duplicated freehand string lists.
+
+`local_notification_inbox_item` deliberately uses non-unique claim lookup
+indexes instead of a unique claim-key constraint. `InboxNotificationAtom`
+coalescence depends on lane, session id, and read/dismissed state; for example,
+safety-lane claims do not coalesce, while activity/action-needed claims can
+coalesce by session even when lane or semantic changes. The SQLite repository
+must query the indexed claim candidates and apply the same atom coalescence rule
+before inserting or updating rows. The `claim_lane` predicate for session-level
+coalescence is generated from `SQLiteInboxNotificationClaimStorage` so the DDL
+stays tied to `InboxNotificationClaimLane.canMergeWithinActivitySession`.
+
+```sql
+CREATE INDEX idx_local_notification_inbox_item_claim_exact
+ON local_notification_inbox_item(
+    workspace_id,
+    claim_pane_id,
+    claim_lane,
+    claim_semantic,
+    claim_session_id
+)
+WHERE claim_pane_id IS NOT NULL
+    AND claim_lane IS NOT NULL
+    AND claim_semantic IS NOT NULL;
+
+CREATE INDEX idx_local_notification_inbox_item_claim_session
+ON local_notification_inbox_item(
+    workspace_id,
+    claim_pane_id,
+    claim_session_id
+)
+WHERE claim_pane_id IS NOT NULL
+    AND claim_session_id IS NOT NULL
+    AND claim_lane IN ('activity', 'actionNeeded');
+```
+
+## Cache Schema
 
 ```sql
 CREATE TABLE cache_metadata (
     workspace_id TEXT PRIMARY KEY,
-    source_revision INTEGER NOT NULL DEFAULT 0,
+    source_revision INTEGER NOT NULL DEFAULT 0 CHECK (source_revision >= 0),
     last_rebuilt_at REAL
 );
 
@@ -201,7 +260,7 @@ CREATE TABLE cache_worktree_enrichment (
     workspace_id TEXT NOT NULL,
     repo_id TEXT NOT NULL,
     branch TEXT,
-    is_main_worktree INTEGER NOT NULL,
+    is_main_worktree INTEGER NOT NULL CHECK (is_main_worktree IN (0, 1)),
     updated_at REAL NOT NULL,
     payload_json TEXT
 );
@@ -210,7 +269,7 @@ CREATE TABLE cache_pull_request_count (
     worktree_id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL,
     repo_id TEXT,
-    count INTEGER NOT NULL,
+    count INTEGER NOT NULL CHECK (count >= 0),
     updated_at REAL NOT NULL
 );
 
@@ -218,7 +277,7 @@ CREATE TABLE cache_notification_count (
     worktree_id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL,
     repo_id TEXT,
-    count INTEGER NOT NULL,
+    count INTEGER NOT NULL CHECK (count >= 0),
     updated_at REAL NOT NULL
 );
 ```
@@ -226,6 +285,11 @@ CREATE TABLE cache_notification_count (
 `cache_metadata` is the one guard row for a per-workspace local database. The
 `workspace_id` value must match the workspace that owns the file; it is not a
 cross-workspace table design.
+
+The executable migration creates workspace/repo/worktree lookup indexes for the
+cache tables. These indexes are query aids only; copied core ids are reconciled
+by local-store repair because SQLite cannot enforce foreign keys across
+`core.sqlite` and the per-workspace local database file.
 
 ## Atom Mapping
 

@@ -244,6 +244,18 @@ SQLite repositories land:
 ## Local Tests
 
 - fresh local database runs all migrations
+- migration identifiers are stable and run once:
+  `001_create_local_cursors`, `002_create_local_workspace_memory`,
+  `003_create_local_notifications`, `004_create_cache_tables`
+- local boolean columns reject non-boolean integer values
+- local lookup indexes are asserted by name, including cache lookup indexes
+- sidebar surface storage rejects values outside the live surface vocabulary
+- sidebar surface and recent target kind storage tokens match live Core enum
+  vocabularies
+- notification claim lane storage tokens match the live
+  `InboxNotificationClaimLane.canMergeWithinActivitySession` vocabulary
+- recent workspace target storage enforces the worktree-vs-cwd referent shape
+- cache revisions and count summaries reject negative values
 - local UX state imports from current UI/sidebar/inbox JSON
 - fresh local database seeds deterministic cursor defaults from the core graph
 - active tab round trips through local cursor rows
@@ -252,6 +264,10 @@ SQLite repositories land:
 - active drawer child round trips through local cursor rows
 - active drawer child is scoped by arrangement id plus drawer id
 - drawer expanded state round trips through local cursor rows
+- drawer expanded state allows only one expanded drawer per workspace at the
+  schema boundary
+- drawer expansion replacement collapses the old expanded row before expanding
+  the target row because the schema uniqueness guard is immediate
 - legacy Drawer.isExpanded imports to local_drawer_cursor, not the core drawer
   row
 - expanding a drawer writes the target drawer and collapses other drawer cursor
@@ -270,8 +286,12 @@ SQLite repositories land:
 - recent workspace targets round trip
 - notification inbox items round trip
 - inbox sidebar pendingFilter is not persisted; collapsed groups are persisted
-- notification claim coalescence in SQLite matches InboxNotificationAtom
-  coalescence behavior
+- notification claim candidate lookup indexes support repository upsert logic
+  without rejecting non-coalescing safety claims or distinct active/dismissed
+  activity candidates
+- notification repository tests assert SQLite append/upsert behavior remains
+  equivalent to `InboxNotificationAtom.upsertByClaim`, including lane/session
+  merge policy and read/dismiss state
 - notification retention cap deletes oldest overflow rows in the same local
   transaction as append/upsert
 - sidebar expanded groups round trip

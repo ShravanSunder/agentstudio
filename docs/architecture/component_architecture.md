@@ -545,10 +545,11 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 > **Authoritative spec:** [Workspace Data Architecture](workspace_data_architecture.md) defines the complete three-tier model including canonical models (`CanonicalRepo`, `CanonicalWorktree`), enrichment models (`RepoEnrichment`, `WorktreeEnrichment`), and the event-driven enrichment pipeline. This section summarizes the persistence split; the workspace data doc is the source of truth for model shapes and lifecycle flows.
 
 The SQLite foundation now exists as `SQLiteDatabaseFactory`,
-`WorkspaceCoreMigrations`, and repository-facing storage tokens such as
-`SQLitePaneContentTypeStorage`. The live app path still uses the JSON stores
-below until the repository/import cutover replaces them with `core.sqlite`,
-per-workspace `local.sqlite`, and settings JSON.
+`WorkspaceCoreMigrations`, `WorkspaceLocalMigrations`, and repository-facing
+storage tokens such as `SQLitePaneContentTypeStorage`, `SQLiteLocalUXStorage`,
+and `SQLiteInboxNotificationClaimStorage`. The live app path still uses the JSON
+stores below until the repository/import cutover replaces them with
+`core.sqlite`, per-workspace `local.sqlite`, and settings JSON.
 
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
@@ -1102,7 +1103,10 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |
 | `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` | `core.sqlite` migration identifiers and durable workspace schema DDL |
+| `Core/State/MainActor/Persistence/WorkspaceLocalMigrations.swift` | per-workspace `local.sqlite` migration identifiers and local UX/cache schema DDL |
 | `Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift` | Storage tokens that map live `PaneContentType` values to `pane.content_type` |
+| `Core/State/MainActor/Persistence/SQLiteLocalUXStorage.swift` | Storage tokens that map live sidebar surface and recent workspace target values to local UX schema values |
+| `Core/State/MainActor/Persistence/SQLiteInboxNotificationClaimStorage.swift` | Storage tokens that map live inbox notification claim lanes to local notification claim predicates |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime status tracking and health checks |
 | `App/Panes/ViewRegistry.swift` | paneId → PaneViewSlot mapping (runtime-only) |
 | `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
