@@ -373,7 +373,7 @@ Expected: no stale old arrangement-graph atom name and no stale generic workspac
 - Modify: `Sources/AgentStudio/AtomRegistry.swift`
 - Test: `Tests/AgentStudioTests/Core/State/MainActor/Atoms/ActiveWorkspaceSelectionAtomTests.swift`
 
-- [ ] **Step 1: Write the atom tests**
+- [x] **Step 1: Write the atom tests**
 
 Create tests covering:
 
@@ -389,15 +389,15 @@ mise run test -- --filter "ActiveWorkspaceSelectionAtomTests"
 
 Expected: fail because the atom does not exist.
 
-- [ ] **Step 2: Add the atom**
+- [x] **Step 2: Add the atom**
 
 Create `ActiveWorkspaceSelectionAtom` as `@MainActor @Observable final class` with private(set) `activeWorkspaceId: UUID?`, plus `selectWorkspace(_:)` and `clearSelection()` methods.
 
-- [ ] **Step 3: Register it**
+- [x] **Step 3: Register it**
 
 Add `activeWorkspaceSelection` to `AtomRegistry` with a default `.init()`.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 
@@ -407,7 +407,7 @@ mise run test -- --filter "ActiveWorkspaceSelectionAtomTests"
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
@@ -546,7 +546,7 @@ mise run test -- --filter "WorkspaceSidebarStateStoreTests|InboxSidebarState"
 
 Expected: settings/local memory behavior remains stable; runtime-only fields do not persist.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
