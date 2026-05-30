@@ -81,6 +81,7 @@ final class WorkspaceTabGraphAtom {
     private(set) var tabStates: [TabGraphState] = []
 
     func replaceStates(_ states: [TabGraphState]) {
+        guard tabStates != states else { return }
         tabStates = states
     }
 

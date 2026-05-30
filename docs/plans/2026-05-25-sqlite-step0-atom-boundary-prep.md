@@ -845,25 +845,25 @@ git commit -m "Split tab graph cursor presentation and read models"
 - Test: `Tests/AgentStudioTests/Core/Stores/SidebarCacheStoreTests.swift`
 - Test: `Tests/AgentStudioTests/Features/InboxNotification/State/InboxNotificationStoreTests.swift`
 
-- [ ] **Step 1: Keep legacy JSON stores working through the split**
+- [x] **Step 1: Keep legacy JSON stores working through the split**
 
 Update current stores so they observe the new atoms or derived read models without reintroducing mixed write ownership.
 
-- [ ] **Step 2: Keep legacy DTOs import/export-only**
+- [x] **Step 2: Keep legacy DTOs import/export-only**
 
 If old Codable shapes remain, name them as legacy payloads or isolate them in persistence transformer code. They must not be passed around as live write-owner state.
 
-- [ ] **Step 3: Verify persistence compatibility**
+- [x] **Step 3: Verify persistence compatibility**
 
 Run:
 
 ```bash
-mise run test -- --filter "WorkspacePersistenceTransformerTests|UIStateStoreTests|SidebarCacheStoreTests|InboxNotificationStoreTests|PersistenceChaosTests"
+mise run test -- --filter "WorkspaceStoreTests|WorkspacePersistenceTransformerTests|UIStateStoreTests|SidebarCacheStoreTests|InboxNotificationStoreTests|PersistenceChaosTests"
 ```
 
 Expected: current JSON persistence still round trips until SQLite repositories replace it.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Run:
 

@@ -32,7 +32,7 @@ final class WorkspaceTabArrangementAtom {
         self.presentationAtom = presentationAtom
     }
 
-    var arrangementStates: [TabArrangementState] {
+    private(set) var arrangementStates: [TabArrangementState] {
         get { composedArrangementStates() }
         _modify {
             var states = composedArrangementStates()

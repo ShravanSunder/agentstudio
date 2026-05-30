@@ -164,6 +164,36 @@ final class WorkspaceStoreTests {
         #expect(restoredStore.pane(pane.id)?.title == "Scoped")
     }
 
+    @Test
+    func test_workspaceStore_exposesResolvedTabWriteOwners() {
+        let tabCursorAtom = WorkspaceTabCursorAtom()
+        let tabShellAtom = WorkspaceTabShellAtom(cursorAtom: tabCursorAtom)
+        let tabGraphAtom = WorkspaceTabGraphAtom()
+        let arrangementCursorAtom = WorkspaceArrangementCursorAtom()
+        let panePresentationAtom = WorkspacePanePresentationAtom()
+        let tabArrangementAtom = WorkspaceTabArrangementAtom(
+            graphAtom: tabGraphAtom,
+            cursorAtom: arrangementCursorAtom,
+            presentationAtom: panePresentationAtom
+        )
+        let tabLayoutAtom = WorkspaceTabLayoutAtom(
+            shellAtom: tabShellAtom,
+            arrangementAtom: tabArrangementAtom
+        )
+
+        let store = WorkspaceStore(
+            tabLayoutAtom: tabLayoutAtom,
+            persistor: WorkspacePersistor(workspacesDir: tempDir)
+        )
+
+        #expect(store.tabShellAtom === tabShellAtom)
+        #expect(store.tabCursorAtom === tabCursorAtom)
+        #expect(store.tabArrangementAtom === tabArrangementAtom)
+        #expect(store.tabGraphAtom === tabGraphAtom)
+        #expect(store.arrangementCursorAtom === arrangementCursorAtom)
+        #expect(store.panePresentationAtom === panePresentationAtom)
+    }
+
     // MARK: - Pane CRUD
 
     @Test
@@ -1191,6 +1221,137 @@ final class WorkspaceStoreTests {
         #expect(!(store.isDirty))
 
         _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/direct-topology"))
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_zoomPresentationChangeDoesNotDirtyWorkspacePersistence() async {
+        let pane = store.paneAtom.createPane(source: .floating(launchDirectory: nil, title: "Zoom"))
+        let tab = Tab(paneId: pane.id)
+        store.tabLayoutAtom.appendTab(tab)
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.tabLayoutAtom.toggleZoom(paneId: pane.id, inTab: tab.id)
+
+        for _ in 0..<10 where store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(!store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnDirectTabWriteOwnerMutation() async {
+        let pane = store.paneAtom.createPane(source: .floating(launchDirectory: nil, title: "Graph"))
+        let tab = Tab(paneId: pane.id)
+        store.tabLayoutAtom.appendTab(tab)
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.tabGraphAtom.replaceStates([])
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnActiveTabCursorMutation() async {
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let firstTab = Tab(paneId: firstPane.id)
+        store.appendTab(firstTab)
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let secondTab = Tab(paneId: secondPane.id)
+        store.appendTab(secondTab)
+        #expect(store.activeTabId == secondTab.id)
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.setActiveTab(firstTab.id)
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnActiveArrangementCursorMutation() async throws {
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let tab = Tab(paneId: firstPane.id)
+        store.appendTab(tab)
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        #expect(
+            store.insertPane(
+                secondPane.id,
+                inTab: tab.id,
+                at: firstPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            ))
+        let customArrangementId = try #require(store.createArrangement(name: "Focus", inTab: tab.id))
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.switchArrangement(to: customArrangementId, inTab: tab.id)
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnActivePaneCursorMutation() async {
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let tab = Tab(paneId: firstPane.id)
+        store.appendTab(tab)
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        #expect(
+            store.insertPane(
+                secondPane.id,
+                inTab: tab.id,
+                at: firstPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            ))
+        #expect(store.tab(tab.id)?.activePaneId == secondPane.id)
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.setActivePane(firstPane.id, inTab: tab.id)
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnActiveDrawerChildCursorMutation() async throws {
+        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+        let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        #expect(store.drawerView(forParent: parentPane.id)?.activeChildId == secondDrawerPane.id)
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.setActiveDrawerPane(firstDrawerPane.id, in: parentPane.id)
 
         for _ in 0..<10 where !store.isDirty {
             await Task.yield()

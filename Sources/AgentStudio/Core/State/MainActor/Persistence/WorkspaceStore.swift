@@ -17,6 +17,10 @@ final class WorkspaceStore {
     let drawerCursorAtom: WorkspaceDrawerCursorAtom
     let paneAtom: WorkspacePaneAtom
     let tabShellAtom: WorkspaceTabShellAtom
+    let tabCursorAtom: WorkspaceTabCursorAtom
+    let tabGraphAtom: WorkspaceTabGraphAtom
+    let arrangementCursorAtom: WorkspaceArrangementCursorAtom
+    let panePresentationAtom: WorkspacePanePresentationAtom
     let tabArrangementAtom: WorkspaceTabArrangementAtom
     let tabLayoutAtom: WorkspaceTabLayoutAtom
     let mutationCoordinator: WorkspaceMutationCoordinator
@@ -62,7 +66,11 @@ final class WorkspaceStore {
         self.drawerCursorAtom = resolvedPaneAtom.drawerCursorAtom
         self.paneAtom = resolvedPaneAtom
         self.tabShellAtom = resolvedTabShellAtom
+        self.tabCursorAtom = resolvedTabShellAtom.cursorAtom
         self.tabArrangementAtom = resolvedTabArrangementAtom
+        self.tabGraphAtom = resolvedTabArrangementAtom.graphAtom
+        self.arrangementCursorAtom = resolvedTabArrangementAtom.cursorAtom
+        self.panePresentationAtom = resolvedTabArrangementAtom.presentationAtom
         self.tabLayoutAtom =
             tabLayoutAtom
             ?? WorkspaceTabLayoutAtom(
@@ -153,8 +161,12 @@ final class WorkspaceStore {
             _ = repositoryTopologyAtom.unavailableRepoIds
             _ = paneGraphAtom.paneStates
             _ = drawerCursorAtom.expandedDrawerId
-            _ = tabLayoutAtom.tabs
-            _ = tabLayoutAtom.activeTabId
+            _ = tabShellAtom.tabShells
+            _ = tabCursorAtom.activeTabId
+            _ = tabGraphAtom.tabStates
+            _ = arrangementCursorAtom.activeArrangementIdsByTabId
+            _ = arrangementCursorAtom.paneCursorsByArrangementId
+            _ = arrangementCursorAtom.drawerCursorsByKey
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }

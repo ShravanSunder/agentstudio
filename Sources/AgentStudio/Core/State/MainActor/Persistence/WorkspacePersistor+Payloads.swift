@@ -92,7 +92,12 @@ private func decodeRequiredCanonicalField<Key: CodingKey, Value: Decodable>(
 }
 
 extension WorkspacePersistor {
-    /// On-disk representation of workspace state.
+    /// Legacy JSON workspace payload.
+    ///
+    /// This remains the pre-SQLite import/export contract only. The rich
+    /// `Pane` and `Tab` values are decoded here so `WorkspacePersistenceTransformer`
+    /// can field-route them into split graph/cursor/presentation owners; they are
+    /// not future SQLite row projections.
     struct PersistableState: Codable {
         var schemaVersion: Int
         var id: UUID

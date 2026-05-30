@@ -7,14 +7,17 @@ final class WorkspacePanePresentationAtom {
     private(set) var zoomedPaneIdsByTabId: [UUID: UUID] = [:]
 
     func replaceStates(_ states: [TabArrangementState]) {
-        zoomedPaneIdsByTabId = states.reduce(into: [:]) { result, state in
+        let zoomedPaneIdsByTabId = states.reduce(into: [UUID: UUID]()) { result, state in
             if let zoomedPaneId = state.zoomedPaneId {
                 result[state.tabId] = zoomedPaneId
             }
         }
+        guard self.zoomedPaneIdsByTabId != zoomedPaneIdsByTabId else { return }
+        self.zoomedPaneIdsByTabId = zoomedPaneIdsByTabId
     }
 
     func setZoomedPaneId(_ paneId: UUID?, forTab tabId: UUID) {
+        guard zoomedPaneIdsByTabId[tabId] != paneId else { return }
         zoomedPaneIdsByTabId[tabId] = paneId
     }
 

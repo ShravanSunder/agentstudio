@@ -40,6 +40,12 @@ final class WorkspaceArrangementCursorAtom {
             }
         }
 
+        guard
+            self.activeArrangementIdsByTabId != activeArrangementIdsByTabId
+                || self.paneCursorsByArrangementId != paneCursorsByArrangementId
+                || self.drawerCursorsByKey != drawerCursorsByKey
+        else { return }
+
         self.activeArrangementIdsByTabId = activeArrangementIdsByTabId
         self.paneCursorsByArrangementId = paneCursorsByArrangementId
         self.drawerCursorsByKey = drawerCursorsByKey
