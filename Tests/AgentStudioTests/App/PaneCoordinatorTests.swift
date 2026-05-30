@@ -264,13 +264,7 @@ struct PaneCoordinatorTests {
 
         let repoPath = tempDir.appending(path: "repo")
         let repo = store.addRepo(at: repoPath)
-        let worktree = Worktree(
-            id: UUID(),
-            repoId: repo.id,
-            name: "repo",
-            path: repoPath,
-            isMainWorktree: true
-        )
+        let worktree = repo.worktrees[0]
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
 
         let pane = store.createPane(

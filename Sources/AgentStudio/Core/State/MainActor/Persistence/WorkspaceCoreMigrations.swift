@@ -20,6 +20,7 @@ enum WorkspaceCoreMigrations {
         ("002_create_repo_worktree_topology", createRepoWorktreeTopologyStatements),
         ("003_create_panes", createPaneStatements),
         ("004_create_tabs_and_arrangements", createTabArrangementStatements),
+        ("005_repair_tab_graph_layout_storage", repairTabGraphLayoutStorageStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -496,6 +497,20 @@ enum WorkspaceCoreMigrations {
         )
         """,
         """
+        CREATE TRIGGER arrangement_layout_pane_prunes_adjacent_divider_after_delete
+        AFTER DELETE ON arrangement_layout_pane
+        BEGIN
+            DELETE FROM arrangement_layout_divider
+            WHERE arrangement_id = OLD.arrangement_id
+            AND sort_index = (
+                SELECT MAX(sort_index)
+                FROM arrangement_layout_divider
+                WHERE arrangement_id = OLD.arrangement_id
+                AND sort_index <= OLD.sort_index
+            );
+        END
+        """,
+        """
         CREATE TABLE arrangement_minimized_pane (
             arrangement_id TEXT NOT NULL REFERENCES tab_arrangement(id) ON DELETE CASCADE,
             pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
@@ -628,6 +643,24 @@ enum WorkspaceCoreMigrations {
         )
         """,
         """
+        CREATE TRIGGER drawer_view_layout_pane_prunes_adjacent_divider_after_delete
+        AFTER DELETE ON drawer_view_layout_pane
+        BEGIN
+            DELETE FROM drawer_view_layout_divider
+            WHERE arrangement_id = OLD.arrangement_id
+            AND drawer_id = OLD.drawer_id
+            AND row_kind = OLD.row_kind
+            AND sort_index = (
+                SELECT MAX(sort_index)
+                FROM drawer_view_layout_divider
+                WHERE arrangement_id = OLD.arrangement_id
+                AND drawer_id = OLD.drawer_id
+                AND row_kind = OLD.row_kind
+                AND sort_index <= OLD.sort_index
+            );
+        END
+        """,
+        """
         CREATE TABLE drawer_view_minimized_pane (
             arrangement_id TEXT NOT NULL,
             drawer_id TEXT NOT NULL,
@@ -668,4 +701,5 @@ enum WorkspaceCoreMigrations {
         CREATE INDEX idx_tab_shell_workspace_id ON tab_shell(workspace_id)
         """,
     ]
+
 }

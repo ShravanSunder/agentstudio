@@ -62,6 +62,7 @@ struct WorkspaceCoreMigrationTests {
                 "002_create_repo_worktree_topology",
                 "003_create_panes",
                 "004_create_tabs_and_arrangements",
+                "005_repair_tab_graph_layout_storage",
             ]
         )
     }
@@ -618,21 +619,6 @@ struct WorkspaceCoreMigrationTests {
         )
     }
 
-    private func insertArrangementLayoutPane(
-        _ database: Database,
-        arrangementId: String,
-        paneId: String,
-        sortIndex: Int = 0
-    ) throws {
-        try database.execute(
-            sql: """
-                INSERT INTO arrangement_layout_pane(arrangement_id, pane_id, sort_index, ratio)
-                VALUES (?, ?, ?, ?)
-                """,
-            arguments: [arrangementId, paneId, sortIndex, 1.0]
-        )
-    }
-
     private func insertDrawer(
         _ database: Database,
         drawerId: String,
@@ -660,20 +646,6 @@ struct WorkspaceCoreMigrationTests {
                 VALUES (?, ?, ?)
                 """,
             arguments: [drawerId, paneId, sortIndex]
-        )
-    }
-
-    private func insertArrangementDrawerView(
-        _ database: Database,
-        arrangementId: String,
-        drawerId: String
-    ) throws {
-        try database.execute(
-            sql: """
-                INSERT INTO arrangement_drawer_view(arrangement_id, drawer_id, row_split_ratio)
-                VALUES (?, ?, ?)
-                """,
-            arguments: [arrangementId, drawerId, 0.5]
         )
     }
 }
