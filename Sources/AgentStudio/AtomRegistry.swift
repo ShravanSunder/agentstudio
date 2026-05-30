@@ -15,10 +15,14 @@ final class AtomRegistry {
     let sidebarCheckoutColor: SidebarCheckoutColorAtom
     let sidebarCache: SidebarCacheState
     let terminalActivity: TerminalActivityAtom
-    let editorChooser: EditorChooserAtom
+    let editorPreference: EditorPreferenceAtom
+    let editorChooserRuntime: EditorChooserRuntimeAtom
+    let editorChooser: EditorChooserState
     let inboxNotification: InboxNotificationAtom
     let inboxNotificationPrefs: InboxNotificationPrefsAtom
-    let inboxSidebarState: InboxSidebarStateAtom
+    let inboxSidebarMemory: InboxSidebarMemoryAtom
+    let inboxSidebarRuntime: InboxSidebarRuntimeAtom
+    let inboxSidebarState: InboxSidebarState
     let paneInboxPresentationState: PaneInboxPresentationAtom
     let arrangementPanelPresentation: ArrangementPanelPresentationAtom
     let workspaceSidebarMemory: WorkspaceSidebarMemoryAtom
@@ -45,10 +49,12 @@ final class AtomRegistry {
         sidebarExpandedGroup: SidebarExpandedGroupAtom = .init(),
         sidebarCheckoutColor: SidebarCheckoutColorAtom = .init(),
         terminalActivity: TerminalActivityAtom = .init(),
-        editorChooser: EditorChooserAtom = .init(),
+        editorPreference: EditorPreferenceAtom = .init(),
+        editorChooserRuntime: EditorChooserRuntimeAtom = .init(),
         inboxNotification: InboxNotificationAtom = .init(),
         inboxNotificationPrefs: InboxNotificationPrefsAtom = .init(),
-        inboxSidebarState: InboxSidebarStateAtom = .init(),
+        inboxSidebarMemory: InboxSidebarMemoryAtom = .init(),
+        inboxSidebarRuntime: InboxSidebarRuntimeAtom = .init(),
         paneInboxPresentationState: PaneInboxPresentationAtom = .init(),
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = .init(),
         workspaceSidebarMemory: WorkspaceSidebarMemoryAtom = .init(),
@@ -88,10 +94,20 @@ final class AtomRegistry {
             checkoutColorAtom: sidebarCheckoutColor
         )
         self.terminalActivity = terminalActivity
-        self.editorChooser = editorChooser
+        self.editorPreference = editorPreference
+        self.editorChooserRuntime = editorChooserRuntime
+        self.editorChooser = EditorChooserState(
+            preferenceAtom: editorPreference,
+            runtimeAtom: editorChooserRuntime
+        )
         self.inboxNotification = inboxNotification
         self.inboxNotificationPrefs = inboxNotificationPrefs
-        self.inboxSidebarState = inboxSidebarState
+        self.inboxSidebarMemory = inboxSidebarMemory
+        self.inboxSidebarRuntime = inboxSidebarRuntime
+        self.inboxSidebarState = InboxSidebarState(
+            memoryAtom: inboxSidebarMemory,
+            runtimeAtom: inboxSidebarRuntime
+        )
         self.paneInboxPresentationState = paneInboxPresentationState
         self.arrangementPanelPresentation = arrangementPanelPresentation
         self.workspaceSidebarMemory = workspaceSidebarMemory

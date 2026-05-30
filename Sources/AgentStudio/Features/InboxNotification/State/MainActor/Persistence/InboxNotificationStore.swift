@@ -14,7 +14,7 @@ private let inboxNotificationStoreLogger = Logger(
 final class InboxNotificationStore {
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
-    let sidebarStateAtom: InboxSidebarStateAtom
+    let sidebarState: InboxSidebarState
 
     private let fileURL: URL
     private let clock: any Clock<Duration>
@@ -25,7 +25,7 @@ final class InboxNotificationStore {
     init(
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,
-        sidebarStateAtom: InboxSidebarStateAtom = .init(),
+        sidebarState: InboxSidebarState = .init(),
         fileURL: URL,
         clock: any Clock<Duration> = ContinuousClock(),
         debounceDuration: Duration = .milliseconds(500),
@@ -33,7 +33,7 @@ final class InboxNotificationStore {
     ) {
         self.inboxAtom = inboxAtom
         self.prefsAtom = prefsAtom
-        self.sidebarStateAtom = sidebarStateAtom
+        self.sidebarState = sidebarState
         self.fileURL = fileURL
         self.clock = clock
         self.debounceDuration = debounceDuration
@@ -189,7 +189,7 @@ final class InboxNotificationStore {
         prefsAtom.setGrouping(payload.prefs.grouping)
         prefsAtom.setSort(payload.prefs.sort)
         prefsAtom.setBellEnabled(payload.prefs.bellEnabled)
-        sidebarStateAtom.hydrate(collapsedGroups: payload.sidebarState.collapsedGroups)
+        sidebarState.hydrate(collapsedGroups: payload.sidebarState.collapsedGroups)
     }
 
     func save() async throws {
@@ -212,7 +212,7 @@ final class InboxNotificationStore {
                 bellEnabled: prefsAtom.bellEnabled
             ),
             sidebarState: .init(
-                collapsedGroups: sidebarStateAtom.collapsedGroups
+                collapsedGroups: sidebarState.collapsedGroups
             )
         )
 

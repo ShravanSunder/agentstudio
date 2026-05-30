@@ -124,7 +124,7 @@ struct PersistenceChaosTests {
             var recoveryEvents: [PersistenceRecoveryEvent] = []
             UIStateStore(
                 atom: atom,
-                editorChooserAtom: EditorChooserAtom(),
+                editorChooserState: EditorChooserState(),
                 persistor: persistor,
                 recoveryReporter: { recoveryEvents.append($0) }
             ).restore(for: workspaceId)

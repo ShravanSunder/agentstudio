@@ -90,7 +90,7 @@ struct PaneTabViewControllerEditorChooserCommandTests {
 
         harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(atom(\.editorChooser).state.openForPaneId == pane.id)
+        #expect(atom(\.editorChooser).openForPaneId == pane.id)
         #expect(atom(\.editorChooser).availableTargets.map(\.id) == ["cursor", "vscode"])
     }
 
@@ -112,7 +112,7 @@ struct PaneTabViewControllerEditorChooserCommandTests {
 
         harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(atom(\.editorChooser).state.openForPaneId == nil)
+        #expect(atom(\.editorChooser).openForPaneId == nil)
     }
 }
 

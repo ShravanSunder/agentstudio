@@ -7,7 +7,7 @@ private let uiStateStoreLogger = Logger(subsystem: "com.agentstudio", category: 
 @MainActor
 final class UIStateStore {
     private let atom: WorkspaceSidebarState
-    private let editorChooserAtom: EditorChooserAtom
+    private let editorChooserState: EditorChooserState
     private let persistor: WorkspacePersistor
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
@@ -23,14 +23,14 @@ final class UIStateStore {
 
     init(
         atom: WorkspaceSidebarState,
-        editorChooserAtom: EditorChooserAtom,
+        editorChooserState: EditorChooserState,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
-        self.editorChooserAtom = editorChooserAtom
+        self.editorChooserState = editorChooserState
         self.persistor = persistor
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
@@ -58,7 +58,7 @@ final class UIStateStore {
                 sidebarCollapsed: state.sidebarCollapsed,
                 sidebarSurface: state.sidebarSurface
             )
-            editorChooserAtom.hydrate(bookmarkedEditorId: state.editorChooserState.bookmarkedEditorId)
+            editorChooserState.hydrate(bookmarkedEditorId: state.editorChooserState.bookmarkedEditorId)
             isRestoringState = false
         case .missing:
             break
@@ -91,10 +91,10 @@ final class UIStateStore {
             _ = atom.isFilterVisible
             _ = atom.sidebarCollapsed
             _ = atom.sidebarSurface
-            _ = editorChooserAtom.state.bookmarkedEditorId
+            _ = editorChooserState.bookmarkedEditorId
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
-                // WorkspaceSidebarState and EditorChooserAtom are @MainActor; this traps if that ownership changes.
+                // WorkspaceSidebarState and EditorChooserState are @MainActor; this traps if that ownership changes.
                 guard let self else { return }
                 let shouldIgnore = self.isRestoringState
                 self.isObservingUIState = false
@@ -132,7 +132,7 @@ final class UIStateStore {
                     isFilterVisible: atom.isFilterVisible,
                     sidebarCollapsed: atom.sidebarCollapsed,
                     sidebarSurface: atom.sidebarSurface,
-                    editorChooserState: .init(bookmarkedEditorId: editorChooserAtom.state.bookmarkedEditorId)
+                    editorChooserState: .init(bookmarkedEditorId: editorChooserState.bookmarkedEditorId)
                 )
             )
         } catch {

@@ -19,11 +19,11 @@ struct UIStateStoreCompositionTests {
         atom.setSidebarSurface(.inbox)
         atom.setSidebarHasFocus(true)
 
-        try UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
+        try UIStateStore(atom: atom, editorChooserState: EditorChooserState(), persistor: persistor)
             .flush(for: workspaceId)
 
         let restoredAtom = WorkspaceSidebarState()
-        UIStateStore(atom: restoredAtom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
+        UIStateStore(atom: restoredAtom, editorChooserState: EditorChooserState(), persistor: persistor)
             .restore(for: workspaceId)
 
         #expect(restoredAtom.sidebarCollapsed == true)
@@ -44,7 +44,7 @@ struct UIStateStoreCompositionTests {
         let atom = WorkspaceSidebarState()
         let store = UIStateStore(
             atom: atom,
-            editorChooserAtom: EditorChooserAtom(),
+            editorChooserState: EditorChooserState(),
             persistor: persistor,
             persistDebounceDuration: .zero
         )

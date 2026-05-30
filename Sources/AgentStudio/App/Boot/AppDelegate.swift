@@ -95,7 +95,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             viewRegistry: viewRegistry,
             inboxAtom: atomStore.inboxNotification,
             inboxPrefsAtom: atomStore.inboxNotificationPrefs,
-            inboxSidebarStateAtom: atomStore.inboxSidebarState,
+            inboxSidebarState: atomStore.inboxSidebarState,
             paneInboxPresenter: paneInboxNotificationPresenter,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
@@ -280,7 +280,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 viewRegistry: viewRegistry,
                 inboxAtom: atomStore.inboxNotification,
                 inboxPrefsAtom: atomStore.inboxNotificationPrefs,
-                inboxSidebarStateAtom: atomStore.inboxSidebarState,
+                inboxSidebarState: atomStore.inboxSidebarState,
                 paneInboxPresenter: paneInboxNotificationPresenter,
                 closeTransitionCoordinator: closeTransitionCoordinator
             )

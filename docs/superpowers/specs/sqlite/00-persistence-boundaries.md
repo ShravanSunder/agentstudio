@@ -168,9 +168,9 @@ never persisted
   PaneFilesystemProjectionAtom
   SidebarFocusRuntimeAtom.sidebarHasFocus
   WorkspacePaneFocus snapshots
-  EditorChooserAtom.state.openForPaneId
-  EditorChooserAtom.availableTargets
-  InboxSidebarStateAtom.pendingFilter
+  EditorChooserRuntimeAtom.openForPaneId
+  EditorChooserRuntimeAtom.availableTargets
+  InboxSidebarRuntimeAtom.pendingFilter
   PaneInboxPresentationAtom.filterModesByParentPaneId
   TerminalActivityAtom snapshots
   Bridge PaneDomainState / ReviewState.viewedFiles

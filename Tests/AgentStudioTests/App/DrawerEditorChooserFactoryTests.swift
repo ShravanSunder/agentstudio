@@ -58,7 +58,7 @@ struct DrawerEditorChooserFactoryTests {
 
     @Test
     func makeTrailingActions_refreshesInstalledTargetsOnlyWhenOpeningChooser() {
-        let editorChooser = EditorChooserAtom()
+        let editorChooser = EditorChooserState()
         let paneId = UUID()
         var refreshCallCount = 0
 
@@ -81,12 +81,12 @@ struct DrawerEditorChooserFactoryTests {
 
         #expect(refreshCallCount == 1)
         #expect(editorChooser.availableTargets.map(\.id) == [ExternalEditorTarget.cursor.id])
-        #expect(editorChooser.state.openForPaneId == paneId)
+        #expect(editorChooser.openForPaneId == paneId)
     }
 
     @Test
     func makeTrailingActions_closingChooserClearsOpenStateWithoutRefreshing() {
-        let editorChooser = EditorChooserAtom()
+        let editorChooser = EditorChooserState()
         let paneId = UUID()
         var refreshCallCount = 0
 
@@ -106,6 +106,6 @@ struct DrawerEditorChooserFactoryTests {
         actions.editorMenuPresented.wrappedValue = false
 
         #expect(refreshCallCount == 1)
-        #expect(editorChooser.state.openForPaneId == nil)
+        #expect(editorChooser.openForPaneId == nil)
     }
 }

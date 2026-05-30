@@ -21,12 +21,13 @@ struct InboxNotificationStoreTests {
         let url = makeTempURL()
         let atom1 = InboxNotificationAtom()
         let prefs1 = InboxNotificationPrefsAtom()
-        let sidebarState1 = InboxSidebarStateAtom()
+        let sidebarMemory1 = InboxSidebarMemoryAtom()
+        let sidebarState1 = InboxSidebarState(memoryAtom: sidebarMemory1)
         let clock = TestPushClock()
         let store1 = InboxNotificationStore(
             inboxAtom: atom1,
             prefsAtom: prefs1,
-            sidebarStateAtom: sidebarState1,
+            sidebarState: sidebarState1,
             fileURL: url,
             clock: clock
         )
@@ -46,16 +47,16 @@ struct InboxNotificationStoreTests {
         prefs1.setGrouping(.byRepo)
         prefs1.setSort(.oldestFirst)
         prefs1.setBellEnabled(true)
-        sidebarState1.setGroupCollapsed(InboxNotificationGroupKey("repo:agent-studio"), isCollapsed: true)
+        sidebarMemory1.setGroupCollapsed(InboxNotificationGroupKey("repo:agent-studio"), isCollapsed: true)
         try await store1.save()
 
         let atom2 = InboxNotificationAtom()
         let prefs2 = InboxNotificationPrefsAtom()
-        let sidebarState2 = InboxSidebarStateAtom()
+        let sidebarState2 = InboxSidebarState()
         let store2 = InboxNotificationStore(
             inboxAtom: atom2,
             prefsAtom: prefs2,
-            sidebarStateAtom: sidebarState2,
+            sidebarState: sidebarState2,
             fileURL: url,
             clock: clock
         )
@@ -69,23 +70,52 @@ struct InboxNotificationStoreTests {
         #expect(sidebarState2.collapsedGroups == [InboxNotificationGroupKey("repo:agent-studio")])
     }
 
+    @Test("load resets runtime-only pending sidebar filter")
+    func loadResetsRuntimeOnlyPendingSidebarFilter() async throws {
+        let url = makeTempURL()
+        let inboxAtom = InboxNotificationAtom()
+        let prefsAtom = InboxNotificationPrefsAtom()
+        let sidebarState = InboxSidebarState()
+        let store = InboxNotificationStore(
+            inboxAtom: inboxAtom,
+            prefsAtom: prefsAtom,
+            sidebarState: sidebarState,
+            fileURL: url
+        )
+
+        sidebarState.setGroupCollapsed(InboxNotificationGroupKey("repo:agent-studio"), isCollapsed: true)
+        try await store.save()
+        sidebarState.setPendingFilter(.repo(id: UUID()))
+
+        try store.load()
+
+        #expect(sidebarState.peekPendingFilter() == nil)
+        #expect(sidebarState.collapsedGroups == [InboxNotificationGroupKey("repo:agent-studio")])
+    }
+
     @Test("save writes schema version three for feature sidebar state")
     func saveWritesSchemaVersionThreeForFeatureSidebarState() async throws {
         let url = makeTempURL()
         let atom = InboxNotificationAtom()
         let prefs = InboxNotificationPrefsAtom()
+        let sidebarState = InboxSidebarState()
         let store = InboxNotificationStore(
             inboxAtom: atom,
             prefsAtom: prefs,
+            sidebarState: sidebarState,
             fileURL: url
         )
 
+        sidebarState.setGroupCollapsed(InboxNotificationGroupKey("repo:agent-studio"), isCollapsed: true)
+        sidebarState.setPendingFilter(.repo(id: UUID()))
         try await store.save()
 
         let data = try Data(contentsOf: url)
         let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(payload["schemaVersion"] as? Int == 3)
-        #expect(payload["sidebarState"] != nil)
+        let sidebarStatePayload = try #require(payload["sidebarState"] as? [String: Any])
+        #expect(sidebarStatePayload["collapsedGroups"] != nil)
+        #expect(sidebarStatePayload["pendingFilter"] == nil)
     }
 
     @Test("load accepts schema one pane source without denormalized display fields")

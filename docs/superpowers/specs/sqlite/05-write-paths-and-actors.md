@@ -211,11 +211,11 @@ RepoCacheAtom -> split
   cache     -> RepoEnrichmentCacheAtom
   local     -> RecentWorkspaceTargetAtom
 
-EditorChooserAtom -> split
+EditorChooserState (EditorChooserAtom source before Step 0 split) -> split
   settings  -> EditorPreferenceAtom
   runtime   -> EditorChooserRuntimeAtom
 
-InboxSidebarStateAtom -> split
+InboxSidebarState (InboxSidebarStateAtom source before Step 0 split) -> split
   local     -> InboxSidebarMemoryAtom
   runtime   -> InboxSidebarRuntimeAtom
 
@@ -576,9 +576,9 @@ RepoCacheStore
 
 UIStateStore
   -> splits editor preference to settings and sidebar memory to local.sqlite
-  -> current dual observation of WorkspaceSidebarState plus EditorChooserAtom is split
+  -> current dual observation of WorkspaceSidebarState plus EditorChooserState is split
      into separate local/settings flush paths
-  -> EditorChooserAtom observation moves to WorkspaceSettingsStore
+  -> EditorPreferenceAtom observation moves to WorkspaceSettingsStore
 
 SidebarCacheStore
   -> absorbed by WorkspaceSettingsStore + WorkspaceLocalStore

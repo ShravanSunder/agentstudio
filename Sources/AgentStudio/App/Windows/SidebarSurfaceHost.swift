@@ -9,7 +9,7 @@ struct SidebarSurfaceHost: View {
     let store: WorkspaceStore
     let uiState: WorkspaceSidebarState
     let sidebarCache: SidebarCacheState
-    let inboxSidebarState: InboxSidebarStateAtom
+    let inboxSidebarState: InboxSidebarState
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
@@ -78,7 +78,7 @@ struct SidebarSurfaceHost: View {
 
     static func showNotifications(
         for worktree: Worktree,
-        inboxSidebarState: InboxSidebarStateAtom,
+        inboxSidebarState: InboxSidebarState,
         dispatcher: CommandDispatcher
     ) {
         inboxSidebarState.setPendingFilter(.worktree(id: worktree.id))

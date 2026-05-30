@@ -72,11 +72,11 @@ split first
     -> SidebarExpandedGroupAtom    local expanded group memory
     -> SidebarCheckoutColorAtom    settings checkout colors
 
-  EditorChooserAtom
+  EditorChooserState (EditorChooserAtom source before Step 0 split)
     -> EditorPreferenceAtom        settings bookmark
     -> EditorChooserRuntimeAtom    open pane + target discovery
 
-  InboxSidebarStateAtom
+  InboxSidebarState (InboxSidebarStateAtom source before Step 0 split)
     -> InboxSidebarMemoryAtom      collapsed groups
     -> InboxSidebarRuntimeAtom     pending filter handoff
 

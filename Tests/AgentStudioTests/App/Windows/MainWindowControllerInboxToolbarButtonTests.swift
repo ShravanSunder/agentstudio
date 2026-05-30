@@ -243,7 +243,7 @@ private func withMainWindowControllerHarness<T>(
             viewRegistry: viewRegistry,
             inboxAtom: inboxAtom,
             inboxPrefsAtom: inboxPrefsAtom,
-            inboxSidebarStateAtom: InboxSidebarStateAtom(),
+            inboxSidebarState: InboxSidebarState(),
             paneInboxPresenter: paneInboxPresenter
         )
         controller = windowController

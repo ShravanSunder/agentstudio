@@ -9,7 +9,7 @@ import Testing
 struct InboxNotificationSidebarViewTests {
     @Test("preseeded filter state is consumed when the inbox mounts")
     func preseededFilterDraftIsConsumedOnMount() async {
-        let inboxSidebarState = InboxSidebarStateAtom()
+        let inboxSidebarState = InboxSidebarState()
         inboxSidebarState.setPendingFilter(.worktree(id: UUID()))
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
@@ -109,7 +109,7 @@ struct InboxNotificationSidebarViewTests {
                     prefsAtom: InboxNotificationPrefsAtom(),
                     uiState: WorkspaceSidebarState(),
                     sidebarCache: SidebarCacheState(),
-                    inboxSidebarState: InboxSidebarStateAtom(),
+                    inboxSidebarState: InboxSidebarState(),
                     workspacePaneAtom: WorkspacePaneAtom(),
                     workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                     repoCache: RepoCacheAtom(),
@@ -140,7 +140,7 @@ struct InboxNotificationSidebarViewTests {
                         prefsAtom: InboxNotificationPrefsAtom(),
                         uiState: WorkspaceSidebarState(),
                         sidebarCache: SidebarCacheState(),
-                        inboxSidebarState: InboxSidebarStateAtom(),
+                        inboxSidebarState: InboxSidebarState(),
                         workspacePaneAtom: WorkspacePaneAtom(),
                         workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                         repoCache: RepoCacheAtom(),
@@ -559,7 +559,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
                 prefsAtom: prefsAtom,
                 uiState: WorkspaceSidebarState(),
                 sidebarCache: SidebarCacheState(),
-                inboxSidebarState: InboxSidebarStateAtom(),
+                inboxSidebarState: InboxSidebarState(),
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: repositoryTopologyAtom,
                 repoCache: repoCache,
@@ -627,7 +627,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
                 prefsAtom: prefsAtom,
                 uiState: WorkspaceSidebarState(),
                 sidebarCache: SidebarCacheState(),
-                inboxSidebarState: InboxSidebarStateAtom(),
+                inboxSidebarState: InboxSidebarState(),
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: repositoryTopologyAtom,
                 repoCache: repoCache,
@@ -711,7 +711,7 @@ struct InboxSidebarFocusActivationTests {
                 prefsAtom: InboxNotificationPrefsAtom(),
                 uiState: uiState,
                 sidebarCache: SidebarCacheState(),
-                inboxSidebarState: InboxSidebarStateAtom(),
+                inboxSidebarState: InboxSidebarState(),
                 workspacePaneAtom: workspacePaneAtom,
                 workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),

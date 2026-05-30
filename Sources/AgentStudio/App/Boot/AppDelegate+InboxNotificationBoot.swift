@@ -7,7 +7,7 @@ extension AppDelegate {
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: atomStore.inboxNotification,
             prefsAtom: atomStore.inboxNotificationPrefs,
-            sidebarStateAtom: atomStore.inboxSidebarState,
+            sidebarState: atomStore.inboxSidebarState,
             fileURL: fileURL,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)

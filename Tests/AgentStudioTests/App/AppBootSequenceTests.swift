@@ -56,6 +56,23 @@ struct AppBootSequenceTests {
         #expect(appDelegateSource.contains("assertBootPersistenceObservationArmed()"))
     }
 
+    @Test("inbox notification autosave observes memory, not runtime handoff state")
+    func inboxNotificationAutosaveObservesMemoryNotRuntimeHandoffState() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let inboxBootSourceURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Boot/AppDelegate+InboxNotificationBoot.swift"
+        )
+        let appDelegateSource = try String(
+            contentsOf: inboxBootSourceURL,
+            encoding: .utf8
+        )
+
+        #expect(appDelegateSource.contains("_ = atomStore.inboxSidebarState.collapsedGroups"))
+        #expect(!appDelegateSource.contains("pendingFilter"))
+        #expect(!appDelegateSource.contains("peekPendingFilter"))
+        #expect(!appDelegateSource.contains("consumePendingFilter"))
+    }
+
     @Test("production code avoids the clock-based Task.sleep overload")
     func productionCodeAvoidsClockBasedTaskSleep() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

@@ -323,8 +323,8 @@ Atoms are writer-owned lifecycle groups, not SQL table models. A write-owner ato
 | RepoCacheAtom | RepoEnrichmentCacheAtom, RecentWorkspaceTargetAtom | repo/sidebar read models |
 | UIStateAtom (source before Step 0 split) | WorkspaceSidebarMemoryAtom, SidebarFocusRuntimeAtom | WorkspaceSidebarState |
 | SidebarCacheState (SidebarCacheAtom source before Step 0 split) | SidebarExpandedGroupAtom, SidebarCheckoutColorAtom | sidebar shell read model |
-| EditorChooserAtom | EditorPreferenceAtom, EditorChooserRuntimeAtom | editor chooser read model |
-| InboxSidebarStateAtom | InboxSidebarMemoryAtom, InboxSidebarRuntimeAtom | inbox sidebar read model |
+| EditorChooserState (EditorChooserAtom source before Step 0 split) | EditorPreferenceAtom, EditorChooserRuntimeAtom | editor chooser read model |
+| InboxSidebarState (InboxSidebarStateAtom source before Step 0 split) | InboxSidebarMemoryAtom, InboxSidebarRuntimeAtom | inbox sidebar read model |
 
 ## Domain Type Role Matrix
 
@@ -520,9 +520,9 @@ mise run test -- --filter "SidebarCacheStateTests|SidebarCacheStoreTests"
 
 Expected: expanded groups and checkout colors mutate independently.
 
-- [ ] **Step 4: Split feature atoms**
+- [x] **Step 4: Split feature atoms**
 
-Create or rename state so:
+Renamed state so:
 
 ```text
 EditorPreferenceAtom
@@ -541,7 +541,7 @@ InboxSidebarRuntimeAtom
 Tests:
 
 ```bash
-mise run test -- --filter "EditorChooser|InboxSidebarStateAtomTests"
+mise run test -- --filter "WorkspaceSidebarStateStoreTests|InboxSidebarState"
 ```
 
 Expected: settings/local memory behavior remains stable; runtime-only fields do not persist.

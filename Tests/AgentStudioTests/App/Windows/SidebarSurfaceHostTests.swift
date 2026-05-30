@@ -63,7 +63,7 @@ struct SidebarSurfaceHostTests {
             name: "main",
             path: URL(fileURLWithPath: "/tmp/repo")
         )
-        let sidebarState = InboxSidebarStateAtom()
+        let sidebarState = InboxSidebarState()
 
         try await withIsolatedCommandDispatcher(
             configure: {

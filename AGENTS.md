@@ -108,6 +108,12 @@ icons when a sidebar/local action already defines the presentation.
 | `TransientKeyboardSurfaceAtom` | runtime transient keyboard surface stack | `Core/State/MainActor/Atoms/TransientKeyboardSurfaceAtom.swift` |
 | `ArrangementPanelPresentationAtom` | runtime pending arrangement panel presentation request | `Core/State/MainActor/Atoms/ArrangementPanelPresentationAtom.swift` |
 | `SessionRuntimeAtom` | runtime status per pane | `Core/State/MainActor/Atoms/SessionRuntimeAtom.swift` |
+| `EditorPreferenceAtom` | settings-bound bookmarked editor preference | `Features/EditorChooser/State/MainActor/Atoms/EditorChooserState.swift` |
+| `EditorChooserRuntimeAtom` | runtime editor chooser open pane and discovered targets | `Features/EditorChooser/State/MainActor/Atoms/EditorChooserState.swift` |
+| `EditorChooserState` | UI-facing composition surface over editor preference + chooser runtime atoms | `Features/EditorChooser/State/MainActor/Atoms/EditorChooserState.swift` |
+| `InboxSidebarMemoryAtom` | persisted inbox sidebar collapsed-group memory | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
+| `InboxSidebarRuntimeAtom` | runtime pending inbox filter handoff | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
+| `InboxSidebarState` | UI-facing composition surface over inbox sidebar memory + runtime atoms | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoCacheAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
 | `UIStateStore` | persistence wrapper for workspace sidebar memory and editor chooser bookmark until those stores split | `Core/State/MainActor/Persistence/UIStateStore.swift` |

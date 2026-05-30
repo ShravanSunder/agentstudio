@@ -20,7 +20,7 @@ struct UIStateStoreTests {
     func flushAndRestore_roundTripsPersistedUIState() throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()
-        let uiStateStore = UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
+        let uiStateStore = UIStateStore(atom: atom, editorChooserState: EditorChooserState(), persistor: persistor)
 
         atom.setFilterText("terminal")
         atom.setFilterVisible(true)
@@ -33,7 +33,7 @@ struct UIStateStoreTests {
         let restoredAtom = WorkspaceSidebarState()
         let restoredStore = UIStateStore(
             atom: restoredAtom,
-            editorChooserAtom: EditorChooserAtom(),
+            editorChooserState: EditorChooserState(),
             persistor: persistor
         )
         restoredStore.restore(for: workspaceId)
@@ -49,7 +49,7 @@ struct UIStateStoreTests {
     func flush_operatesOnTheProvidedLiveAtomScope() throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()
-        let store = UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
+        let store = UIStateStore(atom: atom, editorChooserState: EditorChooserState(), persistor: persistor)
 
         atom.setFilterText("agent")
         atom.setFilterVisible(true)
@@ -62,7 +62,7 @@ struct UIStateStoreTests {
         let restoredAtom = WorkspaceSidebarState()
         UIStateStore(
             atom: restoredAtom,
-            editorChooserAtom: EditorChooserAtom(),
+            editorChooserState: EditorChooserState(),
             persistor: persistor
         ).restore(for: workspaceId)
 
@@ -83,7 +83,7 @@ struct UIStateStoreTests {
         var reportedRecovery: PersistenceRecoveryEvent?
         let store = UIStateStore(
             atom: atom,
-            editorChooserAtom: EditorChooserAtom(),
+            editorChooserState: EditorChooserState(),
             persistor: persistor,
             recoveryReporter: { reportedRecovery = $0 }
         )
@@ -117,7 +117,7 @@ struct UIStateStoreTests {
         var reportedRecovery: PersistenceRecoveryEvent?
         let store = UIStateStore(
             atom: atom,
-            editorChooserAtom: EditorChooserAtom(),
+            editorChooserState: EditorChooserState(),
             persistor: WorkspacePersistor(workspacesDir: blockedDirectoryURL),
             recoveryReporter: { reportedRecovery = $0 }
         )
@@ -148,7 +148,7 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = WorkspaceSidebarState()
-        let store = UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
+        let store = UIStateStore(atom: atom, editorChooserState: EditorChooserState(), persistor: persistor)
 
         store.restore(for: workspaceId)
 
@@ -170,7 +170,11 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = WorkspaceSidebarState()
-        UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor).restore(for: workspaceId)
+        UIStateStore(
+            atom: atom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor
+        ).restore(for: workspaceId)
 
         #expect(atom.sidebarCollapsed == false)
         #expect(atom.sidebarSurface == .repos)
@@ -195,7 +199,11 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = WorkspaceSidebarState()
-        UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor).restore(for: workspaceId)
+        UIStateStore(
+            atom: atom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor
+        ).restore(for: workspaceId)
 
         #expect(atom.filterText.isEmpty)
         #expect(atom.isFilterVisible == false)
@@ -207,24 +215,90 @@ struct UIStateStoreTests {
     func editorChooserState_roundTripsThroughUIStatePersistence() throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()
-        let editorChooser = EditorChooserAtom()
-        let store = UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor)
+        let editorChooser = EditorChooserState()
+        let store = UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor)
 
         editorChooser.setBookmarkedEditor("cursor")
         editorChooser.setOpenEditorPane(UUID())
 
         try store.flush(for: workspaceId)
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        let persistedPayload = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: uiURL)) as? [String: Any]
+        )
+        let persistedEditorChooserState = try #require(
+            persistedPayload["editorChooserState"] as? [String: Any]
+        )
+        #expect(persistedEditorChooserState["bookmarkedEditorId"] as? String == "cursor")
+        #expect(persistedEditorChooserState["openForPaneId"] == nil)
 
         let restoredAtom = WorkspaceSidebarState()
-        let restoredEditorChooser = EditorChooserAtom()
+        let restoredEditorChooser = EditorChooserState()
         UIStateStore(
             atom: restoredAtom,
-            editorChooserAtom: restoredEditorChooser,
+            editorChooserState: restoredEditorChooser,
             persistor: persistor
         ).restore(for: workspaceId)
 
-        #expect(restoredEditorChooser.state.bookmarkedEditorId == "cursor")
-        #expect(restoredEditorChooser.state.openForPaneId == nil)
+        #expect(restoredEditorChooser.bookmarkedEditorId == "cursor")
+        #expect(restoredEditorChooser.openForPaneId == nil)
+    }
+
+    @Test
+    func directEditorPreferenceMutation_autosavesThroughComposedState() async throws {
+        let workspaceId = UUID()
+        let atom = WorkspaceSidebarState()
+        let preferenceAtom = EditorPreferenceAtom()
+        let editorChooser = EditorChooserState(preferenceAtom: preferenceAtom)
+        let store = UIStateStore(
+            atom: atom,
+            editorChooserState: editorChooser,
+            persistor: persistor,
+            persistDebounceDuration: .zero
+        )
+        store.restore(for: workspaceId)
+        store.startObserving()
+
+        preferenceAtom.setBookmarkedEditor("cursor")
+
+        await assertEventuallyMain("editor preference write-owner mutation should autosave") {
+            switch persistor.loadUI(for: workspaceId) {
+            case .loaded(let state):
+                return state.editorChooserState.bookmarkedEditorId == "cursor"
+            case .missing, .corrupt:
+                return false
+            }
+        }
+    }
+
+    @Test
+    func editorChooserRuntimeMutation_doesNotAutosaveUIState() async {
+        let workspaceId = UUID()
+        let atom = WorkspaceSidebarState()
+        let runtimeAtom = EditorChooserRuntimeAtom()
+        let editorChooser = EditorChooserState(runtimeAtom: runtimeAtom)
+        let clock = TestPushClock()
+        let store = UIStateStore(
+            atom: atom,
+            editorChooserState: editorChooser,
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
+        store.restore(for: workspaceId)
+        store.startObserving()
+
+        runtimeAtom.setOpenEditorPane(UUID())
+        runtimeAtom.setAvailableTargets(ExternalEditorTarget.curatedOrder)
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+
+        #expect(clock.pendingSleepCount == 0)
+        guard case .missing = persistor.loadUI(for: workspaceId) else {
+            Issue.record("Runtime-only editor chooser mutations must not autosave UI state")
+            return
+        }
     }
 
     @Test
@@ -242,11 +316,11 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = WorkspaceSidebarState()
-        let editorChooser = EditorChooserAtom()
-        UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor).restore(for: workspaceId)
+        let editorChooser = EditorChooserState()
+        UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor).restore(for: workspaceId)
 
-        #expect(editorChooser.state.bookmarkedEditorId == nil)
-        #expect(editorChooser.state.openForPaneId == nil)
+        #expect(editorChooser.bookmarkedEditorId == nil)
+        #expect(editorChooser.openForPaneId == nil)
     }
 
     @Test
@@ -269,11 +343,11 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = WorkspaceSidebarState()
-        let editorChooser = EditorChooserAtom()
-        UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor).restore(for: workspaceId)
+        let editorChooser = EditorChooserState()
+        UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor).restore(for: workspaceId)
 
-        #expect(editorChooser.state.bookmarkedEditorId == "cursor")
-        #expect(editorChooser.state.openForPaneId == nil)
+        #expect(editorChooser.bookmarkedEditorId == "cursor")
+        #expect(editorChooser.openForPaneId == nil)
     }
 
     @Test
@@ -292,13 +366,13 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = WorkspaceSidebarState()
-        let editorChooser = EditorChooserAtom()
-        UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor).restore(for: workspaceId)
+        let editorChooser = EditorChooserState()
+        UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor).restore(for: workspaceId)
 
         #expect(atom.filterText == "terminal")
         #expect(atom.isFilterVisible)
-        #expect(editorChooser.state.bookmarkedEditorId == nil)
-        #expect(editorChooser.state.openForPaneId == nil)
+        #expect(editorChooser.bookmarkedEditorId == nil)
+        #expect(editorChooser.openForPaneId == nil)
     }
 
     @Test
@@ -316,7 +390,7 @@ struct UIStateStoreTests {
         let clock = TestPushClock()
         let store = UIStateStore(
             atom: atom,
-            editorChooserAtom: EditorChooserAtom(),
+            editorChooserState: EditorChooserState(),
             persistor: persistor,
             persistDebounceDuration: .milliseconds(10),
             clock: clock
@@ -341,7 +415,7 @@ struct UIStateStoreTests {
         let workspaceId = UUID()
         let store = UIStateStore(
             atom: WorkspaceSidebarState(),
-            editorChooserAtom: EditorChooserAtom(),
+            editorChooserState: EditorChooserState(),
             persistor: persistor
         )
 
@@ -354,11 +428,11 @@ struct UIStateStoreTests {
 
     @Test
     func setBookmarkedEditor_nilClearsStoredBookmark() {
-        let atom = EditorChooserAtom()
+        let atom = EditorChooserState()
 
         atom.setBookmarkedEditor("cursor")
         atom.setBookmarkedEditor(nil)
 
-        #expect(atom.state.bookmarkedEditorId == nil)
+        #expect(atom.bookmarkedEditorId == nil)
     }
 }

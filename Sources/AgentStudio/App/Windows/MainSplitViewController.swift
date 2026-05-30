@@ -5,7 +5,7 @@ struct SidebarRootViewDependencies {
     let store: WorkspaceStore
     let uiState: WorkspaceSidebarState
     let sidebarCache: SidebarCacheState
-    let inboxSidebarState: InboxSidebarStateAtom
+    let inboxSidebarState: InboxSidebarState
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
@@ -59,7 +59,7 @@ class MainSplitViewController: NSSplitViewController {
     private let viewRegistry: ViewRegistry
     private let inboxAtom: InboxNotificationAtom
     private let inboxPrefsAtom: InboxNotificationPrefsAtom
-    private let inboxSidebarStateAtom: InboxSidebarStateAtom
+    private let inboxSidebarState: InboxSidebarState
     private let paneInboxPresenter: PaneInboxNotificationPresenter
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
@@ -80,7 +80,7 @@ class MainSplitViewController: NSSplitViewController {
         viewRegistry: ViewRegistry,
         inboxAtom: InboxNotificationAtom,
         inboxPrefsAtom: InboxNotificationPrefsAtom,
-        inboxSidebarStateAtom: InboxSidebarStateAtom,
+        inboxSidebarState: InboxSidebarState,
         paneInboxPresenter: PaneInboxNotificationPresenter,
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
             .defaultSidebarRootViewBuilder,
@@ -97,7 +97,7 @@ class MainSplitViewController: NSSplitViewController {
         self.viewRegistry = viewRegistry
         self.inboxAtom = inboxAtom
         self.inboxPrefsAtom = inboxPrefsAtom
-        self.inboxSidebarStateAtom = inboxSidebarStateAtom
+        self.inboxSidebarState = inboxSidebarState
         self.paneInboxPresenter = paneInboxPresenter
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         self.closeTransitionCoordinator = closeTransitionCoordinator
@@ -138,7 +138,7 @@ class MainSplitViewController: NSSplitViewController {
                 store: store,
                 uiState: uiState,
                 sidebarCache: atom(\.sidebarCache),
-                inboxSidebarState: inboxSidebarStateAtom,
+                inboxSidebarState: inboxSidebarState,
                 inboxAtom: inboxAtom,
                 prefsAtom: inboxPrefsAtom,
                 repoCache: repoCache,

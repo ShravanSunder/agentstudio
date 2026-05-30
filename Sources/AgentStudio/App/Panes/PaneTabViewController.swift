@@ -2971,7 +2971,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
             let installedTargets = installedEditorTargetsProvider()
             var resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
-                bookmarkedEditorId: atom(\.editorChooser).state.bookmarkedEditorId,
+                bookmarkedEditorId: atom(\.editorChooser).bookmarkedEditorId,
                 installedTargets: installedTargets
             )
             if case .bookmarkedEditorNotInstalled = resolution {
@@ -2990,7 +2990,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return openFinderHandler(targetPath)
         case .openPaneLocationInEditorMenu:
             guard let activePaneId = activePaneIdForChooserRequest() else { return false }
-            if atom(\.editorChooser).state.openForPaneId == activePaneId {
+            if atom(\.editorChooser).openForPaneId == activePaneId {
                 atom(\.editorChooser).setOpenEditorPane(nil)
                 return true
             }
