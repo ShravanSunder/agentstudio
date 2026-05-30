@@ -46,7 +46,7 @@ final class TerminalActivityRouter {
     private let traceRuntime: AgentStudioTraceRuntime?
     private let unseenActivityDebounceDuration: Duration
     private let unseenActivityDebounceMilliseconds: Int
-    private let unseenActivityClock: any Clock<Duration>
+    private let unseenActivityDelay: AsyncDelay
     private let nowMilliseconds: @Sendable () -> Int64
     private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool
 
@@ -64,7 +64,7 @@ final class TerminalActivityRouter {
         traceRuntime: AgentStudioTraceRuntime? = nil,
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
-        unseenActivityClock: any Clock<Duration> = ContinuousClock(),
+        unseenActivityClock: (any Clock<Duration>)? = nil,
         nowMilliseconds: @escaping @Sendable () -> Int64 = {
             Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
         }
@@ -75,7 +75,7 @@ final class TerminalActivityRouter {
         self.traceRuntime = traceRuntime
         self.unseenActivityDebounceDuration = unseenActivityDebounceDuration
         self.unseenActivityDebounceMilliseconds = Self.milliseconds(from: unseenActivityDebounceDuration)
-        self.unseenActivityClock = unseenActivityClock
+        unseenActivityDelay = unseenActivityClock.map(AsyncDelay.clock) ?? .taskSleep
         self.nowMilliseconds = nowMilliseconds
         self.isPaneCurrentlyAttended =
             isPaneCurrentlyAttended
@@ -346,7 +346,7 @@ final class TerminalActivityRouter {
         unseenActivityCloseTasksByPaneId[paneId] = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await unseenActivityClock.sleep(for: unseenActivityDebounceDuration)
+                try await unseenActivityDelay.wait(unseenActivityDebounceDuration)
             } catch is CancellationError {
                 return
             } catch {

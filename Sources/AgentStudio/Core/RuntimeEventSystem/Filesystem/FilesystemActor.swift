@@ -14,15 +14,23 @@ actor FilesystemActor {
         let sleep: @Sendable (Duration) async throws -> Void
 
         static func continuous() -> Self {
-            make(clock: ContinuousClock())
-        }
-
-        static func make<C: Clock>(clock: C) -> Self where C.Duration == Duration, C: Sendable {
+            let clock = ContinuousClock()
             let origin = clock.now
             return Self(
                 now: { origin.duration(to: clock.now) },
                 sleep: { duration in
-                    try await clock.sleep(for: duration)
+                    try await AsyncDelay.taskSleep.wait(duration)
+                }
+            )
+        }
+
+        static func make<C: Clock>(clock: C) -> Self where C.Duration == Duration, C: Sendable {
+            let origin = clock.now
+            let delay = AsyncDelay.clock(clock)
+            return Self(
+                now: { origin.duration(to: clock.now) },
+                sleep: { duration in
+                    try await delay.wait(duration)
                 }
             )
         }

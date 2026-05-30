@@ -44,7 +44,7 @@ struct InboxNotificationSidebarView: View {
     @State private var unreadOnly = false
     @FocusState private var focusedField: InboxFocus?
 
-    private let flashClock = ContinuousClock()
+    private let flashDelay = AsyncDelay.taskSleep
 
     init(
         inboxAtom: InboxNotificationAtom,
@@ -362,8 +362,8 @@ struct InboxNotificationSidebarView: View {
         case .flashRow(let rowId):
             // History is denormalized, so stale rows can outlive their pane; flash instead of dispatching a dead target.
             flashingRowIds.insert(rowId)
-            Task { @MainActor [flashClock] in
-                try? await flashClock.sleep(for: .milliseconds(600))
+            Task { @MainActor [flashDelay] in
+                try? await flashDelay.wait(.milliseconds(600))
                 flashingRowIds.remove(rowId)
             }
         case .focusPane(let paneId):

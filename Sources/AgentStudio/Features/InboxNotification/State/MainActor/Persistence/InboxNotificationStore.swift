@@ -17,7 +17,7 @@ final class InboxNotificationStore {
     let sidebarStateAtom: InboxSidebarStateAtom
 
     private let fileURL: URL
-    private let clock: any Clock<Duration>
+    private let delay: AsyncDelay
     private let debounceDuration: Duration
     private let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
@@ -27,7 +27,7 @@ final class InboxNotificationStore {
         prefsAtom: InboxNotificationPrefsAtom,
         sidebarStateAtom: InboxSidebarStateAtom = .init(),
         fileURL: URL,
-        clock: any Clock<Duration> = ContinuousClock(),
+        clock: (any Clock<Duration>)? = nil,
         debounceDuration: Duration = .milliseconds(500),
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
@@ -35,7 +35,7 @@ final class InboxNotificationStore {
         self.prefsAtom = prefsAtom
         self.sidebarStateAtom = sidebarStateAtom
         self.fileURL = fileURL
-        self.clock = clock
+        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.debounceDuration = debounceDuration
         self.recoveryReporter = recoveryReporter
     }
@@ -240,7 +240,7 @@ final class InboxNotificationStore {
         debouncedSaveTask = Task { [weak self] in
             guard let self else { return }
             do {
-                try await clock.sleep(for: debounceDuration)
+                try await delay.wait(debounceDuration)
             } catch is CancellationError {
                 return
             } catch {

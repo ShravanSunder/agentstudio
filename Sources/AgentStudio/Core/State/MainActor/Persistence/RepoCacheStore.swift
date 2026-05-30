@@ -9,7 +9,7 @@ final class RepoCacheStore {
     private let atom: RepoCacheAtom
     private let persistor: WorkspacePersistor
     private let persistDebounceDuration: Duration
-    private let clock: any Clock<Duration>
+    private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
     private var isObservingCacheState = false
@@ -24,13 +24,13 @@ final class RepoCacheStore {
         atom: RepoCacheAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
-        clock: any Clock<Duration> = ContinuousClock(),
+        clock: (any Clock<Duration>)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
         self.persistor = persistor
         self.persistDebounceDuration = persistDebounceDuration
-        self.clock = clock
+        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.recoveryReporter = recoveryReporter
     }
 
@@ -113,7 +113,7 @@ final class RepoCacheStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            try? await self.clock.sleep(for: self.persistDebounceDuration)
+            try? await self.delay.wait(self.persistDebounceDuration)
             guard !Task.isCancelled else { return }
             do {
                 try self.persistNow(for: workspaceId)

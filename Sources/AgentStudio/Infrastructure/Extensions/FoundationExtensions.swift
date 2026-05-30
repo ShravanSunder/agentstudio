@@ -1,5 +1,32 @@
 import Foundation
 
+/// Small delay seam for production code that needs cancellation-aware sleeps.
+///
+/// Production code should default to `taskSleep`, which avoids the generic
+/// clock sleep path that reproduced `swift_task_dealloc` crashes on macOS 26.4.
+/// Tests can still inject `clock(_:)` for deterministic debounce/timer control.
+struct AsyncDelay: Sendable {
+    private let operation: @Sendable (Duration) async throws -> Void
+
+    static let taskSleep = Self { duration in
+        try await Task.sleep(nanoseconds: duration.nanosecondsForTaskSleep)
+    }
+
+    static func clock(_ clock: any Clock<Duration>) -> Self {
+        Self { duration in
+            try await clock.sleep(for: duration)
+        }
+    }
+
+    init(_ operation: @escaping @Sendable (Duration) async throws -> Void) {
+        self.operation = operation
+    }
+
+    func wait(_ duration: Duration) async throws {
+        try await operation(duration)
+    }
+}
+
 extension Duration {
     /// Prefer `Task.sleep(nanoseconds:)` in production async tasks.
     ///

@@ -10,7 +10,7 @@ import os.log
 final class NotificationReducer {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "NotificationReducer")
 
-    private let clock: any Clock<Duration>
+    private let delay: AsyncDelay
     private let tierResolver: (any VisibilityTierResolver)?
 
     private let criticalContinuation: AsyncStream<RuntimeEnvelope>.Continuation
@@ -25,10 +25,10 @@ final class NotificationReducer {
     private var frameTimer: Task<Void, Never>?
 
     init(
-        clock: any Clock<Duration> = ContinuousClock(),
+        clock: (any Clock<Duration>)? = nil,
         tierResolver: (any VisibilityTierResolver)? = nil
     ) {
-        self.clock = clock
+        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.tierResolver = tierResolver
 
         let (criticalEvents, criticalContinuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
@@ -88,7 +88,7 @@ final class NotificationReducer {
             defer { self?.frameTimer = nil }
             while let self, !self.lossyBuffer.isEmpty {
                 do {
-                    try await self.clock.sleep(for: .milliseconds(16))
+                    try await self.delay.wait(.milliseconds(16))
                 } catch is CancellationError {
                     return
                 } catch {

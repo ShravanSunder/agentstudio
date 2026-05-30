@@ -9,13 +9,13 @@ import SwiftUI
 @MainActor
 @Observable
 final class PaneCloseTransitionCoordinator {
-    private let clock: any Clock<Duration>
+    private let delay: AsyncDelay
     private var pendingCloseTasks: [UUID: Task<Void, Never>] = [:]
 
     private(set) var closingPaneIds: Set<UUID> = []
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
-        self.clock = clock
+    init(clock: (any Clock<Duration>)? = nil) {
+        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
     }
 
     isolated deinit {
@@ -32,10 +32,10 @@ final class PaneCloseTransitionCoordinator {
     ) {
         guard closingPaneIds.insert(paneId).inserted else { return }
 
-        let sleepClock = self.clock
+        let delayScheduler = self.delay
         let task = Task { [weak self] in
             do {
-                try await sleepClock.sleep(for: delay)
+                try await delayScheduler.wait(delay)
             } catch {
                 await MainActor.run { [weak self] in
                     self?.finishClosingPane(paneId)

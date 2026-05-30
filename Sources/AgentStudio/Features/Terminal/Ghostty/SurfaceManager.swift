@@ -69,8 +69,8 @@ final class SurfaceManager {
     /// Health check interval in seconds
     private let healthCheckInterval: TimeInterval
 
-    /// Clock for scheduling time-dependent operations (e.g. undo expiration).
-    private let clock: any Clock<Duration>
+    /// Delay scheduler for time-dependent operations (e.g. undo expiration).
+    private let delayScheduler: AsyncDelay
 
     // MARK: - Private State
 
@@ -105,12 +105,12 @@ final class SurfaceManager {
         undoTTL: TimeInterval = 300,
         maxCreationRetries: Int = 2,
         healthCheckInterval: TimeInterval = 2.0,
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: (any Clock<Duration>)? = nil
     ) {
         self.undoTTL = undoTTL
         self.maxCreationRetries = maxCreationRetries
         self.healthCheckInterval = healthCheckInterval
-        self.clock = clock
+        delayScheduler = clock.map(AsyncDelay.clock) ?? .taskSleep
         (cwdChangeStream, cwdChangeContinuation) = AsyncStream.makeStream()
 
         let appSupport = AppDataPaths.rootDirectory()
@@ -821,7 +821,7 @@ extension SurfaceManager {
         Task { @MainActor in
             let delay = date.timeIntervalSinceNow
             if delay > 0 {
-                try? await clock.sleep(for: .seconds(delay))
+                try? await delayScheduler.wait(.seconds(delay))
             }
 
             guard !Task.isCancelled else { return }

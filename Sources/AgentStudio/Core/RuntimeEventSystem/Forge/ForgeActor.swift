@@ -70,7 +70,7 @@ actor ForgeActor {
     private let providerName: String
     private let envelopeClock: ContinuousClock
     private let pollInterval: Duration
-    private let sleepClock: any Clock<Duration>
+    private let delay: AsyncDelay
     private let subscriptionBufferLimit: Int
 
     private var subscriptionTask: Task<Void, Never>?
@@ -85,7 +85,7 @@ actor ForgeActor {
         providerName: String = "github",
         envelopeClock: ContinuousClock = ContinuousClock(),
         pollInterval: Duration = .seconds(45),
-        sleepClock: any Clock<Duration> = ContinuousClock(),
+        sleepClock: (any Clock<Duration>)? = nil,
         subscriptionBufferLimit: Int = 256
     ) {
         self.runtimeBus = bus
@@ -93,7 +93,7 @@ actor ForgeActor {
         self.providerName = providerName
         self.envelopeClock = envelopeClock
         self.pollInterval = pollInterval
-        self.sleepClock = sleepClock
+        delay = sleepClock.map(AsyncDelay.clock) ?? .taskSleep
         self.subscriptionBufferLimit = subscriptionBufferLimit
     }
 
@@ -212,7 +212,7 @@ actor ForgeActor {
     private func pollLoop() async {
         while !Task.isCancelled {
             do {
-                try await sleepClock.sleep(for: pollInterval)
+                try await delay.wait(pollInterval)
             } catch is CancellationError {
                 return
             } catch {
