@@ -42,18 +42,18 @@ cask "$TOKEN" do
 
   url "https://github.com/ShravanSunder/agentstudio/releases/download/v#{version}/AgentStudio-v#{version}-macos.zip"
   name "Agent Studio"
-  desc "macOS terminal application with Ghostty terminal emulator and project management"
+  desc "Terminal application with Ghostty terminal emulator and project management"
   homepage "https://github.com/ShravanSunder/agentstudio"
 
-  depends_on macos: ">= :tahoe"
   conflicts_with cask: "$CONFLICT"
+  depends_on macos: :tahoe
 
   app "AgentStudio.app"
 
   zap trash: [
-    "~/Library/Preferences/com.agentstudio.app.plist",
-    "~/Library/Caches/com.agentstudio.app",
     "~/$DATA_DIR",
+    "~/Library/Caches/com.agentstudio.app",
+    "~/Library/Preferences/com.agentstudio.app.plist",
   ]
 end
 EOF
