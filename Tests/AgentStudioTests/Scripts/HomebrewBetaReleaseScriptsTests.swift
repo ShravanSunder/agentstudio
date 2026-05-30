@@ -55,22 +55,20 @@ struct HomebrewBetaReleaseScriptsTests {
         #expect(!beta.stdout.contains("desc \"macOS"))
         #expect(!beta.stdout.contains("depends_on macos: \">= :tahoe\""))
         #expect(beta.stdout.contains("\"~/.agent-studio-b\""))
-        #expect(
-            beta.stdout.lineNumber(of: "  conflicts_with cask: \"agent-studio\"")
-                < beta.stdout.lineNumber(of: "  depends_on macos: :tahoe")
+
+        let conflictsLine = try #require(beta.stdout.lineNumber(of: "  conflicts_with cask: \"agent-studio\""))
+        let dependsLine = try #require(beta.stdout.lineNumber(of: "  depends_on macos: :tahoe"))
+        let appLine = try #require(beta.stdout.lineNumber(of: "  app \"AgentStudio.app\""))
+        #expect(conflictsLine < dependsLine)
+        #expect(dependsLine < appLine)
+
+        let dataLine = try #require(beta.stdout.lineNumber(of: "    \"~/.agent-studio-b\","))
+        let cacheLine = try #require(beta.stdout.lineNumber(of: "    \"~/Library/Caches/com.agentstudio.app\","))
+        let preferencesLine = try #require(
+            beta.stdout.lineNumber(of: "    \"~/Library/Preferences/com.agentstudio.app.plist\",")
         )
-        #expect(
-            beta.stdout.lineNumber(of: "  depends_on macos: :tahoe")
-                < beta.stdout.lineNumber(of: "  app \"AgentStudio.app\"")
-        )
-        #expect(
-            beta.stdout.lineNumber(of: "    \"~/.agent-studio-b\",")
-                < beta.stdout.lineNumber(of: "    \"~/Library/Caches/com.agentstudio.app\",")
-        )
-        #expect(
-            beta.stdout.lineNumber(of: "    \"~/Library/Caches/com.agentstudio.app\",")
-                < beta.stdout.lineNumber(of: "    \"~/Library/Preferences/com.agentstudio.app.plist\",")
-        )
+        #expect(dataLine < cacheLine)
+        #expect(cacheLine < preferencesLine)
     }
 
     @Test("tap updater dry run writes only the selected cask")
@@ -147,9 +145,9 @@ private struct ScriptResult {
 }
 
 extension String {
-    fileprivate func lineNumber(of needle: String) -> Int {
+    fileprivate func lineNumber(of needle: String) -> Int? {
         split(separator: "\n", omittingEmptySubsequences: false)
             .firstIndex { $0 == needle }
-            .map { $0 + 1 } ?? Int.max
+            .map { $0 + 1 }
     }
 }

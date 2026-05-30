@@ -35,17 +35,33 @@ grep -q '"~/.agent-studio-b"' <<<"$beta_cask"
 ! grep -q 'desc "macOS' <<<"$beta_cask"
 ! grep -q 'depends_on macos: ">= :tahoe"' <<<"$beta_cask"
 
-beta_conflicts_line="$(grep -n 'conflicts_with cask: "agent-studio"' <<<"$beta_cask" | cut -d: -f1)"
-beta_depends_line="$(grep -n 'depends_on macos: :tahoe' <<<"$beta_cask" | cut -d: -f1)"
-beta_app_line="$(grep -n 'app "AgentStudio.app"' <<<"$beta_cask" | cut -d: -f1)"
-beta_data_line="$(grep -n '"~/.agent-studio-b",' <<<"$beta_cask" | cut -d: -f1)"
-beta_cache_line="$(grep -n '"~/Library/Caches/com.agentstudio.app",' <<<"$beta_cask" | cut -d: -f1)"
-beta_preferences_line="$(grep -n '"~/Library/Preferences/com.agentstudio.app.plist",' <<<"$beta_cask" | cut -d: -f1)"
+if ! awk '
+  /conflicts_with cask: "agent-studio"/ { conflicts = NR }
+  /depends_on macos: :tahoe/ { depends = NR }
+  /app "AgentStudio.app"/ { app = NR }
+  END {
+    if (!conflicts || !depends || !app || conflicts >= depends || depends >= app) {
+      exit 1
+    }
+  }
+' <<<"$beta_cask"; then
+  echo "beta cask stanza order is incorrect or missing expected stanzas" >&2
+  exit 1
+fi
 
-test "$beta_conflicts_line" -lt "$beta_depends_line"
-test "$beta_depends_line" -lt "$beta_app_line"
-test "$beta_data_line" -lt "$beta_cache_line"
-test "$beta_cache_line" -lt "$beta_preferences_line"
+if ! awk '
+  /"~\/\.agent-studio-b",/ { data = NR }
+  /"~\/Library\/Caches\/com\.agentstudio\.app",/ { cache = NR }
+  /"~\/Library\/Preferences\/com\.agentstudio\.app\.plist",/ { preferences = NR }
+  END {
+    if (!data || !cache || !preferences || data >= cache || cache >= preferences) {
+      exit 1
+    }
+  }
+' <<<"$beta_cask"; then
+  echo "beta cask zap trash order is incorrect or missing expected paths" >&2
+  exit 1
+fi
 
 tap_dir="$(mktemp -d)"
 cleanup() {
