@@ -9,11 +9,7 @@ struct WorkspaceCoreRepository {
         let updatedAt: Date
     }
 
-    private let databaseWriter: any DatabaseWriter
-
-    init(databaseWriter: any DatabaseWriter) {
-        self.databaseWriter = databaseWriter
-    }
+    let databaseWriter: any DatabaseWriter
 
     func migrate() throws {
         try WorkspaceCoreMigrations.migrate(databaseWriter)
@@ -158,12 +154,22 @@ struct WorkspaceCoreRepository {
             return UUID(uuidString: activeWorkspaceIdStringAfterDelete)
         }
     }
+
 }
 
 enum WorkspaceCoreRepositoryError: Error, Equatable {
     case workspaceNotFound(UUID)
+    case repoNotFoundInWorkspace(UUID, UUID)
+    case duplicateRepoId(UUID)
+    case duplicateWorktreeId(UUID)
+    case unavailableRepoNotInTopology(UUID)
+    case worktreeRepoMismatch(worktreeId: UUID, expectedRepoId: UUID, actualRepoId: UUID)
+    case activeWorkspaceSelectionDangling(UUID)
     case cannotClearActiveWorkspaceWhileWorkspacesExist
     case malformedWorkspaceId(String)
+    case malformedRepoId(String)
+    case malformedWorktreeId(String)
+    case malformedWatchedPathId(String)
 }
 
 private func decodeWorkspaceRecord(_ row: Row) throws -> WorkspaceCoreRepository.WorkspaceRecord {
@@ -188,7 +194,13 @@ private func fetchActiveWorkspaceIdFromDatabase(_ database: Database) throws -> 
     else {
         return nil
     }
-    return UUID(uuidString: idString)
+    guard let id = UUID(uuidString: idString) else {
+        throw WorkspaceCoreRepositoryError.malformedWorkspaceId(idString)
+    }
+    guard try workspaceExists(database, id: idString) else {
+        throw WorkspaceCoreRepositoryError.activeWorkspaceSelectionDangling(id)
+    }
+    return id
 }
 
 private func repairActiveWorkspaceSelectionInDatabase(
@@ -285,13 +297,13 @@ private func selectionShouldRepairBeforeDeleting(
     return currentSelectionIsMalformed || !currentSelectionExists
 }
 
-private func requireWorkspaceExists(_ database: Database, id: UUID) throws {
+func requireWorkspaceExists(_ database: Database, id: UUID) throws {
     guard try workspaceExists(database, id: id.uuidString) else {
         throw WorkspaceCoreRepositoryError.workspaceNotFound(id)
     }
 }
 
-private func workspaceExists(_ database: Database, id: String) throws -> Bool {
+func workspaceExists(_ database: Database, id: String) throws -> Bool {
     let matchingCount = try Int.fetchOne(
         database,
         sql: """

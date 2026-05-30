@@ -217,18 +217,7 @@ struct WorkspaceCoreRepositoryTests {
                 updatedAt: Date(timeIntervalSince1970: 200)
             )
         )
-        try fixture.databaseQueue.writeWithoutTransaction { database in
-            try database.execute(sql: "PRAGMA foreign_keys = OFF")
-            try database.execute(
-                sql: """
-                    UPDATE app_workspace_selection
-                    SET active_workspace_id = ?
-                    WHERE singleton_id = 1
-                    """,
-                arguments: ["not-a-uuid"]
-            )
-            try database.execute(sql: "PRAGMA foreign_keys = ON")
-        }
+        try setRawActiveWorkspaceSelection("not-a-uuid", in: fixture.databaseQueue)
 
         let repairedWorkspaceId = try repository.repairActiveWorkspaceSelection(
             updatedAt: Date(timeIntervalSince1970: 300)
@@ -236,6 +225,51 @@ struct WorkspaceCoreRepositoryTests {
 
         #expect(repairedWorkspaceId == workspaceId)
         #expect(try repository.fetchActiveWorkspaceId() == workspaceId)
+    }
+
+    @Test("dangling active workspace selection fails fast on read")
+    func danglingActiveWorkspaceSelectionFailsFastOnRead() throws {
+        let fixture = try makeFixture()
+        let repository = fixture.repository
+        let fallbackWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000023")!
+        let danglingWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000024")!
+        try repository.upsertWorkspace(
+            .init(
+                id: fallbackWorkspaceId,
+                name: "Fallback",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+        try setRawActiveWorkspaceSelection(danglingWorkspaceId.uuidString, in: fixture.databaseQueue)
+
+        #expect(throws: WorkspaceCoreRepositoryError.activeWorkspaceSelectionDangling(danglingWorkspaceId)) {
+            try repository.fetchActiveWorkspaceId()
+        }
+    }
+
+    @Test("dangling active workspace selection repairs to newest workspace")
+    func danglingActiveWorkspaceSelectionRepairsToNewestWorkspace() throws {
+        let fixture = try makeFixture()
+        let repository = fixture.repository
+        let fallbackWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000025")!
+        let danglingWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000026")!
+        try repository.upsertWorkspace(
+            .init(
+                id: fallbackWorkspaceId,
+                name: "Fallback",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+        try setRawActiveWorkspaceSelection(danglingWorkspaceId.uuidString, in: fixture.databaseQueue)
+
+        let repairedWorkspaceId = try repository.repairActiveWorkspaceSelection(
+            updatedAt: Date(timeIntervalSince1970: 300)
+        )
+
+        #expect(repairedWorkspaceId == fallbackWorkspaceId)
+        #expect(try repository.fetchActiveWorkspaceId() == fallbackWorkspaceId)
     }
 
     @Test("missing active workspace singleton row is recreated during repair")
@@ -401,6 +435,21 @@ private func deleteActiveWorkspaceSelectionSingleton(in databaseQueue: DatabaseQ
                 WHERE singleton_id = 1
                 """
         )
+    }
+}
+
+private func setRawActiveWorkspaceSelection(_ value: String, in databaseQueue: DatabaseQueue) throws {
+    try databaseQueue.writeWithoutTransaction { database in
+        try database.execute(sql: "PRAGMA foreign_keys = OFF")
+        try database.execute(
+            sql: """
+                UPDATE app_workspace_selection
+                SET active_workspace_id = ?
+                WHERE singleton_id = 1
+                """,
+            arguments: [value]
+        )
+        try database.execute(sql: "PRAGMA foreign_keys = ON")
     }
 }
 
