@@ -19,7 +19,7 @@ extension KeyboardOwner {
     static func current(
         windowLifecycle: WindowLifecycleAtom,
         managementLayer: ManagementLayerAtom,
-        uiState: UIStateAtom
+        uiState: WorkspaceSidebarState
     ) -> KeyboardOwner {
         guard windowLifecycle.isWorkspaceWindowKey else {
             return .otherWindow

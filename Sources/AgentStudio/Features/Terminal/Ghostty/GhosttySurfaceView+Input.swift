@@ -115,7 +115,7 @@ extension Ghostty.SurfaceView {
             let keyboardContext = KeyboardRoutingContext.current(
                 windowLifecycle: atom(\.windowLifecycle),
                 managementLayer: atom(\.managementLayer),
-                uiState: atom(\.uiState),
+                uiState: atom(\.workspaceSidebarState),
                 commandBarSurface: atom(\.commandBarSurface),
                 transientKeyboardSurface: atom(\.transientKeyboardSurface)
             )

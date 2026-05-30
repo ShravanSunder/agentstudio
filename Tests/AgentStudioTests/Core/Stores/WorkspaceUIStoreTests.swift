@@ -5,10 +5,10 @@ import Testing
 
 @Suite(.serialized)
 @MainActor
-final class UIStateAtomTests {
+final class WorkspaceSidebarStateStoreTests {
     @Test
     func filterState_settersUpdateFields() {
-        let store = UIStateAtom()
+        let store = WorkspaceSidebarState()
 
         store.setFilterText("forge")
         store.setFilterVisible(true)

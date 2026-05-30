@@ -178,11 +178,11 @@ The `MainActor/` segment makes actor isolation visible in the filesystem and lea
 
 There are two kinds of state. They live in different places:
 
-- **Composition state** — app-wide UI shell state generic enough that multiple features consume it. Examples: sidebar collapsed / current surface / has-focus. Lives on `UIStateAtom` in Core. Generic tags only — does not reference feature-specific types.
+- **Composition state** — app-wide UI shell state generic enough that multiple features consume it. Persisted sidebar memory (filter, collapsed state, active surface) lives on `WorkspaceSidebarMemoryAtom`; runtime-only sidebar focus lives on `SidebarFocusRuntimeAtom`; UI surfaces read the composed `WorkspaceSidebarState`. Generic tags only — this layer does not reference feature-specific types.
 
 - **Feature state** — domain data owned by one feature. Examples: notification log, inbox view prefs, repo-explorer expanded groups. Lives in feature atoms inside the feature slice. Never leaks into Core.
 
-If you are tempted to add a feature-specific property to `UIStateAtom`, that property belongs in a feature atom instead. If you are tempted to add a feature type to `Core/Models/`, test it: does *multiple features* and *cross-cutting composition* consume it? If only one feature uses it, it belongs in that feature.
+If you are tempted to add a feature-specific property to the sidebar composition atoms, that property belongs in a feature atom instead. If you are tempted to add a feature type to `Core/Models/`, test it: does *multiple features* and *cross-cutting composition* consume it? If only one feature uses it, it belongs in that feature.
 
 Current exception to watch: `PaneContent.bridgePanel(BridgePaneState)` stores bridge-pane payload in `Core/Models/PaneContent.swift`. This exists because the persisted pane union is currently defined in Core while pane content variants are decoded from workspace state. Treat it as a transitional persistence boundary, not a precedent for adding more feature-owned types to Core. New bridge domain state still belongs in `Features/Bridge/State/...`; any future cleanup should move toward a Core-owned content descriptor or feature registration seam instead of widening Core's knowledge of Bridge internals.
 
@@ -311,7 +311,7 @@ What causes this file to change?
 | New bridge protocol method or push slice | `Features/Bridge/` |
 | App lifecycle / window management | `App/` |
 | New sidebar surface added | New `Features/<surface>/` slice + composition wiring in `App/` |
-| New sidebar shell / composition state | `UIStateAtom` in `Core/State/MainActor/Atoms/` (UI shell state is composition, not feature state) |
+| New sidebar shell / composition state | `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, or `WorkspaceSidebarState` in `Core/State/MainActor/Atoms/` depending on lifecycle (UI shell state is composition, not feature state) |
 | New design-system primitive (button, pill, token) | `SharedComponents/` |
 | New reusable view within a single feature | `Features/X/Components/` |
 | New utility used by multiple features | `Infrastructure/` |
@@ -355,7 +355,9 @@ Parallel test for atoms specifically:
 
   Is the state I'm storing:
     • composition state (app-wide UI shell — surface, focus, collapsed)?
-        → UIStateAtom in Core/State/MainActor/Atoms/
+        → WorkspaceSidebarMemoryAtom for persisted shell memory
+        → SidebarFocusRuntimeAtom for runtime focus
+        → WorkspaceSidebarState for composed UI reads
 
     • feature domain state (specific to one feature)?
         → new atom in Features/<slice>/State/MainActor/Atoms/

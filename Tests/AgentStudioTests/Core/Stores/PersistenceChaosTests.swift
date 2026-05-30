@@ -120,7 +120,7 @@ struct PersistenceChaosTests {
                 )
             )
 
-            let atom = UIStateAtom()
+            let atom = WorkspaceSidebarState()
             var recoveryEvents: [PersistenceRecoveryEvent] = []
             UIStateStore(
                 atom: atom,

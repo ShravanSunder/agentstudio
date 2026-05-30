@@ -3,7 +3,7 @@ import SwiftUI
 
 struct SidebarRootViewDependencies {
     let store: WorkspaceStore
-    let uiState: UIStateAtom
+    let uiState: WorkspaceSidebarState
     let sidebarCache: SidebarCacheAtom
     let inboxSidebarState: InboxSidebarStateAtom
     let inboxAtom: InboxNotificationAtom
@@ -50,7 +50,7 @@ class MainSplitViewController: NSSplitViewController {
     private let store: WorkspaceStore
     private let workspaceWindowId: UUID?
     private var repoCache: RepoCacheAtom { atom(\.repoCache) }
-    private var uiState: UIStateAtom { atom(\.uiState) }
+    private var uiState: WorkspaceSidebarState { atom(\.workspaceSidebarState) }
     private let actionExecutor: ActionExecutor
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleAtom

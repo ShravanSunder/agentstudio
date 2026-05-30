@@ -10,7 +10,7 @@ enum InboxFocus: Hashable {
 
 enum InboxSidebarFocusPublisher {
     @MainActor
-    static func publish(focusedField: InboxFocus?, into uiState: UIStateAtom) {
+    static func publish(focusedField: InboxFocus?, into uiState: WorkspaceSidebarState) {
         uiState.setSidebarHasFocus(focusedField != nil)
     }
 }

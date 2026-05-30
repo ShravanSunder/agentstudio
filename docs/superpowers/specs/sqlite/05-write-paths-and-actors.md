@@ -185,9 +185,10 @@ WorkspaceMetadataAtom -> split
   core      -> WorkspaceIdentityAtom
   local     -> WorkspaceWindowMemoryAtom
 
-UIStateAtom -> split
+UIStateAtom (source before Step 0 split) -> split
   local     -> WorkspaceSidebarMemoryAtom
   runtime   -> SidebarFocusRuntimeAtom
+  composed  -> WorkspaceSidebarState
 
 SidebarCacheAtom -> split
   local     -> SidebarExpandedGroupAtom
@@ -575,7 +576,7 @@ RepoCacheStore
 
 UIStateStore
   -> splits editor preference to settings and sidebar memory to local.sqlite
-  -> current dual observation of UIStateAtom plus EditorChooserAtom is split
+  -> current dual observation of WorkspaceSidebarState plus EditorChooserAtom is split
      into separate local/settings flush paths
   -> EditorChooserAtom observation moves to WorkspaceSettingsStore
 

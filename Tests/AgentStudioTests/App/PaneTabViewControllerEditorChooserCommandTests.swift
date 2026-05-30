@@ -18,7 +18,7 @@ struct PaneTabViewControllerEditorChooserCommandTests {
     }
 
     private func makeHarness(installedEditorTargets: [ExternalEditorTarget]) -> Harness {
-        atom(\.uiState).clear()
+        atom(\.workspaceSidebarState).clear()
 
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-editor-chooser-command-\(UUID().uuidString)")

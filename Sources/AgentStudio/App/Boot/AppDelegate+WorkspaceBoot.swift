@@ -139,7 +139,7 @@ extension AppDelegate {
             }
         )
         uiStateStore = UIStateStore(
-            atom: atomStore.uiState,
+            atom: atomStore.workspaceSidebarState,
             editorChooserAtom: atomStore.editorChooser,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)

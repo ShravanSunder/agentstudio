@@ -96,7 +96,9 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceTabLayoutAtom` | tabs, arrangements, active selection, zoom/minimize | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` |
 | `WorkspaceMutationCoordinator` | cross-atom workspace mutations spanning pane and tab layout state | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` |
 | `RepoCacheAtom` | repo enrichment, branches, git status, PR counts, recent targets | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
-| `UIStateAtom` | expanded groups, colors, filter state | `Core/State/MainActor/Atoms/UIStateAtom.swift` |
+| `WorkspaceSidebarMemoryAtom` | persisted workspace sidebar shell memory: filter text, filter visibility, collapsed state, active surface | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
+| `SidebarFocusRuntimeAtom` | runtime-only sidebar focus fact for keyboard-owner derivation | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
+| `WorkspaceSidebarState` | UI-facing composition surface over sidebar memory + runtime focus atoms | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `WorkspaceFocusDerived` | shared app-wide focus reader for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` |
 | `ManagementLayerAtom` | management layer active/inactive state | `Core/State/MainActor/Atoms/ManagementLayerAtom.swift` |
 | `CommandBarSurfaceAtom` | runtime command-bar keyboard surface scope | `Core/State/MainActor/Atoms/CommandBarSurfaceAtom.swift` |
@@ -105,7 +107,7 @@ icons when a sidebar/local action already defines the presentation.
 | `SessionRuntimeAtom` | runtime status per pane | `Core/State/MainActor/Atoms/SessionRuntimeAtom.swift` |
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoCacheAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
-| `UIStateStore` | persistence wrapper for `UIStateAtom` | `Core/State/MainActor/Persistence/UIStateStore.swift` |
+| `UIStateStore` | persistence wrapper for workspace sidebar memory and editor chooser bookmark until those stores split | `Core/State/MainActor/Persistence/UIStateStore.swift` |
 | `AppLifecycleAtom` | application active/terminating state | `Core/State/MainActor/Atoms/AppLifecycleAtom.swift` |
 | `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
 | `PaneFilesystemProjectionAtom` | pane-scoped filesystem projection state derived from runtime envelopes | `Core/State/MainActor/Atoms/PaneFilesystemProjectionAtom.swift` |
@@ -204,7 +206,7 @@ These four patterns govern all code. Follow them. Breaking them creates bugs tha
 
 **Path convention (universal):** `<owner>/State/MainActor/Atoms/` for all atoms, whether Core or Feature. Shared atoms in `Core/State/MainActor/Atoms/`; feature-scoped atoms in `Features/<slice>/State/MainActor/Atoms/`. Existing features without the `MainActor/` subpath are grandfathered; new features adopt the full path.
 
-**Composition state vs feature state.** Composition state (app-wide UI shell — which surface is showing, has-focus, collapsed) lives on `UIStateAtom` in Core. Feature state (domain data specific to one feature) lives in feature atoms inside the feature slice. Never add a feature-specific property to a Core atom; never add a feature type to `Core/Models/` just because an atom references it — that forces feature types into Core.
+**Composition state vs feature state.** Composition state (app-wide UI shell — which surface is showing, whether the sidebar is collapsed, and whether the sidebar owns focus) is split by lifecycle in Core. Persisted shell memory lives on `WorkspaceSidebarMemoryAtom`, runtime-only focus lives on `SidebarFocusRuntimeAtom`, and UI call sites read the composed `WorkspaceSidebarState`. Feature state (domain data specific to one feature) lives in feature atoms inside the feature slice. Never add a feature-specific property to a Core atom; never add a feature type to `Core/Models/` just because an atom references it — that forces feature types into Core.
 
 Shared reads use `atom(\.foo)` or `AtomReader`; `@Atom(\.foo)` is optional convenience sugar. See [component_architecture.md](docs/architecture/component_architecture.md) and [directory_structure.md — Feature Slice Self-Containment](docs/architecture/directory_structure.md) for canonical examples.
 
@@ -320,7 +322,7 @@ agent-studio/
 │   │   ├── State/
 │   │   │   └── MainActor/
 │   │   │       ├── Atoms/            # WorkspaceIdentityAtom, WorkspacePaneAtom,
-│   │   │       │                     #   UIStateAtom, ManagementLayerAtom,
+│   │   │       │                     #   WorkspaceSidebarState, ManagementLayerAtom,
 │   │   │       │                     #   WorkspaceFocusDerived, KeyboardOwnerDerived, ...
 │   │   │       └── Persistence/      # WorkspaceStore, RepoCacheStore, UIStateStore
 │   │   ├── RuntimeEventSystem/       # Runtime actors, event bus, SessionRuntime, ZmxBackend
@@ -377,7 +379,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `RepoCacheAtom` | `Core/State/MainActor/Atoms/` | Derived enrichment (branches, git status, PR counts) |
 | `WorkspaceStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for the workspace-domain atoms |
 | `RepoCacheStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for `RepoCacheAtom` |
-| `UIStateStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for `UIStateAtom` |
+| `UIStateStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for workspace sidebar memory and editor chooser bookmark |
 | `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo |
 | `WorkspaceCommandResolver` | `Core/Actions/` | Resolves AppCommand into PaneActionCommand, builds ActionStateSnapshot |

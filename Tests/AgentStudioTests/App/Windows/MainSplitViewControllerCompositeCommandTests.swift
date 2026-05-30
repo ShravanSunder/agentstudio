@@ -21,8 +21,8 @@ struct MainSplitViewControllerCompositeCommandTests {
                 await eventually(
                     "inbox should become first responder"
                 ) {
-                    harness.atoms.uiState.sidebarSurface == .inbox
-                        && harness.atoms.uiState.sidebarHasFocus
+                    harness.atoms.workspaceSidebarState.sidebarSurface == .inbox
+                        && harness.atoms.workspaceSidebarState.sidebarHasFocus
                         && (harness.window.firstResponder as? NSView)?.identifier
                             == InboxNotificationSidebarView.focusTargetIdentifier
                         && harness.controller.isSidebarCollapsed == false
@@ -40,8 +40,8 @@ struct MainSplitViewControllerCompositeCommandTests {
                 harness.controller.showInboxNotifications(commandBarIsKey: true)
                 await Task.yield()
 
-                #expect(harness.atoms.uiState.sidebarSurface == .inbox)
-                #expect(harness.atoms.uiState.sidebarHasFocus == false)
+                #expect(harness.atoms.workspaceSidebarState.sidebarSurface == .inbox)
+                #expect(harness.atoms.workspaceSidebarState.sidebarHasFocus == false)
                 #expect(
                     (harness.window.firstResponder as? NSView)?.identifier
                         != InboxNotificationSidebarView.focusTargetIdentifier
@@ -62,8 +62,8 @@ struct MainSplitViewControllerCompositeCommandTests {
                 harness.controller.showInboxNotifications(commandBarIsKey: false)
 
                 await eventually("delayed inbox should eventually gain focus") {
-                    harness.atoms.uiState.sidebarSurface == .inbox
-                        && harness.atoms.uiState.sidebarHasFocus
+                    harness.atoms.workspaceSidebarState.sidebarSurface == .inbox
+                        && harness.atoms.workspaceSidebarState.sidebarHasFocus
                         && (harness.window.firstResponder as? NSView)?.identifier
                             == InboxNotificationSidebarView.focusTargetIdentifier
                         && harness.controller.isSidebarCollapsed == false
@@ -79,13 +79,13 @@ struct MainSplitViewControllerCompositeCommandTests {
             body: { harness in
                 harness.controller.showInboxNotifications(commandBarIsKey: false)
                 await eventually("inbox should gain focus") {
-                    harness.atoms.uiState.sidebarHasFocus
+                    harness.atoms.workspaceSidebarState.sidebarHasFocus
                 }
 
                 harness.controller.showWorktreeSidebar()
                 await eventually("inbox focus should clear after surface swap") {
-                    harness.atoms.uiState.sidebarSurface == .repos
-                        && harness.atoms.uiState.sidebarHasFocus == false
+                    harness.atoms.workspaceSidebarState.sidebarSurface == .repos
+                        && harness.atoms.workspaceSidebarState.sidebarHasFocus == false
                 }
             }
         )
@@ -99,12 +99,12 @@ struct MainSplitViewControllerCompositeCommandTests {
                 AnyView(ReposFocusTargetTestSidebarView(uiState: uiState, onEscape: onEscape))
             },
             body: { harness in
-                harness.atoms.uiState.setSidebarSurface(.repos)
-                harness.atoms.uiState.setSidebarHasFocus(false)
+                harness.atoms.workspaceSidebarState.setSidebarSurface(.repos)
+                harness.atoms.workspaceSidebarState.setSidebarHasFocus(false)
 
                 await eventually("repos focus bridge should become first responder") {
                     harness.controller.focusSidebar()
-                        && harness.atoms.uiState.sidebarHasFocus
+                        && harness.atoms.workspaceSidebarState.sidebarHasFocus
                         && (harness.window.firstResponder as? NSView)?.identifier
                             == RepoExplorerView.focusTargetIdentifier
                 }
@@ -119,16 +119,16 @@ struct MainSplitViewControllerCompositeCommandTests {
             body: { harness in
                 harness.controller.showInboxNotifications(commandBarIsKey: false)
                 await eventually("inbox should be visible and focused") {
-                    harness.atoms.uiState.sidebarSurface == .inbox
-                        && harness.atoms.uiState.sidebarHasFocus
+                    harness.atoms.workspaceSidebarState.sidebarSurface == .inbox
+                        && harness.atoms.workspaceSidebarState.sidebarHasFocus
                         && harness.controller.isSidebarCollapsed == false
                 }
 
                 harness.controller.showInboxNotifications(commandBarIsKey: false)
                 await eventually("visible inbox should collapse on second toggle") {
                     harness.controller.isSidebarCollapsed
-                        && harness.atoms.uiState.sidebarCollapsed
-                        && harness.atoms.uiState.sidebarHasFocus == false
+                        && harness.atoms.workspaceSidebarState.sidebarCollapsed
+                        && harness.atoms.workspaceSidebarState.sidebarHasFocus == false
                 }
             }
         )
@@ -140,13 +140,13 @@ struct MainSplitViewControllerCompositeCommandTests {
             withRepos: true,
             body: { harness in
                 #expect(harness.controller.isSidebarCollapsed == false)
-                #expect(harness.atoms.uiState.sidebarSurface == .repos)
+                #expect(harness.atoms.workspaceSidebarState.sidebarSurface == .repos)
 
                 harness.controller.showWorktreeSidebar()
                 await eventually("visible repos should collapse on toggle") {
                     harness.controller.isSidebarCollapsed
-                        && harness.atoms.uiState.sidebarCollapsed
-                        && harness.atoms.uiState.sidebarHasFocus == false
+                        && harness.atoms.workspaceSidebarState.sidebarCollapsed
+                        && harness.atoms.workspaceSidebarState.sidebarHasFocus == false
                 }
             }
         )
@@ -159,14 +159,14 @@ struct MainSplitViewControllerCompositeCommandTests {
             body: { harness in
                 harness.controller.showInboxNotifications(commandBarIsKey: false)
                 await eventually("inbox should be visible") {
-                    harness.atoms.uiState.sidebarSurface == .inbox
+                    harness.atoms.workspaceSidebarState.sidebarSurface == .inbox
                         && harness.controller.isSidebarCollapsed == false
                 }
 
                 harness.controller.showSidebarFilter()
 
-                #expect(harness.atoms.uiState.sidebarSurface == .inbox)
-                #expect(harness.atoms.uiState.isFilterVisible == false)
+                #expect(harness.atoms.workspaceSidebarState.sidebarSurface == .inbox)
+                #expect(harness.atoms.workspaceSidebarState.isFilterVisible == false)
                 #expect(harness.controller.isSidebarCollapsed == false)
             }
         )
@@ -182,15 +182,15 @@ struct MainSplitViewControllerCompositeCommandTests {
             },
             body: { harness in
                 #expect(harness.controller.isSidebarCollapsed == true)
-                #expect(harness.atoms.uiState.sidebarSurface == .inbox)
+                #expect(harness.atoms.workspaceSidebarState.sidebarSurface == .inbox)
 
                 harness.controller.showInboxNotifications(commandBarIsKey: false)
 
                 await eventually("collapsed inbox state should expand instead of collapsing") {
                     harness.controller.isSidebarCollapsed == false
-                        && harness.atoms.uiState.sidebarCollapsed == false
-                        && harness.atoms.uiState.sidebarSurface == .inbox
-                        && harness.atoms.uiState.sidebarHasFocus
+                        && harness.atoms.workspaceSidebarState.sidebarCollapsed == false
+                        && harness.atoms.workspaceSidebarState.sidebarSurface == .inbox
+                        && harness.atoms.workspaceSidebarState.sidebarHasFocus
                 }
             }
         )
@@ -294,7 +294,7 @@ struct MainSplitViewControllerCompositeCommandTests {
 }
 
 struct DelayedInboxTestSidebarView: View {
-    let uiState: UIStateAtom
+    let uiState: WorkspaceSidebarState
     let onEscape: @MainActor @Sendable () -> Void
 
     @State private var isInboxMounted = false
@@ -329,7 +329,7 @@ struct DelayedInboxTestSidebarView: View {
 }
 
 struct ReposFocusTargetTestSidebarView: View {
-    let uiState: UIStateAtom
+    let uiState: WorkspaceSidebarState
     let onEscape: @MainActor @Sendable () -> Void
 
     var body: some View {

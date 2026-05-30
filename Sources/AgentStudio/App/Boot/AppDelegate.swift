@@ -12,7 +12,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var atomStore: AtomRegistry!
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
-    var uiState: UIStateAtom! { atomStore.uiState }
+    var uiState: WorkspaceSidebarState! { atomStore.workspaceSidebarState }
     var inboxNotificationStore: InboxNotificationStore!
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!

@@ -99,7 +99,7 @@ final class ManagementLayerMonitor {
         let keyboardContext = KeyboardRoutingContext.current(
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer,
-            uiState: atom(\.uiState),
+            uiState: atom(\.workspaceSidebarState),
             commandBarSurface: atom(\.commandBarSurface),
             transientKeyboardSurface: transientKeyboardSurface
         )

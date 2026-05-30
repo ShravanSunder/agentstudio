@@ -16,7 +16,7 @@ struct InboxSidebarActions {
 }
 
 struct InboxSidebarRootContainer: View {
-    let uiState: UIStateAtom
+    let uiState: WorkspaceSidebarState
     @Binding var searchText: String
     let activeFilter: InboxFilter?
     let activeFilterLabel: String?

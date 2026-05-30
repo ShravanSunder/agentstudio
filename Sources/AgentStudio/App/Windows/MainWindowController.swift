@@ -17,7 +17,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
     private var inboxAtom: InboxNotificationAtom?
-    private var uiState: UIStateAtom?
+    private var uiState: WorkspaceSidebarState?
     private weak var worktreeToolbarButton: SidebarToolbarButton?
     private weak var inboxToolbarButton: SidebarToolbarButton?
     private var inboxToolbarBadgeHostingView: NSHostingView<UnreadCountBadge>?
@@ -66,7 +66,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         self.init(window: window)
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.inboxAtom = inboxAtom
-        self.uiState = atom(\.uiState)
+        self.uiState = atom(\.workspaceSidebarState)
         window.delegate = self
         applicationLifecycleMonitor.handleWindowRegistered(windowId)
 

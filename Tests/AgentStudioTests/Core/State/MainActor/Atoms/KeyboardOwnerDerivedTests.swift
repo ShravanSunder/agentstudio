@@ -9,11 +9,11 @@ struct KeyboardOwnerDerivedTests {
     private func makeAtoms() -> (
         window: WindowLifecycleAtom,
         management: ManagementLayerAtom,
-        uiState: UIStateAtom
+        uiState: WorkspaceSidebarState
     ) {
         let window = WindowLifecycleAtom()
         let management = ManagementLayerAtom()
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         return (window, management, uiState)
     }
 

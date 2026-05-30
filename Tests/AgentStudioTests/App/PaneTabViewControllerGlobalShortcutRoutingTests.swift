@@ -72,9 +72,9 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             let handler = MockCommandHandler()
             configureMainWindowKeyboardOwner(atoms)
-            atoms.uiState.setSidebarCollapsed(false)
-            atoms.uiState.setSidebarSurface(.inbox)
-            atoms.uiState.setSidebarHasFocus(true)
+            atoms.workspaceSidebarState.setSidebarCollapsed(false)
+            atoms.workspaceSidebarState.setSidebarSurface(.inbox)
+            atoms.workspaceSidebarState.setSidebarHasFocus(true)
 
             let event = try #require(
                 makeKeyEvent(
@@ -109,8 +109,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
             let windowId = UUID()
             injectedWindowLifecycle.recordWindowRegistered(windowId)
             injectedWindowLifecycle.recordWindowBecameKey(windowId)
-            atoms.uiState.setSidebarCollapsed(false)
-            atoms.uiState.setSidebarHasFocus(false)
+            atoms.workspaceSidebarState.setSidebarCollapsed(false)
+            atoms.workspaceSidebarState.setSidebarHasFocus(false)
             atoms.managementLayer.deactivate()
 
             let event = try #require(
@@ -141,8 +141,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
-            atoms.uiState.setSidebarSurface(.repos)
-            atoms.uiState.setSidebarHasFocus(true)
+            atoms.workspaceSidebarState.setSidebarSurface(.repos)
+            atoms.workspaceSidebarState.setSidebarHasFocus(true)
 
             let first = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
             let second = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))

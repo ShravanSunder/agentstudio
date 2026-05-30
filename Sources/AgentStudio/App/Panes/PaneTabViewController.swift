@@ -1277,7 +1277,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let keyboardContext = KeyboardRoutingContext.current(
             windowLifecycle: windowLifecycleStore,
             managementLayer: atom(\.managementLayer),
-            uiState: atom(\.uiState),
+            uiState: atom(\.workspaceSidebarState),
             commandBarSurface: atom(\.commandBarSurface),
             transientKeyboardSurface: atom(\.transientKeyboardSurface),
             workspaceWindowId: workspaceWindowId

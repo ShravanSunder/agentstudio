@@ -13,7 +13,7 @@ struct RepoExplorerFocusTests {
 
     @Test("publishing non-nil focus flips sidebarHasFocus true")
     func nonNilFocusPublishesTrue() {
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         #expect(uiState.sidebarHasFocus == false)
 
         RepoExplorerFocusPublisher.publish(
@@ -26,7 +26,7 @@ struct RepoExplorerFocusTests {
 
     @Test("publishing nil focus flips sidebarHasFocus false")
     func nilFocusPublishesFalse() {
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         uiState.setSidebarHasFocus(true)
 
         RepoExplorerFocusPublisher.publish(
@@ -39,7 +39,7 @@ struct RepoExplorerFocusTests {
 
     @Test("focus bridge publishes repos surface focus")
     func focusBridgePublishesReposSurfaceFocus() {
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         let view = RepoExplorerFocusableView()
         view.onFocusChange = { hasFocus in
             uiState.setSidebarHasFocus(hasFocus)

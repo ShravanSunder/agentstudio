@@ -18,7 +18,7 @@ struct KeyboardRoutingContextSurfaceTests {
     func commandBarTakesPrecedenceOverTransientAndStableOwner() {
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         let commandBarSurface = CommandBarSurfaceAtom()
         let transientSurface = TransientKeyboardSurfaceAtom()
         let workspaceWindowId = makeKeyWindow(windowLifecycle)
@@ -43,7 +43,7 @@ struct KeyboardRoutingContextSurfaceTests {
     func commandBarInAnotherWindowDoesNotAffectCurrentWindow() {
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         let commandBarSurface = CommandBarSurfaceAtom()
         let transientSurface = TransientKeyboardSurfaceAtom()
         let currentWindowId = makeKeyWindow(windowLifecycle)
@@ -68,7 +68,7 @@ struct KeyboardRoutingContextSurfaceTests {
     func transientTakesPrecedenceOverStableOwner() {
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         let commandBarSurface = CommandBarSurfaceAtom()
         let transientSurface = TransientKeyboardSurfaceAtom()
         let workspaceWindowId = makeKeyWindow(windowLifecycle)
@@ -101,7 +101,7 @@ struct KeyboardRoutingContextSurfaceTests {
         for (label, transientKind) in transientKinds {
             let windowLifecycle = WindowLifecycleAtom()
             let managementLayer = ManagementLayerAtom()
-            let uiState = UIStateAtom()
+            let uiState = WorkspaceSidebarState()
             let commandBarSurface = CommandBarSurfaceAtom()
             let transientSurface = TransientKeyboardSurfaceAtom()
             let workspaceWindowId = makeKeyWindow(windowLifecycle)
@@ -132,7 +132,7 @@ struct KeyboardRoutingContextSurfaceTests {
     func stableOwnerIsActiveWhenNoOverlayIsActive() {
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         let commandBarSurface = CommandBarSurfaceAtom()
         let transientSurface = TransientKeyboardSurfaceAtom()
         makeKeyWindow(windowLifecycle)

@@ -19,7 +19,9 @@ final class AtomRegistry {
     let inboxSidebarState: InboxSidebarStateAtom
     let paneInboxPresentationState: PaneInboxPresentationAtom
     let arrangementPanelPresentation: ArrangementPanelPresentationAtom
-    let uiState: UIStateAtom
+    let workspaceSidebarMemory: WorkspaceSidebarMemoryAtom
+    let sidebarFocusRuntime: SidebarFocusRuntimeAtom
+    let workspaceSidebarState: WorkspaceSidebarState
     let managementLayer: ManagementLayerAtom
     let commandBarSurface: CommandBarSurfaceAtom
     let transientKeyboardSurface: TransientKeyboardSurfaceAtom
@@ -46,7 +48,8 @@ final class AtomRegistry {
         inboxSidebarState: InboxSidebarStateAtom = .init(),
         paneInboxPresentationState: PaneInboxPresentationAtom = .init(),
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = .init(),
-        uiState: UIStateAtom = .init(),
+        workspaceSidebarMemory: WorkspaceSidebarMemoryAtom = .init(),
+        sidebarFocusRuntime: SidebarFocusRuntimeAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
         commandBarSurface: CommandBarSurfaceAtom = .init(),
         transientKeyboardSurface: TransientKeyboardSurfaceAtom = .init(),
@@ -83,7 +86,12 @@ final class AtomRegistry {
         self.inboxSidebarState = inboxSidebarState
         self.paneInboxPresentationState = paneInboxPresentationState
         self.arrangementPanelPresentation = arrangementPanelPresentation
-        self.uiState = uiState
+        self.workspaceSidebarMemory = workspaceSidebarMemory
+        self.sidebarFocusRuntime = sidebarFocusRuntime
+        self.workspaceSidebarState = WorkspaceSidebarState(
+            memoryAtom: workspaceSidebarMemory,
+            focusAtom: sidebarFocusRuntime
+        )
         self.managementLayer = managementLayer
         self.commandBarSurface = commandBarSurface
         self.transientKeyboardSurface = transientKeyboardSurface

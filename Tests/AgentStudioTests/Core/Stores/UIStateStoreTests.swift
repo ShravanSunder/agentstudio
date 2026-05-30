@@ -19,7 +19,7 @@ struct UIStateStoreTests {
     @Test
     func flushAndRestore_roundTripsPersistedUIState() throws {
         let workspaceId = UUID()
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         let uiStateStore = UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
 
         atom.setFilterText("terminal")
@@ -30,7 +30,7 @@ struct UIStateStoreTests {
 
         try uiStateStore.flush(for: workspaceId)
 
-        let restoredAtom = UIStateAtom()
+        let restoredAtom = WorkspaceSidebarState()
         let restoredStore = UIStateStore(
             atom: restoredAtom,
             editorChooserAtom: EditorChooserAtom(),
@@ -48,7 +48,7 @@ struct UIStateStoreTests {
     @Test
     func flush_operatesOnTheProvidedLiveAtomScope() throws {
         let workspaceId = UUID()
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         let store = UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
 
         atom.setFilterText("agent")
@@ -59,7 +59,7 @@ struct UIStateStoreTests {
 
         try store.flush(for: workspaceId)
 
-        let restoredAtom = UIStateAtom()
+        let restoredAtom = WorkspaceSidebarState()
         UIStateStore(
             atom: restoredAtom,
             editorChooserAtom: EditorChooserAtom(),
@@ -79,7 +79,7 @@ struct UIStateStoreTests {
         let corruptURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
 
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         var reportedRecovery: PersistenceRecoveryEvent?
         let store = UIStateStore(
             atom: atom,
@@ -113,7 +113,7 @@ struct UIStateStoreTests {
         let blockedDirectoryURL = FileManager.default.temporaryDirectory
             .appending(path: "ui-state-blocked-\(UUID().uuidString)")
         try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         var reportedRecovery: PersistenceRecoveryEvent?
         let store = UIStateStore(
             atom: atom,
@@ -147,7 +147,7 @@ struct UIStateStoreTests {
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         let store = UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
 
         store.restore(for: workspaceId)
@@ -169,7 +169,7 @@ struct UIStateStoreTests {
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor).restore(for: workspaceId)
 
         #expect(atom.sidebarCollapsed == false)
@@ -194,7 +194,7 @@ struct UIStateStoreTests {
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor).restore(for: workspaceId)
 
         #expect(atom.filterText.isEmpty)
@@ -206,7 +206,7 @@ struct UIStateStoreTests {
     @Test
     func editorChooserState_roundTripsThroughUIStatePersistence() throws {
         let workspaceId = UUID()
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         let editorChooser = EditorChooserAtom()
         let store = UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor)
 
@@ -215,7 +215,7 @@ struct UIStateStoreTests {
 
         try store.flush(for: workspaceId)
 
-        let restoredAtom = UIStateAtom()
+        let restoredAtom = WorkspaceSidebarState()
         let restoredEditorChooser = EditorChooserAtom()
         UIStateStore(
             atom: restoredAtom,
@@ -241,7 +241,7 @@ struct UIStateStoreTests {
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         let editorChooser = EditorChooserAtom()
         UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor).restore(for: workspaceId)
 
@@ -268,7 +268,7 @@ struct UIStateStoreTests {
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         let editorChooser = EditorChooserAtom()
         UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor).restore(for: workspaceId)
 
@@ -291,7 +291,7 @@ struct UIStateStoreTests {
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         let editorChooser = EditorChooserAtom()
         UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor).restore(for: workspaceId)
 
@@ -312,7 +312,7 @@ struct UIStateStoreTests {
                 isFilterVisible: true
             )
         )
-        let atom = UIStateAtom()
+        let atom = WorkspaceSidebarState()
         let clock = TestPushClock()
         let store = UIStateStore(
             atom: atom,
@@ -340,7 +340,7 @@ struct UIStateStoreTests {
     func autosaveObservationStateIsExplicitlyArmed() {
         let workspaceId = UUID()
         let store = UIStateStore(
-            atom: UIStateAtom(),
+            atom: WorkspaceSidebarState(),
             editorChooserAtom: EditorChooserAtom(),
             persistor: persistor
         )

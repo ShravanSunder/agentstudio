@@ -69,7 +69,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
             #expect(worktreeToolbarButton?.currentSymbolName == "square.stack.3d.down.right.fill")
             #expect(inboxToolbarButton?.currentSymbolName == "bell")
 
-            harness.atoms.uiState.setSidebarSurface(.inbox)
+            harness.atoms.workspaceSidebarState.setSidebarSurface(.inbox)
 
             await eventually("inbox toolbar icon should become active") {
                 worktreeToolbarButton?.currentSymbolName == "square.stack.3d.down.right"
@@ -90,7 +90,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
             bellButton?.performClick(nil)
 
             await eventually("inbox bell should switch sidebar surface") {
-                harness.atoms.uiState.sidebarSurface == .inbox
+                harness.atoms.workspaceSidebarState.sidebarSurface == .inbox
             }
         }
     }

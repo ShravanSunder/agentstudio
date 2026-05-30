@@ -166,7 +166,7 @@ never persisted
   AttendedPaneAtom
   WelcomeAtom
   PaneFilesystemProjectionAtom
-  UIStateAtom.sidebarHasFocus
+  SidebarFocusRuntimeAtom.sidebarHasFocus
   WorkspacePaneFocus snapshots
   EditorChooserAtom.state.openForPaneId
   EditorChooserAtom.availableTargets

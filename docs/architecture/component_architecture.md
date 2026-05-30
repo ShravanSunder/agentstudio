@@ -319,7 +319,7 @@ AppDelegate (creates all services in dependency order)
 ├── AtomRegistry                     ← composition root for all shared atoms
 ├── WorkspaceStore                ← persistence wrapper over four atoms
 ├── RepoCacheStore                ← persistence wrapper for RepoCacheAtom
-├── UIStateStore                  ← persistence wrapper for UIStateAtom
+├── UIStateStore                  ← persistence wrapper for sidebar memory
 ├── AppLifecycleAtom             ← app active/terminating state (in-memory)
 ├── WindowLifecycleAtom          ← key/focused window identity, terminal geometry (in-memory)
 ├── ApplicationLifecycleMonitor   ← AppKit lifecycle ingress into lifecycle stores
@@ -531,7 +531,7 @@ To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees
 
 - Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
 - Derived enrichment data (`RepoCacheAtom`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. Notification unread counts moved to `InboxNotificationAtom` per LUNA-361 (derived via `unreadCount(forWorktreeId:)`, not cached in this tier).
-- Workspace-scoped UI preferences and sidebar composition state (`UIStateAtom`) in `workspace.ui.json`
+- Workspace-scoped sidebar shell memory (`WorkspaceSidebarMemoryAtom`) in `workspace.ui.json`, with runtime focus kept on `SidebarFocusRuntimeAtom` and composed for UI reads by `WorkspaceSidebarState`
 - Global app preferences and keybindings are stored separately from workspace state
 
 This prevents derived data from silently becoming canonical truth and aligns each persisted file with exactly one reason to change.
@@ -555,7 +555,8 @@ This prevents derived data from silently becoming canonical truth and aligns eac
 
 - `WorkspaceStore` → canonical workspace model in `workspace.state.json`
 - `RepoCacheAtom` → derived git/wt/gh metadata + status in `workspace.cache.json`
-- `UIStateAtom` → workspace-scoped UI preferences + sidebar composition state (`sidebarCollapsed`, `sidebarSurface`, `sidebarHasFocus` — last one runtime-only) in `workspace.ui.json`
+- `WorkspaceSidebarMemoryAtom` → workspace-scoped sidebar shell memory (`filterText`, `isFilterVisible`, `sidebarCollapsed`, `sidebarSurface`) in `workspace.ui.json`
+- `SidebarFocusRuntimeAtom` → runtime-only sidebar focus (`sidebarHasFocus`), never written to `workspace.ui.json`
 - `PreferencesStore` → global app preferences in `preferences.global.json`
 - `KeybindingsStore` → command-to-shortcut overrides in `keybindings.json`
 
@@ -629,7 +630,7 @@ Required cache validity fields:
 #### Load / Refresh Sequencing
 
 1. Load `workspace.state.json` into `WorkspaceStore`
-2. Load `workspace.ui.json` into `UIStateAtom`
+2. Load `workspace.ui.json` into `WorkspaceSidebarMemoryAtom`
 3. Load global preferences and keybindings into their stores
 4. Load `workspace.cache.json` only if cache revision matches canonical workspace revision
 5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `RepoCacheAtom`

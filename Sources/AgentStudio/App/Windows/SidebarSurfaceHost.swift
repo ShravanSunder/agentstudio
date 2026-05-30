@@ -7,7 +7,7 @@ struct SidebarSurfaceHost: View {
     }
 
     let store: WorkspaceStore
-    let uiState: UIStateAtom
+    let uiState: WorkspaceSidebarState
     let sidebarCache: SidebarCacheAtom
     let inboxSidebarState: InboxSidebarStateAtom
     let inboxAtom: InboxNotificationAtom
@@ -60,7 +60,7 @@ struct SidebarSurfaceHost: View {
         }
     }
 
-    static func currentChildKind(uiState: UIStateAtom) -> ChildKind {
+    static func currentChildKind(uiState: WorkspaceSidebarState) -> ChildKind {
         switch uiState.sidebarSurface {
         case .repos:
             .repoExplorer

@@ -321,7 +321,7 @@ Atoms are writer-owned lifecycle groups, not SQL table models. A write-owner ato
 | WorkspaceTabShellAtom | WorkspaceTabShellAtom, WorkspaceTabCursorAtom | WorkspaceTabLayoutDerived |
 | WorkspaceTabArrangementAtom | WorkspaceTabGraphAtom, WorkspaceArrangementCursorAtom, WorkspacePanePresentationAtom | WorkspaceTabLayoutDerived |
 | RepoCacheAtom | RepoEnrichmentCacheAtom, RecentWorkspaceTargetAtom | repo/sidebar read models |
-| UIStateAtom | WorkspaceSidebarMemoryAtom, SidebarFocusRuntimeAtom | sidebar shell read model |
+| UIStateAtom (source before Step 0 split) | WorkspaceSidebarMemoryAtom, SidebarFocusRuntimeAtom | WorkspaceSidebarState |
 | SidebarCacheAtom | SidebarExpandedGroupAtom, SidebarCheckoutColorAtom | sidebar shell read model |
 | EditorChooserAtom | EditorPreferenceAtom, EditorChooserRuntimeAtom | editor chooser read model |
 | InboxSidebarStateAtom | InboxSidebarMemoryAtom, InboxSidebarRuntimeAtom | inbox sidebar read model |
@@ -429,7 +429,7 @@ git commit -m "Add active workspace selection atom"
 - Test under: `Tests/AgentStudioTests/Core/State/MainActor/Atoms/`
 - Test under: `Tests/AgentStudioTests/Features/InboxNotification/State/`
 
-- [ ] **Step 1: Split workspace metadata**
+- [x] **Step 1: Split workspace metadata**
 
 Create or rename state so:
 
@@ -449,7 +449,7 @@ mise run test -- --filter "WorkspaceMetadataAtom|WorkspaceIdentity|WorkspaceWind
 
 Expected: identity mutation does not schedule window/sidebar memory writes; window memory mutation does not mutate identity.
 
-- [ ] **Step 2: Split sidebar shell state**
+- [x] **Step 2: Split sidebar shell state**
 
 Create or rename state so:
 
@@ -464,7 +464,7 @@ SidebarFocusRuntimeAtom
 Tests:
 
 ```bash
-mise run test -- --filter "UIStateAtomCompositionTests|UIStateStoreCompositionTests"
+mise run test -- --filter "WorkspaceSidebarStateTests|UIStateStoreCompositionTests"
 ```
 
 Expected: persisted sidebar memory is independent from runtime focus.

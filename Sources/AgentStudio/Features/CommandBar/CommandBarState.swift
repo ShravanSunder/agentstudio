@@ -195,7 +195,7 @@ final class CommandBarState {
     static func forOpen(
         windowLifecycle: WindowLifecycleAtom,
         managementLayer: ManagementLayerAtom,
-        uiState: UIStateAtom
+        uiState: WorkspaceSidebarState
     ) -> CommandBarState {
         let state = CommandBarState()
         let owner = KeyboardOwner.current(

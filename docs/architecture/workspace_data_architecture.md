@@ -32,15 +32,14 @@ TIER B: DERIVED CACHE (rebuildable from Tier A + actors)
 
 TIER C: UI STATE (preferences, non-structural + composition state)
   File: ~/.agentstudio/workspaces/<id>/workspace.ui.json
-  Owner: UIStateAtom (@MainActor, @Observable)
+  Owner: WorkspaceSidebarMemoryAtom (@MainActor, @Observable)
   Mutated by: sidebar view actions, MainSplitViewController
-              (publishing sidebar collapsed state), sidebar surface
-              views (publishing focus), composite commands (⌘I / ⌘S)
-  Contains: expanded groups, checkout colors, filter state,
-            sidebar composition state (collapsed / surface / has-focus)
+              (publishing sidebar collapsed state), composite commands
+              (⌘I / ⌘S), and repo sidebar filter actions
+  Contains: filter state, sidebar collapsed state, sidebar surface
 ```
 
-> **Note on composition state.** `sidebarCollapsed`, `sidebarSurface`, and `sidebarHasFocus` live on `UIStateAtom` as composition state — generic, app-wide UI shell state consumed by multiple features. See [directory_structure.md — composition state vs feature state](directory_structure.md). `sidebarHasFocus` is runtime-only (not persisted).
+> **Note on composition state.** `sidebarCollapsed` and `sidebarSurface` live on `WorkspaceSidebarMemoryAtom` as workspace-scoped shell memory. `sidebarHasFocus` lives on `SidebarFocusRuntimeAtom` and is runtime-only. `WorkspaceSidebarState` composes both for UI callers. See [directory_structure.md — composition state vs feature state](directory_structure.md).
 
 ### Tier A: Canonical Models
 
@@ -248,7 +247,7 @@ RepoCacheAtom (@Observable, passive)
   → persisted to cache file on debounced schedule
       │
       ▼
-SIDEBAR (pure reader of canonical atoms + RepoCacheAtom + UIStateAtom)
+SIDEBAR (pure reader of canonical atoms + RepoCacheAtom + WorkspaceSidebarState)
 ```
 
 ### Actor Responsibilities
@@ -381,8 +380,8 @@ RepoCacheAtom.worktreeEnrichment → branch, git status (how to display)
 RepoCacheAtom.pullRequestCounts → PR badges
 InboxNotificationAtom.unreadCount(forWorktreeId:) → notification bells
                                  (per LUNA-361; moved from RepoCacheAtom)
-UIStateAtom                    → expanded groups, filter, colors (user prefs)
-                                 + sidebar composition state (collapsed / surface / has-focus)
+WorkspaceSidebarState          → filter and sidebar shell composition
+                                 (collapsed / surface / runtime focus)
 
 ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```

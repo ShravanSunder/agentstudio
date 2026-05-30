@@ -63,9 +63,10 @@ split first
     -> WorkspaceIdentityAtom       core identity
     -> WorkspaceWindowMemoryAtom   local window/sidebar memory
 
-  UIStateAtom
+  UIStateAtom (source before Step 0 split)
     -> WorkspaceSidebarMemoryAtom  local filter/surface/collapse memory
     -> SidebarFocusRuntimeAtom     runtime sidebar focus
+    -> WorkspaceSidebarState       composed UI-facing reader/mutator
 
   SidebarCacheAtom
     -> SidebarExpandedGroupAtom    local expanded group memory

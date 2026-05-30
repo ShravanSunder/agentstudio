@@ -26,7 +26,7 @@ struct InboxNotificationSidebarView: View {
 
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
-    let uiState: UIStateAtom
+    let uiState: WorkspaceSidebarState
     let sidebarCache: SidebarCacheAtom
     let inboxSidebarState: InboxSidebarStateAtom
     let workspacePaneAtom: WorkspacePaneAtom
@@ -49,7 +49,7 @@ struct InboxNotificationSidebarView: View {
     init(
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,
-        uiState: UIStateAtom,
+        uiState: WorkspaceSidebarState,
         sidebarCache: SidebarCacheAtom,
         inboxSidebarState: InboxSidebarStateAtom,
         workspacePaneAtom: WorkspacePaneAtom,

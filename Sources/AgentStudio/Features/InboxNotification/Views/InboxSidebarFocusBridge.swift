@@ -30,7 +30,7 @@ final class InboxNotificationSidebarFocusableView: NSView {
 }
 
 struct InboxNotificationSidebarFocusBridge: NSViewRepresentable {
-    let uiState: UIStateAtom
+    let uiState: WorkspaceSidebarState
     let onEscape: @MainActor @Sendable () -> Void
 
     func makeNSView(context: Context) -> InboxNotificationSidebarFocusableView {

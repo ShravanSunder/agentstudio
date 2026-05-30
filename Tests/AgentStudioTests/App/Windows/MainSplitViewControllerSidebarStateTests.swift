@@ -31,25 +31,25 @@ struct MainSplitViewControllerSidebarStateTests {
         )
     }
 
-    @Test("toggleSidebarFromCommand writes collapsed state back into UIStateAtom")
+    @Test("toggleSidebarFromCommand writes collapsed state back into WorkspaceSidebarState")
     func toggleSidebarWritesBackIntoAtom() async {
         await withMainSplitViewControllerHarness(
             withRepos: true,
             body: { harness in
-                #expect(harness.atoms.uiState.sidebarCollapsed == false)
+                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == false)
 
                 harness.controller.toggleSidebarFromCommand()
                 await Task.yield()
-                #expect(harness.atoms.uiState.sidebarCollapsed == true)
+                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == true)
 
                 harness.controller.toggleSidebarFromCommand()
                 await Task.yield()
-                #expect(harness.atoms.uiState.sidebarCollapsed == false)
+                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == false)
             }
         )
     }
 
-    @Test("resize persistence writes current collapsed state into UIStateAtom")
+    @Test("resize persistence writes current collapsed state into WorkspaceSidebarState")
     func resizePersistsSidebarCollapsedState() async {
         await withMainSplitViewControllerHarness(
             withRepos: true,
@@ -57,13 +57,13 @@ struct MainSplitViewControllerSidebarStateTests {
                 harness.controller.toggleSidebarFromCommand()
                 await Task.yield()
                 #expect(harness.controller.isSidebarCollapsed == true)
-                #expect(harness.atoms.uiState.sidebarCollapsed == true)
+                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == true)
 
-                harness.atoms.uiState.setSidebarCollapsed(false)
-                #expect(harness.atoms.uiState.sidebarCollapsed == false)
+                harness.atoms.workspaceSidebarState.setSidebarCollapsed(false)
+                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == false)
 
                 harness.controller.splitViewDidResizeSubviews(Notification(name: .init("test")))
-                #expect(harness.atoms.uiState.sidebarCollapsed == true)
+                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == true)
             }
         )
     }
@@ -128,14 +128,14 @@ struct MainSplitViewControllerSidebarStateTests {
             },
             body: { harness in
                 #expect(harness.controller.isSidebarCollapsed == true)
-                #expect(harness.atoms.uiState.sidebarSurface == .inbox)
+                #expect(harness.atoms.workspaceSidebarState.sidebarSurface == .inbox)
 
                 harness.controller.showWorktreeSidebar()
 
                 await eventually("showWorktreeSidebar should expand collapsed inbox state") {
                     harness.controller.isSidebarCollapsed == false
-                        && harness.atoms.uiState.sidebarCollapsed == false
-                        && harness.atoms.uiState.sidebarSurface == .repos
+                        && harness.atoms.workspaceSidebarState.sidebarCollapsed == false
+                        && harness.atoms.workspaceSidebarState.sidebarSurface == .repos
                 }
             }
         )
@@ -147,12 +147,12 @@ struct MainSplitViewControllerSidebarStateTests {
             withRepos: true,
             body: { harness in
                 #expect(harness.controller.isViewLoaded == false)
-                #expect(harness.atoms.uiState.sidebarCollapsed == false)
+                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == false)
 
                 harness.controller.collapseSidebar()
 
-                #expect(harness.atoms.uiState.sidebarCollapsed == true)
-                #expect(harness.atoms.uiState.sidebarHasFocus == false)
+                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == true)
+                #expect(harness.atoms.workspaceSidebarState.sidebarHasFocus == false)
             }
         )
     }

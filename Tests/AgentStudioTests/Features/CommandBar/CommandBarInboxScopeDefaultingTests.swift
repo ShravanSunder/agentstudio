@@ -11,11 +11,11 @@ struct CommandBarInboxScopeDefaultingTests {
     ) -> (
         window: WindowLifecycleAtom,
         management: ManagementLayerAtom,
-        uiState: UIStateAtom
+        uiState: WorkspaceSidebarState
     ) {
         let window = WindowLifecycleAtom()
         let management = ManagementLayerAtom()
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
 
         if isInboxOwner {
             let id = UUID()
@@ -83,7 +83,7 @@ struct CommandBarInboxScopeDefaultingTests {
     func managementOwnerPreservesExistingDefault() {
         let window = WindowLifecycleAtom()
         let management = ManagementLayerAtom()
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         let id = UUID()
         window.recordWindowRegistered(id)
         window.recordWindowBecameKey(id)
@@ -103,7 +103,7 @@ struct CommandBarInboxScopeDefaultingTests {
     func inboxFocusPublisherFlowsIntoInboxDefaultScope() {
         let window = WindowLifecycleAtom()
         let management = ManagementLayerAtom()
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         let id = UUID()
         window.recordWindowRegistered(id)
         window.recordWindowBecameKey(id)

@@ -6,7 +6,7 @@ private let uiStateStoreLogger = Logger(subsystem: "com.agentstudio", category: 
 
 @MainActor
 final class UIStateStore {
-    private let atom: UIStateAtom
+    private let atom: WorkspaceSidebarState
     private let editorChooserAtom: EditorChooserAtom
     private let persistor: WorkspacePersistor
     private let persistDebounceDuration: Duration
@@ -22,7 +22,7 @@ final class UIStateStore {
     }
 
     init(
-        atom: UIStateAtom,
+        atom: WorkspaceSidebarState,
         editorChooserAtom: EditorChooserAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
@@ -94,7 +94,7 @@ final class UIStateStore {
             _ = editorChooserAtom.state.bookmarkedEditorId
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
-                // UIStateAtom and EditorChooserAtom are @MainActor; this traps if that ownership changes.
+                // WorkspaceSidebarState and EditorChooserAtom are @MainActor; this traps if that ownership changes.
                 guard let self else { return }
                 let shouldIgnore = self.isRestoringState
                 self.isObservingUIState = false
