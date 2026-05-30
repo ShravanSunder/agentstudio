@@ -19,7 +19,7 @@ struct SidebarCacheStoreTests {
     @Test
     func flushAndRestore_roundTripsSidebarCache() throws {
         let workspaceId = UUID()
-        let atom = SidebarCacheAtom()
+        let atom = SidebarCacheState()
         let store = SidebarCacheStore(atom: atom, persistor: persistor)
 
         atom.setGroupExpanded("repo:agent-studio", isExpanded: true)
@@ -27,7 +27,7 @@ struct SidebarCacheStoreTests {
 
         try store.flush(for: workspaceId)
 
-        let restoredAtom = SidebarCacheAtom()
+        let restoredAtom = SidebarCacheState()
         SidebarCacheStore(atom: restoredAtom, persistor: persistor).restore(for: workspaceId)
 
         #expect(restoredAtom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
@@ -37,7 +37,7 @@ struct SidebarCacheStoreTests {
     @Test
     func observedExpansionChange_autosavesSidebarCache() async throws {
         let workspaceId = UUID()
-        let atom = SidebarCacheAtom()
+        let atom = SidebarCacheState()
         let store = SidebarCacheStore(
             atom: atom,
             persistor: persistor,
@@ -59,6 +59,61 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
+    func observedCheckoutColorChange_autosavesSidebarCache() async throws {
+        let workspaceId = UUID()
+        let atom = SidebarCacheState()
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            persistDebounceDuration: .zero
+        )
+        store.restore(for: workspaceId)
+        store.startObserving()
+
+        atom.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:agent-studio"))
+
+        await assertEventuallyMain("checkout color should autosave") {
+            switch persistor.loadSidebarCache(for: workspaceId) {
+            case .loaded(let cache):
+                return cache.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#22cc88"]
+            case .missing, .corrupt:
+                return false
+            }
+        }
+    }
+
+    @Test
+    func directWriteOwnerMutations_autosaveThroughComposedState() async throws {
+        let workspaceId = UUID()
+        let expandedGroupAtom = SidebarExpandedGroupAtom()
+        let checkoutColorAtom = SidebarCheckoutColorAtom()
+        let atom = SidebarCacheState(
+            expandedGroupAtom: expandedGroupAtom,
+            checkoutColorAtom: checkoutColorAtom
+        )
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            persistDebounceDuration: .zero
+        )
+        store.restore(for: workspaceId)
+        store.startObserving()
+
+        expandedGroupAtom.setGroupExpanded(SidebarGroupKey("repo:agent-studio"), isExpanded: true)
+        checkoutColorAtom.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:agent-studio"))
+
+        await assertEventuallyMain("write-owner mutations should autosave through composed state") {
+            switch persistor.loadSidebarCache(for: workspaceId) {
+            case .loaded(let cache):
+                return cache.expandedGroups == [SidebarGroupKey("repo:agent-studio")]
+                    && cache.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#22cc88"]
+            case .missing, .corrupt:
+                return false
+            }
+        }
+    }
+
+    @Test
     func restore_cancelsPendingDebouncedSaveForPreviousWorkspace() async throws {
         let workspaceAId = UUID()
         let workspaceBId = UUID()
@@ -69,7 +124,7 @@ struct SidebarCacheStoreTests {
                 checkoutColors: [:]
             )
         )
-        let atom = SidebarCacheAtom()
+        let atom = SidebarCacheState()
         let clock = TestPushClock()
         let store = SidebarCacheStore(
             atom: atom,
@@ -99,7 +154,7 @@ struct SidebarCacheStoreTests {
         try Data("not-json".utf8).write(to: cacheURL, options: .atomic)
         var reportedRecovery: PersistenceRecoveryEvent?
 
-        let atom = SidebarCacheAtom()
+        let atom = SidebarCacheState()
         SidebarCacheStore(
             atom: atom,
             persistor: persistor,
@@ -124,7 +179,7 @@ struct SidebarCacheStoreTests {
     @Test
     func restore_missingSidebarCacheFile_keepsDefaults() {
         let workspaceId = UUID()
-        let atom = SidebarCacheAtom()
+        let atom = SidebarCacheState()
 
         SidebarCacheStore(atom: atom, persistor: persistor).restore(for: workspaceId)
 
@@ -135,7 +190,7 @@ struct SidebarCacheStoreTests {
     @Test
     func autosaveObservationStateIsExplicitlyArmed() {
         let workspaceId = UUID()
-        let store = SidebarCacheStore(atom: SidebarCacheAtom(), persistor: persistor)
+        let store = SidebarCacheStore(atom: SidebarCacheState(), persistor: persistor)
 
         #expect(store.isAutosaveObservationActive == false)
         store.restore(for: workspaceId)
@@ -150,7 +205,7 @@ struct SidebarCacheStoreTests {
         let blockedDirectoryURL = FileManager.default.temporaryDirectory
             .appending(path: "sidebar-cache-blocked-\(UUID().uuidString)")
         try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
-        let atom = SidebarCacheAtom()
+        let atom = SidebarCacheState()
         var reportedRecovery: PersistenceRecoveryEvent?
         let store = SidebarCacheStore(
             atom: atom,
@@ -180,7 +235,7 @@ struct SidebarCacheStoreTests {
             """
         try Data(json.utf8).write(to: cacheURL, options: .atomic)
 
-        let atom = SidebarCacheAtom()
+        let atom = SidebarCacheState()
         SidebarCacheStore(atom: atom, persistor: persistor).restore(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)

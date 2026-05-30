@@ -190,7 +190,7 @@ UIStateAtom (source before Step 0 split) -> split
   runtime   -> SidebarFocusRuntimeAtom
   composed  -> WorkspaceSidebarState
 
-SidebarCacheAtom -> split
+SidebarCacheState (SidebarCacheAtom source before Step 0 split) -> split
   local     -> SidebarExpandedGroupAtom
   settings  -> SidebarCheckoutColorAtom
 

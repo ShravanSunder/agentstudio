@@ -155,13 +155,35 @@ struct WorkspaceCacheState: Codable {
 }
 ```
 
-### Tier C: UI State
+### Tier C: Sidebar Local UX Memory
+
+```swift
+struct WorkspaceSidebarExpandedGroupState: Codable {
+    var expandedGroups: Set<String>        // groupKey strings
+}
+```
+
+`expandedGroups` is local workspace memory owned by `SidebarExpandedGroupAtom`.
+
+### Tier D: Sidebar Settings-Bound Preferences
+
+```swift
+struct SidebarCheckoutColorSettingsState: Codable {
+    var checkoutColors: [String: String]   // repoId → color name
+}
+```
+
+`checkoutColors` is settings-bound user preference state owned by
+`SidebarCheckoutColorAtom`. During Step 0 the legacy `SidebarCacheStore`
+temporarily round-trips expanded groups and checkout colors through the existing
+sidebar-cache JSON file so the app continues to run before SQLite/settings
+repositories land. The shared file is a compatibility wrapper, not the
+architectural lifecycle boundary.
+
+### Tier E: Workspace UI State
 
 ```swift
 struct WorkspaceUIState: Codable {
-    // Presentation prefs (existing)
-    var expandedGroups: Set<String>        // groupKey strings
-    var checkoutColors: [String: String]   // repoId → color name
     var filterVisible: Bool
     var filterText: String
 

@@ -163,7 +163,7 @@ struct PersistenceChaosTests {
                 )
             )
 
-            let atom = SidebarCacheAtom()
+            let atom = SidebarCacheState()
             var recoveryEvents: [PersistenceRecoveryEvent] = []
             SidebarCacheStore(
                 atom: atom,

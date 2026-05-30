@@ -6,7 +6,7 @@ private let sidebarCacheStoreLogger = Logger(subsystem: "com.agentstudio", categ
 
 @MainActor
 final class SidebarCacheStore {
-    private let atom: SidebarCacheAtom
+    private let atom: SidebarCacheState
     private let persistor: WorkspacePersistor
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
@@ -21,7 +21,7 @@ final class SidebarCacheStore {
     }
 
     init(
-        atom: SidebarCacheAtom,
+        atom: SidebarCacheState,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
@@ -85,7 +85,7 @@ final class SidebarCacheStore {
             _ = atom.checkoutColors
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
-                // SidebarCacheAtom is @MainActor; this traps if that ownership changes.
+                // SidebarCacheState is @MainActor; this traps if that ownership changes.
                 guard let self else { return }
                 let shouldIgnore = self.isRestoringState
                 self.isObservingCacheState = false

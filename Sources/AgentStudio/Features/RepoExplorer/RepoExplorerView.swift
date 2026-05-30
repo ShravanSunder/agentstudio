@@ -92,7 +92,7 @@ struct RepoExplorerView: View {
         atom(\.workspaceSidebarState)
     }
 
-    private var sidebarCache: SidebarCacheAtom {
+    private var sidebarCache: SidebarCacheState {
         atom(\.sidebarCache)
     }
 

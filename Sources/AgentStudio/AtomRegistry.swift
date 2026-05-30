@@ -11,7 +11,9 @@ final class AtomRegistry {
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
     let windowLifecycle: WindowLifecycleAtom
     let repoCache: RepoCacheAtom
-    let sidebarCache: SidebarCacheAtom
+    let sidebarExpandedGroup: SidebarExpandedGroupAtom
+    let sidebarCheckoutColor: SidebarCheckoutColorAtom
+    let sidebarCache: SidebarCacheState
     let terminalActivity: TerminalActivityAtom
     let editorChooser: EditorChooserAtom
     let inboxNotification: InboxNotificationAtom
@@ -40,7 +42,8 @@ final class AtomRegistry {
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
         windowLifecycle: WindowLifecycleAtom = .init(),
         repoCache: RepoCacheAtom = .init(),
-        sidebarCache: SidebarCacheAtom = .init(),
+        sidebarExpandedGroup: SidebarExpandedGroupAtom = .init(),
+        sidebarCheckoutColor: SidebarCheckoutColorAtom = .init(),
         terminalActivity: TerminalActivityAtom = .init(),
         editorChooser: EditorChooserAtom = .init(),
         inboxNotification: InboxNotificationAtom = .init(),
@@ -78,7 +81,12 @@ final class AtomRegistry {
             )
         self.windowLifecycle = windowLifecycle
         self.repoCache = repoCache
-        self.sidebarCache = sidebarCache
+        self.sidebarExpandedGroup = sidebarExpandedGroup
+        self.sidebarCheckoutColor = sidebarCheckoutColor
+        self.sidebarCache = SidebarCacheState(
+            expandedGroupAtom: sidebarExpandedGroup,
+            checkoutColorAtom: sidebarCheckoutColor
+        )
         self.terminalActivity = terminalActivity
         self.editorChooser = editorChooser
         self.inboxNotification = inboxNotification

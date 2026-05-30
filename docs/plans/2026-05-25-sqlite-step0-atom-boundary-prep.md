@@ -322,7 +322,7 @@ Atoms are writer-owned lifecycle groups, not SQL table models. A write-owner ato
 | WorkspaceTabArrangementAtom | WorkspaceTabGraphAtom, WorkspaceArrangementCursorAtom, WorkspacePanePresentationAtom | WorkspaceTabLayoutDerived |
 | RepoCacheAtom | RepoEnrichmentCacheAtom, RecentWorkspaceTargetAtom | repo/sidebar read models |
 | UIStateAtom (source before Step 0 split) | WorkspaceSidebarMemoryAtom, SidebarFocusRuntimeAtom | WorkspaceSidebarState |
-| SidebarCacheAtom | SidebarExpandedGroupAtom, SidebarCheckoutColorAtom | sidebar shell read model |
+| SidebarCacheState (SidebarCacheAtom source before Step 0 split) | SidebarExpandedGroupAtom, SidebarCheckoutColorAtom | sidebar shell read model |
 | EditorChooserAtom | EditorPreferenceAtom, EditorChooserRuntimeAtom | editor chooser read model |
 | InboxSidebarStateAtom | InboxSidebarMemoryAtom, InboxSidebarRuntimeAtom | inbox sidebar read model |
 
@@ -500,7 +500,7 @@ PaneOrdinalMap
 Add or update tests only if Step 0 changes how these atoms are registered or
 read by derived validators.
 
-- [ ] **Step 3: Split sidebar cache**
+- [x] **Step 3: Split sidebar cache**
 
 Create or rename state so:
 
@@ -515,7 +515,7 @@ SidebarCheckoutColorAtom
 Tests:
 
 ```bash
-mise run test -- --filter "SidebarCacheAtomTests|SidebarCacheStoreTests"
+mise run test -- --filter "SidebarCacheStateTests|SidebarCacheStoreTests"
 ```
 
 Expected: expanded groups and checkout colors mutate independently.

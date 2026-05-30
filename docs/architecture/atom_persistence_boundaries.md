@@ -67,7 +67,7 @@ cohesive by lifecycle.
 | `WorkspaceTabArrangementAtom` | `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom` | `WorkspaceTabLayoutDerived` |
 | `RepoCacheAtom` | `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom` | repo/sidebar read models |
 | `UIStateAtom` source before Step 0 split | `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom` | `WorkspaceSidebarState` |
-| `SidebarCacheAtom` | `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom` | sidebar shell read model |
+| `SidebarCacheState` (`SidebarCacheAtom` source before Step 0 split) | `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom` | sidebar shell read model |
 | `EditorChooserAtom` | `EditorPreferenceAtom`, `EditorChooserRuntimeAtom` | editor chooser read model |
 | `InboxSidebarStateAtom` | `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom` | inbox sidebar read model |
 

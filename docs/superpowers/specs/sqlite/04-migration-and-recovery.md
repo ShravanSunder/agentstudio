@@ -68,7 +68,7 @@ split first
     -> SidebarFocusRuntimeAtom     runtime sidebar focus
     -> WorkspaceSidebarState       composed UI-facing reader/mutator
 
-  SidebarCacheAtom
+  SidebarCacheState (SidebarCacheAtom source before Step 0 split)
     -> SidebarExpandedGroupAtom    local expanded group memory
     -> SidebarCheckoutColorAtom    settings checkout colors
 

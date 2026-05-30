@@ -4,7 +4,7 @@ import SwiftUI
 struct SidebarRootViewDependencies {
     let store: WorkspaceStore
     let uiState: WorkspaceSidebarState
-    let sidebarCache: SidebarCacheAtom
+    let sidebarCache: SidebarCacheState
     let inboxSidebarState: InboxSidebarStateAtom
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom

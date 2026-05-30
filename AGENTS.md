@@ -96,6 +96,9 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceTabLayoutAtom` | tabs, arrangements, active selection, zoom/minimize | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` |
 | `WorkspaceMutationCoordinator` | cross-atom workspace mutations spanning pane and tab layout state | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` |
 | `RepoCacheAtom` | repo enrichment, branches, git status, PR counts, recent targets | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
+| `SidebarExpandedGroupAtom` | local sidebar expanded-group memory | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
+| `SidebarCheckoutColorAtom` | checkout color choices, destined for settings | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
+| `SidebarCacheState` | UI-facing composition surface over sidebar expanded groups + checkout colors | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
 | `WorkspaceSidebarMemoryAtom` | persisted workspace sidebar shell memory: filter text, filter visibility, collapsed state, active surface | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `SidebarFocusRuntimeAtom` | runtime-only sidebar focus fact for keyboard-owner derivation | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `WorkspaceSidebarState` | UI-facing composition surface over sidebar memory + runtime focus atoms | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
