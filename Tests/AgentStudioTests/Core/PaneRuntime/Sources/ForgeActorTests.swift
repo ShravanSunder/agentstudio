@@ -271,29 +271,8 @@ struct ForgeActorTests {
             )
         )
 
-        let emittedAfterShutdown = await waitUntil(
-            timeout: .milliseconds(150),
-            pollInterval: .milliseconds(10)
-        ) {
-            await observer.lastPullRequestCounts(for: repoId) != nil
-        }
+        let emittedAfterShutdown = await observer.lastPullRequestCounts(for: repoId) != nil
         #expect(!emittedAfterShutdown)
-    }
-
-    private func waitUntil(
-        timeout _: Duration = .seconds(2),
-        pollInterval _: Duration = .milliseconds(10),
-        maxTurns: Int = 400,
-        condition: @escaping @MainActor () async -> Bool
-    ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if await condition() {
-                return true
-            }
-            await Task.yield()
-        }
-
-        return await condition()
     }
 
     private func eventually(
