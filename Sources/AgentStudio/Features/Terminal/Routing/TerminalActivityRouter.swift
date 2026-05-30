@@ -343,19 +343,22 @@ final class TerminalActivityRouter {
     }
 
     private func scheduleUnseenActivityClose(paneId: UUID, generation: Int) {
+        let unseenActivityDelay = self.unseenActivityDelay
+        let unseenActivityDebounceDuration = self.unseenActivityDebounceDuration
         unseenActivityCloseTasksByPaneId[paneId] = Task { @MainActor [weak self] in
-            guard let self else { return }
             do {
                 try await unseenActivityDelay.wait(unseenActivityDebounceDuration)
             } catch is CancellationError {
                 return
             } catch {
+                guard let self else { return }
                 terminalActivityRouterLogger.error(
                     "Unseen-activity debounce failed: \(error.localizedDescription, privacy: .public)"
                 )
                 await closeUnseenActivityWindow(paneId: paneId, generation: generation, reason: "quiet")
                 return
             }
+            guard let self else { return }
             await closeUnseenActivityWindow(paneId: paneId, generation: generation, reason: "quiet")
         }
     }

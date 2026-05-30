@@ -156,10 +156,12 @@ final class WorkspaceStore {
         }
 
         debouncedSaveTask?.cancel()
-        debouncedSaveTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await self.delay.wait(self.persistDebounceDuration)
+        let delay = self.delay
+        let persistDebounceDuration = self.persistDebounceDuration
+        debouncedSaveTask = Task { @MainActor [weak self, delay, persistDebounceDuration] in
+            try? await delay.wait(persistDebounceDuration)
             guard !Task.isCancelled else { return }
+            guard let self else { return }
             _ = self.persistNow()
         }
     }

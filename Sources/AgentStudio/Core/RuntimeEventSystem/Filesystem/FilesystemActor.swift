@@ -805,11 +805,12 @@ actor FilesystemActor {
     private func startFallbackRescan() {
         fallbackRescanTask?.cancel()
         guard !watchedFolderIds.isEmpty else { return }
-        fallbackRescanTask = Task { [weak self] in
-            guard let self else { return }
+        let schedulingClock = self.schedulingClock
+        fallbackRescanTask = Task { [weak self, schedulingClock] in
             while !Task.isCancelled {
-                try? await self.schedulingClock.sleep(.seconds(300))
+                try? await schedulingClock.sleep(.seconds(300))
                 guard !Task.isCancelled else { break }
+                guard let self else { break }
                 let rescanResult = await self.rescanAllWatchedFolders()
                 await self.emitRemovedClones(
                     noLongerReferencedByAnyWatchedFolder: rescanResult.removedClonePaths

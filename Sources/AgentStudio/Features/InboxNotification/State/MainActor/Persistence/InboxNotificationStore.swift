@@ -237,8 +237,9 @@ final class InboxNotificationStore {
 
     func scheduleDebouncedSave() {
         debouncedSaveTask?.cancel()
-        debouncedSaveTask = Task { [weak self] in
-            guard let self else { return }
+        let delay = self.delay
+        let debounceDuration = self.debounceDuration
+        debouncedSaveTask = Task { [weak self, delay, debounceDuration] in
             do {
                 try await delay.wait(debounceDuration)
             } catch is CancellationError {
@@ -249,6 +250,7 @@ final class InboxNotificationStore {
                 )
             }
             guard !Task.isCancelled else { return }
+            guard let self else { return }
             do {
                 try await persistCurrentPayloadAsync()
             } catch {

@@ -147,11 +147,13 @@ final class SessionRuntime {
     /// Start periodic health checks.
     func startHealthChecks() {
         stopHealthChecks()
-        healthCheckTask = Task { [weak self] in
+        let delay = self.delay
+        let healthCheckInterval = self.healthCheckInterval
+        healthCheckTask = Task { [weak self, delay, healthCheckInterval] in
             while !Task.isCancelled {
-                guard let self else { break }
-                try? await self.delay.wait(.seconds(self.healthCheckInterval))
+                try? await delay.wait(.seconds(healthCheckInterval))
                 guard !Task.isCancelled else { break }
+                guard let self else { break }
                 await self.runHealthCheck()
             }
         }

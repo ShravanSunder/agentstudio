@@ -84,11 +84,13 @@ final class NotificationReducer {
 
     private func ensureFrameTimer() {
         guard frameTimer == nil else { return }
-        frameTimer = Task { [weak self] in
+        let delay = self.delay
+        frameTimer = Task { [weak self, delay] in
             defer { self?.frameTimer = nil }
-            while let self, !self.lossyBuffer.isEmpty {
+            while !Task.isCancelled {
+                guard self?.lossyBuffer.isEmpty == false else { return }
                 do {
-                    try await self.delay.wait(.milliseconds(16))
+                    try await delay.wait(.milliseconds(16))
                 } catch is CancellationError {
                     return
                 } catch {
@@ -98,6 +100,7 @@ final class NotificationReducer {
                     continue
                 }
                 guard !Task.isCancelled else { return }
+                guard let self else { return }
                 self.flushLossyBuffer()
             }
         }

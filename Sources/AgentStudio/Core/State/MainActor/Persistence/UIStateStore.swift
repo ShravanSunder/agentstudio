@@ -108,10 +108,12 @@ final class UIStateStore {
     private func schedulePersist() {
         guard let workspaceId = activeWorkspaceId else { return }
         debouncedSaveTask?.cancel()
-        debouncedSaveTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await self.delay.wait(self.persistDebounceDuration)
+        let delay = self.delay
+        let persistDebounceDuration = self.persistDebounceDuration
+        debouncedSaveTask = Task { @MainActor [weak self, delay, persistDebounceDuration, workspaceId] in
+            try? await delay.wait(persistDebounceDuration)
             guard !Task.isCancelled else { return }
+            guard let self else { return }
             do {
                 try self.persistNow(for: workspaceId)
             } catch {

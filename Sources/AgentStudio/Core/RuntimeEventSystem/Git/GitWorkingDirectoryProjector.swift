@@ -334,11 +334,11 @@ actor GitWorkingDirectoryProjector {
         guard periodicRefreshInterval > .zero else { return }
         guard periodicRefreshTask == nil else { return }
 
-        periodicRefreshTask = Task { [weak self] in
-            guard let self else { return }
+        let delay = self.delay
+        periodicRefreshTask = Task { [weak self, delay, periodicRefreshInterval] in
             while !Task.isCancelled {
                 do {
-                    try await self.delay.wait(periodicRefreshInterval)
+                    try await delay.wait(periodicRefreshInterval)
                 } catch is CancellationError {
                     return
                 } catch {
@@ -348,6 +348,7 @@ actor GitWorkingDirectoryProjector {
                     continue
                 }
                 guard !Task.isCancelled else { return }
+                guard let self else { return }
                 await self.enqueuePeriodicRefreshes()
             }
         }

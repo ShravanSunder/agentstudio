@@ -117,9 +117,25 @@ actor ForgeActor {
         }
 
         if pollingTask == nil {
-            pollingTask = Task { [weak self] in
-                guard let self else { return }
-                await self.pollLoop()
+            let delay = self.delay
+            let pollInterval = self.pollInterval
+            pollingTask = Task { [weak self, delay, pollInterval] in
+                while !Task.isCancelled {
+                    do {
+                        try await delay.wait(pollInterval)
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        Self.logger.warning(
+                            "Unexpected forge polling sleep failure: \(String(describing: error), privacy: .public)"
+                        )
+                        continue
+                    }
+
+                    guard !Task.isCancelled else { return }
+                    guard let self else { return }
+                    await self.refreshTrackedRepos()
+                }
             }
         }
     }
@@ -209,24 +225,11 @@ actor ForgeActor {
         }
     }
 
-    private func pollLoop() async {
-        while !Task.isCancelled {
-            do {
-                try await delay.wait(pollInterval)
-            } catch is CancellationError {
-                return
-            } catch {
-                Self.logger.warning(
-                    "Unexpected forge polling sleep failure: \(String(describing: error), privacy: .public)"
-                )
-                continue
-            }
-
-            guard !Task.isCancelled else { return }
-            let repoIds = Array(repoOriginByRepoId.keys)
-            for repoId in repoIds {
-                await refresh(repo: repoId)
-            }
+    private func refreshTrackedRepos() async {
+        guard !Task.isCancelled else { return }
+        let repoIds = Array(repoOriginByRepoId.keys)
+        for repoId in repoIds {
+            await refresh(repo: repoId)
         }
     }
 

@@ -818,13 +818,15 @@ extension SurfaceManager {
 extension SurfaceManager {
 
     private func scheduleUndoExpiration(_ surfaceId: UUID, at date: Date) -> Task<Void, Never> {
-        Task { @MainActor in
+        let delayScheduler = self.delayScheduler
+        return Task { @MainActor [weak self, delayScheduler] in
             let delay = date.timeIntervalSinceNow
             if delay > 0 {
                 try? await delayScheduler.wait(.seconds(delay))
             }
 
             guard !Task.isCancelled else { return }
+            guard let self else { return }
             expireUndoEntry(surfaceId)
         }
     }
