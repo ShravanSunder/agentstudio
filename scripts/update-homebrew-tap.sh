@@ -10,14 +10,34 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VERSION="${TAG#v}"
 DRY_RUN="${DRY_RUN:-0}"
 TAP_DIR=""
+CLEANUP_TAP_DIR=0
 
 cleanup() {
-  if [[ -z "${HOMEBREW_TAP_LOCAL_PATH:-}" && -n "$TAP_DIR" && -d "$TAP_DIR" ]]; then
+  if [[ "$CLEANUP_TAP_DIR" == "1" && -n "$TAP_DIR" && -d "$TAP_DIR" ]]; then
     find "$TAP_DIR" -mindepth 1 -delete
     rmdir "$TAP_DIR"
+    rmdir "$(dirname "$TAP_DIR")" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
+
+make_tap_clone_dir() {
+  if command -v brew >/dev/null 2>&1; then
+    local brew_repository
+    brew_repository="$(brew --repository)"
+    local tap_parent="$brew_repository/Library/Taps/ShravanSunder"
+    local preferred_tap_dir="$tap_parent/homebrew-agentstudio"
+    mkdir -p "$tap_parent"
+
+    if [[ -e "$preferred_tap_dir" ]]; then
+      mktemp -d "$tap_parent/homebrew-agentstudio-release.XXXXXX"
+    else
+      echo "$preferred_tap_dir"
+    fi
+  else
+    mktemp -d
+  fi
+}
 
 case "$CHANNEL" in
   stable)
@@ -40,7 +60,8 @@ else
     exit 1
   fi
 
-  TAP_DIR="$(mktemp -d)"
+  TAP_DIR="$(make_tap_clone_dir)"
+  CLEANUP_TAP_DIR=1
   git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/ShravanSunder/homebrew-agentstudio.git" "$TAP_DIR"
 fi
 

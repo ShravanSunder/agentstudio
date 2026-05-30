@@ -40,4 +40,48 @@ HOMEBREW_TAP_LOCAL_PATH="$tap_dir" DRY_RUN=1 SKIP_BREW_STYLE=1 \
 test -f "$tap_dir/Casks/agent-studio@beta.rb"
 test ! -f "$tap_dir/Casks/agent-studio.rb"
 
+fake_bin="$tap_dir/fake-bin"
+fake_homebrew="$tap_dir/fake-homebrew"
+mkdir -p "$fake_bin" "$fake_homebrew/Library/Taps"
+
+cat > "$fake_bin/brew" <<'FAKE_BREW'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  --repository)
+    echo "$FAKE_HOMEBREW_REPOSITORY"
+    ;;
+  style)
+    if [[ "$(pwd)" != "$FAKE_HOMEBREW_REPOSITORY"/Library/Taps/* ]]; then
+      echo "Homebrew requires casks to be in a tap, rejecting:" >&2
+      echo "  $(pwd)/${3:-}" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "unexpected fake brew invocation: $*" >&2
+    exit 1
+    ;;
+esac
+FAKE_BREW
+chmod +x "$fake_bin/brew"
+
+cat > "$fake_bin/git" <<'FAKE_GIT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "clone" ]]; then
+  mkdir -p "${3:?missing clone destination}/Casks"
+  exit 0
+fi
+
+echo "unexpected fake git invocation: $*" >&2
+exit 1
+FAKE_GIT
+chmod +x "$fake_bin/git"
+
+PATH="$fake_bin:$PATH" FAKE_HOMEBREW_REPOSITORY="$fake_homebrew" HOMEBREW_TAP_TOKEN=fake \
+  DRY_RUN=1 "$ROOT_DIR/scripts/update-homebrew-tap.sh" beta v0.0.54-beta.1 "$SHA" >/dev/null
+
 echo "release script verification passed"
