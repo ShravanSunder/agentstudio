@@ -204,6 +204,88 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
         }
     }
 
+    @Test("repository topology replace rejects duplicate watched path stable keys")
+    func repositoryTopologyReplaceRejectsDuplicateWatchedPathStableKeys() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000121")!
+        let duplicateStableKey = "duplicate-watch-key"
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Duplicate Watch Stable Keys",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+
+        #expect(throws: WorkspaceCoreRepositoryError.duplicateWatchedPathStableKey(duplicateStableKey)) {
+            try repository.replaceRepositoryTopology(
+                workspaceId: workspaceId,
+                topology: .init(
+                    watchedPaths: [
+                        .init(
+                            id: UUID(uuidString: "00000000-0000-0000-0000-000000000403")!,
+                            path: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-watch-a"),
+                            stableKey: duplicateStableKey,
+                            addedAt: Date(timeIntervalSince1970: 200)
+                        ),
+                        .init(
+                            id: UUID(uuidString: "00000000-0000-0000-0000-000000000404")!,
+                            path: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-watch-b"),
+                            stableKey: duplicateStableKey,
+                            addedAt: Date(timeIntervalSince1970: 250)
+                        ),
+                    ],
+                    repos: [],
+                    unavailableRepoIds: []
+                )
+            )
+        }
+    }
+
+    @Test("repository topology replace rejects duplicate repo stable keys")
+    func repositoryTopologyReplaceRejectsDuplicateRepoStableKeys() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000122")!
+        let duplicateStableKey = "duplicate-repo-key"
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Duplicate Repo Stable Keys",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+
+        #expect(throws: WorkspaceCoreRepositoryError.duplicateRepoStableKey(duplicateStableKey)) {
+            try repository.replaceRepositoryTopology(
+                workspaceId: workspaceId,
+                topology: .init(
+                    watchedPaths: [],
+                    repos: [
+                        .init(
+                            id: UUID(uuidString: "00000000-0000-0000-0000-000000000226")!,
+                            name: "first",
+                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-repo-stable-a"),
+                            stableKey: duplicateStableKey,
+                            createdAt: Date(timeIntervalSince1970: 200),
+                            worktrees: []
+                        ),
+                        .init(
+                            id: UUID(uuidString: "00000000-0000-0000-0000-000000000227")!,
+                            name: "second",
+                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-repo-stable-b"),
+                            stableKey: duplicateStableKey,
+                            createdAt: Date(timeIntervalSince1970: 250),
+                            worktrees: []
+                        ),
+                    ],
+                    unavailableRepoIds: []
+                )
+            )
+        }
+    }
+
     @Test("repository topology replace rejects duplicate worktree ids across repos")
     func repositoryTopologyReplaceRejectsDuplicateWorktreeIdsAcrossRepos() throws {
         let repository = try makeWorkspaceCoreRepositoryFixture().repository
@@ -252,6 +334,71 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
                                     repoId: secondRepoId,
                                     name: "second",
                                     path: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-worktree-second"),
+                                    isMainWorktree: true
+                                )
+                            ]
+                        ),
+                    ],
+                    unavailableRepoIds: []
+                )
+            )
+        }
+    }
+
+    @Test("repository topology replace rejects duplicate worktree stable keys across repos")
+    func repositoryTopologyReplaceRejectsDuplicateWorktreeStableKeysAcrossRepos() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000123")!
+        let firstRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000228")!
+        let secondRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000229")!
+        let duplicateStableKey = "duplicate-worktree-key"
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Duplicate Worktree Stable Keys",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+
+        #expect(throws: WorkspaceCoreRepositoryError.duplicateWorktreeStableKey(duplicateStableKey)) {
+            try repository.replaceRepositoryTopology(
+                workspaceId: workspaceId,
+                topology: .init(
+                    watchedPaths: [],
+                    repos: [
+                        .init(
+                            id: firstRepoId,
+                            name: "first",
+                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-worktree-stable-first"),
+                            createdAt: Date(timeIntervalSince1970: 200),
+                            worktrees: [
+                                .init(
+                                    id: UUID(uuidString: "00000000-0000-0000-0000-000000000322")!,
+                                    repoId: firstRepoId,
+                                    name: "first",
+                                    path: URL(
+                                        fileURLWithPath: "/tmp/agentstudio/duplicate-worktree-stable-first"
+                                    ),
+                                    stableKey: duplicateStableKey,
+                                    isMainWorktree: true
+                                )
+                            ]
+                        ),
+                        .init(
+                            id: secondRepoId,
+                            name: "second",
+                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-worktree-stable-second"),
+                            createdAt: Date(timeIntervalSince1970: 250),
+                            worktrees: [
+                                .init(
+                                    id: UUID(uuidString: "00000000-0000-0000-0000-000000000323")!,
+                                    repoId: secondRepoId,
+                                    name: "second",
+                                    path: URL(
+                                        fileURLWithPath: "/tmp/agentstudio/duplicate-worktree-stable-second"
+                                    ),
+                                    stableKey: duplicateStableKey,
                                     isMainWorktree: true
                                 )
                             ]
@@ -313,6 +460,217 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
                         path: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-reconcile-second"),
                         isMainWorktree: false
                     ),
+                ]
+            )
+        }
+    }
+
+    @Test("worktree reconciliation rejects duplicate worktree stable keys")
+    func worktreeReconciliationRejectsDuplicateWorktreeStableKeys() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000124")!
+        let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000000230")!
+        let duplicateStableKey = "duplicate-reconcile-worktree-key"
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Duplicate Reconcile Worktree Stable Keys",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        try repository.replaceRepositoryTopology(
+            workspaceId: workspaceId,
+            topology: .init(
+                watchedPaths: [],
+                repos: [
+                    .init(
+                        id: repoId,
+                        name: "repo",
+                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-reconcile-stable-repo"),
+                        createdAt: Date(timeIntervalSince1970: 200),
+                        worktrees: []
+                    )
+                ],
+                unavailableRepoIds: []
+            )
+        )
+
+        #expect(throws: WorkspaceCoreRepositoryError.duplicateWorktreeStableKey(duplicateStableKey)) {
+            try repository.reconcileRepoWorktrees(
+                workspaceId: workspaceId,
+                repoId: repoId,
+                worktrees: [
+                    .init(
+                        id: UUID(uuidString: "00000000-0000-0000-0000-000000000324")!,
+                        repoId: repoId,
+                        name: "first",
+                        path: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-reconcile-stable-first"),
+                        stableKey: duplicateStableKey,
+                        isMainWorktree: true
+                    ),
+                    .init(
+                        id: UUID(uuidString: "00000000-0000-0000-0000-000000000325")!,
+                        repoId: repoId,
+                        name: "second",
+                        path: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-reconcile-stable-second"),
+                        stableKey: duplicateStableKey,
+                        isMainWorktree: false
+                    ),
+                ]
+            )
+        }
+    }
+
+    @Test("worktree reconciliation rejects stable key already owned by another repo")
+    func worktreeReconciliationRejectsStableKeyAlreadyOwnedByAnotherRepo() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000125")!
+        let targetRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000231")!
+        let otherRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000232")!
+        let collidingStableKey = "foreign-repo-worktree-key"
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Foreign Stable Key",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        try repository.replaceRepositoryTopology(
+            workspaceId: workspaceId,
+            topology: .init(
+                watchedPaths: [],
+                repos: [
+                    .init(
+                        id: targetRepoId,
+                        name: "target",
+                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/foreign-stable-key-target"),
+                        createdAt: Date(timeIntervalSince1970: 200),
+                        worktrees: []
+                    ),
+                    .init(
+                        id: otherRepoId,
+                        name: "other",
+                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/foreign-stable-key-other"),
+                        createdAt: Date(timeIntervalSince1970: 250),
+                        worktrees: [
+                            .init(
+                                id: UUID(uuidString: "00000000-0000-0000-0000-000000000326")!,
+                                repoId: otherRepoId,
+                                name: "other",
+                                path: URL(fileURLWithPath: "/tmp/agentstudio/foreign-stable-key-other"),
+                                stableKey: collidingStableKey,
+                                isMainWorktree: true
+                            )
+                        ]
+                    ),
+                ],
+                unavailableRepoIds: []
+            )
+        )
+
+        #expect(throws: WorkspaceCoreRepositoryError.duplicateWorktreeStableKey(collidingStableKey)) {
+            try repository.reconcileRepoWorktrees(
+                workspaceId: workspaceId,
+                repoId: targetRepoId,
+                worktrees: [
+                    .init(
+                        id: UUID(uuidString: "00000000-0000-0000-0000-000000000327")!,
+                        repoId: targetRepoId,
+                        name: "target",
+                        path: URL(fileURLWithPath: "/tmp/agentstudio/foreign-stable-key-target"),
+                        stableKey: collidingStableKey,
+                        isMainWorktree: true
+                    )
+                ]
+            )
+        }
+    }
+
+    @Test("worktree reconciliation rejects worktree id owned by another workspace")
+    func worktreeReconciliationRejectsWorktreeIdOwnedByAnotherWorkspace() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000126")!
+        let otherWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000127")!
+        let targetRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000233")!
+        let otherRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000234")!
+        let foreignWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000328")!
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Target Workspace",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        try repository.upsertWorkspace(
+            .init(
+                id: otherWorkspaceId,
+                name: "Other Workspace",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        try repository.replaceRepositoryTopology(
+            workspaceId: workspaceId,
+            topology: .init(
+                watchedPaths: [],
+                repos: [
+                    .init(
+                        id: targetRepoId,
+                        name: "target",
+                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/foreign-worktree-target"),
+                        createdAt: Date(timeIntervalSince1970: 200),
+                        worktrees: []
+                    )
+                ],
+                unavailableRepoIds: []
+            )
+        )
+        try repository.replaceRepositoryTopology(
+            workspaceId: otherWorkspaceId,
+            topology: .init(
+                watchedPaths: [],
+                repos: [
+                    .init(
+                        id: otherRepoId,
+                        name: "other",
+                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/foreign-worktree-other"),
+                        createdAt: Date(timeIntervalSince1970: 250),
+                        worktrees: [
+                            .init(
+                                id: foreignWorktreeId,
+                                repoId: otherRepoId,
+                                name: "other",
+                                path: URL(fileURLWithPath: "/tmp/agentstudio/foreign-worktree-other"),
+                                isMainWorktree: true
+                            )
+                        ]
+                    )
+                ],
+                unavailableRepoIds: []
+            )
+        )
+
+        #expect(
+            throws: WorkspaceCoreRepositoryError.worktreeBelongsToDifferentWorkspace(
+                worktreeId: foreignWorktreeId,
+                expectedWorkspaceId: workspaceId,
+                actualWorkspaceId: otherWorkspaceId
+            )
+        ) {
+            try repository.reconcileRepoWorktrees(
+                workspaceId: workspaceId,
+                repoId: targetRepoId,
+                worktrees: [
+                    .init(
+                        id: foreignWorktreeId,
+                        repoId: targetRepoId,
+                        name: "target",
+                        path: URL(fileURLWithPath: "/tmp/agentstudio/foreign-worktree-target"),
+                        isMainWorktree: true
+                    )
                 ]
             )
         }

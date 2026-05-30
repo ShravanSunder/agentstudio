@@ -123,26 +123,11 @@ struct WorkspaceCoreRepository {
     func deleteWorkspace(_ workspaceId: UUID, updatedAt: Date) throws -> UUID? {
         try databaseWriter.write { database in
             try requireWorkspaceExists(database, id: workspaceId)
-            let currentActiveWorkspaceIdString = try fetchActiveWorkspaceIdStringFromDatabase(database)
-            let fallbackWorkspaceIdString = try fetchFallbackWorkspaceIdString(
+            let activeWorkspaceIdStringAfterDelete = try prepareActiveWorkspaceSelectionForDelete(
                 database,
-                excluding: workspaceId.uuidString
+                deletingWorkspaceId: workspaceId,
+                updatedAt: updatedAt
             )
-            let activeWorkspaceIdStringAfterDelete: String?
-            if try selectionShouldRepairBeforeDeleting(
-                database,
-                currentActiveWorkspaceIdString: currentActiveWorkspaceIdString,
-                deletingWorkspaceIdString: workspaceId.uuidString
-            ) {
-                try updateActiveWorkspaceSelection(
-                    database,
-                    workspaceId: fallbackWorkspaceIdString,
-                    updatedAt: updatedAt
-                )
-                activeWorkspaceIdStringAfterDelete = fallbackWorkspaceIdString
-            } else {
-                activeWorkspaceIdStringAfterDelete = currentActiveWorkspaceIdString
-            }
             try database.execute(
                 sql: """
                         DELETE FROM workspace
@@ -162,7 +147,15 @@ enum WorkspaceCoreRepositoryError: Error, Equatable {
     case repoNotFoundInWorkspace(UUID, UUID)
     case duplicateRepoId(UUID)
     case duplicateWorktreeId(UUID)
+    case duplicateWatchedPathStableKey(String)
+    case duplicateRepoStableKey(String)
+    case duplicateWorktreeStableKey(String)
     case unavailableRepoNotInTopology(UUID)
+    case worktreeBelongsToDifferentWorkspace(
+        worktreeId: UUID,
+        expectedWorkspaceId: UUID,
+        actualWorkspaceId: UUID
+    )
     case worktreeRepoMismatch(worktreeId: UUID, expectedRepoId: UUID, actualRepoId: UUID)
     case activeWorkspaceSelectionDangling(UUID)
     case cannotClearActiveWorkspaceWhileWorkspacesExist
@@ -283,18 +276,34 @@ private func updateActiveWorkspaceSelection(
     )
 }
 
-private func selectionShouldRepairBeforeDeleting(
+private func prepareActiveWorkspaceSelectionForDelete(
     _ database: Database,
-    currentActiveWorkspaceIdString: String?,
-    deletingWorkspaceIdString: String
-) throws -> Bool {
-    guard let currentActiveWorkspaceIdString else { return true }
-    if currentActiveWorkspaceIdString == deletingWorkspaceIdString {
-        return true
+    deletingWorkspaceId workspaceId: UUID,
+    updatedAt: Date
+) throws -> String? {
+    guard let currentActiveWorkspaceIdString = try fetchActiveWorkspaceIdStringFromDatabase(database) else {
+        return nil
     }
-    let currentSelectionIsMalformed = UUID(uuidString: currentActiveWorkspaceIdString) == nil
-    let currentSelectionExists = try workspaceExists(database, id: currentActiveWorkspaceIdString)
-    return currentSelectionIsMalformed || !currentSelectionExists
+    guard let currentActiveWorkspaceId = UUID(uuidString: currentActiveWorkspaceIdString) else {
+        throw WorkspaceCoreRepositoryError.malformedWorkspaceId(currentActiveWorkspaceIdString)
+    }
+    guard try workspaceExists(database, id: currentActiveWorkspaceIdString) else {
+        throw WorkspaceCoreRepositoryError.activeWorkspaceSelectionDangling(currentActiveWorkspaceId)
+    }
+    guard currentActiveWorkspaceId == workspaceId else {
+        return currentActiveWorkspaceIdString
+    }
+
+    let fallbackWorkspaceIdString = try fetchFallbackWorkspaceIdString(
+        database,
+        excluding: workspaceId.uuidString
+    )
+    try updateActiveWorkspaceSelection(
+        database,
+        workspaceId: fallbackWorkspaceIdString,
+        updatedAt: updatedAt
+    )
+    return fallbackWorkspaceIdString
 }
 
 func requireWorkspaceExists(_ database: Database, id: UUID) throws {

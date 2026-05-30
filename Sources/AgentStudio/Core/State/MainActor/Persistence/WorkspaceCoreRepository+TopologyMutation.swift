@@ -51,6 +51,12 @@ func reconcileRepoWorktreeRows(
     repoId: UUID,
     worktrees: [WorkspaceCoreRepository.WorktreeRecord]
 ) throws {
+    try preflightIncomingWorktreeStableKeys(
+        database,
+        workspaceId: workspaceId,
+        repoId: repoId,
+        worktrees: worktrees
+    )
     try reconcileWorktreeRows(
         database,
         workspaceId: workspaceId,
@@ -99,7 +105,11 @@ private func preflightIncomingWorktreeOwnership(
             continue
         }
         guard currentIdentity.workspaceId == workspaceId else {
-            throw WorkspaceCoreRepositoryError.repoNotFoundInWorkspace(worktree.repoId, workspaceId)
+            throw WorkspaceCoreRepositoryError.worktreeBelongsToDifferentWorkspace(
+                worktreeId: worktree.id,
+                expectedWorkspaceId: workspaceId,
+                actualWorkspaceId: currentIdentity.workspaceId
+            )
         }
         guard currentIdentity.repoId == worktree.repoId else {
             throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(
@@ -109,6 +119,36 @@ private func preflightIncomingWorktreeOwnership(
             )
         }
     }
+}
+
+private func preflightIncomingWorktreeStableKeys(
+    _ database: Database,
+    workspaceId: UUID,
+    repoId: UUID,
+    worktrees: [WorkspaceCoreRepository.WorktreeRecord]
+) throws {
+    let stableKeys = Set(worktrees.map(\.stableKey))
+    guard !stableKeys.isEmpty else { return }
+    guard
+        let collidingStableKey = try String.fetchOne(
+            database,
+            sql: """
+                SELECT stable_key
+                FROM worktree
+                WHERE workspace_id = ?
+                AND repo_id != ?
+                AND stable_key IN (\(placeholders(count: stableKeys.count)))
+                ORDER BY stable_key ASC
+                LIMIT 1
+                """,
+            arguments: StatementArguments(
+                [workspaceId.uuidString, repoId.uuidString] + stableKeys.sorted()
+            )
+        )
+    else {
+        return
+    }
+    throw WorkspaceCoreRepositoryError.duplicateWorktreeStableKey(collidingStableKey)
 }
 
 private func reconcileWorktreeRows(
@@ -267,7 +307,11 @@ private func upsertWorktree(
 ) throws {
     if let currentIdentity = try fetchWorktreeIdentity(database, worktreeId: worktree.id) {
         guard currentIdentity.workspaceId == workspaceId else {
-            throw WorkspaceCoreRepositoryError.repoNotFoundInWorkspace(worktree.repoId, workspaceId)
+            throw WorkspaceCoreRepositoryError.worktreeBelongsToDifferentWorkspace(
+                worktreeId: worktree.id,
+                expectedWorkspaceId: workspaceId,
+                actualWorkspaceId: currentIdentity.workspaceId
+            )
         }
         guard currentIdentity.repoId == worktree.repoId else {
             throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(

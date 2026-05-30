@@ -136,10 +136,22 @@ private func validateTopology(
     for _: UUID
 ) throws {
     let repoIds = Set(topology.repos.map(\.id))
+    try validateUniqueStableKeys(
+        topology.watchedPaths.map(\.stableKey),
+        duplicateError: WorkspaceCoreRepositoryError.duplicateWatchedPathStableKey
+    )
     try validateUniqueIds(topology.repos.map(\.id), duplicateError: WorkspaceCoreRepositoryError.duplicateRepoId)
+    try validateUniqueStableKeys(
+        topology.repos.map(\.stableKey),
+        duplicateError: WorkspaceCoreRepositoryError.duplicateRepoStableKey
+    )
     try validateUniqueIds(
         topology.repos.flatMap(\.worktrees).map(\.id),
         duplicateError: WorkspaceCoreRepositoryError.duplicateWorktreeId
+    )
+    try validateUniqueStableKeys(
+        topology.repos.flatMap(\.worktrees).map(\.stableKey),
+        duplicateError: WorkspaceCoreRepositoryError.duplicateWorktreeStableKey
     )
     for repoId in topology.unavailableRepoIds where !repoIds.contains(repoId) {
         throw WorkspaceCoreRepositoryError.unavailableRepoNotInTopology(repoId)
@@ -161,6 +173,10 @@ private func validateWorktrees(
         )
     }
     try validateUniqueIds(worktrees.map(\.id), duplicateError: WorkspaceCoreRepositoryError.duplicateWorktreeId)
+    try validateUniqueStableKeys(
+        worktrees.map(\.stableKey),
+        duplicateError: WorkspaceCoreRepositoryError.duplicateWorktreeStableKey
+    )
 }
 
 private func validateUniqueIds(
@@ -170,6 +186,16 @@ private func validateUniqueIds(
     var seenIds = Set<UUID>()
     for id in ids where !seenIds.insert(id).inserted {
         throw duplicateError(id)
+    }
+}
+
+private func validateUniqueStableKeys(
+    _ stableKeys: [String],
+    duplicateError: (String) -> WorkspaceCoreRepositoryError
+) throws {
+    var seenStableKeys = Set<String>()
+    for stableKey in stableKeys where !seenStableKeys.insert(stableKey).inserted {
+        throw duplicateError(stableKey)
     }
 }
 

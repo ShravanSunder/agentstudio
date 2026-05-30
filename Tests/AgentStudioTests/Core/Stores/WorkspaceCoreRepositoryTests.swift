@@ -372,6 +372,35 @@ struct WorkspaceCoreRepositoryTests {
         #expect(try repository.fetchWorkspace(id: deletedWorkspaceId) == nil)
     }
 
+    @Test("deleting workspace rejects dangling active selection without repairing it")
+    func deletingWorkspaceRejectsDanglingActiveSelectionWithoutRepairingIt() throws {
+        let fixture = try makeFixture()
+        let repository = fixture.repository
+        let deletedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000038")!
+        let remainingWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000039")!
+        let danglingWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000040")!
+        let timestamp = Date(timeIntervalSince1970: 100)
+        try repository.upsertWorkspace(
+            .init(id: deletedWorkspaceId, name: "Delete Candidate", createdAt: timestamp, updatedAt: timestamp)
+        )
+        try repository.upsertWorkspace(
+            .init(
+                id: remainingWorkspaceId,
+                name: "Remaining",
+                createdAt: timestamp,
+                updatedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+        try setRawActiveWorkspaceSelection(danglingWorkspaceId.uuidString, in: fixture.databaseQueue)
+
+        #expect(throws: WorkspaceCoreRepositoryError.activeWorkspaceSelectionDangling(danglingWorkspaceId)) {
+            try repository.deleteWorkspace(deletedWorkspaceId, updatedAt: Date(timeIntervalSince1970: 300))
+        }
+        #expect(try rawActiveWorkspaceSelection(in: fixture.databaseQueue) == danglingWorkspaceId.uuidString)
+        #expect(try repository.fetchWorkspace(id: deletedWorkspaceId) != nil)
+        #expect(try repository.fetchWorkspace(id: remainingWorkspaceId) != nil)
+    }
+
     @Test("deleting missing workspace rejects and preserves current selection")
     func deletingMissingWorkspaceRejectsAndPreservesCurrentSelection() throws {
         let repository = try makeFixture().repository
@@ -450,6 +479,19 @@ private func setRawActiveWorkspaceSelection(_ value: String, in databaseQueue: D
             arguments: [value]
         )
         try database.execute(sql: "PRAGMA foreign_keys = ON")
+    }
+}
+
+private func rawActiveWorkspaceSelection(in databaseQueue: DatabaseQueue) throws -> String? {
+    try databaseQueue.read { database in
+        try String.fetchOne(
+            database,
+            sql: """
+                SELECT active_workspace_id
+                FROM app_workspace_selection
+                WHERE singleton_id = 1
+                """
+        )
     }
 }
 
