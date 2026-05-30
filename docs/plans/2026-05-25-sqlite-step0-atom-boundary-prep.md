@@ -145,7 +145,7 @@ Keep implementation edits centralized in one worker because these splits touch o
 
 ## Preflight
 
-- [ ] **Step 1: Check worktree state**
+- [x] **Step 1: Check worktree state**
 
 Run:
 
@@ -155,7 +155,7 @@ git status --short
 
 Expected: only the plan/spec/doc files from the current doc checkpoint are modified before code begins.
 
-- [ ] **Step 2: Restore local binary artifacts**
+- [x] **Step 2: Restore local binary artifacts**
 
 Run:
 
@@ -165,7 +165,7 @@ mise run setup
 
 Expected: `Frameworks/GhosttyKit.xcframework` contains a usable binary artifact and the task exits 0.
 
-- [ ] **Step 3: Capture baseline verification**
+- [x] **Step 3: Capture baseline verification**
 
 Run:
 
@@ -176,7 +176,7 @@ mise run test
 
 Expected: lint exits 0. Full tests either exit 0 or fail with a clearly named pre-existing blocker that is recorded before Step 0 code begins.
 
-- [ ] **Step 4: Commit this implementation plan and spec alignment**
+- [x] **Step 4: Commit this implementation plan and spec alignment**
 
 Run:
 
