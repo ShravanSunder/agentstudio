@@ -10,6 +10,8 @@
     <string>AgentStudio</string>
     <key>CFBundleDisplayName</key>
     <string>Agent Studio</string>
+    <key>AgentStudioReleaseChannel</key>
+    <string>stable</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconFile</key>
