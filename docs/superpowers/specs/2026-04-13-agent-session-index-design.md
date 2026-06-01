@@ -2,30 +2,7 @@
 
 ## Status
 
-Revised spec. Aligned with the `sqlite` branch architecture (`00-persistence-boundaries.md` through `07-session-index-brainstorm.md`).
-
-## Previous Mistakes
-
-The first two drafts were designed without reading the sqlite branch. Catalogued for accountability:
-
-**Draft 1 (pre-sqlite-branch):**
-1. Proposed a standalone `agent-sessions.db` — the sqlite branch decided `core.sqlite` + `<workspace-id>.local.sqlite` with `index_*` prefix tables.
-2. Proposed `@MainActor AgentSessionStore` — the pattern is `struct` repositories with `any DatabaseWriter`.
-3. Used GRDB `Record` types — the pattern is raw SQL with `Row` decoding.
-4. Used FTS5 `content=sessions` — the branch decided standalone FTS5 with delete-then-insert.
-5. Made `ValueObservation` the primary reactive mechanism — the branch limits it.
-6. Missed session pointer vs session facts split.
-7. Missed `indexed_byte_offset` for incremental tail parsing.
-8. Proposed adding GRDB — already in `Package.swift`.
-
-**Draft 2 (post-sqlite-branch read, pre-adversarial review):**
-9. Proposed a separate `<workspace-id>.index.sqlite` — reintroduced the same standalone-DB mistake under a new name. The sqlite branch decided `local.sqlite` with `index_*` prefix in three separate specs (`00`, `02`, `07`). The "data flow direction" argument is weak: `cache_*` tables are also populated from external facts (event bus → coordinator → cache).
-10. Proposed a separate `AgentSessionIndexMigrations` enum — if tables live in `local.sqlite`, migrations register in `WorkspaceLocalMigrations`.
-11. Did not document table-level write ownership between scanner and coordinator.
-12. Did not define what "unresolved CWD" means concretely.
-13. Redundant `indexed_byte_offset` in both `index_session` and `index_transcript_scan_state`.
-14. Missing FK index on `index_session_cwd_observation(provider, provider_session_id)`.
-15. No handling for `seek offset > file size` (transcript rewritten/truncated).
+Spec aligned with the `sqlite` branch architecture (`00-persistence-boundaries.md` through `07-session-index-brainstorm.md`). Adversarially reviewed.
 
 ## Problem
 
@@ -130,7 +107,7 @@ AgentSessionAtom (@MainActor @Observable)
   ├── activeSessions     ← hot, refreshed on scanner notification
   ├── recentByWorktree   ← warm, lazy-loaded per visible worktree
   └── query methods delegate to AgentSessionReadHandler
-       └── reads from index.sqlite DatabasePool (concurrent reads)
+       └── reads from local.sqlite (shared DatabasePool, concurrent reads)
 ```
 
 ### ValueObservation (Limited, Approved Use)
@@ -260,10 +237,10 @@ CREATE TABLE session_pointer (
 );
 ```
 
-### `<workspace-id>.index.sqlite`
+### `<workspace-id>.local.sqlite` — Index Tables
 
 ```sql
--- AgentSessionIndexMigrations: 001_create_session_index
+-- WorkspaceLocalMigrations: 005_create_session_index
 
 CREATE TABLE index_session (
     workspace_id TEXT NOT NULL,
