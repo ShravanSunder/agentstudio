@@ -2,264 +2,275 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement an indexed, queryable catalog of AI coding agent sessions (Claude Code, Codex CLI) that integrates with AgentStudio's workspace/worktree model. Users can discover, search, and resume sessions from within AgentStudio.
+**Goal:** Build a queryable index of AI coding agent sessions (Claude Code first, Codex follow-up) integrated with AgentStudio's workspace/worktree model. Full vertical slice: index + sidebar + live detection.
 
 **Design Spec:** [2026-04-13-agent-session-index-design.md](../specs/2026-04-13-agent-session-index-design.md)
 
-**Tech Stack:** Swift 6.2, macOS 26, GRDB (SQLite), `@MainActor` atom, `actor` scanner, `@concurrent nonisolated` I/O, Swift Testing, mise
+**Depends On:** `sqlite` branch merged (GRDB, WorkspaceCoreRepository, WorkspaceLocalRepository, migration system)
+
+**Tech Stack:** Swift 6.2, macOS 26, GRDB v7, `@MainActor` atom, `actor` scanner, `@concurrent nonisolated` I/O, Swift Testing, mise
 
 ---
 
-## Phase 1: Foundation — Models, Schema, GRDB Setup
+## Phase 1: Models and Schema
 
-### Task 1.1: Add GRDB dependency
+### Task 1.1: Session data models
 
-- [ ] Add `groue/GRDB.swift` to `Package.swift` (latest v7.x, SPM)
-- [ ] Verify it builds: `mise run build`
-- [ ] Add to `.swift-format` and `.swiftlint.yml` excludes if needed for generated code
-
-### Task 1.2: Session data models
-
-Create the core value types in `Core/Models/`:
+Create in `Core/Models/`:
 
 - [ ] `AgentProvider.swift` — `enum AgentProvider: String, Codable, Sendable { case claudeCode, codex }`
-- [ ] `SessionKey.swift` — `struct SessionKey: Hashable, Codable, Sendable`
+- [ ] `SessionKey.swift` — `struct SessionKey: Hashable, Codable, Sendable { provider, sessionId }`
 - [ ] `SessionStatus.swift` — `enum SessionStatus: String, Codable, Sendable { case running, idle, completed, interrupted }`
-- [ ] `SessionSummary.swift` — lightweight index record (see spec for full field list)
-- [ ] `ActiveSessionState.swift` — extends summary with live data (paneId, pid, context window)
-- [ ] `SessionWorktreeAssociation.swift` — junction record
+- [ ] `SessionSummary.swift` — lightweight read model for UI (from index_session + optional pointer join)
+- [ ] `ActiveSessionState.swift` — extends summary with live paneId, pid, context window
+- [ ] `SessionWorktreeMatch.swift` — resolved worktree association
+- [ ] `CWDObservation.swift` — raw CWD observation from transcript
 - [ ] `ToolUsage.swift` — tool name + count
 - [ ] `CostSummary.swift` — aggregate stats
+- [ ] `TranscriptScanState.swift` — per-file scan state with byte offset
 
-All types are `Sendable` value types. No `@Observable`, no actor isolation.
+### Task 1.2: Index DB migrations
 
-### Task 1.3: GRDB database setup and migrations
+Create `AgentSessionIndexMigrations` in `Core/State/MainActor/Persistence/`:
 
-Create `AgentSessionStore` in `Core/State/MainActor/Persistence/`:
+- [ ] `AgentSessionIndexMigrations.swift` — static migrator following `WorkspaceCoreMigrations` pattern
+- [ ] Migration 001: all `index_*` tables, indexes, standalone FTS5 table (see spec schema)
+- [ ] Write unit tests: migration creates tables, verify table structure
 
-- [ ] `AgentSessionStore.swift` — owns `DatabasePool`, manages migrations
-- [ ] Migration v1: `sessions` table with all columns and indexes (see spec schema)
-- [ ] Migration v1: `session_worktrees` junction table with indexes
-- [ ] Migration v1: `session_tools` histogram table
-- [ ] Migration v1: `session_commits` table
-- [ ] Migration v1: `sessions_fts` FTS5 virtual table
-- [ ] GRDB `Record` types: `SessionRecord`, `SessionWorktreeRecord`, `SessionToolRecord`, `SessionCommitRecord`
-- [ ] DB location: `~/.agentstudio/workspaces/<workspace-id>/agent-sessions.db`
-- [ ] WAL mode enabled on pool creation
-- [ ] Write unit tests: migration creates tables, basic CRUD operations
+### Task 1.3: Core DB migration for session_pointer
 
-### Task 1.4: Store query methods
+Extend existing `WorkspaceCoreMigrations`:
 
-Add typed query methods to `AgentSessionStore`:
+- [ ] Add migration for `session_pointer` table (see spec schema)
+- [ ] Write unit test: migration adds table, basic CRUD
 
-- [ ] `sessions(forWorktree:offset:limit:)` — JOIN on session_worktrees, ORDER BY last_active_at DESC
-- [ ] `sessions(forRepo:offset:limit:)` — same pattern with repo_id
-- [ ] `sessions(branch:repoId:limit:)` — filter by git_branch in junction table
+### Task 1.4: Test fixtures
+
+- [ ] Create sample Claude Code JSONL files (small, representative, covering: user, assistant, summary, tool_use records)
+- [ ] Create sample `~/.claude/sessions/<pid>.json` PID registry file
+- [ ] All fixtures in test resources directory
+
+---
+
+## Phase 2: Repository Layer
+
+### Task 2.1: AgentSessionIndexRepository (writes)
+
+Create in `Core/State/MainActor/Persistence/`:
+
+- [ ] `AgentSessionIndexRepository.swift` — `struct` with `any DatabaseWriter`
+- [ ] `migrate()` — delegates to `AgentSessionIndexMigrations`
+- [ ] `upsertSession()` — INSERT OR REPLACE with raw SQL
+- [ ] `upsertBatch()` — wraps multiple upserts in one transaction
+- [ ] `updateStatus()` — point update by (provider, session_id)
+- [ ] `upsertCWDObservation()` — append CWD observation
+- [ ] `upsertWorktreeMatch()` — resolved worktree association
+- [ ] `upsertToolUsage()` — tool histogram upsert
+- [ ] `upsertScanState()` — per-file scan state with byte offset
+- [ ] `rebuildFTSRow()` — standalone FTS5 delete-then-insert in one transaction
+- [ ] `pruneOrphanedWorktreeMatches()` — clean up invalid worktree references
+- [ ] `attachSessionPointer()` / `detachSessionPointer()` — soft reference to core
+- [ ] Write unit tests for each method
+
+### Task 2.2: AgentSessionReadHandler (reads)
+
+Create in `Core/State/MainActor/Persistence/`:
+
+- [ ] `AgentSessionReadHandler.swift` — `struct` with `any DatabaseWriter`
+- [ ] `sessions(forWorktree:limit:)` — JOIN index_session_worktree_match, ORDER BY last_active_at DESC
+- [ ] `sessions(forRepo:limit:)` — same with repo_id
+- [ ] `sessions(branch:repoId:limit:)` — filter by git_branch
 - [ ] `activeSessions()` — WHERE status = 'running'
-- [ ] `search(query:limit:)` — FTS5 MATCH on sessions_fts
+- [ ] `search(query:limit:)` — FTS5 MATCH on standalone table, ORDER BY rank
 - [ ] `costSummary(since:)` — SUM aggregation
-- [ ] `toolProfile(for:)` — fetch from session_tools
-- [ ] `worktreeAssociations(for:)` — fetch from session_worktrees
-- [ ] `restoreCommand(for:)` — single column fetch
-- [ ] `bulkUpsert(_:)` — INSERT OR REPLACE in a transaction
-- [ ] `updateStatus(_:for:)` — point update
-- [ ] Write unit tests: each query with test fixtures
+- [ ] `toolProfile(for:)` — fetch from index_session_tool_usage
+- [ ] `scanState(forPath:)` — check index_transcript_scan_state
+- [ ] `unresolvedCWDObservations()` — CWDs with no worktree_match yet
+- [ ] `activeSessionsObservation()` — ValueObservation factory (approved use)
+- [ ] Write unit tests for each query
+
+### Task 2.3: Core repository extension for session_pointer
+
+Extend `WorkspaceCoreRepository`:
+
+- [ ] `upsertSessionPointer()` — pin, archive, alias, notes, preferred restore command
+- [ ] `deleteSessionPointer()` — remove curation
+- [ ] `fetchSessionPointers(forWorkspace:)` — list curated sessions
+- [ ] Write unit tests
 
 ---
 
-## Phase 2: JSONL Parsing — Provider-Specific
+## Phase 3: JSONL Parsing
 
-### Task 2.1: Claude Code JSONL parser
+### Task 3.1: Parsed session intermediate type
 
-Create `ClaudeSessionParser` in `Core/RuntimeEventSystem/Runtime/Parsers/`:
+- [ ] `ParsedSession.swift` in `Core/Models/` — provider-agnostic result of parsing a JSONL file
+- [ ] Carries: all index_session fields + raw CWD observations + tool usage counts
+- [ ] `toIndexSessionRecord()` conversion
+- [ ] `toCWDObservations()` conversion
+- [ ] `toToolUsageRecords()` conversion
 
-- [ ] `@concurrent nonisolated` free function: `parseClaudeJSONL(at: URL) async throws -> ParsedSession`
-- [ ] Parse line-by-line using `FileHandle.bytes.lines`
-- [ ] Lightweight `Decodable` structs — only decode fields we need (not full message content)
-- [ ] Extract from first `user` record: `cwd`, `gitBranch`, `sessionId`, `version`, timestamp
-- [ ] Extract from `assistant` records: accumulate `message.usage.*` tokens, `message.model`, count `tool_use` blocks by name
-- [ ] Track all `cwd` changes across records → build `[CWDVisit]` list with timestamps
-- [ ] Extract `summary` record → `displayName`
-- [ ] Extract first user message content → `firstPrompt` (truncated to 200 chars)
-- [ ] Build `restoreCommand`: `"claude --resume <sessionId>"`
-- [ ] Return `ParsedSession` (provider-agnostic intermediate type)
-- [ ] Write unit tests: parse sample Claude JSONL fixture, verify all extracted fields
+### Task 3.2: Claude Code JSONL parser
 
-### Task 2.2: Codex JSONL parser
+Create `ClaudeSessionParser.swift` in `Core/RuntimeEventSystem/Runtime/Parsers/`:
 
-Create `CodexSessionParser` in `Core/RuntimeEventSystem/Runtime/Parsers/`:
-
-- [ ] `@concurrent nonisolated` free function: `parseCodexJSONL(at: URL) async throws -> ParsedSession`
-- [ ] Parse `RolloutLine` envelope format: `{"type": "...", "payload": {...}}`
-- [ ] Extract from `SessionMeta`: conversation_id, model, timestamp
-- [ ] Extract from `ResponseItem`: accumulate tokens, count tool items
-- [ ] Extract from `EventMsg`: track CWD changes, extract first user input
-- [ ] Skip `.jsonl.zst` files entirely
-- [ ] Build `restoreCommand`: `"codex resume <threadId>"`
-- [ ] Return `ParsedSession`
-- [ ] Write unit tests: parse sample Codex JSONL fixture
-
-### Task 2.3: ParsedSession intermediate type
-
-- [ ] `ParsedSession.swift` in `Core/Models/` — provider-agnostic, carries all extracted fields plus raw CWD visit list
-- [ ] `CWDVisit` — `(cwd: URL, timestamp: Date)` for worktree resolution
-- [ ] Conversion method: `ParsedSession.toSessionRecord()` → GRDB `SessionRecord`
-- [ ] Conversion method: `ParsedSession.toWorktreeAssociations(resolving:)` → uses topology atom to resolve CWD → worktreeId
+- [ ] `@concurrent nonisolated func parseClaudeJSONL(at: URL, since offset: UInt64) async throws -> ParsedSession`
+- [ ] Lightweight `Decodable` structs — only decode fields needed
+- [ ] Seek to byte offset for incremental parsing
+- [ ] Per-line try/catch — skip malformed lines, don't abort file
+- [ ] Skip last line on JSON decode failure (partial write from active session)
+- [ ] Extract: sessionId, cwd, gitBranch, model, token usage, tool_use counts, summary, first prompt
+- [ ] Track CWD changes → build CWDObservation list
+- [ ] Build restore command: `"claude --resume <sessionId>"`
+- [ ] Return `(ParsedSession, newByteOffset: UInt64)`
+- [ ] Write unit tests with fixture JSONL files
 
 ---
 
-## Phase 3: Scanner Actor
+## Phase 4: Scanner Actor
 
-### Task 3.1: Directory discovery
+### Task 4.1: Directory discovery
 
-Create `AgentSessionScanner` in `Core/RuntimeEventSystem/Runtime/`:
+Create `AgentSessionScanner.swift` in `Core/RuntimeEventSystem/Runtime/`:
 
 - [ ] `actor AgentSessionScanner`
-- [ ] `claudeProjectsPath` — resolve `~/.claude/projects/` (also check `~/.config/claude/projects/`)
-- [ ] `codexSessionsPath` — resolve `~/.codex/sessions/` (also check `$CODEX_HOME`)
-- [ ] `@concurrent nonisolated func discoverClaudeFiles() async throws -> [DiscoveredFile]` — glob `**/*.jsonl`
-- [ ] `@concurrent nonisolated func discoverCodexFiles() async throws -> [DiscoveredFile]` — glob `**/*.jsonl` (skip `.zst`)
-- [ ] `DiscoveredFile` — `(path: URL, mtime: Date, size: Int64, provider: AgentProvider)`
+- [ ] Resolve `~/.claude/projects/` (also check `~/.config/claude/projects/`)
+- [ ] `@concurrent nonisolated func discoverClaudeFiles() async throws -> [DiscoveredFile]`
+- [ ] `DiscoveredFile` — path, mtime, size, provider
+- [ ] Handle missing directories gracefully (skip, don't crash)
 
-### Task 3.2: Full scan (startup)
+### Task 4.2: Full scan (startup)
 
 - [ ] `func fullScan() async throws`
-- [ ] Discover all files from both providers
-- [ ] Fetch existing `(transcript_path, transcript_mtime)` from DB
-- [ ] Skip files where `mtime == transcript_mtime` (unchanged)
-- [ ] Parse changed/new files (sequential initially, parallel later if needed)
-- [ ] Resolve CWD → worktreeId via `WorkspaceRepositoryTopologyAtom.repoAndWorktree(containing:)`
-- [ ] Bulk upsert into DB
-- [ ] Emit `RuntimeEnvelope.system(.agentSessionsIndexed(count:))` on bus
-- [ ] Write integration test: create temp JSONL files, scan, verify DB contents
+- [ ] Discover files → check index_transcript_scan_state for existing mtime/offset
+- [ ] Skip unchanged files (mtime matches)
+- [ ] Parse changed/new files (incremental from byte offset)
+- [ ] Write to DB via AgentSessionIndexRepository
+- [ ] Return scan summary (new, updated, unchanged counts)
 
-### Task 3.3: Incremental scan (file watcher)
-
-- [ ] Set up `DispatchSource.makeFileSystemObjectSource` or `FSEvents` on both directories
-- [ ] On change: discover new/modified files, parse only those, upsert
-- [ ] Debounce: coalesce events within 1s window before scanning
-- [ ] Handle file deletion: mark sessions as `completed` if transcript disappears (unlikely but possible)
-
-### Task 3.4: Active session detection
+### Task 4.3: Active session detection
 
 - [ ] `func scanActiveSessions() async throws`
-- [ ] Read `~/.claude/sessions/*.json` — parse `{pid, sessionId, cwd, startedAt, kind}`
-- [ ] Check if PID is still alive: `kill(pid, 0) == 0`
-- [ ] For alive PIDs: find matching session in DB by sessionId, mark status = `.running`
-- [ ] For dead PIDs or missing files: mark status = `.idle` (if was `.running`)
-- [ ] Schedule: every 30s while app is active, plus on FSEvents for `~/.claude/sessions/`
-- [ ] Codex: no equivalent PID registry — detect running status from JSONL file being actively appended (mtime within last 60s)
+- [ ] Read `~/.claude/sessions/*.json` — parse PID → sessionId + cwd
+- [ ] Check PID alive: `kill(pid, 0) == 0`
+- [ ] Update status in DB (.running for alive, .idle for dead)
+
+### Task 4.4: File watching
+
+- [ ] Use existing `DarwinFSEventStreamClient` pattern (NOT DispatchSource)
+- [ ] Watch `~/.claude/projects/` for new/changed JSONL files
+- [ ] Watch `~/.claude/sessions/` for PID registry changes
+- [ ] Debounce: 1s coalesce window before triggering scan
+- [ ] If directory doesn't exist: skip, re-check periodically (5m)
+- [ ] Emit `RuntimeEnvelope.system(.agentSessionsIndexed(count:))` after scan
 
 ---
 
-## Phase 4: Atom and Reactive UI Binding
+## Phase 5: Atom and Coordinator Wiring
 
-### Task 4.1: AgentSessionAtom
+### Task 5.1: AgentSessionAtom
 
 Create in `Core/State/MainActor/Atoms/`:
 
 - [ ] `@MainActor @Observable final class AgentSessionAtom`
-- [ ] `private(set) var activeSessions: [SessionKey: ActiveSessionState]` — hot, reactive
+- [ ] `private(set) var activeSessions: [SessionKey: ActiveSessionState]` — hot state
 - [ ] `private(set) var recentByWorktree: [WorktreeId: [SessionSummary]]` — warm cache
-- [ ] Async query methods delegating to `AgentSessionStore` (see spec interface)
-- [ ] `prefetchRecent(for:)` — loads last 5 sessions for a worktree into warm cache
-- [ ] `evictCache(for:)` — removes warm cache for a worktree
-- [ ] `didUpdateIndex()` — called by scanner, triggers GRDB observation refresh
+- [ ] `prefetchRecent(for:)` — loads recent sessions for a worktree from DB
+- [ ] `evictCache(for:)` — removes warm cache entry
+- [ ] `refreshActiveSessions()` — re-queries active sessions from DB
+- [ ] `refreshRecent(for:)` — re-queries recent for specific worktree
 
-### Task 4.2: GRDB ValueObservation subscriptions
+### Task 5.2: ValueObservation for active sessions
 
-- [ ] Subscribe to `sessions WHERE status = 'running'` → drives `activeSessions`
-- [ ] Use `DatabaseRegionObservation` for change notifications (lighter than full ValueObservation for warm cache invalidation)
-- [ ] On change: invalidate affected worktree caches, re-fetch if visible
-- [ ] Observation lifetime tied to atom lifecycle
+- [ ] Subscribe to `index_session WHERE status = 'running'` via `activeSessionsObservation()`
+- [ ] Delivers on MainActor, updates `activeSessions` property
+- [ ] Observation lifetime tied to atom
 
-### Task 4.3: Register in AtomStore
+### Task 5.3: Coordinator integration
 
-- [ ] Add `agentSession: AgentSessionAtom` to `AtomStore`
-- [ ] Add `agentSessionStore: AgentSessionStore` to persistence layer
-- [ ] Wire DB path from workspace metadata
-- [ ] Initialize DB + run migrations on workspace load
+- [ ] Subscribe to `.agentSessionsIndexed` fact on event bus
+- [ ] On receipt: tell atom to refresh active sessions + invalidate affected worktree caches
+- [ ] On topology change (worktree added/removed): 
+  - Read unresolved CWD observations from DB
+  - Resolve via topology atom
+  - Write worktree matches back to DB
+  - Refresh atom
+
+### Task 5.4: Register in AtomRegistry
+
+- [ ] Add `agentSession: AgentSessionAtom` to `AtomRegistry`
+- [ ] Wire index DB path from `AppDataPaths.workspacesDirectory()`
+- [ ] Initialize index DB + run migrations during workspace boot
 - [ ] Start scanner after DB is ready
-
-### Task 4.4: Event bus integration
-
-- [ ] Define `SystemScopedEvent.agentSessionsIndexed(count: Int)` — emitted after scan completes
-- [ ] `WorkspaceCacheCoordinator` or new coordinator subscribes — triggers atom refresh
-- [ ] On topology change (worktree added/removed): notify scanner to re-resolve unresolved CWDs
+- [ ] Integrate into boot sequence (after loadUIStore, before topology sync)
 
 ---
 
-## Phase 5: Testing
+## Phase 6: Testing
 
-### Task 5.1: Unit tests
+### Task 6.1: Unit tests
 
-- [ ] GRDB schema migration test
-- [ ] GRDB CRUD operations test
-- [ ] All query methods with fixtures
-- [ ] Claude JSONL parser with sample data
-- [ ] Codex JSONL parser with sample data
+- [ ] Index migration creates all tables and indexes
+- [ ] Core migration adds session_pointer table
+- [ ] All repository write methods (upsert, update status, FTS rebuild)
+- [ ] All read handler query methods with fixtures
+- [ ] Claude JSONL parser: normal file, truncated last line, malformed lines, empty file
+- [ ] Incremental parsing: parse from byte offset, verify only new content parsed
+- [ ] FTS5 search: standalone upsert, delete-then-insert, search matches
 - [ ] CWD → worktree resolution logic
-- [ ] Multi-worktree association building
-- [ ] FTS5 search test
-- [ ] Cost aggregation test
+- [ ] Session pointer reconciliation
 
-### Task 5.2: Integration tests
+### Task 6.2: Integration tests
 
-- [ ] End-to-end: create temp JSONL files → scanner discovers → DB populated → atom queries return correct results
-- [ ] Incremental scan: modify a file → scanner detects → DB updated
-- [ ] Active session detection: create PID file → scanner marks running → remove PID file → scanner marks idle
-- [ ] Worktree resolution: set up topology atom with known worktrees → scanner resolves CWDs correctly
-- [ ] FTS search: index sessions → search by name/prompt → correct results
-
-### Task 5.3: Test fixtures
-
-- [ ] Create sample Claude Code JSONL files (small, representative)
-- [ ] Create sample Codex JSONL files
-- [ ] Create sample `~/.claude/sessions/<pid>.json` files
-- [ ] All fixtures in test resources, not hardcoded strings
+- [ ] Full scan: temp JSONL files → scanner discovers → DB populated → atom queries correct
+- [ ] Incremental scan: modify file → scanner detects → DB updated with new data only
+- [ ] Active session detection: create PID file → running, remove → idle
+- [ ] Concurrent read/write: scanner reads while file is being appended
 
 ---
 
-## Phase 6: Future (Not in This Plan)
+## Phase 7: Future (Not in This Plan)
 
-These are explicitly deferred. They build on the index but are separate work:
-
-- [ ] **Sidebar UI** — session list per worktree, session detail panel
-- [ ] **Command bar integration** — search sessions, "Resume session" action
-- [ ] **Pane↔session association** — detect which pane is running which session, show live status in tab bar
-- [ ] **Hooks integration** — receive Claude Code PostToolUse/SessionStart hooks for richer live data
-- [ ] **Statusline integration** — parse Claude Code statusline JSON for context window / rate limit data
-- [ ] **Agent pane content type** — wire `PaneContentType.agent` to session index
-- [ ] **Cost estimation** — per-model token pricing for `estimatedCostUSD`
-- [ ] **Session diff viewer** — show git diff for commits created during a session
+- [ ] Codex JSONL parser (schema supports it, parser deferred)
+- [ ] Sidebar UI — session list per worktree
+- [ ] Command bar — "Resume session" action, session search
+- [ ] Pane ↔ session association — live status in tab bar
+- [ ] Hooks / statusline / OTLP integration
+- [ ] Cost estimation pricing tables
+- [ ] Session diff viewer
+- [ ] Compressed archives (.jsonl.zst)
 
 ---
 
 ## Dependency Graph
 
 ```
-Phase 1 (Foundation)
-  ├── 1.1 GRDB dependency
-  ├── 1.2 Models (no deps)
-  ├── 1.3 DB setup (depends on 1.1, 1.2)
-  └── 1.4 Store queries (depends on 1.3)
+Phase 1 (Models + Schema) — no external deps beyond sqlite branch
+  ├── 1.1 Models
+  ├── 1.2 Index migrations (depends on GRDB from sqlite branch)
+  ├── 1.3 Core migration extension
+  └── 1.4 Test fixtures
 
-Phase 2 (Parsers) — parallel with Phase 1.3/1.4
-  ├── 2.1 Claude parser (depends on 1.2)
-  ├── 2.2 Codex parser (depends on 1.2)
-  └── 2.3 ParsedSession (depends on 1.2)
+Phase 2 (Repositories) — depends on Phase 1
+  ├── 2.1 Index repository (depends on 1.2)
+  ├── 2.2 Read handler (depends on 1.2)
+  └── 2.3 Core pointer extension (depends on 1.3)
 
-Phase 3 (Scanner) — depends on Phase 1 + 2
-  ├── 3.1 Directory discovery
-  ├── 3.2 Full scan (depends on 3.1, 2.1, 2.2, 1.4)
-  ├── 3.3 Incremental scan (depends on 3.2)
-  └── 3.4 Active session detection (depends on 3.2)
+Phase 3 (Parser) — parallel with Phase 2
+  ├── 3.1 ParsedSession type (depends on 1.1)
+  └── 3.2 Claude parser (depends on 3.1, 1.4)
 
-Phase 4 (Atom) — depends on Phase 1.4 + 3
-  ├── 4.1 Atom (depends on 1.4)
-  ├── 4.2 GRDB observation (depends on 4.1, 1.3)
-  ├── 4.3 AtomStore registration (depends on 4.1)
-  └── 4.4 Event bus (depends on 4.1, 3.2)
+Phase 4 (Scanner) — depends on Phase 2 + 3
+  ├── 4.1 Discovery (depends on 1.1)
+  ├── 4.2 Full scan (depends on 2.1, 3.2)
+  ├── 4.3 Active detection (depends on 2.1)
+  └── 4.4 File watching (depends on 4.2)
 
-Phase 5 (Tests) — parallel with each phase
+Phase 5 (Atom + Wiring) — depends on Phase 2 + 4
+  ├── 5.1 Atom (depends on 2.2)
+  ├── 5.2 ValueObservation (depends on 5.1, 2.2)
+  ├── 5.3 Coordinator (depends on 5.1, 4.4)
+  └── 5.4 Registration (depends on 5.1)
+
+Phase 6 (Tests) — parallel with each phase
 ```

@@ -2,466 +2,482 @@
 
 ## Status
 
-Proposed design spec for review.
+Revised spec. Aligned with the `sqlite` branch architecture (`00-persistence-boundaries.md` through `07-session-index-brainstorm.md`).
+
+## Previous Mistakes
+
+The first draft of this spec was designed in a vacuum without reading the sqlite branch. These were wrong:
+
+1. **Proposed a standalone `agent-sessions.db`** — the sqlite branch already decided on `core.sqlite` + `<workspace-id>.local.sqlite` with `index_*` prefix tables.
+2. **Proposed `@MainActor AgentSessionStore`** — the sqlite branch uses `struct` repositories with `any DatabaseWriter`, not `@MainActor` stores.
+3. **Proposed GRDB `Record` types** — the sqlite branch uses raw SQL with manual `Row` decoding.
+4. **Proposed FTS5 with `content=sessions`** — the sqlite branch already decided on standalone FTS5 with delete-then-insert upsert.
+5. **Proposed `ValueObservation` as the primary reactive mechanism** — the sqlite branch says: "Do not drive core workspace UI through ValueObservation in Step 1." ValueObservation is approved for session index reads specifically, but the primary notification path should be coordinator → atom projection, consistent with the rest of the app.
+6. **Missed the session pointer vs session facts split** — user curation (pin, archive, alias, restore command override) belongs in `core.sqlite`. Provider-discovered facts belong in index tables.
+7. **Missed the `indexed_byte_offset` pattern** — the sqlite branch already designed incremental tail parsing with byte offset tracking.
+8. **Proposed adding GRDB as a new dependency** — it's already in `Package.swift` on the sqlite branch.
 
 ## Problem
 
-AgentStudio embeds Ghostty terminals where users run AI coding agents (Claude Code, Codex CLI, and future providers). Today, AgentStudio has no awareness of what is happening inside those terminals at the agent session level. It cannot:
+AgentStudio embeds Ghostty terminals where users run AI coding agents (Claude Code, Codex CLI). AgentStudio has no awareness of what happens at the agent session level. It cannot list sessions, show costs, search history, or help the user resume a session.
 
-- Tell the user which pane is running an agent session, on which model, at what cost
-- List recent agent sessions for a worktree or repo
-- Let the user resume a previous session from within AgentStudio
-- Show aggregate usage (tokens, cost, tool profile) across sessions
-- Search session history by name or prompt content
-
-Both Claude Code and Codex write structured session data to well-known locations on disk (`~/.claude/projects/`, `~/.codex/sessions/`). This data is the source of truth. AgentStudio needs to **index** it — not own it, not duplicate it, not modify it.
+Both providers write structured JSONL transcripts to well-known disk locations. AgentStudio needs to **index** this data — not own it, not duplicate it.
 
 ## Decision
 
-Introduce a new `AgentSessionAtom` with SQLite-backed persistence (via GRDB) for session indexing. The index is a Tier B derived cache — rebuildable by scanning the agent data directories on disk. A dedicated `AgentSessionScanner` actor handles all I/O (directory scanning, JSONL parsing, file watching). Pure Swift, no Zig.
+### Session Pointers → `core.sqlite`
 
-## Research Basis
-
-### Data Sources
-
-Both providers write JSONL session transcripts to predictable disk locations:
-
-**Claude Code** (`~/.claude/`):
-- Sessions: `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`
-- Active session registry: `~/.claude/sessions/<pid>.json` (maps PID to sessionId + cwd)
-- Path encoding: `/` replaced with `-` (e.g., `/home/user/myproject` becomes `-home-user-myproject`)
-- Record types: `user`, `assistant`, `system`, `queue-operation`, `attachment`, `summary`
-- Token data: `message.usage.{input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens}`
-- CWD tracking: `cwd` field on every record + `gitBranch` field
-- Resume: `claude --resume <sessionId>` or `claude --continue <sessionId>`
-- Real-time hooks: 28 lifecycle events, configurable in `settings.json`
-
-**Codex CLI** (`~/.codex/`):
-- Sessions: `~/.codex/sessions/YYYY/MM/DD/rollout-<id>.jsonl`
-- Compressed archives: `.jsonl.zst` (ignored — only parse plain `.jsonl`)
-- Record format: `RolloutLine` envelope with `type` + `payload` fields
-- Record types: `SessionMeta`, `ResponseItem`, `EventMsg`
-- Token data: delivered in `turn/completed` events (`input_tokens`, `cached_input_tokens`, `output_tokens`)
-- CWD tracking: `cwd` in thread start, changes via command execution
-- Resume: `codex resume <threadId>`
-- Session model: Thread (container) → Turn (exchange) → Item (atomic unit)
-- Metadata DB: SQLite at `~/.codex/` stores thread metadata
-
-### Why SQLite (Not DuckDB)
-
-| Criterion | SQLite | DuckDB |
-|-----------|--------|--------|
-| Binary size | 0 (system lib) | ~20 MB |
-| Build time | Negligible (GRDB is Swift) | Compiles full C++ engine via SPM |
-| Point lookups | Sub-ms B-tree | Slower, no efficient point index |
-| Swift ecosystem | GRDB v7 (mature, async, reactive) | duckdb-swift (known perf issues at 10k-50k rows) |
-| Startup | Sub-millisecond | ~100ms |
-| FTS | FTS5 (battle-tested) | Young extension |
-| Data volume | 10k-100k rows — well within SQLite's comfort zone | Overkill |
-
-GRDB provides `ValueObservation` with `AsyncStream` — reactive DB observation that drives `@Observable` state without polling.
-
-### Ecosystem Reference
-
-Projects that do similar work, studied for patterns:
-
-- **T3 Code** (pingdotgg/t3code): Wraps agent process directly via SDK, event-sourcing with SQLite projections. 45 canonical provider event types.
-- **ccusage**: CLI that scans `~/.claude/projects/**/*.jsonl`, tracks by mtime for incremental re-index.
-- **Mission Control**: Next.js + SQLite, auto-discovers `~/.claude/projects/`, 101 REST endpoints.
-- **claude-devtools**: Per-turn token attribution, context window visualization.
-- **Opcode**: Tauri 2 + Rust, full GUI wrapper with session time-travel.
-
-## Architecture
-
-### Component Placement
-
-| Component | Location | Isolation |
-|-----------|----------|-----------|
-| `AgentSessionAtom` | `Core/State/MainActor/Atoms/` | `@MainActor @Observable` |
-| `AgentSessionStore` | `Core/State/MainActor/Persistence/` | `@MainActor` (GRDB wrapper) |
-| `AgentSessionScanner` | `Core/RuntimeEventSystem/Runtime/` | `actor` |
-| `AgentSessionParser` | `Core/RuntimeEventSystem/Runtime/` | `nonisolated` (pure functions) |
-| Session models | `Core/Models/` | `Sendable` value types |
-| Provider-specific parsers | `Core/RuntimeEventSystem/Runtime/Parsers/` | `nonisolated` |
-
-**Import rule compliance:** All components live in `Core/` or `Infrastructure/`. No `Features/` dependency. No `Core/ → Features/` import.
-
-### Data Flow
-
-```
-~/.claude/projects/**/*.jsonl  ──┐
-~/.codex/sessions/**/*.jsonl   ──┤
-~/.claude/sessions/*.json      ──┘  (active session PID registry)
-         │
-         ▼
-AgentSessionScanner (actor)
-  ├── glob directories
-  ├── compare mtime → indexed_at (skip unchanged)
-  ├── parse JSONL headers + tails (provider-specific)
-  ├── resolve worktreeId/repoId from CWD via topology atom
-  ├── bulk INSERT/UPDATE into SQLite via AgentSessionStore
-  └── emit RuntimeEnvelope.system(.agentSessionsIndexed(count))
-         │
-         ▼
-PaneRuntimeEventBus
-         │
-         ▼
-AgentSessionAtom (@MainActor @Observable)
-  ├── activeSessions: [SessionKey: ActiveSessionState]      ← hot
-  ├── recentByWorktree: [WorktreeId: [SessionSummary]]      ← warm cache
-  └── query methods → GRDB DatabasePool                     ← on-demand
-```
-
-### Session Detection for Running Panes
-
-A terminal pane can detect an agent session through multiple signals:
-
-1. **Active session registry** — `~/.claude/sessions/<pid>.json` maps PID → sessionId + cwd. Poll periodically or watch with FSEvents.
-2. **JSONL file watching** — new/growing `.jsonl` files in known directories indicate active sessions.
-3. **CWD matching** — a pane's `worktreeId` → `worktree.path` → encoded path → `~/.claude/projects/<encoded>/`. If recent JSONL files exist there, sessions are associated.
-
-Association is by CWD/worktree, not by process tree inspection — simpler, provider-agnostic, and works for sessions discovered after the fact.
-
-### Multi-Worktree Association
-
-A session can visit multiple worktrees over its lifetime (agent `cd`s to a different worktree). The `cwd` field changes in the JSONL records. The index tracks this:
-
-- `session_worktrees` junction table: one row per (session, worktree) visited
-- `is_primary` flag marks the starting worktree
-- A session appears in queries for **every** worktree it touched
-- `first_seen_at` / `last_seen_at` per association for ordering
-
-CWD → worktree resolution uses `WorkspaceRepositoryTopologyAtom.repoAndWorktree(containing: cwd)`. CWDs that don't resolve to a known worktree are still tracked (the session happened, even if the folder isn't in the workspace).
-
-## Data Model
-
-### Core Types
-
-```swift
-enum AgentProvider: String, Codable, Sendable {
-    case claudeCode
-    case codex
-}
-
-struct SessionKey: Hashable, Codable, Sendable {
-    let provider: AgentProvider
-    let sessionId: String
-}
-
-enum SessionStatus: String, Codable, Sendable {
-    case running        // process is alive, JSONL being appended
-    case idle           // not running but resumable
-    case completed      // agent finished normally
-    case interrupted    // user stopped or process killed
-}
-
-struct SessionSummary: Sendable, Identifiable {
-    let key: SessionKey
-    let displayName: String?          // summary or thread name
-    let firstPrompt: String?          // truncated, for search
-    let status: SessionStatus
-    let model: String?
-    let createdAt: Date
-    let lastActiveAt: Date
-    let endedAt: Date?
-    let turnCount: Int
-    let totalInputTokens: Int64
-    let totalOutputTokens: Int64
-    let totalCacheReadTokens: Int64
-    let estimatedCostUSD: Double?
-    let filesModified: Int
-    let linesAdded: Int
-    let linesRemoved: Int
-    let restoreCommand: String        // exact CLI to resume
-    let transcriptPath: String        // absolute JSONL path on disk
-    let transcriptSize: Int64
-
-    var id: SessionKey { key }
-}
-
-struct ActiveSessionState: Sendable {
-    let summary: SessionSummary
-    let paneId: PaneId?               // which pane is running this (if known)
-    let pid: Int?                     // OS process ID
-    let contextWindowUsedPercent: Int?
-    let currentModel: String?
-    let lastToolUse: String?
-    let updatedAt: Date
-}
-
-struct SessionWorktreeAssociation: Sendable {
-    let worktreeId: WorktreeId
-    let repoId: UUID
-    let isPrimary: Bool
-    let firstSeenAt: Date
-    let lastSeenAt: Date
-    let timeSpentMs: Int64
-    let gitBranch: String?
-    let cwdPaths: [String]            // distinct CWDs within this worktree
-}
-
-struct ToolUsage: Sendable {
-    let toolName: String
-    let useCount: Int
-}
-
-struct CostSummary: Sendable {
-    let totalCostUSD: Double
-    let totalInputTokens: Int64
-    let totalOutputTokens: Int64
-    let sessionCount: Int
-    let topModels: [(model: String, cost: Double)]
-}
-```
-
-### SQLite Schema
+User curation is durable product truth:
 
 ```sql
-CREATE TABLE sessions (
-    provider          TEXT NOT NULL,
-    session_id        TEXT NOT NULL,
-    display_name      TEXT,
-    first_prompt      TEXT,
-    status            TEXT NOT NULL DEFAULT 'idle',
-    model             TEXT,
-    created_at        REAL NOT NULL,
-    last_active_at    REAL NOT NULL,
-    ended_at          REAL,
-    turn_count        INTEGER DEFAULT 0,
-    total_input_tokens    INTEGER DEFAULT 0,
-    total_output_tokens   INTEGER DEFAULT 0,
-    total_cache_read_tokens INTEGER DEFAULT 0,
-    estimated_cost_usd    REAL,
-    files_modified    INTEGER DEFAULT 0,
-    lines_added       INTEGER DEFAULT 0,
-    lines_removed     INTEGER DEFAULT 0,
-    restore_command   TEXT NOT NULL,
-    transcript_path   TEXT NOT NULL,
-    transcript_size   INTEGER DEFAULT 0,
-    transcript_mtime  REAL,
-    indexed_at        REAL NOT NULL,
-    PRIMARY KEY (provider, session_id)
+session_pointer (in core.sqlite)
+  → "I care about this session"
+  → pin, archive, alias, notes, preferred restore command
+  → loss = user loses curation that cannot be reconstructed
+```
+
+This extends the existing `WorkspaceCoreRepository` with a new migration and new methods.
+
+### Session Index → `<workspace-id>.index.sqlite` (new database)
+
+Provider-discovered facts are rebuildable from JSONL:
+
+```
+index_session                    → provider facts from scanning
+index_session_cwd_observation    → every CWD change observed
+index_session_worktree_match     → resolved worktree associations
+index_session_tool_usage         → tool histograms
+index_session_relationship_fact  → fork/parent relationships
+index_transcript_scan_state      → byte offsets, mtimes, scan errors
+index_session_search_fts         → standalone FTS5 search
+```
+
+**Why a separate DB, not `local.sqlite`:**
+
+- `local.sqlite` cache tables (`cache_*`) follow atom→DB flow (atom changes, debounced persistence follows)
+- Session index follows **DB→atom** flow (scanner writes to DB, atom reads)
+- These are fundamentally different data flow patterns with different write ownership
+- Separate DB makes rebuild trivial: delete `<workspace-id>.index.sqlite`, re-scan
+- No risk of session index migrations breaking cursor/cache tables
+- Independent lifecycle: index can be rebuilt without losing local UX memory
+
+**Location:** `<AppDataPaths.workspacesDirectory()>/<workspace-id>.index.sqlite`
+
+**Loss semantics:** Rebuildable. Scanner re-scans `~/.claude/` and `~/.codex/` to reconstruct all index facts. Core session pointers survive independently in `core.sqlite`.
+
+## Data Flow
+
+### Write Path: Scanner → Index DB → Atom
+
+```
+AgentSessionScanner (actor)
+  ├── discoverFiles()                    @concurrent nonisolated
+  ├── parseClaudeJSONL(at:since:)        @concurrent nonisolated
+  ├── parseCodexJSONL(at:since:)         @concurrent nonisolated (future)
+  │
+  ├── fullScan()                         actor-isolated
+  │   └── discover → filter by mtime → parse → collect raw CWDs
+  │       └── AgentSessionIndexRepository.upsertBatch() (off MainActor)
+  │           └── returns committed results
+  │
+  └── emit RuntimeEnvelope.system(.agentSessionsIndexed(count:))
+      └── PaneRuntimeEventBus
+          └── coordinator subscribes
+              └── coordinator tells atom to refresh from DB
+```
+
+This follows the sqlite branch's core pattern:
+```
+repository writes one SQLite transaction off MainActor
+  → repository returns committed domain result
+  → coordinator applies result to @MainActor atoms
+```
+
+The difference: for session index, the "mutation" originates from the scanner (external data discovery), not from a user action. But the flow is the same — DB-first, atom projects committed result.
+
+### Write Path: User Curation → Core DB → Atom
+
+```
+User pins/archives/aliases a session
+  → PaneActionCommand (validated)
+  → WorkspaceMutationCoordinator
+  → WorkspaceCoreRepository.upsertSessionPointer() (off MainActor)
+  → coordinator applies committed result to atom
+```
+
+This is identical to any other core workspace mutation.
+
+### Read Path: Atom → DB
+
+```
+AgentSessionAtom (@MainActor @Observable)
+  ├── activeSessions     ← hot, refreshed on scanner notification
+  ├── recentByWorktree   ← warm, lazy-loaded per visible worktree
+  └── query methods delegate to AgentSessionReadHandler
+       └── reads from index.sqlite DatabasePool (concurrent reads)
+```
+
+### ValueObservation (Limited, Approved Use)
+
+The sqlite branch spec 05 explicitly lists session index as an approved ValueObservation use:
+
+> Good future ValueObservation uses:
+> - visible session search results
+> - active session summaries
+> - recent sessions for a selected worktree
+> - cost/token aggregates
+
+ValueObservation drives **only** the hot `activeSessions` state (small result set, changes infrequently). All other reads go through the read handler on demand. ValueObservation is NOT used for core workspace UI — that follows the coordinator → atom projection pattern.
+
+## Component Placement
+
+| Component | Location | Isolation | Pattern |
+|-----------|----------|-----------|---------|
+| `AgentSessionIndexRepository` | `Core/State/MainActor/Persistence/` | `struct`, Sendable | Same as `WorkspaceCoreRepository` |
+| `AgentSessionIndexMigrations` | `Core/State/MainActor/Persistence/` | static | Same as `WorkspaceCoreMigrations` |
+| `AgentSessionReadHandler` | `Core/State/MainActor/Persistence/` | `struct`, Sendable | Owns read queries + ValueObservation factories |
+| `AgentSessionAtom` | `Core/State/MainActor/Atoms/` | `@MainActor @Observable` | Hot state only |
+| `AgentSessionScanner` | `Core/RuntimeEventSystem/Runtime/` | `actor` | I/O + parsing |
+| Session parsers | `Core/RuntimeEventSystem/Runtime/Parsers/` | `nonisolated` | Pure functions |
+| Session models | `Core/Models/` | `Sendable` value types | — |
+| `session_pointer` migration | extends `WorkspaceCoreMigrations` | — | Existing pattern |
+
+**Import rule compliance:** Everything in `Core/` or `Infrastructure/`. No `Features/` dependency.
+
+## Repository Pattern (Following Existing Code)
+
+The sqlite branch uses `struct` repositories with `any DatabaseWriter`, raw SQL, and manual `Row` decoding. No GRDB `Record` types. The session index follows this exactly:
+
+```swift
+struct AgentSessionIndexRepository {
+    let workspaceId: UUID
+    let databaseWriter: any DatabaseWriter
+
+    func migrate() throws {
+        try AgentSessionIndexMigrations.migrate(databaseWriter)
+    }
+
+    // ── Writes (called by scanner, off MainActor) ──
+
+    func upsertSession(_ record: IndexSessionRecord) throws { ... }
+    func upsertBatch(_ records: [IndexSessionRecord]) throws { ... }
+    func updateStatus(_ key: SessionKey, status: SessionStatus) throws { ... }
+    func upsertCWDObservation(_ obs: CWDObservationRecord) throws { ... }
+    func upsertWorktreeMatch(_ match: WorktreeMatchRecord) throws { ... }
+    func upsertToolUsage(_ usage: [ToolUsageRecord]) throws { ... }
+    func upsertScanState(_ state: TranscriptScanStateRecord) throws { ... }
+    func rebuildFTSRow(for key: SessionKey) throws { ... }
+    func pruneOrphanedWorktreeMatches(validIds: Set<UUID>) throws { ... }
+}
+```
+
+```swift
+struct AgentSessionReadHandler {
+    let databaseWriter: any DatabaseWriter
+
+    // ── Queries (called from atom or command bar) ──
+
+    func sessions(forWorktree id: UUID, limit: Int) throws -> [SessionSummary] { ... }
+    func sessions(forRepo id: UUID, limit: Int) throws -> [SessionSummary] { ... }
+    func search(query: String, limit: Int) throws -> [SessionSummary] { ... }
+    func costSummary(since: Date) throws -> CostSummary { ... }
+    func scanState(forPath path: String) throws -> TranscriptScanStateRecord? { ... }
+
+    // ── Observation factories ──
+
+    func activeSessionsObservation() -> ValueObservation<[IndexSessionRecord]> { ... }
+}
+```
+
+## Schema
+
+### `core.sqlite` Addition
+
+```sql
+-- New migration in WorkspaceCoreMigrations
+CREATE TABLE session_pointer (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_session_id TEXT NOT NULL,
+    display_alias TEXT,
+    user_note TEXT,
+    preferred_restore_command TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    archived_at REAL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(workspace_id, provider, provider_session_id)
+);
+```
+
+### `<workspace-id>.index.sqlite`
+
+```sql
+-- AgentSessionIndexMigrations: 001_create_session_index
+
+CREATE TABLE index_session (
+    workspace_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_session_id TEXT NOT NULL,
+    provider_thread_id TEXT,
+    session_pointer_id TEXT,
+    display_name TEXT,
+    provider_summary TEXT,
+    first_prompt_snippet TEXT,
+    status TEXT NOT NULL DEFAULT 'idle',
+    model TEXT,
+    created_at REAL,
+    last_active_at REAL NOT NULL,
+    ended_at REAL,
+    turn_count INTEGER NOT NULL DEFAULT 0,
+    total_input_tokens INTEGER NOT NULL DEFAULT 0,
+    total_output_tokens INTEGER NOT NULL DEFAULT 0,
+    total_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    estimated_cost_usd REAL,
+    restore_command TEXT NOT NULL,
+    transcript_path TEXT NOT NULL,
+    transcript_size INTEGER NOT NULL DEFAULT 0,
+    transcript_mtime REAL,
+    indexed_byte_offset INTEGER NOT NULL DEFAULT 0,
+    indexed_at REAL NOT NULL,
+    PRIMARY KEY(provider, provider_session_id)
 );
 
-CREATE TABLE session_worktrees (
-    provider        TEXT NOT NULL,
-    session_id      TEXT NOT NULL,
-    worktree_id     TEXT NOT NULL,
-    repo_id         TEXT NOT NULL,
-    is_primary      INTEGER NOT NULL DEFAULT 0,
-    first_seen_at   REAL NOT NULL,
-    last_seen_at    REAL NOT NULL,
-    time_spent_ms   INTEGER DEFAULT 0,
-    git_branch      TEXT,
-    cwd_paths       TEXT,              -- JSON array
-    PRIMARY KEY (provider, session_id, worktree_id),
-    FOREIGN KEY (provider, session_id) REFERENCES sessions
+CREATE TABLE index_session_cwd_observation (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_session_id TEXT NOT NULL,
+    cwd_path TEXT NOT NULL,
+    observed_at REAL NOT NULL,
+    source TEXT NOT NULL,
+    FOREIGN KEY(provider, provider_session_id)
+        REFERENCES index_session(provider, provider_session_id)
+        ON DELETE CASCADE
 );
 
-CREATE TABLE session_tools (
-    provider      TEXT NOT NULL,
-    session_id    TEXT NOT NULL,
-    tool_name     TEXT NOT NULL,
-    use_count     INTEGER DEFAULT 0,
-    PRIMARY KEY (provider, session_id, tool_name),
-    FOREIGN KEY (provider, session_id) REFERENCES sessions
+CREATE TABLE index_session_worktree_match (
+    workspace_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_session_id TEXT NOT NULL,
+    repo_id TEXT,
+    worktree_id TEXT,
+    cwd_path TEXT NOT NULL,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    first_seen_at REAL NOT NULL,
+    last_seen_at REAL NOT NULL,
+    git_branch TEXT,
+    PRIMARY KEY(provider, provider_session_id, cwd_path),
+    FOREIGN KEY(provider, provider_session_id)
+        REFERENCES index_session(provider, provider_session_id)
+        ON DELETE CASCADE
 );
 
-CREATE TABLE session_commits (
-    provider      TEXT NOT NULL,
-    session_id    TEXT NOT NULL,
-    sha           TEXT NOT NULL,
-    message       TEXT,
-    created_at    REAL,
-    PRIMARY KEY (provider, session_id, sha),
-    FOREIGN KEY (provider, session_id) REFERENCES sessions
+CREATE TABLE index_session_tool_usage (
+    workspace_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_session_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    use_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(provider, provider_session_id, tool_name),
+    FOREIGN KEY(provider, provider_session_id)
+        REFERENCES index_session(provider, provider_session_id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE index_session_relationship_fact (
+    workspace_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_session_id TEXT NOT NULL,
+    relationship_kind TEXT NOT NULL,
+    related_provider TEXT NOT NULL,
+    related_provider_session_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    observed_at REAL NOT NULL,
+    PRIMARY KEY(
+        provider, provider_session_id,
+        relationship_kind,
+        related_provider, related_provider_session_id
+    ),
+    FOREIGN KEY(provider, provider_session_id)
+        REFERENCES index_session(provider, provider_session_id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE index_transcript_scan_state (
+    transcript_path TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    transcript_mtime REAL,
+    transcript_size INTEGER NOT NULL DEFAULT 0,
+    indexed_byte_offset INTEGER NOT NULL DEFAULT 0,
+    last_scanned_at REAL NOT NULL,
+    last_error TEXT
+);
+
+-- Standalone FTS5 (NOT content= external content)
+-- Delete-then-insert upsert. Rebuildable projection.
+CREATE VIRTUAL TABLE index_session_search_fts USING fts5(
+    provider UNINDEXED,
+    provider_session_id UNINDEXED,
+    display_name,
+    provider_summary,
+    first_prompt_snippet,
+    tool_names,
+    cwd_paths,
+    tokenize = 'unicode61'
 );
 
 -- Query indexes
-CREATE INDEX idx_sessions_last_active ON sessions(last_active_at DESC);
-CREATE INDEX idx_sessions_status ON sessions(status);
-CREATE INDEX idx_sw_worktree ON session_worktrees(worktree_id, last_seen_at DESC);
-CREATE INDEX idx_sw_repo ON session_worktrees(repo_id, last_seen_at DESC);
-CREATE INDEX idx_sw_branch ON session_worktrees(git_branch, repo_id);
-
--- FTS5 for command bar search
-CREATE VIRTUAL TABLE sessions_fts USING fts5(
-    display_name,
-    first_prompt,
-    content=sessions,
-    content_rowid=rowid
-);
+CREATE INDEX idx_index_session_last_active
+    ON index_session(last_active_at DESC);
+CREATE INDEX idx_index_session_status
+    ON index_session(status);
+CREATE INDEX idx_index_session_pointer
+    ON index_session(session_pointer_id)
+    WHERE session_pointer_id IS NOT NULL;
+CREATE INDEX idx_index_swm_worktree
+    ON index_session_worktree_match(worktree_id, last_seen_at DESC);
+CREATE INDEX idx_index_swm_repo
+    ON index_session_worktree_match(repo_id, last_seen_at DESC);
+CREATE INDEX idx_index_swm_branch
+    ON index_session_worktree_match(git_branch, repo_id);
+CREATE INDEX idx_index_scan_state_provider
+    ON index_transcript_scan_state(provider, workspace_id);
 ```
 
-### Atom Interface
+### FTS5 Upsert Pattern (Standalone)
 
 ```swift
-@MainActor @Observable
-final class AgentSessionAtom {
-    // ═══ Hot — always in memory, drives reactive UI ═══
+func rebuildFTSRow(for key: SessionKey) throws {
+    try databaseWriter.write { db in
+        // Delete old search document
+        try db.execute(sql: """
+            DELETE FROM index_session_search_fts
+            WHERE provider = ? AND provider_session_id = ?
+            """, arguments: [key.provider.rawValue, key.sessionId])
 
-    /// Running sessions. Small (typically 0-5).
-    /// Driven by GRDB ValueObservation on status='running'.
-    private(set) var activeSessions: [SessionKey: ActiveSessionState] = [:]
+        // Build search document from index tables
+        guard let session = try Row.fetchOne(db, sql: """
+            SELECT display_name, provider_summary, first_prompt_snippet
+            FROM index_session
+            WHERE provider = ? AND provider_session_id = ?
+            """, arguments: [key.provider.rawValue, key.sessionId])
+        else { return }
 
-    /// Recent sessions per visible worktree. Lazy-loaded as sidebar expands.
-    /// Evicted when worktree collapses or tab switches away.
-    private(set) var recentByWorktree: [WorktreeId: [SessionSummary]] = [:]
+        let toolNames = try String.fetchAll(db, sql: """
+            SELECT tool_name FROM index_session_tool_usage
+            WHERE provider = ? AND provider_session_id = ?
+            """, arguments: [key.provider.rawValue, key.sessionId])
+            .joined(separator: " ")
 
-    // ═══ Warm — async queries against GRDB DatabasePool ═══
+        let cwdPaths = try String.fetchAll(db, sql: """
+            SELECT DISTINCT cwd_path FROM index_session_cwd_observation
+            WHERE provider = ? AND provider_session_id = ?
+            """, arguments: [key.provider.rawValue, key.sessionId])
+            .joined(separator: " ")
 
-    func sessions(for worktreeId: WorktreeId, offset: Int, limit: Int) async -> [SessionSummary]
-    func sessions(for repoId: UUID, offset: Int, limit: Int) async -> [SessionSummary]
-    func sessions(branch: String, repoId: UUID, limit: Int) async -> [SessionSummary]
-    func search(query: String, limit: Int) async -> [SessionSummary]
-    func costSummary(since: Date) async -> CostSummary
-    func toolProfile(for key: SessionKey) async -> [ToolUsage]
-    func worktreeAssociations(for key: SessionKey) async -> [SessionWorktreeAssociation]
-    func restoreCommand(for key: SessionKey) async -> String?
-
-    // ═══ Lifecycle ═══
-
-    /// Called by scanner when index changes. Refreshes hot state.
-    func didUpdateIndex()
-
-    /// Called when a worktree becomes visible in sidebar.
-    func prefetchRecent(for worktreeId: WorktreeId)
-
-    /// Called when worktree collapses or tab switches.
-    func evictCache(for worktreeId: WorktreeId)
+        // Insert rebuilt search document
+        try db.execute(sql: """
+            INSERT INTO index_session_search_fts(
+                provider, provider_session_id,
+                display_name, provider_summary, first_prompt_snippet,
+                tool_names, cwd_paths
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, arguments: [
+                key.provider.rawValue, key.sessionId,
+                session["display_name"], session["provider_summary"],
+                session["first_prompt_snippet"], toolNames, cwdPaths,
+            ])
+    }
 }
 ```
 
-### Scanner Actor
+## CWD → Worktree Resolution
 
-```swift
-actor AgentSessionScanner {
-    private let store: AgentSessionStore
-    private let topology: @MainActor () -> WorkspaceRepositoryTopologyAtom
+Parsers return raw CWDs. Resolution happens **after** scan completes, on MainActor where topology is accessible:
 
-    // ── Full scan (startup) ──
+```
+Scanner (actor):
+  parse JSONL → collect [(cwd: URL, timestamp: Date)] per session
+  write index_session + index_session_cwd_observation to DB
 
-    func fullScan() async throws {
-        let claudeSessions = try await scanClaudeDirectory()
-        let codexSessions = try await scanCodexDirectory()
-        try await store.bulkUpsert(claudeSessions + codexSessions)
-    }
-
-    // ── Incremental scan (periodic + file watch) ──
-
-    func incrementalScan() async throws {
-        // Only re-parse files with mtime > indexed_at
-    }
-
-    // ── Active session detection ──
-
-    func scanActiveSessions() async throws {
-        // Read ~/.claude/sessions/*.json (PID → sessionId + cwd)
-        // Mark matching sessions as .running, others as .idle
-    }
-
-    // ── Blocking I/O on concurrent executor ──
-
-    @concurrent nonisolated
-    private func scanClaudeDirectory() async throws -> [ParsedSession] { ... }
-
-    @concurrent nonisolated
-    private func scanCodexDirectory() async throws -> [ParsedSession] { ... }
-
-    @concurrent nonisolated
-    private func parseClaudeJSONL(at path: URL, since offset: UInt64) async throws -> ParsedSession { ... }
-
-    @concurrent nonisolated
-    private func parseCodexJSONL(at path: URL, since offset: UInt64) async throws -> ParsedSession { ... }
-}
+Coordinator (MainActor):
+  receives .agentSessionsIndexed fact from bus
+  reads unresolved CWD observations from DB
+  resolves each CWD via WorkspaceRepositoryTopologyAtom.repoAndWorktree(containing:)
+  writes index_session_worktree_match rows back to DB
+  projects committed results into atom
 ```
 
-### JSONL Parsing Strategy
+On topology change (worktree added/removed): coordinator re-resolves unmatched CWDs.
 
-**Do not parse entire transcripts.** Extract only the fields needed for the index:
+## Session Pointer ↔ Index Reconciliation
 
-For Claude Code:
-1. First `user` record: `cwd`, `gitBranch`, `version`, `sessionId`, timestamp → `createdAt`, `primaryWorktree`
-2. All `assistant` records: accumulate `message.usage.*` tokens, extract `message.model`, count `tool_use` blocks
-3. All records: track `cwd` changes → build worktree association list
-4. Last record: timestamp → `lastActiveAt`
-5. `summary` records: extract `summary` text → `displayName`
+No cross-DB foreign keys. Soft references reconciled at query time:
 
-For Codex:
-1. First `SessionMeta` record: conversation ID, model, timestamp → `createdAt`
-2. `ResponseItem` records: accumulate token counts, count tool items
-3. `EventMsg` records: track CWD changes, user inputs
-4. Last record: timestamp → `lastActiveAt`
-
-**Incremental parsing:** Store the last-read byte offset per file. On re-scan, seek to offset and parse only new lines. This makes live session tracking efficient — only read the new tail.
-
-### Persistence Tier
-
-**Tier B** — derived cache, rebuildable from source JSONL files.
-
-Location: `~/.agentstudio/workspaces/<workspace-id>/agent-sessions.db`
-
-Per-workspace because `worktreeId` and `repoId` are workspace-scoped UUIDs. The session→worktree associations reference those UUIDs.
-
-If the DB is deleted: `AgentSessionScanner.fullScan()` rebuilds everything from `~/.claude/` and `~/.codex/`.
-
-### Reactive UI Binding (GRDB ValueObservation)
-
-GRDB's `ValueObservation` drives `@Observable` state reactively. When the scanner inserts/updates rows, the atom's subscriptions fire automatically:
-
-```swift
-// Subscribe to active sessions — fires on any status change
-let activeObservation = ValueObservation.tracking { db in
-    try SessionRecord
-        .filter(Column("status") == "running")
-        .fetchAll(db)
-}
-
-// In atom setup
-for try await records in activeObservation.values(in: dbPool) {
-    self.activeSessions = records.toActiveSessionMap()
-}
+```
+index_session.session_pointer_id
+  → copied from session_pointer.id when a match exists
+  → cleared when the pointer is deleted from core
+  → reattached on index rebuild by matching (workspace_id, provider, provider_session_id)
 ```
 
-No polling. No manual event bus wiring for the DB→atom path. The scanner writes to SQLite, GRDB notifies the atom.
+Restore command precedence:
+```
+session_pointer.preferred_restore_command (if set)
+  → otherwise index_session.restore_command (provider-derived)
+```
 
-The `PaneRuntimeEventBus` is still used for **system-level facts** (e.g., "scan completed, N sessions indexed") that other coordinators may want to observe.
+## JSONL Parsing
 
-### Scan Scheduling
+### Incremental Tail Parsing
+
+`index_transcript_scan_state` tracks per-file byte offset:
+
+1. Check `transcript_mtime` — skip unchanged files
+2. Seek to `indexed_byte_offset` — read only new lines
+3. If last line fails JSON decode → skip it (likely partial write from active session)
+4. Update `indexed_byte_offset` and `last_scanned_at`
+5. If parse error → store in `last_error`, don't abort
+
+### Per-Line Error Handling
+
+Each JSONL line is independently try/catch. A malformed line skips without aborting the file. `last_error` in scan state records the most recent per-line error for diagnostics.
+
+### Concurrent Read/Write Safety
+
+Agent writes JSONL while scanner reads. On APFS, reads see consistent file content but the scanner may read a partial last line. The parser skips the last line on JSON decode failure and re-reads it on the next scan (the byte offset excludes the partial line).
+
+## Scan Scheduling
 
 | Trigger | Action |
 |---------|--------|
-| App startup | Full scan (compare all mtimes) |
+| App startup (after boot step 3, before topology sync) | Full scan (compare all mtimes) |
 | FSEvents on `~/.claude/projects/` | Incremental scan (changed files only) |
-| FSEvents on `~/.codex/sessions/` | Incremental scan (changed files only) |
+| FSEvents on `~/.codex/sessions/` | Incremental scan (future, Codex parser) |
 | FSEvents on `~/.claude/sessions/` | Active session detection (PID registry) |
-| Every 30s while app is active | Active session detection (PID registry) |
-| Workspace topology change (repo/worktree added) | Re-resolve worktree associations for unresolved CWDs |
+| Every 30s while app is active | Active session detection |
+| Topology change (worktree added/removed) | Re-resolve unmatched CWDs |
 
-### Restore Commands
+FSEvents uses the existing `DarwinFSEventStreamClient` pattern, not `DispatchSource`. Debounce: coalesce events within 1s window.
 
-Stored as the exact CLI invocation string:
-
-| Provider | Command Template |
-|----------|-----------------|
-| Claude Code | `claude --resume <sessionId>` |
-| Claude Code (continue) | `claude --continue <sessionId>` |
-| Codex | `codex resume <threadId>` |
-
-The atom provides `restoreCommand(for:)`. The UI can offer "Resume in this pane" which feeds the command to the pane's terminal via the existing zmx/Ghostty input path.
+If `~/.claude/` doesn't exist: skip, don't create a watcher. Check periodically (every 5m) if the directory appears.
 
 ## What This Does Not Cover
 
-- **SDK wrapping** — this design reads JSONL files, it does not spawn or control agent processes. That is a separate, higher-complexity integration (T3 Code's approach).
-- **Real-time hooks** — Claude Code's hooks system (28 events, HTTP POST) could provide richer live data. This is an additive enhancement on top of the file-based index, not a replacement. Can be added later.
-- **OTLP telemetry** — Claude Code's built-in OpenTelemetry export is another live data source. Same story — additive, later.
-- **Compressed archives** — Codex's `.jsonl.zst` files are ignored. Only plain `.jsonl` is parsed. This covers all active and recent sessions.
-- **Agent as a pane content type** — `PaneContentType.agent` already exists as a reserved enum case. Wiring it to the session index is future work that depends on this index existing first.
-- **Cost estimation pricing** — initial version can use hardcoded per-model rates (like ccusage does) or skip cost entirely and just show token counts.
+- Codex parser (follow-up — schema supports it, parser deferred)
+- Compressed archives (.jsonl.zst) — skip
+- Hooks/statusline/OTLP live integration — additive later
+- SDK wrapping / ACP — not using
+- Sidebar UI, command bar integration, drawer panel — separate specs
+- Cost estimation pricing tables — hardcode or skip for v1
+- Multi-agent orchestration — future
 
 ## Open Questions
 
-1. **Should the scanner run in a `TaskGroup` for parallel JSONL parsing?** At 100k files this helps. At 100 files it doesn't matter. Start sequential, measure, parallelize if slow.
-2. **Should `AgentSessionAtom` live in `AtomStore`?** It has a different lifecycle (requires DB setup before atom creation). May need a separate initialization path.
-3. **Per-workspace vs global DB?** Spec says per-workspace. But a user might want "show me all sessions across all workspaces." A global DB with workspace-id column is an alternative.
-4. **How to handle CWDs that don't resolve to any known worktree?** Store with `worktree_id = NULL` in `session_worktrees`? Or a separate `session_unresolved_cwds` table?
+1. **Boot sequence ordering.** Where does index DB init fit in WorkspaceBootSequence? After step 3 (loadUIStore), before step 9 (triggerInitialTopologySync)? Scanner needs topology for CWD resolution but can defer resolution.
+2. **Atom registration.** Does `AgentSessionAtom` go in `AtomRegistry`? It has a different lifecycle (needs DB setup first). May need lazy initialization.
+3. **Unresolvable CWDs.** Sessions with CWDs that don't match any known worktree: store in `index_session_worktree_match` with `worktree_id = NULL` and `repo_id = NULL`? Or separate table?
+4. **Cross-workspace session visibility.** A user may want "all my sessions globally." Per-workspace index can't answer this without scanning all workspace DBs. Acceptable for v1?
