@@ -6,16 +6,26 @@ Revised spec. Aligned with the `sqlite` branch architecture (`00-persistence-bou
 
 ## Previous Mistakes
 
-The first draft of this spec was designed in a vacuum without reading the sqlite branch. These were wrong:
+The first two drafts were designed without reading the sqlite branch. Catalogued for accountability:
 
-1. **Proposed a standalone `agent-sessions.db`** — the sqlite branch already decided on `core.sqlite` + `<workspace-id>.local.sqlite` with `index_*` prefix tables.
-2. **Proposed `@MainActor AgentSessionStore`** — the sqlite branch uses `struct` repositories with `any DatabaseWriter`, not `@MainActor` stores.
-3. **Proposed GRDB `Record` types** — the sqlite branch uses raw SQL with manual `Row` decoding.
-4. **Proposed FTS5 with `content=sessions`** — the sqlite branch already decided on standalone FTS5 with delete-then-insert upsert.
-5. **Proposed `ValueObservation` as the primary reactive mechanism** — the sqlite branch says: "Do not drive core workspace UI through ValueObservation in Step 1." ValueObservation is approved for session index reads specifically, but the primary notification path should be coordinator → atom projection, consistent with the rest of the app.
-6. **Missed the session pointer vs session facts split** — user curation (pin, archive, alias, restore command override) belongs in `core.sqlite`. Provider-discovered facts belong in index tables.
-7. **Missed the `indexed_byte_offset` pattern** — the sqlite branch already designed incremental tail parsing with byte offset tracking.
-8. **Proposed adding GRDB as a new dependency** — it's already in `Package.swift` on the sqlite branch.
+**Draft 1 (pre-sqlite-branch):**
+1. Proposed a standalone `agent-sessions.db` — the sqlite branch decided `core.sqlite` + `<workspace-id>.local.sqlite` with `index_*` prefix tables.
+2. Proposed `@MainActor AgentSessionStore` — the pattern is `struct` repositories with `any DatabaseWriter`.
+3. Used GRDB `Record` types — the pattern is raw SQL with `Row` decoding.
+4. Used FTS5 `content=sessions` — the branch decided standalone FTS5 with delete-then-insert.
+5. Made `ValueObservation` the primary reactive mechanism — the branch limits it.
+6. Missed session pointer vs session facts split.
+7. Missed `indexed_byte_offset` for incremental tail parsing.
+8. Proposed adding GRDB — already in `Package.swift`.
+
+**Draft 2 (post-sqlite-branch read, pre-adversarial review):**
+9. Proposed a separate `<workspace-id>.index.sqlite` — reintroduced the same standalone-DB mistake under a new name. The sqlite branch decided `local.sqlite` with `index_*` prefix in three separate specs (`00`, `02`, `07`). The "data flow direction" argument is weak: `cache_*` tables are also populated from external facts (event bus → coordinator → cache).
+10. Proposed a separate `AgentSessionIndexMigrations` enum — if tables live in `local.sqlite`, migrations register in `WorkspaceLocalMigrations`.
+11. Did not document table-level write ownership between scanner and coordinator.
+12. Did not define what "unresolved CWD" means concretely.
+13. Redundant `indexed_byte_offset` in both `index_session` and `index_transcript_scan_state`.
+14. Missing FK index on `index_session_cwd_observation(provider, provider_session_id)`.
+15. No handling for `seek offset > file size` (transcript rewritten/truncated).
 
 ## Problem
 
@@ -38,9 +48,11 @@ session_pointer (in core.sqlite)
 
 This extends the existing `WorkspaceCoreRepository` with a new migration and new methods.
 
-### Session Index → `<workspace-id>.index.sqlite` (new database)
+### Session Index → `<workspace-id>.local.sqlite` (`index_*` tables)
 
-Provider-discovered facts are rebuildable from JSONL:
+Provider-discovered facts are rebuildable from JSONL. They live in the
+per-workspace local database using the `index_*` prefix convention established
+in `02-local-ux-and-cache-schema.md`:
 
 ```
 index_session                    → provider facts from scanning
@@ -52,18 +64,22 @@ index_transcript_scan_state      → byte offsets, mtimes, scan errors
 index_session_search_fts         → standalone FTS5 search
 ```
 
-**Why a separate DB, not `local.sqlite`:**
+**Why `local.sqlite`, not a separate DB:**
 
-- `local.sqlite` cache tables (`cache_*`) follow atom→DB flow (atom changes, debounced persistence follows)
-- Session index follows **DB→atom** flow (scanner writes to DB, atom reads)
-- These are fundamentally different data flow patterns with different write ownership
-- Separate DB makes rebuild trivial: delete `<workspace-id>.index.sqlite`, re-scan
-- No risk of session index migrations breaking cursor/cache tables
-- Independent lifecycle: index can be rebuilt without losing local UX memory
+The sqlite branch decided this in `00-persistence-boundaries.md`, `02-local-ux-and-cache-schema.md`, and `07-session-index-brainstorm.md`. A separate `index.sqlite` was considered and rejected because:
 
-**Location:** `<AppDataPaths.workspacesDirectory()>/<workspace-id>.index.sqlite`
+- One fewer `DatabasePool` to manage per workspace lifecycle
+- Cross-table queries with `cache_*` data are possible (e.g., enriched worktree names)
+- Workspace delete/backup/export manages two files, not three
+- The `index_*` prefix convention already provides logical separation
+- Reset rule: `DELETE FROM index_*` rebuilds the index without touching `local_*` or `cache_*` rows
+- Index migration failure is handled defensively (try/catch, degrade gracefully) rather than with file isolation
 
-**Loss semantics:** Rebuildable. Scanner re-scans `~/.claude/` and `~/.codex/` to reconstruct all index facts. Core session pointers survive independently in `core.sqlite`.
+**Location:** `<AppDataPaths.workspacesDirectory()>/<workspace-id>.local.sqlite`
+
+**Migrations:** Registered in `WorkspaceLocalMigrations` (e.g., `005_create_session_index`), not a separate migrator.
+
+**Loss semantics:** `DELETE FROM index_*` triggers a full re-scan. `DELETE local.sqlite` loses cursor/cache AND index — cursor/cache loss is annoying but not destructive (per existing contract), index is rebuildable. Core session pointers survive independently in `core.sqlite`.
 
 ## Data Flow
 
@@ -134,15 +150,32 @@ ValueObservation drives **only** the hot `activeSessions` state (small result se
 | Component | Location | Isolation | Pattern |
 |-----------|----------|-----------|---------|
 | `AgentSessionIndexRepository` | `Core/State/MainActor/Persistence/` | `struct`, Sendable | Same as `WorkspaceCoreRepository` |
-| `AgentSessionIndexMigrations` | `Core/State/MainActor/Persistence/` | static | Same as `WorkspaceCoreMigrations` |
 | `AgentSessionReadHandler` | `Core/State/MainActor/Persistence/` | `struct`, Sendable | Owns read queries + ValueObservation factories |
 | `AgentSessionAtom` | `Core/State/MainActor/Atoms/` | `@MainActor @Observable` | Hot state only |
 | `AgentSessionScanner` | `Core/RuntimeEventSystem/Runtime/` | `actor` | I/O + parsing |
 | Session parsers | `Core/RuntimeEventSystem/Runtime/Parsers/` | `nonisolated` | Pure functions |
 | Session models | `Core/Models/` | `Sendable` value types | — |
+| Index migrations | extends `WorkspaceLocalMigrations` | — | Same migrator, new migration ID |
 | `session_pointer` migration | extends `WorkspaceCoreMigrations` | — | Existing pattern |
 
 **Import rule compliance:** Everything in `Core/` or `Infrastructure/`. No `Features/` dependency.
+
+### Table-Level Write Ownership
+
+Two components write to `index_*` tables. Explicit ownership prevents races:
+
+| Table | Write Owner | Reason |
+|-------|-------------|--------|
+| `index_session` | Scanner | Provider facts from JSONL parsing |
+| `index_session_cwd_observation` | Scanner | Raw CWD observations from transcripts |
+| `index_session_tool_usage` | Scanner | Tool histograms from transcripts |
+| `index_session_relationship_fact` | Scanner | Fork/parent from transcripts |
+| `index_transcript_scan_state` | Scanner | Byte offsets, mtimes, errors |
+| `index_session_search_fts` | Scanner | Rebuilt after each session upsert |
+| `index_session_worktree_match` | Coordinator | CWD→worktree resolution requires topology atom |
+| `index_session.session_pointer_id` | Coordinator | Reconciles with core session_pointer |
+
+Scanner writes happen off MainActor inside the actor. Coordinator writes happen on MainActor after resolving CWDs against topology. These never race because they own different columns/tables.
 
 ## Repository Pattern (Following Existing Code)
 
@@ -150,29 +183,41 @@ The sqlite branch uses `struct` repositories with `any DatabaseWriter`, raw SQL,
 
 ```swift
 struct AgentSessionIndexRepository {
+    // Shares the same DatabaseWriter as WorkspaceLocalRepository
+    // (both point to <workspace-id>.local.sqlite)
     let workspaceId: UUID
     let databaseWriter: any DatabaseWriter
 
-    func migrate() throws {
-        try AgentSessionIndexMigrations.migrate(databaseWriter)
-    }
-
-    // ── Writes (called by scanner, off MainActor) ──
+    // ── Scanner writes (off MainActor) ──
 
     func upsertSession(_ record: IndexSessionRecord) throws { ... }
     func upsertBatch(_ records: [IndexSessionRecord]) throws { ... }
     func updateStatus(_ key: SessionKey, status: SessionStatus) throws { ... }
     func upsertCWDObservation(_ obs: CWDObservationRecord) throws { ... }
-    func upsertWorktreeMatch(_ match: WorktreeMatchRecord) throws { ... }
     func upsertToolUsage(_ usage: [ToolUsageRecord]) throws { ... }
     func upsertScanState(_ state: TranscriptScanStateRecord) throws { ... }
     func rebuildFTSRow(for key: SessionKey) throws { ... }
+
+    // rebuildFTSRow must be called after upsertSession, upsertToolUsage,
+    // and upsertCWDObservation for the same session key. The scanner
+    // should call it once at the end of a session upsert batch.
+
+    // ── Coordinator writes (on MainActor, via await) ──
+
+    func upsertWorktreeMatch(_ match: WorktreeMatchRecord) throws { ... }
+    func attachSessionPointer(_ pointerId: String, to key: SessionKey) throws { ... }
+    func detachSessionPointer(from key: SessionKey) throws { ... }
     func pruneOrphanedWorktreeMatches(validIds: Set<UUID>) throws { ... }
+
+    // ── Rebuild ──
+
+    func deleteAllIndexRows() throws { ... }  // DELETE FROM index_* (preserves local_*/cache_*)
 }
 ```
 
 ```swift
 struct AgentSessionReadHandler {
+    // Same DatabaseWriter as the index repository
     let databaseWriter: any DatabaseWriter
 
     // ── Queries (called from atom or command bar) ──
@@ -182,8 +227,12 @@ struct AgentSessionReadHandler {
     func search(query: String, limit: Int) throws -> [SessionSummary] { ... }
     func costSummary(since: Date) throws -> CostSummary { ... }
     func scanState(forPath path: String) throws -> TranscriptScanStateRecord? { ... }
+    func unresolvedCWDObservations() throws -> [CWDObservationRecord] { ... }
 
-    // ── Observation factories ──
+    // "Unresolved" = CWD observation where no matching row exists in
+    // index_session_worktree_match for (provider, provider_session_id, cwd_path)
+
+    // ── Observation factories (approved per spec 05) ──
 
     func activeSessionsObservation() -> ValueObservation<[IndexSessionRecord]> { ... }
 }
@@ -237,11 +286,9 @@ CREATE TABLE index_session (
     estimated_cost_usd REAL,
     restore_command TEXT NOT NULL,
     transcript_path TEXT NOT NULL,
-    transcript_size INTEGER NOT NULL DEFAULT 0,
-    transcript_mtime REAL,
-    indexed_byte_offset INTEGER NOT NULL DEFAULT 0,
     indexed_at REAL NOT NULL,
-    PRIMARY KEY(provider, provider_session_id)
+    PRIMARY KEY(provider, provider_session_id),
+    CHECK(status IN ('running', 'idle', 'completed', 'interrupted'))
 );
 
 CREATE TABLE index_session_cwd_observation (
@@ -256,6 +303,9 @@ CREATE TABLE index_session_cwd_observation (
         REFERENCES index_session(provider, provider_session_id)
         ON DELETE CASCADE
 );
+
+CREATE INDEX idx_index_cwd_obs_session
+    ON index_session_cwd_observation(provider, provider_session_id);
 
 CREATE TABLE index_session_worktree_match (
     workspace_id TEXT NOT NULL,
@@ -394,6 +444,49 @@ func rebuildFTSRow(for key: SessionKey) throws {
 }
 ```
 
+## Boot Sequence Integration
+
+Session index initializes during workspace boot. Concrete ordering:
+
+```
+WorkspaceBootSequence:
+  step 1: loadCanonicalStore (core.sqlite + local.sqlite opened)
+  step 2: loadRepoCacheStore
+  step 3: loadUIStore
+  step 4: ← NEW: initSessionIndex
+          - local.sqlite already open (shared DatabaseWriter)
+          - run index_* migrations (005+) via WorkspaceLocalMigrations
+          - create AgentSessionIndexRepository (shares local DatabaseWriter)
+          - create AgentSessionReadHandler (shares local DatabaseWriter)
+          - create AgentSessionAtom (with read handler)
+          - start ValueObservation for active sessions
+  step 5-8: (existing steps)
+  step 9: triggerInitialTopologySync
+  step 10: ← NEW: startSessionScanner
+          - create AgentSessionScanner (with index repository)
+          - trigger fullScan() (async, does not block boot)
+          - start FSEvents watchers
+          - scanner emits .agentSessionsIndexed when done
+          - coordinator resolves CWDs against now-populated topology
+```
+
+If `index_*` migration fails: log error, proceed without session index. The
+atom exposes empty state. The scanner does not start. Session features degrade
+gracefully — no crash, no data loss.
+
+## Scanner Lifecycle
+
+One scanner per workspace. Created at boot step 10, shut down on workspace close.
+
+The scanner watches global directories (`~/.claude/projects/`, `~/.codex/sessions/`)
+but filters discovered sessions to those whose CWDs fall within this workspace's
+known repos/worktrees. Sessions with CWDs outside the workspace are still indexed
+(they may be resolved later when a new folder is added), but they are lower
+priority.
+
+On workspace close: cancel FSEvents watchers, cancel pending scans, let the actor
+deinit. The shared `local.sqlite` DatabaseWriter remains open for other components.
+
 ## CWD → Worktree Resolution
 
 Parsers return raw CWDs. Resolution happens **after** scan completes, on MainActor where topology is accessible:
@@ -415,20 +508,35 @@ On topology change (worktree added/removed): coordinator re-resolves unmatched C
 
 ## Session Pointer ↔ Index Reconciliation
 
-No cross-DB foreign keys. Soft references reconciled at query time:
+No cross-DB foreign keys. Soft references with concrete reconciliation triggers:
 
-```
-index_session.session_pointer_id
-  → copied from session_pointer.id when a match exists
-  → cleared when the pointer is deleted from core
-  → reattached on index rebuild by matching (workspace_id, provider, provider_session_id)
-```
+### Attachment triggers
 
-Restore command precedence:
+| Event | Who | Action |
+|-------|-----|--------|
+| Scanner indexes a new session | Coordinator (after scan fact) | Query `core.sqlite` for `session_pointer` matching `(workspace_id, provider, provider_session_id)`. If found, write `session_pointer_id` into `index_session`. |
+| User creates a session pointer (pin/alias) | Coordinator (after core mutation) | Write `session_pointer_id` into matching `index_session` row in `local.sqlite`. |
+| User deletes a session pointer | Coordinator (after core mutation) | Clear `session_pointer_id` in matching `index_session` row. |
+| Index rebuilt (`DELETE FROM index_*` + re-scan) | Coordinator (after scan fact) | Re-query all `session_pointer` rows from `core.sqlite`, attach matching `session_pointer_id` values. |
+
+### Restore command precedence
+
 ```
 session_pointer.preferred_restore_command (if set)
   → otherwise index_session.restore_command (provider-derived)
 ```
+
+Resolved at read time by the read handler joining both sources. The provider-derived
+command is never overwritten — it remains useful if the user clears their override.
+
+## Stale Session Pruning
+
+| Condition | Action |
+|-----------|--------|
+| Transcript file no longer exists on disk | Scanner marks `index_transcript_scan_state.last_error = 'file_not_found'`. Session status set to `completed`. Session kept in index (historical value). |
+| `seek offset > file size` (file truncated/rewritten) | Scanner resets `indexed_byte_offset = 0` and does a full rescan of the file. |
+| Workspace topology prune (worktree removed) | Coordinator calls `pruneOrphanedWorktreeMatches(validIds:)`. CWD observations and index_session rows are preserved (the session happened, even if the worktree is gone). |
+| No growth limit in v1 | Acceptable for <100k sessions. If needed later: prune sessions older than N months where `session_pointer_id IS NULL` (no user curation). |
 
 ## JSONL Parsing
 
@@ -475,9 +583,15 @@ If `~/.claude/` doesn't exist: skip, don't create a watcher. Check periodically 
 - Cost estimation pricing tables — hardcode or skip for v1
 - Multi-agent orchestration — future
 
+## Resolved Questions
+
+1. **Boot sequence ordering.** ← Resolved: step 4 (initSessionIndex) and step 10 (startSessionScanner). See Boot Sequence Integration section.
+2. **Separate DB vs local.sqlite.** ← Resolved: `local.sqlite` with `index_*` prefix tables, as the sqlite branch decided.
+3. **Unresolvable CWDs.** ← Resolved: store in `index_session_worktree_match` with `worktree_id = NULL` and `repo_id = NULL`. The row still tracks the `cwd_path` and `is_primary` flag. Re-resolved when topology changes.
+
 ## Open Questions
 
-1. **Boot sequence ordering.** Where does index DB init fit in WorkspaceBootSequence? After step 3 (loadUIStore), before step 9 (triggerInitialTopologySync)? Scanner needs topology for CWD resolution but can defer resolution.
-2. **Atom registration.** Does `AgentSessionAtom` go in `AtomRegistry`? It has a different lifecycle (needs DB setup first). May need lazy initialization.
-3. **Unresolvable CWDs.** Sessions with CWDs that don't match any known worktree: store in `index_session_worktree_match` with `worktree_id = NULL` and `repo_id = NULL`? Or separate table?
-4. **Cross-workspace session visibility.** A user may want "all my sessions globally." Per-workspace index can't answer this without scanning all workspace DBs. Acceptable for v1?
+1. **Atom registration.** Does `AgentSessionAtom` go in `AtomRegistry`? It depends on the read handler which depends on the DB. May need lazy initialization or a two-phase setup (create atom with nil handler, inject handler at boot step 4).
+2. **Cross-workspace session visibility.** A user may want "all my sessions globally." Per-workspace index can't answer this without scanning all workspace DBs. Acceptable for v1? (Yes — defer global view.)
+3. **CWD observation `source` values.** What are the valid values? Proposal: `transcript_record_cwd` (from the cwd field on each JSONL record), `transcript_tool_cwd` (from tool-use blocks with explicit cwd). Needs a CHECK constraint or documented enum.
+4. **Scanner filtering.** The scanner watches global `~/.claude/` but each workspace has its own index. Should all discovered sessions be indexed in every open workspace, or only sessions whose CWDs overlap with the workspace's known repos? The former is simpler but duplicates work. The latter requires filtering but gives cleaner per-workspace results.
