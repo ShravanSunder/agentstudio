@@ -1,369 +1,350 @@
 # 2026-06-01 — Learning from herdr: sockets, systems, and getting more out of zmx
 
-**Status:** brainstorm / research note. **Not scoped, not a plan.** Every "Idea" below
-that touches an atom, store, event type, coordinator responsibility, or an external command
-surface is a CLAUDE.md "ask-the-user-first" decision. This doc exists to make those
-conversations concrete, not to pre-decide them.
+**Status:** brainstorm / research note, **reconciled against the existing Agent Studio zmx
+specs** (see §0). **Not scoped, not a plan.** Every "Idea" in §6 that touches an atom, store,
+event type, coordinator responsibility, or an external command surface is a CLAUDE.md
+"ask-the-user-first" decision. This doc makes those conversations concrete; it does not
+pre-decide them.
 
 **Source of inspiration:** [`ogulcancelik/herdr`](https://github.com/ogulcancelik/herdr) —
-"agent multiplexer that lives in your terminal" (Rust, single binary). It solves the same
-problem Agent Studio solves (run/observe/orchestrate many coding agents) from the opposite
-host: a TUI server instead of a native macOS app.
+"agent multiplexer that lives in your terminal" (Rust, single binary). Same problem Agent
+Studio solves (run / observe / orchestrate many coding agents), opposite host: a TUI server vs.
+a native macOS app.
 
-**zmx reference:** [`neurosnap/zmx`](https://github.com/neurosnap/zmx) upstream; Agent Studio
-vendors the fork [`ShravanSunder/zmx`](https://github.com/ShravanSunder/zmx) (per
-`.gitmodules`). Because it is **our fork**, "use zmx better" includes "extend zmx," not just
-"call more of its CLI."
-
-> ⚠️ Grounding caveat: the zmx CLI surface in §4 is the documented **upstream** surface. We
-> confirmed `attach`/`list`/`kill` are what Agent Studio calls today (`ZmxBackend.swift`). The
-> other subcommands (`run -d`, `wait`, `history`, `tail`, `send`, `print`, `write`) should be
-> verified against the pinned fork commit before anyone builds on them. They are a menu of
-> capabilities, not a promise about the current submodule.
+**zmx:** upstream [`neurosnap/zmx`](https://github.com/neurosnap/zmx); Agent Studio vendors the
+fork [`ShravanSunder/zmx`](https://github.com/ShravanSunder/zmx) (per `.gitmodules`).
 
 ---
 
-## 1. The one idea that reframes everything: opposite multiplexing bets
+## 0. Reconciliation with existing zmx specs (read these first)
+
+The first draft of this note was written before I'd read the in-repo zmx specs. After reading
+them, several things changed. **The authoritative docs are these, not this note:**
+
+| Doc | What it owns |
+|---|---|
+| [`architecture/session_lifecycle.md`](../architecture/session_lifecycle.md) | **zmx IPC binary protocol (the 11 tags), header format, ZMX_DIR isolation, CLI commands, restore flow, identity contract** |
+| [`architecture/zmx_restore_and_sizing.md`](../architecture/zmx_restore_and_sizing.md) | Deferred attach, geometry readiness, SIGWINCH relay, restart reconcile (LUNA-324), orphan TTL, **LUNA-354 ZmxIPCClient mapping** |
+| [`architecture/zmx_terminal_integration_lessons.md`](../architecture/zmx_terminal_integration_lessons.md) | Two-terminal problem, OSC 133 `redraw=0` fix (PR #112), design principles, upstream status |
+| [`architecture/remote_zmx_architecture_ideas.md`](../architecture/remote_zmx_architecture_ideas.md) | **Remote zmx: Option C (SSH tunnel + socket forwarding), 4-layer security model, fork strategy (Phase 1/2/3), "What a Fork Would Change"** |
+| [`debugging/zmx-environment-isolation.md`](../debugging/zmx-environment-isolation.md) | ZMX_DIR environment isolation details |
+
+### What I corrected after reading them
+
+1. **zmx is not CLI-only.** It has a **binary IPC protocol over Unix sockets** with an 11-tag
+   message set (§3). My first draft framed "use zmx better" as "call more upstream CLI
+   subcommands (`tail`/`history`/`run -d`/`print`/…)." That menu was speculative against *current
+   neurosnap*; **this fork is a ~1000 LOC Zig tool whose Agent Studio surface is `attach`/`kill`/
+   `list` + the IPC tags.** The real lever is the IPC, not more shell-outs.
+2. **The roadmap already names the lever: `ZmxIPCClient` (LUNA-354)** — direct IPC replacing CLI
+   shell-outs. (Its design spec `2026-03-30-zmx-ipc-client-design.md` was removed as superseded
+   in commit `bcc45b7`; revive/replace it rather than treating this note as the spec.)
+3. **The fork strategy already exists in detail** (`remote_zmx_architecture_ideas.md` → "Why
+   Fork", "Fork Strategy", "What a Fork Would Change"). My "you own the fork, so extend zmx"
+   idea is correct but **subordinate to that plan** — extensions go in as new IPC tags
+   (health/snapshot/config), not ad-hoc.
+4. **Socket security is already specified:** daemon has **no auth**; **socket perms `0700`** are
+   the boundary; remote uses **Option C (SSH tunnel + Unix-socket forwarding)** with a 4-layer
+   model. I'd written `0750` and generic SSH — corrected.
+5. **Minor doc/code drift to verify:** `session_lifecycle.md` says `ZMX_DIR=~/.agentstudio/zmx/`;
+   `AppDataPaths.swift` appends `z` → `~/.agentstudio/z/`. Flagging, not asserting — worth a
+   one-line reconcile in the canonical doc.
+
+The herdr lessons in §2/§5 still stand — but they live at a **different layer** than zmx (§1).
+
+---
+
+## 1. The clarifying frame: two socket layers, don't conflate them
+
+My first draft blurred "use sockets like herdr" with "use zmx." They are **two different
+sockets at two different layers.** This distinction is the most important correction in the doc.
+
+```
+                         ┌─────────────────────────────────────────┐
+  LAYER 2 (does NOT      │  External tool / Claude agent / MCP      │
+  exist today)          │            │  JSON-RPC over AF_UNIX        │
+  "App control plane"   │            ▼  (herdr's actual lesson)      │
+  = herdr's socket API  │  ┌───────────────────────────────────┐   │
+                        │  │   Agent Studio (native app)        │   │
+                        │  │   owns workspaces/tabs/panes/atoms │   │
+                        │  └───────────────┬───────────────────┘   │
+                        └──────────────────┼───────────────────────┘
+  LAYER 1 (exists,                         │  binary IPC, 11 tags
+  being upgraded by      ┌─────────────────▼───────────────────┐
+  LUNA-354 ZmxIPCClient) │  zmx daemon (one per session)        │
+  "Persistence transport"│  ghostty_vt shadow term + PTY + shell│
+                         └──────────────────────────────────────┘
+```
+
+- **Layer 1 — zmx IPC (persistence transport).** Per-session binary protocol (§3). Internal
+  plumbing between Agent Studio and the zmx daemon that keeps the shell alive across restarts.
+  Today driven via CLI shell-outs (`attach`/`kill`/`list`) + the attach socket; **LUNA-354**
+  moves this to a direct `ZmxIPCClient`. This is **not** an agent-orchestration API.
+- **Layer 2 — app control plane (the herdr lesson).** An app-level socket for *external* tools
+  and agents to **observe and drive the workspace** (`events.subscribe`, `pane.split`,
+  `pane.send_text`, …). **Does not exist.** This is what herdr's socket API actually teaches.
+
+**herdr collapses these two layers** (its multiplexer *is* its API surface). **Agent Studio
+keeps them separate, and that's correct** — zmx stays persistence-only, the app owns layout and
+would own any external API. Keep them separate; do not push Layer-2 orchestration concerns into
+the zmx fork, and don't expect zmx IPC to be your agent API.
 
 | | **herdr** | **Agent Studio** |
 |---|---|---|
-| Who owns workspaces/tabs/panes? | The **herdr server** (it *is* the multiplexer) | The **native app** (the atom system) |
-| Who owns session persistence? | The herdr server (same process) | **zmx**, and only zmx — one daemon + one Unix socket per session |
-| How do agents/tools drive it? | **Unix socket, newline-delimited JSON-RPC** (`workspace.*`, `tab.*`, `pane.*`, `agent.*`, `events.subscribe`) | **Nothing.** No external control plane exists. |
-| Persistence philosophy | Server keeps panes alive across client detach | zmx keeps PTY alive across app restart; zmx *refuses* to do tabs/splits/panes — defers to host |
-| State awareness | Sidebar: blocked / working / done / idle, heuristic + hook | `SessionRuntimeStatus`: initializing / running / exited / unhealthy — **process health only** |
+| Owns workspaces/tabs/panes | herdr server | the native app (atoms) |
+| Persistence | same process | **zmx, Layer 1 only** (one daemon+socket/session) |
+| External drive/observe | Unix socket JSON-RPC (`workspace.*`/`pane.*`/`agent.*`/`events.subscribe`) | **nothing (Layer 2 gap)** |
+| Semantic agent state | blocked/working/done/idle (heuristic+hook) | `SessionRuntimeStatus`: initializing/running/exited/unhealthy — **process health only** |
 
-**The takeaway:** Agent Studio's *app* already plays herdr's *server* role for layout, and zmx
-correctly plays a role herdr doesn't even separate out (pure persistence). The two genuine
-gaps versus herdr are:
-
-1. **No socket front door** — nothing outside the process can observe or drive the workspace.
-2. **No semantic agent state** — we track whether the *process* is alive, not whether the
-   *agent* is blocked / working / done / awaiting review.
-
-Everything below is about closing those two gaps **using assets we already have**, and about
-using zmx for more than `attach`.
+The two real gaps vs herdr: **(A)** no Layer-2 control plane; **(B)** no semantic agent state.
 
 ---
 
 ## 2. What we already have (the reusable substrate)
 
-Grounded in the current codebase. These are the building blocks the ideas in §5 reuse — the
-point is that most of "becoming herdr-like" is *exposure and reconciliation*, not new
-infrastructure.
+Grounded in the current codebase. The point: closing the herdr gaps is mostly *exposure +
+reconciliation*, not greenfield.
 
 | Asset | File | Why it matters |
 |---|---|---|
-| **JSON-RPC 2.0 router** with method dispatch, `__commandId` dedup, standard error codes | `Features/Bridge/Transport/RPCRouter.swift` | An external control socket would **reuse this dispatch shape**. We are not inventing a protocol — herdr's protocol is *literally the same idea* (newline-delimited JSON-RPC) over a different transport (AF_UNIX instead of the WebKit bridge). |
-| **Generic fan-out EventBus** with per-source replay (256) | `Core/RuntimeEventSystem/Events/EventBus.swift`, `EventChannels.swift` | herdr's `events.subscribe` is exactly "expose your event bus." We already have `PaneRuntimeEventBus.shared` carrying a rich taxonomy. |
-| **Rich envelope taxonomy** incl. `agentNotificationRequested(title,body)` and `terminalActivity(activity burst settled)` | `Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift` | "Activity burst settled" is *already* a heuristic "agent went quiet" signal — the seed of working→done detection. `agentNotificationRequested` already exists as a pane fact. |
-| Envelope metadata: `correlationId` / `causationId` / `commandId`, global `seq` | `RuntimeEnvelopeCore.swift` | An external subscriber can trace causality and resume from a sequence — herdr-grade subscription semantics for free. |
-| **Two typed command planes** | `Core/Actions/PaneActionCommand.swift`, `Core/RuntimeEventSystem/Contracts/RuntimeCommand.swift` | The verbs an external API would expose already exist and are **validator-gated**. See mapping in §3.1. |
-| **Validators** | `WorkspaceCommandValidator`, `DrawerCommandValidator` | Any external caller goes through the same gate as the UI — security/correctness for free. |
-| **Deterministic, resumable zmx session IDs** | `Features/Terminal/Restore/TerminalRestoreRuntime.swift`, `ZmxBackend.swift` | `as-<repoKey16>-<wtKey16>-<pane16>` etc. Pane identity ⇄ session identity is already a pure function. |
-| **`ZMX_SESSION` auto-injected into every pane's shell env** (zmx behavior) | (zmx runtime) | This is the **identity channel for hooks** — see §3.3. We get it for free; herdr had to invent `HERDR_PANE_ID`. |
-| Focus reader | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` | Needed for focus-aware notification suppression (§5, Idea E). |
-
-**Net:** the socket-API and agent-state features are mostly *wiring existing things together*,
-not greenfield. That is the single most important grounding result in this doc.
+| **JSON-RPC 2.0 router** (dispatch, `__commandId` dedup, error codes) | `Features/Bridge/Transport/RPCRouter.swift` | A Layer-2 control socket **reuses this shape**; herdr's protocol is the same idea over AF_UNIX instead of the WebKit bridge. |
+| **Generic fan-out EventBus** w/ per-source replay (256) | `Core/RuntimeEventSystem/Events/EventBus.swift`, `EventChannels.swift` | herdr's `events.subscribe` = "expose your bus." `PaneRuntimeEventBus.shared` already carries a rich taxonomy. |
+| Envelope taxonomy incl. `agentNotificationRequested`, `terminalActivity(burst settled)` | `Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift` | "Activity burst settled" is already a working→done heuristic seed; the notification fact already exists. |
+| Envelope metadata: `correlationId`/`causationId`/`commandId`, global `seq` | `RuntimeEnvelopeCore.swift` | herdr-grade subscription semantics (causality, resume-from-seq) for free. |
+| **Validator-gated command planes** | `Core/Actions/PaneActionCommand.swift`, `RuntimeCommand.swift`, `WorkspaceCommandValidator`, `DrawerCommandValidator` | The verbs a Layer-2 API exposes already exist and are gated (mapping in §5.1). |
+| Deterministic, resumable zmx session IDs | `TerminalRestoreRuntime.swift`, `ZmxBackend.swift`, [identity contract](../architecture/session_lifecycle.md) | Pane identity ⇄ session identity is a pure function. |
+| `ZMX_SESSION` auto-injected into every pane shell (zmx) | (zmx runtime) | Free per-pane **identity for hooks** (§5.3); herdr had to invent `HERDR_PANE_ID`. |
+| Focus reader | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` | Needed for focus-aware notification suppression (§6 Idea E). |
 
 ---
 
-## 3. Sockets & systems lessons from herdr
+## 3. The zmx IPC protocol (ground truth, from `session_lifecycle.md`)
 
-### 3.1 A local control socket speaking newline-delimited JSON-RPC
+Binary protocol over Unix domain sockets. **Header = 5 bytes:** `tag: u8` + `payload_len: u32
+LE`, then a variable payload. Daemon accepts any connection (**no auth — socket perms `0700`
+are the boundary**); all clients receive broadcast `Output`. One-shot connect→send→read→close is
+safe (matches `probeSession()`).
 
-herdr exposes a Unix socket; clients send newline-delimited JSON request envelopes and read
-responses. Method families mirror the domain model: `workspace.*`, `tab.*`, `pane.*`,
-`agent.*`, plus `events.subscribe`.
+| Tag | Val | Dir | Purpose |
+|---|---|---|---|
+| `Input` | 0 | client→daemon | keystrokes / stdin |
+| `Output` | 1 | daemon→client | **PTY output, broadcast to all clients** |
+| `Resize` | 2 | client→daemon | cols/rows |
+| `Detach` | 3 | client→daemon | disconnect this client |
+| `DetachAll` | 4 | client→daemon | disconnect all |
+| `Kill` | 5 | client→daemon | terminate session |
+| `Info` | 6 | bidir | metadata: pid, cmd, cwd, created_at, task_exit (552-byte struct) |
+| `Init` | 7 | client→daemon | handshake w/ client dimensions |
+| `History` | 8 | daemon→client | serialized terminal state on attach |
+| `Run` | 9 | client→daemon | **execute a command in the session** |
+| `Ack` | 10 | daemon→client | acknowledgment |
 
-**How it maps to us (concrete):**
+Three facts here change my earlier ideas:
+- **`Output` is a broadcast.** A *read-only* IPC client can connect to a backgrounded session's
+  socket and receive its PTY bytes **without a visible Ghostty surface.** This — not a
+  speculative `zmx tail` — is the in-protocol source for background agent-state heuristics.
+- **`Run` already exists.** Detached command execution ("spawn a helper") is in-protocol; no new
+  CLI verb needed.
+- **`Info` already carries health** (pid/cmd/cwd/created_at/`task_exit`) — richer than parsing
+  `zmx list`.
+
+---
+
+## 4. How to get more out of zmx (reframed onto the IPC reality)
+
+The lever is **the IPC client and the fork's tag set**, not more CLI shell-outs.
+
+1. **Land `ZmxIPCClient` (LUNA-354).** Direct IPC replaces `attach`/`kill`/`list` shell-outs:
+   removes subprocess/escaping/latency overhead, enables structured reads (`Info`, `History`),
+   and is the prerequisite for everything below. Revive the superseded design spec.
+2. **Background output via the `Output` broadcast** (§3) — the grounded version of "read a
+   backgrounded pane." Connect a read-only client per agent-bearing background session; feed
+   bytes into heuristic agent-state (§6 Idea A/D). Throttle; only tap agent panes.
+3. **Authoritative agent state via a new IPC tag in the fork** — e.g. `AgentState`/`Health`,
+   matching the already-planned *"Extended with health, snapshot, config"* fork change
+   (`remote_zmx_architecture_ideas.md`). Robust alternative to ANSI scraping; backward-compatible
+   tag addition (see R2).
+4. **Use `Info` for health** instead of `zmx list` parsing once the IPC client exists.
+5. **Remote = Option C, already chosen.** SSH tunnel + **Unix-socket forwarding** (not TCP port
+   forwarding), 4-layer security (SSH auth → remote socket `0700` → local socket `0700` →
+   daemon). `ZmxIPCClient` code is identical local vs remote; only the socket path changes. Don't
+   re-derive this — implement `remote_zmx_architecture_ideas.md` §"Security Model (Option C)".
+
+**zmx invariants (non-negotiable, from the specs):**
+- One daemon + one socket **per session**; **Unix socket path ≤ ~103 chars** (tracked in
+  `ZmxAttachDiagnostics`) — constrains any ID/socket-dir scheme.
+- The **two-terminal problem** (outer Ghostty + inner `ghostty_vt`) is the root of every zmx bug;
+  OSC 133 `redraw=0` (PR #112) fixed prompt loss. Keep the inner terminal **passive**.
+- **SIGWINCH relay latency is inherent** (3 extra hops) — accept cosmetic resize artifacts.
+- zmx has **no tabs/splits/panes by design** — never push layout into it.
+- Restore uses **deferred attach after readiness** + **restart reconcile** (LUNA-324) + orphan
+  TTL. Any new IPC use must respect that sequencing.
+
+---
+
+## 5. Sockets & systems lessons from herdr (Layer 2)
+
+### 5.1 A local control socket speaking newline-delimited JSON-RPC
+
+herdr exposes `workspace.*`/`tab.*`/`pane.*`/`agent.*` + `events.subscribe`. Maps onto verbs we
+already have (validator-gated):
 
 | herdr method | Agent Studio equivalent (existing) |
 |---|---|
-| `pane.send_text` / `pane send-text` | `RuntimeCommand.terminal(.sendInput(String))` |
+| `pane.send_text` | `RuntimeCommand.terminal(.sendInput(String))` |
 | `pane.split` | `PaneActionCommand.insertPaneRequest(PaneInsertRequest)` |
 | `workspace.create` | `PaneActionCommand.openWorktree` / `.openNewTerminalInTab` |
-| `pane.read` (scrollback) | zmx `history`/`tail` (see §4) **or** Ghostty surface snapshot |
-| `pane.focus` / `tab.focus` | `PaneActionCommand.selectTab`, focus routing |
+| `pane.read` | zmx `History`/`Output` over IPC (§3) **or** Ghostty snapshot |
+| `pane.focus` / `tab.focus` | `PaneActionCommand.selectTab` + focus routing |
 | `events.subscribe` | subscribe to `PaneRuntimeEventBus.shared` |
-| `pane.report_agent` / `release_agent` (inbound) | **new** pane fact → agent-lifecycle atom (§5 Idea A) |
+| `pane.report_agent` (inbound) | **new** pane fact → agent-lifecycle state (§6 Idea A) |
 
-The verbs already exist and are validator-gated. The new work is a **transport + a thin
-translation layer** from JSON-RPC method → `PaneActionCommand`/`RuntimeCommand`, reusing
-`RPCRouter`'s dispatch/dedup/error-code machinery.
+New work = a transport + thin JSON-RPC→command translation, reusing `RPCRouter`.
 
-### 3.2 `events.subscribe` — expose the bus read-only first
+### 5.2 `events.subscribe` read-only first — the safe wedge
 
-The lowest-risk, highest-signal first step. A read-only `events.subscribe` over the socket
-lets external tools (and our own test harnesses) watch pane/agent/topology facts without any
-ability to *mutate* the workspace. No validator surface, no destructive verbs, trivially
-sandboxable. It also dogfoods the subscription semantics before we expose write verbs.
+Read-only event streaming over the Layer-2 socket: no mutation surface, no validators exposed,
+trivially sandboxed, immediately useful for integration tests. Dogfood subscription semantics
+before any write verb exists.
 
-### 3.3 Environment injection for identity + discovery — and we already have half of it
+### 5.3 Env injection for identity + discovery — half is already free
 
-herdr injects three env vars into each pane's shell: `HERDR_SOCKET_PATH` (where to connect),
-`HERDR_PANE_ID` (who am I), `HERDR_ENV` (am I inside herdr at all). An in-pane hook reads these
-to phone home.
+herdr injects `HERDR_SOCKET_PATH` / `HERDR_PANE_ID` / `HERDR_ENV`. **zmx already injects
+`ZMX_SESSION`** (identity) and our IDs are deterministic, so "which pane am I" is solved. Add one
+var (`AGENTSTUDIO_CONTROL_SOCKET`) pointing at the Layer-2 socket and discovery is complete.
 
-**We already have the identity half for free:** zmx injects `ZMX_SESSION` into every session's
-environment, and our session IDs are deterministic functions of pane identity. So a hook
-running inside an Agent Studio pane can already answer "which pane am I." To complete the
-pattern we'd inject one more var (e.g. `AGENTSTUDIO_CONTROL_SOCKET`) pointing at the §3.1
-socket. That's the entire discovery story.
+### 5.4 Two-tier state: heuristic default + authoritative hook override
 
-### 3.4 Two-tier state: zero-config heuristics + authoritative hook override
+Zero-config heuristic baseline (we already emit `terminalActivity(burst settled)`) + a Claude
+Code hook forwarding semantic state (`Stop`/`Notification`/approval) over the Layer-2 socket
+(`pane.report_agent`). Reconcile the way the topology accumulator reconciles scanned vs cached.
+herdr installs hooks at `~/.claude/hooks/herdr-agent-state.sh`; an installer that drops
+`~/.claude/hooks/agentstudio-agent-state.sh` (reading `ZMX_SESSION` + `AGENTSTUDIO_CONTROL_SOCKET`)
+is the works-for-users step (§5.5).
 
-herdr classifies state from foreground process + terminal output **with no config**, and lets
-first-party agents forward *semantic* state over the socket (`pane.report_agent`). For Claude
-Code specifically, herdr installs a hook at `~/.claude/hooks/herdr-agent-state.sh`.
+### 5.5 / 5.6 Integration installers, MCP wrapper
 
-This is the right shape for us:
-- **Heuristic baseline** so *every* pane gets a state with zero setup. We already emit
-  `terminalActivity(activity burst settled)` — quiet-after-busy is a working→done candidate.
-- **Authoritative override** when a Claude Code hook can emit `Stop`/`Notification`/
-  `PreToolUse(approval)` events. These reconcile against the heuristic the same way the
-  topology accumulator reconciles scanned vs cached worktrees.
-
-### 3.5 Integration installers
-
-herdr ships `herdr integration install claude` that writes the hook file for you. If we go the
-hook route, a one-shot installer that drops `~/.claude/hooks/agentstudio-agent-state.sh`
-(reading `ZMX_SESSION` + `AGENTSTUDIO_CONTROL_SOCKET`) is the difference between "works for the
-author" and "works for users."
-
-### 3.6 MCP wrapper + recipe engine
-
-herdr's ecosystem wraps the CLI in an MCP server and adds a recipe engine with template
-interpolation (`{{ stepId.result.path }}`). For us, an MCP server in front of the §3.1 socket
-would let a Claude agent orchestrate panes via *tools* rather than raw socket calls — arguably
-the most natural fit given our users are already driving Claude. (Bigger surface; later phase.)
-
-### 3.7 Client library
-
-herdr ships a Python client that handles socket discovery, envelopes, subscriptions, typed
-errors. Worth noting as a DX multiplier *if* the socket API ships — not a day-one item.
+herdr ships `integration install claude` (writes the hook) and an MCP wrapper + recipe engine.
+For us: a hook installer (small, high-leverage) and — later — an MCP server in front of the
+Layer-2 socket so Claude agents orchestrate via *tools*. Both depend on §5.1 existing.
 
 ---
 
-## 4. How to better use zmx
+## 6. Grounded brainstorming ideas
 
-Today `ZmxBackend.swift` calls exactly three subcommands: `attach`, `list`, `kill`. zmx's
-(upstream) surface offers far more, and several primitives map directly onto the herdr
-capabilities we admire. **Verify against the pinned fork before building.**
+Each: **What / Why / How (real files+docs) / Risk / Effort / Decision.** Smallest-safest first.
 
-| zmx primitive (upstream) | What it unlocks for us | Maps to herdr |
-|---|---|---|
-| **`ZMX_SESSION`** auto-injected env var | Free per-pane identity inside the shell → hooks (§3.3) | `HERDR_PANE_ID` |
-| `ZMX_SESSION_PREFIX` | Namespace sessions per workspace / per release channel | herdr named sessions w/ separate sockets |
-| `zmx tail <name>` | **Follow live output of a backgrounded pane** the Ghostty surface isn't rendering | `wait output --match` source |
-| `zmx history <name> [--vt\|--html]` | Read scrollback of any session without attaching a surface | `pane read --source recent` |
-| `zmx run <name> -d [cmd]` + `zmx wait <name>` | Detached execution + block-until-done → "spawn helper, await completion" | `wait agent-status --status done` |
-| `zmx send <name> <text\r>` | Fire-and-forget input to a non-focused session | `pane send-text` |
-| `zmx print <name> <text>` | Inject a **status banner into scrollback without touching the agent's PTY input** (e.g. "⏸ paused by Agent Studio", "✓ reviewed") | (herdr has no equivalent) |
-| `zmx write <name> <file>` (chunked ~48KB) + SSH-first design | File transfer + **remote worktrees/agents over SSH as a first-class citizen** | herdr remote attach |
-| `zmx list --short` (PID, client count, cwd) | Richer health than "is it in the list" | — |
+### Idea A — Semantic agent-lifecycle state (blocked/working/done/idle, + reviewed axis)
+- **What/Why:** per-pane *agent* state distinct from `SessionRuntimeStatus` (which stays process
+  health). Done=finished-unreviewed vs Idle=finished-reviewed. Highest-value sidebar glance for a
+  worktree-per-agent app.
+- **How:** heuristic from `terminalActivity` (+ background `Output` broadcast, §3/§4.2);
+  authoritative from a Claude hook (§5.4) **or** a new zmx `AgentState` IPC tag (§4.3).
+- **Decision (CLAUDE.md atom boundary):** new `AgentLifecycleAtom` vs derived vs property on
+  `SessionRuntimeAtom`. Prior: **not** the last (different reason-to-change). Settle first.
+- **Risk:** heuristic false positives (quiet "thinking" looks Done); review-state persistence.
+- **Effort:** M (+S hook).
 
-**The big two:**
-
-1. **`zmx tail`/`history` is the missing input for background heuristics.** Our state detection
-   today can only see the *focused* Ghostty surface. For the herdr-style "which of my 8
-   background agents is blocked" sidebar, we need output from panes that aren't rendering. zmx
-   already buffers all of it (via `libghostty-vt`) and exposes it. This is the cleanest source.
-
-2. **We own the fork — so the best "use zmx better" may be to extend zmx itself.** Instead of
-   scraping `zmx tail` text and re-parsing it in Swift, we could add a structured control/agent-
-   state channel to our zmx fork (e.g. a JSON line emitted on the per-session socket when the
-   foreground process or VT state changes). That turns heuristic detection from "scrape stdout"
-   into "consume an event," and it's *upstreamable*. This is a strategic option herdr doesn't
-   have (their multiplexer and their socket API are the same binary; ours are separable).
-
-**zmx design facts that constrain us (not negotiable):**
-- One daemon + one Unix socket **per session**; socket path lives under `ZMX_DIR`
-  (`~/.agentstudio/z/`). **Unix socket paths max out at ~103 chars** — already tracked in
-  `ZmxAttachDiagnostics`. Any session-ID scheme change must respect this.
-- zmx restoration is **`libghostty-vt`-based** — same VT engine as the embedded terminal. This
-  is *why* the pairing is clean and why scrollback fidelity is high.
-- zmx deliberately has **no tabs/splits/panes**. Do not push layout responsibilities down into
-  zmx; that's the app's job and the boundary is correct.
-
----
-
-## 5. Grounded brainstorming ideas
-
-Each: **What / Why / How (real files) / Risk / Effort / Decision needed.** Ordered roughly
-smallest-safest first. Effort is rough: S = days, M = a week-ish, L = multi-week.
-
-### Idea A — Semantic agent-lifecycle state (blocked / working / done / idle)
-
-- **What:** A per-pane *agent* state distinct from `SessionRuntimeStatus` (which stays
-  process-health). Four states with a **human-review axis**: Done = finished-unreviewed,
-  Idle = finished-reviewed. This is herdr's single best product idea.
-- **Why:** For a worktree-per-agent app, "who is blocked on me vs. waiting for my review" is
-  the highest-value glance on the sidebar. Process health can't express it.
-- **How:**
-  - Heuristic source: extend the `terminalActivity` path (`PaneRuntimeEvent`) — quiet-after-busy
-    → Done-candidate; prompt-for-input pattern → Blocked-candidate.
-  - Authoritative source (optional): Claude Code hook → §3.1 socket → `pane.report_agent`.
-  - State lands somewhere observable by the sidebar reader.
-- **Decision needed (CLAUDE.md atom-boundary rule):** Does this earn a **new atom**
-  (`AgentLifecycleAtom`), a **derived** reader over existing facts, or a property on
-  `SessionRuntimeAtom`? Strong prior: **not** a property on `SessionRuntimeAtom` — its job is
-  process health; semantic agent state is a different reason-to-change. Likely a new atom or a
-  derived. *This is the first thing to settle with Shravan.*
-- **Risk:** Heuristic false positives (an agent quietly thinking looks "Done"); review-state
-  persistence semantics; scope-creep into per-agent config. Mitigate by shipping heuristic as
-  "best-effort, hook overrides," and keeping the state machine tiny.
-- **Effort:** M (heuristic) / +S (hook path).
-
-### Idea B — Local control socket (`events.subscribe` read-only first)
-
-- **What:** An AF_UNIX listener that speaks newline-delimited JSON-RPC, starting with
-  **read-only** `events.subscribe` (no mutation verbs).
-- **Why:** Unlocks external observation (and our own integration tests) with near-zero blast
-  radius. Proves the transport before any write verb exists.
-- **How:** New `App/`-level server; reuse `RPCRouter`'s dispatch/error-code shape; subscribe a
-  client to `PaneRuntimeEventBus.shared` and stream envelopes as JSON lines. Socket path under
-  `~/.agentstudio/`, perms `0700`-dir like zmx's `0750`.
-- **Risk:** Even read-only leaks workspace structure to anything on the machine → socket file
-  perms + per-user dir. Backpressure: bus uses `bufferingNewest(256)`; slow clients drop, not
-  block.
+### Idea B — Layer-2 control socket, `events.subscribe` read-only
+- **How:** new `App/`-level AF_UNIX server, reuse `RPCRouter` dispatch, stream
+  `PaneRuntimeEventBus.shared` as JSON lines. Dir perms `0700` (matches zmx).
+- **Risk:** even read-only leaks workspace structure → perms + per-user dir. Backpressure:
+  `bufferingNewest(256)` drops, not blocks. **Decision:** external plane = surface expansion.
 - **Effort:** S–M.
-- **Decision needed:** "external control plane" = surface-area expansion → confirm before build.
 
-### Idea C — Mutating control verbs over the socket
-
-- **What:** Add write methods that translate JSON-RPC → `PaneActionCommand` / `RuntimeCommand`,
-  through the existing validators.
-- **Why:** This is what makes agents able to *orchestrate* (split panes, send text, open
-  worktrees) — herdr's core capability.
-- **How:** Thin method→command map (table in §3.1). **Every** call goes through
-  `WorkspaceCommandValidator`/`DrawerCommandValidator` — same gate as the UI.
-- **Risk:** **Biggest security item in this doc.** Anything on the machine could drive the
-  workspace. Needs: socket perms, possibly a capability token in `AGENTSTUDIO_CONTROL_SOCKET`,
-  and an allowlist of methods. Also re-entrancy: external mutations interleaving with UI
-  mutations — the validators + main-actor serialization are the defense, verify under load.
+### Idea C — Layer-2 mutating verbs
+- **How:** JSON-RPC→`PaneActionCommand`/`RuntimeCommand` through existing validators (§5.1).
+- **Risk:** **biggest security item.** Anything local could drive the workspace → socket perms +
+  capability token in `AGENTSTUDIO_CONTROL_SOCKET` + method allowlist; re-entrancy guarded by
+  main-actor serialization + validators (load-test). **Decision:** yes.
 - **Effort:** M.
-- **Decision needed:** yes — this is the load-bearing architecture conversation.
 
-### Idea D — zmx output-tap for background heuristics
-
-- **What:** Use `zmx tail`/`history` (or an extended zmx event channel, §4) as the output source
-  for Idea A on **non-focused** panes.
-- **Why:** Without this, agent-state detection only works for the pane you're looking at —
-  useless for "watch my herd."
-- **How:** `ZmxBackend` gains read/tail calls; a runtime actor consumes them and emits
-  heuristic `terminalActivity`/agent-state facts. Prefer the **extend-zmx** route (structured
-  events) over scraping text if we're investing.
-- **Risk:** N panes × continuous `tail` = N subprocesses/streams → resource cost; parsing ANSI
-  for state is fragile (the case *for* extending zmx). Throttle; only tap backgrounded panes
-  that have agents.
-- **Effort:** M (scrape) / L (extend zmx, but far more robust).
+### Idea D — Background agent-state input via zmx `Output` broadcast
+- **How:** read-only `ZmxIPCClient` per agent-bearing background session subscribes to `Output`
+  (§3); runtime actor emits heuristic facts. Prefer a structured `AgentState` tag (§4.3) over
+  ANSI scraping if investing.
+- **Risk:** N sockets/streams = cost; ANSI parsing brittle (→ the case for the new tag).
+  **Depends on** LUNA-354. **Effort:** M (broadcast) / L (new tag, robust).
 
 ### Idea E — Focus-aware notifications
+- **How:** Idea A transitions + `WorkspaceFocusDerived` + `agentNotificationRequested` +
+  `InboxNotification`. Suppression rule is behavioral → **`AppPolicies`**. Notify on Blocked
+  (background) primarily. **Risk:** spam → gate+debounce. **Effort:** S (after A).
 
-- **What:** Fire notifications for **background** agent transitions (esp. → Blocked); suppress
-  for the focused pane. herdr does exactly this ("tab-aware suppression").
-- **Why:** Notifications are only useful for what you *aren't* looking at.
-- **How:** Combine Idea A's state transitions + `WorkspaceFocusDerived` + the existing
-  `agentNotificationRequested` pane fact + the `InboxNotification` feature. The suppression rule
-  is a behavioral constant → **`AppPolicies`** (per CLAUDE.md: changes state/behavior, not just
-  visuals).
-- **Risk:** Notification spam if heuristic is noisy → gate on Blocked/Done only, debounce.
-- **Effort:** S (once A exists).
+### Idea F — MCP server / skill (agent-driven orchestration)
+- Depends on C; thin tools over Layer-2 methods; mirrors herdr MCP + `SKILL.md`. **Effort:** M–L.
+  **Decision:** yes. Largest surface, do last.
 
-### Idea F — MCP server / skill for agent-driven orchestration
-
-- **What:** An MCP server (or Claude Code skill) in front of the §3.1 socket so Claude agents
-  orchestrate panes via tools.
-- **Why:** Our users already drive Claude; tools are a more natural surface than a raw socket.
-  Mirrors herdr's MCP + `SKILL.md` ecosystem.
-- **How:** Depends on C. MCP tools = thin wrappers over the socket methods.
-- **Risk:** Largest surface; do last. Inherits all of C's security concerns plus prompt-driven
-  misuse.
-- **Effort:** M–L. **Decision needed:** yes.
-
-### Idea G — Detached helper agents via `zmx run -d` + `wait`
-
-- **What:** "Spawn a helper agent in a detached session, await completion" as a first-class op.
-- **Why:** herdr's `pane split → run claude → wait agent-status done` workflow, but persistence-
-  backed and survivable across app restart.
-- **How:** `ZmxBackend` adds `run -d`/`wait`; expose via Idea C method (e.g. `agent.spawn`).
-- **Risk:** Orphaned detached sessions accumulating; need lifecycle/GC tied to workspace.
-- **Effort:** M (depends on C + zmx verb verification).
+### Idea G — Detached helper agents
+- **How:** the zmx **`Run` tag already exists** (§3) → expose `agent.spawn` via Idea C; survives
+  restart via persistence. **Risk:** orphaned sessions → tie GC to workspace + existing orphan
+  TTL (LUNA-324). **Effort:** M.
 
 ### Idea H — Update/handoff resilience
-
-- **What:** A deliberate story for "update Agent Studio (and/or bump the zmx submodule) without
-  killing every running agent."
-- **Why:** herdr ships experimental `update --handoff` (move live panes incl. dev servers to a
-  new server). Our analogue is harder: **zmx itself warns that IPC-version changes across zmx
-  upgrades kill existing sessions.** So bumping the vendored zmx is a session-killer unless
-  managed.
-- **How:** (a) Pin/gate zmx IPC compatibility and detect version skew before reattach; (b) drain
-  /warn users before a zmx-affecting update; (c) long-term, an explicit handoff protocol in our
-  fork.
-- **Risk:** Silent agent loss on update = worst-possible UX. Treat as a correctness requirement
-  the day zmx gets bumped, not a nice-to-have.
-- **Effort:** M–L. Mostly process + a version check now (S), full handoff later (L).
+- **What/Why:** update the app and/or bump the vendored zmx **without killing live agents.**
+  herdr ships experimental `update --handoff`. Ours is harder: **IPC-protocol changes across zmx
+  versions can break attach/restore** — adding tags must stay backward-compatible (R2).
+- **How:** (a) version/tag-capability check before reattach; (b) drain/warn before a zmx-affecting
+  update; (c) long-term explicit handoff in the fork. **Effort:** S (version check now) / L (full).
 
 ---
 
-## 6. Risk register (consolidated)
+## 7. Risk register
 
-| # | Risk | Where | Severity | Mitigation |
+| # | Risk | Where | Sev | Mitigation |
 |---|---|---|---|---|
-| R1 | Control socket = local privilege/automation surface; any process can drive/observe the workspace | Ideas B/C/F | **High** | Per-user dir perms (`0700`), capability token in env, read-only first, method allowlist, validator-gated mutations |
-| R2 | zmx IPC version skew kills live sessions on upgrade | Idea H, submodule bumps | **High** | Version check before reattach; drain/warn; eventual handoff protocol |
-| R3 | Heuristic agent-state false positives ("thinking" looks "Done"; prompt looks "Blocked") | Ideas A/D | Medium | Hook override is authoritative; conservative transitions; debounce; "best-effort" framing |
-| R4 | Unix socket path length ≤ ~103 chars (zmx) | session IDs, new socket | Medium | Already tracked (`ZmxAttachDiagnostics`); keep IDs short; short socket dir |
-| R5 | N background `zmx tail` streams = resource cost | Idea D | Medium | Tap only agent-bearing background panes; throttle; prefer structured zmx events |
-| R6 | ANSI scraping for state is brittle | Idea D | Medium | Extend zmx with structured state events instead of parsing text |
-| R7 | External mutations interleaving with UI mutations (re-entrancy) | Idea C | Medium | Main-actor serialization + validators; load-test |
-| R8 | **Architecture-boundary governance** — new atom/store/event-type/coordinator-responsibility/external-command-surface all require Shravan's sign-off per CLAUDE.md | Ideas A/B/C/F/G | Process | This doc *is* the pre-work; do not implement boundary changes before the conversation |
-| R9 | Notification spam | Idea E | Low | Gate on Blocked/Done, debounce, focus-aware suppression |
-| R10 | Scope creep toward "rebuild herdr" | All | Medium | Stay native-app-first; only expose, don't re-implement multiplexing; zmx stays persistence-only |
+| R1 | Layer-2 socket = local automation/observation surface | B/C/F | **High** | dir perms `0700`, capability token, read-only first, method allowlist, validators (per `remote_zmx_architecture_ideas.md` §Security) |
+| R2 | zmx IPC tag/version skew breaks attach/restore on fork bump | H, §4.3 | **High** | additive, backward-compatible tags; capability handshake via `Info`; version-gate before reattach |
+| R3 | Heuristic agent-state false positives | A/D | Med | hook/`AgentState` tag authoritative; conservative transitions; debounce |
+| R4 | Unix socket path ≤ ~103 chars | IDs, sockets | Med | already tracked (`ZmxAttachDiagnostics`); keep IDs/dirs short |
+| R5 | N background `Output` clients = resource cost | D | Med | tap only agent-bearing background panes; throttle |
+| R6 | ANSI scraping brittle | D | Med | prefer structured `AgentState` IPC tag |
+| R7 | External mutations interleaving with UI mutations | C | Med | main-actor serialization + validators; load-test |
+| R8 | Two-terminal divergence (resize/cursor) regressions if new IPC use disturbs inner term | §4, IPC clients | Med | keep inner term passive; reuse PR #112 invariants; don't add live-resize paths |
+| R9 | **Architecture-boundary governance** (new atom/store/event/coordinator/external plane) | A/B/C/F/G | Process | this doc is the pre-work; do not implement boundary changes before sign-off |
+| R10 | Doc/code drift: `ZMX_DIR` `zmx/` vs `z/` | §0.5 | Low | reconcile canonical doc with `AppDataPaths.swift` |
+| R11 | Scope creep toward "rebuild herdr" | all | Med | native-app-first; expose, don't re-implement multiplexing; zmx stays Layer-1 |
 
 ---
 
-## 7. Suggested sequencing (smallest safe first)
+## 8. Suggested sequencing
 
-1. **Settle Idea A's home** (new atom vs derived vs property) with Shravan — gates everything
-   agent-state. *Pure conversation, no code.*
-2. **Idea B** — read-only `events.subscribe` socket. Smallest blast radius, proves transport,
-   immediately useful for integration tests.
-3. **Idea A heuristic** using existing `terminalActivity`, focused panes only.
-4. **Idea D** — background output source (start with `zmx tail`; evaluate extending the fork).
-5. **Idea E** — focus-aware notifications (cheap once A exists).
-6. **Idea C** — mutating verbs (the big security/architecture conversation).
-7. **Ideas F/G/H** — MCP/skill, detached helpers, update handoff.
+1. **Settle Idea A's home** (atom vs derived vs property) — pure conversation. Gates agent-state.
+2. **Land `ZmxIPCClient` (LUNA-354)** — unblocks structured reads + `Output`/`Info`/`Run` use.
+3. **Idea B** — read-only `events.subscribe` Layer-2 socket (smallest blast radius).
+4. **Idea A heuristic** via `terminalActivity` (focused panes), then **Idea D** (background
+   `Output`).
+5. **Idea E** — focus-aware notifications.
+6. **Idea C** — Layer-2 mutating verbs (the big security/architecture conversation).
+7. **Ideas F/G/H** — MCP/skill, `Run`-tag helpers, update handoff.
+8. **Remote (Option C)** is independently sequenced per `remote_zmx_architecture_ideas.md`.
 
-R8 means steps 1 and 6 are **conversations before code**.
-
----
-
-## 8. Open questions for Shravan
-
-1. **Agent-state home:** new `AgentLifecycleAtom`, a derived reader, or a property on
-   `SessionRuntimeAtom`? (Prior: not the last.)
-2. **Do we want an external control plane at all**, or keep Agent Studio closed and pursue only
-   internal agent-awareness (Ideas A/D/E)? This is the fork in the road.
-3. **Extend the zmx fork** (structured agent-state/control channel) vs. **stay CLI-only** and
-   scrape `tail`/`history`? Extending is more robust and upstreamable but is real Rust work.
-4. **Hooks vs heuristics priority:** ship heuristic-only first, or invest in the Claude Code
-   hook + installer immediately for accuracy?
-5. **MCP vs raw socket** as the eventual agent-facing surface (if any).
+R9 ⇒ steps 1 and 6 are conversations before code.
 
 ---
 
-## 9. References
+## 9. Open questions for Shravan
 
-- herdr — <https://github.com/ogulcancelik/herdr> (README, `SKILL.md`)
-- awesome-herdr ecosystem — <https://github.com/yigitkonur/awesome-herdr>
-- herdr on lib.rs — <https://lib.rs/crates/herdr>
-- zmx upstream — <https://github.com/neurosnap/zmx>
-- zmx fork (vendored) — <https://github.com/ShravanSunder/zmx>
-- Internal: `ZmxBackend.swift`, `SessionRuntime.swift`, `SessionRuntimeAtom.swift`,
-  `EventBus.swift`, `EventChannels.swift`, `RuntimeEnvelopeCore.swift`, `PaneRuntimeEvent.swift`,
-  `PaneActionCommand.swift`, `RuntimeCommand.swift`, `RPCRouter.swift`,
-  `TerminalRestoreRuntime.swift`, `WorkspaceFocusDerived.swift`
+1. **Agent-state home:** new `AgentLifecycleAtom`, derived, or property on `SessionRuntimeAtom`?
+2. **Do we want a Layer-2 control plane at all**, or stay closed and pursue only internal
+   awareness (A/D/E)? The fork in the road.
+3. **Authoritative state source:** Claude Code hook vs a new zmx `AgentState` IPC tag (the fork's
+   planned health/snapshot/config extension)? Or both?
+4. **Revive LUNA-354 `ZmxIPCClient` spec now** as the prerequisite, or keep CLI shell-outs until a
+   concrete consumer (D) needs IPC?
+5. **MCP vs raw socket** as the eventual agent-facing surface (if any)?
+
+---
+
+## 10. References
+
+**In-repo (authoritative):** `architecture/session_lifecycle.md`,
+`architecture/zmx_restore_and_sizing.md`, `architecture/zmx_terminal_integration_lessons.md`,
+`architecture/remote_zmx_architecture_ideas.md`, `debugging/zmx-environment-isolation.md`.
+Code: `ZmxBackend.swift`, `SessionRuntime.swift`, `SessionRuntimeAtom.swift`, `EventBus.swift`,
+`EventChannels.swift`, `RuntimeEnvelopeCore.swift`, `PaneRuntimeEvent.swift`,
+`PaneActionCommand.swift`, `RuntimeCommand.swift`, `RPCRouter.swift`, `TerminalRestoreRuntime.swift`,
+`WorkspaceFocusDerived.swift`, `AppDataPaths.swift`.
+**External:** herdr <https://github.com/ogulcancelik/herdr> (+ `SKILL.md`); awesome-herdr
+<https://github.com/yigitkonur/awesome-herdr>; zmx upstream <https://github.com/neurosnap/zmx>;
+zmx fork <https://github.com/ShravanSunder/zmx>; zmx PR #112 (OSC 133 redraw fix).
