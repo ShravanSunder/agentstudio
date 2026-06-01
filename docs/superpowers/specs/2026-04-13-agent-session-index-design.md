@@ -552,8 +552,7 @@ If `~/.claude/` doesn't exist: skip, don't create a watcher. Check periodically 
 
 ## What This Does Not Cover
 
-- Codex parser (follow-up — schema supports it, parser deferred)
-- Compressed archives (.jsonl.zst) — skip
+- Compressed Codex archives (.jsonl.zst) — skip, parse plain `.jsonl` only
 - Hooks/statusline/OTLP live integration — additive later
 - SDK wrapping / ACP — not using
 - Sidebar UI, command bar integration, drawer panel — separate specs

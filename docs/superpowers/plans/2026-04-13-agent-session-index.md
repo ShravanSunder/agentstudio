@@ -125,6 +125,25 @@ Create `ClaudeSessionParser.swift` in `Core/RuntimeEventSystem/Runtime/Parsers/`
 - [ ] Return `(ParsedSession, newByteOffset: UInt64)`
 - [ ] Write unit tests with fixture JSONL files
 
+### Task 3.3: Codex JSONL parser
+
+Create `CodexSessionParser.swift` in `Core/RuntimeEventSystem/Runtime/Parsers/`:
+
+- [ ] `@concurrent nonisolated func parseCodexJSONL(at: URL, since offset: UInt64) async throws -> ParsedSession`
+- [ ] Parse `RolloutLine` envelope format: `{"type": "...", "payload": {...}}`
+- [ ] Extract from `SessionMeta`: conversation_id, model, timestamp
+- [ ] Extract from `ResponseItem`: accumulate tokens, count tool items (command_execution, file_change, mcp_tool_call)
+- [ ] Extract from `EventMsg`: track CWD changes, extract first user input
+- [ ] Skip `.jsonl.zst` files (compressed archives)
+- [ ] Build restore command: `"codex resume <threadId>"`
+- [ ] Return `(ParsedSession, newByteOffset: UInt64)`
+- [ ] Write unit tests with fixture Codex JSONL files
+
+### Task 3.4: Codex test fixtures
+
+- [ ] Create sample Codex JSONL files (SessionMeta + ResponseItem + EventMsg records)
+- [ ] Cover: normal session, multi-turn, tool usage, CWD changes
+
 ---
 
 ## Phase 4: Scanner Actor
@@ -134,16 +153,20 @@ Create `ClaudeSessionParser.swift` in `Core/RuntimeEventSystem/Runtime/Parsers/`
 Create `AgentSessionScanner.swift` in `Core/RuntimeEventSystem/Runtime/`:
 
 - [ ] `actor AgentSessionScanner`
-- [ ] Resolve `~/.claude/projects/` (also check `~/.config/claude/projects/`)
-- [ ] `@concurrent nonisolated func discoverClaudeFiles() async throws -> [DiscoveredFile]`
+- [ ] Resolve Claude paths: `~/.claude/projects/` (also check `~/.config/claude/projects/`)
+- [ ] Resolve Codex paths: `~/.codex/sessions/` (also check `$CODEX_HOME/sessions/`)
+- [ ] `@concurrent nonisolated func discoverClaudeFiles() async throws -> [DiscoveredFile]` — glob `**/*.jsonl`
+- [ ] `@concurrent nonisolated func discoverCodexFiles() async throws -> [DiscoveredFile]` — glob `**/*.jsonl`, skip `.zst`
 - [ ] `DiscoveredFile` — path, mtime, size, provider
 - [ ] Handle missing directories gracefully (skip, don't crash)
 
 ### Task 4.2: Full scan (startup)
 
 - [ ] `func fullScan() async throws`
-- [ ] Discover files → check index_transcript_scan_state for existing mtime/offset
+- [ ] Discover files from both Claude and Codex directories
+- [ ] Check index_transcript_scan_state for existing mtime/offset per file
 - [ ] Skip unchanged files (mtime matches)
+- [ ] Route to correct parser by provider (`discoverClaudeFiles` → `parseClaudeJSONL`, `discoverCodexFiles` → `parseCodexJSONL`)
 - [ ] Parse changed/new files (incremental from byte offset)
 - [ ] Write to DB via AgentSessionIndexRepository
 - [ ] Return scan summary (new, updated, unchanged counts)
@@ -151,17 +174,18 @@ Create `AgentSessionScanner.swift` in `Core/RuntimeEventSystem/Runtime/`:
 ### Task 4.3: Active session detection
 
 - [ ] `func scanActiveSessions() async throws`
-- [ ] Read `~/.claude/sessions/*.json` — parse PID → sessionId + cwd
-- [ ] Check PID alive: `kill(pid, 0) == 0`
-- [ ] Update status in DB (.running for alive, .idle for dead)
+- [ ] Claude: read `~/.claude/sessions/*.json` — parse PID → sessionId + cwd, check `kill(pid, 0) == 0`
+- [ ] Codex: no PID registry — detect running status from JSONL mtime within last 60s
+- [ ] Update status in DB (.running for alive/recent, .idle for dead/stale)
 
 ### Task 4.4: File watching
 
 - [ ] Use existing `DarwinFSEventStreamClient` pattern (NOT DispatchSource)
 - [ ] Watch `~/.claude/projects/` for new/changed JSONL files
 - [ ] Watch `~/.claude/sessions/` for PID registry changes
+- [ ] Watch `~/.codex/sessions/` for new/changed JSONL files
 - [ ] Debounce: 1s coalesce window before triggering scan
-- [ ] If directory doesn't exist: skip, re-check periodically (5m)
+- [ ] If any directory doesn't exist: skip, re-check periodically (5m)
 - [ ] Emit `RuntimeEnvelope.system(.agentSessionsIndexed(count:))` after scan
 
 ---
@@ -215,6 +239,7 @@ Create in `Core/State/MainActor/Atoms/`:
 - [ ] All repository write methods (upsert, update status, FTS rebuild)
 - [ ] All read handler query methods with fixtures
 - [ ] Claude JSONL parser: normal file, truncated last line, malformed lines, empty file
+- [ ] Codex JSONL parser: normal rollout, multi-turn, tool items, empty file
 - [ ] Incremental parsing: parse from byte offset, verify only new content parsed
 - [ ] FTS5 search: standalone upsert, delete-then-insert, search matches
 - [ ] CWD → worktree resolution logic
@@ -231,7 +256,6 @@ Create in `Core/State/MainActor/Atoms/`:
 
 ## Phase 7: Future (Not in This Plan)
 
-- [ ] Codex JSONL parser (schema supports it, parser deferred)
 - [ ] Sidebar UI — session list per worktree
 - [ ] Command bar — "Resume session" action, session search
 - [ ] Pane ↔ session association — live status in tab bar
@@ -256,9 +280,11 @@ Phase 2 (Repositories) — depends on Phase 1
   ├── 2.2 Read handler (depends on 1.2)
   └── 2.3 Core pointer extension (depends on 1.3)
 
-Phase 3 (Parser) — parallel with Phase 2
+Phase 3 (Parsers) — parallel with Phase 2
   ├── 3.1 ParsedSession type (depends on 1.1)
-  └── 3.2 Claude parser (depends on 3.1, 1.4)
+  ├── 3.2 Claude parser (depends on 3.1, 1.4)
+  ├── 3.3 Codex parser (depends on 3.1, 3.4)
+  └── 3.4 Codex fixtures (no deps)
 
 Phase 4 (Scanner) — depends on Phase 2 + 3
   ├── 4.1 Discovery (depends on 1.1)
