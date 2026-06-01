@@ -118,9 +118,12 @@ enum AgentState { Idle, Working, Blocked, Unknown }
 // Unknown = plain shell / unrecognized program
 ```
 
-**"done" is not a fifth state — it's `Idle` + a UI `seen` flag.** `Idle & seen==false` renders
-as **done** (teal ●); `Idle & seen==true` renders as **idle** (green ✓). "Reviewed" is a
-UI-interaction bit, not a detector output. (The `SKILL.md` status vocabulary
+**"done" is not a fifth state — it's `Idle` + a `seen` flag.** `Idle & seen==false` renders as
+**done** (teal ●); `Idle & seen==true` renders as **idle** (green ✓). `seen` is set when the user
+**observes** the completion — it's driven by the same active-tab/focus path as notification
+suppression (`apply_pane_state_change`), not only by an explicit review click, so "reviewed" really
+means "did the human see it land." The *detector* `AgentState` has only the four values above; the
+API schema separately exposes a presentation-level `AgentStatus::Done` projection. (The `SKILL.md` status vocabulary
 `idle/working/blocked/done/unknown` is the *presentation* projection of `AgentState` + `seen`.)
 
 **Two detection sources, combined:**
@@ -184,7 +187,7 @@ Claude's `settings.json` to map hook events → herdr actions:
 | `PermissionRequest` | **blocked** |
 | `Stop` | idle |
 | `SessionEnd` | release |
-| `PostToolUse`, `SubagentStop` | (not configured) |
+| `PostToolUse`, `PostToolUseFailure`, `SubagentStop` | **explicitly removed from `settings.json` on install** (shell hook also early-exits on `SubagentStop`) |
 
 Flow: the shell hook takes an `action` arg, slurps Claude's JSON payload from stdin, then a
 Python shim reads `HERDR_ACTION` / `HERDR_PANE_ID` / `HERDR_SOCKET_PATH` / `HERDR_HOOK_INPUT_FILE`,
@@ -204,10 +207,14 @@ herdr separates concerns we tend to lump together:
    groups running. Reattach reconnects the UI.
 2. **Snapshot restore** — `capture()` (`src/persist.rs`) writes `session.json` (+ optional
    `session-history.json`). Structs (`src/persist/snapshot.rs`): `SessionSnapshot` →
-   `WorkspaceSnapshot` → `TabSnapshot` → `LayoutSnapshot` (serializable **BSP tree**) →
-   `PaneHistorySnapshot` (ANSI + line count) + `PaneAgentSessionSnapshot`. `restore()`
+   `WorkspaceSnapshot` → `TabSnapshot`, where each `TabSnapshot` holds **both** a `LayoutSnapshot`
+   (the serializable **BSP tree**; leaves are pane IDs) **and** a map of `PaneSnapshot` (each
+   carrying the optional `PaneAgentSessionSnapshot`). Screen history is a **physically separate
+   tree** — `SessionHistorySnapshot → WorkspaceHistorySnapshot → TabHistorySnapshot →
+   PaneHistorySnapshot` (ANSI + line count) — in the optional `session-history.json`. `restore()`
    (`src/persist/restore.rs`) rebuilds the **layout + cwd**; shell processes are **re-spawned**
-   (not preserved across a full restart).
+   (not preserved across a full restart). That history *and* agent-resume metadata live **off** the
+   layout tree is itself a precedent (see Idea G).
 3. **Pane screen-history replay** — restores recent terminal contents visually.
 4. **Native agent session restore** — `PaneAgentSessionSnapshot` stores `{source, agent, kind,
    value}` (an agent **resume ID**); `pane_restore_startup` relaunches the agent **into its prior
@@ -226,10 +233,10 @@ On `AppEvent::HookStateReported`, `HeadlessServer::handle_app_event` compares `p
 `next_state` and calls `notification_sound_for_state_change`: a **"done"** sound fires **only on
 genuine background completions** (`Working`/`Blocked` → `Idle`, not e.g. `Unknown`→`Idle`), an
 **"attention"** sound on transitions to `Blocked`; toasts fire if `ui.toast.delivery != off`.
-**Suppression rule:** popups are suppressed when the pane is in the **active tab *and* the
-terminal is focused** (`active_tab_suppresses_notifications`) — you don't get notified about what
-you're already looking at. A live `visible_blocker` can override a `working` state and still
-trigger attention.
+**Suppression rule:** popups are suppressed when the pane is in the **active tab**, unless the
+terminal is explicitly known to be **unfocused** (`active_tab_suppresses_notifications` suppresses
+when focus is unknown or focused) — you don't get notified about what you're already looking at. A
+live `visible_blocker` can override a `working` state and still trigger attention.
 
 ---
 
@@ -266,6 +273,7 @@ control socket = the external layer. Don't merge them; don't push orchestration 
 | Focus-aware notify | `suppress_active_tab_notifications` | `WorkspaceFocusDerived` + `agentNotificationRequested` + `InboxNotification`; rule in `AppPolicies` | **partial → Idea E** |
 | Spawn helper agent + await | `agent.start` + **`events.wait`** | zmx **`Run` tag** + control verb + event plane (Idea B) | **gap → Idea F** |
 | Resume an agent convo | `PaneAgentSessionSnapshot` (`--resume`) | capture agent resume IDs in pane metadata; relaunch on restore | **gap → Idea G** |
+| Agent status text | `pane.report_metadata` / `custom_status` | visual-only field on pane metadata + sidebar render | **gap → Idea I** |
 | Update w/o killing | `live_handoff` (SCM_RIGHTS) | FD handoff to a new zmx daemon on binary bump | **gap → Idea H** |
 
 ---
@@ -343,8 +351,10 @@ Effort: S=days, M=~week, L=multi-week.
   the process is gone, relaunch the agent into its prior conversation.
 - **Why:** complements zmx's process-persistence — covers full-restart, non-zmx/floating panes,
   and crashed agents; a strong "resume agent" UX. **This is a capability zmx alone doesn't give.**
-- **herdr precedent:** `PaneAgentSessionSnapshot`, `pane_restore_startup`. **Decision:** new pane
-  metadata field (atom-boundary). **Effort:** M.
+- **herdr precedent:** `PaneAgentSessionSnapshot` hangs off `PaneSnapshot`, **kept off the layout
+  tree** (§2.5), + `pane_restore_startup`. That separation is itself guidance: resume metadata is
+  **pane-scoped, not layout/tab-scoped**. **Decision:** which atom owns the resume field (pane
+  metadata, not the tab/layout atom — atom-boundary). **Effort:** M.
 
 ### H — Update / zmx-bump handoff
 - **What:** update the app and/or bump vendored zmx **without killing live agents.**
@@ -356,6 +366,15 @@ Effort: S=days, M=~week, L=multi-week.
   (via `Info`/`ping`) + drain/warn before a zmx-affecting update.
 - **herdr precedent:** `live_handoff` (`src/server/headless.rs`). **Effort:** S (version check) / L
   (full FD handoff in the zmx fork). **Decision:** fork-scope.
+
+### I — Agent-provided status text (visual-only)
+- **What:** let an agent surface a short freeform status string (e.g. "running tests", "waiting on
+  CI") shown in the sidebar/pane chrome that **does not** drive the agent-state machine.
+- **Why:** richer than a four-value enum without polluting transitions; zero false-positive risk
+  because it's presentation-only. Decouples "what the agent says it's doing" from "what state the
+  detector inferred."
+- **How:** carry it on the same hook/report channel as Idea D; render in the sidebar row.
+- **herdr precedent:** `pane.report_metadata` / `custom_status` (§2.4). **Effort:** S (after D).
 
 ---
 
@@ -388,7 +407,7 @@ Effort: S=days, M=~week, L=multi-week.
 5. **Idea D** — Claude hook authority (reuse herdr's event→state map + reconciliation).
 6. **Idea E** — focus-aware notifications.
 7. **Idea C** — mutating verbs (the big security/architecture conversation).
-8. **Ideas F / G / H** — helper agents, agent-resume restore, FD handoff.
+8. **Ideas F / G / H / I** — helper agents, agent-resume restore, FD handoff, agent status text.
 
 R8 ⇒ steps 1 and 7 are conversations before code.
 
