@@ -71,12 +71,16 @@ herdr runs **two** transports, and the separation is the lesson:
 | External automation | **newline-delimited JSON, JSON-RPC-style** over a Unix socket | tools / agents / scripts ↔ server | `src/api/schema.rs` |
 
 Socket discovery order for the JSON API: `--session <name>` → `HERDR_SOCKET_PATH` →
-`HERDR_SESSION=<name>` → default `$XDG_CONFIG_HOME/herdr/herdr.sock`.
+`HERDR_SESSION=<name>` → default `$XDG_CONFIG_HOME/herdr/herdr.sock` (named sessions live at
+`~/.config/herdr/sessions/<name>/herdr.sock`). The two transports are on **physically separate
+sockets** — the JSON API on `herdr.sock`, the binary client transport on `herdr-client.sock`
+beside it — so the two-layer split (§3) is physical, not merely logical.
 
-Envelope (`src/api/schema.rs`):
+Envelope (`src/api/schema.rs`), encoded `#[serde(tag = "method", content = "params")]` so the
+wire JSON is `{"id", "method", "params"}`:
 
 ```rust
-struct Request { id: String, #[serde(flatten)] method: Method }   // method enum carries params
+struct Request { id: String, #[serde(flatten)] method: Method }   // -> {"id","method","params"}
 struct SuccessResponse { id: String, result: ResponseResult }     // id echoes the request
 ```
 
@@ -89,13 +93,18 @@ struct SuccessResponse { id: String, result: ResponseResult }     // id echoes t
 | worktree | `list`, `create`, `open`, `remove` |
 | tab | `create`, `list`, `get`, `focus`, `rename`, `close` |
 | agent | `list`, `get`, `read`, `send`, `rename`, `focus`, `start` |
-| pane | `split`, `list`, `get`, `rename`, `send_text`, `send_keys`, `send_input`, `read`, **`report_agent`**, `report_metadata`, **`clear_agent_authority`** |
+| pane | `split`, `list`, `get`, `rename`, `send_text`, `send_keys`, `send_input`, `read`, **`wait_for_output`**, **`report_agent`**, **`release_agent`**, `report_metadata`, **`clear_agent_authority`**, `close` |
+| events | **`subscribe`** (stream), **`wait`** (block until one matching event) |
+| integration | `install`, `uninstall` |
 
-Note herdr models **agents as first-class** alongside panes (`agent.*`), and exposes both the
-inbound authority channel (`pane.report_agent`) and its release (`clear_agent_authority`).
-`pane.read` takes `--source {visible|recent|recent-unwrapped} --lines N`; `pane.split` takes
-`--direction {right|down} [--no-focus]`. IDs are human-friendly: workspace `1`, tab `1:1`, pane
-`1-1`, and "ids can compact when tabs/panes/workspaces close."
+Note herdr models **agents as first-class** alongside panes (`agent.*`), and exposes the inbound
+authority channel (`pane.report_agent`) plus **two distinct releases**: `pane.release_agent`
+(drop the agent entirely) and `pane.clear_agent_authority` (drop only the hook authority, keep
+heuristic detection). The `events` namespace has **both** a streaming `subscribe` and a
+block-until-one `wait` — the latter is the real precedent for "spawn helper, await done" (Idea F),
+not a CLI poll. `pane.read` takes `--source {visible|recent|recent-unwrapped} --lines N`;
+`pane.split` takes `--direction {right|down} [--no-focus]`. IDs are human-friendly: workspace `1`,
+tab `1:1`, pane `1-1`, and "ids can compact when tabs/panes/workspaces close."
 
 ### 2.3 Agent-state detection (`src/detect.rs`, `src/pane.rs`, `src/terminal/state.rs`)
 
@@ -120,16 +129,20 @@ UI-interaction bit, not a detector output. (The `SKILL.md` status vocabulary
    (`src/pane.rs`) periodically identify which known agent owns the foreground (→ an `Agent`
    enum). This answers "*is* there an agent, and which."
 2. **Terminal-output analysis** — `detect_agent(agent, screen_content)` (`src/detect.rs`)
-   matches the bottom-of-buffer text against **per-agent** patterns, dispatching to
-   `detect_claude` / `detect_codex` / `detect_gemini` / `detect_hermes` / `detect_pi`. Returns
-   an `AgentDetection { state, visible_blocker, visible_idle, visible_working }`.
+   matches the bottom-of-buffer text against **per-agent** patterns, dispatching to **16
+   per-agent detectors** (Claude, Codex, Gemini, Cursor, Antigravity, Cline, OpenCode, GitHub
+   Copilot, Kimi, Kiro, Droid, Amp, Grok, Hermes, Pi, Qodercli). Returns an
+   `AgentDetection { state, visible_blocker, visible_idle, visible_working }`. **The breadth is
+   itself a lesson:** 16 hand-written detectors (and growing) is an open-ended maintenance tax —
+   which is the strongest argument that for Agent Studio, **hook authority (Idea D) should be the
+   *primary* state source and heuristics the fallback**, not the reverse.
 
 **Per-agent heuristics (concrete, portable):**
 
 | State | Example signals (by agent) |
 |---|---|
 | Blocked | Claude: structured prompt box, "do you want to proceed?" + "bash command" + yes/no. Codex: "press enter to confirm or esc to cancel", "[y/n]". Gemini: "waiting for user confirmation", box-draw "│ Apply this change". Hermes: "allow once / allow for this session / deny" + "enter to confirm". |
-| Working | General: `has_braille_spinner` (Unicode braille spinner glyphs). Pi: "Working…". Claude: `has_claude_working_chrome`. Codex: `has_interrupt_pattern` / working header. Gemini: "esc to cancel". Hermes: "msg=interrupt" / "ctrl+c cancel". |
+| Working | Droid/Grok: `has_braille_spinner` (Unicode braille spinner glyphs — agent-specific, not a general signal). Pi: "Working…". Claude: `has_claude_working_chrome`. Codex: `has_interrupt_pattern` / working header. Gemini: "esc to cancel". Hermes: "msg=interrupt" / "ctrl+c cancel". |
 | Idle | default when no blocked/working match **and** `has_visible_idle` (e.g. `has_claude_prompt_box`, `has_codex_prompt`). |
 
 **Timing constants (the debounce that makes it not-flicker):**
@@ -144,9 +157,11 @@ and hook signals can disagree, so herdr has explicit precedence. `TerminalState.
 stores the integration-reported state; `recompute_effective_state` combines it with the live
 screen signals:
 
-- hook `Blocked` wins **unless** a `visible_blocker` says otherwise,
+- hook `Blocked` wins **outright** (highest priority); a `visible_blocker` can independently
+  *raise* Blocked only when there is no fresh hook-Blocked — it never overrides one,
 - `visible_working_overrides_hook` (a live spinner beats a stale "idle" hook),
-- `visible_idle_stales_hook` (a visible prompt invalidates a stale "working" hook),
+- `visible_idle_stales_hook` (a visible prompt invalidates a stale "working" hook, but only after
+  it persists ~`STALE_HOOK_IDLE_GRACE = 2s`),
 - authority is **cleared** (`clear_agent_authority`) when the process exits or the detected agent
   conflicts with the hook source.
 
@@ -175,9 +190,11 @@ Flow: the shell hook takes an `action` arg, slurps Claude's JSON payload from st
 Python shim reads `HERDR_ACTION` / `HERDR_PANE_ID` / `HERDR_SOCKET_PATH` / `HERDR_HOOK_INPUT_FILE`,
 parses the event, and emits a JSON-RPC `pane.report_agent` (for working/idle/blocked) or
 `pane.release_agent` (for release) over the socket. Payload: `pane_id`, `source: "herdr:claude"`,
-`agent: "claude"`, `state`, `seq`, optional `agent_session_id`. Subtlety: `SubagentStop` and
-subagent `idle/release` are **ignored** so a finished subagent doesn't prematurely mark the
-parent pane "done."
+`agent: "claude"`, `state`, `seq`, and optional `agent_session_id` / `agent_session_path` /
+`message` / `custom_status` — the last being a **visual-only** status string that does **not**
+drive the state machine (a useful precedent for surfacing agent-provided text without coupling it
+to transitions; see Ideas D/G). Subtlety: `SubagentStop` and subagent `idle/release` are
+**ignored** so a finished subagent doesn't prematurely mark the parent pane "done."
 
 ### 2.5 Persistence — five distinct paths (`src/persist.rs`, `src/server/headless.rs`)
 
@@ -185,11 +202,12 @@ herdr separates concerns we tend to lump together:
 
 1. **Live persistence** — client detach (`ctrl+b q`) leaves `HeadlessServer` + pane process
    groups running. Reattach reconnects the UI.
-2. **Snapshot restore** — `capture()` writes `session.json` (+ optional `session-history.json`).
-   Structs: `SessionSnapshot` → `WorkspaceSnapshot` → `TabSnapshot` → `LayoutSnapshot`
-   (serializable **BSP tree**) → `PaneHistorySnapshot` (ANSI + line count) +
-   `PaneAgentSessionSnapshot`. `restore()` (`src/persist/restore.rs`) rebuilds the **layout +
-   cwd**; shell processes are **re-spawned** (not preserved across a full restart).
+2. **Snapshot restore** — `capture()` (`src/persist.rs`) writes `session.json` (+ optional
+   `session-history.json`). Structs (`src/persist/snapshot.rs`): `SessionSnapshot` →
+   `WorkspaceSnapshot` → `TabSnapshot` → `LayoutSnapshot` (serializable **BSP tree**) →
+   `PaneHistorySnapshot` (ANSI + line count) + `PaneAgentSessionSnapshot`. `restore()`
+   (`src/persist/restore.rs`) rebuilds the **layout + cwd**; shell processes are **re-spawned**
+   (not preserved across a full restart).
 3. **Pane screen-history replay** — restores recent terminal contents visually.
 4. **Native agent session restore** — `PaneAgentSessionSnapshot` stores `{source, agent, kind,
    value}` (an agent **resume ID**); `pane_restore_startup` relaunches the agent **into its prior
@@ -205,11 +223,13 @@ herdr separates concerns we tend to lump together:
 ### 2.6 Notifications & suppression (`src/app/actions.rs`)
 
 On `AppEvent::HookStateReported`, `HeadlessServer::handle_app_event` compares `prev_state` →
-`next_state` and calls `notification_sound_for_state_change`: a **"done"** sound on transitions to
-done, an **"attention"** sound on transitions to blocked; toasts fire if `ui.toast.delivery != off`.
-**Suppression rule:** popups for the **currently active tab** are suppressed
-(`suppress_active_tab_notifications` — you don't get notified about what you're already looking
-at). A live `visible_blocker` can override a `working` state and still trigger attention.
+`next_state` and calls `notification_sound_for_state_change`: a **"done"** sound fires **only on
+genuine background completions** (`Working`/`Blocked` → `Idle`, not e.g. `Unknown`→`Idle`), an
+**"attention"** sound on transitions to `Blocked`; toasts fire if `ui.toast.delivery != off`.
+**Suppression rule:** popups are suppressed when the pane is in the **active tab *and* the
+terminal is focused** (`active_tab_suppresses_notifications`) — you don't get notified about what
+you're already looking at. A live `visible_blocker` can override a `working` state and still
+trigger attention.
 
 ---
 
@@ -244,7 +264,7 @@ control socket = the external layer. Don't merge them; don't push orchestration 
 | Semantic agent state | `detect.rs` + `seen` + authority | new agent-lifecycle state; detect in zmx `ghostty_vt`; reconcile per herdr's rules | **gap → Idea A** |
 | Hook authority | `pane.report_agent` + `~/.claude/hooks` | Claude hook → control socket; `ZMX_SESSION` as pane id | **gap → Idea D** |
 | Focus-aware notify | `suppress_active_tab_notifications` | `WorkspaceFocusDerived` + `agentNotificationRequested` + `InboxNotification`; rule in `AppPolicies` | **partial → Idea E** |
-| Spawn helper agent | `agent.start` | zmx **`Run` tag** (already exists) + a control verb | **gap → Idea F** |
+| Spawn helper agent + await | `agent.start` + **`events.wait`** | zmx **`Run` tag** + control verb + event plane (Idea B) | **gap → Idea F** |
 | Resume an agent convo | `PaneAgentSessionSnapshot` (`--resume`) | capture agent resume IDs in pane metadata; relaunch on restore | **gap → Idea G** |
 | Update w/o killing | `live_handoff` (SCM_RIGHTS) | FD handoff to a new zmx daemon on binary bump | **gap → Idea H** |
 
@@ -311,13 +331,16 @@ Effort: S=days, M=~week, L=multi-week.
 ### F — Detached helper agents
 - **What:** "spawn a helper agent, await its done state."
 - **How:** zmx **`Run` tag already exists** → expose `agent.spawn` via Idea C; persistence-backed,
-  survives restart. **herdr precedent:** `agent.start` + `wait agent-status --status done`.
+  survives restart. Await completion via the **event plane (Idea B)**, not polling.
+- **herdr precedent:** `agent.start` to spawn + **`events.wait`** (block until one matching
+  `pane.agent_status_changed`) to await — the same event stream Idea B exposes, so F reuses B
+  rather than inventing a separate wait mechanism.
 - **Risk:** orphan accumulation → tie GC to workspace + existing orphan-TTL (LUNA-324). **Effort:** M.
 
 ### G — Native agent session restore (resume IDs)
 - **What:** capture each pane's agent **resume ID** (e.g. `claude --resume <id>`, also surfaced by
-  the §2.4 hook as `agent_session_id`) in pane metadata; on restore where the process is gone,
-  relaunch the agent into its prior conversation.
+  the §2.4 hook as `agent_session_id` / `agent_session_path`) in pane metadata; on restore where
+  the process is gone, relaunch the agent into its prior conversation.
 - **Why:** complements zmx's process-persistence — covers full-restart, non-zmx/floating panes,
   and crashed agents; a strong "resume agent" UX. **This is a capability zmx alone doesn't give.**
 - **herdr precedent:** `PaneAgentSessionSnapshot`, `pane_restore_startup`. **Decision:** new pane
@@ -390,8 +413,8 @@ R8 ⇒ steps 1 and 7 are conversations before code.
 
 **herdr (source via DeepWiki + `SKILL.md`):** `src/api/schema.rs`, `src/detect.rs`, `src/pane.rs`,
 `src/terminal/state.rs`, `src/integration/mod.rs`, `src/server/headless.rs`, `src/persist.rs`,
-`src/persist/restore.rs`, `src/app/actions.rs`. Repo: <https://github.com/ogulcancelik/herdr> ·
-ecosystem: <https://github.com/yigitkonur/awesome-herdr>.
+`src/persist/snapshot.rs`, `src/persist/restore.rs`, `src/app/actions.rs`. Repo:
+<https://github.com/ogulcancelik/herdr> · ecosystem: <https://github.com/yigitkonur/awesome-herdr>.
 
 **Agent Studio (authoritative):** [`session_lifecycle.md`](../architecture/session_lifecycle.md),
 [`zmx_restore_and_sizing.md`](../architecture/zmx_restore_and_sizing.md),
