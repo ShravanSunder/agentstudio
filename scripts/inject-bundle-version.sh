@@ -11,9 +11,9 @@ set_plist_string() {
   local value="${2:?missing plist value}"
 
   if /usr/libexec/PlistBuddy -c "Print :$key" "$PLIST_PATH" >/dev/null 2>&1; then
-    /usr/libexec/PlistBuddy -c "Set :$key $value" "$PLIST_PATH"
+    /usr/libexec/PlistBuddy -c "Set :$key \"$value\"" "$PLIST_PATH"
   else
-    /usr/libexec/PlistBuddy -c "Add :$key string $value" "$PLIST_PATH"
+    /usr/libexec/PlistBuddy -c "Add :$key string \"$value\"" "$PLIST_PATH"
   fi
 }
 
@@ -34,8 +34,8 @@ case "$RELEASE_CHANNEL" in
     ;;
 esac
 
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${MARKETING_VERSION}" "$PLIST_PATH"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${BUILD_VERSION}" "$PLIST_PATH"
+set_plist_string CFBundleShortVersionString "$MARKETING_VERSION"
+set_plist_string CFBundleVersion "$BUILD_VERSION"
 set_plist_string AgentStudioReleaseChannel "$RELEASE_CHANNEL"
 set_plist_string CFBundleIdentifier "$BUNDLE_IDENTIFIER"
 set_plist_string CFBundleName "$BUNDLE_NAME"
