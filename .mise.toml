@@ -185,31 +185,9 @@ source scripts/swift-test-helpers.sh
 
 prebuild_swift_tests
 
-if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
-  SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
-  if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
-  if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
-  run_swift_with_timeout \
-    "parallel non-serialized suites" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --parallel --num-workers "$SWIFT_TEST_WORKERS" \
-    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
-else
-  run_swift_with_timeout \
-    "serial non-serialized suites" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build \
-    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
-fi
+run_non_serialized_swift_tests "non-serialized suites"
+run_webkit_suites
 
-echo "--- WebView serialized tests (serial) ---"
-run_webkit_suite_with_retry "WebKitSerializedTests/BridgePaneControllerTests"
-run_webkit_suite_with_retry "WebKitSerializedTests/BridgeSchemeHandlerSpikeTests"
-# Keep content-world probing in its own process; WebKit can crash when a
-# second WebPage follows this probe in the same swift-test process.
-run_webkit_suite_with_retry "WebKitSerializedTests/BridgeContentWorldIsolationTests"
-run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTests"
-run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
 echo "--- E2E serialized tests (serial) ---"
 if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
   run_swift_with_timeout \
@@ -230,6 +208,44 @@ else
 fi
 """
 
+[tasks.test-fast]
+description = "Run fast lane: unit + non-WebKit integration tests, excluding WebKit/E2E/ZmxE2E"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
+TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
+echo "[test-fast] BUILD_PATH=$BUILD_PATH"
+echo "[test-fast] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
+
+LOG_PREFIX="test-fast"
+EXTRA_SWIFT_TEST_ARGS=""
+source scripts/swift-test-helpers.sh
+
+prebuild_swift_tests
+run_non_serialized_swift_tests "fast non-WebKit suites"
+"""
+
+[tasks.test-webkit]
+description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
+TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
+echo "[test-webkit] BUILD_PATH=$BUILD_PATH"
+echo "[test-webkit] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
+
+LOG_PREFIX="test-webkit"
+EXTRA_SWIFT_TEST_ARGS=""
+source scripts/swift-test-helpers.sh
+
+prebuild_swift_tests
+run_webkit_suites
+"""
+
 [tasks.test-coverage]
 description = "Run test suite with code coverage and print coverage JSON path"
 run = """
@@ -247,31 +263,8 @@ source scripts/swift-test-helpers.sh
 
 prebuild_swift_tests
 
-if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
-  SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
-  if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
-  if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
-  run_swift_with_timeout \
-    "parallel non-serialized suites (coverage)" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build --parallel --num-workers "$SWIFT_TEST_WORKERS" \
-    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
-else
-  run_swift_with_timeout \
-    "serial non-serialized suites (coverage)" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --enable-code-coverage --skip-build \
-    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
-fi
-
-echo "--- WebView serialized tests (serial, coverage) ---"
-run_webkit_suite_with_retry "WebKitSerializedTests/BridgePaneControllerTests"
-run_webkit_suite_with_retry "WebKitSerializedTests/BridgeSchemeHandlerSpikeTests"
-# Keep content-world probing in its own process; WebKit can crash when a
-# second WebPage follows this probe in the same swift-test process.
-run_webkit_suite_with_retry "WebKitSerializedTests/BridgeContentWorldIsolationTests"
-run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTests"
-run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
+run_non_serialized_swift_tests "non-serialized suites (coverage)"
+run_webkit_suites
 
 echo "--- E2E serialized tests (serial, coverage) ---"
 if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
