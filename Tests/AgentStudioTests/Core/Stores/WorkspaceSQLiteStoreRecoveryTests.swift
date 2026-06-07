@@ -185,6 +185,53 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         #expect(loaded.sidebarWidth == 250)
     }
 
+    @Test("quarantine failed local restore does not immediately repair same sidecar")
+    func quarantineFailedLocalRestoreDoesNotImmediatelyRepairSameSidecar() throws {
+        let workspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.quarantine.failed.core")
+        let initialLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.quarantine.failed.local.initial")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(initialLocalQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+        let initialLocalRepository = WorkspaceLocalRepository(
+            workspaceId: workspaceId,
+            databaseWriter: initialLocalQueue
+        )
+        let seedBackend = WorkspaceSQLiteStoreBackend(
+            coreRepository: coreRepository,
+            makeLocalRepository: { _ in initialLocalRepository }
+        )
+        try seedBackend.save(
+            .emptyFixture(
+                id: workspaceId,
+                name: "Core Survives Quarantine Failure",
+                updatedAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+        var repairOpenCount = 0
+        let failingRestoreBackend = WorkspaceSQLiteStoreBackend(
+            coreRepository: coreRepository,
+            makeLocalRepository: { workspaceId in
+                repairOpenCount += 1
+                let repairQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+                    label: "AgentStudio.sqlite.quarantine.failed.local.repair")
+                try WorkspaceLocalMigrations.migrate(repairQueue)
+                return WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: repairQueue)
+            },
+            makeLocalRestoreRepository: { workspaceId in
+                throw WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(workspaceId)
+            }
+        )
+
+        let loaded = try #require(try failingRestoreBackend.load(preferredWorkspaceId: workspaceId))
+
+        #expect(loaded.id == workspaceId)
+        #expect(loaded.name == "Core Survives Quarantine Failure")
+        #expect(repairOpenCount == 0)
+    }
+
     @Test("legacy retry imports pending files without stealing active SQLite selection")
     func legacyRetryImportsPendingFilesWithoutStealingActiveSQLiteSelection() throws {
         let importedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!

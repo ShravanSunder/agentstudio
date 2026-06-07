@@ -1211,7 +1211,7 @@ git commit -m "fix: require matched core local sqlite commits"
 - Test: `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteStoreBackendFactoryTests.swift`
 - Test: `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteStoreRecoveryTests.swift`
 
-- [ ] **Step 1: Write the failing quarantine outcome test**
+- [x] **Step 1: Write the failing quarantine outcome test**
 
 Append to `WorkspaceSQLiteStoreBackendFactoryTests.swift` or create a focused test if the existing file is crowded:
 
@@ -1225,7 +1225,7 @@ Expected before production changes:
 FAIL: quarantine failure is collapsed into recovered/default local state, or repair opens the same failed sidecar immediately.
 ```
 
-- [ ] **Step 2: Add the new local recovery error cases**
+- [x] **Step 2: Add the new local recovery error cases**
 
 Modify `WorkspaceSQLiteStoreBackend.swift`:
 
@@ -1236,7 +1236,7 @@ enum WorkspaceLocalSQLiteStoreBackendError: Error {
 }
 ```
 
-- [ ] **Step 3: Update factory to preserve quarantine failure**
+- [x] **Step 3: Update factory to preserve quarantine failure**
 
 Modify `WorkspaceSQLiteStoreBackendFactory.swift` local restore branch:
 
@@ -1267,7 +1267,7 @@ throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(workspaceId)
 
 When this path is later moved behind `WorkspaceSQLiteDatastore`, do not call `PersistenceRecoveryReporter` from inside the actor. Return the `PersistenceRecoveryEvent` with the restore/open outcome and let the MainActor boot/store caller record it.
 
-- [ ] **Step 4: Skip local repair when quarantine failed**
+- [x] **Step 4: Skip local repair when quarantine failed**
 
 Modify `WorkspaceSQLiteStoreBackend.loadCompletedSnapshot`:
 
@@ -1307,7 +1307,7 @@ if localRepairDisposition == .repairAllowed {
 }
 ```
 
-- [ ] **Step 5: Complete backend test with injected quarantine failure**
+- [x] **Step 5: Complete backend test with injected quarantine failure**
 
 Append to `WorkspaceSQLiteStoreBackendFactoryTests.swift` or create a focused test if the existing file is crowded:
 
@@ -1363,7 +1363,7 @@ func quarantineFailedLocalRestoreDoesNotImmediatelyRepairSameSidecar() throws {
 }
 ```
 
-- [ ] **Step 6: Run factory/recovery tests**
+- [x] **Step 6: Run factory/recovery tests**
 
 Run:
 
@@ -1378,7 +1378,7 @@ Expected:
 All selected tests pass.
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackend.swift \

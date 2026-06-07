@@ -73,12 +73,19 @@ struct WorkspaceSQLiteStoreBackend {
         let tabShells = try coreRepository.fetchTabShells(workspaceId: workspace.id)
         let tabGraph = try coreRepository.fetchTabGraph(workspaceId: workspace.id)
         let localRepository: WorkspaceLocalRepository?
+        let localRepairDisposition: LocalSnapshotRepairDisposition
         do {
             localRepository = try localBackend.restoreRepository(for: workspace.id)
+            localRepairDisposition = .repairAllowed
         } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption {
             localRepository = nil
+            localRepairDisposition = .repairAllowed
+        } catch WorkspaceLocalSQLiteStoreBackendError.quarantineFailed {
+            localRepository = nil
+            localRepairDisposition = .repairBlockedByQuarantineFailure
         } catch {
             localRepository = nil
+            localRepairDisposition = .repairAllowed
         }
         let cursorState: WorkspaceLocalRepository.CursorStateRecord
         let windowState: WorkspaceLocalRepository.WindowStateRecord?
@@ -89,12 +96,14 @@ struct WorkspaceSQLiteStoreBackend {
         case .needsDefaultLocalState, .unavailable:
             cursorState = WorkspaceSQLiteStateBridge.defaultCursorState(tabShells: tabShells, tabGraph: tabGraph)
             windowState = nil
-            repairLocalSnapshotIfPossible(
-                workspaceId: workspace.id,
-                cursorState: cursorState,
-                windowState: windowState,
-                completedAt: coreCompletedAt
-            )
+            if localRepairDisposition == .repairAllowed {
+                repairLocalSnapshotIfPossible(
+                    workspaceId: workspace.id,
+                    cursorState: cursorState,
+                    windowState: windowState,
+                    completedAt: coreCompletedAt
+                )
+            }
         }
 
         let state = try WorkspaceSQLiteStateBridge.persistableState(
@@ -252,6 +261,8 @@ struct WorkspaceSQLiteStoreBackend {
             localRepository = try localBackend.restoreRepository(for: workspaceId)
         } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption {
             return false
+        } catch WorkspaceLocalSQLiteStoreBackendError.quarantineFailed {
+            return false
         }
         return try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == coreCompletedAt
     }
@@ -312,6 +323,11 @@ private enum WorkspaceLocalSnapshotRead {
     )
     case needsDefaultLocalState
     case unavailable(any Error)
+}
+
+private enum LocalSnapshotRepairDisposition {
+    case repairAllowed
+    case repairBlockedByQuarantineFailure
 }
 
 private struct BackendUninitializedError: Error {}
@@ -397,6 +413,7 @@ struct WorkspaceLocalSQLiteStoreBackend {
 
 enum WorkspaceLocalSQLiteStoreBackendError: Error {
     case recoveredFromCorruption(UUID)
+    case quarantineFailed(UUID)
 }
 
 enum WorkspaceSQLiteStateBridge {

@@ -97,14 +97,15 @@ struct WorkspaceSQLiteStoreBackendFactory {
                             quarantinedFilename: quarantine.recoveryFilename
                         )
                     )
-                    if quarantine.succeeded {
-                        do {
-                            _ = try makeLocalRepository(workspaceId: workspaceId)
-                        } catch {
-                            workspaceSQLiteBackendFactoryLogger.error(
-                                "Failed to prepare local SQLite workspace backend after quarantine: \(error.localizedDescription)"
-                            )
-                        }
+                    guard quarantine.succeeded else {
+                        throw WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(workspaceId)
+                    }
+                    do {
+                        _ = try makeLocalRepository(workspaceId: workspaceId)
+                    } catch {
+                        workspaceSQLiteBackendFactoryLogger.error(
+                            "Failed to prepare local SQLite workspace backend after quarantine: \(error.localizedDescription)"
+                        )
                     }
                     throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(workspaceId)
                 }
