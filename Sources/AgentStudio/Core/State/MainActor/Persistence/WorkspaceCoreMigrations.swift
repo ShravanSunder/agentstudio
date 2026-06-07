@@ -22,6 +22,7 @@ enum WorkspaceCoreMigrations {
         ("004_create_tabs_and_arrangements", createTabArrangementStatements),
         ("005_repair_tab_graph_layout_storage", repairTabGraphLayoutStorageStatements),
         ("006_create_workspace_sqlite_snapshot_status", createWorkspaceSQLiteSnapshotStatusStatements),
+        ("007_stage_workspace_sqlite_snapshot_status", stageWorkspaceSQLiteSnapshotStatusStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -134,6 +135,28 @@ enum WorkspaceCoreMigrations {
             completed_at REAL NOT NULL
         )
         """
+    ]
+
+    private static let stageWorkspaceSQLiteSnapshotStatusStatements = [
+        """
+        ALTER TABLE workspace_sqlite_snapshot_status
+        RENAME TO workspace_sqlite_snapshot_status_old
+        """,
+        """
+        CREATE TABLE workspace_sqlite_snapshot_status (
+            workspace_id TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+            staged_at REAL,
+            completed_at REAL
+        )
+        """,
+        """
+        INSERT INTO workspace_sqlite_snapshot_status(workspace_id, staged_at, completed_at)
+        SELECT workspace_id, completed_at, completed_at
+        FROM workspace_sqlite_snapshot_status_old
+        """,
+        """
+        DROP TABLE workspace_sqlite_snapshot_status_old
+        """,
     ]
 
     private static let createPaneStatements = [

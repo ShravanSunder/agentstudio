@@ -7,8 +7,8 @@ import Testing
 @MainActor
 @Suite("WorkspaceSQLiteStoreRecoveryTests", .serialized)
 struct WorkspaceSQLiteStoreRecoveryTests {
-    @Test("local snapshot failure does not block canonical core snapshot save")
-    func localSnapshotFailureDoesNotBlockCanonicalCoreSnapshotSave() throws {
+    @Test("local snapshot failure prevents core snapshot completion")
+    func localSnapshotFailurePreventsCoreSnapshotCompletion() throws {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_250)
@@ -31,16 +31,15 @@ struct WorkspaceSQLiteStoreRecoveryTests {
             try failingBackend.save(
                 .init(
                     id: workspaceId,
-                    name: "Core Committed Despite Local Failure",
+                    name: "Staged Core Without Local",
                     createdAt: createdAt,
                     updatedAt: Date(timeIntervalSince1970: 1_700_000_270)
                 )
             )
         }
 
-        let loaded = try #require(try fixture.backend.load(preferredWorkspaceId: workspaceId))
-        #expect(loaded.name == "Core Committed Despite Local Failure")
-        #expect(loaded.name != "Committed Workspace")
+        #expect(try !fixture.backend.hasCompletedSnapshot(workspaceId: workspaceId))
+        #expect(try fixture.backend.load(preferredWorkspaceId: workspaceId) == nil)
     }
 
     @Test("failed core replacement does not advance local snapshot token")

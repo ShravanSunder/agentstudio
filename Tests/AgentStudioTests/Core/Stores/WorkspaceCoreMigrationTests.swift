@@ -44,6 +44,16 @@ struct WorkspaceCoreMigrationTests {
         #expect(tableNames.contains("drawer_view_minimized_pane"))
         #expect(tableNames.contains("legacy_workspace_import_status"))
         #expect(tableNames.contains("workspace_sqlite_snapshot_status"))
+        let snapshotStatusColumns = try databaseQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(workspace_sqlite_snapshot_status)")
+        }
+        let columnsByName = Dictionary(
+            uniqueKeysWithValues: snapshotStatusColumns.map { row in
+                (row["name"] as String, row)
+            })
+        #expect(columnsByName["staged_at"] != nil)
+        #expect(columnsByName["completed_at"] != nil)
+        #expect((columnsByName["completed_at"]?["notnull"] as Int?) == 0)
     }
 
     @Test("migration identifiers are stable and run once")
@@ -65,6 +75,7 @@ struct WorkspaceCoreMigrationTests {
                 "004_create_tabs_and_arrangements",
                 "005_repair_tab_graph_layout_storage",
                 "006_create_workspace_sqlite_snapshot_status",
+                "007_stage_workspace_sqlite_snapshot_status",
             ]
         )
     }

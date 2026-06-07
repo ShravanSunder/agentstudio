@@ -69,7 +69,8 @@ CREATE TABLE legacy_workspace_import_status (
 
 CREATE TABLE workspace_sqlite_snapshot_status (
     workspace_id TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
-    completed_at REAL NOT NULL
+    staged_at REAL,
+    completed_at REAL
 );
 
 CREATE TABLE watched_path (

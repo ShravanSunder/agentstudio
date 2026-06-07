@@ -435,12 +435,13 @@ JSON scanning is only a migration/recovery path when `core.sqlite` has no
 workspace rows or an incomplete import status says a companion import must
 resume.
 
-`workspace_sqlite_snapshot_status` is the authority marker for the core/local
-workspace pair. The marker is cleared before a workspace snapshot save begins
-and written only after core rows, local window memory, and local cursor rows
-all commit. A missing marker when workspace rows exist means the app may have
-crashed mid-save or mid-import; boot must report recovery/reset behavior and
-must not import stale legacy JSON over the newer partial SQLite rows.
+`workspace_sqlite_snapshot_status.completed_at` is the authority marker for
+the core/local workspace pair. A save may leave a staged status row, but
+`completed_at` is cleared before a workspace snapshot save begins and written
+only after core rows, local window memory, and local cursor rows all commit.
+A missing `completed_at` marker when workspace rows exist means the app may
+have crashed mid-save or mid-import; boot must report recovery/reset behavior
+and must not import stale legacy JSON over the newer partial SQLite rows.
 If missing legacy import status is encountered during incomplete-initial import
 recovery, retry the legacy file only when no active SQLite workspace selection
 existed before restore repair. If an active partial workspace had already been

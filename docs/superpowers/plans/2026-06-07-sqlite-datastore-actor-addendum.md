@@ -924,8 +924,10 @@ git commit -m "fix: harden legacy sqlite import retry status"
 - Modify: `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository.swift`
 - Modify: `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift`
 - Test: `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteCommitProtocolTests.swift`
+- Test: `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteStoreRecoveryTests.swift`
+- Test: `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreMigrationTests.swift`
 
-- [ ] **Step 1: Write failing staged-commit tests**
+- [x] **Step 1: Write failing staged-commit tests**
 
 Create `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteCommitProtocolTests.swift`:
 
@@ -992,7 +994,7 @@ struct WorkspaceSQLiteCommitProtocolTests {
 }
 ```
 
-- [ ] **Step 2: Run the failing test**
+- [x] **Step 2: Run the failing test**
 
 Run:
 
@@ -1006,7 +1008,7 @@ Expected:
 FAIL: cannot find staged status APIs in scope, or staged-only rows still count as completed.
 ```
 
-- [ ] **Step 3: Add staged status schema, staged core write, and final completion methods**
+- [x] **Step 3: Add staged status schema, staged core write, and final completion methods**
 
 Add a core migration before changing repository behavior:
 
@@ -1041,6 +1043,7 @@ Add tests:
 WorkspaceSQLiteCommitProtocolTests.stagedOnlyRowDoesNotCountAsCompleted
 WorkspaceSQLiteCommitProtocolTests.activeSelectionRepairIgnoresStagedOnlyRows
 WorkspaceSQLiteCommitProtocolTests.fallbackSelectionIgnoresStagedOnlyRows
+WorkspaceCoreMigrationTests.freshCoreDatabaseCreatesWorkspaceSQLiteSnapshotStatusColumns
 ```
 
 Then modify `WorkspaceCoreRepository` so core graph rows can be replaced without making the snapshot authoritative:
@@ -1090,7 +1093,7 @@ func markWorkspaceSQLiteSnapshotCommitted(workspaceId: UUID, committedAt: Date) 
 
 A restore must only treat a snapshot as authoritative when `completed_at` is non-null. A non-null `staged_at` with null `completed_at` means the previous save died before the full core/local pair committed and must be ignored or recovered by the next successful save.
 
-- [ ] **Step 4: Make `WorkspaceSQLiteStoreBackend.save(_:localRepository:)` the staged canonical save**
+- [x] **Step 4: Make `WorkspaceSQLiteStoreBackend.save(_:localRepository:)` the staged canonical save**
 
 Define the staged protocol on the backend, not as a second actor-only body:
 
@@ -1119,9 +1122,9 @@ func replaceWorkspaceSnapshotStaged(
 func markWorkspaceSnapshotCommitted(workspaceId: UUID, committedAt: Date) throws
 ```
 
-There is no attempt to “roll back” the core write in a catch handler. The correctness property is that staged core rows are not visible to restore as committed until the local write succeeds and the final core completion token is written.
+There is no attempt to “roll back” the core write in a catch handler. The correctness property is that staged core rows are not visible to restore as committed until the local write succeeds and the final core completion token is written. If a previous completed snapshot existed and the next save stages replacement core rows but fails before the local write, the old completion token is cleared by the staged status row; restore must treat that workspace as having no authoritative completed SQLite snapshot until a later successful save writes matching core/local completion tokens.
 
-- [ ] **Step 5: Add a positive completed-token test**
+- [x] **Step 5: Add a positive completed-token test**
 
 Append to `WorkspaceSQLiteCommitProtocolTests.swift`:
 
@@ -1165,7 +1168,15 @@ func successfulCoreAndLocalSaveLeavesMatchingCompletionTokens() throws {
 }
 ```
 
-- [ ] **Step 6: Run commit protocol tests**
+Also add the failed-local regression:
+
+```text
+WorkspaceSQLiteCommitProtocolTests.failedLocalSaveClearsCoreCompletionAuthority
+```
+
+This pins the intended failure mode: after a staged core replacement fails to write local state, `fetchCompletedWorkspaceSQLiteSnapshotAt` returns nil and `load(preferredWorkspaceId:)` returns nil rather than hydrating a core graph whose local sidecar did not commit.
+
+- [x] **Step 6: Run commit protocol tests**
 
 Run:
 
@@ -1180,7 +1191,7 @@ Expected:
 All selected tests pass.
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackend.swift \

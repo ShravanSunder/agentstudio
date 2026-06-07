@@ -20,6 +20,17 @@ struct WorkspaceCoreRepository {
         var lastError: String?
     }
 
+    private struct WorkspaceSnapshotReplacement {
+        var workspace: WorkspaceRecord
+        var topology: RepositoryTopologyRecord
+        var paneGraph: PaneGraphRecord
+        var tabShells: [TabShellRecord]
+        var tabGraph: TabGraphRecord
+        var stagedAt: Date
+        var completedAt: Date?
+        var updatesActiveSelection: Bool
+    }
+
     let databaseWriter: any DatabaseWriter
 
     func migrate() throws {
@@ -123,6 +134,44 @@ struct WorkspaceCoreRepository {
         completedAt: Date,
         updatesActiveSelection: Bool = true
     ) throws {
+        try replaceWorkspaceSnapshot(
+            .init(
+                workspace: workspace,
+                topology: topology,
+                paneGraph: paneGraph,
+                tabShells: tabShells,
+                tabGraph: tabGraph,
+                stagedAt: completedAt,
+                completedAt: completedAt,
+                updatesActiveSelection: updatesActiveSelection
+            )
+        )
+    }
+
+    func replaceWorkspaceSnapshotStaged(
+        workspace: WorkspaceRecord,
+        topology: RepositoryTopologyRecord,
+        paneGraph: PaneGraphRecord,
+        tabShells: [TabShellRecord],
+        tabGraph: TabGraphRecord,
+        stagedAt: Date,
+        updatesActiveSelection: Bool = true
+    ) throws {
+        try replaceWorkspaceSnapshot(
+            .init(
+                workspace: workspace,
+                topology: topology,
+                paneGraph: paneGraph,
+                tabShells: tabShells,
+                tabGraph: tabGraph,
+                stagedAt: stagedAt,
+                completedAt: nil,
+                updatesActiveSelection: updatesActiveSelection
+            )
+        )
+    }
+
+    private func replaceWorkspaceSnapshot(_ replacement: WorkspaceSnapshotReplacement) throws {
         try databaseWriter.write { database in
             try database.execute(
                 sql: """
@@ -133,55 +182,86 @@ struct WorkspaceCoreRepository {
                         updated_at = excluded.updated_at
                     """,
                 arguments: [
-                    workspace.id.uuidString,
-                    workspace.name,
-                    workspace.createdAt.timeIntervalSince1970,
-                    workspace.updatedAt.timeIntervalSince1970,
+                    replacement.workspace.id.uuidString,
+                    replacement.workspace.name,
+                    replacement.workspace.createdAt.timeIntervalSince1970,
+                    replacement.workspace.updatedAt.timeIntervalSince1970,
                 ]
             )
-            if updatesActiveSelection {
+            if replacement.updatesActiveSelection {
                 try updateActiveWorkspaceSelection(
                     database,
-                    workspaceId: workspace.id.uuidString,
-                    updatedAt: workspace.updatedAt
+                    workspaceId: replacement.workspace.id.uuidString,
+                    updatedAt: replacement.workspace.updatedAt
                 )
             }
-            try validateTopology(topology, for: workspace.id)
-            try replaceRepositoryTopologyRows(database, workspaceId: workspace.id, topology: topology)
-            try validatePaneGraph(database, workspaceId: workspace.id, graph: paneGraph)
-            try replacePaneGraphRows(database, workspaceId: workspace.id, graph: paneGraph)
-            try validateTabShells(database, workspaceId: workspace.id, shells: tabShells)
-            try replaceTabShellRows(database, workspaceId: workspace.id, shells: tabShells)
-            try validateTabGraph(database, workspaceId: workspace.id, graph: tabGraph)
-            try replaceTabGraphRows(database, workspaceId: workspace.id, graph: tabGraph)
+            try validateTopology(replacement.topology, for: replacement.workspace.id)
+            try replaceRepositoryTopologyRows(
+                database,
+                workspaceId: replacement.workspace.id,
+                topology: replacement.topology
+            )
+            try validatePaneGraph(database, workspaceId: replacement.workspace.id, graph: replacement.paneGraph)
+            try replacePaneGraphRows(database, workspaceId: replacement.workspace.id, graph: replacement.paneGraph)
+            try validateTabShells(database, workspaceId: replacement.workspace.id, shells: replacement.tabShells)
+            try replaceTabShellRows(database, workspaceId: replacement.workspace.id, shells: replacement.tabShells)
+            try validateTabGraph(database, workspaceId: replacement.workspace.id, graph: replacement.tabGraph)
+            try replaceTabGraphRows(database, workspaceId: replacement.workspace.id, graph: replacement.tabGraph)
             try database.execute(
                 sql: """
-                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, completed_at)
-                    VALUES (?, ?)
+                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, staged_at, completed_at)
+                    VALUES (?, ?, ?)
                     ON CONFLICT(workspace_id) DO UPDATE SET
+                        staged_at = excluded.staged_at,
                         completed_at = excluded.completed_at
                     """,
                 arguments: [
-                    workspace.id.uuidString,
-                    completedAt.timeIntervalSince1970,
+                    replacement.workspace.id.uuidString,
+                    replacement.stagedAt.timeIntervalSince1970,
+                    replacement.completedAt?.timeIntervalSince1970,
                 ]
             )
         }
     }
 
     func markWorkspaceSQLiteSnapshotComplete(workspaceId: UUID, completedAt: Date) throws {
+        try markWorkspaceSQLiteSnapshotCommitted(workspaceId: workspaceId, committedAt: completedAt)
+    }
+
+    func markWorkspaceSQLiteSnapshotStaged(workspaceId: UUID, stagedAt: Date) throws {
         try databaseWriter.write { database in
             try requireWorkspaceExists(database, id: workspaceId)
             try database.execute(
                 sql: """
-                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, completed_at)
-                    VALUES (?, ?)
+                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, staged_at, completed_at)
+                    VALUES (?, ?, NULL)
                     ON CONFLICT(workspace_id) DO UPDATE SET
+                        staged_at = excluded.staged_at,
+                        completed_at = NULL
+                    """,
+                arguments: [
+                    workspaceId.uuidString,
+                    stagedAt.timeIntervalSince1970,
+                ]
+            )
+        }
+    }
+
+    func markWorkspaceSQLiteSnapshotCommitted(workspaceId: UUID, committedAt: Date) throws {
+        try databaseWriter.write { database in
+            try requireWorkspaceExists(database, id: workspaceId)
+            try database.execute(
+                sql: """
+                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, staged_at, completed_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(workspace_id) DO UPDATE SET
+                        staged_at = excluded.staged_at,
                         completed_at = excluded.completed_at
                     """,
                 arguments: [
                     workspaceId.uuidString,
-                    completedAt.timeIntervalSince1970,
+                    committedAt.timeIntervalSince1970,
+                    committedAt.timeIntervalSince1970,
                 ]
             )
         }
@@ -212,6 +292,7 @@ struct WorkspaceCoreRepository {
                         SELECT completed_at
                         FROM workspace_sqlite_snapshot_status
                         WHERE workspace_id = ?
+                          AND completed_at IS NOT NULL
                         """,
                     arguments: [workspaceId.uuidString]
                 )
@@ -632,6 +713,7 @@ private func fetchFallbackCompletedWorkspaceIdString(_ database: Database) throw
             FROM workspace
             JOIN workspace_sqlite_snapshot_status
               ON workspace_sqlite_snapshot_status.workspace_id = workspace.id
+            WHERE workspace_sqlite_snapshot_status.completed_at IS NOT NULL
             ORDER BY workspace.updated_at DESC, workspace.id ASC
             LIMIT 1
             """
@@ -646,6 +728,7 @@ private func completedWorkspaceSQLiteSnapshotExists(_ database: Database, id: St
                 SELECT count(*)
                 FROM workspace_sqlite_snapshot_status
                 WHERE workspace_id = ?
+                  AND completed_at IS NOT NULL
                 """,
             arguments: [id]
         ) ?? 0

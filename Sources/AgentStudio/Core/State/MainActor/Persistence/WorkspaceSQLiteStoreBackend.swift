@@ -130,22 +130,56 @@ struct WorkspaceSQLiteStoreBackend {
     }
 
     func save(_ snapshot: WorkspaceSQLiteSnapshot) throws {
+        try replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: true)
+        let localRepository = try localBackend.repository(for: snapshot.id)
+        try writeLocalSnapshotAndCommit(snapshot, localRepository: localRepository)
+    }
+
+    func save(_ snapshot: WorkspaceSQLiteSnapshot, localRepository: WorkspaceLocalRepository) throws {
         let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-        let workspaceRecord = WorkspaceSQLiteStateBridge.workspaceRecord(from: state)
-        try coreRepository.replaceWorkspaceSnapshot(
-            workspace: workspaceRecord,
+        try replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: true)
+        try writeLocalSnapshotAndCommit(snapshot, state: state, localRepository: localRepository)
+    }
+
+    private func writeLocalSnapshotAndCommit(
+        _ snapshot: WorkspaceSQLiteSnapshot,
+        localRepository: WorkspaceLocalRepository
+    ) throws {
+        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
+        try writeLocalSnapshotAndCommit(snapshot, state: state, localRepository: localRepository)
+    }
+
+    private func writeLocalSnapshotAndCommit(
+        _ snapshot: WorkspaceSQLiteSnapshot,
+        state: WorkspacePersistor.PersistableState,
+        localRepository: WorkspaceLocalRepository
+    ) throws {
+        try localRepository.replaceWorkspaceSnapshotLocalState(
+            cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
+            windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
+            completedAt: snapshot.updatedAt
+        )
+        try markWorkspaceSnapshotCommitted(workspaceId: snapshot.id, committedAt: snapshot.updatedAt)
+    }
+
+    func replaceWorkspaceSnapshotStaged(
+        _ snapshot: WorkspaceSQLiteSnapshot,
+        updatesActiveSelection: Bool
+    ) throws {
+        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
+        try coreRepository.replaceWorkspaceSnapshotStaged(
+            workspace: WorkspaceSQLiteStateBridge.workspaceRecord(from: state),
             topology: WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: state),
             paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: state),
             tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: state),
             tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state),
-            completedAt: state.updatedAt
+            stagedAt: snapshot.updatedAt,
+            updatesActiveSelection: updatesActiveSelection
         )
-        let localRepository = try localBackend.repository(for: state.id)
-        try localRepository.replaceWorkspaceSnapshotLocalState(
-            cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
-            windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
-            completedAt: state.updatedAt
-        )
+    }
+
+    func markWorkspaceSnapshotCommitted(workspaceId: UUID, committedAt: Date) throws {
+        try coreRepository.markWorkspaceSQLiteSnapshotCommitted(workspaceId: workspaceId, committedAt: committedAt)
     }
 
     private func repairLocalSnapshotIfPossible(
@@ -171,36 +205,25 @@ struct WorkspaceSQLiteStoreBackend {
         sourceStatePath: String
     ) throws {
         let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-        let workspaceRecord = WorkspaceSQLiteStateBridge.workspaceRecord(from: state)
-        do {
-            try coreRepository.replaceWorkspaceSnapshot(
-                workspace: workspaceRecord,
-                topology: WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: state),
-                paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: state),
-                tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: state),
-                tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state),
-                completedAt: state.updatedAt,
-                updatesActiveSelection: false
-            )
-            let localRepository = try localBackend.repository(for: state.id)
-            try localRepository.replaceWorkspaceSnapshotLocalState(
-                cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
-                windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
-                completedAt: state.updatedAt
-            )
-        } catch {
-            try? coreRepository.clearWorkspaceSQLiteSnapshotComplete(workspaceId: state.id)
-            throw error
-        }
+        try replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: false)
+        let localRepository = try localBackend.repository(for: snapshot.id)
+        try localRepository.replaceWorkspaceSnapshotLocalState(
+            cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
+            windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
+            completedAt: snapshot.updatedAt
+        )
+        try markWorkspaceSnapshotCommitted(workspaceId: snapshot.id, committedAt: snapshot.updatedAt)
         do {
             try coreRepository.markLegacyWorkspaceCoreImported(
-                workspaceId: state.id,
+                workspaceId: snapshot.id,
                 sourceStatePath: sourceStatePath,
-                importedAt: state.updatedAt
+                importedAt: snapshot.updatedAt
             )
         } catch {
             try? coreRepository.markLegacyWorkspaceImportFailed(
-                workspace: workspaceRecord,
+                workspace: WorkspaceSQLiteStateBridge.workspaceRecord(
+                    from: state
+                ),
                 sourceStatePath: sourceStatePath,
                 error: "Legacy import bookkeeping failed after completed snapshot: \(String(describing: error))"
             )
