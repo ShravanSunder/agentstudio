@@ -127,6 +127,9 @@ final class WorkspaceStore {
             workspaceStoreLogger.info(
                 "Restored workspace '\(state.name)' with \(hydratedPaneCount) pane(s), \(hydratedTabCount) tab(s), dropped \(droppedPaneCount) pane(s), dropped \(droppedTabCount) tab(s)"
             )
+            if let sqliteBackend {
+                materializeRestoredSQLiteState(from: state, using: sqliteBackend)
+            }
         case .corrupt(let error):
             let quarantine = persistor.quarantineCorruptCanonicalWorkspaceFiles()
             workspaceStoreLogger.error(
@@ -270,6 +273,28 @@ final class WorkspaceStore {
                 )
             )
             return false
+        }
+    }
+
+    private func materializeRestoredSQLiteState(
+        from legacyState: WorkspacePersistor.PersistableState,
+        using sqliteBackend: WorkspaceSQLiteStoreBackend
+    ) {
+        let materializedState = WorkspacePersistenceTransformer.makePersistableState(
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
+            workspacePaneAtom: paneAtom,
+            workspaceTabLayoutAtom: tabLayoutAtom,
+            persistedAt: legacyState.updatedAt
+        )
+        do {
+            try sqliteBackend.save(materializedState)
+        } catch {
+            workspaceStoreLogger.error(
+                "Failed to materialize restored legacy workspace into SQLite: \(error.localizedDescription)"
+            )
+            reportSaveFailed()
         }
     }
 

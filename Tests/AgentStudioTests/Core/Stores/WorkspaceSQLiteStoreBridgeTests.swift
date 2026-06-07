@@ -172,6 +172,58 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(restoredStore.tabLayoutAtom.tab(tabId)?.activeArrangementId == arrangementId)
         #expect(!restoredStore.isDirty)
     }
+
+    @Test("restore imports legacy workspace JSON into core and local SQLite when rows are missing")
+    func restoreImportsLegacyWorkspaceJSONIntoSQLiteWhenRowsAreMissing() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let persistor = WorkspacePersistor(
+            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        )
+        #expect(persistor.ensureDirectory())
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_300)
+        let pane = Pane(
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
+            metadata: .init(
+                source: .floating(launchDirectory: nil, title: nil),
+                createdAt: createdAt,
+                title: "Legacy Pane"
+            )
+        )
+        let tab = Tab(paneId: pane.id, name: "Legacy Tab")
+        try persistor.save(
+            .init(
+                id: workspaceId,
+                name: "Legacy Workspace",
+                panes: [pane],
+                tabs: [tab],
+                activeTabId: tab.id,
+                sidebarWidth: 288,
+                windowFrame: CGRect(x: 20, y: 30, width: 1000, height: 700),
+                createdAt: createdAt,
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_400)
+            )
+        )
+        let store = WorkspaceStore(persistor: persistor, sqliteBackend: fixture.backend)
+
+        store.restore()
+
+        #expect(store.identityAtom.workspaceId == workspaceId)
+        #expect(store.identityAtom.workspaceName == "Legacy Workspace")
+        #expect(store.paneAtom.pane(pane.id)?.title == "Legacy Pane")
+        #expect(store.tabLayoutAtom.activeTabId == tab.id)
+        let workspace = try #require(try fixture.coreRepository.fetchWorkspace(id: workspaceId))
+        #expect(workspace.name == "Legacy Workspace")
+        let paneGraph = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceId)
+        #expect(paneGraph.panes.map(\.id) == [pane.id])
+        let shells = try fixture.coreRepository.fetchTabShells(workspaceId: workspaceId)
+        #expect(shells == [.init(id: tab.id, name: "Legacy Tab")])
+        let windowState = try #require(try fixture.localRepository.fetchWindowState())
+        #expect(windowState.sidebarWidth == 288)
+        #expect(windowState.windowFrame == CGRect(x: 20, y: 30, width: 1000, height: 700))
+        let cursorState = try fixture.localRepository.fetchCursorState()
+        #expect(cursorState.activeTabId == tab.id)
+    }
 }
 
 private struct WorkspaceSQLiteBridgeFixture {
