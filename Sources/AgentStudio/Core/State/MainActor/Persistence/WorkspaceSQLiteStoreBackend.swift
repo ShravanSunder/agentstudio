@@ -77,17 +77,24 @@ struct WorkspaceSQLiteStoreBackend {
             localRepository = try localBackend.restoreRepository(for: workspace.id)
         } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption {
             localRepository = nil
+        } catch {
+            localRepository = nil
         }
-        let localCompletedAt = try localRepository?.fetchCompletedWorkspaceSQLiteSnapshotAt()
-        let localSnapshotMatchesCore = localCompletedAt == coreCompletedAt
         let cursorState: WorkspaceLocalRepository.CursorStateRecord
         let windowState: WorkspaceLocalRepository.WindowStateRecord?
-        if localSnapshotMatchesCore, let localRepository {
-            cursorState = try localRepository.fetchCursorState()
-            windowState = try localRepository.fetchWindowState()
-        } else {
+        switch readLocalSnapshot(localRepository, matching: coreCompletedAt) {
+        case .matched(let restoredCursorState, let restoredWindowState):
+            cursorState = restoredCursorState
+            windowState = restoredWindowState
+        case .needsDefaultLocalState, .unavailable:
             cursorState = WorkspaceSQLiteStateBridge.defaultCursorState(tabShells: tabShells, tabGraph: tabGraph)
             windowState = nil
+            repairLocalSnapshotIfPossible(
+                workspaceId: workspace.id,
+                cursorState: cursorState,
+                windowState: windowState,
+                completedAt: coreCompletedAt
+            )
         }
 
         return try WorkspaceSQLiteStateBridge.persistableState(
@@ -103,14 +110,26 @@ struct WorkspaceSQLiteStoreBackend {
         )
     }
 
+    private func readLocalSnapshot(
+        _ localRepository: WorkspaceLocalRepository?,
+        matching coreCompletedAt: Date
+    ) -> WorkspaceLocalSnapshotRead {
+        guard let localRepository else { return .needsDefaultLocalState }
+        do {
+            guard try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == coreCompletedAt else {
+                return .needsDefaultLocalState
+            }
+            return .matched(
+                cursorState: try localRepository.fetchCursorState(),
+                windowState: try localRepository.fetchWindowState()
+            )
+        } catch {
+            return .unavailable(error)
+        }
+    }
+
     func save(_ state: WorkspacePersistor.PersistableState) throws {
         let workspaceRecord = WorkspaceSQLiteStateBridge.workspaceRecord(from: state)
-        let localRepository = try localBackend.repository(for: state.id)
-        try localRepository.replaceWorkspaceSnapshotLocalState(
-            cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
-            windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
-            completedAt: state.updatedAt
-        )
         try coreRepository.replaceWorkspaceSnapshot(
             workspace: workspaceRecord,
             topology: WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: state),
@@ -119,13 +138,57 @@ struct WorkspaceSQLiteStoreBackend {
             tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state),
             completedAt: state.updatedAt
         )
+        let localRepository = try localBackend.repository(for: state.id)
+        try localRepository.replaceWorkspaceSnapshotLocalState(
+            cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
+            windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
+            completedAt: state.updatedAt
+        )
+    }
+
+    private func repairLocalSnapshotIfPossible(
+        workspaceId: UUID,
+        cursorState: WorkspaceLocalRepository.CursorStateRecord,
+        windowState: WorkspaceLocalRepository.WindowStateRecord?,
+        completedAt: Date
+    ) {
+        do {
+            let localRepository = try localBackend.repository(for: workspaceId)
+            try localRepository.replaceWorkspaceSnapshotLocalState(
+                cursorState: cursorState,
+                windowState: windowState,
+                completedAt: completedAt
+            )
+        } catch {
+            return
+        }
     }
 
     func saveImportedLegacySnapshot(
         _ state: WorkspacePersistor.PersistableState,
         sourceStatePath: String
     ) throws {
-        try save(state)
+        let workspaceRecord = WorkspaceSQLiteStateBridge.workspaceRecord(from: state)
+        do {
+            try coreRepository.replaceWorkspaceSnapshot(
+                workspace: workspaceRecord,
+                topology: WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: state),
+                paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: state),
+                tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: state),
+                tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state),
+                completedAt: state.updatedAt,
+                updatesActiveSelection: false
+            )
+            let localRepository = try localBackend.repository(for: state.id)
+            try localRepository.replaceWorkspaceSnapshotLocalState(
+                cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
+                windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
+                completedAt: state.updatedAt
+            )
+        } catch {
+            try? coreRepository.clearWorkspaceSQLiteSnapshotComplete(workspaceId: state.id)
+            throw error
+        }
         try coreRepository.markLegacyWorkspaceCoreImported(
             workspaceId: state.id,
             sourceStatePath: sourceStatePath,
@@ -146,7 +209,17 @@ struct WorkspaceSQLiteStoreBackend {
     }
 
     func hasCompletedSnapshot(workspaceId: UUID) throws -> Bool {
-        try coreRepository.hasCompletedWorkspaceSQLiteSnapshot(workspaceId: workspaceId)
+        guard let coreCompletedAt = try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId)
+        else {
+            return false
+        }
+        let localRepository: WorkspaceLocalRepository
+        do {
+            localRepository = try localBackend.restoreRepository(for: workspaceId)
+        } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption {
+            return false
+        }
+        return try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == coreCompletedAt
     }
 
     func markLegacyWorkspaceArchived(workspaceId: UUID, archivedAt: Date) throws {
@@ -196,6 +269,15 @@ struct WorkspaceSQLiteStoreBackend {
         try coreRepository.selectActiveWorkspace(preferredWorkspaceId, updatedAt: Date())
         return preferredWorkspaceId
     }
+}
+
+private enum WorkspaceLocalSnapshotRead {
+    case matched(
+        cursorState: WorkspaceLocalRepository.CursorStateRecord,
+        windowState: WorkspaceLocalRepository.WindowStateRecord?
+    )
+    case needsDefaultLocalState
+    case unavailable(any Error)
 }
 
 private struct BackendUninitializedError: Error {}

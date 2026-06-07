@@ -413,6 +413,8 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 
 **Persistence:**
 - `restore()` — Load from disk via `WorkspacePersistor`, hydrate workspace atoms through `WorkspacePersistenceTransformer`
+- `WorkspaceStore+LegacySQLiteImport` — Thin SQLite cutover call site. It builds importer input from the current atoms, invokes `WorkspaceLegacySQLiteImporter`, and applies the returned enum outcome by hydrating either the selected imported workspace or the pre-import SQLite state.
+- `WorkspaceLegacySQLiteImporter` — Owns only legacy `workspace.state.json` import policy: scanning, corrupt-file quarantine, pending-status filtering, retry behavior, and active-workspace selection for first boot or incomplete initial import. It returns `WorkspaceLegacySQLiteImportOutcome` instead of booleans so every caller handles `noLegacyFiles`, `noPendingFilesKeepingSelection`, `importedInitialActive`, `retriedWithoutSelectionChange`, `failedButImportedSome`, and `failedNoUsableImport` explicitly.
 - `flush()` — Cancel pending debounce, persist immediately
 - `observePersistedState()` — Uses `withObservationTracking` on persisted fields across all atoms; triggers debounced save on change
 - `prePersistHook` — Called before each persist (used by `PaneCoordinator` to sync webview states)
@@ -551,10 +553,17 @@ and `SQLiteInboxNotificationClaimStorage`. The live app path now opens
 `core.sqlite`, the active workspace's `local.sqlite`, and settings JSON first.
 Legacy JSON stores are import/fallback sources only; once a lane is marked
 imported, stale JSON must not replay over SQLite/settings state.
+Workspace archive readiness requires matching core and local SQLite snapshot
+completion timestamps. If the local sidecar is corrupt, stale, missing, or
+otherwise unreadable during restore, the app hydrates the authoritative core
+workspace with deterministic local defaults and repairs local completion when it
+can. Sidecar quarantine is reserved for SQLite corruption or `NOTADB` failures;
+non-corruption open failures do not move database files.
 
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
 - Canonical workspace model (`WorkspaceStore`) writes through `WorkspaceSQLiteStoreBackend` into `core.sqlite` plus cursor/window rows in `local.sqlite`; legacy `workspace.state.json` is imported only when SQLite is uninitialized.
+- Legacy `workspace.state.json` import policy lives in `WorkspaceLegacySQLiteImporter`. `WorkspaceStore` remains the owning persistence wrapper and applies the importer's discriminated outcome, but it does not own the retry/selection state machine. Import materialization writes workspace rows without changing `active_workspace_id`; only the explicit selected outcome may update active workspace selection.
 - Derived enrichment data (`RepoEnrichmentCacheAtom`) and local recent workspace targets (`RecentWorkspaceTargetAtom`) write to per-workspace `local.sqlite`. The old `workspace.cache.json` file is a one-time import source. Enrichment contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts, notification counts while cache-backed, and rebuild metadata. It is written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. `RepoCacheAtom` is the composed read surface for existing repo/sidebar consumers.
 - Workspace-scoped sidebar shell memory (`WorkspaceSidebarMemoryAtom`) writes to local UX rows, with runtime focus kept on `SidebarFocusRuntimeAtom` and composed for UI reads by `WorkspaceSidebarState`. Legacy `workspace.ui.json` is imported only for uninitialized local lanes.
 - Global and workspace preferences use settings JSON rather than workspace graph rows.
@@ -1102,6 +1111,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/WorkspaceFocus.swift` | Shared `WorkspaceFocus` and `FocusRequirement` domain types for command visibility and status UI |
 | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` | Shared app-wide focus reader for command visibility and status UI |
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
+| `Core/State/MainActor/Persistence/WorkspaceStore+LegacySQLiteImport.swift` | Thin `WorkspaceStore` call site plus `WorkspaceLegacySQLiteImporter` legacy JSON import policy and enum outcomes |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |
 | `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift` | Product-specific SQLite backend bootstrap, core migration, core sidecar quarantine, and local repository construction |
 | `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` | `core.sqlite` migration identifiers and durable workspace schema DDL |

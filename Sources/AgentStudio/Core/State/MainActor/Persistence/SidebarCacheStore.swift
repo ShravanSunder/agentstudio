@@ -87,7 +87,7 @@ final class SidebarCacheStore {
                 .init(
                     store: .sidebarCache,
                     workspaceId: workspaceId,
-                    recovery: .quarantinedAndReset,
+                    recovery: quarantinedURL == nil ? .quarantineFailed : .quarantinedAndReset,
                     quarantinedFilename: quarantinedURL?.lastPathComponent
                 )
             )

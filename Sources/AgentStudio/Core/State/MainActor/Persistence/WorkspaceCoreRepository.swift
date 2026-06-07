@@ -120,7 +120,8 @@ struct WorkspaceCoreRepository {
         paneGraph: PaneGraphRecord,
         tabShells: [TabShellRecord],
         tabGraph: TabGraphRecord,
-        completedAt: Date
+        completedAt: Date,
+        updatesActiveSelection: Bool = true
     ) throws {
         try databaseWriter.write { database in
             try database.execute(
@@ -138,11 +139,13 @@ struct WorkspaceCoreRepository {
                     workspace.updatedAt.timeIntervalSince1970,
                 ]
             )
-            try updateActiveWorkspaceSelection(
-                database,
-                workspaceId: workspace.id.uuidString,
-                updatedAt: workspace.updatedAt
-            )
+            if updatesActiveSelection {
+                try updateActiveWorkspaceSelection(
+                    database,
+                    workspaceId: workspace.id.uuidString,
+                    updatedAt: workspace.updatedAt
+                )
+            }
             try validateTopology(topology, for: workspace.id)
             try replaceRepositoryTopologyRows(database, workspaceId: workspace.id, topology: topology)
             try validatePaneGraph(database, workspaceId: workspace.id, graph: paneGraph)
@@ -180,6 +183,18 @@ struct WorkspaceCoreRepository {
                     workspaceId.uuidString,
                     completedAt.timeIntervalSince1970,
                 ]
+            )
+        }
+    }
+
+    func clearWorkspaceSQLiteSnapshotComplete(workspaceId: UUID) throws {
+        try databaseWriter.write { database in
+            try database.execute(
+                sql: """
+                    DELETE FROM workspace_sqlite_snapshot_status
+                    WHERE workspace_id = ?
+                    """,
+                arguments: [workspaceId.uuidString]
             )
         }
     }

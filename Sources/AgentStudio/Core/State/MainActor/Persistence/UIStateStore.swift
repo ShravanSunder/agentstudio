@@ -93,7 +93,7 @@ final class UIStateStore {
                 .init(
                     store: .uiState,
                     workspaceId: workspaceId,
-                    recovery: .quarantinedAndReset,
+                    recovery: quarantinedURL == nil ? .quarantineFailed : .quarantinedAndReset,
                     quarantinedFilename: quarantinedURL?.lastPathComponent
                 )
             )

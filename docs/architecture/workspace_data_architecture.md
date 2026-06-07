@@ -15,6 +15,25 @@ recovery sources only: when SQLite has no authoritative rows, they are
 materialized into the new stores; after import status marks a lane complete,
 stale legacy JSON is not replayed over SQLite/settings state.
 
+Legacy workspace-state import is isolated from the live store wrapper.
+`WorkspaceStore+LegacySQLiteImport` is the thin call site that captures the
+pre-import SQLite state, builds importer input from the current atoms, and
+applies the result. `WorkspaceLegacySQLiteImporter` owns the legacy import
+policy and returns explicit outcomes: no legacy files, initial active import,
+no pending retry work while keeping selection, retry materialized without
+selection change, partial import with a usable active workspace, or failure with
+no usable import. Retry paths must keep the existing SQLite active workspace
+selected without rewriting `active_workspace_id`; only first boot or incomplete
+initial import may select an imported legacy workspace.
+
+Recovery invariants are split by lane. A workspace snapshot is archive-ready
+only when the core and local SQLite completion timestamps match. If local
+completion is stale or the local sidecar cannot be read, restore still hydrates
+from the canonical core rows with deterministic local defaults and repairs the
+local completion row when possible. Sidecar quarantine is corruption-only:
+`SQLITE_CORRUPT` and `SQLITE_NOTADB` failures may move database/WAL/SHM files;
+ordinary open failures must not quarantine sidecars.
+
 ---
 
 ## Three Persistence Tiers

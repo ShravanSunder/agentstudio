@@ -25,11 +25,11 @@ final class WorkspaceStore {
     let tabLayoutAtom: WorkspaceTabLayoutAtom
     let mutationCoordinator: WorkspaceMutationCoordinator
 
-    private let persistor: WorkspacePersistor
+    let persistor: WorkspacePersistor
     private let sqliteBackend: WorkspaceSQLiteStoreBackend?
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
-    private let recoveryReporter: PersistenceRecoveryReporter?
+    let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
     private var isObservingPersistedState = false
     private var isRestoringState = false
@@ -106,40 +106,24 @@ final class WorkspaceStore {
         if let sqliteBackend {
             switch restoreFromSQLite(sqliteBackend) {
             case .restored:
-                if hasPendingLegacyWorkspaceStateImport(
-                    sqliteBackend,
-                    missingStatusIsPending: false
-                ),
-                    restoreLegacyWorkspaceStatesIntoSQLite(
-                        sqliteBackend,
-                        missingStatusIsPending: false
-                    ) == .restored
-                {
-                    return
-                }
+                resumeUnfinishedLegacySQLiteImportKeepingCurrentSelection(sqliteBackend)
                 return
             case .uninitialized:
                 if sqliteBackendHasWorkspaceRows(sqliteBackend) {
-                    if hasPendingLegacyWorkspaceStateImport(
-                        sqliteBackend,
-                        missingStatusIsPending: false
-                    ) {
-                        _ = restoreLegacyWorkspaceStatesIntoSQLite(
-                            sqliteBackend,
-                            missingStatusIsPending: false
-                        )
-                    } else {
+                    let outcome = resumeUnfinishedLegacySQLiteImportAfterIncompleteSQLiteRestore(sqliteBackend)
+                    switch outcome {
+                    case .failedNoUsableImport, .noLegacyFiles, .noPendingFilesKeepingSelection,
+                        .retriedWithoutSelectionChange:
                         reportSQLiteRestoreFailed()
+                    case .failedButImportedSome, .importedInitialActive:
+                        break
                     }
                     return
                 }
-                switch restoreLegacyWorkspaceStatesIntoSQLite(
-                    sqliteBackend,
-                    missingStatusIsPending: true
-                ) {
-                case .restored, .failed:
+                switch importLegacySQLiteWorkspacesInPlaceOnFirstBoot(sqliteBackend) {
+                case .importedInitialActive, .failedButImportedSome, .failedNoUsableImport:
                     return
-                case .noLegacyFiles:
+                case .noLegacyFiles, .noPendingFilesKeepingSelection, .retriedWithoutSelectionChange:
                     break
                 }
             case .unavailable:
@@ -310,12 +294,6 @@ final class WorkspaceStore {
         case unavailable
     }
 
-    private enum LegacySQLiteImportOutcome {
-        case restored
-        case noLegacyFiles
-        case failed
-    }
-
     private func restoreFromSQLite(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> SQLiteRestoreOutcome {
         switch sqliteBackend.loadResult(preferredWorkspaceId: identityAtom.workspaceId) {
         case .loaded(let state):
@@ -334,183 +312,7 @@ final class WorkspaceStore {
         }
     }
 
-    private func restoreLegacyWorkspaceStatesIntoSQLite(
-        _ sqliteBackend: WorkspaceSQLiteStoreBackend,
-        missingStatusIsPending: Bool
-    ) -> LegacySQLiteImportOutcome {
-        _ = persistor.ensureDirectory()
-        let stateBeforeImport = WorkspacePersistenceTransformer.makeLiveSQLiteState(
-            identityAtom: identityAtom,
-            windowMemoryAtom: windowMemoryAtom,
-            repositoryTopologyAtom: repositoryTopologyAtom,
-            workspacePaneAtom: paneAtom,
-            workspaceTabLayoutAtom: tabLayoutAtom,
-            persistedAt: Date()
-        )
-        let scan = persistor.loadLegacyWorkspaceStateFiles()
-        for corruptFile in scan.corruptFiles {
-            let quarantine = persistor.quarantineCorruptCanonicalWorkspaceFiles(at: corruptFile.url)
-            workspaceStoreLogger.error(
-                "Legacy workspace file \(corruptFile.url.lastPathComponent, privacy: .public) failed to decode during SQLite import; quarantined before continuing: \(corruptFile.error.localizedDescription)"
-            )
-            recoveryReporter?(
-                .init(
-                    store: .workspace,
-                    workspaceId: quarantine?.workspaceId,
-                    recovery: quarantine?.recovery ?? .quarantineFailed,
-                    quarantinedFilename: quarantine?.recoveryFilename
-                )
-            )
-        }
-
-        guard !scan.loadedFiles.isEmpty else { return .noLegacyFiles }
-        let pendingFiles = pendingLegacyWorkspaceStateFiles(
-            from: scan.loadedFiles,
-            using: sqliteBackend,
-            missingStatusIsPending: missingStatusIsPending
-        )
-        var importedFiles: [WorkspacePersistor.LegacyWorkspaceStateFile] = []
-        var failedFiles: [WorkspacePersistor.LegacyWorkspaceStateFile] = []
-        for legacyFile in pendingFiles {
-            hydrateWorkspaceState(legacyFile.state)
-            do {
-                try saveRestoredSQLiteState(
-                    from: legacyFile.state,
-                    sourceStatePath: legacyFile.url.path,
-                    using: sqliteBackend
-                )
-                importedFiles.append(legacyFile)
-            } catch {
-                failedFiles.append(legacyFile)
-                workspaceStoreLogger.error(
-                    "Failed to materialize restored legacy workspace into SQLite: \(error.localizedDescription)"
-                )
-                reportSaveFailed()
-                do {
-                    try sqliteBackend.markLegacyWorkspaceImportFailed(
-                        legacyFile.state,
-                        sourceStatePath: legacyFile.url.path,
-                        error: error
-                    )
-                } catch {
-                    workspaceStoreLogger.error(
-                        "Failed to record legacy workspace import error: \(error.localizedDescription)"
-                    )
-                }
-            }
-        }
-        guard failedFiles.isEmpty else {
-            hydrateWorkspaceState(stateBeforeImport)
-            return .failed
-        }
-        guard let activeLegacyFile = initialActiveLegacyWorkspaceFile(from: scan.loadedFiles) else {
-            hydrateWorkspaceState(stateBeforeImport)
-            return .noLegacyFiles
-        }
-
-        do {
-            try sqliteBackend.selectActiveWorkspace(activeLegacyFile.state.id, updatedAt: Date())
-            hydrateWorkspaceState(activeLegacyFile.state)
-            workspaceStoreLogger.info(
-                "Imported \(importedFiles.count, privacy: .public) pending legacy workspace file(s) into SQLite; selected active workspace \(activeLegacyFile.state.id.uuidString, privacy: .public)"
-            )
-            return .restored
-        } catch {
-            workspaceStoreLogger.error(
-                "Failed to select active workspace after legacy SQLite import: \(error.localizedDescription)"
-            )
-            recoveryReporter?(
-                .init(
-                    store: .workspace,
-                    workspaceId: activeLegacyFile.state.id,
-                    recovery: .resetToDefaults
-                )
-            )
-            do {
-                try sqliteBackend.markLegacyWorkspaceImportFailed(
-                    activeLegacyFile.state,
-                    sourceStatePath: activeLegacyFile.url.path,
-                    error: error
-                )
-            } catch {
-                workspaceStoreLogger.error(
-                    "Failed to record legacy workspace selection error: \(error.localizedDescription)"
-                )
-            }
-            hydrateWorkspaceState(stateBeforeImport)
-            return .failed
-        }
-    }
-
-    private func hasPendingLegacyWorkspaceStateImport(
-        _ sqliteBackend: WorkspaceSQLiteStoreBackend,
-        missingStatusIsPending: Bool
-    ) -> Bool {
-        let scan = persistor.loadLegacyWorkspaceStateFiles()
-        for legacyFile in scan.loadedFiles {
-            do {
-                guard
-                    let status = try sqliteBackend.coreRepository.fetchLegacyWorkspaceImportStatus(
-                        workspaceId: legacyFile.state.id
-                    )
-                else {
-                    return missingStatusIsPending
-                }
-                if status.coreImportedAt == nil || status.lastError != nil {
-                    return true
-                }
-            } catch {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func pendingLegacyWorkspaceStateFiles(
-        from legacyFiles: [WorkspacePersistor.LegacyWorkspaceStateFile],
-        using sqliteBackend: WorkspaceSQLiteStoreBackend,
-        missingStatusIsPending: Bool
-    ) -> [WorkspacePersistor.LegacyWorkspaceStateFile] {
-        legacyFiles.filter { legacyFile in
-            legacyWorkspaceStateFileNeedsImport(
-                legacyFile,
-                using: sqliteBackend,
-                missingStatusIsPending: missingStatusIsPending
-            )
-        }
-    }
-
-    private func legacyWorkspaceStateFileNeedsImport(
-        _ legacyFile: WorkspacePersistor.LegacyWorkspaceStateFile,
-        using sqliteBackend: WorkspaceSQLiteStoreBackend,
-        missingStatusIsPending: Bool
-    ) -> Bool {
-        do {
-            guard
-                let status = try sqliteBackend.coreRepository.fetchLegacyWorkspaceImportStatus(
-                    workspaceId: legacyFile.state.id
-                )
-            else {
-                return missingStatusIsPending
-            }
-            return status.coreImportedAt == nil || status.lastError != nil
-        } catch {
-            return true
-        }
-    }
-
-    private func initialActiveLegacyWorkspaceFile(
-        from importedFiles: [WorkspacePersistor.LegacyWorkspaceStateFile]
-    ) -> WorkspacePersistor.LegacyWorkspaceStateFile? {
-        importedFiles.max { lhs, rhs in
-            if lhs.modificationDate != rhs.modificationDate {
-                return lhs.modificationDate < rhs.modificationDate
-            }
-            return lhs.state.id.uuidString > rhs.state.id.uuidString
-        }
-    }
-
-    private func hydrateWorkspaceState(_ state: WorkspacePersistor.PersistableState) {
+    func hydrateWorkspaceState(_ state: WorkspacePersistor.PersistableState) {
         isRestoringState = true
         WorkspacePersistenceTransformer.hydrate(
             state,
@@ -523,48 +325,7 @@ final class WorkspaceStore {
         isRestoringState = false
     }
 
-    @discardableResult
-    private func materializeRestoredSQLiteState(
-        from legacyState: WorkspacePersistor.PersistableState,
-        sourceStatePath: String,
-        using sqliteBackend: WorkspaceSQLiteStoreBackend
-    ) -> Bool {
-        do {
-            try saveRestoredSQLiteState(
-                from: legacyState,
-                sourceStatePath: sourceStatePath,
-                using: sqliteBackend
-            )
-            return true
-        } catch {
-            workspaceStoreLogger.error(
-                "Failed to materialize restored legacy workspace into SQLite: \(error.localizedDescription)"
-            )
-            reportSaveFailed()
-            return false
-        }
-    }
-
-    private func saveRestoredSQLiteState(
-        from legacyState: WorkspacePersistor.PersistableState,
-        sourceStatePath: String,
-        using sqliteBackend: WorkspaceSQLiteStoreBackend
-    ) throws {
-        let materializedState = WorkspacePersistenceTransformer.makePersistableState(
-            identityAtom: identityAtom,
-            windowMemoryAtom: windowMemoryAtom,
-            repositoryTopologyAtom: repositoryTopologyAtom,
-            workspacePaneAtom: paneAtom,
-            workspaceTabLayoutAtom: tabLayoutAtom,
-            persistedAt: legacyState.updatedAt
-        )
-        try sqliteBackend.saveImportedLegacySnapshot(
-            materializedState,
-            sourceStatePath: sourceStatePath
-        )
-    }
-
-    private func reportSaveFailed() {
+    func reportSaveFailed() {
         recoveryReporter?(
             .init(
                 store: .workspace,

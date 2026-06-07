@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import os.log
 
 private let workspaceSQLiteBackendFactoryLogger = Logger(
@@ -11,7 +12,6 @@ struct WorkspaceSQLiteStoreBackendFactory {
     var coreDatabaseURL: URL
     var localDatabaseURL: @MainActor (UUID) -> URL
     var recoveryReporter: PersistenceRecoveryReporter?
-    private let localRecoveryState = WorkspaceLocalSQLiteRecoveryState()
 
     init(
         coreDatabaseURL: URL = AppDataPaths.coreSQLiteURL(),
@@ -32,6 +32,9 @@ struct WorkspaceSQLiteStoreBackendFactory {
             workspaceSQLiteBackendFactoryLogger.error(
                 "Failed to prepare SQLite workspace backend before quarantine: \(error.localizedDescription)"
             )
+            guard WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(error) else {
+                return nil
+            }
         }
 
         let quarantine = SQLiteSidecarQuarantine.quarantine(databaseURL: coreDatabaseURL)
@@ -74,15 +77,15 @@ struct WorkspaceSQLiteStoreBackendFactory {
                 try makeLocalRepository(workspaceId: workspaceId)
             },
             makeLocalRestoreRepository: { workspaceId in
-                if localRecoveryState.contains(workspaceId) {
-                    throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(workspaceId)
-                }
                 do {
                     return try makeLocalRepository(workspaceId: workspaceId)
                 } catch {
                     workspaceSQLiteBackendFactoryLogger.error(
                         "Failed to prepare local SQLite workspace backend before quarantine: \(error.localizedDescription)"
                     )
+                    guard WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(error) else {
+                        throw error
+                    }
                     let quarantine = SQLiteSidecarQuarantine.quarantine(
                         databaseURL: localDatabaseURL(workspaceId)
                     )
@@ -94,8 +97,15 @@ struct WorkspaceSQLiteStoreBackendFactory {
                             quarantinedFilename: quarantine.recoveryFilename
                         )
                     )
-                    localRecoveryState.markRecovered(workspaceId)
-                    _ = try? makeLocalRepository(workspaceId: workspaceId)
+                    if quarantine.succeeded {
+                        do {
+                            _ = try makeLocalRepository(workspaceId: workspaceId)
+                        } catch {
+                            workspaceSQLiteBackendFactoryLogger.error(
+                                "Failed to prepare local SQLite workspace backend after quarantine: \(error.localizedDescription)"
+                            )
+                        }
+                    }
                     throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(workspaceId)
                 }
             },
@@ -129,15 +139,8 @@ struct WorkspaceSQLiteStoreBackendFactory {
     }
 }
 
-@MainActor
-private final class WorkspaceLocalSQLiteRecoveryState {
-    private var recoveredWorkspaceIds: Set<UUID> = []
-
-    func markRecovered(_ workspaceId: UUID) {
-        recoveredWorkspaceIds.insert(workspaceId)
-    }
-
-    func contains(_ workspaceId: UUID) -> Bool {
-        recoveredWorkspaceIds.contains(workspaceId)
+private enum WorkspaceSQLiteRecoveryClassifier {
+    static func shouldQuarantine(_ error: any Error) -> Bool {
+        ResultCode.SQLITE_CORRUPT ~= error || ResultCode.SQLITE_NOTADB ~= error
     }
 }

@@ -219,7 +219,7 @@ final class InboxNotificationStore {
                 .init(
                     store: .notificationInbox,
                     workspaceId: nil,
-                    recovery: .quarantinedAndReset,
+                    recovery: quarantinedURL == nil ? .quarantineFailed : .quarantinedAndReset,
                     quarantinedFilename: quarantinedURL?.lastPathComponent
                 )
             )
@@ -237,7 +237,7 @@ final class InboxNotificationStore {
                 .init(
                     store: .notificationInbox,
                     workspaceId: nil,
-                    recovery: .quarantinedAndReset,
+                    recovery: quarantinedURL == nil ? .quarantineFailed : .quarantinedAndReset,
                     quarantinedFilename: quarantinedURL?.lastPathComponent
                 )
             )

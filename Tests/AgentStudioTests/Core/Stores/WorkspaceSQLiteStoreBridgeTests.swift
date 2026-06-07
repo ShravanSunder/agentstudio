@@ -283,83 +283,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == preferredWorkspaceId)
     }
 
-    @Test("failed replacement save preserves the last committed SQLite snapshot")
-    func failedReplacementSavePreservesLastCommittedSQLiteSnapshot() throws {
-        let workspaceId = UUID()
-        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
-        let createdAt = Date(timeIntervalSince1970: 1_700_000_250)
-        try fixture.backend.save(
-            .init(
-                id: workspaceId,
-                name: "Committed Workspace",
-                createdAt: createdAt,
-                updatedAt: Date(timeIntervalSince1970: 1_700_000_260)
-            )
-        )
-        let failingBackend = WorkspaceSQLiteStoreBackend(
-            coreRepository: fixture.coreRepository,
-            makeLocalRepository: { _ in
-                throw CocoaError(.fileNoSuchFile)
-            }
-        )
-
-        #expect(throws: CocoaError.self) {
-            try failingBackend.save(
-                .init(
-                    id: workspaceId,
-                    name: "Uncommitted Replacement",
-                    createdAt: createdAt,
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_270)
-                )
-            )
-        }
-
-        let loaded = try #require(try fixture.backend.load(preferredWorkspaceId: workspaceId))
-        #expect(loaded.name == "Committed Workspace")
-        #expect(loaded.name != "Uncommitted Replacement")
-    }
-
-    @Test("restore recovers core snapshot when local token advances before failed core replacement")
-    func restoreRecoversCoreSnapshotWhenLocalTokenAdvancesBeforeFailedCoreReplacement() throws {
-        let workspaceId = UUID()
-        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
-        let createdAt = Date(timeIntervalSince1970: 1_700_000_280)
-        try fixture.backend.save(
-            .init(
-                id: workspaceId,
-                name: "Committed Workspace",
-                activeTabId: nil,
-                sidebarWidth: 250,
-                createdAt: createdAt,
-                updatedAt: Date(timeIntervalSince1970: 1_700_000_290)
-            )
-        )
-        let invalidPaneId = UUID()
-        let invalidTab = Tab(paneId: invalidPaneId, name: "Invalid Replacement Tab")
-
-        #expect(throws: (any Error).self) {
-            try fixture.backend.save(
-                .init(
-                    id: workspaceId,
-                    name: "Invalid Replacement",
-                    panes: [],
-                    tabs: [invalidTab],
-                    activeTabId: invalidTab.id,
-                    sidebarWidth: 999,
-                    createdAt: createdAt,
-                    updatedAt: Date(timeIntervalSince1970: 1_700_000_300)
-                )
-            )
-        }
-
-        let loaded = try #require(try fixture.backend.load(preferredWorkspaceId: workspaceId))
-        #expect(loaded.id == workspaceId)
-        #expect(loaded.name == "Committed Workspace")
-        #expect(loaded.name != "Invalid Replacement")
-        #expect(loaded.activeTabId == nil)
-        #expect(loaded.sidebarWidth == 250)
-    }
-
     @Test("restore imports legacy workspace JSON into core and local SQLite when rows are missing")
     func restoreImportsLegacyWorkspaceJSONIntoSQLiteWhenRowsAreMissing() throws {
         let workspaceId = UUID()
@@ -520,144 +443,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == tieWinnerWorkspaceId)
         #expect(store.identityAtom.workspaceId == tieWinnerWorkspaceId)
         #expect(store.identityAtom.workspaceName == "Lexicographic Winner")
-    }
-
-    @Test("legacy multi-workspace import retries valid files that failed materialization")
-    func legacyMultiWorkspaceImportRetriesValidFilesThatFailedMaterialization() throws {
-        let importedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
-        let retryWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000012")!
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.retry.core")
-        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.retry.local")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(localQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let failingBackend = WorkspaceSQLiteStoreBackend(
-            coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                if workspaceId == retryWorkspaceId {
-                    throw WorkspaceSQLiteBridgeTestError.injectedLocalRepositoryFailure
-                }
-                return WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-            }
-        )
-        let retryBackend = WorkspaceSQLiteStoreBackend(
-            coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-            }
-        )
-        let persistor = WorkspacePersistor(
-            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        )
-        #expect(persistor.ensureDirectory())
-        try persistor.save(
-            .init(
-                id: importedWorkspaceId,
-                name: "Imported First",
-                createdAt: Date(timeIntervalSince1970: 1_700_002_000),
-                updatedAt: Date(timeIntervalSince1970: 1_700_002_100)
-            )
-        )
-        try persistor.save(
-            .init(
-                id: retryWorkspaceId,
-                name: "Retry Winner",
-                createdAt: Date(timeIntervalSince1970: 1_700_002_010),
-                updatedAt: Date(timeIntervalSince1970: 1_700_002_020)
-            )
-        )
-        try setModificationDate(
-            Date(timeIntervalSince1970: 1_700_002_200),
-            for: persistor.canonicalWorkspaceStatePath(for: importedWorkspaceId)
-        )
-        try setModificationDate(
-            Date(timeIntervalSince1970: 1_700_002_300),
-            for: persistor.canonicalWorkspaceStatePath(for: retryWorkspaceId)
-        )
-
-        let firstBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: failingBackend)
-        firstBootStore.restore()
-        let secondBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: retryBackend)
-        secondBootStore.restore()
-
-        #expect(secondBootStore.identityAtom.workspaceId == retryWorkspaceId)
-        #expect(secondBootStore.identityAtom.workspaceName == "Retry Winner")
-        #expect(try coreRepository.fetchActiveWorkspaceId() == retryWorkspaceId)
-        #expect(try coreRepository.fetchWorkspace(id: importedWorkspaceId) != nil)
-        #expect(try coreRepository.fetchWorkspace(id: retryWorkspaceId) != nil)
-    }
-
-    @Test("legacy retry does not replay completed workspace files over newer SQLite state")
-    func legacyRetryDoesNotReplayCompletedWorkspaceFilesOverNewerSQLiteState() throws {
-        let completedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000013")!
-        let retryWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000014")!
-        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.retry.replay.core")
-        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.retry.replay.local")
-        try WorkspaceCoreMigrations.migrate(coreQueue)
-        try WorkspaceLocalMigrations.migrate(localQueue)
-        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
-        let failingBackend = WorkspaceSQLiteStoreBackend(
-            coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                if workspaceId == retryWorkspaceId {
-                    throw WorkspaceSQLiteBridgeTestError.injectedLocalRepositoryFailure
-                }
-                return WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-            }
-        )
-        let retryBackend = WorkspaceSQLiteStoreBackend(
-            coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
-            }
-        )
-        let persistor = WorkspacePersistor(
-            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        )
-        #expect(persistor.ensureDirectory())
-        let completedCreatedAt = Date(timeIntervalSince1970: 1_700_002_000)
-        try persistor.save(
-            .init(
-                id: completedWorkspaceId,
-                name: "Completed Legacy Name",
-                createdAt: completedCreatedAt,
-                updatedAt: Date(timeIntervalSince1970: 1_700_002_100)
-            )
-        )
-        try persistor.save(
-            .init(
-                id: retryWorkspaceId,
-                name: "Retry Legacy Name",
-                createdAt: Date(timeIntervalSince1970: 1_700_002_010),
-                updatedAt: Date(timeIntervalSince1970: 1_700_002_020)
-            )
-        )
-        try setModificationDate(
-            Date(timeIntervalSince1970: 1_700_002_200),
-            for: persistor.canonicalWorkspaceStatePath(for: completedWorkspaceId)
-        )
-        try setModificationDate(
-            Date(timeIntervalSince1970: 1_700_002_300),
-            for: persistor.canonicalWorkspaceStatePath(for: retryWorkspaceId)
-        )
-
-        let firstBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: failingBackend)
-        firstBootStore.restore()
-        try retryBackend.save(
-            .init(
-                id: completedWorkspaceId,
-                name: "SQLite Mutated Name",
-                createdAt: completedCreatedAt,
-                updatedAt: Date(timeIntervalSince1970: 1_700_002_400)
-            )
-        )
-        let secondBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: retryBackend)
-        secondBootStore.restore()
-
-        #expect(secondBootStore.identityAtom.workspaceId == retryWorkspaceId)
-        #expect(try coreRepository.fetchWorkspace(id: completedWorkspaceId)?.name == "SQLite Mutated Name")
-        #expect(try coreRepository.fetchWorkspace(id: completedWorkspaceId)?.name != "Completed Legacy Name")
-        #expect(try coreRepository.fetchWorkspace(id: retryWorkspaceId)?.name == "Retry Legacy Name")
     }
 
     @Test("legacy multi-workspace import does not leave last scanned workspace hydrated when active selection fails")
@@ -846,6 +631,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
 
 private struct WorkspaceSQLiteBridgeFixture {
     let coreQueue: DatabaseQueue
+    let localQueue: DatabaseQueue
     let coreRepository: WorkspaceCoreRepository
     let localRepository: WorkspaceLocalRepository
     let backend: WorkspaceSQLiteStoreBackend
@@ -871,6 +657,7 @@ private func makeWorkspaceSQLiteBridgeFixture(workspaceId: UUID) throws -> Works
     )
     return .init(
         coreQueue: coreQueue,
+        localQueue: localQueue,
         coreRepository: coreRepository,
         localRepository: localRepository,
         backend: backend

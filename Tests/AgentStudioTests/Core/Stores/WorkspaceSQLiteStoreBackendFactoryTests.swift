@@ -133,5 +133,44 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
         #expect(FileManager.default.fileExists(atPath: localSQLiteURL.path))
         let recoveredRepository = try backend.localBackend.repository(for: workspaceId)
         #expect(try recoveredRepository.fetchSidebarState() == nil)
+        let restoredRecoveredRepository = try backend.localBackend.restoreRepository(for: workspaceId)
+        #expect(try restoredRecoveredRepository.fetchSidebarState() == nil)
+    }
+
+    @Test("non-corruption core open failure does not quarantine database sidecars")
+    func nonCorruptionCoreOpenFailureDoesNotQuarantineDatabaseSidecars() throws {
+        let parentDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-sqlite-blocked-parent-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: parentDirectory,
+            withIntermediateDirectories: true
+        )
+        let blockingRootURL = parentDirectory.appending(path: "blocked-root")
+        try Data("not a directory".utf8).write(to: blockingRootURL)
+        let coreSQLiteURL = blockingRootURL.appending(path: "core.sqlite")
+        var recoveryEvents: [PersistenceRecoveryEvent] = []
+        let factory = WorkspaceSQLiteStoreBackendFactory(
+            coreDatabaseURL: coreSQLiteURL,
+            localDatabaseURL: { workspaceId in
+                blockingRootURL.appending(path: "\(workspaceId.uuidString).local.sqlite")
+            },
+            recoveryReporter: { event in recoveryEvents.append(event) }
+        )
+
+        let backend = factory.makeBackend()
+
+        #expect(backend == nil)
+        #expect(FileManager.default.fileExists(atPath: blockingRootURL.path))
+        #expect(
+            !recoveryEvents.contains { event in
+                event.store == .workspace
+                    && (event.recovery == .quarantinedAndReset || event.recovery == .quarantineFailed)
+            }
+        )
+        #expect(!FileManager.default.fileExists(atPath: coreSQLiteURL.path))
+        #expect(
+            try FileManager.default.contentsOfDirectory(at: parentDirectory, includingPropertiesForKeys: nil)
+                .allSatisfy { !$0.lastPathComponent.contains(".corrupt-") }
+        )
     }
 }

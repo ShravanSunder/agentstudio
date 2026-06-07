@@ -10,12 +10,12 @@ extension Bundle {
     /// This accessor checks `Contents/Resources/` first via `resourceURL`,
     /// falling back to `Bundle.module` for `swift run` / `swift test`.
     static var appResources: Bundle {
-        if let resourceURL = Bundle.main.resourceURL {
+        if let resourceURL = Self.main.resourceURL {
             let candidate = resourceURL.appendingPathComponent(resourceBundleName)
             if let bundle = Bundle(url: candidate) {
                 return bundle
             }
         }
-        return Bundle.module
+        return Self.module
     }
 }
