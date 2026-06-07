@@ -150,6 +150,12 @@ struct WorkspaceLocalRepository {
         }
     }
 
+    func hasSidebarState() throws -> Bool {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.hasSidebarStateRows(database, workspaceId: workspaceId)
+        }
+    }
+
     func replaceExpandedGroups(_ expandedGroups: Set<SidebarGroupKey>, updatedAt: Date) throws {
         try databaseWriter.write { database in
             try WorkspaceLocalRepositoryStorage.replaceExpandedGroupRows(
@@ -164,6 +170,12 @@ struct WorkspaceLocalRepository {
     func fetchExpandedGroups() throws -> Set<SidebarGroupKey> {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.fetchExpandedGroupRows(database, workspaceId: workspaceId)
+        }
+    }
+
+    func hasExpandedGroupsState() throws -> Bool {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.hasExpandedGroupStateRows(database, workspaceId: workspaceId)
         }
     }
 
@@ -184,6 +196,12 @@ struct WorkspaceLocalRepository {
         }
     }
 
+    func hasRecentTargetsState() throws -> Bool {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.hasRecentTargetStateRows(database, workspaceId: workspaceId)
+        }
+    }
+
     func replaceCacheState(cacheState: CacheStateRecord, updatedAt: Date) throws {
         try databaseWriter.write { database in
             try WorkspaceLocalRepositoryStorage.deleteCacheRows(database, workspaceId: workspaceId)
@@ -199,6 +217,12 @@ struct WorkspaceLocalRepository {
     func fetchCacheState() throws -> CacheStateRecord {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.fetchCacheRows(database, workspaceId: workspaceId)
+        }
+    }
+
+    func hasCacheState() throws -> Bool {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.hasCacheStateRows(database, workspaceId: workspaceId)
         }
     }
 

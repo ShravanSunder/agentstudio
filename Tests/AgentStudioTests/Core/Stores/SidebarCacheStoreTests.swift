@@ -68,6 +68,57 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
+    func restoreWithSQLiteBackendImportsLegacyJSONWhenLaneIsMissing() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        try persistor.saveSidebarCache(
+            .init(
+                workspaceId: workspaceId,
+                expandedGroups: [SidebarGroupKey("repo:legacy")],
+                checkoutColors: [SidebarCheckoutColorKey("repo:legacy"): "#ff6600"]
+            )
+        )
+        let atom = SidebarCacheState()
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+
+        store.restore(for: workspaceId)
+
+        #expect(atom.expandedGroups == [SidebarGroupKey("repo:legacy")])
+        #expect(atom.checkoutColors.isEmpty)
+        #expect(try fixture.repository.fetchExpandedGroups() == [SidebarGroupKey("repo:legacy")])
+        #expect(try fixture.repository.hasExpandedGroupsState())
+    }
+
+    @Test
+    func restoreWithSQLiteBackendDoesNotResurrectLegacyJSONAfterEmptyLaneFlush() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        try persistor.saveSidebarCache(
+            .init(
+                workspaceId: workspaceId,
+                expandedGroups: [SidebarGroupKey("repo:stale")],
+                checkoutColors: [:]
+            )
+        )
+        let atom = SidebarCacheState()
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+
+        try store.flush(for: workspaceId)
+        store.restore(for: workspaceId)
+
+        #expect(atom.expandedGroups.isEmpty)
+        #expect(try fixture.repository.hasExpandedGroupsState())
+    }
+
+    @Test
     func observedExpansionChange_autosavesSidebarCache() async throws {
         let workspaceId = UUID()
         let atom = SidebarCacheState()

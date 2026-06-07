@@ -116,6 +116,7 @@ extension AppDelegate {
         atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
         let workspaceSQLiteStoreBackend = makeWorkspaceSQLiteStoreBackend()
+        let workspaceLocalSQLiteStoreBackend = workspaceSQLiteStoreBackend?.localBackend
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
@@ -131,12 +132,14 @@ extension AppDelegate {
         repoCacheStore = RepoCacheStore(
             cacheAtom: atomStore.repoEnrichmentCache,
             recentTargetAtom: atomStore.recentWorkspaceTarget,
+            sqliteBackend: workspaceLocalSQLiteStoreBackend,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
         sidebarCacheStore = SidebarCacheStore(
             atom: atomStore.sidebarCache,
+            sqliteBackend: workspaceLocalSQLiteStoreBackend,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
@@ -144,6 +147,7 @@ extension AppDelegate {
         uiStateStore = UIStateStore(
             atom: atomStore.workspaceSidebarState,
             editorChooserState: atomStore.editorChooser,
+            sqliteBackend: workspaceLocalSQLiteStoreBackend,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }

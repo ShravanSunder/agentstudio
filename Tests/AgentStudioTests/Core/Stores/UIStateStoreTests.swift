@@ -92,6 +92,36 @@ struct UIStateStoreTests {
     }
 
     @Test
+    func restoreWithSQLiteBackendImportsLegacyJSONWhenLaneIsMissing() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        try persistor.saveUI(
+            .init(
+                workspaceId: workspaceId,
+                filterText: "legacy",
+                isFilterVisible: true,
+                sidebarCollapsed: true,
+                sidebarSurface: .inbox
+            )
+        )
+        let atom = WorkspaceSidebarState()
+        let store = UIStateStore(
+            atom: atom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+
+        store.restore(for: workspaceId)
+
+        #expect(atom.filterText == "legacy")
+        #expect(atom.isFilterVisible)
+        #expect(atom.sidebarCollapsed)
+        #expect(atom.sidebarSurface == .inbox)
+        #expect(try fixture.repository.hasSidebarState())
+    }
+
+    @Test
     func flush_operatesOnTheProvidedLiveAtomScope() throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()

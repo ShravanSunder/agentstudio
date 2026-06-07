@@ -63,6 +63,7 @@ final class UIStateStore {
                 sidebarSurface: state.sidebarSurface
             )
             isRestoringState = false
+            materializeSQLiteIfNeeded(for: workspaceId)
         case .missing:
             break
         case .corrupt(let error):
@@ -159,7 +160,11 @@ final class UIStateStore {
         guard let sqliteBackend else { return false }
         do {
             let repository = try sqliteBackend.repository(for: workspaceId)
-            guard let state = try repository.fetchSidebarState() else { return true }
+            guard try repository.hasSidebarState(),
+                let state = try repository.fetchSidebarState()
+            else {
+                return false
+            }
             isRestoringState = true
             atom.hydrate(
                 filterText: state.filterText,
@@ -172,6 +177,17 @@ final class UIStateStore {
         } catch {
             uiStateStoreLogger.warning("UI state SQLite restore failed: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    private func materializeSQLiteIfNeeded(for workspaceId: UUID) {
+        guard sqliteBackend != nil else { return }
+        do {
+            try persistNow(for: workspaceId)
+        } catch {
+            uiStateStoreLogger.warning(
+                "UI state legacy import materialization failed: \(error.localizedDescription)"
+            )
         }
     }
 

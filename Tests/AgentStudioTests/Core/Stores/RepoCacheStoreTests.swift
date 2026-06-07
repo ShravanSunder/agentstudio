@@ -127,6 +127,90 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func restoreWithSQLiteBackendImportsLegacyJSONWhenLanesAreMissing() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let repoId = UUID()
+        let target = RecentWorkspaceTarget.forCwd(
+            URL(fileURLWithPath: "/tmp/legacy"),
+            title: "legacy",
+            subtitle: "/tmp/legacy",
+            lastOpenedAt: Date(timeIntervalSince1970: 456)
+        )
+        try persistor.saveCache(
+            .init(
+                workspaceId: workspaceId,
+                repoEnrichmentByRepoId: [repoId: .awaitingOrigin(repoId: repoId)],
+                worktreeEnrichmentByWorktreeId: [:],
+                pullRequestCountByWorktreeId: [:],
+                notificationCountByWorktreeId: [:],
+                recentTargets: [target],
+                sourceRevision: 7,
+                lastRebuiltAt: Date(timeIntervalSince1970: 123)
+            )
+        )
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheStore(
+            cacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+
+        store.restore(for: workspaceId)
+
+        #expect(cacheAtom.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
+        #expect(cacheAtom.sourceRevision == 7)
+        #expect(cacheAtom.lastRebuiltAt == Date(timeIntervalSince1970: 123))
+        #expect(recentTargetAtom.recentTargets == [target])
+        #expect(try fixture.repository.hasCacheState())
+        #expect(try fixture.repository.hasRecentTargetsState())
+    }
+
+    @Test
+    func restoreWithSQLiteBackendDoesNotResurrectLegacyJSONAfterEmptyLaneFlush() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let repoId = UUID()
+        let target = RecentWorkspaceTarget.forCwd(
+            URL(fileURLWithPath: "/tmp/stale"),
+            title: "stale",
+            subtitle: "/tmp/stale",
+            lastOpenedAt: Date(timeIntervalSince1970: 456)
+        )
+        try persistor.saveCache(
+            .init(
+                workspaceId: workspaceId,
+                repoEnrichmentByRepoId: [repoId: .awaitingOrigin(repoId: repoId)],
+                worktreeEnrichmentByWorktreeId: [:],
+                pullRequestCountByWorktreeId: [:],
+                notificationCountByWorktreeId: [:],
+                recentTargets: [target],
+                sourceRevision: 7,
+                lastRebuiltAt: Date(timeIntervalSince1970: 123)
+            )
+        )
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheStore(
+            cacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+
+        try store.flush(for: workspaceId)
+        store.restore(for: workspaceId)
+
+        #expect(cacheAtom.repoEnrichmentByRepoId.isEmpty)
+        #expect(cacheAtom.sourceRevision == 0)
+        #expect(recentTargetAtom.recentTargets.isEmpty)
+        #expect(try fixture.repository.hasCacheState())
+        #expect(try fixture.repository.hasRecentTargetsState())
+    }
+
+    @Test
     func flushAndRestore_operatesOnSplitCacheAndRecentTargetAtoms() throws {
         let workspaceId = UUID()
         let cacheAtom = RepoEnrichmentCacheAtom()

@@ -60,6 +60,7 @@ struct WorkspaceLocalSchemaContractTests {
             "idx_local_arrangement_drawer_cursor_workspace_id",
             "idx_local_arrangement_drawer_cursor_drawer_id",
             "idx_local_recent_workspace_target_workspace_id",
+            "idx_local_persistence_lane_marker_workspace_id",
             "idx_local_notification_inbox_item_workspace_timestamp",
             "idx_local_notification_inbox_item_pane_id",
             "idx_local_notification_inbox_item_tab_id",

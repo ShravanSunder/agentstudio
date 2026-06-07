@@ -21,6 +21,7 @@ enum WorkspaceLocalMigrations {
         ("003_create_local_notifications", createLocalNotificationStatements),
         ("004_create_cache_tables", createCacheTableStatements),
         ("005_enforce_notification_claim_keys", enforceNotificationClaimKeyStatements),
+        ("006_create_local_persistence_lane_markers", createLocalPersistenceLaneMarkerStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -566,6 +567,21 @@ enum WorkspaceLocalMigrations {
         """
         CREATE INDEX idx_cache_notification_count_repo_id
         ON cache_notification_count(workspace_id, repo_id)
+        """,
+    ]
+
+    private static let createLocalPersistenceLaneMarkerStatements = [
+        """
+        CREATE TABLE local_persistence_lane_marker (
+            workspace_id TEXT NOT NULL,
+            lane TEXT NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY(workspace_id, lane)
+        )
+        """,
+        """
+        CREATE INDEX idx_local_persistence_lane_marker_workspace_id
+        ON local_persistence_lane_marker(workspace_id)
         """,
     ]
 }

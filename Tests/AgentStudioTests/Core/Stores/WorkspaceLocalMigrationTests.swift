@@ -33,6 +33,7 @@ struct WorkspaceLocalMigrationTests {
         #expect(tableNames.contains("local_sidebar_state"))
         #expect(tableNames.contains("local_sidebar_expanded_group"))
         #expect(tableNames.contains("local_recent_workspace_target"))
+        #expect(tableNames.contains("local_persistence_lane_marker"))
         #expect(tableNames.contains("local_notification_inbox_collapsed_group"))
         #expect(tableNames.contains("local_notification_inbox_item"))
         #expect(tableNames.contains("cache_metadata"))
@@ -60,6 +61,7 @@ struct WorkspaceLocalMigrationTests {
                 "003_create_local_notifications",
                 "004_create_cache_tables",
                 "005_enforce_notification_claim_keys",
+                "006_create_local_persistence_lane_markers",
             ]
         )
     }

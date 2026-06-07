@@ -57,6 +57,7 @@ final class SidebarCacheStore {
             isRestoringState = true
             atom.setExpandedGroups(state.expandedGroups)
             isRestoringState = false
+            materializeSQLiteIfNeeded(for: workspaceId)
         case .missing:
             break
         case .corrupt(let error):
@@ -140,6 +141,7 @@ final class SidebarCacheStore {
         guard let sqliteBackend else { return false }
         do {
             let repository = try sqliteBackend.repository(for: workspaceId)
+            guard try repository.hasExpandedGroupsState() else { return false }
             isRestoringState = true
             atom.setExpandedGroups(try repository.fetchExpandedGroups())
             isRestoringState = false
@@ -148,6 +150,17 @@ final class SidebarCacheStore {
             isRestoringState = false
             sidebarCacheStoreLogger.warning("Sidebar cache SQLite restore failed: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    private func materializeSQLiteIfNeeded(for workspaceId: UUID) {
+        guard sqliteBackend != nil else { return }
+        do {
+            try persistNow(for: workspaceId)
+        } catch {
+            sidebarCacheStoreLogger.warning(
+                "Sidebar cache legacy import materialization failed: \(error.localizedDescription)"
+            )
         }
     }
 

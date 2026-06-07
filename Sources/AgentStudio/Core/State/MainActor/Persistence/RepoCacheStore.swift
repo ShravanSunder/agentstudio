@@ -91,6 +91,7 @@ final class RepoCacheStore {
             )
             recentTargetAtom.hydrate(recentTargets: cacheState.recentTargets)
             isRestoringState = false
+            materializeSQLiteIfNeeded(for: workspaceId)
         case .missing:
             cacheAtom.clear()
             recentTargetAtom.clear()
@@ -203,6 +204,11 @@ final class RepoCacheStore {
         guard let sqliteBackend else { return false }
         do {
             let repository = try sqliteBackend.repository(for: workspaceId)
+            guard try repository.hasCacheState(),
+                try repository.hasRecentTargetsState()
+            else {
+                return false
+            }
             let cacheState = try repository.fetchCacheState()
             let recentTargets = try repository.fetchRecentTargets()
             isRestoringState = true
@@ -223,6 +229,17 @@ final class RepoCacheStore {
             isRestoringState = false
             repoCacheStoreLogger.warning("Repo cache SQLite restore failed: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    private func materializeSQLiteIfNeeded(for workspaceId: UUID) {
+        guard sqliteBackend != nil else { return }
+        do {
+            try persistNow(for: workspaceId)
+        } catch {
+            repoCacheStoreLogger.warning(
+                "Repo cache legacy import materialization failed: \(error.localizedDescription)"
+            )
         }
     }
 }

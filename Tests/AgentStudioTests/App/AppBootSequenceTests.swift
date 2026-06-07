@@ -78,7 +78,11 @@ struct AppBootSequenceTests {
         )
 
         #expect(appDelegateSource.contains("makeWorkspaceSQLiteStoreBackend()"))
+        #expect(
+            appDelegateSource.contains(
+                "let workspaceLocalSQLiteStoreBackend = workspaceSQLiteStoreBackend?.localBackend"))
         #expect(appDelegateSource.contains("sqliteBackend: workspaceSQLiteStoreBackend"))
+        #expect(appDelegateSource.contains("sqliteBackend: workspaceLocalSQLiteStoreBackend"))
         #expect(appDelegateSource.contains("WorkspaceCoreRepository(databaseWriter: coreDatabasePool)"))
         #expect(appDelegateSource.contains("WorkspaceLocalRepository("))
         #expect(appDelegateSource.contains("workspaceId: workspaceId,"))

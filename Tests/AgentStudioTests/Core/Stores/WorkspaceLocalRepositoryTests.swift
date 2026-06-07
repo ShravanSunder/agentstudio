@@ -324,6 +324,23 @@ struct WorkspaceLocalRepositoryTests {
         #expect(restoredState.recentTargets == replacementTargets)
     }
 
+    @Test("empty local memory lanes are still marked initialized")
+    func emptyLocalMemoryLanesAreStillMarkedInitialized() throws {
+        let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000207")!
+        let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
+
+        #expect(try repository.hasExpandedGroupsState() == false)
+        #expect(try repository.hasRecentTargetsState() == false)
+
+        try repository.replaceExpandedGroups([], updatedAt: Date(timeIntervalSince1970: 100))
+        try repository.replaceRecentTargets([], updatedAt: Date(timeIntervalSince1970: 100))
+
+        #expect(try repository.fetchExpandedGroups().isEmpty)
+        #expect(try repository.fetchRecentTargets().isEmpty)
+        #expect(try repository.hasExpandedGroupsState())
+        #expect(try repository.hasRecentTargetsState())
+    }
+
     @Test("cache state round trips through cache rows")
     func cacheStateRoundTripsThroughCacheRows() throws {
         let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000004")!

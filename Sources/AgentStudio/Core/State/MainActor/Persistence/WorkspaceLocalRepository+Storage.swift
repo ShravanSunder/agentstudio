@@ -291,10 +291,16 @@ enum WorkspaceLocalRepositoryStorage {
         _ database: Database,
         workspaceId: UUID,
         expandedGroups: Set<SidebarGroupKey>,
-        updatedAt _: Date
+        updatedAt: Date
     ) throws {
         let workspaceIdString = workspaceId.uuidString
         try deleteRows(database, table: "local_sidebar_expanded_group", workspaceIdString: workspaceIdString)
+        try markPersistenceLane(
+            database,
+            workspaceIdString: workspaceIdString,
+            lane: .sidebarExpandedGroups,
+            updatedAt: updatedAt
+        )
         for groupKey in expandedGroups {
             try database.execute(
                 sql: """
@@ -326,10 +332,16 @@ enum WorkspaceLocalRepositoryStorage {
         _ database: Database,
         workspaceId: UUID,
         recentTargets: [RecentWorkspaceTarget],
-        updatedAt _: Date
+        updatedAt: Date
     ) throws {
         let workspaceIdString = workspaceId.uuidString
         try deleteRows(database, table: "local_recent_workspace_target", workspaceIdString: workspaceIdString)
+        try markPersistenceLane(
+            database,
+            workspaceIdString: workspaceIdString,
+            lane: .recentWorkspaceTargets,
+            updatedAt: updatedAt
+        )
         for target in recentTargets {
             try WorkspaceLocalRepositoryCodecs.insertRecentWorkspaceTarget(
                 database,
@@ -466,6 +478,99 @@ enum WorkspaceLocalRepositoryStorage {
             sourceRevision: UInt64(sourceRevisionValue),
             lastRebuiltAt: lastRebuiltAtValue.map(Date.init(timeIntervalSince1970:))
         )
+    }
+
+    static func hasSidebarStateRows(
+        _ database: Database,
+        workspaceId: UUID
+    ) throws -> Bool {
+        try rowExists(database, table: "local_sidebar_state", workspaceId: workspaceId)
+    }
+
+    static func hasExpandedGroupStateRows(
+        _ database: Database,
+        workspaceId: UUID
+    ) throws -> Bool {
+        try hasPersistenceLane(database, workspaceId: workspaceId, lane: .sidebarExpandedGroups)
+            || rowExists(database, table: "local_sidebar_expanded_group", workspaceId: workspaceId)
+    }
+
+    static func hasRecentTargetStateRows(
+        _ database: Database,
+        workspaceId: UUID
+    ) throws -> Bool {
+        try hasPersistenceLane(database, workspaceId: workspaceId, lane: .recentWorkspaceTargets)
+            || rowExists(database, table: "local_recent_workspace_target", workspaceId: workspaceId)
+    }
+
+    static func hasCacheStateRows(
+        _ database: Database,
+        workspaceId: UUID
+    ) throws -> Bool {
+        for table in [
+            "cache_metadata",
+            "cache_repo_enrichment",
+            "cache_worktree_enrichment",
+            "cache_pull_request_count",
+            "cache_notification_count",
+        ] where try rowExists(database, table: table, workspaceId: workspaceId) {
+            return true
+        }
+        return false
+    }
+
+    private enum PersistenceLane: String {
+        case sidebarExpandedGroups = "sidebar_expanded_groups"
+        case recentWorkspaceTargets = "recent_workspace_targets"
+    }
+
+    private static func markPersistenceLane(
+        _ database: Database,
+        workspaceIdString: String,
+        lane: PersistenceLane,
+        updatedAt: Date
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO local_persistence_lane_marker(workspace_id, lane, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(workspace_id, lane) DO UPDATE SET
+                    updated_at = excluded.updated_at
+                """,
+            arguments: [workspaceIdString, lane.rawValue, updatedAt.timeIntervalSince1970]
+        )
+    }
+
+    private static func hasPersistenceLane(
+        _ database: Database,
+        workspaceId: UUID,
+        lane: PersistenceLane
+    ) throws -> Bool {
+        let count =
+            try Int.fetchOne(
+                database,
+                sql: """
+                    SELECT count(*)
+                    FROM local_persistence_lane_marker
+                    WHERE workspace_id = ? AND lane = ?
+                    """,
+                arguments: [workspaceId.uuidString, lane.rawValue]
+            ) ?? 0
+        return count > 0
+    }
+
+    private static func rowExists(
+        _ database: Database,
+        table: String,
+        workspaceId: UUID
+    ) throws -> Bool {
+        let count =
+            try Int.fetchOne(
+                database,
+                sql: "SELECT count(*) FROM \(table) WHERE workspace_id = ? LIMIT 1",
+                arguments: [workspaceId.uuidString]
+            ) ?? 0
+        return count > 0
     }
 
     private static func deleteRows(
