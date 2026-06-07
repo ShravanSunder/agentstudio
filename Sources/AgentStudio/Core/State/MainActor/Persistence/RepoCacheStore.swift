@@ -17,6 +17,7 @@ final class RepoCacheStore {
     private var isObservingCacheState = false
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
+    private(set) var canArchiveLegacyCacheFile = true
 
     var isAutosaveObservationActive: Bool {
         isObservingCacheState
@@ -73,6 +74,7 @@ final class RepoCacheStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
+        canArchiveLegacyCacheFile = true
         if restoreFromSQLite(for: workspaceId) {
             return
         }
@@ -91,7 +93,7 @@ final class RepoCacheStore {
             )
             recentTargetAtom.hydrate(recentTargets: cacheState.recentTargets)
             isRestoringState = false
-            materializeSQLiteIfNeeded(for: workspaceId)
+            canArchiveLegacyCacheFile = materializeSQLiteIfNeeded(for: workspaceId)
         case .missing:
             cacheAtom.clear()
             recentTargetAtom.clear()
@@ -232,14 +234,16 @@ final class RepoCacheStore {
         }
     }
 
-    private func materializeSQLiteIfNeeded(for workspaceId: UUID) {
-        guard sqliteBackend != nil else { return }
+    private func materializeSQLiteIfNeeded(for workspaceId: UUID) -> Bool {
+        guard sqliteBackend != nil else { return true }
         do {
             try persistNow(for: workspaceId)
+            return true
         } catch {
             repoCacheStoreLogger.warning(
                 "Repo cache legacy import materialization failed: \(error.localizedDescription)"
             )
+            return false
         }
     }
 }

@@ -227,9 +227,9 @@ extension AppDelegate {
 
     private func bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: WorkspacePersistor) {
         guard let workspaceSQLiteStoreBackend else { return }
-        guard canArchiveLegacyInboxFile else {
+        guard canArchiveLegacyCompanionFiles else {
             appLogger.warning(
-                "Skipping legacy workspace archive; notification inbox legacy file has not been restored into SQLite"
+                "Skipping legacy workspace archive; one or more legacy companion files have not been restored into SQLite/settings"
             )
             return
         }
@@ -263,6 +263,14 @@ extension AppDelegate {
                 "Legacy workspace archive incomplete. Archived: \(result.archivedFilenames.joined(separator: ","), privacy: .public). Failed: \(result.failedFilenames.joined(separator: ","), privacy: .public)"
             )
         }
+    }
+
+    private var canArchiveLegacyCompanionFiles: Bool {
+        repoCacheStore.canArchiveLegacyCacheFile
+            && sidebarCacheStore.canArchiveLegacySidebarCacheFile
+            && uiStateStore.canArchiveLegacyUIFile
+            && workspaceSettingsStore.canArchiveLegacySettingsFiles
+            && canArchiveLegacyInboxFile
     }
 
     private func bootEstablishRuntimeBus(

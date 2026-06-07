@@ -130,6 +130,33 @@ struct WorkspaceSettingsStoreTests {
     }
 
     @Test
+    func failedLegacyMaterializationBlocksSettingsArchiveReadiness() throws {
+        let workspaceId = UUID()
+        let editorPreference = EditorPreferenceAtom()
+        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
+        let inboxPrefs = InboxNotificationPrefsAtom()
+        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
+        _ = try seedLegacySettingsSidecars(workspaceId: workspaceId, legacyPersistor: legacyPersistor)
+        let blockedDirectoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-settings-blocked-\(UUID().uuidString)")
+        try Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
+        let store = makeStore(
+            editorPreference: editorPreference,
+            sidebarCheckoutColors: sidebarCheckoutColors,
+            inboxPrefs: inboxPrefs,
+            workspacesDir: blockedDirectoryURL,
+            legacyPersistor: legacyPersistor
+        )
+
+        store.restore(for: workspaceId)
+
+        #expect(editorPreference.bookmarkedEditorId == "cursor")
+        #expect(sidebarCheckoutColors.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"])
+        #expect(inboxPrefs.grouping == .byRepo)
+        #expect(!store.canArchiveLegacySettingsFiles)
+    }
+
+    @Test
     func restoreMissingSettingsFileMaterializesLegacySettingsBeforeSidecarSaves() async throws {
         let workspaceId = UUID()
         let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -550,6 +577,7 @@ struct WorkspaceSettingsStoreTests {
         sidebarCheckoutColors: SidebarCheckoutColorAtom = SidebarCheckoutColorAtom(),
         inboxPrefs: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
         workspacesDir: URL? = nil,
+        legacyPersistor: WorkspacePersistor? = nil,
         persistDebounceDuration: Duration = .zero,
         clock: any Clock<Duration> = ContinuousClock(),
         quarantineCorruptSettingsFile: (@MainActor (UUID) -> URL?)? = nil,
@@ -560,6 +588,7 @@ struct WorkspaceSettingsStoreTests {
             sidebarCheckoutColorAtom: sidebarCheckoutColors,
             inboxNotificationPrefsAtom: inboxPrefs,
             workspacesDir: workspacesDir ?? tempDir,
+            legacyPersistor: legacyPersistor,
             persistDebounceDuration: persistDebounceDuration,
             clock: clock,
             quarantineCorruptSettingsFile: quarantineCorruptSettingsFile,

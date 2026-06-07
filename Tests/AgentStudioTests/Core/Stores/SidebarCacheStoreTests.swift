@@ -94,6 +94,29 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
+    func failedLegacyMaterializationBlocksSidebarCacheArchiveReadiness() throws {
+        let workspaceId = UUID()
+        try persistor.saveSidebarCache(
+            .init(
+                workspaceId: workspaceId,
+                expandedGroups: [SidebarGroupKey("repo:legacy")],
+                checkoutColors: [SidebarCheckoutColorKey("repo:legacy"): "#ff6600"]
+            )
+        )
+        let atom = SidebarCacheState()
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            sqliteBackend: failingWorkspaceLocalSQLiteBackend()
+        )
+
+        store.restore(for: workspaceId)
+
+        #expect(atom.expandedGroups == [SidebarGroupKey("repo:legacy")])
+        #expect(!store.canArchiveLegacySidebarCacheFile)
+    }
+
+    @Test
     func restoreWithSQLiteBackendDoesNotResurrectLegacyJSONAfterEmptyLaneFlush() throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)

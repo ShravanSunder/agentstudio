@@ -22,6 +22,7 @@ final class WorkspaceSettingsStore {
     private var isObservingSettings = false
     private var isRestoringSettings = false
     private var activeWorkspaceId: UUID?
+    private(set) var canArchiveLegacySettingsFiles = true
 
     var isAutosaveObservationActive: Bool {
         isObservingSettings
@@ -57,6 +58,7 @@ final class WorkspaceSettingsStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
+        canArchiveLegacySettingsFiles = true
         let settingsURL = settingsFileURL(for: workspaceId)
         guard FileManager.default.fileExists(atPath: settingsURL.path) else {
             if restoreFromBackupIfAvailable(for: workspaceId) {
@@ -179,20 +181,23 @@ final class WorkspaceSettingsStore {
         isRestoringSettings = true
         hydrate(from: legacyImport.payload)
         isRestoringSettings = false
-        materializeLegacySettingsIfNeeded(legacyImport, for: workspaceId)
+        canArchiveLegacySettingsFiles = materializeLegacySettingsIfNeeded(legacyImport, for: workspaceId)
     }
 
+    @discardableResult
     private func materializeLegacySettingsIfNeeded(
         _ legacyImport: LegacySettingsImport,
         for workspaceId: UUID
-    ) {
-        guard legacyImport.importedAnySlice else { return }
+    ) -> Bool {
+        guard legacyImport.importedAnySlice else { return true }
         do {
             try persistNow(for: workspaceId)
+            return true
         } catch {
             workspaceSettingsStoreLogger.warning(
                 "Workspace settings legacy import materialization failed: \(error.localizedDescription)"
             )
+            return false
         }
     }
 

@@ -16,6 +16,7 @@ final class SidebarCacheStore {
     private var isObservingCacheState = false
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
+    private(set) var canArchiveLegacySidebarCacheFile = true
 
     var isAutosaveObservationActive: Bool {
         isObservingCacheState
@@ -49,6 +50,7 @@ final class SidebarCacheStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
+        canArchiveLegacySidebarCacheFile = true
         if restoreFromSQLite(for: workspaceId) {
             return
         }
@@ -57,7 +59,7 @@ final class SidebarCacheStore {
             isRestoringState = true
             atom.setExpandedGroups(state.expandedGroups)
             isRestoringState = false
-            materializeSQLiteIfNeeded(for: workspaceId)
+            canArchiveLegacySidebarCacheFile = materializeSQLiteIfNeeded(for: workspaceId)
         case .missing:
             break
         case .corrupt(let error):
@@ -153,14 +155,16 @@ final class SidebarCacheStore {
         }
     }
 
-    private func materializeSQLiteIfNeeded(for workspaceId: UUID) {
-        guard sqliteBackend != nil else { return }
+    private func materializeSQLiteIfNeeded(for workspaceId: UUID) -> Bool {
+        guard sqliteBackend != nil else { return true }
         do {
             try persistNow(for: workspaceId)
+            return true
         } catch {
             sidebarCacheStoreLogger.warning(
                 "Sidebar cache legacy import materialization failed: \(error.localizedDescription)"
             )
+            return false
         }
     }
 

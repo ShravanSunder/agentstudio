@@ -169,6 +169,37 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func failedLegacyMaterializationBlocksCacheArchiveReadiness() throws {
+        let workspaceId = UUID()
+        let repoId = UUID()
+        try persistor.saveCache(
+            .init(
+                workspaceId: workspaceId,
+                repoEnrichmentByRepoId: [repoId: .awaitingOrigin(repoId: repoId)],
+                worktreeEnrichmentByWorktreeId: [:],
+                pullRequestCountByWorktreeId: [:],
+                notificationCountByWorktreeId: [:],
+                recentTargets: [],
+                sourceRevision: 7,
+                lastRebuiltAt: nil
+            )
+        )
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheStore(
+            cacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom,
+            persistor: persistor,
+            sqliteBackend: failingWorkspaceLocalSQLiteBackend()
+        )
+
+        store.restore(for: workspaceId)
+
+        #expect(cacheAtom.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
+        #expect(!store.canArchiveLegacyCacheFile)
+    }
+
+    @Test
     func restoreWithSQLiteBackendDoesNotResurrectLegacyJSONAfterEmptyLaneFlush() throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)

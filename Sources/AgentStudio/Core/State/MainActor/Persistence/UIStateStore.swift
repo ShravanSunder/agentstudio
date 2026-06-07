@@ -16,6 +16,7 @@ final class UIStateStore {
     private var isObservingUIState = false
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
+    private(set) var canArchiveLegacyUIFile = true
 
     var isAutosaveObservationActive: Bool {
         isObservingUIState
@@ -50,6 +51,7 @@ final class UIStateStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
+        canArchiveLegacyUIFile = true
         if restoreFromSQLite(for: workspaceId) {
             return
         }
@@ -63,7 +65,7 @@ final class UIStateStore {
                 sidebarSurface: state.sidebarSurface
             )
             isRestoringState = false
-            materializeSQLiteIfNeeded(for: workspaceId)
+            canArchiveLegacyUIFile = materializeSQLiteIfNeeded(for: workspaceId)
         case .missing:
             break
         case .corrupt(let error):
@@ -180,14 +182,16 @@ final class UIStateStore {
         }
     }
 
-    private func materializeSQLiteIfNeeded(for workspaceId: UUID) {
-        guard sqliteBackend != nil else { return }
+    private func materializeSQLiteIfNeeded(for workspaceId: UUID) -> Bool {
+        guard sqliteBackend != nil else { return true }
         do {
             try persistNow(for: workspaceId)
+            return true
         } catch {
             uiStateStoreLogger.warning(
                 "UI state legacy import materialization failed: \(error.localizedDescription)"
             )
+            return false
         }
     }
 

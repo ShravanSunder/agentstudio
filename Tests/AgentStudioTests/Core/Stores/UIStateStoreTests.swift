@@ -122,6 +122,32 @@ struct UIStateStoreTests {
     }
 
     @Test
+    func failedLegacyMaterializationBlocksUIArchiveReadiness() throws {
+        let workspaceId = UUID()
+        try persistor.saveUI(
+            .init(
+                workspaceId: workspaceId,
+                filterText: "legacy",
+                isFilterVisible: true,
+                sidebarCollapsed: true,
+                sidebarSurface: .inbox
+            )
+        )
+        let atom = WorkspaceSidebarState()
+        let store = UIStateStore(
+            atom: atom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor,
+            sqliteBackend: failingWorkspaceLocalSQLiteBackend()
+        )
+
+        store.restore(for: workspaceId)
+
+        #expect(atom.filterText == "legacy")
+        #expect(!store.canArchiveLegacyUIFile)
+    }
+
+    @Test
     func flush_operatesOnTheProvidedLiveAtomScope() throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()

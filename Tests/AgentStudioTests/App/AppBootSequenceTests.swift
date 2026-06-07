@@ -130,7 +130,12 @@ struct AppBootSequenceTests {
         #expect(
             bootSource.contains(
                 "workspaceSQLiteStoreBackend.hasCompletedSnapshot(workspaceId: store.identityAtom.workspaceId)"))
-        #expect(bootSource.contains("guard canArchiveLegacyInboxFile else"))
+        #expect(bootSource.contains("guard canArchiveLegacyCompanionFiles else"))
+        #expect(bootSource.contains("repoCacheStore.canArchiveLegacyCacheFile"))
+        #expect(bootSource.contains("sidebarCacheStore.canArchiveLegacySidebarCacheFile"))
+        #expect(bootSource.contains("uiStateStore.canArchiveLegacyUIFile"))
+        #expect(bootSource.contains("workspaceSettingsStore.canArchiveLegacySettingsFiles"))
+        #expect(bootSource.contains("canArchiveLegacyInboxFile"))
         #expect(bootSource.contains("workspaceSQLiteStoreBackend.markLegacyWorkspaceArchived("))
         let uiLoadRange = try #require(bootSource.range(of: "bootLoadInboxNotificationStore(persistor: persistor)"))
         let archiveRange = try #require(
