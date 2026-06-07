@@ -57,12 +57,12 @@ private func routeLegacyActivePaneIds(
     activePaneIdsByDrawerId: [String: String]
 ) -> Bool {
     if var keyedDrawerViews = drawerViews as? [String: Any] {
-        let didRoute = routeLegacyActivePaneIds(
+        _ = routeLegacyActivePaneIds(
             intoKeyedDrawerViews: &keyedDrawerViews,
             activePaneIdsByDrawerId: activePaneIdsByDrawerId
         )
-        if didRoute { drawerViews = keyedDrawerViews }
-        return didRoute
+        drawerViews = alternatingDrawerViews(fromKeyedDrawerViews: keyedDrawerViews)
+        return true
     }
 
     guard var alternatingDrawerViews = drawerViews as? [Any] else { return false }
@@ -87,6 +87,12 @@ private func routeLegacyActivePaneIds(
     }
     if didRoute { drawerViews = alternatingDrawerViews }
     return didRoute
+}
+
+private func alternatingDrawerViews(fromKeyedDrawerViews drawerViews: [String: Any]) -> [Any] {
+    drawerViews.keys.sorted().flatMap { drawerId in
+        [drawerId, drawerViews[drawerId] as Any]
+    }
 }
 
 private func routeLegacyActivePaneIds(

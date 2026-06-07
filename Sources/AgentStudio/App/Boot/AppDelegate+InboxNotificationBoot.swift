@@ -83,21 +83,21 @@ extension AppDelegate {
             workspaceId: workspaceId,
             databaseWriter: localRepository.databaseWriter
         )
-        let hasPersistedInboxSnapshot: Bool
+        let hasMaterializedLegacyInboxImport: Bool
         do {
-            hasPersistedInboxSnapshot = try inboxRepository.hasPersistedState()
+            hasMaterializedLegacyInboxImport = try inboxRepository.hasMaterializedLegacyImport()
         } catch {
             appLogger.warning(
                 "Inbox notification SQLite archive readiness check failed: \(error.localizedDescription)"
             )
-            hasPersistedInboxSnapshot = false
+            hasMaterializedLegacyInboxImport = false
         }
         return .init(
             repository: inboxRepository,
             allowLegacyFilePersistence: true,
             allowLegacyFileImport: legacyImportDecision.allowsLegacyImport,
             canArchiveLegacyInboxFileAfterBlockedImport: legacyImportDecision.canArchiveLegacyFile
-                && hasPersistedInboxSnapshot
+                && hasMaterializedLegacyInboxImport
         )
     }
 

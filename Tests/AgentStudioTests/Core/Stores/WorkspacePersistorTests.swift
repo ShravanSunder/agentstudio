@@ -299,6 +299,22 @@ final class WorkspacePersistorTests {
 
     @Test
     func test_load_canonicalState_legacyDrawerActivePaneId_doesNotCorruptWorkspace() throws {
+        try assertLegacyDrawerActivePaneIdRoutesToDrawerView(using: .alternatingArray)
+    }
+
+    @Test
+    func test_load_canonicalState_keyedDrawerViews_legacyDrawerActivePaneId_doesNotCorruptWorkspace() throws {
+        try assertLegacyDrawerActivePaneIdRoutesToDrawerView(using: .keyedObject)
+    }
+
+    private enum LegacyDrawerViewsShape {
+        case alternatingArray
+        case keyedObject
+    }
+
+    private func assertLegacyDrawerActivePaneIdRoutesToDrawerView(
+        using drawerViewsShape: LegacyDrawerViewsShape
+    ) throws {
         let firstDrawerChildPaneId = UUIDv7.generate()
         let secondDrawerChildPaneId = UUIDv7.generate()
         var parentPane = makePane()
@@ -363,8 +379,13 @@ final class WorkspacePersistorTests {
         }
         root["panes"] = panes
         drawerViewPayload.removeValue(forKey: "activeChildId")
-        drawerViews[drawerViewKeyIndex + 1] = drawerViewPayload
-        firstArrangement["drawerViews"] = drawerViews
+        switch drawerViewsShape {
+        case .alternatingArray:
+            drawerViews[drawerViewKeyIndex + 1] = drawerViewPayload
+            firstArrangement["drawerViews"] = drawerViews
+        case .keyedObject:
+            firstArrangement["drawerViews"] = [drawerId.uuidString: drawerViewPayload]
+        }
         arrangements[0] = firstArrangement
         firstTab["arrangements"] = arrangements
         tabs[0] = firstTab

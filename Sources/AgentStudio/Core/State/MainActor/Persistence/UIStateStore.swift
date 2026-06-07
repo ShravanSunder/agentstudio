@@ -59,7 +59,7 @@ final class UIStateStore {
             let legacyImportDecision = legacySidebarStateImportDecision(for: workspaceId)
             guard legacyImportDecision.allowsLegacyImport else {
                 atom.clear()
-                canArchiveLegacyUIFile = false
+                canArchiveLegacyUIFile = !persistor.hasLegacyUIFile(for: workspaceId)
                 recoveryReporter?(
                     .init(store: .uiState, workspaceId: workspaceId, recovery: .resetToDefaults)
                 )

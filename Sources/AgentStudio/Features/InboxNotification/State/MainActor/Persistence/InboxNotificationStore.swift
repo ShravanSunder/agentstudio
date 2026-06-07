@@ -172,7 +172,7 @@ final class InboxNotificationStore {
                 }
                 guard let payload = loadLegacyPayloadFromDisk() else { return }
                 apply(payload)
-                try persistCurrentSQLiteSnapshot(to: sqliteRepository)
+                try persistCurrentLegacySQLiteSnapshot(to: sqliteRepository)
                 return
             } catch {
                 reportLoadFailed()
@@ -359,6 +359,13 @@ final class InboxNotificationStore {
 
     private func persistCurrentSQLiteSnapshot(to repository: InboxNotificationSQLiteRepository) throws {
         try repository.replaceSnapshot(
+            notifications: inboxAtom.notifications,
+            collapsedGroups: sidebarState.collapsedGroups
+        )
+    }
+
+    private func persistCurrentLegacySQLiteSnapshot(to repository: InboxNotificationSQLiteRepository) throws {
+        try repository.replaceLegacyImportSnapshot(
             notifications: inboxAtom.notifications,
             collapsedGroups: sidebarState.collapsedGroups
         )

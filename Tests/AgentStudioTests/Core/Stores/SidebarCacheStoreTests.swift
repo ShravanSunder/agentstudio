@@ -190,6 +190,23 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
+    func missingSQLiteExpandedGroupsLaneAfterImportDoesNotBlockArchiveWhenLegacySidebarFileIsAbsent() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let restoredAtom = SidebarCacheState()
+        let restoredStore = SidebarCacheStore(
+            atom: restoredAtom,
+            persistor: persistor,
+            sqliteBackend: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository)
+        )
+
+        restoredStore.restore(for: workspaceId)
+
+        #expect(restoredAtom.expandedGroups.isEmpty)
+        #expect(restoredStore.canArchiveLegacySidebarCacheFile)
+    }
+
+    @Test
     func restoreWithSQLiteBackendResetsWhenSQLiteExpandedGroupLaneFailsInsteadOfReplayingLegacyJSON() throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)

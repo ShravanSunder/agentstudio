@@ -166,6 +166,7 @@ struct InboxNotificationStoreTests {
         #expect(try fixture.repository.fetchNotifications().map(\.id) == [note.id])
         #expect(try fixture.repository.fetchCollapsedGroups() == [InboxNotificationGroupKey("repo:legacy")])
         #expect(try fixture.repository.hasPersistedState())
+        #expect(try fixture.repository.hasMaterializedLegacyImport())
     }
 
     @Test("SQLite restore does not resurrect stale legacy JSON after an empty flush")

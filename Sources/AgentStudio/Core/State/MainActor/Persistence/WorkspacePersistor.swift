@@ -344,6 +344,18 @@ struct WorkspacePersistor {
         canonicalFileURL(for: workspaceId).path
     }
 
+    func hasLegacyCacheFile(for workspaceId: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: cacheFileURL(for: workspaceId).path)
+    }
+
+    func hasLegacyUIFile(for workspaceId: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: uiFileURL(for: workspaceId).path)
+    }
+
+    func hasLegacySidebarCacheFile(for workspaceId: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: sidebarCacheFileURL(for: workspaceId).path)
+    }
+
     func hasLegacyWorkspaceFiles(for workspaceId: UUID) -> Bool {
         legacyWorkspaceFileURLs(for: workspaceId)
             .contains { FileManager.default.fileExists(atPath: $0.path) }

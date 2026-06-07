@@ -228,6 +228,12 @@ coherent pane/lane/semantic tuple with an optional session id and a known lane.
 preserves notification rows, and normalizes malformed legacy claim tuples to an
 absent claim key.
 
+Inbox persistence uses two lane-marker meanings. `notification_inbox` means the
+live SQLite inbox lane has been initialized, including valid empty snapshots.
+`notification_inbox_legacy_import` means legacy inbox JSON has been replayed and
+materialized into SQLite; archive readiness must use this legacy-import proof,
+not generic row existence or the live empty-lane marker.
+
 ```sql
 CREATE INDEX idx_local_notification_inbox_item_claim_exact
 ON local_notification_inbox_item(

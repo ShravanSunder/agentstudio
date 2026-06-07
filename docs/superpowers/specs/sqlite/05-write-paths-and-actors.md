@@ -603,6 +603,10 @@ InboxNotificationStore
      backend is available
   -> legacy JSON remains an import/fallback source; settings-owned preferences
      continue to route through WorkspaceSettingsStore
+  -> legacy archive readiness requires the dedicated
+     `notification_inbox_legacy_import` materialization marker; generic
+     `notification_inbox` initialization or ordinary empty/default saves are not
+     proof that the legacy inbox file was replayed
 
 CommandBarState
   -> keeps existing UserDefaults recents in Step 1

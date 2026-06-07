@@ -316,6 +316,27 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func missingSQLiteCacheLanesAfterImportDoesNotBlockArchiveWhenLegacyCacheFileIsAbsent() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let restoredCacheAtom = RepoEnrichmentCacheAtom()
+        let restoredRecentTargetAtom = RecentWorkspaceTargetAtom()
+        let restoredStore = RepoCacheStore(
+            cacheAtom: restoredCacheAtom,
+            recentTargetAtom: restoredRecentTargetAtom,
+            persistor: persistor,
+            sqliteBackend: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository)
+        )
+
+        restoredStore.restore(for: workspaceId)
+
+        #expect(restoredCacheAtom.repoEnrichmentByRepoId.isEmpty)
+        #expect(restoredCacheAtom.sourceRevision == 0)
+        #expect(restoredRecentTargetAtom.recentTargets.isEmpty)
+        #expect(restoredStore.canArchiveLegacyCacheFile)
+    }
+
+    @Test
     func restoreWithSQLiteBackendResetsWhenSQLiteCacheLaneFailsInsteadOfReplayingLegacyJSON() throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)

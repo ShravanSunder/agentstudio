@@ -245,6 +245,25 @@ struct UIStateStoreTests {
     }
 
     @Test
+    func missingSQLiteSidebarLaneAfterCompletedImportDoesNotBlockArchiveWhenLegacyUIFileIsAbsent() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let restoredAtom = WorkspaceSidebarState()
+        let restoredStore = UIStateStore(
+            atom: restoredAtom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor,
+            sqliteBackend: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository)
+        )
+
+        restoredStore.restore(for: workspaceId)
+
+        #expect(restoredAtom.filterText.isEmpty)
+        #expect(restoredAtom.sidebarSurface == .repos)
+        #expect(restoredStore.canArchiveLegacyUIFile)
+    }
+
+    @Test
     func flush_operatesOnTheProvidedLiveAtomScope() throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()

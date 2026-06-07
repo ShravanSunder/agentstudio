@@ -109,12 +109,25 @@ struct InboxNotificationSQLiteRepositoryTests {
         let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
 
         #expect(try fixture.repository.hasPersistedState() == false)
+        #expect(try fixture.repository.hasMaterializedLegacyImport() == false)
 
         try fixture.repository.replaceSnapshot(notifications: [], collapsedGroups: [])
 
         #expect(try fixture.repository.fetchNotifications().isEmpty)
         #expect(try fixture.repository.fetchCollapsedGroups().isEmpty)
         #expect(try fixture.repository.hasPersistedState())
+        #expect(try fixture.repository.hasMaterializedLegacyImport() == false)
+    }
+
+    @Test("legacy import snapshots mark an archive-safe materialization proof")
+    func legacyImportSnapshotsMarkArchiveSafeMaterializationProof() throws {
+        let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000019")!
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+
+        try fixture.repository.replaceLegacyImportSnapshot(notifications: [], collapsedGroups: [])
+
+        #expect(try fixture.repository.hasPersistedState())
+        #expect(try fixture.repository.hasMaterializedLegacyImport())
     }
 
     @Test("upsert by claim mirrors InboxNotificationAtom coalescence rules")
