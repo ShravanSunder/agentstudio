@@ -22,11 +22,15 @@ case "$RELEASE_CHANNEL" in
     BUNDLE_IDENTIFIER="com.agentstudio.app"
     BUNDLE_NAME="AgentStudio"
     BUNDLE_DISPLAY_NAME="Agent Studio"
+    OAUTH_CALLBACK_NAME="com.agentstudio.oauth"
+    OAUTH_CALLBACK_SCHEME="agentstudio"
     ;;
   beta)
     BUNDLE_IDENTIFIER="com.agentstudio.app.beta"
     BUNDLE_NAME="AgentStudio Beta"
     BUNDLE_DISPLAY_NAME="Agent Studio Beta"
+    OAUTH_CALLBACK_NAME="com.agentstudio.oauth.beta"
+    OAUTH_CALLBACK_SCHEME="agentstudio-beta"
     ;;
   *)
     echo "unsupported release channel: $RELEASE_CHANNEL" >&2
@@ -40,3 +44,6 @@ set_plist_string AgentStudioReleaseChannel "$RELEASE_CHANNEL"
 set_plist_string CFBundleIdentifier "$BUNDLE_IDENTIFIER"
 set_plist_string CFBundleName "$BUNDLE_NAME"
 set_plist_string CFBundleDisplayName "$BUNDLE_DISPLAY_NAME"
+# The app has one URL type today; index 0 is the OAuth callback registration.
+set_plist_string CFBundleURLTypes:0:CFBundleURLName "$OAUTH_CALLBACK_NAME"
+set_plist_string CFBundleURLTypes:0:CFBundleURLSchemes:0 "$OAUTH_CALLBACK_SCHEME"

@@ -49,6 +49,22 @@ struct OAuthServiceTests {
     }
 
     @Test
+    func test_callbackScheme_stableReleaseChannel() {
+        #expect(OAuthService.callbackScheme(for: .stable) == "agentstudio")
+    }
+
+    @Test
+    func test_callbackScheme_betaReleaseChannel() {
+        #expect(OAuthService.callbackScheme(for: .beta) == "agentstudio-beta")
+    }
+
+    @Test
+    func test_redirectURI_betaReleaseChannel() {
+        let uri = OAuthService.redirectURI(for: .github, releaseChannel: .beta)
+        #expect(uri == "agentstudio-beta://oauth/callback")
+    }
+
+    @Test
     func test_callbackPath() {
         #expect(OAuthService.callbackPath == "/oauth/callback")
     }
@@ -176,6 +192,41 @@ struct OAuthServiceTests {
         let url = URL(string: "agentstudio://oauth/callback?code=abc123&state=expected-state")!
         let code = try OAuthService.validateCallback(url: url, expectedState: "expected-state")
         #expect(code == "abc123")
+    }
+
+    @Test
+    func test_validateCallback_betaURLWithBetaChannel_returnsCode() throws {
+        let url = URL(string: "agentstudio-beta://oauth/callback?code=abc123&state=expected-state")!
+        let code = try OAuthService.validateCallback(
+            url: url,
+            expectedState: "expected-state",
+            releaseChannel: .beta
+        )
+        #expect(code == "abc123")
+    }
+
+    @Test
+    func test_validateCallback_mixedCaseBetaScheme_returnsCode() throws {
+        let url = URL(string: "AGENTSTUDIO-BETA://oauth/callback?code=abc123&state=expected-state")!
+        let code = try OAuthService.validateCallback(
+            url: url,
+            expectedState: "expected-state",
+            releaseChannel: .beta
+        )
+        #expect(code == "abc123")
+    }
+
+    @Test
+    func test_validateCallback_wrongScheme_throwsInvalidCallback() {
+        let url = URL(string: "agentstudio-beta://oauth/callback?code=abc123&state=s")!
+        #expect {
+            try OAuthService.validateCallback(url: url, expectedState: "s", releaseChannel: .stable)
+        } throws: { error in
+            guard case OAuthError.invalidCallback = error else {
+                return false
+            }
+            return true
+        }
     }
 
     @Test

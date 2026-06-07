@@ -16,6 +16,7 @@ if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   BUNDLE_NAME="AgentStudio"
   BUNDLE_DISPLAY_NAME="Agent Studio"
   APP_CACHE_DOMAIN="com.agentstudio.app"
+  OAUTH_CALLBACK_SCHEME="agentstudio"
 elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
   VERSION="$TAG"
   MARKETING_VERSION="${TAG#v}"
@@ -29,6 +30,7 @@ elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
   BUNDLE_NAME="AgentStudio Beta"
   BUNDLE_DISPLAY_NAME="Agent Studio Beta"
   APP_CACHE_DOMAIN="com.agentstudio.app.beta"
+  OAUTH_CALLBACK_SCHEME="agentstudio-beta"
 else
   echo "unsupported release tag: $TAG" >&2
   exit 1
@@ -47,4 +49,5 @@ bundle_identifier=$BUNDLE_IDENTIFIER
 bundle_name=$BUNDLE_NAME
 bundle_display_name=$BUNDLE_DISPLAY_NAME
 app_cache_domain=$APP_CACHE_DOMAIN
+oauth_callback_scheme=$OAUTH_CALLBACK_SCHEME
 EOF

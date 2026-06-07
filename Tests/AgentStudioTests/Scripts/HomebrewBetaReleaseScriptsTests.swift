@@ -16,6 +16,7 @@ struct HomebrewBetaReleaseScriptsTests {
         #expect(stable.stdout.contains("bundle_identifier=com.agentstudio.app"))
         #expect(stable.stdout.contains("bundle_display_name=Agent Studio"))
         #expect(stable.stdout.contains("app_cache_domain=com.agentstudio.app"))
+        #expect(stable.stdout.contains("oauth_callback_scheme=agentstudio"))
 
         #expect(beta.exitCode == 0)
         #expect(beta.stdout.contains("channel=beta"))
@@ -25,6 +26,7 @@ struct HomebrewBetaReleaseScriptsTests {
         #expect(beta.stdout.contains("bundle_identifier=com.agentstudio.app.beta"))
         #expect(beta.stdout.contains("bundle_display_name=Agent Studio Beta"))
         #expect(beta.stdout.contains("app_cache_domain=com.agentstudio.app.beta"))
+        #expect(beta.stdout.contains("oauth_callback_scheme=agentstudio-beta"))
     }
 
     @Test("release tag metadata rejects malformed beta tags")
@@ -116,6 +118,8 @@ struct HomebrewBetaReleaseScriptsTests {
         #expect(try plistStringValue(at: plistURL, key: "CFBundleIdentifier") == "com.agentstudio.app.beta")
         #expect(try plistStringValue(at: plistURL, key: "CFBundleName") == "AgentStudio Beta")
         #expect(try plistStringValue(at: plistURL, key: "CFBundleDisplayName") == "Agent Studio Beta")
+        #expect(try plistURLName(at: plistURL) == "com.agentstudio.oauth.beta")
+        #expect(try plistURLScheme(at: plistURL) == "agentstudio-beta")
     }
 
     @Test("tap updater dry run writes only the selected cask")
@@ -188,6 +192,23 @@ struct HomebrewBetaReleaseScriptsTests {
         let data = try Data(contentsOf: plistURL)
         let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
         return (plist as? [String: Any])?[key] as? String
+    }
+
+    private func plistURLName(at plistURL: URL) throws -> String? {
+        let urlType = try firstURLType(at: plistURL)
+        return urlType?["CFBundleURLName"] as? String
+    }
+
+    private func plistURLScheme(at plistURL: URL) throws -> String? {
+        let urlType = try firstURLType(at: plistURL)
+        return (urlType?["CFBundleURLSchemes"] as? [String])?.first
+    }
+
+    private func firstURLType(at plistURL: URL) throws -> [String: Any]? {
+        let data = try Data(contentsOf: plistURL)
+        let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        let dictionary = plist as? [String: Any]
+        return (dictionary?["CFBundleURLTypes"] as? [[String: Any]])?.first
     }
 }
 

@@ -13,7 +13,7 @@ enum OAuthProvider: String, CaseIterable {
 /// OAuth authentication service using ASWebAuthenticationSession.
 ///
 /// Opens the user's default browser for authentication and receives the
-/// authorization code via the `agentstudio://oauth/callback` URL scheme.
+/// authorization code via the release-channel-specific OAuth callback URL scheme.
 /// Uses non-ephemeral sessions so SSO cookies are preserved — if the user
 /// is already logged in, authentication completes with zero typing.
 ///
@@ -21,15 +21,30 @@ enum OAuthProvider: String, CaseIterable {
 @MainActor
 final class OAuthService: NSObject {
 
-    /// Callback URL scheme registered in Info.plist.
-    nonisolated static let callbackScheme = "agentstudio"
+    /// Callback URL scheme registered in Info.plist for the current release channel.
+    nonisolated static var callbackScheme: String {
+        callbackScheme(for: .current)
+    }
+
+    /// Callback URL scheme registered in Info.plist for a release channel.
+    nonisolated static func callbackScheme(for releaseChannel: AppDataPaths.ReleaseChannel) -> String {
+        switch releaseChannel {
+        case .stable:
+            return "agentstudio"
+        case .beta:
+            return "agentstudio-beta"
+        }
+    }
 
     /// Callback path used for OAuth redirects.
     nonisolated static let callbackPath = "/oauth/callback"
 
     /// Full redirect URI for OAuth provider configuration.
-    nonisolated static func redirectURI(for provider: OAuthProvider) -> String {
-        "\(callbackScheme)://oauth/callback"
+    nonisolated static func redirectURI(
+        for provider: OAuthProvider,
+        releaseChannel: AppDataPaths.ReleaseChannel = .current
+    ) -> String {
+        "\(callbackScheme(for: releaseChannel))://oauth/callback"
     }
 
     // MARK: - Provider Configuration
@@ -68,13 +83,20 @@ final class OAuthService: NSObject {
     ///   - expectedState: The state parameter sent in the original authorization request.
     /// - Returns: The authorization code string.
     /// - Throws: `OAuthError` if validation fails.
-    nonisolated static func validateCallback(url callbackURL: URL, expectedState: String) throws -> String {
+    nonisolated static func validateCallback(
+        url callbackURL: URL,
+        expectedState: String,
+        releaseChannel: AppDataPaths.ReleaseChannel = .current
+    ) throws -> String {
         guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
             throw OAuthError.missingCode
         }
 
         // Validate the callback URL path matches the expected OAuth callback
-        guard components.host == "oauth" && components.path == "/callback" else {
+        guard components.scheme?.lowercased() == callbackScheme(for: releaseChannel),
+            components.host == "oauth",
+            components.path == "/callback"
+        else {
             throw OAuthError.invalidCallback
         }
 

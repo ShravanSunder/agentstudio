@@ -12,11 +12,13 @@ grep -q "cask_token=agent-studio" <<<"$stable_metadata"
 grep -q "app_bundle_name=AgentStudio.app" <<<"$stable_metadata"
 grep -q "bundle_identifier=com.agentstudio.app" <<<"$stable_metadata"
 grep -q "app_cache_domain=com.agentstudio.app" <<<"$stable_metadata"
+grep -q "oauth_callback_scheme=agentstudio" <<<"$stable_metadata"
 grep -q "channel=beta" <<<"$beta_metadata"
 grep -q "cask_token=agent-studio@beta" <<<"$beta_metadata"
 grep -q "app_bundle_name=AgentStudio Beta.app" <<<"$beta_metadata"
 grep -q "bundle_identifier=com.agentstudio.app.beta" <<<"$beta_metadata"
 grep -q "app_cache_domain=com.agentstudio.app.beta" <<<"$beta_metadata"
+grep -q "oauth_callback_scheme=agentstudio-beta" <<<"$beta_metadata"
 
 if "$ROOT_DIR/scripts/release-tag-metadata.sh" v0.0.54-beta >/dev/null 2>&1; then
   echo "malformed beta tag unexpectedly passed" >&2
@@ -86,6 +88,13 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "$tap_dir/Casks"
+
+plist_under_test="$tap_dir/Info.plist"
+cp "$ROOT_DIR/Sources/AgentStudio/Resources/Info.plist" "$plist_under_test"
+bash "$ROOT_DIR/scripts/inject-bundle-version.sh" "$plist_under_test" 0.0.54-beta.1 123 beta
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLName' "$plist_under_test")" = "com.agentstudio.oauth.beta"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$plist_under_test")" = "agentstudio-beta"
+
 HOMEBREW_TAP_LOCAL_PATH="$tap_dir" DRY_RUN=1 SKIP_BREW_STYLE=1 \
   "$ROOT_DIR/scripts/update-homebrew-tap.sh" beta v0.0.54-beta.1 "$SHA" >/dev/null
 
