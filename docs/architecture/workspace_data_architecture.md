@@ -8,10 +8,12 @@
 
 Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces events on the `EventBus`. A single `WorkspaceCacheCoordinator` consumes all events, writing topology changes to the canonical store and enrichment data to the cache store. The sidebar is a pure reader of all three stores via `@Observable` binding — zero imperative fetches, zero mutations.
 
-SQLite cutover status: the GRDB foundation, `core.sqlite` migrations,
-per-workspace `local.sqlite` migrations, and repository-facing storage tokens
-exist, but normal boot still uses the JSON stores in this document until the
-repository and legacy-import phases replace the live write path.
+SQLite cutover status: normal boot now opens `core.sqlite`, the active
+workspace's `<workspace-id>.local.sqlite`, and the workspace settings file
+through the SQLite-backed store path. Legacy JSON files remain import and
+recovery sources only: when SQLite has no authoritative rows, they are
+materialized into the new stores; after import status marks a lane complete,
+stale legacy JSON is not replayed over SQLite/settings state.
 
 ---
 
@@ -21,13 +23,15 @@ Data flows DOWN only — tier N never reads tier N+1.
 
 ```
 TIER A: CANONICAL CONFIG (source of truth, user intent)
-  File: ~/.agentstudio/workspaces/<id>/workspace.state.json
+  Live source: ~/.agentstudio/core.sqlite
+  Legacy import source: ~/.agentstudio/workspaces/<id>/workspace.state.json
   Owner: canonical workspace atoms + WorkspaceStore persistence wrapper
   Mutated by: explicit user actions + topology consumer (discovery events)
   Contains: canonical repos, canonical worktrees, panes, tabs, layouts
 
 TIER B: CACHE FILE (rebuildable enrichment + local target memory)
-  File: ~/.agentstudio/workspaces/<id>/workspace.cache.json
+  Live source: ~/.agentstudio/workspaces/<id>.local.sqlite
+  Legacy import source: ~/.agentstudio/workspaces/<id>/workspace.cache.json
   Owner: RepoEnrichmentCacheAtom + RecentWorkspaceTargetAtom
   Mutated by: WorkspaceCacheCoordinator for enrichment, workspace activity
               flows for recent target memory
@@ -39,7 +43,11 @@ TIER B: CACHE FILE (rebuildable enrichment + local target memory)
             per LUNA-361)
 
 TIER C: UI STATE (preferences, non-structural + composition state)
-  File: ~/.agentstudio/workspaces/<id>/workspace.ui.json
+  Live sources: ~/.agentstudio/workspaces/<id>.settings.json and
+                ~/.agentstudio/workspaces/<id>.local.sqlite
+  Legacy import sources: ~/.agentstudio/workspaces/<id>/workspace.ui.json,
+                         workspace.sidebar-cache.json,
+                         notification-inbox.json
   Owner: WorkspaceSidebarMemoryAtom (@MainActor, @Observable)
   Mutated by: sidebar view actions, MainSplitViewController
               (publishing sidebar collapsed state), composite commands

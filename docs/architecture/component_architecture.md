@@ -547,16 +547,17 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 The SQLite foundation now exists as `SQLiteDatabaseFactory`,
 `WorkspaceCoreMigrations`, `WorkspaceLocalMigrations`, and repository-facing
 storage tokens such as `SQLitePaneContentTypeStorage`, `SQLiteLocalUXStorage`,
-and `SQLiteInboxNotificationClaimStorage`. The live app path still uses the JSON
-stores below until the repository/import cutover replaces them with
-`core.sqlite`, per-workspace `local.sqlite`, and settings JSON.
+and `SQLiteInboxNotificationClaimStorage`. The live app path now opens
+`core.sqlite`, the active workspace's `local.sqlite`, and settings JSON first.
+Legacy JSON stores are import/fallback sources only; once a lane is marked
+imported, stale JSON must not replay over SQLite/settings state.
 
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
-- Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
-- Derived enrichment data (`RepoEnrichmentCacheAtom`) and local recent workspace targets (`RecentWorkspaceTargetAtom`) in `workspace.cache.json`. Enrichment contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts, notification counts while cache-backed, and rebuild metadata. It is written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. `RepoCacheAtom` is the composed read surface for existing repo/sidebar consumers.
-- Workspace-scoped sidebar shell memory (`WorkspaceSidebarMemoryAtom`) in `workspace.ui.json`, with runtime focus kept on `SidebarFocusRuntimeAtom` and composed for UI reads by `WorkspaceSidebarState`
-- Global app preferences and keybindings are stored separately from workspace state
+- Canonical workspace model (`WorkspaceStore`) writes through `WorkspaceSQLiteStoreBackend` into `core.sqlite` plus cursor/window rows in `local.sqlite`; legacy `workspace.state.json` is imported only when SQLite is uninitialized.
+- Derived enrichment data (`RepoEnrichmentCacheAtom`) and local recent workspace targets (`RecentWorkspaceTargetAtom`) write to per-workspace `local.sqlite`. The old `workspace.cache.json` file is a one-time import source. Enrichment contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts, notification counts while cache-backed, and rebuild metadata. It is written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. `RepoCacheAtom` is the composed read surface for existing repo/sidebar consumers.
+- Workspace-scoped sidebar shell memory (`WorkspaceSidebarMemoryAtom`) writes to local UX rows, with runtime focus kept on `SidebarFocusRuntimeAtom` and composed for UI reads by `WorkspaceSidebarState`. Legacy `workspace.ui.json` is imported only for uninitialized local lanes.
+- Global and workspace preferences use settings JSON rather than workspace graph rows.
 
 This prevents derived data from silently becoming canonical truth and aligns each persisted file with exactly one reason to change.
 
