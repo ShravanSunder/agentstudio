@@ -154,6 +154,11 @@ jobs:
             echo "cask_token=agent-studio" >> "$GITHUB_OUTPUT"
             echo "cask_file=Casks/agent-studio.rb" >> "$GITHUB_OUTPUT"
             echo "data_dir_name=.agentstudio" >> "$GITHUB_OUTPUT"
+            echo "app_bundle_name=AgentStudio.app" >> "$GITHUB_OUTPUT"
+            echo "bundle_identifier=com.agentstudio.app" >> "$GITHUB_OUTPUT"
+            echo "bundle_name=AgentStudio" >> "$GITHUB_OUTPUT"
+            echo "bundle_display_name=Agent Studio" >> "$GITHUB_OUTPUT"
+            echo "app_cache_domain=com.agentstudio.app" >> "$GITHUB_OUTPUT"
           fi
           echo "build_version=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
@@ -174,9 +179,11 @@ jobs:
       - name: Create App Bundle
         run: |
           set -euo pipefail
-          APP_DIR="AgentStudio.app/Contents"
-          rm -rf AgentStudio.app
+          APP_BUNDLE_NAME="${{ steps.version.outputs.app_bundle_name }}"
+          APP_DIR="$APP_BUNDLE_NAME/Contents"
+          rm -rf "$APP_BUNDLE_NAME"
           mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
+          echo "APP_BUNDLE_NAME=$APP_BUNDLE_NAME" >> "$GITHUB_ENV"
 
           cp .build/release/AgentStudio "$APP_DIR/MacOS/"
           [ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
@@ -215,7 +222,7 @@ jobs:
         run: |
           set -euo pipefail
           ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
-          APP="AgentStudio.app"
+          APP="${APP_BUNDLE_NAME:?missing app bundle name}"
 
           if [ "$CAN_SIGN" = "true" ]; then
             echo "Signing with: $SIGNING_IDENTITY"
@@ -261,7 +268,7 @@ jobs:
           set -euo pipefail
 
           echo "Creating ZIP for notarization..."
-          ditto -c -k --keepParent AgentStudio.app AgentStudio-notarize.zip
+          ditto -c -k --keepParent "${APP_BUNDLE_NAME:?missing app bundle name}" AgentStudio-notarize.zip
 
           echo "Submitting to Apple notary service..."
           SUBMISSION_ID=$(xcrun notarytool submit AgentStudio-notarize.zip \
@@ -316,8 +323,8 @@ jobs:
         if: steps.signing.outputs.can_sign == 'true'
         run: |
           set -euo pipefail
-          xcrun stapler staple AgentStudio.app
-          spctl --assess --type execute --verbose AgentStudio.app
+          xcrun stapler staple "${APP_BUNDLE_NAME:?missing app bundle name}"
+          spctl --assess --type execute --verbose "${APP_BUNDLE_NAME:?missing app bundle name}"
           rm -f AgentStudio-notarize.zip
 
       # --- Package and release ---
@@ -325,7 +332,7 @@ jobs:
       - name: Create ZIP Archive
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          ditto -c -k --keepParent AgentStudio.app "AgentStudio-${VERSION}-macos.zip"
+          ditto -c -k --keepParent "${APP_BUNDLE_NAME:?missing app bundle name}" "AgentStudio-${VERSION}-macos.zip"
           echo "ARTIFACT_NAME=AgentStudio-${VERSION}-macos.zip" >> $GITHUB_ENV
 
       - name: Compute SHA256

@@ -12,11 +12,19 @@ struct HomebrewBetaReleaseScriptsTests {
         #expect(stable.stdout.contains("channel=stable"))
         #expect(stable.stdout.contains("cask_token=agent-studio"))
         #expect(stable.stdout.contains("data_dir_name=.agentstudio"))
+        #expect(stable.stdout.contains("app_bundle_name=AgentStudio.app"))
+        #expect(stable.stdout.contains("bundle_identifier=com.agentstudio.app"))
+        #expect(stable.stdout.contains("bundle_display_name=Agent Studio"))
+        #expect(stable.stdout.contains("app_cache_domain=com.agentstudio.app"))
 
         #expect(beta.exitCode == 0)
         #expect(beta.stdout.contains("channel=beta"))
         #expect(beta.stdout.contains("cask_token=agent-studio@beta"))
         #expect(beta.stdout.contains("data_dir_name=.agent-studio-b"))
+        #expect(beta.stdout.contains("app_bundle_name=AgentStudio Beta.app"))
+        #expect(beta.stdout.contains("bundle_identifier=com.agentstudio.app.beta"))
+        #expect(beta.stdout.contains("bundle_display_name=Agent Studio Beta"))
+        #expect(beta.stdout.contains("app_cache_domain=com.agentstudio.app.beta"))
     }
 
     @Test("release tag metadata rejects malformed beta tags")
@@ -41,34 +49,73 @@ struct HomebrewBetaReleaseScriptsTests {
         #expect(stable.exitCode == 0)
         #expect(stable.stdout.contains("cask \"agent-studio\" do"))
         #expect(stable.stdout.contains("version \"0.0.54\""))
-        #expect(stable.stdout.contains("conflicts_with cask: \"agent-studio@beta\""))
+        #expect(stable.stdout.contains("name \"Agent Studio\""))
+        #expect(!stable.stdout.contains("conflicts_with cask: \"agent-studio@beta\""))
         #expect(stable.stdout.contains("depends_on macos: :tahoe"))
+        #expect(stable.stdout.contains("app \"AgentStudio.app\""))
         #expect(!stable.stdout.contains("desc \"macOS"))
         #expect(!stable.stdout.contains("depends_on macos: \">= :tahoe\""))
         #expect(stable.stdout.contains("\"~/.agentstudio\""))
+        #expect(stable.stdout.contains("\"~/Library/Caches/com.agentstudio.app\""))
+        #expect(stable.stdout.contains("\"~/Library/Preferences/com.agentstudio.app.plist\""))
+        #expect(stable.stdout.contains("\"~/Library/Saved Application State/com.agentstudio.app.savedState\""))
 
         #expect(beta.exitCode == 0)
         #expect(beta.stdout.contains("cask \"agent-studio@beta\" do"))
         #expect(beta.stdout.contains("version \"0.0.54-beta.1\""))
-        #expect(beta.stdout.contains("conflicts_with cask: \"agent-studio\""))
+        #expect(beta.stdout.contains("name \"Agent Studio Beta\""))
+        #expect(!beta.stdout.contains("conflicts_with cask: \"agent-studio\""))
         #expect(beta.stdout.contains("depends_on macos: :tahoe"))
+        #expect(beta.stdout.contains("app \"AgentStudio Beta.app\""))
         #expect(!beta.stdout.contains("desc \"macOS"))
         #expect(!beta.stdout.contains("depends_on macos: \">= :tahoe\""))
         #expect(beta.stdout.contains("\"~/.agent-studio-b\""))
+        #expect(beta.stdout.contains("\"~/Library/Caches/com.agentstudio.app.beta\""))
+        #expect(beta.stdout.contains("\"~/Library/Preferences/com.agentstudio.app.beta.plist\""))
+        #expect(beta.stdout.contains("\"~/Library/Saved Application State/com.agentstudio.app.beta.savedState\""))
 
-        let conflictsLine = try #require(beta.stdout.lineNumber(of: "  conflicts_with cask: \"agent-studio\""))
         let dependsLine = try #require(beta.stdout.lineNumber(of: "  depends_on macos: :tahoe"))
-        let appLine = try #require(beta.stdout.lineNumber(of: "  app \"AgentStudio.app\""))
-        #expect(conflictsLine < dependsLine)
+        let appLine = try #require(beta.stdout.lineNumber(of: "  app \"AgentStudio Beta.app\""))
         #expect(dependsLine < appLine)
 
         let dataLine = try #require(beta.stdout.lineNumber(of: "    \"~/.agent-studio-b\","))
-        let cacheLine = try #require(beta.stdout.lineNumber(of: "    \"~/Library/Caches/com.agentstudio.app\","))
+        let cacheLine = try #require(beta.stdout.lineNumber(of: "    \"~/Library/Caches/com.agentstudio.app.beta\","))
         let preferencesLine = try #require(
-            beta.stdout.lineNumber(of: "    \"~/Library/Preferences/com.agentstudio.app.plist\",")
+            beta.stdout.lineNumber(of: "    \"~/Library/Preferences/com.agentstudio.app.beta.plist\",")
+        )
+        let savedStateLine = try #require(
+            beta.stdout.lineNumber(of: "    \"~/Library/Saved Application State/com.agentstudio.app.beta.savedState\",")
         )
         #expect(dataLine < cacheLine)
         #expect(cacheLine < preferencesLine)
+        #expect(preferencesLine < savedStateLine)
+    }
+
+    @Test("bundle version injection applies side-by-side beta identity")
+    func bundleVersionInjectionAppliesSideBySideBetaIdentity() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-plist-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let plistURL = temporaryDirectory.appending(path: "Info.plist")
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: "Sources/AgentStudio/Resources/Info.plist"),
+            to: plistURL
+        )
+
+        let result = try runScript(
+            "scripts/inject-bundle-version.sh",
+            [plistURL.path, "0.0.54-beta.1", "123", "beta"]
+        )
+
+        #expect(result.exitCode == 0)
+        #expect(try plistStringValue(at: plistURL, key: "CFBundleShortVersionString") == "0.0.54-beta.1")
+        #expect(try plistStringValue(at: plistURL, key: "CFBundleVersion") == "123")
+        #expect(try plistStringValue(at: plistURL, key: "AgentStudioReleaseChannel") == "beta")
+        #expect(try plistStringValue(at: plistURL, key: "CFBundleIdentifier") == "com.agentstudio.app.beta")
+        #expect(try plistStringValue(at: plistURL, key: "CFBundleName") == "AgentStudio Beta")
+        #expect(try plistStringValue(at: plistURL, key: "CFBundleDisplayName") == "Agent Studio Beta")
     }
 
     @Test("tap updater dry run writes only the selected cask")
@@ -135,6 +182,12 @@ struct HomebrewBetaReleaseScriptsTests {
             stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
             stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         )
+    }
+
+    private func plistStringValue(at plistURL: URL, key: String) throws -> String? {
+        let data = try Data(contentsOf: plistURL)
+        let plist = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        return (plist as? [String: Any])?[key] as? String
     }
 }
 
