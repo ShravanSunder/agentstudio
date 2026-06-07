@@ -26,6 +26,7 @@ final class WorkspaceStore {
     let mutationCoordinator: WorkspaceMutationCoordinator
 
     private let persistor: WorkspacePersistor
+    private let sqliteBackend: WorkspaceSQLiteStoreBackend?
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -46,6 +47,7 @@ final class WorkspaceStore {
         tabLayoutAtom: WorkspaceTabLayoutAtom? = nil,
         mutationCoordinator: WorkspaceMutationCoordinator? = nil,
         persistor: WorkspacePersistor = WorkspacePersistor(),
+        sqliteBackend: WorkspaceSQLiteStoreBackend? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
@@ -86,6 +88,7 @@ final class WorkspaceStore {
                 workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
         self.persistor = persistor
+        self.sqliteBackend = sqliteBackend
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
         self.recoveryReporter = recoveryReporter
@@ -100,6 +103,10 @@ final class WorkspaceStore {
     // MARK: - Persistence
 
     func restore() {
+        if let sqliteBackend, restoreFromSQLite(sqliteBackend) {
+            return
+        }
+
         _ = persistor.ensureDirectory()
         switch persistor.load() {
         case .loaded(let state):
@@ -197,13 +204,6 @@ final class WorkspaceStore {
     @discardableResult
     private func persistNow() -> Bool {
         prePersistHook?()
-        guard persistor.ensureDirectory() else {
-            workspaceStoreLogger.error(
-                "Failed to persist workspace because the workspaces directory could not be created"
-            )
-            reportSaveFailed()
-            return false
-        }
 
         let persistedAt = Date()
         let state = WorkspacePersistenceTransformer.makePersistableState(
@@ -216,7 +216,18 @@ final class WorkspaceStore {
         )
 
         do {
-            try persistor.save(state)
+            if let sqliteBackend {
+                try sqliteBackend.save(state)
+            } else {
+                guard persistor.ensureDirectory() else {
+                    workspaceStoreLogger.error(
+                        "Failed to persist workspace because the workspaces directory could not be created"
+                    )
+                    reportSaveFailed()
+                    return false
+                }
+                try persistor.save(state)
+            }
             if isDirty {
                 isDirty = false
                 ProcessInfo.processInfo.enableSuddenTermination()
@@ -225,6 +236,39 @@ final class WorkspaceStore {
         } catch {
             workspaceStoreLogger.error("Failed to persist workspace: \(error.localizedDescription)")
             reportSaveFailed()
+            return false
+        }
+    }
+
+    private func restoreFromSQLite(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> Bool {
+        do {
+            guard let state = try sqliteBackend.load(preferredWorkspaceId: identityAtom.workspaceId) else {
+                return false
+            }
+            isRestoringState = true
+            WorkspacePersistenceTransformer.hydrate(
+                state,
+                identityAtom: identityAtom,
+                windowMemoryAtom: windowMemoryAtom,
+                repositoryTopologyAtom: repositoryTopologyAtom,
+                workspacePaneAtom: paneAtom,
+                workspaceTabLayoutAtom: tabLayoutAtom
+            )
+            isRestoringState = false
+            workspaceStoreLogger.info(
+                "Restored SQLite workspace '\(state.name)' with \(self.paneAtom.panes.count) pane(s), \(self.tabLayoutAtom.tabs.count) tab(s)"
+            )
+            return true
+        } catch {
+            isRestoringState = false
+            workspaceStoreLogger.error("Failed to restore SQLite workspace: \(error.localizedDescription)")
+            recoveryReporter?(
+                .init(
+                    store: .workspace,
+                    workspaceId: identityAtom.workspaceId,
+                    recovery: .resetToDefaults
+                )
+            )
             return false
         }
     }

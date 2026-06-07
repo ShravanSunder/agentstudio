@@ -69,6 +69,24 @@ struct AppBootSequenceTests {
         #expect(appDelegateSource.contains("workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)"))
     }
 
+    @Test("boot injects SQLite workspace backend into canonical store")
+    func bootInjectsSQLiteWorkspaceBackendIntoCanonicalStore() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
+        )
+
+        #expect(appDelegateSource.contains("makeWorkspaceSQLiteStoreBackend()"))
+        #expect(appDelegateSource.contains("sqliteBackend: workspaceSQLiteStoreBackend"))
+        #expect(appDelegateSource.contains("WorkspaceCoreRepository(databaseWriter: coreDatabasePool)"))
+        #expect(appDelegateSource.contains("WorkspaceLocalRepository("))
+        #expect(appDelegateSource.contains("workspaceId: workspaceId,"))
+        #expect(appDelegateSource.contains("databaseWriter: localDatabasePool"))
+        #expect(appDelegateSource.contains("try coreRepository.migrate()"))
+        #expect(appDelegateSource.contains("try localRepository.migrate()"))
+    }
+
     @Test("termination flushes settings before shutdown completes")
     func terminationFlushesSettingsBeforeShutdownCompletes() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

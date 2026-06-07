@@ -75,6 +75,26 @@ struct AppDataPathsTests {
     }
 
     @Test
+    func test_sqlitePathsFollowRootAndWorkspaceDirectory() {
+        let env = ["AGENTSTUDIO_DATA_DIR": "~/sqlite-root"]
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+        let workspaceId = UUID(uuidString: "00000000-0000-7000-8000-000000000001")!
+
+        let coreURL = AppDataPaths.coreSQLiteURL(
+            environment: env,
+            isDebugBuild: false
+        )
+        let localURL = AppDataPaths.workspaceLocalSQLiteURL(
+            workspaceId: workspaceId,
+            environment: env,
+            isDebugBuild: false
+        )
+
+        #expect(coreURL.path == "\(homeDir)/sqlite-root/core.sqlite")
+        #expect(localURL.path == "\(homeDir)/sqlite-root/workspaces/\(workspaceId.uuidString).local.sqlite")
+    }
+
+    @Test
     func test_displayPathUsesTildeForHomeDirectory() {
         let root = AppDataPaths.rootDirectory(
             environment: [:],

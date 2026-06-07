@@ -115,6 +115,7 @@ extension AppDelegate {
     private func bootLoadCanonicalStore() {
         atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
+        let workspaceSQLiteStoreBackend = makeWorkspaceSQLiteStoreBackend()
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
@@ -122,6 +123,7 @@ extension AppDelegate {
             paneAtom: atomStore.workspacePane,
             tabLayoutAtom: atomStore.workspaceTabLayout,
             mutationCoordinator: atomStore.workspaceMutationCoordinator,
+            sqliteBackend: workspaceSQLiteStoreBackend,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
@@ -168,6 +170,42 @@ extension AppDelegate {
         RestoreTrace.log(
             "store.restore complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.panes.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
+    }
+
+    private func makeWorkspaceSQLiteStoreBackend() -> WorkspaceSQLiteStoreBackend? {
+        do {
+            let coreDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+                at: AppDataPaths.coreSQLiteURL(),
+                label: "AgentStudio.sqlite.core"
+            )
+            let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabasePool)
+            try coreRepository.migrate()
+            return WorkspaceSQLiteStoreBackend(
+                coreRepository: coreRepository,
+                makeLocalRepository: { workspaceId in
+                    let localDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+                        at: AppDataPaths.workspaceLocalSQLiteURL(workspaceId: workspaceId),
+                        label: "AgentStudio.sqlite.local.\(workspaceId.uuidString)"
+                    )
+                    let localRepository = WorkspaceLocalRepository(
+                        workspaceId: workspaceId,
+                        databaseWriter: localDatabasePool
+                    )
+                    try localRepository.migrate()
+                    return localRepository
+                }
+            )
+        } catch {
+            appLogger.error("Failed to prepare SQLite workspace backend: \(error.localizedDescription)")
+            recordPersistenceRecovery(
+                .init(
+                    store: .workspace,
+                    workspaceId: nil,
+                    recovery: .resetToDefaults
+                )
+            )
+            return nil
+        }
     }
 
     private func bootLoadCacheStore(persistor: WorkspacePersistor) {

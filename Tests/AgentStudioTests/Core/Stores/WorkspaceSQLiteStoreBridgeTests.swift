@@ -1,0 +1,201 @@
+import CoreGraphics
+import Foundation
+import GRDB
+import Testing
+
+@testable import AgentStudio
+
+@MainActor
+@Suite("WorkspaceSQLiteStoreBridgeTests", .serialized)
+struct WorkspaceSQLiteStoreBridgeTests {
+    @Test("flush writes workspace graph lanes to core and cursor/window lanes to local SQLite")
+    func flushWritesSplitWorkspaceLanesToSQLite() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "SQLite Workspace",
+            createdAt: createdAt
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteBackend: fixture.backend
+        )
+
+        let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-sqlite-repo"))
+        let discoveredWorktree = Worktree(
+            repoId: repo.id,
+            name: "main",
+            path: URL(filePath: "/tmp/agent-studio-sqlite-repo"),
+            isMainWorktree: true
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [discoveredWorktree])
+        let worktree = try #require(store.repositoryTopologyAtom.repo(repo.id)?.worktrees.single)
+        store.windowMemoryAtom.setSidebarWidth(321)
+        store.windowMemoryAtom.setWindowFrame(CGRect(x: 10, y: 20, width: 900, height: 700))
+        let pane = store.createPane(
+            source: TerminalSource.worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "SQLite Pane",
+            facets: PaneContextFacets(
+                repoName: "Derived Repo Name",
+                worktreeName: "Derived Worktree Name",
+                cwd: worktree.path.appending(path: "Sources"),
+                tags: ["swift", "sqlite"]
+            )
+        )
+        var tab = Tab(paneId: pane.id, name: "SQLite Tab")
+        let secondArrangement = PaneArrangement(
+            name: "Review",
+            isDefault: false,
+            layout: Layout(paneId: pane.id),
+            activePaneId: pane.id
+        )
+        tab.arrangements.append(secondArrangement)
+        store.appendTab(tab)
+        store.switchArrangement(to: secondArrangement.id, inTab: tab.id)
+
+        #expect(store.flush())
+
+        let workspace = try #require(try fixture.coreRepository.fetchWorkspace(id: workspaceId))
+        #expect(workspace.name == "SQLite Workspace")
+        #expect(workspace.createdAt == createdAt)
+
+        let topology = try fixture.coreRepository.fetchRepositoryTopology(workspaceId: workspaceId)
+        #expect(topology.repos.map(\.id) == [repo.id])
+        #expect(topology.repos.single?.worktrees.map(\.id) == [worktree.id])
+
+        let paneGraph = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceId)
+        let paneRecord = try #require(paneGraph.panes.single)
+        #expect(paneRecord.id == pane.id)
+        #expect(paneRecord.metadata.title == "SQLite Pane")
+        #expect(paneRecord.metadata.durableFacets.tags == ["sqlite", "swift"])
+
+        let shells = try fixture.coreRepository.fetchTabShells(workspaceId: workspaceId)
+        #expect(shells == [.init(id: tab.id, name: "SQLite Tab")])
+        let tabGraph = try fixture.coreRepository.fetchTabGraph(workspaceId: workspaceId)
+        let tabState = try #require(tabGraph.tabs.single)
+        #expect(tabState.tabId == tab.id)
+        #expect(tabState.allPaneIds == [pane.id])
+        #expect(tabState.arrangements.map(\.id).contains(secondArrangement.id))
+
+        let windowState = try #require(try fixture.localRepository.fetchWindowState())
+        #expect(windowState.sidebarWidth == 321)
+        #expect(windowState.windowFrame == CGRect(x: 10, y: 20, width: 900, height: 700))
+
+        let cursorState = try fixture.localRepository.fetchCursorState()
+        #expect(cursorState.activeTabId == tab.id)
+        #expect(cursorState.activeArrangementIdsByTabId[tab.id] == secondArrangement.id)
+        #expect(cursorState.activePaneIdsByArrangementId[secondArrangement.id] == pane.id)
+    }
+
+    @Test("restore hydrates workspace atoms from active SQLite workspace")
+    func restoreHydratesAtomsFromSQLite() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_100)
+        let paneId = UUIDv7.generate()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let arrangementId = UUID()
+        let tabId = UUID()
+        let repoPath = URL(filePath: "/tmp/agent-studio-restore-repo")
+        let pane = Pane(
+            id: paneId,
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                paneId: PaneId(uuid: paneId),
+                source: .worktree(worktreeId: worktreeId, repoId: repoId, launchDirectory: repoPath),
+                createdAt: createdAt,
+                title: "Restored SQLite Pane",
+                facets: PaneContextFacets(cwd: repoPath.appending(path: "Sources"), tags: ["restore"])
+            )
+        )
+        let arrangement = PaneArrangement(
+            id: arrangementId,
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: paneId),
+            activePaneId: paneId
+        )
+        let tab = Tab(
+            id: tabId,
+            name: "Restored Tab",
+            allPaneIds: [paneId],
+            arrangements: [arrangement],
+            activeArrangementId: arrangementId
+        )
+        try fixture.backend.save(
+            .init(
+                id: workspaceId,
+                name: "Restored SQLite Workspace",
+                repos: [.init(id: repoId, name: "restore-repo", repoPath: repoPath, createdAt: createdAt)],
+                worktrees: [
+                    .init(
+                        id: worktreeId,
+                        repoId: repoId,
+                        name: "main",
+                        path: repoPath,
+                        isMainWorktree: true
+                    )
+                ],
+                panes: [pane],
+                tabs: [tab],
+                activeTabId: tabId,
+                sidebarWidth: 444,
+                windowFrame: CGRect(x: 1, y: 2, width: 800, height: 600),
+                createdAt: createdAt,
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_200)
+            )
+        )
+
+        let restoredStore = WorkspaceStore(
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteBackend: fixture.backend
+        )
+
+        restoredStore.restore()
+
+        #expect(restoredStore.identityAtom.workspaceId == workspaceId)
+        #expect(restoredStore.identityAtom.workspaceName == "Restored SQLite Workspace")
+        #expect(restoredStore.windowMemoryAtom.sidebarWidth == 444)
+        #expect(restoredStore.windowMemoryAtom.windowFrame == CGRect(x: 1, y: 2, width: 800, height: 600))
+        #expect(restoredStore.repositoryTopologyAtom.repos.single?.id == repoId)
+        #expect(restoredStore.paneAtom.pane(paneId)?.title == "Restored SQLite Pane")
+        #expect(restoredStore.tabLayoutAtom.activeTabId == tabId)
+        #expect(restoredStore.tabLayoutAtom.tab(tabId)?.activeArrangementId == arrangementId)
+        #expect(!restoredStore.isDirty)
+    }
+}
+
+private struct WorkspaceSQLiteBridgeFixture {
+    let coreRepository: WorkspaceCoreRepository
+    let localRepository: WorkspaceLocalRepository
+    let backend: WorkspaceSQLiteStoreBackend
+}
+
+private func makeWorkspaceSQLiteBridgeFixture(workspaceId: UUID) throws -> WorkspaceSQLiteBridgeFixture {
+    let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.bridge.core")
+    let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.bridge.local")
+    try WorkspaceCoreMigrations.migrate(coreQueue)
+    try WorkspaceLocalMigrations.migrate(localQueue)
+    let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+    let localRepository = WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
+    let backend = WorkspaceSQLiteStoreBackend(
+        coreRepository: coreRepository,
+        makeLocalRepository: { workspaceId in
+            WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
+        }
+    )
+    return .init(
+        coreRepository: coreRepository,
+        localRepository: localRepository,
+        backend: backend
+    )
+}
