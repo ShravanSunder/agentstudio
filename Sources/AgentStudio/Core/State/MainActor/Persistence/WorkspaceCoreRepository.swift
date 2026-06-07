@@ -378,6 +378,28 @@ struct WorkspaceCoreRepository {
     }
 
     @discardableResult
+    func repairActiveCompletedWorkspaceSelection(updatedAt: Date) throws -> UUID? {
+        try databaseWriter.write { database in
+            if let currentIdString = try fetchActiveWorkspaceIdStringFromDatabase(database),
+                UUID(uuidString: currentIdString) != nil,
+                try workspaceExists(database, id: currentIdString),
+                try completedWorkspaceSQLiteSnapshotExists(database, id: currentIdString)
+            {
+                return UUID(uuidString: currentIdString)
+            }
+
+            let fallbackIdString = try fetchFallbackCompletedWorkspaceIdString(database)
+            try updateActiveWorkspaceSelection(
+                database,
+                workspaceId: fallbackIdString,
+                updatedAt: updatedAt
+            )
+            guard let fallbackIdString else { return nil }
+            return UUID(uuidString: fallbackIdString)
+        }
+    }
+
+    @discardableResult
     func deleteWorkspace(_ workspaceId: UUID, updatedAt: Date) throws -> UUID? {
         try databaseWriter.write { database in
             try requireWorkspaceExists(database, id: workspaceId)
@@ -585,6 +607,34 @@ private func fetchFallbackWorkspaceIdString(
             LIMIT 1
             """
     )
+}
+
+private func fetchFallbackCompletedWorkspaceIdString(_ database: Database) throws -> String? {
+    try String.fetchOne(
+        database,
+        sql: """
+            SELECT workspace.id
+            FROM workspace
+            JOIN workspace_sqlite_snapshot_status
+              ON workspace_sqlite_snapshot_status.workspace_id = workspace.id
+            ORDER BY workspace.updated_at DESC, workspace.id ASC
+            LIMIT 1
+            """
+    )
+}
+
+private func completedWorkspaceSQLiteSnapshotExists(_ database: Database, id: String) throws -> Bool {
+    let count =
+        try Int.fetchOne(
+            database,
+            sql: """
+                SELECT count(*)
+                FROM workspace_sqlite_snapshot_status
+                WHERE workspace_id = ?
+                """,
+            arguments: [id]
+        ) ?? 0
+    return count > 0
 }
 
 private func updateActiveWorkspaceSelection(
