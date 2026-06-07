@@ -26,8 +26,8 @@ Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A P
 
 Releases are tag-driven from `main` via `.github/workflows/release.yml`; tag parsing lives in `scripts/release-tag-metadata.sh`.
 
-- Stable: `v0.0.54` → `AgentStudio.app`, `com.agentstudio.app`, `~/.agentstudio`, `agentstudio://oauth/callback`, Homebrew `agent-studio`.
-- Beta: `v0.0.54-beta.5` → `AgentStudio Beta.app`, `com.agentstudio.app.beta`, `~/.agent-studio-b`, `agentstudio-beta://oauth/callback`, Homebrew `agent-studio@beta`.
+- Stable: `vX.Y.Z` → `AgentStudio.app`, `com.agentstudio.app`, `~/.agentstudio`, `agentstudio://oauth/callback`, Homebrew `agent-studio`.
+- Beta: `vX.Y.Z-beta.N` → `AgentStudio Beta.app`, `com.agentstudio.app.beta`, `~/.agent-studio-b`, `agentstudio-beta://oauth/callback`, Homebrew `agent-studio@beta`.
 
 Before pushing a release tag, verify from the merged `main` commit:
 
