@@ -40,7 +40,7 @@ extension AppDelegate {
     ) -> (InboxNotificationSQLiteRepository?, Bool) {
         guard let workspaceLocalSQLiteStoreBackend else { return (nil, true) }
         do {
-            let localRepository = try workspaceLocalSQLiteStoreBackend.repository(for: workspaceId)
+            let localRepository = try workspaceLocalSQLiteStoreBackend.restoreRepository(for: workspaceId)
             return (
                 InboxNotificationSQLiteRepository(
                     workspaceId: workspaceId,

@@ -152,7 +152,7 @@ final class SidebarCacheStore {
     private func restoreFromSQLite(for workspaceId: UUID) -> LocalSQLiteRestoreOutcome {
         guard let sqliteBackend else { return .missing }
         do {
-            let repository = try sqliteBackend.repository(for: workspaceId)
+            let repository = try sqliteBackend.restoreRepository(for: workspaceId)
             guard try repository.hasExpandedGroupsState() else { return .missing }
             isRestoringState = true
             atom.setExpandedGroups(try repository.fetchExpandedGroups())

@@ -74,4 +74,64 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
         )
         #expect(FileManager.default.fileExists(atPath: coreSQLiteURL.path))
     }
+
+    @Test("corrupt local SQLite is quarantined and does not replay stale legacy UI")
+    func corruptLocalSQLiteIsQuarantinedAndDoesNotReplayStaleLegacyUI() throws {
+        let rootDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-local-sqlite-factory-\(UUID().uuidString)")
+        let workspacesDirectory = rootDirectory.appending(path: "workspaces")
+        let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
+        try FileManager.default.createDirectory(
+            at: rootDirectory,
+            withIntermediateDirectories: true
+        )
+        let workspaceId = UUID()
+        let localSQLiteURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+        try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
+
+        let legacyPersistor = WorkspacePersistor(workspacesDir: workspacesDirectory)
+        #expect(legacyPersistor.ensureDirectory())
+        try legacyPersistor.saveUI(
+            .init(
+                workspaceId: workspaceId,
+                filterText: "stale legacy",
+                isFilterVisible: true,
+                sidebarCollapsed: true,
+                sidebarSurface: .inbox
+            )
+        )
+
+        var recoveryEvents: [PersistenceRecoveryEvent] = []
+        let factory = WorkspaceSQLiteStoreBackendFactory(
+            coreDatabaseURL: coreSQLiteURL,
+            localDatabaseURL: { _ in localSQLiteURL },
+            recoveryReporter: { event in recoveryEvents.append(event) }
+        )
+        let backend = try #require(factory.makeBackend())
+        let sidebarState = WorkspaceSidebarState()
+        let uiStateStore = UIStateStore(
+            atom: sidebarState,
+            editorChooserState: EditorChooserState(),
+            persistor: legacyPersistor,
+            sqliteBackend: backend.localBackend
+        )
+
+        uiStateStore.restore(for: workspaceId)
+
+        #expect(sidebarState.filterText.isEmpty)
+        #expect(sidebarState.filterText != "stale legacy")
+        #expect(sidebarState.sidebarSurface == .repos)
+        #expect(!uiStateStore.canArchiveLegacyUIFile)
+        #expect(
+            recoveryEvents.contains { event in
+                event.store == .workspace
+                    && event.workspaceId == workspaceId
+                    && event.recovery == .quarantinedAndReset
+                    && event.quarantinedFilename?.contains(".local.sqlite.corrupt-") == true
+            }
+        )
+        #expect(FileManager.default.fileExists(atPath: localSQLiteURL.path))
+        let recoveredRepository = try backend.localBackend.repository(for: workspaceId)
+        #expect(try recoveredRepository.fetchSidebarState() == nil)
+    }
 }

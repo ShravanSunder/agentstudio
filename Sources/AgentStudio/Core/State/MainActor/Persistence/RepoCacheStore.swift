@@ -216,7 +216,7 @@ final class RepoCacheStore {
     private func restoreFromSQLite(for workspaceId: UUID) -> LocalSQLiteRestoreOutcome {
         guard let sqliteBackend else { return .missing }
         do {
-            let repository = try sqliteBackend.repository(for: workspaceId)
+            let repository = try sqliteBackend.restoreRepository(for: workspaceId)
             guard try repository.hasCacheState(),
                 try repository.hasRecentTargetsState()
             else {

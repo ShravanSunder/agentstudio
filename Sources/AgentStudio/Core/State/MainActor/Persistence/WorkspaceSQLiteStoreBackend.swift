@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 
+@MainActor
 struct WorkspaceSQLiteStoreBackend {
     enum LoadResult {
         case loaded(WorkspacePersistor.PersistableState)
@@ -17,10 +18,14 @@ struct WorkspaceSQLiteStoreBackend {
 
     init(
         coreRepository: WorkspaceCoreRepository,
-        makeLocalRepository: @escaping (UUID) throws -> WorkspaceLocalRepository
+        makeLocalRepository: @escaping (UUID) throws -> WorkspaceLocalRepository,
+        makeLocalRestoreRepository: (@MainActor (UUID) throws -> WorkspaceLocalRepository)? = nil
     ) {
         self.coreRepository = coreRepository
-        self.localBackend = WorkspaceLocalSQLiteStoreBackend(makeLocalRepository: makeLocalRepository)
+        self.localBackend = WorkspaceLocalSQLiteStoreBackend(
+            makeLocalRepository: makeLocalRepository,
+            makeLocalRestoreRepository: makeLocalRestoreRepository
+        )
     }
 
     func load(preferredWorkspaceId: UUID) throws -> WorkspacePersistor.PersistableState? {
@@ -60,17 +65,23 @@ struct WorkspaceSQLiteStoreBackend {
         let paneGraph = try coreRepository.fetchPaneGraph(workspaceId: workspace.id)
         let tabShells = try coreRepository.fetchTabShells(workspaceId: workspace.id)
         let tabGraph = try coreRepository.fetchTabGraph(workspaceId: workspace.id)
-        let localRepository = try localBackend.repository(for: workspace.id)
-        let localCompletedAt = try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt()
+        let localRepository: WorkspaceLocalRepository?
+        do {
+            localRepository = try localBackend.restoreRepository(for: workspace.id)
+        } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption {
+            localRepository = nil
+        }
+        let localCompletedAt = try localRepository?.fetchCompletedWorkspaceSQLiteSnapshotAt()
         let localSnapshotMatchesCore = localCompletedAt == coreCompletedAt
-        let cursorState =
-            localSnapshotMatchesCore
-            ? try localRepository.fetchCursorState()
-            : WorkspaceSQLiteStateBridge.defaultCursorState(tabShells: tabShells, tabGraph: tabGraph)
-        let windowState =
-            localSnapshotMatchesCore
-            ? try localRepository.fetchWindowState()
-            : nil
+        let cursorState: WorkspaceLocalRepository.CursorStateRecord
+        let windowState: WorkspaceLocalRepository.WindowStateRecord?
+        if localSnapshotMatchesCore, let localRepository {
+            cursorState = try localRepository.fetchCursorState()
+            windowState = try localRepository.fetchWindowState()
+        } else {
+            cursorState = WorkspaceSQLiteStateBridge.defaultCursorState(tabShells: tabShells, tabGraph: tabGraph)
+            windowState = nil
+        }
 
         return try WorkspaceSQLiteStateBridge.persistableState(
             from: .init(
@@ -154,16 +165,37 @@ struct WorkspaceSQLiteStoreBackend {
 
 private struct BackendUninitializedError: Error {}
 
+@MainActor
 struct WorkspaceLocalSQLiteStoreBackend {
     private let makeLocalRepository: (UUID) throws -> WorkspaceLocalRepository
+    private let makeLocalRestoreRepository: @MainActor (UUID) throws -> WorkspaceLocalRepository
 
-    init(makeLocalRepository: @escaping (UUID) throws -> WorkspaceLocalRepository) {
+    init(
+        makeLocalRepository: @escaping (UUID) throws -> WorkspaceLocalRepository,
+        makeLocalRestoreRepository: (@MainActor (UUID) throws -> WorkspaceLocalRepository)? = nil
+    ) {
         self.makeLocalRepository = makeLocalRepository
+        if let makeLocalRestoreRepository {
+            self.makeLocalRestoreRepository = makeLocalRestoreRepository
+        } else {
+            self.makeLocalRestoreRepository = { workspaceId in
+                try makeLocalRepository(workspaceId)
+            }
+        }
     }
 
     func repository(for workspaceId: UUID) throws -> WorkspaceLocalRepository {
         try makeLocalRepository(workspaceId)
     }
+
+    @MainActor
+    func restoreRepository(for workspaceId: UUID) throws -> WorkspaceLocalRepository {
+        try makeLocalRestoreRepository(workspaceId)
+    }
+}
+
+enum WorkspaceLocalSQLiteStoreBackendError: Error {
+    case recoveredFromCorruption(UUID)
 }
 
 enum WorkspaceSQLiteStateBridge {

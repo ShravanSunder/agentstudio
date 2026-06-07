@@ -469,6 +469,7 @@ private struct WorkspaceSQLiteBridgeFixture {
     let backend: WorkspaceSQLiteStoreBackend
 }
 
+@MainActor
 private func makeWorkspaceSQLiteBridgeFixture(workspaceId: UUID) throws -> WorkspaceSQLiteBridgeFixture {
     let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.bridge.core")
     let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.bridge.local")

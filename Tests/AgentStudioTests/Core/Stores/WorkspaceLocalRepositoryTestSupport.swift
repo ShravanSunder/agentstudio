@@ -14,6 +14,7 @@ func makeWorkspaceLocalSQLiteStoreFixture(
     )
 }
 
+@MainActor
 func failingWorkspaceLocalSQLiteBackend() -> WorkspaceLocalSQLiteStoreBackend {
     WorkspaceLocalSQLiteStoreBackend { _ in
         throw CocoaError(.fileNoSuchFile)
@@ -24,6 +25,7 @@ struct WorkspaceLocalSQLiteStoreFixture {
     let repository: WorkspaceLocalRepository
     let databaseQueue: DatabaseQueue
 
+    @MainActor
     var sqliteBackend: WorkspaceLocalSQLiteStoreBackend {
         WorkspaceLocalSQLiteStoreBackend(makeLocalRepository: { _ in repository })
     }
