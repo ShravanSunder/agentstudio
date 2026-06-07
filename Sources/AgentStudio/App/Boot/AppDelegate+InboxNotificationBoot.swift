@@ -65,9 +65,6 @@ extension AppDelegate {
     private func observeInboxNotificationPersistence() {
         withObservationTracking {
             _ = atomStore.inboxNotification.notifications
-            _ = atomStore.inboxNotificationPrefs.grouping
-            _ = atomStore.inboxNotificationPrefs.sort
-            _ = atomStore.inboxNotificationPrefs.bellEnabled
             _ = atomStore.inboxSidebarState.collapsedGroups
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in

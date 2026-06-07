@@ -215,54 +215,87 @@ enum WorkspaceLocalRepositoryStorage {
         )
     }
 
-    static func replaceWorkspaceMemoryRows(
+    static func replaceWindowStateRows(
         _ database: Database,
         workspaceId: UUID,
-        memoryState: WorkspaceLocalRepository.WorkspaceMemoryRecord,
+        windowState: WorkspaceLocalRepository.WindowStateRecord?,
         updatedAt: Date
     ) throws {
         let workspaceIdString = workspaceId.uuidString
-        let updatedAtValue = updatedAt.timeIntervalSince1970
         try deleteRows(database, table: "local_workspace_window_state", workspaceIdString: workspaceIdString)
-        try deleteRows(database, table: "local_sidebar_state", workspaceIdString: workspaceIdString)
-        try deleteRows(database, table: "local_sidebar_expanded_group", workspaceIdString: workspaceIdString)
-        try deleteRows(database, table: "local_recent_workspace_target", workspaceIdString: workspaceIdString)
+        guard let windowState else { return }
+        try database.execute(
+            sql: """
+                INSERT INTO local_workspace_window_state(
+                    workspace_id, sidebar_width, window_frame_json, updated_at
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+            arguments: [
+                workspaceIdString,
+                windowState.sidebarWidth,
+                try WorkspaceLocalRepositoryCodecs.encodeWindowFrame(windowState.windowFrame),
+                updatedAt.timeIntervalSince1970,
+            ]
+        )
+    }
 
-        if let windowState = memoryState.windowState {
-            try database.execute(
-                sql: """
-                    INSERT INTO local_workspace_window_state(
-                        workspace_id, sidebar_width, window_frame_json, updated_at
-                    )
-                    VALUES (?, ?, ?, ?)
-                    """,
-                arguments: [
-                    workspaceIdString,
-                    windowState.sidebarWidth,
-                    try WorkspaceLocalRepositoryCodecs.encodeWindowFrame(windowState.windowFrame),
-                    updatedAtValue,
-                ]
-            )
-        }
-        if let sidebarState = memoryState.sidebarState {
-            try database.execute(
-                sql: """
-                    INSERT INTO local_sidebar_state(
-                        workspace_id, filter_text, is_filter_visible, sidebar_collapsed, sidebar_surface, updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                arguments: [
-                    workspaceIdString,
-                    sidebarState.filterText,
-                    sidebarState.isFilterVisible ? 1 : 0,
-                    sidebarState.sidebarCollapsed ? 1 : 0,
-                    SQLiteLocalUXStorage.storageValue(for: sidebarState.sidebarSurface),
-                    updatedAtValue,
-                ]
-            )
-        }
-        for groupKey in memoryState.expandedGroups {
+    static func fetchWindowStateRows(
+        _ database: Database,
+        workspaceId: UUID
+    ) throws -> WorkspaceLocalRepository.WindowStateRecord? {
+        try WorkspaceLocalRepositoryCodecs.fetchWindowState(
+            database,
+            workspaceIdString: workspaceId.uuidString
+        )
+    }
+
+    static func replaceSidebarStateRows(
+        _ database: Database,
+        workspaceId: UUID,
+        sidebarState: WorkspaceLocalRepository.SidebarStateRecord?,
+        updatedAt: Date
+    ) throws {
+        let workspaceIdString = workspaceId.uuidString
+        try deleteRows(database, table: "local_sidebar_state", workspaceIdString: workspaceIdString)
+        guard let sidebarState else { return }
+        try database.execute(
+            sql: """
+                INSERT INTO local_sidebar_state(
+                    workspace_id, filter_text, is_filter_visible, sidebar_collapsed, sidebar_surface, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                workspaceIdString,
+                sidebarState.filterText,
+                sidebarState.isFilterVisible ? 1 : 0,
+                sidebarState.sidebarCollapsed ? 1 : 0,
+                SQLiteLocalUXStorage.storageValue(for: sidebarState.sidebarSurface),
+                updatedAt.timeIntervalSince1970,
+            ]
+        )
+    }
+
+    static func fetchSidebarStateRows(
+        _ database: Database,
+        workspaceId: UUID
+    ) throws -> WorkspaceLocalRepository.SidebarStateRecord? {
+        try WorkspaceLocalRepositoryCodecs.fetchSidebarState(
+            database,
+            workspaceIdString: workspaceId.uuidString
+        )
+    }
+
+    static func replaceExpandedGroupRows(
+        _ database: Database,
+        workspaceId: UUID,
+        expandedGroups: Set<SidebarGroupKey>,
+        updatedAt _: Date
+    ) throws {
+        let workspaceIdString = workspaceId.uuidString
+        try deleteRows(database, table: "local_sidebar_expanded_group", workspaceIdString: workspaceIdString)
+        for groupKey in expandedGroups {
             try database.execute(
                 sql: """
                     INSERT INTO local_sidebar_expanded_group(workspace_id, group_key)
@@ -271,7 +304,33 @@ enum WorkspaceLocalRepositoryStorage {
                 arguments: [workspaceIdString, groupKey.rawValue]
             )
         }
-        for target in memoryState.recentTargets {
+    }
+
+    static func fetchExpandedGroupRows(
+        _ database: Database,
+        workspaceId: UUID
+    ) throws -> Set<SidebarGroupKey> {
+        let expandedGroupValues = try String.fetchAll(
+            database,
+            sql: """
+                SELECT group_key
+                FROM local_sidebar_expanded_group
+                WHERE workspace_id = ?
+                """,
+            arguments: [workspaceId.uuidString]
+        )
+        return Set(expandedGroupValues.map { rawValue in SidebarGroupKey(rawValue) })
+    }
+
+    static func replaceRecentTargetRows(
+        _ database: Database,
+        workspaceId: UUID,
+        recentTargets: [RecentWorkspaceTarget],
+        updatedAt _: Date
+    ) throws {
+        let workspaceIdString = workspaceId.uuidString
+        try deleteRows(database, table: "local_recent_workspace_target", workspaceIdString: workspaceIdString)
+        for target in recentTargets {
             try WorkspaceLocalRepositoryCodecs.insertRecentWorkspaceTarget(
                 database,
                 workspaceIdString: workspaceIdString,
@@ -280,40 +339,13 @@ enum WorkspaceLocalRepositoryStorage {
         }
     }
 
-    static func fetchWorkspaceMemoryRows(
+    static func fetchRecentTargetRows(
         _ database: Database,
         workspaceId: UUID
-    ) throws -> WorkspaceLocalRepository.WorkspaceMemoryRecord {
-        let workspaceIdString = workspaceId.uuidString
-        let windowState = try WorkspaceLocalRepositoryCodecs.fetchWindowState(
+    ) throws -> [RecentWorkspaceTarget] {
+        try WorkspaceLocalRepositoryCodecs.fetchRecentWorkspaceTargets(
             database,
-            workspaceIdString: workspaceIdString
-        )
-        let sidebarState = try WorkspaceLocalRepositoryCodecs.fetchSidebarState(
-            database,
-            workspaceIdString: workspaceIdString
-        )
-        let expandedGroupValues = try String.fetchAll(
-            database,
-            sql: """
-                SELECT group_key
-                FROM local_sidebar_expanded_group
-                WHERE workspace_id = ?
-                """,
-            arguments: [workspaceIdString]
-        )
-        let expandedGroups: Set<SidebarGroupKey> = Set(
-            expandedGroupValues.map { rawValue in SidebarGroupKey(rawValue) }
-        )
-        let recentTargets = try WorkspaceLocalRepositoryCodecs.fetchRecentWorkspaceTargets(
-            database,
-            workspaceIdString: workspaceIdString
-        )
-        return .init(
-            windowState: windowState,
-            sidebarState: sidebarState,
-            expandedGroups: expandedGroups,
-            recentTargets: recentTargets
+            workspaceIdString: workspaceId.uuidString
         )
     }
 

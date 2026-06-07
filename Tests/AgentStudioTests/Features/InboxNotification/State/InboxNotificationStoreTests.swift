@@ -64,9 +64,9 @@ struct InboxNotificationStoreTests {
 
         #expect(atom2.notifications.count == 1)
         #expect(atom2.notifications[0].id == note.id)
-        #expect(prefs2.grouping == .byRepo)
-        #expect(prefs2.sort == .oldestFirst)
-        #expect(prefs2.bellEnabled == true)
+        #expect(prefs2.grouping == .byTab)
+        #expect(prefs2.sort == .newestFirst)
+        #expect(prefs2.bellEnabled == false)
         #expect(sidebarState2.collapsedGroups == [InboxNotificationGroupKey("repo:agent-studio")])
     }
 
@@ -398,8 +398,8 @@ struct InboxNotificationStoreTests {
         #expect(restoredAtom.notifications.map(\.id) == [staleNotification.id, finalNotification.id])
     }
 
-    @Test("load defaults bad preference fields independently")
-    func loadDefaultsBadPreferenceFieldsIndependently() throws {
+    @Test("load leaves legacy preference fields to settings store")
+    func loadLeavesLegacyPreferenceFieldsToSettingsStore() throws {
         let url = makeTempURL()
         let json = """
             {
@@ -415,6 +415,9 @@ struct InboxNotificationStoreTests {
         try Data(json.utf8).write(to: url, options: .atomic)
         let atom = InboxNotificationAtom()
         let prefs = InboxNotificationPrefsAtom()
+        prefs.setGrouping(.byRepo)
+        prefs.setSort(.newestFirst)
+        prefs.setBellEnabled(false)
         let store = InboxNotificationStore(
             inboxAtom: atom,
             prefsAtom: prefs,
@@ -424,9 +427,9 @@ struct InboxNotificationStoreTests {
         try store.load()
 
         #expect(atom.notifications.isEmpty)
-        #expect(prefs.grouping == .byTab)
-        #expect(prefs.sort == .oldestFirst)
-        #expect(prefs.bellEnabled)
+        #expect(prefs.grouping == .byRepo)
+        #expect(prefs.sort == .newestFirst)
+        #expect(!prefs.bellEnabled)
     }
 
     @Test("debounce clock failure still saves immediately")

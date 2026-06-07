@@ -146,6 +146,14 @@ extension AppDelegate {
                 self?.recordPersistenceRecovery(event)
             }
         )
+        workspaceSettingsStore = WorkspaceSettingsStore(
+            editorPreferenceAtom: atomStore.editorPreference,
+            sidebarCheckoutColorAtom: atomStore.sidebarCheckoutColor,
+            inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
         traceRuntime = .fromEnvironment()
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
@@ -169,6 +177,7 @@ extension AppDelegate {
     }
 
     private func bootLoadUIStore(persistor: WorkspacePersistor) {
+        workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)
         uiStateStore.restore(for: store.identityAtom.workspaceId)
         bootLoadInboxNotificationStore(persistor: persistor)
     }
@@ -273,6 +282,7 @@ extension AppDelegate {
         repoCacheStore.startObserving()
         sidebarCacheStore.startObserving()
         uiStateStore.startObserving()
+        workspaceSettingsStore.startObserving()
         assertBootPersistenceObservationArmed()
 
         if pruneStaleCache(store: store, repoCache: repoCache) {
@@ -296,6 +306,10 @@ extension AppDelegate {
         assert(
             uiStateStore.isAutosaveObservationActive,
             "UIStateStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
+        )
+        assert(
+            workspaceSettingsStore.isAutosaveObservationActive,
+            "WorkspaceSettingsStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
         )
     }
 

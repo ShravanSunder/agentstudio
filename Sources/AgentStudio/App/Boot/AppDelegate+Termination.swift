@@ -36,6 +36,12 @@ extension AppDelegate {
             appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
         }
 
+        do {
+            try workspaceSettingsStore.flush(for: store.identityAtom.workspaceId)
+        } catch {
+            appLogger.warning("Workspace settings flush failed at termination: \(error.localizedDescription)")
+        }
+
         await runTerminationDrain("inbox notification trace") { [weak self] in
             await self?.inboxNotificationRouter?.stop()
         }

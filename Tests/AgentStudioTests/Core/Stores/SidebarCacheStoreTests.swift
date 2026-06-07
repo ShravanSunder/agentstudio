@@ -17,7 +17,7 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func flushAndRestore_roundTripsSidebarCache() throws {
+    func flushAndRestore_roundTripsExpandedGroupsOnly() throws {
         let workspaceId = UUID()
         let atom = SidebarCacheState()
         let store = SidebarCacheStore(atom: atom, persistor: persistor)
@@ -31,7 +31,7 @@ struct SidebarCacheStoreTests {
         SidebarCacheStore(atom: restoredAtom, persistor: persistor).restore(for: workspaceId)
 
         #expect(restoredAtom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
-        #expect(restoredAtom.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"])
+        #expect(restoredAtom.checkoutColors.isEmpty)
     }
 
     @Test
@@ -59,7 +59,7 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func observedCheckoutColorChange_autosavesSidebarCache() async throws {
+    func observedCheckoutColorChangeDoesNotAutosaveSidebarCache() async throws {
         let workspaceId = UUID()
         let atom = SidebarCacheState()
         let store = SidebarCacheStore(
@@ -72,18 +72,14 @@ struct SidebarCacheStoreTests {
 
         atom.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:agent-studio"))
 
-        await assertEventuallyMain("checkout color should autosave") {
-            switch persistor.loadSidebarCache(for: workspaceId) {
-            case .loaded(let cache):
-                return cache.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#22cc88"]
-            case .missing, .corrupt:
-                return false
-            }
+        await assertEventuallyMain("checkout color mutation should not autosave sidebar cache") {
+            if case .missing = persistor.loadSidebarCache(for: workspaceId) { return true }
+            return false
         }
     }
 
     @Test
-    func directWriteOwnerMutations_autosaveThroughComposedState() async throws {
+    func directExpandedGroupMutation_autosavesWithoutCheckoutColors() async throws {
         let workspaceId = UUID()
         let expandedGroupAtom = SidebarExpandedGroupAtom()
         let checkoutColorAtom = SidebarCheckoutColorAtom()
@@ -106,7 +102,7 @@ struct SidebarCacheStoreTests {
             switch persistor.loadSidebarCache(for: workspaceId) {
             case .loaded(let cache):
                 return cache.expandedGroups == [SidebarGroupKey("repo:agent-studio")]
-                    && cache.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#22cc88"]
+                    && cache.checkoutColors.isEmpty
             case .missing, .corrupt:
                 return false
             }
@@ -223,7 +219,7 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func restore_partialSidebarCachePayload_defaultsMissingSlices() throws {
+    func restoreLegacyCheckoutColorsLeavesSettingsOwnedAtomUntouched() throws {
         let workspaceId = UUID()
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
         let json = """
@@ -236,9 +232,10 @@ struct SidebarCacheStoreTests {
         try Data(json.utf8).write(to: cacheURL, options: .atomic)
 
         let atom = SidebarCacheState()
+        atom.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:live"))
         SidebarCacheStore(atom: atom, persistor: persistor).restore(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
-        #expect(atom.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"])
+        #expect(atom.checkoutColors == [SidebarCheckoutColorKey("repo:live"): "#22cc88"])
     }
 }

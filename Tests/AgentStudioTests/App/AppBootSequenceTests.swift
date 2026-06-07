@@ -53,7 +53,31 @@ struct AppBootSequenceTests {
         #expect(appDelegateSource.contains("repoCacheStore.startObserving()"))
         #expect(appDelegateSource.contains("sidebarCacheStore.startObserving()"))
         #expect(appDelegateSource.contains("uiStateStore.startObserving()"))
+        #expect(appDelegateSource.contains("workspaceSettingsStore.startObserving()"))
         #expect(appDelegateSource.contains("assertBootPersistenceObservationArmed()"))
+    }
+
+    @Test("boot loads settings with UI-scoped persistence stores")
+    func bootLoadsSettingsWithUIScopedPersistenceStores() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
+        )
+
+        #expect(appDelegateSource.contains("workspaceSettingsStore = WorkspaceSettingsStore("))
+        #expect(appDelegateSource.contains("workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)"))
+    }
+
+    @Test("termination flushes settings before shutdown completes")
+    func terminationFlushesSettingsBeforeShutdownCompletes() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let terminationSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+Termination.swift"),
+            encoding: .utf8
+        )
+
+        #expect(terminationSource.contains("workspaceSettingsStore.flush(for: store.identityAtom.workspaceId)"))
     }
 
     @Test("inbox notification autosave observes memory, not runtime handoff state")
@@ -68,6 +92,9 @@ struct AppBootSequenceTests {
         )
 
         #expect(appDelegateSource.contains("_ = atomStore.inboxSidebarState.collapsedGroups"))
+        #expect(!appDelegateSource.contains("_ = atomStore.inboxNotificationPrefs.grouping"))
+        #expect(!appDelegateSource.contains("_ = atomStore.inboxNotificationPrefs.sort"))
+        #expect(!appDelegateSource.contains("_ = atomStore.inboxNotificationPrefs.bellEnabled"))
         #expect(!appDelegateSource.contains("pendingFilter"))
         #expect(!appDelegateSource.contains("peekPendingFilter"))
         #expect(!appDelegateSource.contains("consumePendingFilter"))

@@ -212,7 +212,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func editorChooserState_roundTripsThroughUIStatePersistence() throws {
+    func editorChooserState_isNotOwnedByUIStatePersistence() throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()
         let editorChooser = EditorChooserState()
@@ -226,11 +226,9 @@ struct UIStateStoreTests {
         let persistedPayload = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: uiURL)) as? [String: Any]
         )
-        let persistedEditorChooserState = try #require(
-            persistedPayload["editorChooserState"] as? [String: Any]
-        )
-        #expect(persistedEditorChooserState["bookmarkedEditorId"] as? String == "cursor")
-        #expect(persistedEditorChooserState["openForPaneId"] == nil)
+        let persistedEditorChooserState = persistedPayload["editorChooserState"] as? [String: Any]
+        #expect(persistedEditorChooserState?["bookmarkedEditorId"] == nil)
+        #expect(persistedEditorChooserState?["openForPaneId"] == nil)
 
         let restoredAtom = WorkspaceSidebarState()
         let restoredEditorChooser = EditorChooserState()
@@ -240,12 +238,12 @@ struct UIStateStoreTests {
             persistor: persistor
         ).restore(for: workspaceId)
 
-        #expect(restoredEditorChooser.bookmarkedEditorId == "cursor")
+        #expect(restoredEditorChooser.bookmarkedEditorId == nil)
         #expect(restoredEditorChooser.openForPaneId == nil)
     }
 
     @Test
-    func directEditorPreferenceMutation_autosavesThroughComposedState() async throws {
+    func directEditorPreferenceMutation_doesNotAutosaveUIState() async throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()
         let preferenceAtom = EditorPreferenceAtom()
@@ -261,13 +259,9 @@ struct UIStateStoreTests {
 
         preferenceAtom.setBookmarkedEditor("cursor")
 
-        await assertEventuallyMain("editor preference write-owner mutation should autosave") {
-            switch persistor.loadUI(for: workspaceId) {
-            case .loaded(let state):
-                return state.editorChooserState.bookmarkedEditorId == "cursor"
-            case .missing, .corrupt:
-                return false
-            }
+        await assertEventuallyMain("editor preference mutation should not autosave UI state") {
+            if case .missing = persistor.loadUI(for: workspaceId) { return true }
+            return false
         }
     }
 
@@ -346,7 +340,7 @@ struct UIStateStoreTests {
         let editorChooser = EditorChooserState()
         UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor).restore(for: workspaceId)
 
-        #expect(editorChooser.bookmarkedEditorId == "cursor")
+        #expect(editorChooser.bookmarkedEditorId == nil)
         #expect(editorChooser.openForPaneId == nil)
     }
 

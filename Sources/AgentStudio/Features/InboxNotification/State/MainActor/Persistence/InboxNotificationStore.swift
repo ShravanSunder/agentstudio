@@ -186,9 +186,6 @@ final class InboxNotificationStore {
         }
 
         inboxAtom.replaceAll(payload.notifications)
-        prefsAtom.setGrouping(payload.prefs.grouping)
-        prefsAtom.setSort(payload.prefs.sort)
-        prefsAtom.setBellEnabled(payload.prefs.bellEnabled)
         sidebarState.hydrate(collapsedGroups: payload.sidebarState.collapsedGroups)
     }
 
@@ -206,11 +203,7 @@ final class InboxNotificationStore {
         let payload = Payload(
             schemaVersion: Payload.currentSchemaVersion,
             notifications: inboxAtom.notifications,
-            prefs: .init(
-                grouping: prefsAtom.grouping,
-                sort: prefsAtom.sort,
-                bellEnabled: prefsAtom.bellEnabled
-            ),
+            prefs: .init(),
             sidebarState: .init(
                 collapsedGroups: sidebarState.collapsedGroups
             )

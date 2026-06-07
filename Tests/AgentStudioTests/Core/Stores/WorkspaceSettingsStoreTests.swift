@@ -80,6 +80,213 @@ struct WorkspaceSettingsStoreTests {
     }
 
     @Test
+    func restoreMissingSettingsFileImportsLegacySettingsSlices() throws {
+        let workspaceId = UUID()
+        let editorPreference = EditorPreferenceAtom()
+        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
+        let inboxPrefs = InboxNotificationPrefsAtom()
+        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
+        try legacyPersistor.saveUI(
+            .init(
+                workspaceId: workspaceId,
+                editorChooserState: .init(bookmarkedEditorId: "cursor")
+            )
+        )
+        try legacyPersistor.saveSidebarCache(
+            .init(
+                workspaceId: workspaceId,
+                checkoutColors: [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"]
+            )
+        )
+        let legacyInboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)
+        let legacyInboxJSON = """
+            {
+                "schemaVersion": 3,
+                "notifications": [],
+                "prefs": {
+                    "grouping": "byRepo",
+                    "sort": "oldestFirst",
+                    "bellEnabled": true
+                },
+                "sidebarState": {
+                    "collapsedGroups": []
+                }
+            }
+            """
+        try Data(legacyInboxJSON.utf8).write(to: legacyInboxURL, options: .atomic)
+        let store = makeStore(
+            editorPreference: editorPreference,
+            sidebarCheckoutColors: sidebarCheckoutColors,
+            inboxPrefs: inboxPrefs
+        )
+
+        store.restore(for: workspaceId)
+
+        #expect(editorPreference.bookmarkedEditorId == "cursor")
+        #expect(sidebarCheckoutColors.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"])
+        #expect(inboxPrefs.grouping == .byRepo)
+        #expect(inboxPrefs.sort == .oldestFirst)
+        #expect(inboxPrefs.bellEnabled)
+    }
+
+    @Test
+    func restoreMissingSettingsFileMaterializesLegacySettingsBeforeSidecarSaves() async throws {
+        let workspaceId = UUID()
+        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
+        let legacyInboxURL = try seedLegacySettingsSidecars(
+            workspaceId: workspaceId,
+            legacyPersistor: legacyPersistor
+        )
+
+        makeStore().restore(for: workspaceId)
+        try await scrubLegacySettingsSidecars(
+            workspaceId: workspaceId,
+            legacyPersistor: legacyPersistor,
+            legacyInboxURL: legacyInboxURL
+        )
+
+        let restoredEditorPreference = EditorPreferenceAtom()
+        let restoredSidebarCheckoutColors = SidebarCheckoutColorAtom()
+        let restoredInboxPrefs = InboxNotificationPrefsAtom()
+        makeStore(
+            editorPreference: restoredEditorPreference,
+            sidebarCheckoutColors: restoredSidebarCheckoutColors,
+            inboxPrefs: restoredInboxPrefs
+        ).restore(for: workspaceId)
+
+        #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
+        #expect(
+            restoredSidebarCheckoutColors.checkoutColors == [
+                SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"
+            ]
+        )
+        #expect(restoredInboxPrefs.grouping == .byRepo)
+        #expect(restoredInboxPrefs.sort == .oldestFirst)
+        #expect(restoredInboxPrefs.bellEnabled)
+    }
+
+    @Test
+    func restoreCorruptSettingsFileAfterSidecarScrubUsesSettingsBackup() async throws {
+        let workspaceId = UUID()
+        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
+        let legacyInboxURL = try seedLegacySettingsSidecars(
+            workspaceId: workspaceId,
+            legacyPersistor: legacyPersistor
+        )
+        makeStore().restore(for: workspaceId)
+        try await scrubLegacySettingsSidecars(
+            workspaceId: workspaceId,
+            legacyPersistor: legacyPersistor,
+            legacyInboxURL: legacyInboxURL
+        )
+        try Data("not-json".utf8).write(to: settingsFileURL(for: workspaceId), options: .atomic)
+
+        let restoredEditorPreference = EditorPreferenceAtom()
+        let restoredSidebarCheckoutColors = SidebarCheckoutColorAtom()
+        let restoredInboxPrefs = InboxNotificationPrefsAtom()
+        makeStore(
+            editorPreference: restoredEditorPreference,
+            sidebarCheckoutColors: restoredSidebarCheckoutColors,
+            inboxPrefs: restoredInboxPrefs
+        ).restore(for: workspaceId)
+
+        #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
+        #expect(
+            restoredSidebarCheckoutColors.checkoutColors == [
+                SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"
+            ]
+        )
+        #expect(restoredInboxPrefs.grouping == .byRepo)
+        #expect(restoredInboxPrefs.sort == .oldestFirst)
+        #expect(restoredInboxPrefs.bellEnabled)
+    }
+
+    @Test
+    func restoreMissingSettingsFileAfterSidecarScrubUsesSettingsBackup() async throws {
+        let workspaceId = UUID()
+        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
+        let legacyInboxURL = try seedLegacySettingsSidecars(
+            workspaceId: workspaceId,
+            legacyPersistor: legacyPersistor
+        )
+        makeStore().restore(for: workspaceId)
+        try await scrubLegacySettingsSidecars(
+            workspaceId: workspaceId,
+            legacyPersistor: legacyPersistor,
+            legacyInboxURL: legacyInboxURL
+        )
+        try FileManager.default.removeItem(at: settingsFileURL(for: workspaceId))
+
+        let restoredEditorPreference = EditorPreferenceAtom()
+        let restoredSidebarCheckoutColors = SidebarCheckoutColorAtom()
+        let restoredInboxPrefs = InboxNotificationPrefsAtom()
+        makeStore(
+            editorPreference: restoredEditorPreference,
+            sidebarCheckoutColors: restoredSidebarCheckoutColors,
+            inboxPrefs: restoredInboxPrefs
+        ).restore(for: workspaceId)
+
+        #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
+        #expect(
+            restoredSidebarCheckoutColors.checkoutColors == [
+                SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"
+            ]
+        )
+        #expect(restoredInboxPrefs.grouping == .byRepo)
+        #expect(restoredInboxPrefs.sort == .oldestFirst)
+        #expect(restoredInboxPrefs.bellEnabled)
+    }
+
+    @Test
+    func restoreMissingSettingsFileRecoversValidLegacyInboxPreferenceFields() throws {
+        let workspaceId = UUID()
+        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
+        let legacyInboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)
+        try Data(
+            """
+            {
+                "schemaVersion": 3,
+                "notifications": [],
+                "prefs": {
+                    "grouping": "not-a-group",
+                    "sort": "oldestFirst",
+                    "bellEnabled": true
+                },
+                "sidebarState": {
+                    "collapsedGroups": []
+                }
+            }
+            """.utf8
+        ).write(to: legacyInboxURL, options: .atomic)
+        let inboxPrefs = InboxNotificationPrefsAtom()
+
+        makeStore(inboxPrefs: inboxPrefs).restore(for: workspaceId)
+
+        #expect(inboxPrefs.grouping == .byTab)
+        #expect(inboxPrefs.sort == .oldestFirst)
+        #expect(inboxPrefs.bellEnabled)
+    }
+
+    @Test
+    func restoreCorruptSettingsFileFallsBackToLegacySettingsSlices() throws {
+        let workspaceId = UUID()
+        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
+        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
+        try legacyPersistor.saveSidebarCache(
+            .init(
+                workspaceId: workspaceId,
+                checkoutColors: [SidebarCheckoutColorKey("repo:agent-studio"): "#33aa99"]
+            )
+        )
+        try Data("not-json".utf8).write(to: settingsFileURL(for: workspaceId), options: .atomic)
+        let store = makeStore(sidebarCheckoutColors: sidebarCheckoutColors)
+
+        store.restore(for: workspaceId)
+
+        #expect(sidebarCheckoutColors.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#33aa99"])
+    }
+
+    @Test
     func flushWritesPrettySortedSettingsAndStripsUnknownKeys() throws {
         let workspaceId = UUID()
         let settingsURL = settingsFileURL(for: workspaceId)
@@ -373,5 +580,61 @@ struct WorkspaceSettingsStoreTests {
             return nil
         }
         return object
+    }
+
+    private func seedLegacySettingsSidecars(
+        workspaceId: UUID,
+        legacyPersistor: WorkspacePersistor
+    ) throws -> URL {
+        try legacyPersistor.saveUI(
+            .init(
+                workspaceId: workspaceId,
+                editorChooserState: .init(bookmarkedEditorId: "cursor")
+            )
+        )
+        try legacyPersistor.saveSidebarCache(
+            .init(
+                workspaceId: workspaceId,
+                checkoutColors: [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"]
+            )
+        )
+        let legacyInboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)
+        try Data(
+            """
+            {
+                "schemaVersion": 3,
+                "notifications": [],
+                "prefs": {
+                    "grouping": "byRepo",
+                    "sort": "oldestFirst",
+                    "bellEnabled": true
+                },
+                "sidebarState": {
+                    "collapsedGroups": []
+                }
+            }
+            """.utf8
+        ).write(to: legacyInboxURL, options: .atomic)
+        return legacyInboxURL
+    }
+
+    private func scrubLegacySettingsSidecars(
+        workspaceId: UUID,
+        legacyPersistor: WorkspacePersistor,
+        legacyInboxURL: URL
+    ) async throws {
+        try UIStateStore(
+            atom: WorkspaceSidebarState(),
+            persistor: legacyPersistor
+        ).flush(for: workspaceId)
+        try SidebarCacheStore(
+            atom: SidebarCacheState(),
+            persistor: legacyPersistor
+        ).flush(for: workspaceId)
+        try await InboxNotificationStore(
+            inboxAtom: InboxNotificationAtom(),
+            prefsAtom: InboxNotificationPrefsAtom(),
+            fileURL: legacyInboxURL
+        ).save()
     }
 }

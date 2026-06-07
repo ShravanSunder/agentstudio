@@ -49,10 +49,7 @@ final class SidebarCacheStore {
         switch persistor.loadSidebarCache(for: workspaceId) {
         case .loaded(let state):
             isRestoringState = true
-            atom.hydrate(
-                expandedGroups: state.expandedGroups,
-                checkoutColors: state.checkoutColors
-            )
+            atom.setExpandedGroups(state.expandedGroups)
             isRestoringState = false
         case .missing:
             break
@@ -82,7 +79,6 @@ final class SidebarCacheStore {
         isObservingCacheState = true
         withObservationTracking {
             _ = atom.expandedGroups
-            _ = atom.checkoutColors
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 // SidebarCacheState is @MainActor; this traps if that ownership changes.
@@ -120,7 +116,7 @@ final class SidebarCacheStore {
                 .init(
                     workspaceId: workspaceId,
                     expandedGroups: atom.expandedGroups,
-                    checkoutColors: atom.checkoutColors
+                    checkoutColors: [:]
                 )
             )
         } catch {

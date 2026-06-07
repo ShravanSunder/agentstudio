@@ -13,6 +13,7 @@ final class WorkspaceSettingsStore {
     private let sidebarCheckoutColorAtom: SidebarCheckoutColorAtom
     private let inboxNotificationPrefsAtom: InboxNotificationPrefsAtom
     private let workspacesDir: URL
+    private let legacyPersistor: WorkspacePersistor
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -31,6 +32,7 @@ final class WorkspaceSettingsStore {
         sidebarCheckoutColorAtom: SidebarCheckoutColorAtom,
         inboxNotificationPrefsAtom: InboxNotificationPrefsAtom,
         workspacesDir: URL = AppDataPaths.workspacesDirectory(),
+        legacyPersistor: WorkspacePersistor? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         quarantineCorruptSettingsFile: (@MainActor (UUID) -> URL?)? = nil,
@@ -40,6 +42,7 @@ final class WorkspaceSettingsStore {
         self.sidebarCheckoutColorAtom = sidebarCheckoutColorAtom
         self.inboxNotificationPrefsAtom = inboxNotificationPrefsAtom
         self.workspacesDir = workspacesDir
+        self.legacyPersistor = legacyPersistor ?? WorkspacePersistor(workspacesDir: workspacesDir)
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
         self.quarantineCorruptSettingsFileOverride = quarantineCorruptSettingsFile
@@ -56,7 +59,10 @@ final class WorkspaceSettingsStore {
         activeWorkspaceId = workspaceId
         let settingsURL = settingsFileURL(for: workspaceId)
         guard FileManager.default.fileExists(atPath: settingsURL.path) else {
-            hydrateDefaults()
+            if restoreFromBackupIfAvailable(for: workspaceId) {
+                return
+            }
+            hydrateLegacyOrDefaults(for: workspaceId)
             return
         }
 
@@ -66,12 +72,14 @@ final class WorkspaceSettingsStore {
             isRestoringSettings = true
             hydrate(from: payload)
             isRestoringSettings = false
+            materializeSettingsBackup(payload, for: workspaceId)
         } catch {
             let quarantinedURL = quarantineCorruptSettingsFile(for: workspaceId)
-            workspaceSettingsStoreLogger.warning("Workspace settings file corrupt, using defaults: \(error)")
-            isRestoringSettings = true
-            hydrateDefaults()
-            isRestoringSettings = false
+            workspaceSettingsStoreLogger.warning("Workspace settings file corrupt: \(error)")
+            let didRestoreFromBackup = restoreFromBackupIfAvailable(for: workspaceId)
+            if !didRestoreFromBackup {
+                hydrateLegacyOrDefaults(for: workspaceId)
+            }
             recoveryReporter?(
                 .init(
                     store: .workspaceSettings,
@@ -130,12 +138,7 @@ final class WorkspaceSettingsStore {
 
     private func persistNow(for workspaceId: UUID) throws {
         do {
-            try FileManager.default.createDirectory(at: workspacesDir, withIntermediateDirectories: true)
-            let payload = currentPayload(workspaceId: workspaceId)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(payload)
-            try data.write(to: settingsFileURL(for: workspaceId), options: .atomic)
+            try persistPayload(currentPayload(workspaceId: workspaceId), for: workspaceId)
         } catch {
             recoveryReporter?(.init(store: .workspaceSettings, workspaceId: workspaceId, recovery: .saveFailed))
             throw error
@@ -171,9 +174,127 @@ final class WorkspaceSettingsStore {
         inboxNotificationPrefsAtom.setBellEnabled(false)
     }
 
+    private func hydrateLegacyOrDefaults(for workspaceId: UUID) {
+        let legacyImport = legacyPayloadOrDefaults(for: workspaceId)
+        isRestoringSettings = true
+        hydrate(from: legacyImport.payload)
+        isRestoringSettings = false
+        materializeLegacySettingsIfNeeded(legacyImport, for: workspaceId)
+    }
+
+    private func materializeLegacySettingsIfNeeded(
+        _ legacyImport: LegacySettingsImport,
+        for workspaceId: UUID
+    ) {
+        guard legacyImport.importedAnySlice else { return }
+        do {
+            try persistNow(for: workspaceId)
+        } catch {
+            workspaceSettingsStoreLogger.warning(
+                "Workspace settings legacy import materialization failed: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func materializeSettingsBackup(
+        _ payload: WorkspaceSettingsPayload,
+        for workspaceId: UUID
+    ) {
+        do {
+            try persistBackupPayload(payload, for: workspaceId)
+        } catch {
+            workspaceSettingsStoreLogger.warning(
+                "Workspace settings backup materialization failed: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func restoreFromBackupIfAvailable(for workspaceId: UUID) -> Bool {
+        let backupURL = settingsBackupFileURL(for: workspaceId)
+        guard FileManager.default.fileExists(atPath: backupURL.path) else { return false }
+        do {
+            let payload = try decodePayload(from: backupURL)
+            try validatePayload(payload, for: workspaceId)
+            isRestoringSettings = true
+            hydrate(from: payload)
+            isRestoringSettings = false
+            do {
+                try persistPayload(payload, for: workspaceId)
+            } catch {
+                workspaceSettingsStoreLogger.warning(
+                    "Workspace settings primary restore from backup failed: \(error.localizedDescription)"
+                )
+            }
+            return true
+        } catch {
+            isRestoringSettings = false
+            workspaceSettingsStoreLogger.warning(
+                "Workspace settings backup restore skipped: \(error.localizedDescription)"
+            )
+            return false
+        }
+    }
+
+    private func legacyPayloadOrDefaults(for workspaceId: UUID) -> LegacySettingsImport {
+        var payload = WorkspaceSettingsPayload(workspaceId: workspaceId)
+        var importedAnySlice = false
+        if case .loaded(let uiState) = legacyPersistor.loadUI(for: workspaceId),
+            uiState.workspaceId == workspaceId
+        {
+            payload.editorChooser.bookmarkedEditorId = uiState.editorChooserState.bookmarkedEditorId
+            importedAnySlice = true
+        }
+        if case .loaded(let sidebarCache) = legacyPersistor.loadSidebarCache(for: workspaceId),
+            sidebarCache.workspaceId == workspaceId
+        {
+            payload.sidebar.checkoutColors = sidebarCache.checkoutColors
+            importedAnySlice = true
+        }
+        if let legacyNotificationPrefs = loadLegacyNotificationPrefs(for: workspaceId) {
+            payload.notifications = legacyNotificationPrefs
+            importedAnySlice = true
+        }
+        return .init(payload: payload, importedAnySlice: importedAnySlice)
+    }
+
+    private func loadLegacyNotificationPrefs(for workspaceId: UUID) -> WorkspaceSettingsPayload.Notifications? {
+        let inboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)
+        guard FileManager.default.fileExists(atPath: inboxURL.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: inboxURL)
+            let payload = try JSONDecoder().decode(LegacyInboxSettingsPayload.self, from: data)
+            return payload.prefs.map {
+                .init(grouping: $0.grouping, sort: $0.sort, bellEnabled: $0.bellEnabled)
+            }
+        } catch {
+            workspaceSettingsStoreLogger.warning(
+                "Legacy inbox settings import skipped for \(workspaceId.uuidString): \(error.localizedDescription)"
+            )
+            return nil
+        }
+    }
+
     private func decodePayload(from url: URL) throws -> WorkspaceSettingsPayload {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(WorkspaceSettingsPayload.self, from: data)
+    }
+
+    private func persistPayload(_ payload: WorkspaceSettingsPayload, for workspaceId: UUID) throws {
+        try FileManager.default.createDirectory(at: workspacesDir, withIntermediateDirectories: true)
+        let data = try encodePayload(payload)
+        try data.write(to: settingsBackupFileURL(for: workspaceId), options: .atomic)
+        try data.write(to: settingsFileURL(for: workspaceId), options: .atomic)
+    }
+
+    private func persistBackupPayload(_ payload: WorkspaceSettingsPayload, for workspaceId: UUID) throws {
+        try FileManager.default.createDirectory(at: workspacesDir, withIntermediateDirectories: true)
+        try encodePayload(payload).write(to: settingsBackupFileURL(for: workspaceId), options: .atomic)
+    }
+
+    private func encodePayload(_ payload: WorkspaceSettingsPayload) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(payload)
     }
 
     private func validatePayload(_ payload: WorkspaceSettingsPayload, for workspaceId: UUID) throws {
@@ -212,10 +333,80 @@ final class WorkspaceSettingsStore {
     private func settingsFileURL(for workspaceId: UUID) -> URL {
         workspacesDir.appending(path: "\(workspaceId.uuidString).settings.json")
     }
+
+    private func settingsBackupFileURL(for workspaceId: UUID) -> URL {
+        workspacesDir.appending(path: "\(workspaceId.uuidString).settings.backup.json")
+    }
 }
 
 private enum WorkspaceSettingsStoreError: Error {
     case workspaceIdMismatch(expected: UUID, actual: UUID)
+}
+
+private struct LegacySettingsImport {
+    var payload: WorkspaceSettingsPayload
+    var importedAnySlice: Bool
+}
+
+private struct LegacyInboxSettingsPayload: Decodable {
+    struct Prefs: Decodable {
+        var grouping: InboxNotificationGrouping = .byTab
+        var sort: InboxNotificationSort = .newestFirst
+        var bellEnabled: Bool = false
+
+        private enum CodingKeys: String, CodingKey {
+            case grouping
+            case sort
+            case bellEnabled
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.grouping = decodeRecoverableLegacyInboxPreferenceField(
+                InboxNotificationGrouping.self,
+                from: container,
+                forKey: .grouping,
+                default: .byTab
+            )
+            self.sort = decodeRecoverableLegacyInboxPreferenceField(
+                InboxNotificationSort.self,
+                from: container,
+                forKey: .sort,
+                default: .newestFirst
+            )
+            self.bellEnabled = decodeRecoverableLegacyInboxPreferenceField(
+                Bool.self,
+                from: container,
+                forKey: .bellEnabled,
+                default: false
+            )
+        }
+    }
+
+    var prefs: Prefs?
+}
+
+private func decodeRecoverableLegacyInboxPreferenceField<Key: CodingKey, Value: Decodable>(
+    _ type: Value.Type,
+    from container: KeyedDecodingContainer<Key>,
+    forKey key: Key,
+    default defaultValue: @autoclosure () -> Value
+) -> Value {
+    do {
+        if let value = try container.decodeIfPresent(type, forKey: key) {
+            return value
+        }
+    } catch {
+        workspaceSettingsStoreLogger.warning(
+            "Legacy inbox preference invalid field \(key.stringValue, privacy: .public); using default"
+        )
+        return defaultValue()
+    }
+
+    workspaceSettingsStoreLogger.warning(
+        "Legacy inbox preference missing field \(key.stringValue, privacy: .public); using default"
+    )
+    return defaultValue()
 }
 
 private struct WorkspaceSettingsPayload: Codable {

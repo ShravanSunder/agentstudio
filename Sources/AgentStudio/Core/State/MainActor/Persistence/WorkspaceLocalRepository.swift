@@ -116,20 +116,71 @@ struct WorkspaceLocalRepository {
         }
     }
 
-    func replaceWorkspaceMemory(memoryState: WorkspaceMemoryRecord, updatedAt: Date) throws {
+    func replaceWindowState(_ windowState: WindowStateRecord?, updatedAt: Date) throws {
         try databaseWriter.write { database in
-            try WorkspaceLocalRepositoryStorage.replaceWorkspaceMemoryRows(
+            try WorkspaceLocalRepositoryStorage.replaceWindowStateRows(
                 database,
                 workspaceId: workspaceId,
-                memoryState: memoryState,
+                windowState: windowState,
                 updatedAt: updatedAt
             )
         }
     }
 
-    func fetchWorkspaceMemory() throws -> WorkspaceMemoryRecord {
+    func fetchWindowState() throws -> WindowStateRecord? {
         try databaseWriter.read { database in
-            try WorkspaceLocalRepositoryStorage.fetchWorkspaceMemoryRows(database, workspaceId: workspaceId)
+            try WorkspaceLocalRepositoryStorage.fetchWindowStateRows(database, workspaceId: workspaceId)
+        }
+    }
+
+    func replaceSidebarState(_ sidebarState: SidebarStateRecord?, updatedAt: Date) throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.replaceSidebarStateRows(
+                database,
+                workspaceId: workspaceId,
+                sidebarState: sidebarState,
+                updatedAt: updatedAt
+            )
+        }
+    }
+
+    func fetchSidebarState() throws -> SidebarStateRecord? {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.fetchSidebarStateRows(database, workspaceId: workspaceId)
+        }
+    }
+
+    func replaceExpandedGroups(_ expandedGroups: Set<SidebarGroupKey>, updatedAt: Date) throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.replaceExpandedGroupRows(
+                database,
+                workspaceId: workspaceId,
+                expandedGroups: expandedGroups,
+                updatedAt: updatedAt
+            )
+        }
+    }
+
+    func fetchExpandedGroups() throws -> Set<SidebarGroupKey> {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.fetchExpandedGroupRows(database, workspaceId: workspaceId)
+        }
+    }
+
+    func replaceRecentTargets(_ recentTargets: [RecentWorkspaceTarget], updatedAt: Date) throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.replaceRecentTargetRows(
+                database,
+                workspaceId: workspaceId,
+                recentTargets: recentTargets,
+                updatedAt: updatedAt
+            )
+        }
+    }
+
+    func fetchRecentTargets() throws -> [RecentWorkspaceTarget] {
+        try databaseWriter.read { database in
+            try WorkspaceLocalRepositoryStorage.fetchRecentTargetRows(database, workspaceId: workspaceId)
         }
     }
 

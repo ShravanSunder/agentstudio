@@ -7,7 +7,6 @@ private let uiStateStoreLogger = Logger(subsystem: "com.agentstudio", category: 
 @MainActor
 final class UIStateStore {
     private let atom: WorkspaceSidebarState
-    private let editorChooserState: EditorChooserState
     private let persistor: WorkspacePersistor
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
@@ -23,14 +22,13 @@ final class UIStateStore {
 
     init(
         atom: WorkspaceSidebarState,
-        editorChooserState: EditorChooserState,
+        editorChooserState _: EditorChooserState? = nil,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
-        self.editorChooserState = editorChooserState
         self.persistor = persistor
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
@@ -58,7 +56,6 @@ final class UIStateStore {
                 sidebarCollapsed: state.sidebarCollapsed,
                 sidebarSurface: state.sidebarSurface
             )
-            editorChooserState.hydrate(bookmarkedEditorId: state.editorChooserState.bookmarkedEditorId)
             isRestoringState = false
         case .missing:
             break
@@ -91,10 +88,9 @@ final class UIStateStore {
             _ = atom.isFilterVisible
             _ = atom.sidebarCollapsed
             _ = atom.sidebarSurface
-            _ = editorChooserState.bookmarkedEditorId
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
-                // WorkspaceSidebarState and EditorChooserState are @MainActor; this traps if that ownership changes.
+                // WorkspaceSidebarState is @MainActor; this traps if that ownership changes.
                 guard let self else { return }
                 let shouldIgnore = self.isRestoringState
                 self.isObservingUIState = false
@@ -131,8 +127,7 @@ final class UIStateStore {
                     filterText: atom.filterText,
                     isFilterVisible: atom.isFilterVisible,
                     sidebarCollapsed: atom.sidebarCollapsed,
-                    sidebarSurface: atom.sidebarSurface,
-                    editorChooserState: .init(bookmarkedEditorId: editorChooserState.bookmarkedEditorId)
+                    sidebarSurface: atom.sidebarSurface
                 )
             )
         } catch {
