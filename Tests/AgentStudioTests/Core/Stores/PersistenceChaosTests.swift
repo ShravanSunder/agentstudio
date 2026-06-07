@@ -213,7 +213,7 @@ struct PersistenceChaosTests {
                 recoveryReporter: { recoveryEvents.append($0) }
             )
 
-            try? store.load()
+            _ = try? store.load()
 
             #expect(inboxAtom.notifications.isEmpty)
             assertRecoveryEvents(

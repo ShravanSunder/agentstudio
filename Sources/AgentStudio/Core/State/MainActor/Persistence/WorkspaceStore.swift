@@ -108,7 +108,9 @@ final class WorkspaceStore {
             case .restored:
                 return
             case .uninitialized:
-                break
+                if restoreLegacyWorkspaceStatesIntoSQLite(sqliteBackend) {
+                    return
+                }
             case .unavailable:
                 return
             }
@@ -117,16 +119,7 @@ final class WorkspaceStore {
         _ = persistor.ensureDirectory()
         switch persistor.load() {
         case .loaded(let state):
-            isRestoringState = true
-            WorkspacePersistenceTransformer.hydrate(
-                state,
-                identityAtom: identityAtom,
-                windowMemoryAtom: windowMemoryAtom,
-                repositoryTopologyAtom: repositoryTopologyAtom,
-                workspacePaneAtom: paneAtom,
-                workspaceTabLayoutAtom: tabLayoutAtom
-            )
-            isRestoringState = false
+            hydrateWorkspaceState(state)
             let hydratedPaneCount = paneAtom.panes.count
             let hydratedTabCount = tabLayoutAtom.tabs.count
             let droppedPaneCount = max(0, state.panes.count - hydratedPaneCount)
@@ -135,7 +128,11 @@ final class WorkspaceStore {
                 "Restored workspace '\(state.name)' with \(hydratedPaneCount) pane(s), \(hydratedTabCount) tab(s), dropped \(droppedPaneCount) pane(s), dropped \(droppedTabCount) tab(s)"
             )
             if let sqliteBackend {
-                materializeRestoredSQLiteState(from: state, using: sqliteBackend)
+                materializeRestoredSQLiteState(
+                    from: state,
+                    sourceStatePath: persistor.canonicalWorkspaceStatePath(for: state.id),
+                    using: sqliteBackend
+                )
             }
         case .corrupt(let error):
             let quarantine = persistor.quarantineCorruptCanonicalWorkspaceFiles()
@@ -266,16 +263,7 @@ final class WorkspaceStore {
     private func restoreFromSQLite(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> SQLiteRestoreOutcome {
         switch sqliteBackend.loadResult(preferredWorkspaceId: identityAtom.workspaceId) {
         case .loaded(let state):
-            isRestoringState = true
-            WorkspacePersistenceTransformer.hydrate(
-                state,
-                identityAtom: identityAtom,
-                windowMemoryAtom: windowMemoryAtom,
-                repositoryTopologyAtom: repositoryTopologyAtom,
-                workspacePaneAtom: paneAtom,
-                workspaceTabLayoutAtom: tabLayoutAtom
-            )
-            isRestoringState = false
+            hydrateWorkspaceState(state)
             workspaceStoreLogger.info(
                 "Restored SQLite workspace '\(state.name)' with \(self.paneAtom.panes.count) pane(s), \(self.tabLayoutAtom.tabs.count) tab(s)"
             )
@@ -296,10 +284,91 @@ final class WorkspaceStore {
         }
     }
 
+    private func restoreLegacyWorkspaceStatesIntoSQLite(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> Bool {
+        _ = persistor.ensureDirectory()
+        let scan = persistor.loadLegacyWorkspaceStateFiles()
+        for corruptFile in scan.corruptFiles {
+            let quarantine = persistor.quarantineCorruptCanonicalWorkspaceFiles(at: corruptFile.url)
+            workspaceStoreLogger.error(
+                "Legacy workspace file \(corruptFile.url.lastPathComponent, privacy: .public) failed to decode during SQLite import; quarantined before continuing: \(corruptFile.error.localizedDescription)"
+            )
+            recoveryReporter?(
+                .init(
+                    store: .workspace,
+                    workspaceId: quarantine?.workspaceId,
+                    recovery: quarantine?.recovery ?? .quarantineFailed,
+                    quarantinedFilename: quarantine?.recoveryFilename
+                )
+            )
+        }
+
+        var importedFiles: [WorkspacePersistor.LegacyWorkspaceStateFile] = []
+        for legacyFile in scan.loadedFiles {
+            hydrateWorkspaceState(legacyFile.state)
+            if materializeRestoredSQLiteState(
+                from: legacyFile.state,
+                sourceStatePath: legacyFile.url.path,
+                using: sqliteBackend
+            ) {
+                importedFiles.append(legacyFile)
+            }
+        }
+        guard let activeLegacyFile = initialActiveLegacyWorkspaceFile(from: importedFiles) else {
+            return false
+        }
+
+        do {
+            try sqliteBackend.selectActiveWorkspace(activeLegacyFile.state.id, updatedAt: Date())
+            hydrateWorkspaceState(activeLegacyFile.state)
+            workspaceStoreLogger.info(
+                "Imported \(importedFiles.count, privacy: .public) legacy workspace file(s) into SQLite; selected active workspace \(activeLegacyFile.state.id.uuidString, privacy: .public)"
+            )
+            return true
+        } catch {
+            workspaceStoreLogger.error(
+                "Failed to select active workspace after legacy SQLite import: \(error.localizedDescription)"
+            )
+            recoveryReporter?(
+                .init(
+                    store: .workspace,
+                    workspaceId: activeLegacyFile.state.id,
+                    recovery: .resetToDefaults
+                )
+            )
+            return true
+        }
+    }
+
+    private func initialActiveLegacyWorkspaceFile(
+        from importedFiles: [WorkspacePersistor.LegacyWorkspaceStateFile]
+    ) -> WorkspacePersistor.LegacyWorkspaceStateFile? {
+        importedFiles.max { lhs, rhs in
+            if lhs.modificationDate != rhs.modificationDate {
+                return lhs.modificationDate < rhs.modificationDate
+            }
+            return lhs.state.id.uuidString > rhs.state.id.uuidString
+        }
+    }
+
+    private func hydrateWorkspaceState(_ state: WorkspacePersistor.PersistableState) {
+        isRestoringState = true
+        WorkspacePersistenceTransformer.hydrate(
+            state,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
+            workspacePaneAtom: paneAtom,
+            workspaceTabLayoutAtom: tabLayoutAtom
+        )
+        isRestoringState = false
+    }
+
+    @discardableResult
     private func materializeRestoredSQLiteState(
         from legacyState: WorkspacePersistor.PersistableState,
+        sourceStatePath: String,
         using sqliteBackend: WorkspaceSQLiteStoreBackend
-    ) {
+    ) -> Bool {
         let materializedState = WorkspacePersistenceTransformer.makePersistableState(
             identityAtom: identityAtom,
             windowMemoryAtom: windowMemoryAtom,
@@ -311,13 +380,15 @@ final class WorkspaceStore {
         do {
             try sqliteBackend.saveImportedLegacySnapshot(
                 materializedState,
-                sourceStatePath: persistor.canonicalWorkspaceStatePath(for: legacyState.id)
+                sourceStatePath: sourceStatePath
             )
+            return true
         } catch {
             workspaceStoreLogger.error(
                 "Failed to materialize restored legacy workspace into SQLite: \(error.localizedDescription)"
             )
             reportSaveFailed()
+            return false
         }
     }
 

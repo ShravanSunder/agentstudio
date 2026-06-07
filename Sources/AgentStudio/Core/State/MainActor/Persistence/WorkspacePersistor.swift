@@ -46,6 +46,22 @@ struct WorkspacePersistor {
         }
     }
 
+    struct LegacyWorkspaceStateFile {
+        let url: URL
+        let state: PersistableState
+        let modificationDate: Date
+    }
+
+    struct CorruptLegacyWorkspaceStateFile {
+        let url: URL
+        let error: any Error
+    }
+
+    struct LegacyWorkspaceStateScan {
+        let loadedFiles: [LegacyWorkspaceStateFile]
+        let corruptFiles: [CorruptLegacyWorkspaceStateFile]
+    }
+
     /// Distinguishes "no file found" from "file exists but is corrupt" on load.
     enum LoadResult<T> {
         case loaded(T)
@@ -161,6 +177,44 @@ struct WorkspacePersistor {
         return decodeFromFile(fileURL, as: PersistableState.self)
     }
 
+    func loadLegacyWorkspaceStateFiles() -> LegacyWorkspaceStateScan {
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(
+                at: workspacesDir,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            return .init(loadedFiles: [], corruptFiles: [])
+        }
+
+        let canonicalFiles =
+            contents
+            .filter { $0.lastPathComponent.hasSuffix(Self.canonicalSuffix) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        var loadedFiles: [LegacyWorkspaceStateFile] = []
+        var corruptFiles: [CorruptLegacyWorkspaceStateFile] = []
+        for fileURL in canonicalFiles {
+            switch decodeFromFile(fileURL, as: PersistableState.self) {
+            case .loaded(let state):
+                loadedFiles.append(
+                    .init(
+                        url: fileURL,
+                        state: state,
+                        modificationDate: modificationDate(for: fileURL)
+                    )
+                )
+            case .corrupt(let error):
+                corruptFiles.append(.init(url: fileURL, error: error))
+            case .missing:
+                break
+            }
+        }
+        return .init(loadedFiles: loadedFiles, corruptFiles: corruptFiles)
+    }
+
     func loadCache(for workspaceId: UUID) -> LoadResult<PersistableCacheState> {
         decodeFromFile(cacheFileURL(for: workspaceId), as: PersistableCacheState.self)
     }
@@ -198,6 +252,11 @@ struct WorkspacePersistor {
             return nil
         }
 
+        return quarantineCorruptCanonicalWorkspaceFiles(at: canonicalURL)
+    }
+
+    @discardableResult
+    func quarantineCorruptCanonicalWorkspaceFiles(at canonicalURL: URL) -> CanonicalQuarantineResult? {
         let workspaceId = workspaceIdFromCanonicalFile(canonicalURL)
         let timestamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
@@ -398,6 +457,11 @@ struct WorkspacePersistor {
 
     private func incompleteArchiveMarkerName(for workspaceId: UUID) -> String {
         ".archive-incomplete-\(workspaceId.uuidString).marker"
+    }
+
+    private func modificationDate(for url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+            ?? .distantPast
     }
 
     @discardableResult

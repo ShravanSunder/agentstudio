@@ -159,10 +159,12 @@ struct InboxNotificationStoreTests {
             fileURL: url,
             sqliteRepository: fixture.repository
         )
-        try sqliteStore.load()
+        let loadOutcome = try sqliteStore.load()
 
         #expect(atom.notifications.map(\.id) == [note.id])
         #expect(sidebarState.collapsedGroups == [InboxNotificationGroupKey("repo:legacy")])
+        #expect(loadOutcome == .legacyFileImportedIntoSQLite)
+        #expect(loadOutcome.hasMaterializedLegacyFile)
         #expect(try fixture.repository.fetchNotifications().map(\.id) == [note.id])
         #expect(try fixture.repository.fetchCollapsedGroups() == [InboxNotificationGroupKey("repo:legacy")])
         #expect(try fixture.repository.hasPersistedState())
@@ -206,6 +208,64 @@ struct InboxNotificationStoreTests {
         #expect(emptyStore.inboxAtom.notifications.isEmpty)
         #expect(emptyStore.sidebarState.collapsedGroups.isEmpty)
         #expect(try fixture.repository.hasPersistedState())
+    }
+
+    @Test("SQLite persisted inbox snapshot reports non-materialized legacy outcome")
+    func sqlitePersistedInboxSnapshotReportsNonMaterializedLegacyOutcome() async throws {
+        let url = makeTempURL()
+        let workspaceId = UUID()
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let legacyAtom = InboxNotificationAtom()
+        legacyAtom.append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(timeIntervalSince1970: 121),
+                kind: .agentDesktopNotification,
+                title: "Legacy",
+                body: nil,
+                source: .global,
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+        try await InboxNotificationStore(
+            inboxAtom: legacyAtom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            fileURL: url
+        ).save()
+        let sqliteNotification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 122),
+            kind: .agentDesktopNotification,
+            title: "SQLite",
+            body: nil,
+            source: .global,
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+        try fixture.repository.replaceSnapshot(
+            notifications: [sqliteNotification],
+            collapsedGroups: [InboxNotificationGroupKey("repo:sqlite")]
+        )
+        let atom = InboxNotificationAtom()
+        let sidebarState = InboxSidebarState()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            sidebarState: sidebarState,
+            fileURL: url,
+            sqliteRepository: fixture.repository,
+            allowLegacyFileImport: true
+        )
+
+        let loadOutcome = try store.load()
+
+        #expect(loadOutcome == .sqliteSnapshot)
+        #expect(!loadOutcome.hasMaterializedLegacyFile)
+        #expect(atom.notifications.map(\.id) == [sqliteNotification.id])
+        #expect(!atom.notifications.map(\.id).contains(legacyAtom.notifications.single?.id ?? UUID()))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(try !fixture.repository.hasMaterializedLegacyImport())
     }
 
     @Test("SQLite missing inbox lane after import resets instead of replaying legacy JSON")

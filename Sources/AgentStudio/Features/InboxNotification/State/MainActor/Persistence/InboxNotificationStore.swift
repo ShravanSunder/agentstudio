@@ -26,6 +26,24 @@ final class InboxNotificationStore {
     private let allowLegacyFileImport: Bool
     private var debouncedSaveTask: Task<Void, Never>?
 
+    enum LoadOutcome: Equatable {
+        case sqliteSnapshot
+        case materializedLegacySQLiteSnapshot
+        case legacyFileImportedIntoSQLite
+        case legacyFile
+        case missing
+        case legacyImportBlockedReset
+
+        var hasMaterializedLegacyFile: Bool {
+            switch self {
+            case .materializedLegacySQLiteSnapshot, .legacyFileImportedIntoSQLite:
+                return true
+            case .sqliteSnapshot, .legacyFile, .missing, .legacyImportBlockedReset:
+                return false
+            }
+        }
+    }
+
     init(
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,
@@ -157,32 +175,35 @@ final class InboxNotificationStore {
         }
     }
 
-    func load() throws {
+    @discardableResult
+    func load() throws -> LoadOutcome {
         if let sqliteRepository {
             do {
                 if try sqliteRepository.hasPersistedState() {
+                    let hasMaterializedLegacyImport = try sqliteRepository.hasMaterializedLegacyImport()
                     try loadSQLiteSnapshot(from: sqliteRepository)
-                    return
+                    return hasMaterializedLegacyImport ? .materializedLegacySQLiteSnapshot : .sqliteSnapshot
                 }
                 guard allowLegacyFileImport else {
                     inboxAtom.replaceAll([])
                     sidebarState.hydrate(collapsedGroups: [])
                     reportLoadFailed()
-                    return
+                    return .legacyImportBlockedReset
                 }
-                guard let payload = loadLegacyPayloadFromDisk() else { return }
+                guard let payload = loadLegacyPayloadFromDisk() else { return .missing }
                 apply(payload)
                 try persistCurrentLegacySQLiteSnapshot(to: sqliteRepository)
-                return
+                return .legacyFileImportedIntoSQLite
             } catch {
                 reportLoadFailed()
                 throw error
             }
         }
 
-        guard allowLegacyFilePersistence else { return }
-        guard let payload = loadLegacyPayloadFromDisk() else { return }
+        guard allowLegacyFilePersistence else { return .missing }
+        guard let payload = loadLegacyPayloadFromDisk() else { return .missing }
         apply(payload)
+        return .legacyFile
     }
 
     private func loadLegacyPayloadFromDisk() -> Payload? {

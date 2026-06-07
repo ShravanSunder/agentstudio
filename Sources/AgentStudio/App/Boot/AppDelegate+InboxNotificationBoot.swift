@@ -20,18 +20,21 @@ extension AppDelegate {
             allowLegacyFileImport: sqliteBootDecision.allowLegacyFileImport
         )
         var didLoadInboxStore = false
+        var inboxLoadOutcome: InboxNotificationStore.LoadOutcome?
         do {
-            try inboxNotificationStore.load()
+            inboxLoadOutcome = try inboxNotificationStore.load()
             didLoadInboxStore = true
         } catch {
             appLogger.warning("Inbox notification store load failed: \(error.localizedDescription)")
         }
-        canArchiveLegacyInboxFile =
-            !hadLegacyInboxFile
-            || (didLoadInboxStore
-                && (sqliteBootDecision.repository != nil || workspaceLocalSQLiteStoreBackend == nil)
-                && (sqliteBootDecision.allowLegacyFileImport
-                    || sqliteBootDecision.canArchiveLegacyInboxFileAfterBlockedImport))
+        canArchiveLegacyInboxFile = InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
+            hadLegacyFile: hadLegacyInboxFile,
+            didLoadStore: didLoadInboxStore,
+            hasSQLiteRepository: sqliteBootDecision.repository != nil,
+            hasWorkspaceLocalSQLiteBackend: workspaceLocalSQLiteStoreBackend != nil,
+            loadOutcome: inboxLoadOutcome,
+            canArchiveAfterBlockedImport: sqliteBootDecision.canArchiveLegacyInboxFileAfterBlockedImport
+        )
         observeInboxNotificationPersistence()
         hasLoadedInboxNotificationStore = true
         flushPersistenceRecoveryNotifications()
@@ -184,4 +187,20 @@ private struct InboxNotificationSQLiteBootDecision {
     var allowLegacyFilePersistence: Bool
     var allowLegacyFileImport: Bool
     var canArchiveLegacyInboxFileAfterBlockedImport: Bool
+}
+
+enum InboxNotificationLegacyArchiveReadiness {
+    static func canArchiveLegacyFile(
+        hadLegacyFile: Bool,
+        didLoadStore: Bool,
+        hasSQLiteRepository: Bool,
+        hasWorkspaceLocalSQLiteBackend: Bool,
+        loadOutcome: InboxNotificationStore.LoadOutcome?,
+        canArchiveAfterBlockedImport: Bool
+    ) -> Bool {
+        guard hadLegacyFile else { return true }
+        guard didLoadStore else { return false }
+        guard hasSQLiteRepository || !hasWorkspaceLocalSQLiteBackend else { return false }
+        return loadOutcome?.hasMaterializedLegacyFile == true || canArchiveAfterBlockedImport
+    }
 }

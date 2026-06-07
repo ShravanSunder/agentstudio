@@ -148,6 +148,10 @@ struct WorkspaceSQLiteStoreBackend {
         )
     }
 
+    func selectActiveWorkspace(_ workspaceId: UUID, updatedAt: Date) throws {
+        try coreRepository.selectActiveWorkspace(workspaceId, updatedAt: updatedAt)
+    }
+
     private func resolvedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
         do {
             if let activeWorkspaceId = try coreRepository.fetchActiveWorkspaceId() {

@@ -412,9 +412,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(cursorState.activeTabId == tab.id)
         let importStatus = try #require(
             try fixture.coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId))
-        let expectedSourcePath = persistor.workspacesDir
-            .appending(path: "\(workspaceId.uuidString).workspace.state.json")
-            .path
+        let expectedSourcePath = try #require(persistor.loadLegacyWorkspaceStateFiles().loadedFiles.single?.url.path)
         #expect(importStatus.sourceStatePath == expectedSourcePath)
         #expect(importStatus.coreImportedAt != nil)
         try fixture.backend.markLegacyWorkspaceArchived(
@@ -425,6 +423,103 @@ struct WorkspaceSQLiteStoreBridgeTests {
             try fixture.coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId)
         )
         #expect(archivedStatus.archivedAt == Date(timeIntervalSince1970: 1_700_000_500))
+    }
+
+    @Test("restore imports every legacy workspace JSON and selects newest modified file")
+    func restoreImportsEveryLegacyWorkspaceJSONAndSelectsNewestModifiedFile() throws {
+        let olderWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let newerWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: olderWorkspaceId)
+        let persistor = WorkspacePersistor(
+            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        )
+        #expect(persistor.ensureDirectory())
+        try persistor.save(
+            .init(
+                id: olderWorkspaceId,
+                name: "Older Legacy Workspace",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_700),
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_800)
+            )
+        )
+        try persistor.save(
+            .init(
+                id: newerWorkspaceId,
+                name: "Newest Modified Legacy Workspace",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_710),
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_720)
+            )
+        )
+        try setModificationDate(
+            Date(timeIntervalSince1970: 1_700_000_900),
+            for: persistor.canonicalWorkspaceStatePath(for: olderWorkspaceId)
+        )
+        try setModificationDate(
+            Date(timeIntervalSince1970: 1_700_001_000),
+            for: persistor.canonicalWorkspaceStatePath(for: newerWorkspaceId)
+        )
+        let store = WorkspaceStore(persistor: persistor, sqliteBackend: fixture.backend)
+
+        store.restore()
+
+        let workspaces = try fixture.coreRepository.fetchWorkspaces()
+        #expect(workspaces.map(\.id) == [olderWorkspaceId, newerWorkspaceId])
+        #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == newerWorkspaceId)
+        #expect(store.identityAtom.workspaceId == newerWorkspaceId)
+        #expect(store.identityAtom.workspaceName == "Newest Modified Legacy Workspace")
+        #expect(
+            try fixture.coreRepository.fetchLegacyWorkspaceImportStatus(
+                workspaceId: olderWorkspaceId
+            )?.coreImportedAt != nil
+        )
+        #expect(
+            try fixture.coreRepository.fetchLegacyWorkspaceImportStatus(
+                workspaceId: newerWorkspaceId
+            )?.coreImportedAt != nil
+        )
+    }
+
+    @Test("restore breaks legacy active workspace mtime ties by lexicographic id")
+    func restoreBreaksLegacyActiveWorkspaceMTimeTiesByLexicographicId() throws {
+        let tieWinnerWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let tieLoserWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: tieLoserWorkspaceId)
+        let persistor = WorkspacePersistor(
+            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        )
+        #expect(persistor.ensureDirectory())
+        try persistor.save(
+            .init(
+                id: tieWinnerWorkspaceId,
+                name: "Lexicographic Winner",
+                createdAt: Date(timeIntervalSince1970: 1_700_001_100),
+                updatedAt: Date(timeIntervalSince1970: 1_700_001_110)
+            )
+        )
+        try persistor.save(
+            .init(
+                id: tieLoserWorkspaceId,
+                name: "Lexicographic Loser",
+                createdAt: Date(timeIntervalSince1970: 1_700_001_100),
+                updatedAt: Date(timeIntervalSince1970: 1_700_001_120)
+            )
+        )
+        let tiedModificationDate = Date(timeIntervalSince1970: 1_700_001_200)
+        try setModificationDate(
+            tiedModificationDate,
+            for: persistor.canonicalWorkspaceStatePath(for: tieWinnerWorkspaceId)
+        )
+        try setModificationDate(
+            tiedModificationDate,
+            for: persistor.canonicalWorkspaceStatePath(for: tieLoserWorkspaceId)
+        )
+        let store = WorkspaceStore(persistor: persistor, sqliteBackend: fixture.backend)
+
+        store.restore()
+
+        #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == tieWinnerWorkspaceId)
+        #expect(store.identityAtom.workspaceId == tieWinnerWorkspaceId)
+        #expect(store.identityAtom.workspaceName == "Lexicographic Winner")
     }
 
     @Test("restore does not replay stale legacy JSON when SQLite restore fails")
@@ -556,4 +651,8 @@ private func setRawActiveWorkspaceSelection(_ value: String?, in databaseQueue: 
         )
         try database.execute(sql: "PRAGMA foreign_keys = ON")
     }
+}
+
+private func setModificationDate(_ date: Date, for path: String) throws {
+    try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: path)
 }

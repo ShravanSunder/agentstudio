@@ -126,13 +126,67 @@ struct AppBootSequenceTests {
         #expect(inboxBootSource.contains("canArchiveLegacyInboxFileAfterBlockedImport"))
         #expect(inboxBootSource.contains("hasMaterializedLegacyImport()"))
         #expect(inboxBootSource.contains("legacyImportDecision.canArchiveLegacyFile"))
-        #expect(inboxBootSource.contains("&& hasMaterializedLegacyInboxImport"))
+        #expect(inboxBootSource.contains("InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile("))
         #expect(inboxBootSource.contains("InboxNotificationSQLiteRepository("))
         #expect(inboxBootSource.contains("databaseWriter: localRepository.databaseWriter"))
         #expect(inboxBootSource.contains("allowLegacyFilePersistence: false"))
         #expect(inboxBootSource.contains("allowLegacyFileImport: false"))
         #expect(inboxBootSource.contains("hadLegacyInboxFile"))
         #expect(inboxBootSource.contains("canArchiveLegacyInboxFile"))
+    }
+
+    @Test("legacy inbox archive readiness requires actual materialization proof")
+    func legacyInboxArchiveReadinessRequiresActualMaterializationProof() {
+        #expect(
+            !InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
+                hadLegacyFile: true,
+                didLoadStore: true,
+                hasSQLiteRepository: true,
+                hasWorkspaceLocalSQLiteBackend: true,
+                loadOutcome: .sqliteSnapshot,
+                canArchiveAfterBlockedImport: false
+            )
+        )
+        #expect(
+            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
+                hadLegacyFile: true,
+                didLoadStore: true,
+                hasSQLiteRepository: true,
+                hasWorkspaceLocalSQLiteBackend: true,
+                loadOutcome: .legacyFileImportedIntoSQLite,
+                canArchiveAfterBlockedImport: false
+            )
+        )
+        #expect(
+            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
+                hadLegacyFile: true,
+                didLoadStore: true,
+                hasSQLiteRepository: true,
+                hasWorkspaceLocalSQLiteBackend: true,
+                loadOutcome: .materializedLegacySQLiteSnapshot,
+                canArchiveAfterBlockedImport: false
+            )
+        )
+        #expect(
+            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
+                hadLegacyFile: true,
+                didLoadStore: true,
+                hasSQLiteRepository: true,
+                hasWorkspaceLocalSQLiteBackend: true,
+                loadOutcome: .sqliteSnapshot,
+                canArchiveAfterBlockedImport: true
+            )
+        )
+        #expect(
+            InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
+                hadLegacyFile: false,
+                didLoadStore: false,
+                hasSQLiteRepository: false,
+                hasWorkspaceLocalSQLiteBackend: true,
+                loadOutcome: nil,
+                canArchiveAfterBlockedImport: false
+            )
+        )
     }
 
     @Test("boot archives legacy workspace files after SQLite-backed stores load")
