@@ -93,6 +93,41 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(cursorState.activePaneIdsByArrangementId[secondArrangement.id] == pane.id)
     }
 
+    @Test("SQLite flush preserves the live pane graph instead of applying legacy prune-on-save")
+    func sqliteFlushPreservesLivePaneGraphWithoutLegacyPruning() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Live SQLite Workspace",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_050)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteBackend: fixture.backend
+        )
+        let temporaryPane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "Ephemeral"),
+            title: "Ephemeral",
+            lifetime: .temporary
+        )
+        let tab = Tab(paneId: temporaryPane.id, name: "Ephemeral Tab")
+        store.appendTab(tab)
+
+        #expect(store.flush())
+
+        let paneGraph = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceId)
+        #expect(paneGraph.panes.map(\.id) == [temporaryPane.id])
+        let tabShells = try fixture.coreRepository.fetchTabShells(workspaceId: workspaceId)
+        #expect(tabShells.map(\.id) == [tab.id])
+        let tabGraph = try fixture.coreRepository.fetchTabGraph(workspaceId: workspaceId)
+        #expect(tabGraph.tabs.single?.allPaneIds == [temporaryPane.id])
+    }
+
     @Test("restore hydrates workspace atoms from active SQLite workspace")
     func restoreHydratesAtomsFromSQLite() throws {
         let workspaceId = UUID()

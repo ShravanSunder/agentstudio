@@ -216,17 +216,16 @@ final class WorkspaceStore {
         prePersistHook?()
 
         let persistedAt = Date()
-        let state = WorkspacePersistenceTransformer.makePersistableState(
-            identityAtom: identityAtom,
-            windowMemoryAtom: windowMemoryAtom,
-            repositoryTopologyAtom: repositoryTopologyAtom,
-            workspacePaneAtom: paneAtom,
-            workspaceTabLayoutAtom: tabLayoutAtom,
-            persistedAt: persistedAt
-        )
-
         do {
             if let sqliteBackend {
+                let state = WorkspacePersistenceTransformer.makeLiveSQLiteState(
+                    identityAtom: identityAtom,
+                    windowMemoryAtom: windowMemoryAtom,
+                    repositoryTopologyAtom: repositoryTopologyAtom,
+                    workspacePaneAtom: paneAtom,
+                    workspaceTabLayoutAtom: tabLayoutAtom,
+                    persistedAt: persistedAt
+                )
                 try sqliteBackend.save(state)
             } else {
                 guard persistor.ensureDirectory() else {
@@ -236,6 +235,14 @@ final class WorkspaceStore {
                     reportSaveFailed()
                     return false
                 }
+                let state = WorkspacePersistenceTransformer.makePersistableState(
+                    identityAtom: identityAtom,
+                    windowMemoryAtom: windowMemoryAtom,
+                    repositoryTopologyAtom: repositoryTopologyAtom,
+                    workspacePaneAtom: paneAtom,
+                    workspaceTabLayoutAtom: tabLayoutAtom,
+                    persistedAt: persistedAt
+                )
                 try persistor.save(state)
             }
             if isDirty {

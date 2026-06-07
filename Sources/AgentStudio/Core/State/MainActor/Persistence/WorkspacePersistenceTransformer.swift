@@ -80,6 +80,31 @@ enum WorkspacePersistenceTransformer {
         )
     }
 
+    static func makeLiveSQLiteState(
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
+        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        workspacePaneAtom: WorkspacePaneAtom,
+        workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
+        persistedAt: Date
+    ) -> WorkspacePersistor.PersistableState {
+        WorkspacePersistor.PersistableState(
+            id: identityAtom.workspaceId,
+            name: identityAtom.workspaceName,
+            repos: canonicalRepos(from: repositoryTopologyAtom.repos),
+            worktrees: canonicalWorktrees(from: repositoryTopologyAtom.repos),
+            unavailableRepoIds: repositoryTopologyAtom.unavailableRepoIds,
+            panes: Array(workspacePaneAtom.liveSQLitePanes.values),
+            tabs: workspaceTabLayoutAtom.tabs,
+            activeTabId: workspaceTabLayoutAtom.activeTabId,
+            sidebarWidth: windowMemoryAtom.sidebarWidth,
+            windowFrame: windowMemoryAtom.windowFrame,
+            watchedPaths: repositoryTopologyAtom.watchedPaths,
+            createdAt: identityAtom.createdAt,
+            updatedAt: persistedAt
+        )
+    }
+
     private static func canonicalRepos(from repos: [Repo]) -> [CanonicalRepo] {
         repos.map { repo in
             CanonicalRepo(

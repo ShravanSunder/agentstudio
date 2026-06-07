@@ -38,6 +38,13 @@ final class WorkspacePaneAtom {
     /// the drawer cursor so current workspace.state.json saves retain drawer
     /// expansion, while excluding topology/cache display facets.
     var legacyPersistablePanes: [UUID: Pane] {
+        liveSQLitePanes
+    }
+
+    /// Live SQLite projection of the pane graph plus local drawer cursor facts.
+    /// This keeps derived topology/cache display facets out of core rows while
+    /// preserving the current atom-owned pane graph.
+    var liveSQLitePanes: [UUID: Pane] {
         Dictionary(
             uniqueKeysWithValues: graphAtom.paneStates.map { paneId, state in
                 let drawerId = state.drawer?.drawerId
