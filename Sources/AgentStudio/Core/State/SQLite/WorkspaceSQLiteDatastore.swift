@@ -403,26 +403,40 @@ actor WorkspaceSQLiteDatastore {
             restoreLocalRepositoryCache[workspaceId] = repository
             await recordProbe(.localRepositoryOpened(workspaceId, .restore))
             return repository
-        } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(let recoveredWorkspaceId) {
+        } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
+            let recoveredWorkspaceId,
+            let quarantinedFilename
+        ) {
             appendRecoveryEvent(
                 .init(
                     store: .workspace,
                     workspaceId: recoveredWorkspaceId,
-                    recovery: .quarantinedAndReset
+                    recovery: .quarantinedAndReset,
+                    quarantinedFilename: quarantinedFilename
                 ),
                 workspaceId: recoveredWorkspaceId
             )
-            throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(recoveredWorkspaceId)
-        } catch WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(let failedWorkspaceId) {
+            throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
+                recoveredWorkspaceId,
+                quarantinedFilename: quarantinedFilename
+            )
+        } catch WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(
+            let failedWorkspaceId,
+            let quarantinedFilename
+        ) {
             appendRecoveryEvent(
                 .init(
                     store: .workspace,
                     workspaceId: failedWorkspaceId,
-                    recovery: .quarantineFailed
+                    recovery: .quarantineFailed,
+                    quarantinedFilename: quarantinedFilename
                 ),
                 workspaceId: failedWorkspaceId
             )
-            throw WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(failedWorkspaceId)
+            throw WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(
+                failedWorkspaceId,
+                quarantinedFilename: quarantinedFilename
+            )
         }
     }
 

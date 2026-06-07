@@ -113,7 +113,8 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
             atom: sidebarState,
             editorChooserState: EditorChooserState(),
             persistor: legacyPersistor,
-            sqliteDatastore: try workspaceSQLiteDatastore(from: backend.localBackend)
+            sqliteDatastore: try workspaceSQLiteDatastore(from: backend.localBackend),
+            recoveryReporter: { event in recoveryEvents.append(event) }
         )
 
         await uiStateStore.restoreAsync(for: workspaceId)
@@ -122,13 +123,14 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
         #expect(sidebarState.filterText != "stale legacy")
         #expect(sidebarState.sidebarSurface == .repos)
         #expect(!uiStateStore.canArchiveLegacyUIFile)
+        let workspaceRecoveryEvent = recoveryEvents.first { event in
+            event.store == .workspace
+                && event.workspaceId == workspaceId
+                && event.recovery == .quarantinedAndReset
+        }
         #expect(
-            recoveryEvents.contains { event in
-                event.store == .workspace
-                    && event.workspaceId == workspaceId
-                    && event.recovery == .quarantinedAndReset
-                    && event.quarantinedFilename?.contains(".local.sqlite.corrupt-") == true
-            }
+            workspaceRecoveryEvent?.quarantinedFilename?.contains(".local.sqlite.corrupt-") == true,
+            "Recovery events: \(recoveryEvents)"
         )
         #expect(FileManager.default.fileExists(atPath: localSQLiteURL.path))
         let recoveredRepository = try backend.localBackend.repository(for: workspaceId)

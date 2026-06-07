@@ -1108,8 +1108,9 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` | Compatibility read facade over tab shell and arrangement facades |
 | `Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift` | Rich tab read model composed from shell, cursor, graph, arrangement cursor, and presentation |
 | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
-| `Core/State/MainActor/Atoms/WorkspaceFocus.swift` | Shared `WorkspaceFocus` and `FocusRequirement` domain types for command visibility and status UI |
-| `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` | Shared app-wide focus reader for command visibility and status UI |
+| `Core/State/MainActor/Atoms/WorkspacePaneFocus.swift` | Shared `WorkspacePaneFocus` and `FocusRequirement` domain types for command visibility and status UI |
+| `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` | Runtime focus owner for main-pane, empty-drawer, and drawer-pane focus |
+| `Core/State/MainActor/Atoms/WorkspacePaneFocusDerived.swift` | Shared app-wide pane focus reader for command visibility and status UI |
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
 | `Core/State/MainActor/Persistence/WorkspaceStore+LegacySQLiteImport.swift` | Thin `WorkspaceStore` call site plus `WorkspaceLegacySQLiteImporter` legacy JSON import policy and enum outcomes |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |

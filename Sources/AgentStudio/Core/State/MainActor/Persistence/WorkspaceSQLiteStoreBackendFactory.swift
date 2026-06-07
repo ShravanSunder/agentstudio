@@ -90,17 +90,11 @@ struct WorkspaceSQLiteStoreBackendFactory {
                     let quarantine = SQLiteSidecarQuarantine.quarantine(
                         databaseURL: localDatabaseURL(workspaceId)
                     )
-                    let recoveryEvent = PersistenceRecoveryEvent(
-                        store: .workspace,
-                        workspaceId: workspaceId,
-                        recovery: quarantine.succeeded ? .quarantinedAndReset : .quarantineFailed,
-                        quarantinedFilename: quarantine.recoveryFilename
-                    )
-                    MainActor.assumeIsolated {
-                        recoveryReporter?(recoveryEvent)
-                    }
                     guard quarantine.succeeded else {
-                        throw WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(workspaceId)
+                        throw WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(
+                            workspaceId,
+                            quarantinedFilename: quarantine.recoveryFilename
+                        )
                     }
                     do {
                         _ = try makeLocalRepository(workspaceId: workspaceId)
@@ -109,7 +103,10 @@ struct WorkspaceSQLiteStoreBackendFactory {
                             "Failed to prepare local SQLite workspace backend after quarantine: \(error.localizedDescription)"
                         )
                     }
-                    throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(workspaceId)
+                    throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
+                        workspaceId,
+                        quarantinedFilename: quarantine.recoveryFilename
+                    )
                 }
             },
             legacyImportDecision: { workspaceId, lane in

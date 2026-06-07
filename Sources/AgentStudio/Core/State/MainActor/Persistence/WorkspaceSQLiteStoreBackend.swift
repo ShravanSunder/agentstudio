@@ -457,8 +457,8 @@ struct WorkspaceLocalSQLiteStoreBackend: Sendable {
 }
 
 enum WorkspaceLocalSQLiteStoreBackendError: Error {
-    case recoveredFromCorruption(UUID)
-    case quarantineFailed(UUID)
+    case recoveredFromCorruption(UUID, quarantinedFilename: String? = nil)
+    case quarantineFailed(UUID, quarantinedFilename: String? = nil)
 }
 
 enum WorkspaceSQLiteStateBridge {

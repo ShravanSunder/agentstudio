@@ -122,7 +122,8 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceSidebarMemoryAtom` | persisted workspace sidebar shell memory: filter text, filter visibility, collapsed state, active surface | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `SidebarFocusRuntimeAtom` | runtime-only sidebar focus fact for keyboard-owner derivation | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `WorkspaceSidebarState` | UI-facing composition surface over sidebar memory + runtime focus atoms | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
-| `WorkspaceFocusDerived` | shared app-wide focus reader for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` |
+| `WorkspaceFocusOwnerAtom` | runtime focus owner for main-pane, empty-drawer, and drawer-pane focus | `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` |
+| `WorkspacePaneFocusDerived` | shared app-wide pane focus reader for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspacePaneFocusDerived.swift` |
 | `ManagementLayerAtom` | management layer active/inactive state | `Core/State/MainActor/Atoms/ManagementLayerAtom.swift` |
 | `CommandBarSurfaceAtom` | runtime command-bar keyboard surface scope | `Core/State/MainActor/Atoms/CommandBarSurfaceAtom.swift` |
 | `TransientKeyboardSurfaceAtom` | runtime transient keyboard surface stack | `Core/State/MainActor/Atoms/TransientKeyboardSurfaceAtom.swift` |
@@ -363,7 +364,7 @@ agent-studio/
 │   │   │       ├── Atoms/            # WorkspaceIdentityAtom, WorkspacePaneGraphAtom,
 │   │   │       │                     #   WorkspaceDrawerCursorAtom, WorkspacePaneAtom facade,
 │   │   │       │                     #   WorkspaceSidebarState, ManagementLayerAtom,
-│   │   │       │                     #   WorkspaceFocusDerived, KeyboardOwnerDerived, ...
+│   │   │       │                     #   WorkspacePaneFocusDerived, KeyboardOwnerDerived, ...
 │   │   │       └── Persistence/      # WorkspaceStore, RepoCacheStore, UIStateStore
 │   │   ├── RuntimeEventSystem/       # Runtime actors, event bus, SessionRuntime, ZmxBackend
 │   │   ├── Actions/                  # PaneActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator
