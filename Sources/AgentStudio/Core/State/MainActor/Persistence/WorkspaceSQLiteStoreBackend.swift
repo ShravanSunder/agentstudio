@@ -118,6 +118,13 @@ struct WorkspaceSQLiteStoreBackend {
         try coreRepository.markLegacyWorkspaceArchived(workspaceId: workspaceId, archivedAt: archivedAt)
     }
 
+    func markLegacyWorkspaceCompanionImportsCompleted(workspaceId: UUID, importedAt: Date) throws {
+        try coreRepository.markLegacyWorkspaceCompanionImportsCompleted(
+            workspaceId: workspaceId,
+            importedAt: importedAt
+        )
+    }
+
     private func resolvedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
         if let activeWorkspaceId = try coreRepository.fetchActiveWorkspaceId() {
             return activeWorkspaceId

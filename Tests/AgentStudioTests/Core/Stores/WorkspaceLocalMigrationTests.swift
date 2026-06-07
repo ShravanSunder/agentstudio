@@ -68,6 +68,55 @@ struct WorkspaceLocalMigrationTests {
         )
     }
 
+    @Test("snapshot status migration backfills existing workspace cursor timestamp")
+    func snapshotStatusMigrationBackfillsExistingWorkspaceCursorTimestamp() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let workspaceId = UUID().uuidString
+        let completedAt = 700.0
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "006_create_local_persistence_lane_markers"
+        )
+        let tableExistsBeforeSnapshotStatusMigration = try databaseQueue.read { database in
+            try Bool.fetchOne(
+                database,
+                sql: """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM sqlite_master
+                        WHERE type = 'table'
+                          AND name = 'local_workspace_sqlite_snapshot_status'
+                    )
+                    """
+            ) ?? false
+        }
+        #expect(!tableExistsBeforeSnapshotStatusMigration)
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO local_workspace_cursor(workspace_id, active_tab_id, updated_at)
+                    VALUES (?, NULL, ?)
+                    """,
+                arguments: [workspaceId, completedAt]
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let restoredCompletedAt = try databaseQueue.read { database in
+            try Double.fetchOne(
+                database,
+                sql: """
+                    SELECT completed_at
+                    FROM local_workspace_sqlite_snapshot_status
+                    WHERE workspace_id = ?
+                    """,
+                arguments: [workspaceId]
+            )
+        }
+        #expect(restoredCompletedAt == completedAt)
+    }
+
     @Test("active drawer child cursor is scoped by arrangement and drawer")
     func activeDrawerChildCursorIsScopedByArrangementAndDrawer() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()

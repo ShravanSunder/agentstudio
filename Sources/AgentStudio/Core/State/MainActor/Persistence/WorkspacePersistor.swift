@@ -262,17 +262,17 @@ struct WorkspacePersistor {
 
     @discardableResult
     func archiveLegacyWorkspaceFiles(for workspaceId: UUID) -> LegacyArchiveResult? {
+        let candidates = legacyWorkspaceFileURLs(for: workspaceId)
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
         let incompleteArchiveDirectoryNames = incompleteLegacyArchiveDirectoryNames(for: workspaceId)
         if !incompleteArchiveDirectoryNames.isEmpty {
             return LegacyArchiveResult(
                 archiveDirectoryName: "",
                 archivedFilenames: [],
-                failedFilenames: [],
+                failedFilenames: candidates.map(\.lastPathComponent),
                 incompleteArchiveDirectoryNames: incompleteArchiveDirectoryNames
             )
         }
-        let candidates = legacyWorkspaceFileURLs(for: workspaceId)
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !candidates.isEmpty else { return nil }
 
         let archiveDirectoryName = ISO8601DateFormatter().string(from: Date())
@@ -342,6 +342,11 @@ struct WorkspacePersistor {
 
     func canonicalWorkspaceStatePath(for workspaceId: UUID) -> String {
         canonicalFileURL(for: workspaceId).path
+    }
+
+    func hasLegacyWorkspaceFiles(for workspaceId: UUID) -> Bool {
+        legacyWorkspaceFileURLs(for: workspaceId)
+            .contains { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private func incompleteLegacyArchiveDirectoryNames(for workspaceId: UUID) -> [String] {

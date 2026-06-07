@@ -152,6 +152,22 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func hasLegacyWorkspaceFilesReportsWhetherAnyLegacyFileExists() throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-legacy-file-presence-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        #expect(persistor.ensureDirectory())
+        let workspaceId = UUID()
+
+        #expect(!persistor.hasLegacyWorkspaceFiles(for: workspaceId))
+
+        let stateURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
+        try Data("state".utf8).write(to: stateURL, options: .atomic)
+
+        #expect(persistor.hasLegacyWorkspaceFiles(for: workspaceId))
+    }
+
+    @Test
     func archiveLegacyWorkspaceFilesReportsPriorIncompleteArchiveDirectory() throws {
         let persistedDir = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-incomplete-archive-tests-\(UUID().uuidString)")
@@ -178,6 +194,7 @@ final class WorkspaceStoreTests {
         let result = try #require(persistor.archiveLegacyWorkspaceFiles(for: workspaceId))
 
         #expect(result.archivedFilenames.isEmpty)
+        #expect(result.failedFilenames == [stateURL.lastPathComponent])
         #expect(result.incompleteArchiveDirectoryNames == [incompleteDirectoryName])
         #expect(!result.succeeded)
         #expect(FileManager.default.fileExists(atPath: stateURL.path))

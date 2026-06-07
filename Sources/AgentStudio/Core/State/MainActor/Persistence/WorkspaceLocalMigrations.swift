@@ -592,6 +592,11 @@ enum WorkspaceLocalMigrations {
             workspace_id TEXT PRIMARY KEY,
             completed_at REAL NOT NULL
         )
+        """,
         """
+        INSERT INTO local_workspace_sqlite_snapshot_status(workspace_id, completed_at)
+        SELECT workspace_id, updated_at
+        FROM local_workspace_cursor
+        """,
     ]
 }

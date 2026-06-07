@@ -243,6 +243,18 @@ extension AppDelegate {
                 "Skipping legacy workspace archive; SQLite snapshot status unavailable: \(error.localizedDescription)")
             return
         }
+        guard persistor.hasLegacyWorkspaceFiles(for: store.identityAtom.workspaceId) else { return }
+        do {
+            try workspaceSQLiteStoreBackend.markLegacyWorkspaceCompanionImportsCompleted(
+                workspaceId: store.identityAtom.workspaceId,
+                importedAt: Date()
+            )
+        } catch {
+            appLogger.warning(
+                "Skipping legacy workspace archive; companion import status update failed: \(error.localizedDescription)"
+            )
+            return
+        }
         guard let result = persistor.archiveLegacyWorkspaceFiles(for: store.identityAtom.workspaceId) else { return }
         if result.succeeded {
             do {

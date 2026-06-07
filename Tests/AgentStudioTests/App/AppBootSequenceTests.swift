@@ -136,12 +136,23 @@ struct AppBootSequenceTests {
         #expect(bootSource.contains("uiStateStore.canArchiveLegacyUIFile"))
         #expect(bootSource.contains("workspaceSettingsStore.canArchiveLegacySettingsFiles"))
         #expect(bootSource.contains("canArchiveLegacyInboxFile"))
+        #expect(
+            bootSource.contains(
+                "workspaceSQLiteStoreBackend.markLegacyWorkspaceCompanionImportsCompleted("))
         #expect(bootSource.contains("workspaceSQLiteStoreBackend.markLegacyWorkspaceArchived("))
         let uiLoadRange = try #require(bootSource.range(of: "bootLoadInboxNotificationStore(persistor: persistor)"))
         let archiveRange = try #require(
             bootSource.range(of: "bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)")
         )
         #expect(uiLoadRange.upperBound < archiveRange.lowerBound)
+
+        let companionStatusRange = try #require(
+            bootSource.range(of: "workspaceSQLiteStoreBackend.markLegacyWorkspaceCompanionImportsCompleted(")
+        )
+        let archiveFilesRange = try #require(
+            bootSource.range(of: "persistor.archiveLegacyWorkspaceFiles(for: store.identityAtom.workspaceId)")
+        )
+        #expect(companionStatusRange.upperBound < archiveFilesRange.lowerBound)
     }
 
     @Test("termination flushes settings before shutdown completes")

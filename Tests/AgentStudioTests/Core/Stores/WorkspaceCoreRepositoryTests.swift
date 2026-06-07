@@ -179,6 +179,63 @@ struct WorkspaceCoreRepositoryTests {
         }
     }
 
+    @Test("legacy companion import status rejects missing import status row")
+    func legacyCompanionImportStatusRejectsMissingImportStatusRow() throws {
+        let repository = try makeFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000025")!
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Imported",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+
+        #expect(throws: WorkspaceCoreRepositoryError.legacyImportStatusNotFound(workspaceId)) {
+            try repository.markLegacyWorkspaceCompanionImportsCompleted(
+                workspaceId: workspaceId,
+                importedAt: Date(timeIntervalSince1970: 300)
+            )
+        }
+    }
+
+    @Test("legacy companion import status records settings local and cache completion")
+    func legacyCompanionImportStatusRecordsSettingsLocalAndCacheCompletion() throws {
+        let repository = try makeFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000026")!
+        let sourcePath = "/tmp/imported.workspace.state.json"
+        let coreImportedAt = Date(timeIntervalSince1970: 200)
+        let companionImportedAt = Date(timeIntervalSince1970: 300)
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Imported",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+        try repository.markLegacyWorkspaceCoreImported(
+            workspaceId: workspaceId,
+            sourceStatePath: sourcePath,
+            importedAt: coreImportedAt
+        )
+
+        try repository.markLegacyWorkspaceCompanionImportsCompleted(
+            workspaceId: workspaceId,
+            importedAt: companionImportedAt
+        )
+
+        let status = try #require(try repository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId))
+        #expect(status.sourceStatePath == sourcePath)
+        #expect(status.coreImportedAt == coreImportedAt)
+        #expect(status.settingsImportedAt == companionImportedAt)
+        #expect(status.localImportedAt == companionImportedAt)
+        #expect(status.cacheImportedAt == companionImportedAt)
+        #expect(status.archivedAt == nil)
+        #expect(status.lastError == nil)
+    }
+
     @Test("active workspace clear is rejected while workspace rows remain")
     func activeWorkspaceClearIsRejectedWhileWorkspaceRowsRemain() throws {
         let repository = try makeFixture().repository

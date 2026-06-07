@@ -234,6 +234,43 @@ struct WorkspaceCoreRepository {
         }
     }
 
+    func markLegacyWorkspaceCompanionImportsCompleted(
+        workspaceId: UUID,
+        importedAt: Date
+    ) throws {
+        try databaseWriter.write { database in
+            let statusCount =
+                try Int.fetchOne(
+                    database,
+                    sql: """
+                        SELECT count(*)
+                        FROM legacy_workspace_import_status
+                        WHERE workspace_id = ?
+                        """,
+                    arguments: [workspaceId.uuidString]
+                ) ?? 0
+            guard statusCount > 0 else {
+                throw WorkspaceCoreRepositoryError.legacyImportStatusNotFound(workspaceId)
+            }
+            try database.execute(
+                sql: """
+                    UPDATE legacy_workspace_import_status
+                    SET settings_imported_at = ?,
+                        local_imported_at = ?,
+                        cache_imported_at = ?,
+                        last_error = NULL
+                    WHERE workspace_id = ?
+                    """,
+                arguments: [
+                    importedAt.timeIntervalSince1970,
+                    importedAt.timeIntervalSince1970,
+                    importedAt.timeIntervalSince1970,
+                    workspaceId.uuidString,
+                ]
+            )
+        }
+    }
+
     func markLegacyWorkspaceArchived(workspaceId: UUID, archivedAt: Date) throws {
         try databaseWriter.write { database in
             let statusCount =
