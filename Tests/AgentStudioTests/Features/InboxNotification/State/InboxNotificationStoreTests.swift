@@ -207,6 +207,84 @@ struct InboxNotificationStoreTests {
         #expect(try fixture.repository.hasPersistedState())
     }
 
+    @Test("SQLite missing inbox lane after import resets instead of replaying legacy JSON")
+    func sqliteMissingInboxLaneAfterImportResetsInsteadOfReplayingLegacyJSON() async throws {
+        let url = makeTempURL()
+        let workspaceId = UUID()
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let staleNotification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 130),
+            kind: .agentDesktopNotification,
+            title: "Stale",
+            body: nil,
+            source: .global,
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+        let staleAtom = InboxNotificationAtom()
+        let staleSidebarState = InboxSidebarState()
+        staleAtom.append(staleNotification)
+        staleSidebarState.setGroupCollapsed(InboxNotificationGroupKey("repo:stale"), isCollapsed: true)
+        try await InboxNotificationStore(
+            inboxAtom: staleAtom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            sidebarState: staleSidebarState,
+            fileURL: url
+        ).save()
+        let sqliteNotification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 131),
+            kind: .agentDesktopNotification,
+            title: "SQLite",
+            body: nil,
+            source: .global,
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+        try fixture.repository.replaceSnapshot(
+            notifications: [sqliteNotification],
+            collapsedGroups: [InboxNotificationGroupKey("repo:sqlite")]
+        )
+        try await fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: "DELETE FROM local_notification_inbox_item WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            )
+            try database.execute(
+                sql: "DELETE FROM local_notification_inbox_collapsed_group WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            )
+            try database.execute(
+                sql: """
+                    DELETE FROM local_persistence_lane_marker
+                    WHERE workspace_id = ? AND lane = 'notification_inbox'
+                    """,
+                arguments: [workspaceId.uuidString]
+            )
+        }
+        let atom = InboxNotificationAtom()
+        let sidebarState = InboxSidebarState()
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            sidebarState: sidebarState,
+            fileURL: url,
+            recoveryReporter: { reportedRecovery = $0 },
+            sqliteRepository: fixture.repository,
+            allowLegacyFileImport: false
+        )
+
+        try store.load()
+
+        #expect(atom.notifications.isEmpty)
+        #expect(!atom.notifications.map(\.id).contains(staleNotification.id))
+        #expect(sidebarState.collapsedGroups.isEmpty)
+        #expect(reportedRecovery?.store == .notificationInbox)
+        #expect(reportedRecovery?.recovery == .resetToDefaults)
+    }
+
     @Test("SQLite load failure reports recovery and does not apply stale legacy JSON")
     func sqliteLoadFailureReportsRecoveryAndDoesNotApplyStaleLegacyJSON() async throws {
         let url = makeTempURL()

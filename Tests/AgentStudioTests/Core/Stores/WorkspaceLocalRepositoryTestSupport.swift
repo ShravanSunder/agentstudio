@@ -21,6 +21,16 @@ func failingWorkspaceLocalSQLiteBackend() -> WorkspaceLocalSQLiteStoreBackend {
     }
 }
 
+@MainActor
+func workspaceLocalSQLiteBackendWithImportedLegacyLanes(
+    repository: WorkspaceLocalRepository
+) -> WorkspaceLocalSQLiteStoreBackend {
+    WorkspaceLocalSQLiteStoreBackend(
+        makeLocalRepository: { _ in repository },
+        allowsLegacyImport: { _, _ in false }
+    )
+}
+
 struct WorkspaceLocalSQLiteStoreFixture {
     let repository: WorkspaceLocalRepository
     let databaseQueue: DatabaseQueue

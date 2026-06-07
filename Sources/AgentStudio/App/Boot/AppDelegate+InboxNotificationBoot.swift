@@ -6,9 +6,10 @@ extension AppDelegate {
         let workspaceId = store.identityAtom.workspaceId
         let fileURL = persistor.notificationInboxFileURL(for: workspaceId)
         let hadLegacyInboxFile = FileManager.default.fileExists(atPath: fileURL.path)
-        let (sqliteRepository, allowLegacyFilePersistence) = makeInboxNotificationSQLiteRepository(
-            workspaceId: workspaceId
-        )
+        let (sqliteRepository, allowLegacyFilePersistence, allowLegacyFileImport) =
+            makeInboxNotificationSQLiteRepository(
+                workspaceId: workspaceId
+            )
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: atomStore.inboxNotification,
             prefsAtom: atomStore.inboxNotificationPrefs,
@@ -18,7 +19,8 @@ extension AppDelegate {
                 self?.recordPersistenceRecovery(event)
             },
             sqliteRepository: sqliteRepository,
-            allowLegacyFilePersistence: allowLegacyFilePersistence
+            allowLegacyFilePersistence: allowLegacyFilePersistence,
+            allowLegacyFileImport: allowLegacyFileImport
         )
         var didLoadInboxStore = false
         do {
@@ -29,7 +31,8 @@ extension AppDelegate {
         }
         canArchiveLegacyInboxFile =
             !hadLegacyInboxFile
-            || (didLoadInboxStore && (sqliteRepository != nil || workspaceLocalSQLiteStoreBackend == nil))
+            || (didLoadInboxStore && (sqliteRepository != nil || workspaceLocalSQLiteStoreBackend == nil)
+                && allowLegacyFileImport)
         observeInboxNotificationPersistence()
         hasLoadedInboxNotificationStore = true
         flushPersistenceRecoveryNotifications()
@@ -37,16 +40,21 @@ extension AppDelegate {
 
     private func makeInboxNotificationSQLiteRepository(
         workspaceId: UUID
-    ) -> (InboxNotificationSQLiteRepository?, Bool) {
-        guard let workspaceLocalSQLiteStoreBackend else { return (nil, true) }
+    ) -> (InboxNotificationSQLiteRepository?, Bool, Bool) {
+        guard let workspaceLocalSQLiteStoreBackend else { return (nil, true, true) }
         do {
             let localRepository = try workspaceLocalSQLiteStoreBackend.restoreRepository(for: workspaceId)
+            let allowLegacyFileImport = try workspaceLocalSQLiteStoreBackend.allowsLegacyImport(
+                for: workspaceId,
+                lane: .local
+            )
             return (
                 InboxNotificationSQLiteRepository(
                     workspaceId: workspaceId,
                     databaseWriter: localRepository.databaseWriter
                 ),
-                true
+                true,
+                allowLegacyFileImport
             )
         } catch {
             appLogger.warning("Inbox notification SQLite repository unavailable: \(error.localizedDescription)")
@@ -57,7 +65,7 @@ extension AppDelegate {
                     recovery: .resetToDefaults
                 )
             )
-            return (nil, false)
+            return (nil, false, false)
         }
     }
 

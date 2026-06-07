@@ -56,7 +56,14 @@ final class UIStateStore {
         case .restored:
             return
         case .missing:
-            break
+            guard canImportLegacySidebarState(for: workspaceId) else {
+                atom.clear()
+                canArchiveLegacyUIFile = false
+                recoveryReporter?(
+                    .init(store: .uiState, workspaceId: workspaceId, recovery: .resetToDefaults)
+                )
+                return
+            }
         case .unavailable:
             atom.clear()
             canArchiveLegacyUIFile = false
@@ -190,6 +197,18 @@ final class UIStateStore {
             isRestoringState = false
             uiStateStoreLogger.warning("UI state SQLite restore failed: \(error.localizedDescription)")
             return .unavailable(error)
+        }
+    }
+
+    private func canImportLegacySidebarState(for workspaceId: UUID) -> Bool {
+        guard let sqliteBackend else { return true }
+        do {
+            return try sqliteBackend.allowsLegacyImport(for: workspaceId, lane: .local)
+        } catch {
+            uiStateStoreLogger.warning(
+                "UI state legacy import permission check failed: \(error.localizedDescription)"
+            )
+            return false
         }
     }
 

@@ -98,6 +98,19 @@ struct WorkspaceSQLiteStoreBackendFactory {
                     _ = try? makeLocalRepository(workspaceId: workspaceId)
                     throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(workspaceId)
                 }
+            },
+            allowsLegacyImport: { workspaceId, lane in
+                guard
+                    let status = try coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId)
+                else {
+                    return true
+                }
+                switch lane {
+                case .local:
+                    return status.localImportedAt == nil
+                case .cache:
+                    return status.cacheImportedAt == nil
+                }
             }
         )
     }

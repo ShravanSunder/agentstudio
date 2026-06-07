@@ -231,6 +231,28 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == workspaceId)
     }
 
+    @Test("restore repairs missing active workspace selection before hydrating SQLite")
+    func restoreRepairsMissingActiveWorkspaceSelectionBeforeHydratingSQLite() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_240)
+        try fixture.backend.save(
+            .init(
+                id: workspaceId,
+                name: "Missing Selection Workspace",
+                createdAt: createdAt,
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_245)
+            )
+        )
+        try setRawActiveWorkspaceSelection(nil, in: fixture.coreQueue)
+
+        let loaded = try #require(try fixture.backend.load(preferredWorkspaceId: workspaceId))
+
+        #expect(loaded.id == workspaceId)
+        #expect(loaded.name == "Missing Selection Workspace")
+        #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == workspaceId)
+    }
+
     @Test("failed replacement save preserves the last committed SQLite snapshot")
     func failedReplacementSavePreservesLastCommittedSQLiteSnapshot() throws {
         let workspaceId = UUID()
@@ -491,7 +513,7 @@ private func makeWorkspaceSQLiteBridgeFixture(workspaceId: UUID) throws -> Works
     )
 }
 
-private func setRawActiveWorkspaceSelection(_ value: String, in databaseQueue: DatabaseQueue) throws {
+private func setRawActiveWorkspaceSelection(_ value: String?, in databaseQueue: DatabaseQueue) throws {
     try databaseQueue.writeWithoutTransaction { database in
         try database.execute(sql: "PRAGMA foreign_keys = OFF")
         try database.execute(

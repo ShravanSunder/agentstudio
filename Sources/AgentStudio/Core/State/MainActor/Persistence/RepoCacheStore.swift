@@ -79,7 +79,15 @@ final class RepoCacheStore {
         case .restored:
             return
         case .missing:
-            break
+            guard canImportLegacyRepoCache(for: workspaceId) else {
+                cacheAtom.clear()
+                recentTargetAtom.clear()
+                canArchiveLegacyCacheFile = false
+                recoveryReporter?(
+                    .init(store: .repoCache, workspaceId: workspaceId, recovery: .resetToDefaults)
+                )
+                return
+            }
         case .unavailable:
             cacheAtom.clear()
             recentTargetAtom.clear()
@@ -242,6 +250,20 @@ final class RepoCacheStore {
             isRestoringState = false
             repoCacheStoreLogger.warning("Repo cache SQLite restore failed: \(error.localizedDescription)")
             return .unavailable(error)
+        }
+    }
+
+    private func canImportLegacyRepoCache(for workspaceId: UUID) -> Bool {
+        guard let sqliteBackend else { return true }
+        do {
+            let canImportCache = try sqliteBackend.allowsLegacyImport(for: workspaceId, lane: .cache)
+            let canImportRecentTargets = try sqliteBackend.allowsLegacyImport(for: workspaceId, lane: .local)
+            return canImportCache && canImportRecentTargets
+        } catch {
+            repoCacheStoreLogger.warning(
+                "Repo cache legacy import permission check failed: \(error.localizedDescription)"
+            )
+            return false
         }
     }
 

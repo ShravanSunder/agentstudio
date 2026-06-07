@@ -144,6 +144,52 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
+    func missingSQLiteExpandedGroupsLaneAfterImportResetsInsteadOfReplayingLegacyJSON() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        try persistor.saveSidebarCache(
+            .init(
+                workspaceId: workspaceId,
+                expandedGroups: [SidebarGroupKey("repo:stale")],
+                checkoutColors: [:]
+            )
+        )
+        let atom = SidebarCacheState()
+        atom.setExpandedGroups([SidebarGroupKey("repo:sqlite")])
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+        try store.flush(for: workspaceId)
+        try fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    DELETE FROM local_persistence_lane_marker
+                    WHERE workspace_id = ? AND lane = 'sidebar_expanded_groups'
+                    """,
+                arguments: [workspaceId.uuidString]
+            )
+            try database.execute(
+                sql: "DELETE FROM local_sidebar_expanded_group WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            )
+        }
+        let restoredAtom = SidebarCacheState()
+        let restoredStore = SidebarCacheStore(
+            atom: restoredAtom,
+            persistor: persistor,
+            sqliteBackend: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository)
+        )
+
+        restoredStore.restore(for: workspaceId)
+
+        #expect(restoredAtom.expandedGroups.isEmpty)
+        #expect(!restoredAtom.expandedGroups.contains(SidebarGroupKey("repo:stale")))
+        #expect(!restoredStore.canArchiveLegacySidebarCacheFile)
+    }
+
+    @Test
     func restoreWithSQLiteBackendResetsWhenSQLiteExpandedGroupLaneFailsInsteadOfReplayingLegacyJSON() throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)

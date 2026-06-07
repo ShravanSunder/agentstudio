@@ -23,6 +23,7 @@ final class InboxNotificationStore {
     private let recoveryReporter: PersistenceRecoveryReporter?
     private let sqliteRepository: InboxNotificationSQLiteRepository?
     private let allowLegacyFilePersistence: Bool
+    private let allowLegacyFileImport: Bool
     private var debouncedSaveTask: Task<Void, Never>?
 
     init(
@@ -34,7 +35,8 @@ final class InboxNotificationStore {
         debounceDuration: Duration = .milliseconds(500),
         recoveryReporter: PersistenceRecoveryReporter? = nil,
         sqliteRepository: InboxNotificationSQLiteRepository? = nil,
-        allowLegacyFilePersistence: Bool = true
+        allowLegacyFilePersistence: Bool = true,
+        allowLegacyFileImport: Bool = true
     ) {
         self.inboxAtom = inboxAtom
         self.prefsAtom = prefsAtom
@@ -45,6 +47,7 @@ final class InboxNotificationStore {
         self.recoveryReporter = recoveryReporter
         self.sqliteRepository = sqliteRepository
         self.allowLegacyFilePersistence = allowLegacyFilePersistence
+        self.allowLegacyFileImport = allowLegacyFileImport
     }
 
     private struct Payload: Codable {
@@ -159,6 +162,12 @@ final class InboxNotificationStore {
             do {
                 if try sqliteRepository.hasPersistedState() {
                     try loadSQLiteSnapshot(from: sqliteRepository)
+                    return
+                }
+                guard allowLegacyFileImport else {
+                    inboxAtom.replaceAll([])
+                    sidebarState.hydrate(collapsedGroups: [])
+                    reportLoadFailed()
                     return
                 }
                 guard let payload = loadLegacyPayloadFromDisk() else { return }

@@ -198,6 +198,53 @@ struct UIStateStoreTests {
     }
 
     @Test
+    func missingSQLiteSidebarLaneAfterImportResetsInsteadOfReplayingLegacyJSON() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let atom = WorkspaceSidebarState()
+        let store = UIStateStore(
+            atom: atom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+        atom.setFilterText("sqlite")
+        atom.setFilterVisible(true)
+        atom.setSidebarCollapsed(true)
+        atom.setSidebarSurface(.inbox)
+        try store.flush(for: workspaceId)
+        try persistor.saveUI(
+            .init(
+                workspaceId: workspaceId,
+                filterText: "stale",
+                isFilterVisible: true,
+                sidebarCollapsed: true,
+                sidebarSurface: .inbox
+            )
+        )
+        try fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: "DELETE FROM local_sidebar_state WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            )
+        }
+        let restoredAtom = WorkspaceSidebarState()
+        let restoredStore = UIStateStore(
+            atom: restoredAtom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor,
+            sqliteBackend: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository)
+        )
+
+        restoredStore.restore(for: workspaceId)
+
+        #expect(restoredAtom.filterText.isEmpty)
+        #expect(restoredAtom.filterText != "stale")
+        #expect(restoredAtom.sidebarSurface == .repos)
+        #expect(!restoredStore.canArchiveLegacyUIFile)
+    }
+
+    @Test
     func flush_operatesOnTheProvidedLiveAtomScope() throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()

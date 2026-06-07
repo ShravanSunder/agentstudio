@@ -245,6 +245,77 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func missingSQLiteCacheLanesAfterImportResetInsteadOfReplayingLegacyJSON() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let sqliteRepoId = UUID()
+        let staleRepoId = UUID()
+        let staleTarget = RecentWorkspaceTarget.forCwd(
+            URL(fileURLWithPath: "/tmp/stale-cache"),
+            title: "stale",
+            subtitle: "/tmp/stale-cache",
+            lastOpenedAt: Date(timeIntervalSince1970: 456)
+        )
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheStore(
+            cacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+        cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: sqliteRepoId))
+        cacheAtom.markRebuilt(sourceRevision: 11, at: Date(timeIntervalSince1970: 789))
+        recentTargetAtom.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/sqlite-cache")))
+        try store.flush(for: workspaceId)
+        try persistor.saveCache(
+            .init(
+                workspaceId: workspaceId,
+                repoEnrichmentByRepoId: [staleRepoId: .awaitingOrigin(repoId: staleRepoId)],
+                worktreeEnrichmentByWorktreeId: [:],
+                pullRequestCountByWorktreeId: [:],
+                notificationCountByWorktreeId: [:],
+                recentTargets: [staleTarget],
+                sourceRevision: 7,
+                lastRebuiltAt: Date(timeIntervalSince1970: 123)
+            )
+        )
+        try fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: "DELETE FROM cache_metadata WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            )
+            try database.execute(
+                sql: """
+                    DELETE FROM local_persistence_lane_marker
+                    WHERE workspace_id = ? AND lane = 'recent_workspace_targets'
+                    """,
+                arguments: [workspaceId.uuidString]
+            )
+            try database.execute(
+                sql: "DELETE FROM local_recent_workspace_target WHERE workspace_id = ?",
+                arguments: [workspaceId.uuidString]
+            )
+        }
+        let restoredCacheAtom = RepoEnrichmentCacheAtom()
+        let restoredRecentTargetAtom = RecentWorkspaceTargetAtom()
+        let restoredStore = RepoCacheStore(
+            cacheAtom: restoredCacheAtom,
+            recentTargetAtom: restoredRecentTargetAtom,
+            persistor: persistor,
+            sqliteBackend: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository)
+        )
+
+        restoredStore.restore(for: workspaceId)
+
+        #expect(restoredCacheAtom.repoEnrichmentByRepoId.isEmpty)
+        #expect(restoredCacheAtom.repoEnrichmentByRepoId[staleRepoId] == nil)
+        #expect(restoredCacheAtom.sourceRevision == 0)
+        #expect(restoredRecentTargetAtom.recentTargets.isEmpty)
+        #expect(!restoredStore.canArchiveLegacyCacheFile)
+    }
+
+    @Test
     func restoreWithSQLiteBackendResetsWhenSQLiteCacheLaneFailsInsteadOfReplayingLegacyJSON() throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
