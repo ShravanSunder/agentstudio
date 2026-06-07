@@ -55,9 +55,8 @@ TIER B: CACHE FILE (rebuildable enrichment + local target memory)
   Mutated by: WorkspaceCacheCoordinator for enrichment, workspace activity
               flows for recent target memory
   Contains: repo enrichment, worktree enrichment, PR counts,
-           notification counts while they remain cache-backed,
            local recent workspace targets
-           (notification unread counts moved — now derived from
+           (notification unread counts are derived from
             InboxNotificationAtom.unreadCount(forWorktreeId:)
             per LUNA-361)
 

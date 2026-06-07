@@ -104,10 +104,14 @@ WorkspaceStore (workspace.state.json persistence wrapper)
 
 RepoCacheStore (workspace.cache.json, rebuildable/local cache)
 ├── RepoEnrichmentCacheAtom            ← origin, identity, branch, git snapshot,
-│                                         PR counts, legacy notification counts,
-│                                         rebuild metadata
+│                                         PR counts, rebuild metadata
 ├── RecentWorkspaceTargetAtom          ← local recent workspace targets
 └── RepoCacheAtom                      ← composed read surface for repo/sidebar UI
+
+WorkspaceSQLiteDatastore (core.sqlite + workspace local.sqlite)
+├── WorkspaceCoreRepository            ← core graph/status rows
+├── cached WorkspaceLocalRepository    ← local UX/cache/inbox sidecar rows
+└── WorkspaceSQLiteSnapshot            ← live actor-crossing snapshot, not legacy JSON
 
 WorkspaceSidebarMemoryAtom (workspace.ui.json)
 ├── filterText, isFilterVisible

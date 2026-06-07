@@ -387,9 +387,11 @@ Current cache:
 - repo enrichment
 - worktree enrichment
 - pull request counts
-- notification counts
 - cache source revision
 - cache last rebuilt timestamp
+
+Notification unread counts are imported and persisted through the inbox
+notification lane, not the repo-cache lane.
 
 ## Loading Rule
 

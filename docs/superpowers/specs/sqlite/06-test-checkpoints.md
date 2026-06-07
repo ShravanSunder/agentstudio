@@ -164,6 +164,41 @@ SQLite repositories land:
   Cover at least `ActionExecutor`, `DrawerDropDispatch`, and every
   `PaneTabViewController` snapshot site.
 
+## Datastore Addendum Tests
+
+- `WorkspaceSQLiteDatastoreActorTests.workspaceSaveRunsThroughDatastoreActor`
+  verifies SQLite save work enters the datastore actor boundary instead of
+  calling repositories directly from MainActor stores.
+- `WorkspaceSQLiteCommitProtocolTests.stagedOnlyRowDoesNotCountAsCompleted`
+  verifies a staged core snapshot is not authoritative until core completion is
+  marked after local write.
+- `WorkspaceSQLiteCommitProtocolTests.activeSelectionRepairIgnoresStagedOnlyRows`
+  verifies active-workspace repair and fallback selection require
+  `completed_at IS NOT NULL`.
+- `WorkspaceSQLiteLegacyImportStatusTests.postCommitStatusFailureDoesNotReplayStaleLegacyJSON`
+  verifies legacy import status bookkeeping failure does not make an
+  already-completed snapshot pending again.
+- `WorkspaceSQLiteLegacyImportStatusTests.missingStatusForIncompleteRowsRetriesLegacyFile`
+  verifies incomplete SQLite rows without a status row still retry the legacy
+  file.
+- `WorkspaceSQLiteLocalRecoveryTests.failedLocalQuarantineDoesNotImmediatelyReopenBadSidecar`
+  verifies failed local quarantine is not collapsed into recovered local state.
+- `WorkspaceSQLiteDatastoreActorTests.workspaceLoadReturnsFirstLocalRestoreRecoveryEvents`
+  verifies recovery events produced by the first workspace restore opener are
+  returned to the MainActor caller instead of being lost behind the actor cache.
+- `WorkspaceSQLiteDatastoreActorTests.inboxBootDrainsRecoveryEventsIfItIsFirstRestoreOpener`
+  verifies inbox boot returns local quarantine/recovery events when inbox is the
+  first lane to open the local sidecar.
+- `WorkspaceSQLiteDatastoreActorTests.cacheRestoreDoesNotLoseRecoveryEventsAlreadyQueuedByWorkspaceLoad`
+  verifies later cache/UI/sidebar restore calls cannot silently drop events that
+  workspace load already queued at the datastore actor.
+- `WorkspaceNotificationCountOwnershipTests.worktreeStatusChipsReadInboxProjection`
+  verifies notification chips read inbox-owned unread counts, not
+  repo-cache-restored stale counts.
+- `WorkspaceSQLiteSnapshotRoleTests.liveSQLiteSnapshotIsNotLegacyPersistableState`
+  verifies SQLite save/load APIs use a live SQLite snapshot type distinct from
+  legacy JSON payload DTOs.
+
 ## Core Tests
 
 - fresh core database runs all migrations
@@ -305,7 +340,7 @@ SQLite repositories land:
 - repo enrichment round trips
 - worktree enrichment round trips
 - pull request counts round trip
-- notification counts round trip
+- inbox-owned unread counts do not round trip through repo-cache rows
 - deleting cache_* rows preserves local_* rows
 - bad cache_* payload rows rebuild the affected cache table/row family without
   quarantining the whole local database

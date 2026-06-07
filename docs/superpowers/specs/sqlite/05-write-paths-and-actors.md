@@ -116,6 +116,43 @@ an actor, that actor is the serialization boundary. If implementation uses a
 repository queue, that queue is the serialization boundary. The spec requires
 the boundary; the concrete type can follow the final code shape.
 
+## SQLite Datastore Actor Boundary
+
+Step 1 uses a single product datastore actor for SQLite I/O:
+
+```text
+@MainActor store/coordinator
+  -> captures immutable snapshot or validated mutation input
+  -> awaits WorkspaceSQLiteDatastore
+  -> hydrates/projects the committed result on MainActor
+
+WorkspaceSQLiteDatastore actor
+  -> owns WorkspaceCoreRepository
+  -> owns cached WorkspaceLocalRepository instances
+  -> serializes core/local snapshot commits
+  -> owns legacy import status decisions
+  -> owns local quarantine/reopen state
+```
+
+The datastore actor does not own atoms, UI state, command validation, or
+derived readers. MainActor stores do not directly invoke GRDB writes once this
+boundary lands.
+
+Recovery-event assumption:
+
+```text
+the first restore opener owns recovery evidence
+    -> local sidecar quarantine/recovery can happen during workspace restore
+    -> later cache/UI/sidebar/inbox lanes may only hit the actor cache
+    -> therefore the datastore buffers recovery events per workspace
+    -> every public restore/load result drains and returns pending events
+    -> MainActor callers record them through recordPersistenceRecovery(_:)
+```
+
+This does not change the first-window readiness contract. Recovery notifications
+can be recorded before the inbox store exists because AppDelegate queues
+pre-inbox recovery events and flushes them after inbox boot.
+
 ## Composed Atoms With Split Persistence
 
 Some current atoms and domain values are composed for UI ergonomics even though

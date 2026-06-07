@@ -332,12 +332,15 @@ struct PersistableCacheState {
     var repoEnrichmentByRepoId: [UUID: RepoEnrichment]
     var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
     var pullRequestCountByWorktreeId: [UUID: Int]
-    var notificationCountByWorktreeId: [UUID: Int]
     var recentTargets: [RecentWorkspaceTarget]
     var sourceRevision: UInt64
     var lastRebuiltAt: Date?
 }
 ```
+
+Notification unread counts are inbox-owned and derived from
+`InboxNotificationAtom.unreadCount(forWorktreeId:)`; they are not part of the
+repo-cache SQLite ownership model.
 
 Mapping:
 

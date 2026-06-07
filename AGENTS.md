@@ -113,9 +113,9 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceTabLayoutAtom` | compatibility tab-layout facade over shell, cursor, graph, arrangement cursor, and presentation owners | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` |
 | `WorkspaceTabLayoutDerived` | UI read model composing rich `Tab`, `PaneArrangement`, and `DrawerView` values from tab write owners | `Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift` |
 | `WorkspaceMutationCoordinator` | cross-atom workspace mutations spanning pane and tab layout state | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` |
-| `RepoEnrichmentCacheAtom` | rebuildable repo/worktree enrichment, PR counts, notification counts, and rebuild metadata | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
+| `RepoEnrichmentCacheAtom` | rebuildable repo/worktree enrichment, PR counts, and rebuild metadata; notification unread counts are inbox-owned | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `RecentWorkspaceTargetAtom` | local recent workspace target history | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
-| `RepoCacheAtom` | UI-facing compatibility read surface over repo enrichment cache + recent targets | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
+| `RepoCacheAtom` | UI-facing compatibility read surface over repo enrichment cache + recent targets; does not own notification unread counts | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `SidebarExpandedGroupAtom` | local sidebar expanded-group memory | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
 | `SidebarCheckoutColorAtom` | checkout color choices, destined for settings | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
 | `SidebarCacheState` | UI-facing composition surface over sidebar expanded groups + checkout colors | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
@@ -136,9 +136,12 @@ icons when a sidebar/local action already defines the presentation.
 | `InboxSidebarState` | UI-facing composition surface over inbox sidebar memory + runtime atoms | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
 | `WorkspaceLegacySQLiteImporter` | legacy `workspace.state.json` import policy and retry outcome state machine; returns explicit enum outcomes for the `WorkspaceStore` call site to apply | `Core/State/MainActor/Persistence/WorkspaceStore+LegacySQLiteImport.swift` |
+| `WorkspaceSQLiteDatastore` | actor boundary for product SQLite I/O, repository caching, core/local commit sequencing, local quarantine state, and legacy import status decisions; does not own atoms | `Core/State/SQLite/WorkspaceSQLiteDatastore.swift` |
+| `WorkspaceSQLiteSnapshot` | immutable live SQLite bridge snapshot passed across the MainActor/datastore boundary; not a legacy JSON DTO and not a row projection | `Core/State/SQLite/WorkspaceSQLiteSnapshot.swift` |
 | `WorkspaceSQLiteStoreBackendFactory` | product-specific SQLite backend bootstrap, core migration, core sidecar quarantine, and local repository construction | `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoEnrichmentCacheAtom` + `RecentWorkspaceTargetAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
-| `UIStateStore` | persistence wrapper for workspace sidebar memory and editor chooser bookmark until those stores split | `Core/State/MainActor/Persistence/UIStateStore.swift` |
+| `UIStateStore` | persistence wrapper for workspace sidebar shell memory only | `Core/State/MainActor/Persistence/UIStateStore.swift` |
+| `WorkspaceSettingsStore` | persistence wrapper for editor bookmark, checkout colors, and inbox notification preferences until feature-specific settings stores split | `Core/State/MainActor/Persistence/WorkspaceSettingsStore.swift` |
 | `InboxNotificationStore` | persistence wrapper for inbox notification history and collapsed inbox groups; uses feature SQLite repository when the local backend is available and legacy JSON only for uninitialized import | `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` |
 | `AppLifecycleAtom` | application active/terminating state | `Core/State/MainActor/Atoms/AppLifecycleAtom.swift` |
 | `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
@@ -423,13 +426,16 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceTabLayoutAtom` | `Core/State/MainActor/Atoms/` | Compatibility tab-layout facade over split tab owners |
 | `WorkspaceTabLayoutDerived` | `Core/State/MainActor/Atoms/` | Rich tab read model composed from shell, cursor, graph, arrangement cursor, and presentation |
 | `WorkspaceMutationCoordinator` | `Core/State/MainActor/Atoms/` | Cross-atom workspace sequencing for pane + tab layout mutations |
-| `RepoEnrichmentCacheAtom` | `Core/State/MainActor/Atoms/` | Derived enrichment (branches, git status, PR counts), counts, and rebuild metadata |
+| `RepoEnrichmentCacheAtom` | `Core/State/MainActor/Atoms/` | Derived enrichment (branches, git status, PR counts) and rebuild metadata; notification unread counts are inbox-owned |
 | `RecentWorkspaceTargetAtom` | `Core/State/MainActor/Atoms/` | Local recent workspace target history |
-| `RepoCacheAtom` | `Core/State/MainActor/Atoms/` | Compatibility read surface over repo enrichment + recent targets |
+| `RepoCacheAtom` | `Core/State/MainActor/Atoms/` | Compatibility read surface over repo enrichment + recent targets; does not own notification unread counts |
 | `WorkspaceStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for the workspace-domain atoms |
 | `WorkspaceLegacySQLiteImporter` | `Core/State/MainActor/Persistence/` | Legacy workspace JSON import policy and explicit import outcome state machine |
+| `WorkspaceSQLiteDatastore` | `Core/State/SQLite/` | Actor boundary for product SQLite I/O, repository caching, core/local commit sequencing, local quarantine state, and legacy import status decisions |
+| `WorkspaceSQLiteSnapshot` | `Core/State/SQLite/` | Immutable live SQLite bridge snapshot passed across the MainActor/datastore boundary; not a legacy JSON DTO or row projection |
 | `RepoCacheStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for repo enrichment cache + recent workspace targets |
-| `UIStateStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for workspace sidebar memory and editor chooser bookmark |
+| `UIStateStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for workspace sidebar shell memory only |
+| `WorkspaceSettingsStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for editor bookmark, checkout colors, and inbox notification preferences until feature-specific settings stores split |
 | `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo |
 | `WorkspaceCommandResolver` | `Core/Actions/` | Resolves AppCommand into PaneActionCommand, builds ActionStateSnapshot |
