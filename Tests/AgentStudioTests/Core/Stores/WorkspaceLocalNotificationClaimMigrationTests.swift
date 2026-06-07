@@ -37,7 +37,8 @@ struct WorkspaceLocalNotificationClaimMigrationTests {
             claimPaneId: fixture.safetyClaimPaneId
         )
         expectMalformedClaimsNormalized(migratedRowsById, fixture: fixture)
-        #expect(completedMigrations.last == "005_enforce_notification_claim_keys")
+        #expect(completedMigrations.contains("005_enforce_notification_claim_keys"))
+        #expect(completedMigrations.last == "007_create_local_workspace_sqlite_snapshot_status")
     }
 }
 
@@ -420,7 +421,6 @@ private func markCompletedLocalMigrationsBeforeClaimKeyEnforcement(_ database: D
             """
     )
     for migrationId in [
-        "001_create_local_cursors",
         "002_create_local_workspace_memory",
         "003_create_local_notifications",
         "004_create_cache_tables",

@@ -192,11 +192,19 @@ struct WorkspaceSQLiteStoreBackend {
             try? coreRepository.clearWorkspaceSQLiteSnapshotComplete(workspaceId: state.id)
             throw error
         }
-        try coreRepository.markLegacyWorkspaceCoreImported(
-            workspaceId: state.id,
-            sourceStatePath: sourceStatePath,
-            importedAt: state.updatedAt
-        )
+        do {
+            try coreRepository.markLegacyWorkspaceCoreImported(
+                workspaceId: state.id,
+                sourceStatePath: sourceStatePath,
+                importedAt: state.updatedAt
+            )
+        } catch {
+            try? coreRepository.markLegacyWorkspaceImportFailed(
+                workspace: workspaceRecord,
+                sourceStatePath: sourceStatePath,
+                error: "Legacy import bookkeeping failed after completed snapshot: \(String(describing: error))"
+            )
+        }
     }
 
     func markLegacyWorkspaceImportFailed(

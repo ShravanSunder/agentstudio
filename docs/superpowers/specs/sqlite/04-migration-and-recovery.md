@@ -441,6 +441,10 @@ and written only after core rows, local window memory, and local cursor rows
 all commit. A missing marker when workspace rows exist means the app may have
 crashed mid-save or mid-import; boot must report recovery/reset behavior and
 must not import stale legacy JSON over the newer partial SQLite rows.
+If missing legacy import status is encountered during incomplete-initial import
+recovery, retry the legacy file only when no active SQLite workspace selection
+existed before restore repair. If an active partial workspace had already been
+selected, report/reset instead of replaying legacy JSON over that SQLite row.
 
 If `legacy_workspace_import_status` is empty after migrations, import treats the
 workspace as fresh. If it contains any incomplete records, import resumes only

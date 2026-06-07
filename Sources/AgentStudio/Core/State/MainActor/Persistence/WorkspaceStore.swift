@@ -104,13 +104,17 @@ final class WorkspaceStore {
 
     func restore() {
         if let sqliteBackend {
+            let hadActiveSelectionBeforeSQLiteRestore = sqliteBackendHasActiveWorkspaceSelection(sqliteBackend)
             switch restoreFromSQLite(sqliteBackend) {
             case .restored:
                 resumeUnfinishedLegacySQLiteImportKeepingCurrentSelection(sqliteBackend)
                 return
             case .uninitialized:
                 if sqliteBackendHasWorkspaceRows(sqliteBackend) {
-                    let outcome = resumeUnfinishedLegacySQLiteImportAfterIncompleteSQLiteRestore(sqliteBackend)
+                    let outcome = resumeUnfinishedLegacySQLiteImportAfterIncompleteSQLiteRestore(
+                        sqliteBackend,
+                        hadActiveSelectionBeforeRestore: hadActiveSelectionBeforeSQLiteRestore
+                    )
                     switch outcome {
                     case .failedNoUsableImport, .noLegacyFiles, .noPendingFilesKeepingSelection,
                         .retriedWithoutSelectionChange:
@@ -164,6 +168,16 @@ final class WorkspaceStore {
             )
         case .missing:
             workspaceStoreLogger.info("No workspace files found — first launch")
+        }
+    }
+
+    private func sqliteBackendHasActiveWorkspaceSelection(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> Bool {
+        do {
+            return try sqliteBackend.coreRepository.fetchActiveWorkspaceId() != nil
+        } catch {
+            workspaceStoreLogger.error(
+                "Failed to inspect active SQLite workspace selection: \(error.localizedDescription)")
+            return true
         }
     }
 

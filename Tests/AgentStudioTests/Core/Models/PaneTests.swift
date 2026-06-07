@@ -477,7 +477,7 @@ final class PaneTests {
     }
 
     @Test
-    func test_drawer_rejectsLegacyActivePaneIdEncoding() throws {
+    func test_drawer_ignoresLegacyActivePaneIdEncoding() throws {
         let id = UUID()
         let drawer = Drawer(
             paneIds: [id],
@@ -489,9 +489,12 @@ final class PaneTests {
             with: "\"activePaneId\":\"\(id.uuidString)\",\"isExpanded\""
         )
 
-        #expect(throws: DecodingError.self) {
-            try decoder.decode(Drawer.self, from: Data(legacyJSON.utf8))
-        }
+        let decodedDrawer = try decoder.decode(Drawer.self, from: Data(legacyJSON.utf8))
+
+        #expect(decodedDrawer.drawerId == drawer.drawerId)
+        #expect(decodedDrawer.parentPaneId == drawer.parentPaneId)
+        #expect(decodedDrawer.paneIds == drawer.paneIds)
+        #expect(decodedDrawer.isExpanded == drawer.isExpanded)
     }
 
     // MARK: - PaneKind

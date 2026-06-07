@@ -7,19 +7,10 @@ private let workspaceLegacySQLiteImportLogger = Logger(
 )
 
 @MainActor
-enum WorkspaceLegacySQLiteImportMode {
+enum WorkspaceLegacySQLiteImportMode: Equatable {
     case initialInPlaceBootImport
     case resumeUnfinishedImportKeepingCurrentSelection
-    case resumeIncompleteInitialImport
-
-    var missingStatusIsPending: Bool {
-        switch self {
-        case .initialInPlaceBootImport:
-            return true
-        case .resumeUnfinishedImportKeepingCurrentSelection, .resumeIncompleteInitialImport:
-            return false
-        }
-    }
+    case resumeIncompleteInitialImport(hadActiveSelectionBeforeRestore: Bool)
 
     var keepsCurrentSelection: Bool {
         switch self {
@@ -47,6 +38,18 @@ enum WorkspaceLegacySQLiteMaterializationOutcome {
     case failed
 }
 
+enum LegacyWorkspaceFileImportClassification: Equatable {
+    case pending
+    case alreadyCompleted
+    case skippedByStatus
+    case unavailable(String)
+
+    var shouldImport: Bool {
+        if case .pending = self { return true }
+        return false
+    }
+}
+
 @MainActor
 struct WorkspaceLegacySQLiteImporter {
     typealias LegacyFile = WorkspacePersistor.LegacyWorkspaceStateFile
@@ -63,10 +66,7 @@ struct WorkspaceLegacySQLiteImporter {
         quarantineCorruptFiles(scan.corruptFiles)
         guard !scan.loadedFiles.isEmpty else { return .noLegacyFiles }
 
-        let pendingFiles = pendingFiles(
-            from: scan.loadedFiles,
-            missingStatusIsPending: mode.missingStatusIsPending
-        )
+        let pendingFiles = pendingFiles(from: scan.loadedFiles, mode: mode)
         guard !pendingFiles.isEmpty else {
             return mode.keepsCurrentSelection ? .noPendingFilesKeepingSelection : .noLegacyFiles
         }
@@ -146,31 +146,47 @@ struct WorkspaceLegacySQLiteImporter {
 
     private func pendingFiles(
         from legacyFiles: [LegacyFile],
-        missingStatusIsPending: Bool
+        mode: WorkspaceLegacySQLiteImportMode
     ) -> [LegacyFile] {
         legacyFiles.filter { legacyFile in
-            legacyFileNeedsImport(legacyFile, missingStatusIsPending: missingStatusIsPending)
+            classifyLegacyFileForImport(legacyFile, mode: mode).shouldImport
         }
     }
 
-    private func legacyFileNeedsImport(
+    private func classifyLegacyFileForImport(
         _ legacyFile: LegacyFile,
-        missingStatusIsPending: Bool
-    ) -> Bool {
+        mode: WorkspaceLegacySQLiteImportMode
+    ) -> LegacyWorkspaceFileImportClassification {
         do {
+            if try sqliteBackend.hasCompletedSnapshot(workspaceId: legacyFile.state.id) {
+                return .alreadyCompleted
+            }
             guard
                 let status = try sqliteBackend.coreRepository.fetchLegacyWorkspaceImportStatus(
                     workspaceId: legacyFile.state.id
                 )
             else {
-                return missingStatusIsPending
+                return try missingStatusClassification(for: mode)
             }
-            return status.coreImportedAt == nil || status.lastError != nil
+            return status.coreImportedAt == nil || status.lastError != nil ? .pending : .skippedByStatus
         } catch {
             workspaceLegacySQLiteImportLogger.error(
                 "Skipping legacy workspace retry because import status lookup failed: \(error.localizedDescription)"
             )
-            return false
+            return .unavailable(String(describing: error))
+        }
+    }
+
+    private func missingStatusClassification(
+        for mode: WorkspaceLegacySQLiteImportMode
+    ) throws -> LegacyWorkspaceFileImportClassification {
+        switch mode {
+        case .initialInPlaceBootImport:
+            return .pending
+        case .resumeUnfinishedImportKeepingCurrentSelection:
+            return .skippedByStatus
+        case .resumeIncompleteInitialImport(let hadActiveSelectionBeforeRestore):
+            return hadActiveSelectionBeforeRestore ? .skippedByStatus : .pending
         }
     }
 
@@ -218,9 +234,15 @@ extension WorkspaceStore {
 
     @discardableResult
     func resumeUnfinishedLegacySQLiteImportAfterIncompleteSQLiteRestore(
-        _ sqliteBackend: WorkspaceSQLiteStoreBackend
+        _ sqliteBackend: WorkspaceSQLiteStoreBackend,
+        hadActiveSelectionBeforeRestore: Bool
     ) -> WorkspaceLegacySQLiteImportOutcome {
-        runLegacySQLiteImport(sqliteBackend, mode: .resumeIncompleteInitialImport)
+        runLegacySQLiteImport(
+            sqliteBackend,
+            mode: .resumeIncompleteInitialImport(
+                hadActiveSelectionBeforeRestore: hadActiveSelectionBeforeRestore
+            )
+        )
     }
 
     @discardableResult

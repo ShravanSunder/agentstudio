@@ -54,7 +54,7 @@ This addendum turns the SQLite plan from a MainActor store/repository migration 
 
 1. SQLite I/O moves behind `WorkspaceSQLiteDatastore`; MainActor stores capture snapshots, await actor methods, then hydrate/project committed results.
 2. Core/local workspace saves use a staged commit protocol: core rows can be staged, but restore treats a workspace as authoritative only after local write succeeds and `completed_at` is marked.
-3. Legacy workspace import retry control moves into typed datastore outcomes so stale JSON cannot replay after a completed snapshot and missing status rows in incomplete imports remain retryable.
+3. Legacy workspace import retry control moves into typed datastore outcomes so stale JSON cannot replay after a completed snapshot, while missing status rows remain retryable only for failed first-boot materialization lanes that had no active SQLite selection before restore repair.
 4. Local sidecar quarantine/recovery events are returned through datastore load results, including the first restore opener, so user-visible recovery notifications are not silently lost behind the actor cache.
 5. Notification unread counts become inbox-owned; repo cache remains enrichment/recent-target state and no longer persists notification counts.
 6. `WorkspaceSQLiteSnapshot` becomes the live actor-crossing snapshot type; legacy `PersistableState` remains a legacy JSON DTO and is not the SQLite bridge contract.
@@ -69,7 +69,7 @@ The adversarial review found six implementation issues that should be fixed befo
 1. **SQLite work is currently MainActor-bound.** `WorkspaceStore`, `RepoCacheStore`, `UIStateStore`, and `WorkspaceSQLiteStoreBackend` invoke synchronous GRDB reads/writes on the UI executor. Debounce only delays the work; it does not move the work off MainActor.
 2. **Normal core/local snapshot completion is not a real commit protocol.** `WorkspaceSQLiteStoreBackend.save(_:)` commits and marks core complete before local save. If local save fails, restore accepts the newer core graph and synthesizes local cursor/window defaults.
 3. **Legacy import can replay stale JSON after post-commit bookkeeping failure.** `saveImportedLegacySnapshot` writes core/local first and then records `legacy_workspace_import_status`. If that status update fails and a failed status row remains, retry logic can treat the already-completed legacy file as pending.
-4. **Incomplete legacy import can become unretriable.** In incomplete-initial resume mode, a missing status row is treated as not pending. If failure-status persistence itself fails, recoverable legacy JSON can be skipped forever.
+4. **Incomplete legacy import can become unretriable or over-retriable.** Missing status rows need lane-aware handling: failed first-boot materialization with no active SQLite selection can retry, but already-selected partial SQLite rows must reset/report instead of replaying stale legacy JSON over newer SQLite state.
 5. **Notification counts have contradictory owners.** Docs say unread counts moved to `InboxNotificationAtom`, but `RepoCacheAtom.notificationCountByWorktreeId` is still persisted and drives status-chip UI.
 6. **Persistence role vocabulary is still leaking through `PersistableState`.** `WorkspacePersistor.PersistableState` is documented as legacy JSON payload shape, but the live SQLite bridge still uses it as its save/load snapshot shape.
 
@@ -218,7 +218,9 @@ Append under "Step 0 Atomicity Matrix Tests":
 - `WorkspaceSQLiteLegacyImportStatusTests.postCommitStatusFailureDoesNotReplayStaleLegacyJSON`
   verifies legacy import status bookkeeping failure does not make an already-completed snapshot pending again.
 - `WorkspaceSQLiteLegacyImportStatusTests.missingStatusForIncompleteRowsRetriesLegacyFile`
-  verifies incomplete SQLite rows without a status row still retry the legacy file.
+  verifies incomplete first-boot import rows without a status row still retry the legacy file when no active SQLite selection existed before restore repair.
+- `WorkspaceSQLiteStoreBridgeTests.restoreDoesNotTreatIncompleteSQLiteWorkspaceRowsAsAuthoritative`
+  verifies already-selected partial SQLite rows reset/report instead of replaying stale legacy JSON after active-selection repair clears the incomplete selection.
 - `WorkspaceSQLiteLocalRecoveryTests.failedLocalQuarantineDoesNotImmediatelyReopenBadSidecar`
   verifies failed local quarantine is not collapsed into recovered local state.
 - `WorkspaceSQLiteDatastoreActorTests.workspaceLoadReturnsFirstLocalRestoreRecoveryEvents`
@@ -617,7 +619,7 @@ git commit -m "refactor: separate sqlite snapshot from legacy payload"
 - Modify: `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackend.swift`
 - Test: `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteLegacyImportStatusTests.swift`
 
-- [ ] **Step 1: Write stale replay regression test**
+- [x] **Step 1: Write stale replay regression test**
 
 Create `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteLegacyImportStatusTests.swift`:
 
@@ -663,19 +665,9 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
             WorkspaceSQLiteSnapshot(
                 id: workspaceId,
                 name: "SQLite Newer Name",
-                repos: [],
-                worktrees: [],
-                unavailableRepoIds: [],
-                watchedPaths: [],
-                panes: [],
-                tabs: [],
-                activeTabId: nil,
-                sidebarWidth: 250,
-                windowFrame: nil,
                 createdAt: Date(timeIntervalSince1970: 1_700_003_000),
                 updatedAt: Date(timeIntervalSince1970: 1_700_003_500)
-            ),
-            localRepository: fixture.localRepository(for: workspaceId)
+            )
         )
 
         let secondBoot = WorkspaceStore(persistor: persistor, sqliteBackend: fixture.backend)
@@ -775,7 +767,7 @@ private func saveLegacyWorkspace(
 }
 ```
 
-- [ ] **Step 2: Run the failing tests**
+- [x] **Step 2: Run the failing tests**
 
 Run:
 
@@ -789,7 +781,7 @@ Expected:
 At least one test fails because pending legacy file classification is status-only.
 ```
 
-- [ ] **Step 3: Change pending classification to include snapshot completeness**
+- [x] **Step 3: Change pending classification to include snapshot completeness**
 
 Modify `WorkspaceStore+LegacySQLiteImport.swift`:
 
@@ -819,9 +811,7 @@ private func classifyLegacyFileForImport(
                 workspaceId: legacyFile.state.id
             )
         else {
-            return mode.missingStatusIsPending || mode == .resumeIncompleteInitialImport
-                ? .pending
-                : .skippedByStatus
+            return try missingStatusClassification(for: mode)
         }
         return status.coreImportedAt == nil || status.lastError != nil ? .pending : .skippedByStatus
     } catch {
@@ -831,26 +821,44 @@ private func classifyLegacyFileForImport(
         return .unavailable(String(describing: error))
     }
 }
+
+private func missingStatusClassification(
+    for mode: WorkspaceLegacySQLiteImportMode
+) throws -> LegacyWorkspaceFileImportClassification {
+    switch mode {
+    case .initialInPlaceBootImport:
+        return .pending
+    case .resumeUnfinishedImportKeepingCurrentSelection:
+        return .skippedByStatus
+    case .resumeIncompleteInitialImport(let hadActiveSelectionBeforeRestore):
+        return hadActiveSelectionBeforeRestore ? .skippedByStatus : .pending
+    }
+}
 ```
 
-Update the caller:
+Update the caller and pass the pre-repair active-selection fact from `WorkspaceStore.restore()`:
 
 ```swift
 let pendingFiles = scan.loadedFiles.filter { legacyFile in
     classifyLegacyFileForImport(legacyFile, mode: mode).shouldImport
 }
+
+let hadActiveSelectionBeforeSQLiteRestore = sqliteBackendHasActiveWorkspaceSelection(sqliteBackend)
+...
+resumeUnfinishedLegacySQLiteImportAfterIncompleteSQLiteRestore(
+    sqliteBackend,
+    hadActiveSelectionBeforeRestore: hadActiveSelectionBeforeSQLiteRestore
+)
 ```
 
 This remains synchronous in Task 3 because the datastore actor does not exist yet. Task 7 rewrites this classifier to await `WorkspaceSQLiteDatastore.hasCompletedSnapshot(...)` and `WorkspaceSQLiteDatastore.legacyImportStatus(...)` in an explicit async loop.
 
-- [ ] **Step 4: Keep successful snapshot status distinct from failed bookkeeping**
+- [x] **Step 4: Keep successful snapshot status distinct from failed bookkeeping**
 
-Modify `WorkspaceSQLiteStoreBackend.saveImportedLegacySnapshot(_:sourceStatePath:localRepository:)` so it uses the same staged core/local commit protocol as normal save:
+Modify `WorkspaceSQLiteStoreBackend.saveImportedLegacySnapshot(_:sourceStatePath:)` so legacy status bookkeeping is downstream of the committed SQLite snapshot:
 
 ```text
-replace core graph rows as staged, with updatesActiveSelection: false
-write local cursor/window snapshot through the caller-supplied localRepository
-mark the core snapshot committed
+write core/local workspace snapshot through the current backend save path
 then mark legacy_workspace_import_status.core_imported_at
 ```
 
@@ -874,15 +882,9 @@ do {
 
 The completed snapshot remains authoritative. The next retry will skip it because `hasCompletedSnapshot(workspaceId:)` is true.
 
-Add a dedicated regression test:
+Task 4 owns the broader staged core/local commit fix and its local-failure regression tests. Task 3 only makes legacy-status bookkeeping unable to invalidate or replay an already-completed snapshot.
 
-```text
-WorkspaceSQLiteLegacyImportStatusTests.legacyImportLocalFailureDoesNotLeaveCoreSnapshotAuthoritative
-```
-
-The test injects a failing local repository into `saveImportedLegacySnapshot` and asserts `hasCompletedSnapshot(workspaceId:) == false`.
-
-- [ ] **Step 5: Run recovery tests**
+- [x] **Step 5: Run recovery tests**
 
 Run:
 
@@ -898,12 +900,18 @@ Expected:
 All selected tests pass.
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore+LegacySQLiteImport.swift \
         Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackend.swift \
-        Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteLegacyImportStatusTests.swift
+        Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift \
+        Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteLegacyImportStatusTests.swift \
+        Tests/AgentStudioTests/Core/Models/PaneTests.swift \
+        Tests/AgentStudioTests/Core/Stores/WorkspaceLocalNotificationClaimMigrationTests.swift \
+        docs/superpowers/specs/sqlite/04-migration-and-recovery.md \
+        docs/superpowers/specs/sqlite/06-test-checkpoints.md \
+        docs/superpowers/plans/2026-06-07-sqlite-datastore-actor-addendum.md
 git commit -m "fix: harden legacy sqlite import retry status"
 ```
 

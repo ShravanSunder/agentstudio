@@ -179,8 +179,13 @@ SQLite repositories land:
   verifies legacy import status bookkeeping failure does not make an
   already-completed snapshot pending again.
 - `WorkspaceSQLiteLegacyImportStatusTests.missingStatusForIncompleteRowsRetriesLegacyFile`
-  verifies incomplete SQLite rows without a status row still retry the legacy
-  file.
+  verifies incomplete first-boot import rows without a status row still retry
+  the legacy file when no active SQLite selection existed before restore
+  repair.
+- `WorkspaceSQLiteStoreBridgeTests.restoreDoesNotTreatIncompleteSQLiteWorkspaceRowsAsAuthoritative`
+  verifies already-selected partial SQLite rows reset/report instead of
+  replaying stale legacy JSON after active-selection repair clears the
+  incomplete selection.
 - `WorkspaceSQLiteLocalRecoveryTests.failedLocalQuarantineDoesNotImmediatelyReopenBadSidecar`
   verifies failed local quarantine is not collapsed into recovered local state.
 - `WorkspaceSQLiteDatastoreActorTests.workspaceLoadReturnsFirstLocalRestoreRecoveryEvents`
