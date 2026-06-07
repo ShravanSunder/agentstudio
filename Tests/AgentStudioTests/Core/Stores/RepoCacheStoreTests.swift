@@ -64,6 +64,69 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func flushAndRestore_roundTripsCacheAndRecentTargetsThroughLocalSQLite() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let target = RecentWorkspaceTarget.forCwd(
+            URL(fileURLWithPath: "/tmp/agent-studio"),
+            title: "agent-studio",
+            subtitle: "/tmp/agent-studio",
+            lastOpenedAt: Date(timeIntervalSince1970: 456)
+        )
+        let store = RepoCacheStore(
+            cacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+
+        cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+        cacheAtom.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
+        )
+        cacheAtom.setPullRequestCount(3, for: worktreeId)
+        cacheAtom.setNotificationCount(2, for: worktreeId)
+        cacheAtom.markRebuilt(sourceRevision: 42, at: Date(timeIntervalSince1970: 123))
+        recentTargetAtom.recordRecentTarget(target)
+
+        try store.flush(for: workspaceId)
+
+        let storedCache = try fixture.repository.fetchCacheState()
+        #expect(storedCache.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
+        #expect(storedCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
+        #expect(storedCache.pullRequestCountByWorktreeId[worktreeId] == 3)
+        #expect(storedCache.notificationCountByWorktreeId[worktreeId] == 2)
+        #expect(storedCache.sourceRevision == 42)
+        #expect(storedCache.lastRebuiltAt == Date(timeIntervalSince1970: 123))
+        #expect(try fixture.repository.fetchRecentTargets() == [target])
+        guard case .missing = persistor.loadCache(for: workspaceId) else {
+            Issue.record("SQLite-backed repo cache flush should not write the legacy JSON sidecar")
+            return
+        }
+
+        let restoredCacheAtom = RepoEnrichmentCacheAtom()
+        let restoredRecentTargetAtom = RecentWorkspaceTargetAtom()
+        RepoCacheStore(
+            cacheAtom: restoredCacheAtom,
+            recentTargetAtom: restoredRecentTargetAtom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        ).restore(for: workspaceId)
+
+        #expect(restoredCacheAtom.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
+        #expect(restoredCacheAtom.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
+        #expect(restoredCacheAtom.pullRequestCountByWorktreeId[worktreeId] == 3)
+        #expect(restoredCacheAtom.notificationCountByWorktreeId[worktreeId] == 2)
+        #expect(restoredCacheAtom.sourceRevision == 42)
+        #expect(restoredCacheAtom.lastRebuiltAt == Date(timeIntervalSince1970: 123))
+        #expect(restoredRecentTargetAtom.recentTargets == [target])
+    }
+
+    @Test
     func flushAndRestore_operatesOnSplitCacheAndRecentTargetAtoms() throws {
         let workspaceId = UUID()
         let cacheAtom = RepoEnrichmentCacheAtom()

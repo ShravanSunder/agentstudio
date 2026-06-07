@@ -35,6 +35,39 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
+    func flushAndRestore_roundTripsExpandedGroupsThroughLocalSQLite() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let atom = SidebarCacheState()
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+
+        atom.setGroupExpanded("repo:agent-studio", isExpanded: true)
+        atom.setCheckoutColor("#ff6600", for: SidebarCheckoutColorKey("repo:agent-studio"))
+
+        try store.flush(for: workspaceId)
+
+        #expect(try fixture.repository.fetchExpandedGroups() == [SidebarGroupKey("repo:agent-studio")])
+        guard case .missing = persistor.loadSidebarCache(for: workspaceId) else {
+            Issue.record("SQLite-backed sidebar cache flush should not write the legacy JSON sidecar")
+            return
+        }
+
+        let restoredAtom = SidebarCacheState()
+        SidebarCacheStore(
+            atom: restoredAtom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        ).restore(for: workspaceId)
+
+        #expect(restoredAtom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
+        #expect(restoredAtom.checkoutColors.isEmpty)
+    }
+
+    @Test
     func observedExpansionChange_autosavesSidebarCache() async throws {
         let workspaceId = UUID()
         let atom = SidebarCacheState()

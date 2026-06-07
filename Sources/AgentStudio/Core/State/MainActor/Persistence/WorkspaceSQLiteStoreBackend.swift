@@ -3,7 +3,15 @@ import Foundation
 
 struct WorkspaceSQLiteStoreBackend {
     let coreRepository: WorkspaceCoreRepository
-    let makeLocalRepository: (UUID) throws -> WorkspaceLocalRepository
+    let localBackend: WorkspaceLocalSQLiteStoreBackend
+
+    init(
+        coreRepository: WorkspaceCoreRepository,
+        makeLocalRepository: @escaping (UUID) throws -> WorkspaceLocalRepository
+    ) {
+        self.coreRepository = coreRepository
+        self.localBackend = WorkspaceLocalSQLiteStoreBackend(makeLocalRepository: makeLocalRepository)
+    }
 
     func load(preferredWorkspaceId: UUID) throws -> WorkspacePersistor.PersistableState? {
         let workspaceId = try resolvedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
@@ -17,7 +25,7 @@ struct WorkspaceSQLiteStoreBackend {
         let paneGraph = try coreRepository.fetchPaneGraph(workspaceId: workspace.id)
         let tabShells = try coreRepository.fetchTabShells(workspaceId: workspace.id)
         let tabGraph = try coreRepository.fetchTabGraph(workspaceId: workspace.id)
-        let localRepository = try makeLocalRepository(workspace.id)
+        let localRepository = try localBackend.repository(for: workspace.id)
         let cursorState = try localRepository.fetchCursorState()
         let windowState = try localRepository.fetchWindowState()
 
@@ -52,7 +60,7 @@ struct WorkspaceSQLiteStoreBackend {
             graph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state)
         )
 
-        let localRepository = try makeLocalRepository(state.id)
+        let localRepository = try localBackend.repository(for: state.id)
         try localRepository.replaceWindowState(
             WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
             updatedAt: state.updatedAt
@@ -71,6 +79,18 @@ struct WorkspaceSQLiteStoreBackend {
             return preferredWorkspaceId
         }
         return try coreRepository.fetchWorkspaces().first?.id
+    }
+}
+
+struct WorkspaceLocalSQLiteStoreBackend {
+    private let makeLocalRepository: (UUID) throws -> WorkspaceLocalRepository
+
+    init(makeLocalRepository: @escaping (UUID) throws -> WorkspaceLocalRepository) {
+        self.makeLocalRepository = makeLocalRepository
+    }
+
+    func repository(for workspaceId: UUID) throws -> WorkspaceLocalRepository {
+        try makeLocalRepository(workspaceId)
     }
 }
 

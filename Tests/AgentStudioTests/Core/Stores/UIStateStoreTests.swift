@@ -46,6 +46,52 @@ struct UIStateStoreTests {
     }
 
     @Test
+    func flushAndRestore_roundTripsThroughLocalSQLite() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let atom = WorkspaceSidebarState()
+        let uiStateStore = UIStateStore(
+            atom: atom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+
+        atom.setFilterText("sqlite")
+        atom.setFilterVisible(true)
+        atom.setSidebarCollapsed(true)
+        atom.setSidebarSurface(.inbox)
+        atom.setSidebarHasFocus(true)
+
+        try uiStateStore.flush(for: workspaceId)
+
+        let storedState = try #require(try fixture.repository.fetchSidebarState())
+        #expect(storedState.filterText == "sqlite")
+        #expect(storedState.isFilterVisible)
+        #expect(storedState.sidebarCollapsed)
+        #expect(storedState.sidebarSurface == .inbox)
+        guard case .missing = persistor.loadUI(for: workspaceId) else {
+            Issue.record("SQLite-backed UI state flush should not write the legacy JSON sidecar")
+            return
+        }
+
+        let restoredAtom = WorkspaceSidebarState()
+        let restoredStore = UIStateStore(
+            atom: restoredAtom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+        restoredStore.restore(for: workspaceId)
+
+        #expect(restoredAtom.filterText == "sqlite")
+        #expect(restoredAtom.isFilterVisible)
+        #expect(restoredAtom.sidebarCollapsed)
+        #expect(restoredAtom.sidebarSurface == .inbox)
+        #expect(restoredAtom.sidebarHasFocus == false)
+    }
+
+    @Test
     func flush_operatesOnTheProvidedLiveAtomScope() throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()

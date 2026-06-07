@@ -9,6 +9,7 @@ final class RepoCacheStore {
     private let cacheAtom: RepoEnrichmentCacheAtom
     private let recentTargetAtom: RecentWorkspaceTargetAtom
     private let persistor: WorkspacePersistor
+    private let sqliteBackend: WorkspaceLocalSQLiteStoreBackend?
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -25,6 +26,7 @@ final class RepoCacheStore {
         cacheAtom: RepoEnrichmentCacheAtom,
         recentTargetAtom: RecentWorkspaceTargetAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
+        sqliteBackend: WorkspaceLocalSQLiteStoreBackend? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
@@ -32,6 +34,7 @@ final class RepoCacheStore {
         self.cacheAtom = cacheAtom
         self.recentTargetAtom = recentTargetAtom
         self.persistor = persistor
+        self.sqliteBackend = sqliteBackend
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
         self.recoveryReporter = recoveryReporter
@@ -40,6 +43,7 @@ final class RepoCacheStore {
     convenience init(
         atom: RepoCacheAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
+        sqliteBackend: WorkspaceLocalSQLiteStoreBackend? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
@@ -48,6 +52,7 @@ final class RepoCacheStore {
             cacheAtom: atom.enrichmentCacheAtom,
             recentTargetAtom: atom.recentTargetAtom,
             persistor: persistor,
+            sqliteBackend: sqliteBackend,
             persistDebounceDuration: persistDebounceDuration,
             clock: clock,
             recoveryReporter: recoveryReporter
@@ -68,6 +73,9 @@ final class RepoCacheStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
+        if restoreFromSQLite(for: workspaceId) {
+            return
+        }
         switch persistor.loadCache(for: workspaceId) {
         case .loaded(let cacheState):
             isRestoringState = true
@@ -152,6 +160,22 @@ final class RepoCacheStore {
 
     private func persistNow(for workspaceId: UUID) throws {
         do {
+            if let sqliteBackend {
+                let repository = try sqliteBackend.repository(for: workspaceId)
+                try repository.replaceCacheState(
+                    cacheState: .init(
+                        repoEnrichmentByRepoId: cacheAtom.repoEnrichmentByRepoId,
+                        worktreeEnrichmentByWorktreeId: cacheAtom.worktreeEnrichmentByWorktreeId,
+                        pullRequestCountByWorktreeId: cacheAtom.pullRequestCountByWorktreeId,
+                        notificationCountByWorktreeId: cacheAtom.notificationCountByWorktreeId,
+                        sourceRevision: cacheAtom.sourceRevision,
+                        lastRebuiltAt: cacheAtom.lastRebuiltAt
+                    ),
+                    updatedAt: Date()
+                )
+                try repository.replaceRecentTargets(recentTargetAtom.recentTargets, updatedAt: Date())
+                return
+            }
             guard persistor.ensureDirectory() else {
                 throw CocoaError(.fileWriteUnknown)
             }
@@ -172,6 +196,33 @@ final class RepoCacheStore {
                 .init(store: .repoCache, workspaceId: workspaceId, recovery: .saveFailed)
             )
             throw error
+        }
+    }
+
+    private func restoreFromSQLite(for workspaceId: UUID) -> Bool {
+        guard let sqliteBackend else { return false }
+        do {
+            let repository = try sqliteBackend.repository(for: workspaceId)
+            let cacheState = try repository.fetchCacheState()
+            let recentTargets = try repository.fetchRecentTargets()
+            isRestoringState = true
+            cacheAtom.hydrate(
+                .init(
+                    repoEnrichmentByRepoId: cacheState.repoEnrichmentByRepoId,
+                    worktreeEnrichmentByWorktreeId: cacheState.worktreeEnrichmentByWorktreeId,
+                    pullRequestCountByWorktreeId: cacheState.pullRequestCountByWorktreeId,
+                    notificationCountByWorktreeId: cacheState.notificationCountByWorktreeId,
+                    sourceRevision: cacheState.sourceRevision,
+                    lastRebuiltAt: cacheState.lastRebuiltAt
+                )
+            )
+            recentTargetAtom.hydrate(recentTargets: recentTargets)
+            isRestoringState = false
+            return true
+        } catch {
+            isRestoringState = false
+            repoCacheStoreLogger.warning("Repo cache SQLite restore failed: \(error.localizedDescription)")
+            return false
         }
     }
 }

@@ -8,6 +8,7 @@ private let uiStateStoreLogger = Logger(subsystem: "com.agentstudio", category: 
 final class UIStateStore {
     private let atom: WorkspaceSidebarState
     private let persistor: WorkspacePersistor
+    private let sqliteBackend: WorkspaceLocalSQLiteStoreBackend?
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -24,12 +25,14 @@ final class UIStateStore {
         atom: WorkspaceSidebarState,
         editorChooserState _: EditorChooserState? = nil,
         persistor: WorkspacePersistor = WorkspacePersistor(),
+        sqliteBackend: WorkspaceLocalSQLiteStoreBackend? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
         self.persistor = persistor
+        self.sqliteBackend = sqliteBackend
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
         self.recoveryReporter = recoveryReporter
@@ -47,6 +50,9 @@ final class UIStateStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
+        if restoreFromSQLite(for: workspaceId) {
+            return
+        }
         switch persistor.loadUI(for: workspaceId) {
         case .loaded(let state):
             isRestoringState = true
@@ -118,6 +124,19 @@ final class UIStateStore {
 
     private func persistNow(for workspaceId: UUID) throws {
         do {
+            if let sqliteBackend {
+                let repository = try sqliteBackend.repository(for: workspaceId)
+                try repository.replaceSidebarState(
+                    .init(
+                        filterText: atom.filterText,
+                        isFilterVisible: atom.isFilterVisible,
+                        sidebarCollapsed: atom.sidebarCollapsed,
+                        sidebarSurface: atom.sidebarSurface
+                    ),
+                    updatedAt: Date()
+                )
+                return
+            }
             guard persistor.ensureDirectory() else {
                 throw CocoaError(.fileWriteUnknown)
             }
@@ -133,6 +152,26 @@ final class UIStateStore {
         } catch {
             reportSaveFailed(workspaceId: workspaceId)
             throw error
+        }
+    }
+
+    private func restoreFromSQLite(for workspaceId: UUID) -> Bool {
+        guard let sqliteBackend else { return false }
+        do {
+            let repository = try sqliteBackend.repository(for: workspaceId)
+            guard let state = try repository.fetchSidebarState() else { return true }
+            isRestoringState = true
+            atom.hydrate(
+                filterText: state.filterText,
+                isFilterVisible: state.isFilterVisible,
+                sidebarCollapsed: state.sidebarCollapsed,
+                sidebarSurface: state.sidebarSurface
+            )
+            isRestoringState = false
+            return true
+        } catch {
+            uiStateStoreLogger.warning("UI state SQLite restore failed: \(error.localizedDescription)")
+            return false
         }
     }
 

@@ -8,6 +8,7 @@ private let sidebarCacheStoreLogger = Logger(subsystem: "com.agentstudio", categ
 final class SidebarCacheStore {
     private let atom: SidebarCacheState
     private let persistor: WorkspacePersistor
+    private let sqliteBackend: WorkspaceLocalSQLiteStoreBackend?
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -23,12 +24,14 @@ final class SidebarCacheStore {
     init(
         atom: SidebarCacheState,
         persistor: WorkspacePersistor = WorkspacePersistor(),
+        sqliteBackend: WorkspaceLocalSQLiteStoreBackend? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
         self.persistor = persistor
+        self.sqliteBackend = sqliteBackend
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
         self.recoveryReporter = recoveryReporter
@@ -46,6 +49,9 @@ final class SidebarCacheStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
+        if restoreFromSQLite(for: workspaceId) {
+            return
+        }
         switch persistor.loadSidebarCache(for: workspaceId) {
         case .loaded(let state):
             isRestoringState = true
@@ -109,6 +115,11 @@ final class SidebarCacheStore {
 
     private func persistNow(for workspaceId: UUID) throws {
         do {
+            if let sqliteBackend {
+                let repository = try sqliteBackend.repository(for: workspaceId)
+                try repository.replaceExpandedGroups(atom.expandedGroups, updatedAt: Date())
+                return
+            }
             guard persistor.ensureDirectory() else {
                 throw CocoaError(.fileWriteUnknown)
             }
@@ -122,6 +133,21 @@ final class SidebarCacheStore {
         } catch {
             reportSaveFailed(workspaceId: workspaceId)
             throw error
+        }
+    }
+
+    private func restoreFromSQLite(for workspaceId: UUID) -> Bool {
+        guard let sqliteBackend else { return false }
+        do {
+            let repository = try sqliteBackend.repository(for: workspaceId)
+            isRestoringState = true
+            atom.setExpandedGroups(try repository.fetchExpandedGroups())
+            isRestoringState = false
+            return true
+        } catch {
+            isRestoringState = false
+            sidebarCacheStoreLogger.warning("Sidebar cache SQLite restore failed: \(error.localizedDescription)")
+            return false
         }
     }
 
