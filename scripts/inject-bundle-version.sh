@@ -44,5 +44,6 @@ set_plist_string AgentStudioReleaseChannel "$RELEASE_CHANNEL"
 set_plist_string CFBundleIdentifier "$BUNDLE_IDENTIFIER"
 set_plist_string CFBundleName "$BUNDLE_NAME"
 set_plist_string CFBundleDisplayName "$BUNDLE_DISPLAY_NAME"
+# The app has one URL type today; index 0 is the OAuth callback registration.
 set_plist_string CFBundleURLTypes:0:CFBundleURLName "$OAUTH_CALLBACK_NAME"
 set_plist_string CFBundleURLTypes:0:CFBundleURLSchemes:0 "$OAUTH_CALLBACK_SCHEME"

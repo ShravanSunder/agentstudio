@@ -206,16 +206,26 @@ struct OAuthServiceTests {
     }
 
     @Test
+    func test_validateCallback_mixedCaseBetaScheme_returnsCode() throws {
+        let url = URL(string: "AGENTSTUDIO-BETA://oauth/callback?code=abc123&state=expected-state")!
+        let code = try OAuthService.validateCallback(
+            url: url,
+            expectedState: "expected-state",
+            releaseChannel: .beta
+        )
+        #expect(code == "abc123")
+    }
+
+    @Test
     func test_validateCallback_wrongScheme_throwsInvalidCallback() {
         let url = URL(string: "agentstudio-beta://oauth/callback?code=abc123&state=s")!
-        do {
-            _ = try OAuthService.validateCallback(url: url, expectedState: "s", releaseChannel: .stable)
-            Issue.record("Expected invalidCallback, got no error")
-        } catch let error {
+        #expect {
+            try OAuthService.validateCallback(url: url, expectedState: "s", releaseChannel: .stable)
+        } throws: { error in
             guard case OAuthError.invalidCallback = error else {
-                Issue.record("Expected invalidCallback, got \(error)")
-                return
+                return false
             }
+            return true
         }
     }
 

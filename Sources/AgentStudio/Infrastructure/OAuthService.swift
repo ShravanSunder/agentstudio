@@ -93,7 +93,7 @@ final class OAuthService: NSObject {
         }
 
         // Validate the callback URL path matches the expected OAuth callback
-        guard components.scheme == callbackScheme(for: releaseChannel),
+        guard components.scheme?.lowercased() == callbackScheme(for: releaseChannel),
             components.host == "oauth",
             components.path == "/callback"
         else {
