@@ -1,7 +1,7 @@
 import Foundation
 
 /// The facet type for grouping panes into dynamic view tabs.
-enum DynamicViewType: String, Codable, CaseIterable, Hashable {
+enum DynamicViewType: String, Codable, CaseIterable, Hashable, Sendable {
     /// One tab per repository.
     case byRepo
     /// One tab per worktree.
@@ -22,7 +22,7 @@ enum DynamicViewType: String, Codable, CaseIterable, Hashable {
 }
 
 /// A single group in a dynamic view projection — represents one virtual tab.
-struct DynamicViewGroup: Identifiable, Hashable {
+struct DynamicViewGroup: Identifiable, Hashable, Sendable {
     /// Stable identity derived from the group key (e.g., repo ID, worktree ID).
     let id: String
     /// Display name for this group tab.
@@ -34,7 +34,7 @@ struct DynamicViewGroup: Identifiable, Hashable {
 }
 
 /// Result of projecting workspace state through a dynamic view.
-struct DynamicViewProjection: Hashable {
+struct DynamicViewProjection: Hashable, Sendable {
     /// The view type used for this projection.
     let viewType: DynamicViewType
     /// The generated groups (virtual tabs), sorted alphabetically by name.

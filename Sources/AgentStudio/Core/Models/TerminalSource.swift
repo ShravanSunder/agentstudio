@@ -3,7 +3,7 @@ import Foundation
 /// Discriminated union for the origin/source of a terminal pane.
 /// Each pane in a pane container carries a TerminalSource indicating
 /// whether it's tied to a worktree or is a standalone floating terminal.
-enum TerminalSource: Codable, Hashable {
+enum TerminalSource: Codable, Hashable, Sendable {
     /// Terminal associated with a specific worktree in a repo
     case worktree(worktreeId: UUID, repoId: UUID, launchDirectory: URL)
 

@@ -685,7 +685,7 @@ private func setModificationDate(_ date: Date, for path: String) throws {
 
 private func failActiveSelection(
     in databaseQueue: DatabaseQueue,
-    from oldWorkspaceId: UUID,
+    from _: UUID,
     to newWorkspaceId: UUID
 ) throws {
     try databaseQueue.write { database in
@@ -693,8 +693,7 @@ private func failActiveSelection(
             sql: """
                 CREATE TRIGGER fail_active_selection
                 BEFORE UPDATE ON app_workspace_selection
-                WHEN OLD.active_workspace_id = '\(oldWorkspaceId.uuidString)'
-                    AND NEW.active_workspace_id = '\(newWorkspaceId.uuidString)'
+                WHEN NEW.active_workspace_id = '\(newWorkspaceId.uuidString)'
                 BEGIN
                     SELECT RAISE(ABORT, 'injected active selection failure');
                 END

@@ -302,7 +302,7 @@ git commit -m "docs: add sqlite datastore actor addendum"
 - Modify: `Sources/AgentStudio/Features/Bridge/State/BridgeDomainState.swift`
 - Test: `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteSnapshotRoleTests.swift`
 
-- [ ] **Step 1: Write the failing role test**
+- [x] **Step 1: Write the failing role test**
 
 Create `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteSnapshotRoleTests.swift`:
 
@@ -324,12 +324,12 @@ struct WorkspaceSQLiteSnapshotRoleTests {
             repos: [],
             worktrees: [],
             unavailableRepoIds: [],
-            watchedPaths: [],
             panes: [],
             tabs: [],
             activeTabId: nil,
             sidebarWidth: 250,
             windowFrame: nil,
+            watchedPaths: [],
             createdAt: Date(timeIntervalSince1970: 1),
             updatedAt: Date(timeIntervalSince1970: 2)
         )
@@ -341,7 +341,7 @@ struct WorkspaceSQLiteSnapshotRoleTests {
 }
 ```
 
-- [ ] **Step 2: Run the failing test**
+- [x] **Step 2: Run the failing test**
 
 Run:
 
@@ -355,7 +355,7 @@ Expected:
 FAIL: cannot find 'WorkspaceSQLiteSnapshot' in scope
 ```
 
-- [ ] **Step 3: Make the actor-crossing live snapshot values sendable**
+- [x] **Step 3: Make the actor-crossing live snapshot values sendable**
 
 `WorkspaceSQLiteSnapshot` crosses from the `@MainActor` store into `WorkspaceSQLiteDatastore`. That boundary must not rely on `@unchecked Sendable` or on non-sendable domain values.
 
@@ -396,7 +396,7 @@ WorkspaceCoreRepository.LegacyImportStatusRecord
 
 If a nested value cannot honestly conform to `Sendable`, do not force it. Replace that snapshot field with a purpose-specific sendable persisted value before it crosses the actor boundary. The live SQLite snapshot is still not a legacy JSON DTO and still not a SQLite row projection; it is the immutable actor-crossing persistence snapshot.
 
-- [ ] **Step 4: Add the live SQLite snapshot type**
+- [x] **Step 4: Add the live SQLite snapshot type**
 
 Create `Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteSnapshot.swift`:
 
@@ -407,21 +407,25 @@ import Foundation
 struct WorkspaceSQLiteSnapshot: Equatable, Sendable {
     var id: UUID
     var name: String
-    var repos: [Repo]
-    var worktrees: [Worktree]
+    var repos: [CanonicalRepo]
+    var worktrees: [CanonicalWorktree]
     var unavailableRepoIds: Set<UUID>
-    var watchedPaths: [WatchedPath]
     var panes: [Pane]
     var tabs: [Tab]
     var activeTabId: UUID?
     var sidebarWidth: CGFloat
     var windowFrame: CGRect?
+    var watchedPaths: [WatchedPath]
     var createdAt: Date
     var updatedAt: Date
 }
 ```
 
-- [ ] **Step 5: Add a shared test fixture helper**
+Use `CanonicalRepo` and `CanonicalWorktree` here intentionally. The live
+repository atom hydrates rich `Repo`/`Worktree` values, but the SQLite bridge
+persists durable topology identity, not enrichment-bearing runtime repo values.
+
+- [x] **Step 5: Add a shared test fixture helper**
 
 Create a test-support extension near the SQLite store tests, not in production code:
 
@@ -439,12 +443,12 @@ extension WorkspaceSQLiteSnapshot {
             repos: [],
             worktrees: [],
             unavailableRepoIds: [],
-            watchedPaths: [],
             panes: [],
             tabs: [],
             activeTabId: nil,
             sidebarWidth: 250,
             windowFrame: nil,
+            watchedPaths: [],
             createdAt: createdAt,
             updatedAt: updatedAt
         )
@@ -452,7 +456,7 @@ extension WorkspaceSQLiteSnapshot {
 }
 ```
 
-- [ ] **Step 6: Add transformer methods for the new snapshot**
+- [x] **Step 6: Add transformer methods for the new snapshot**
 
 Modify `WorkspacePersistenceTransformer.swift` by adding sibling methods to the existing `makeLiveSQLiteState` path:
 
@@ -480,12 +484,12 @@ static func makeLiveSQLiteSnapshot(
         repos: state.repos,
         worktrees: state.worktrees,
         unavailableRepoIds: state.unavailableRepoIds,
-        watchedPaths: state.watchedPaths,
         panes: state.panes,
         tabs: state.tabs,
         activeTabId: state.activeTabId,
         sidebarWidth: state.sidebarWidth,
         windowFrame: state.windowFrame,
+        watchedPaths: state.watchedPaths,
         createdAt: state.createdAt,
         updatedAt: state.updatedAt
     )
@@ -498,33 +502,32 @@ static func persistableState(from snapshot: WorkspaceSQLiteSnapshot) -> Workspac
         repos: snapshot.repos,
         worktrees: snapshot.worktrees,
         unavailableRepoIds: snapshot.unavailableRepoIds,
-        watchedPaths: snapshot.watchedPaths,
         panes: snapshot.panes,
         tabs: snapshot.tabs,
         activeTabId: snapshot.activeTabId,
         sidebarWidth: snapshot.sidebarWidth,
         windowFrame: snapshot.windowFrame,
+        watchedPaths: snapshot.watchedPaths,
         createdAt: snapshot.createdAt,
         updatedAt: snapshot.updatedAt
     )
 }
 ```
 
-- [ ] **Step 7: Change SQLite backend APIs to accept/return `WorkspaceSQLiteSnapshot`**
+- [x] **Step 7: Change SQLite backend APIs to accept/return `WorkspaceSQLiteSnapshot`**
 
 Modify `WorkspaceSQLiteStoreBackend.swift` signatures first:
 
 ```swift
 func load(preferredWorkspaceId: UUID) throws -> WorkspaceSQLiteSnapshot?
-func save(_ snapshot: WorkspaceSQLiteSnapshot, localRepository: WorkspaceLocalRepository) throws
+func save(_ snapshot: WorkspaceSQLiteSnapshot) throws
 func saveImportedLegacySnapshot(
     _ snapshot: WorkspaceSQLiteSnapshot,
-    sourceStatePath: String,
-    localRepository: WorkspaceLocalRepository
+    sourceStatePath: String
 ) throws
 ```
 
-These signatures are temporary until Task 4 rewrites both normal save and legacy-import save through the same staged core/local commit helper. Do not add a second, divergent save implementation.
+These signatures are temporary until Task 4 rewrites both normal save and legacy-import save through the same staged core/local commit helper. Task 2 only moves the public backend contract onto the role-named snapshot type; repository opening remains inside the backend until the staged protocol lands. Do not add a second, divergent save implementation.
 
 Inside each method, convert only at the repository bridge boundary:
 
@@ -539,21 +542,21 @@ let state = try WorkspaceSQLiteStateBridge.persistableState(from: snapshotRecord
 return WorkspaceSQLiteSnapshot(
     id: state.id,
     name: state.name,
-    repos: state.repos,
-    worktrees: state.worktrees,
-    unavailableRepoIds: state.unavailableRepoIds,
-    watchedPaths: state.watchedPaths,
-    panes: state.panes,
-    tabs: state.tabs,
-    activeTabId: state.activeTabId,
-    sidebarWidth: state.sidebarWidth,
-    windowFrame: state.windowFrame,
-    createdAt: state.createdAt,
-    updatedAt: state.updatedAt
+        repos: state.repos,
+        worktrees: state.worktrees,
+        unavailableRepoIds: state.unavailableRepoIds,
+        panes: state.panes,
+        tabs: state.tabs,
+        activeTabId: state.activeTabId,
+        sidebarWidth: state.sidebarWidth,
+        windowFrame: state.windowFrame,
+        watchedPaths: state.watchedPaths,
+        createdAt: state.createdAt,
+        updatedAt: state.updatedAt
 )
 ```
 
-- [ ] **Step 6: Update `WorkspaceStore` hydration call sites**
+- [x] **Step 8: Update `WorkspaceStore` hydration call sites**
 
 Where `WorkspaceStore` receives a SQLite snapshot, hydrate through:
 
@@ -561,7 +564,7 @@ Where `WorkspaceStore` receives a SQLite snapshot, hydrate through:
 hydrateWorkspaceState(WorkspacePersistenceTransformer.persistableState(from: snapshot))
 ```
 
-- [ ] **Step 7: Run role and bridge tests**
+- [x] **Step 9: Run role and bridge tests**
 
 Run:
 
@@ -577,7 +580,7 @@ Expected:
 All selected tests pass.
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteSnapshot.swift \

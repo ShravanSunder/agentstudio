@@ -77,7 +77,7 @@ struct WorkspaceLegacySQLiteImporter {
             do {
                 let materializedState = try materializeLegacyState(legacyFile)
                 try sqliteBackend.saveImportedLegacySnapshot(
-                    materializedState,
+                    WorkspacePersistenceTransformer.sqliteSnapshot(from: materializedState),
                     sourceStatePath: legacyFile.url.path
                 )
                 importedFiles.append((legacyFile, materializedState))
@@ -232,7 +232,7 @@ extension WorkspaceStore {
         do {
             let materializedState = materializedLegacyState(legacyState)
             try sqliteBackend.saveImportedLegacySnapshot(
-                materializedState,
+                WorkspacePersistenceTransformer.sqliteSnapshot(from: materializedState),
                 sourceStatePath: sourceStatePath
             )
             return .saved

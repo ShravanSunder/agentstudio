@@ -2,7 +2,7 @@ import Foundation
 
 /// Canonical repo identity persisted in workspace state.
 /// Contains only stable/user-intent fields; no derived git enrichment.
-struct CanonicalRepo: Codable, Identifiable, Hashable {
+struct CanonicalRepo: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     var name: String
     var repoPath: URL

@@ -249,7 +249,7 @@ final class WorkspaceStore {
         let persistedAt = Date()
         do {
             if let sqliteBackend {
-                let state = WorkspacePersistenceTransformer.makeLiveSQLiteState(
+                let snapshot = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshot(
                     identityAtom: identityAtom,
                     windowMemoryAtom: windowMemoryAtom,
                     repositoryTopologyAtom: repositoryTopologyAtom,
@@ -257,7 +257,7 @@ final class WorkspaceStore {
                     workspaceTabLayoutAtom: tabLayoutAtom,
                     persistedAt: persistedAt
                 )
-                try sqliteBackend.save(state)
+                try sqliteBackend.save(snapshot)
             } else {
                 guard persistor.ensureDirectory() else {
                     workspaceStoreLogger.error(
@@ -296,7 +296,8 @@ final class WorkspaceStore {
 
     private func restoreFromSQLite(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> SQLiteRestoreOutcome {
         switch sqliteBackend.loadResult(preferredWorkspaceId: identityAtom.workspaceId) {
-        case .loaded(let state):
+        case .loaded(let snapshot):
+            let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
             hydrateWorkspaceState(state)
             workspaceStoreLogger.info(
                 "Restored SQLite workspace '\(state.name)' with \(self.paneAtom.panes.count) pane(s), \(self.tabLayoutAtom.tabs.count) tab(s)"

@@ -2,7 +2,7 @@ import Foundation
 
 /// A drawer container attached to a parent layout pane.
 /// View state such as layout, focus, and minimized panes lives on `PaneArrangement`.
-struct Drawer: Codable, Hashable {
+struct Drawer: Codable, Hashable, Sendable {
     let drawerId: UUID
     let parentPaneId: UUID
     /// Pane IDs owned by this drawer, in insertion order.

@@ -9,7 +9,7 @@ import Foundation
 /// forward-compatible deserialization. Unknown content types decode as
 /// `.unsupported` instead of crashing, allowing older app versions to
 /// load workspaces saved by newer versions.
-enum PaneContent: Hashable {
+enum PaneContent: Hashable, Sendable {
     /// Terminal emulator content (Ghostty or zmx-backed).
     case terminal(TerminalState)
     /// Embedded web content (future: diff viewer, PR status, dev server).
@@ -98,7 +98,7 @@ extension PaneContent: Codable {
 // MARK: - Unsupported Content
 
 /// Preserves unrecognized pane content for round-trip persistence.
-struct UnsupportedContent: Codable, Hashable {
+struct UnsupportedContent: Codable, Hashable, Sendable {
     let type: String
     let version: Int
     let rawState: AnyCodableValue?
@@ -107,7 +107,7 @@ struct UnsupportedContent: Codable, Hashable {
 // MARK: - AnyCodableValue
 
 /// Type-erased Codable value for preserving unknown JSON structures.
-enum AnyCodableValue: Codable, Hashable {
+enum AnyCodableValue: Codable, Hashable, Sendable {
     case string(String)
     case int(Int)
     case double(Double)
@@ -154,7 +154,7 @@ enum AnyCodableValue: Codable, Hashable {
 // MARK: - Session Provider
 
 /// Backend provider for terminal panes.
-enum SessionProvider: String, Codable, Hashable {
+enum SessionProvider: String, Codable, Hashable, Sendable {
     /// Direct Ghostty surface, no session multiplexer.
     case ghostty
     /// Headless zmx backend for persistence/restore.
@@ -164,7 +164,7 @@ enum SessionProvider: String, Codable, Hashable {
 // MARK: - Terminal State
 
 /// State for a terminal pane. Absorbs the former `SessionProvider` and `SessionLifetime`.
-struct TerminalState: Codable, Hashable {
+struct TerminalState: Codable, Hashable, Sendable {
     /// Backend provider for this terminal.
     var provider: SessionProvider
     /// Lifecycle: persistent (zmx-backed) or temporary.
@@ -174,7 +174,7 @@ struct TerminalState: Codable, Hashable {
 // MARK: - Webview State
 
 /// State for a webview pane — one URL per pane.
-struct WebviewState: Codable, Hashable {
+struct WebviewState: Codable, Hashable, Sendable {
     var url: URL
     var title: String
     var showNavigation: Bool
@@ -211,7 +211,7 @@ struct WebviewState: Codable, Hashable {
 // MARK: - Code Viewer State (future)
 
 /// State for a code viewer pane. Defined now, wired later.
-struct CodeViewerState: Codable, Hashable {
+struct CodeViewerState: Codable, Hashable, Sendable {
     /// Path to the file being viewed.
     var filePath: URL
     /// Line to scroll to (1-based).

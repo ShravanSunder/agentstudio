@@ -2,7 +2,7 @@ import Foundation
 
 /// Canonical worktree identity persisted in workspace state.
 /// Stores stable linkage to a canonical repo and user-visible naming.
-struct CanonicalWorktree: Codable, Identifiable, Hashable {
+struct CanonicalWorktree: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     let repoId: UUID
     var name: String

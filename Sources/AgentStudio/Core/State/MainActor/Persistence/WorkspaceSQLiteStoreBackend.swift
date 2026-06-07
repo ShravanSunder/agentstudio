@@ -4,7 +4,7 @@ import Foundation
 @MainActor
 struct WorkspaceSQLiteStoreBackend {
     enum LoadResult {
-        case loaded(WorkspacePersistor.PersistableState)
+        case loaded(WorkspaceSQLiteSnapshot)
         case uninitialized
         case unavailable(any Error)
     }
@@ -35,10 +35,10 @@ struct WorkspaceSQLiteStoreBackend {
         )
     }
 
-    func load(preferredWorkspaceId: UUID) throws -> WorkspacePersistor.PersistableState? {
+    func load(preferredWorkspaceId: UUID) throws -> WorkspaceSQLiteSnapshot? {
         switch loadResult(preferredWorkspaceId: preferredWorkspaceId) {
-        case .loaded(let state):
-            return state
+        case .loaded(let snapshot):
+            return snapshot
         case .uninitialized:
             return nil
         case .unavailable(let error):
@@ -56,7 +56,7 @@ struct WorkspaceSQLiteStoreBackend {
         }
     }
 
-    private func loadCompletedSnapshot(preferredWorkspaceId: UUID) throws -> WorkspacePersistor.PersistableState {
+    private func loadCompletedSnapshot(preferredWorkspaceId: UUID) throws -> WorkspaceSQLiteSnapshot {
         let workspaceId = try resolvedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
         guard let workspaceId,
             let workspace = try coreRepository.fetchWorkspace(id: workspaceId)
@@ -97,7 +97,7 @@ struct WorkspaceSQLiteStoreBackend {
             )
         }
 
-        return try WorkspaceSQLiteStateBridge.persistableState(
+        let state = try WorkspaceSQLiteStateBridge.persistableState(
             from: .init(
                 workspace: workspace,
                 topology: topology,
@@ -108,6 +108,7 @@ struct WorkspaceSQLiteStoreBackend {
                 windowState: windowState
             )
         )
+        return WorkspacePersistenceTransformer.sqliteSnapshot(from: state)
     }
 
     private func readLocalSnapshot(
@@ -128,7 +129,8 @@ struct WorkspaceSQLiteStoreBackend {
         }
     }
 
-    func save(_ state: WorkspacePersistor.PersistableState) throws {
+    func save(_ snapshot: WorkspaceSQLiteSnapshot) throws {
+        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
         let workspaceRecord = WorkspaceSQLiteStateBridge.workspaceRecord(from: state)
         try coreRepository.replaceWorkspaceSnapshot(
             workspace: workspaceRecord,
@@ -165,9 +167,10 @@ struct WorkspaceSQLiteStoreBackend {
     }
 
     func saveImportedLegacySnapshot(
-        _ state: WorkspacePersistor.PersistableState,
+        _ snapshot: WorkspaceSQLiteSnapshot,
         sourceStatePath: String
     ) throws {
+        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
         let workspaceRecord = WorkspaceSQLiteStateBridge.workspaceRecord(from: state)
         do {
             try coreRepository.replaceWorkspaceSnapshot(

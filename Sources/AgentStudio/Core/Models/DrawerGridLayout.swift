@@ -1,6 +1,6 @@
 import Foundation
 
-struct DrawerGridLayout: Codable, Hashable {
+struct DrawerGridLayout: Codable, Hashable, Sendable {
     var topRow: Layout
     var bottomRow: Layout?
     var rowSplitRatio: Double
