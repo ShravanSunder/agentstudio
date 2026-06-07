@@ -21,7 +21,7 @@ final class InboxNotificationStore {
     private let clock: any Clock<Duration>
     private let debounceDuration: Duration
     private let recoveryReporter: PersistenceRecoveryReporter?
-    private let sqliteRepository: InboxNotificationSQLiteRepository?
+    private let sqliteAdapter: InboxNotificationSQLiteDatastoreAdapter?
     private let allowLegacyFilePersistence: Bool
     private let allowLegacyFileImport: Bool
     private var debouncedSaveTask: Task<Void, Never>?
@@ -65,7 +65,7 @@ final class InboxNotificationStore {
         clock: any Clock<Duration> = ContinuousClock(),
         debounceDuration: Duration = .milliseconds(500),
         recoveryReporter: PersistenceRecoveryReporter? = nil,
-        sqliteRepository: InboxNotificationSQLiteRepository? = nil,
+        sqliteAdapter: InboxNotificationSQLiteDatastoreAdapter? = nil,
         allowLegacyFilePersistence: Bool = true,
         allowLegacyFileImport: Bool = true
     ) {
@@ -76,7 +76,7 @@ final class InboxNotificationStore {
         self.clock = clock
         self.debounceDuration = debounceDuration
         self.recoveryReporter = recoveryReporter
-        self.sqliteRepository = sqliteRepository
+        self.sqliteAdapter = sqliteAdapter
         self.allowLegacyFilePersistence = allowLegacyFilePersistence
         self.allowLegacyFileImport = allowLegacyFileImport
     }
@@ -190,33 +190,45 @@ final class InboxNotificationStore {
 
     @discardableResult
     func load() throws -> LoadOutcome {
-        if let sqliteRepository {
-            do {
-                if try sqliteRepository.hasPersistedState() {
-                    let hasMaterializedLegacyImport = try sqliteRepository.hasMaterializedLegacyImport()
-                    try loadSQLiteSnapshot(from: sqliteRepository)
-                    return hasMaterializedLegacyImport ? .materializedLegacySQLiteSnapshot : .sqliteSnapshot
-                }
-                guard allowLegacyFileImport else {
-                    inboxAtom.replaceAll([])
-                    sidebarState.hydrate(collapsedGroups: [])
-                    reportLoadFailed()
-                    return .legacyImportBlockedReset
-                }
-                guard let payload = loadLegacyPayloadFromDisk() else { return .missing }
-                apply(payload)
-                try persistCurrentLegacySQLiteSnapshot(to: sqliteRepository)
-                return .legacyFileImportedIntoSQLite
-            } catch {
-                reportLoadFailed()
-                throw error
-            }
+        guard sqliteAdapter == nil else {
+            assertionFailure("Use await loadAsync() when SQLite datastore is enabled")
+            return .missing
         }
 
         guard allowLegacyFilePersistence else { return .missing }
         guard let payload = loadLegacyPayloadFromDisk() else { return .missing }
         apply(payload)
         return .legacyFile
+    }
+
+    @discardableResult
+    func loadAsync() async throws -> LoadOutcome {
+        guard let sqliteAdapter else {
+            return try load()
+        }
+
+        switch await sqliteAdapter.load() {
+        case .loaded(let snapshot, let recoveryEvents):
+            reportRecoveryEvents(recoveryEvents)
+            if snapshot.hasPersistedState {
+                apply(snapshot)
+                return snapshot.hasMaterializedLegacyImport ? .materializedLegacySQLiteSnapshot : .sqliteSnapshot
+            }
+            guard allowLegacyFileImport else {
+                inboxAtom.replaceAll([])
+                sidebarState.hydrate(collapsedGroups: [])
+                reportLoadFailed()
+                return .legacyImportBlockedReset
+            }
+            guard let payload = loadLegacyPayloadFromDisk() else { return .missing }
+            apply(payload)
+            try await sqliteAdapter.save(currentSQLiteSnapshot(markLegacyImport: true))
+            return .legacyFileImportedIntoSQLite
+        case .unavailable(_, let recoveryEvents):
+            reportRecoveryEvents(recoveryEvents)
+            reportLoadFailed()
+            throw InboxNotificationSQLiteDatastoreUnavailableError()
+        }
     }
 
     private func loadLegacyPayloadFromDisk() -> Payload? {
@@ -265,9 +277,9 @@ final class InboxNotificationStore {
         sidebarState.hydrate(collapsedGroups: payload.sidebarState.collapsedGroups)
     }
 
-    private func loadSQLiteSnapshot(from repository: InboxNotificationSQLiteRepository) throws {
-        inboxAtom.replaceAll(try repository.fetchNotifications())
-        sidebarState.hydrate(collapsedGroups: try repository.fetchCollapsedGroups())
+    private func apply(_ snapshot: SQLiteLoadSnapshot) {
+        inboxAtom.replaceAll(snapshot.notifications)
+        sidebarState.hydrate(collapsedGroups: snapshot.collapsedGroups)
     }
 
     func save() async throws {
@@ -276,6 +288,10 @@ final class InboxNotificationStore {
     }
 
     func flush() throws {
+        guard sqliteAdapter == nil else {
+            assertionFailure("Use await save() when SQLite datastore is enabled")
+            throw LegacyFilePersistenceDisabledError()
+        }
         cancelPendingDebouncedSave()
         try persistCurrentPayloadSynchronously()
     }
@@ -338,8 +354,8 @@ final class InboxNotificationStore {
 
     private func persistCurrentPayloadAsync() async throws {
         do {
-            if let sqliteRepository {
-                try persistCurrentSQLiteSnapshot(to: sqliteRepository)
+            if let sqliteAdapter {
+                try await sqliteAdapter.save(currentSQLiteSnapshot(markLegacyImport: false))
                 return
             }
             guard allowLegacyFilePersistence else {
@@ -355,10 +371,6 @@ final class InboxNotificationStore {
 
     private func persistCurrentPayloadSynchronously() throws {
         do {
-            if let sqliteRepository {
-                try persistCurrentSQLiteSnapshot(to: sqliteRepository)
-                return
-            }
             guard allowLegacyFilePersistence else {
                 throw LegacyFilePersistenceDisabledError()
             }
@@ -391,17 +403,11 @@ final class InboxNotificationStore {
         }
     }
 
-    private func persistCurrentSQLiteSnapshot(to repository: InboxNotificationSQLiteRepository) throws {
-        try repository.replaceSnapshot(
+    private func currentSQLiteSnapshot(markLegacyImport: Bool) -> SQLiteSnapshot {
+        .init(
             notifications: inboxAtom.notifications,
-            collapsedGroups: sidebarState.collapsedGroups
-        )
-    }
-
-    private func persistCurrentLegacySQLiteSnapshot(to repository: InboxNotificationSQLiteRepository) throws {
-        try repository.replaceLegacyImportSnapshot(
-            notifications: inboxAtom.notifications,
-            collapsedGroups: sidebarState.collapsedGroups
+            collapsedGroups: sidebarState.collapsedGroups,
+            markLegacyImport: markLegacyImport
         )
     }
 
@@ -416,9 +422,14 @@ final class InboxNotificationStore {
             .init(store: .notificationInbox, workspaceId: nil, recovery: .resetToDefaults)
         )
     }
+
+    private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
+        recoveryEvents.forEach { recoveryReporter?($0) }
+    }
 }
 
 private struct LegacyFilePersistenceDisabledError: Error {}
+private struct InboxNotificationSQLiteDatastoreUnavailableError: Error {}
 
 private func decodeRecoverablePreferenceField<Key: CodingKey, Value: Decodable>(
     _ type: Value.Type,

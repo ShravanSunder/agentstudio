@@ -6,7 +6,7 @@ extension AppDelegate {
         persistor: WorkspacePersistor,
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
-    ) {
+    ) async {
         // The boot order is the contract:
         // 1. restore the durable workspace model,
         // 2. load rebuildable caches without autosave observation,
@@ -16,9 +16,9 @@ extension AppDelegate {
         //
         // `WorkspaceBootStep.purpose` carries the per-step "why" and is covered by
         // tests so future boot changes cannot silently become an unlabeled ordering bet.
-        WorkspaceBootSequence.run { [self] step in
+        await WorkspaceBootSequence.runAsync { [self] step in
             recordBootStep(step)
-            executeBootStep(
+            await executeBootStep(
                 step,
                 persistor: persistor,
                 paneRuntimeBus: paneRuntimeBus,
@@ -85,14 +85,14 @@ extension AppDelegate {
         persistor: WorkspacePersistor,
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
-    ) {
+    ) async {
         switch step {
         case .loadCanonicalStore:
-            bootLoadCanonicalStore()
+            await bootLoadCanonicalStore()
         case .loadCacheStore:
-            bootLoadCacheStore(persistor: persistor)
+            await bootLoadCacheStore(persistor: persistor)
         case .loadUIStore:
-            bootLoadUIStore(persistor: persistor)
+            await bootLoadUIStore(persistor: persistor)
         case .establishRuntimeBus:
             bootEstablishRuntimeBus(paneRuntimeBus: paneRuntimeBus, filesystemSource: &filesystemSource)
         case .startFilesystemActor:
@@ -112,11 +112,10 @@ extension AppDelegate {
         }
     }
 
-    private func bootLoadCanonicalStore() {
+    private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
-        workspaceSQLiteStoreBackend = makeWorkspaceSQLiteStoreBackend()
-        workspaceLocalSQLiteStoreBackend = workspaceSQLiteStoreBackend?.localBackend
+        workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore()
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
@@ -124,7 +123,7 @@ extension AppDelegate {
             paneAtom: atomStore.workspacePane,
             tabLayoutAtom: atomStore.workspaceTabLayout,
             mutationCoordinator: atomStore.workspaceMutationCoordinator,
-            sqliteBackend: workspaceSQLiteStoreBackend,
+            sqliteDatastore: workspaceSQLiteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
@@ -132,14 +131,14 @@ extension AppDelegate {
         repoCacheStore = RepoCacheStore(
             cacheAtom: atomStore.repoEnrichmentCache,
             recentTargetAtom: atomStore.recentWorkspaceTarget,
-            sqliteBackend: workspaceLocalSQLiteStoreBackend,
+            sqliteDatastore: workspaceSQLiteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
         sidebarCacheStore = SidebarCacheStore(
             atom: atomStore.sidebarCache,
-            sqliteBackend: workspaceLocalSQLiteStoreBackend,
+            sqliteDatastore: workspaceSQLiteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
@@ -147,7 +146,7 @@ extension AppDelegate {
         uiStateStore = UIStateStore(
             atom: atomStore.workspaceSidebarState,
             editorChooserState: atomStore.editorChooser,
-            sqliteBackend: workspaceLocalSQLiteStoreBackend,
+            sqliteDatastore: workspaceSQLiteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
@@ -163,7 +162,7 @@ extension AppDelegate {
         traceRuntime = .fromEnvironment()
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
-        store.restore()
+        await store.restoreAsync()
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
         windowLifecycleStore = atomStore.windowLifecycle
@@ -176,34 +175,29 @@ extension AppDelegate {
         )
     }
 
-    private func makeWorkspaceSQLiteStoreBackend() -> WorkspaceSQLiteStoreBackend? {
-        WorkspaceSQLiteStoreBackendFactory(
-            recoveryReporter: { [weak self] event in
-                self?.recordPersistenceRecovery(event)
-            }
-        )
-        .makeBackend()
+    private func makeWorkspaceSQLiteDatastore() -> WorkspaceSQLiteDatastore? {
+        WorkspaceSQLiteDatastoreFactory().makeDatastore()
     }
 
-    private func bootLoadCacheStore(persistor: WorkspacePersistor) {
+    private func bootLoadCacheStore(persistor: WorkspacePersistor) async {
         _ = persistor
-        repoCacheStore.restore(for: store.identityAtom.workspaceId)
-        sidebarCacheStore.restore(for: store.identityAtom.workspaceId)
+        await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
+        await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
     }
 
-    private func bootLoadUIStore(persistor: WorkspacePersistor) {
+    private func bootLoadUIStore(persistor: WorkspacePersistor) async {
         workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)
-        uiStateStore.restore(for: store.identityAtom.workspaceId)
-        bootLoadInboxNotificationStore(persistor: persistor)
-        bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)
+        await uiStateStore.restoreAsync(for: store.identityAtom.workspaceId)
+        await bootLoadInboxNotificationStore(persistor: persistor)
+        await bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)
     }
 
-    private func bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: WorkspacePersistor) {
-        let hasSQLiteBackend = workspaceSQLiteStoreBackend != nil
-        guard let workspaceSQLiteStoreBackend else { return }
+    private func bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: WorkspacePersistor) async {
+        let hasSQLiteBackend = workspaceSQLiteDatastore != nil
+        guard let workspaceSQLiteDatastore else { return }
         let hasCompletedSnapshot: Bool
         do {
-            hasCompletedSnapshot = try workspaceSQLiteStoreBackend.hasCompletedSnapshot(
+            hasCompletedSnapshot = try await workspaceSQLiteDatastore.hasCompletedSnapshot(
                 workspaceId: store.identityAtom.workspaceId
             )
         } catch {
@@ -226,7 +220,7 @@ extension AppDelegate {
         }
         guard shouldArchiveLegacyFiles else { return }
         do {
-            try workspaceSQLiteStoreBackend.markLegacyWorkspaceCompanionImportsCompleted(
+            try await workspaceSQLiteDatastore.markLegacyWorkspaceCompanionImportsCompleted(
                 workspaceId: store.identityAtom.workspaceId,
                 importedAt: Date()
             )
@@ -239,7 +233,7 @@ extension AppDelegate {
         guard let result = persistor.archiveLegacyWorkspaceFiles(for: store.identityAtom.workspaceId) else { return }
         if result.succeeded {
             do {
-                try workspaceSQLiteStoreBackend.markLegacyWorkspaceArchived(
+                try await workspaceSQLiteDatastore.markLegacyWorkspaceArchived(
                     workspaceId: store.identityAtom.workspaceId,
                     archivedAt: Date()
                 )
@@ -353,11 +347,11 @@ extension AppDelegate {
             if let topologySyncTask {
                 await topologySyncTask.value
             }
-            self?.completeBootPersistenceObservation()
+            await self?.completeBootPersistenceObservation()
         }
     }
 
-    private func completeBootPersistenceObservation() {
+    private func completeBootPersistenceObservation() async {
         // Restore and topology replay intentionally run without debounced persistence
         // observation. They can mutate cache atoms many times while runtime cleanup and
         // filesystem discovery are also starting. Arming observation here keeps startup
@@ -371,7 +365,7 @@ extension AppDelegate {
 
         if pruneStaleCache(store: store, repoCache: repoCache) {
             do {
-                try repoCacheStore.flush(for: store.identityAtom.workspaceId)
+                try await repoCacheStore.flushAsync(for: store.identityAtom.workspaceId)
             } catch {
                 appLogger.warning("Failed to persist pruned repo cache during boot: \(error.localizedDescription)")
             }

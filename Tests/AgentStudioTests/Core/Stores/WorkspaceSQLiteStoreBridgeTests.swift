@@ -9,7 +9,7 @@ import Testing
 @Suite("WorkspaceSQLiteStoreBridgeTests", .serialized)
 struct WorkspaceSQLiteStoreBridgeTests {
     @Test("flush writes workspace graph lanes to core and cursor/window lanes to local SQLite")
-    func flushWritesSplitWorkspaceLanesToSQLite() throws {
+    func flushWritesSplitWorkspaceLanesToSQLite() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
@@ -24,7 +24,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
             ),
-            sqliteBackend: fixture.backend
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
 
         let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-sqlite-repo"))
@@ -59,7 +59,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         store.appendTab(tab)
         store.switchArrangement(to: secondArrangement.id, inTab: tab.id)
 
-        #expect(store.flush())
+        #expect((await store.flushAsync()).succeeded)
 
         let workspace = try #require(try fixture.coreRepository.fetchWorkspace(id: workspaceId))
         #expect(workspace.name == "SQLite Workspace")
@@ -94,7 +94,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("SQLite flush preserves the live pane graph instead of applying legacy prune-on-save")
-    func sqliteFlushPreservesLivePaneGraphWithoutLegacyPruning() throws {
+    func sqliteFlushPreservesLivePaneGraphWithoutLegacyPruning() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let identityAtom = WorkspaceIdentityAtom()
@@ -108,7 +108,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
             ),
-            sqliteBackend: fixture.backend
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
         let temporaryPane = store.createPane(
             source: .floating(launchDirectory: nil, title: "Ephemeral"),
@@ -118,7 +118,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let tab = Tab(paneId: temporaryPane.id, name: "Ephemeral Tab")
         store.appendTab(tab)
 
-        #expect(store.flush())
+        #expect((await store.flushAsync()).succeeded)
 
         let paneGraph = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceId)
         #expect(paneGraph.panes.map(\.id) == [temporaryPane.id])
@@ -129,7 +129,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("restore hydrates workspace atoms from active SQLite workspace")
-    func restoreHydratesAtomsFromSQLite() throws {
+    func restoreHydratesAtomsFromSQLite() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_100)
@@ -192,10 +192,10 @@ struct WorkspaceSQLiteStoreBridgeTests {
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
             ),
-            sqliteBackend: fixture.backend
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
 
-        restoredStore.restore()
+        await restoredStore.restoreAsync()
 
         #expect(restoredStore.identityAtom.workspaceId == workspaceId)
         #expect(restoredStore.identityAtom.workspaceName == "Restored SQLite Workspace")
@@ -209,7 +209,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("restore repairs dangling active workspace selection before hydrating SQLite")
-    func restoreRepairsDanglingActiveWorkspaceSelectionBeforeHydratingSQLite() throws {
+    func restoreRepairsDanglingActiveWorkspaceSelectionBeforeHydratingSQLite() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_220)
@@ -232,7 +232,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("restore repairs missing active workspace selection before hydrating SQLite")
-    func restoreRepairsMissingActiveWorkspaceSelectionBeforeHydratingSQLite() throws {
+    func restoreRepairsMissingActiveWorkspaceSelectionBeforeHydratingSQLite() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_240)
@@ -254,7 +254,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("restore prefers caller workspace when active workspace selection is missing")
-    func restorePrefersCallerWorkspaceWhenActiveWorkspaceSelectionIsMissing() throws {
+    func restorePrefersCallerWorkspaceWhenActiveWorkspaceSelectionIsMissing() async throws {
         let preferredWorkspaceId = UUID()
         let newerWorkspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: preferredWorkspaceId)
@@ -284,7 +284,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("restore imports legacy workspace JSON into core and local SQLite when rows are missing")
-    func restoreImportsLegacyWorkspaceJSONIntoSQLiteWhenRowsAreMissing() throws {
+    func restoreImportsLegacyWorkspaceJSONIntoSQLiteWhenRowsAreMissing() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let persistor = WorkspacePersistor(
@@ -314,9 +314,10 @@ struct WorkspaceSQLiteStoreBridgeTests {
                 updatedAt: Date(timeIntervalSince1970: 1_700_000_400)
             )
         )
-        let store = WorkspaceStore(persistor: persistor, sqliteBackend: fixture.backend)
+        let store = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
 
-        store.restore()
+        await store.restoreAsync()
 
         #expect(store.identityAtom.workspaceId == workspaceId)
         #expect(store.identityAtom.workspaceName == "Legacy Workspace")
@@ -349,7 +350,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("restore imports every legacy workspace JSON and selects newest modified file")
-    func restoreImportsEveryLegacyWorkspaceJSONAndSelectsNewestModifiedFile() throws {
+    func restoreImportsEveryLegacyWorkspaceJSONAndSelectsNewestModifiedFile() async throws {
         let olderWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
         let newerWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: olderWorkspaceId)
@@ -381,9 +382,10 @@ struct WorkspaceSQLiteStoreBridgeTests {
             Date(timeIntervalSince1970: 1_700_001_000),
             for: persistor.canonicalWorkspaceStatePath(for: newerWorkspaceId)
         )
-        let store = WorkspaceStore(persistor: persistor, sqliteBackend: fixture.backend)
+        let store = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
 
-        store.restore()
+        await store.restoreAsync()
 
         let workspaces = try fixture.coreRepository.fetchWorkspaces()
         #expect(workspaces.map(\.id) == [olderWorkspaceId, newerWorkspaceId])
@@ -403,7 +405,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("restore breaks legacy active workspace mtime ties by lexicographic id")
-    func restoreBreaksLegacyActiveWorkspaceMTimeTiesByLexicographicId() throws {
+    func restoreBreaksLegacyActiveWorkspaceMTimeTiesByLexicographicId() async throws {
         let tieWinnerWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
         let tieLoserWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: tieLoserWorkspaceId)
@@ -436,9 +438,10 @@ struct WorkspaceSQLiteStoreBridgeTests {
             tiedModificationDate,
             for: persistor.canonicalWorkspaceStatePath(for: tieLoserWorkspaceId)
         )
-        let store = WorkspaceStore(persistor: persistor, sqliteBackend: fixture.backend)
+        let store = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
 
-        store.restore()
+        await store.restoreAsync()
 
         #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == tieWinnerWorkspaceId)
         #expect(store.identityAtom.workspaceId == tieWinnerWorkspaceId)
@@ -446,7 +449,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("legacy multi-workspace import does not leave last scanned workspace hydrated when active selection fails")
-    func legacyMultiWorkspaceImportDoesNotLeaveLastScannedWorkspaceHydratedWhenActiveSelectionFails() throws {
+    func legacyMultiWorkspaceImportDoesNotLeaveLastScannedWorkspaceHydratedWhenActiveSelectionFails() async throws {
         let lastScannedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000021")!
         let activeWinnerWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000022")!
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: activeWinnerWorkspaceId)
@@ -486,11 +489,11 @@ struct WorkspaceSQLiteStoreBridgeTests {
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
             persistor: persistor,
-            sqliteBackend: fixture.backend,
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
             recoveryReporter: { recoveryEvents.append($0) }
         )
 
-        store.restore()
+        await store.restoreAsync()
 
         #expect(store.identityAtom.workspaceName == "Default Workspace")
         #expect(store.identityAtom.workspaceName != "Last Scanned")
@@ -498,7 +501,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("failed legacy import marker does not make incomplete workspace row authoritative")
-    func failedLegacyImportMarkerDoesNotMakeIncompleteWorkspaceRowAuthoritative() throws {
+    func failedLegacyImportMarkerDoesNotMakeIncompleteWorkspaceRowAuthoritative() async throws {
         let failedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000031")!
         let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.failed.marker.core")
         let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.failed.marker.local")
@@ -530,12 +533,14 @@ struct WorkspaceSQLiteStoreBridgeTests {
             )
         )
 
-        let failedBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: failingBackend)
-        failedBootStore.restore()
+        let failedBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
+        await failedBootStore.restoreAsync()
         #expect(try coreRepository.fetchWorkspace(id: failedWorkspaceId) != nil)
         #expect(try !coreRepository.hasCompletedWorkspaceSQLiteSnapshot(workspaceId: failedWorkspaceId))
-        let retryBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: retryBackend)
-        retryBootStore.restore()
+        let retryBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryBackend))
+        await retryBootStore.restoreAsync()
 
         #expect(retryBootStore.identityAtom.workspaceId == failedWorkspaceId)
         #expect(retryBootStore.identityAtom.workspaceName == "Retry After Marker")
@@ -543,7 +548,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("restore does not replay stale legacy JSON when SQLite restore fails")
-    func restoreDoesNotReplayStaleLegacyJSONWhenSQLiteRestoreFails() throws {
+    func restoreDoesNotReplayStaleLegacyJSONWhenSQLiteRestoreFails() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let persistor = WorkspacePersistor(
@@ -567,17 +572,17 @@ struct WorkspaceSQLiteStoreBridgeTests {
                 updatedAt: Date(timeIntervalSince1970: 1_700_000_100)
             )
         )
-        try fixture.coreQueue.write { database in
+        try await fixture.coreQueue.write { database in
             try database.execute(sql: "DROP TABLE pane")
         }
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
             persistor: persistor,
-            sqliteBackend: fixture.backend,
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
             recoveryReporter: { event in recoveryEvents.append(event) }
         )
 
-        store.restore()
+        await store.restoreAsync()
 
         #expect(store.identityAtom.workspaceName == "Default Workspace")
         #expect(store.identityAtom.workspaceName != "Stale Legacy Workspace")
@@ -585,7 +590,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
     }
 
     @Test("restore does not treat incomplete SQLite workspace rows as authoritative")
-    func restoreDoesNotTreatIncompleteSQLiteWorkspaceRowsAsAuthoritative() throws {
+    func restoreDoesNotTreatIncompleteSQLiteWorkspaceRowsAsAuthoritative() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let persistor = WorkspacePersistor(
@@ -616,11 +621,11 @@ struct WorkspaceSQLiteStoreBridgeTests {
         var recoveryEvents: [PersistenceRecoveryEvent] = []
         let store = WorkspaceStore(
             persistor: persistor,
-            sqliteBackend: fixture.backend,
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
             recoveryReporter: { event in recoveryEvents.append(event) }
         )
 
-        store.restore()
+        await store.restoreAsync()
 
         #expect(store.identityAtom.workspaceName == "Default Workspace")
         #expect(store.identityAtom.workspaceName != "Partial SQLite Workspace")

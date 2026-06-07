@@ -17,6 +17,19 @@ struct InboxNotificationStoreTests {
         return directory.appendingPathComponent("notification-inbox.json")
     }
 
+    private func makeSQLiteAdapter(
+        workspaceId: UUID,
+        fixture: InboxNotificationSQLiteRepositoryFixture
+    ) throws -> InboxNotificationSQLiteDatastoreAdapter {
+        let localBackend = WorkspaceLocalSQLiteStoreBackend { _ in
+            WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: fixture.databaseQueue)
+        }
+        return InboxNotificationSQLiteDatastoreAdapter(
+            workspaceId: workspaceId,
+            datastore: try workspaceSQLiteDatastore(from: localBackend)
+        )
+    }
+
     @Test("roundtrip: save + load returns equal notifications")
     func roundtrip() async throws {
         let url = makeTempURL()
@@ -61,7 +74,7 @@ struct InboxNotificationStoreTests {
             fileURL: url,
             clock: clock
         )
-        try store2.load()
+        try await store2.loadAsync()
 
         #expect(atom2.notifications.count == 1)
         #expect(atom2.notifications[0].id == note.id)
@@ -72,7 +85,7 @@ struct InboxNotificationStoreTests {
     }
 
     @Test("flush and restore round trip notifications and collapsed groups through local SQLite")
-    func flushAndRestoreRoundTripThroughLocalSQLite() throws {
+    func flushAndRestoreRoundTripThroughLocalSQLite() async throws {
         let url = makeTempURL()
         let workspaceId = UUID()
         let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
@@ -84,7 +97,7 @@ struct InboxNotificationStoreTests {
             prefsAtom: prefs1,
             sidebarState: sidebarState1,
             fileURL: url,
-            sqliteRepository: fixture.repository
+            sqliteAdapter: try makeSQLiteAdapter(workspaceId: workspaceId, fixture: fixture)
         )
         let note = InboxNotification(
             id: UUID(),
@@ -100,7 +113,7 @@ struct InboxNotificationStoreTests {
         atom1.append(note)
         prefs1.setGrouping(.byRepo)
         sidebarState1.setGroupCollapsed(InboxNotificationGroupKey("repo:agent-studio"), isCollapsed: true)
-        try store1.flush()
+        try await store1.save()
 
         #expect(!FileManager.default.fileExists(atPath: url.path))
         #expect(try fixture.repository.fetchNotifications().map(\.id) == [note.id])
@@ -114,9 +127,9 @@ struct InboxNotificationStoreTests {
             prefsAtom: prefs2,
             sidebarState: sidebarState2,
             fileURL: url,
-            sqliteRepository: fixture.repository
+            sqliteAdapter: try makeSQLiteAdapter(workspaceId: workspaceId, fixture: fixture)
         )
-        try store2.load()
+        try await store2.loadAsync()
 
         #expect(atom2.notifications.map(\.id) == [note.id])
         #expect(sidebarState2.collapsedGroups == [InboxNotificationGroupKey("repo:agent-studio")])
@@ -157,9 +170,9 @@ struct InboxNotificationStoreTests {
             prefsAtom: InboxNotificationPrefsAtom(),
             sidebarState: sidebarState,
             fileURL: url,
-            sqliteRepository: fixture.repository
+            sqliteAdapter: try makeSQLiteAdapter(workspaceId: workspaceId, fixture: fixture)
         )
-        let loadOutcome = try sqliteStore.load()
+        let loadOutcome = try await sqliteStore.loadAsync()
 
         #expect(atom.notifications.map(\.id) == [note.id])
         #expect(sidebarState.collapsedGroups == [InboxNotificationGroupKey("repo:legacy")])
@@ -199,11 +212,11 @@ struct InboxNotificationStoreTests {
             prefsAtom: InboxNotificationPrefsAtom(),
             sidebarState: InboxSidebarState(),
             fileURL: url,
-            sqliteRepository: fixture.repository
+            sqliteAdapter: try makeSQLiteAdapter(workspaceId: workspaceId, fixture: fixture)
         )
 
-        try emptyStore.flush()
-        try emptyStore.load()
+        try await emptyStore.save()
+        try await emptyStore.loadAsync()
 
         #expect(emptyStore.inboxAtom.notifications.isEmpty)
         #expect(emptyStore.sidebarState.collapsedGroups.isEmpty)
@@ -254,11 +267,11 @@ struct InboxNotificationStoreTests {
             prefsAtom: InboxNotificationPrefsAtom(),
             sidebarState: sidebarState,
             fileURL: url,
-            sqliteRepository: fixture.repository,
+            sqliteAdapter: try makeSQLiteAdapter(workspaceId: workspaceId, fixture: fixture),
             allowLegacyFileImport: true
         )
 
-        let loadOutcome = try store.load()
+        let loadOutcome = try await store.loadAsync()
 
         #expect(loadOutcome == .sqliteSnapshot)
         #expect(!loadOutcome.hasMaterializedLegacyFile)
@@ -333,11 +346,11 @@ struct InboxNotificationStoreTests {
             sidebarState: sidebarState,
             fileURL: url,
             recoveryReporter: { reportedRecovery = $0 },
-            sqliteRepository: fixture.repository,
+            sqliteAdapter: try makeSQLiteAdapter(workspaceId: workspaceId, fixture: fixture),
             allowLegacyFileImport: false
         )
 
-        try store.load()
+        try await store.loadAsync()
 
         #expect(atom.notifications.isEmpty)
         #expect(!atom.notifications.map(\.id).contains(staleNotification.id))
@@ -347,7 +360,7 @@ struct InboxNotificationStoreTests {
     }
 
     @Test("SQLite persisted inbox snapshot wins even when legacy import is blocked")
-    func sqlitePersistedInboxSnapshotWinsEvenWhenLegacyImportIsBlocked() throws {
+    func sqlitePersistedInboxSnapshotWinsEvenWhenLegacyImportIsBlocked() async throws {
         let url = makeTempURL()
         let workspaceId = UUID()
         let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
@@ -372,11 +385,11 @@ struct InboxNotificationStoreTests {
             prefsAtom: InboxNotificationPrefsAtom(),
             sidebarState: sidebarState,
             fileURL: url,
-            sqliteRepository: fixture.repository,
+            sqliteAdapter: try makeSQLiteAdapter(workspaceId: workspaceId, fixture: fixture),
             allowLegacyFileImport: false
         )
 
-        try store.load()
+        try await store.loadAsync()
 
         #expect(atom.notifications.map(\.id) == [sqliteNotification.id])
         #expect(sidebarState.collapsedGroups == [InboxNotificationGroupKey("repo:sqlite")])
@@ -415,11 +428,14 @@ struct InboxNotificationStoreTests {
             prefsAtom: InboxNotificationPrefsAtom(),
             fileURL: url,
             recoveryReporter: { reportedRecovery = $0 },
-            sqliteRepository: fixture.repository
+            sqliteAdapter: try makeSQLiteAdapter(workspaceId: workspaceId, fixture: fixture)
         )
 
-        #expect(throws: Error.self) {
-            try store.load()
+        do {
+            try await store.loadAsync()
+            Issue.record("Expected inbox SQLite load to fail")
+        } catch {
+            // Expected path.
         }
 
         #expect(atom.notifications.isEmpty)
@@ -444,7 +460,7 @@ struct InboxNotificationStoreTests {
         try await store.save()
         sidebarState.setPendingFilter(.repo(id: UUID()))
 
-        try store.load()
+        try await store.loadAsync()
 
         #expect(sidebarState.peekPendingFilter() == nil)
         #expect(sidebarState.collapsedGroups == [InboxNotificationGroupKey("repo:agent-studio")])
@@ -476,7 +492,7 @@ struct InboxNotificationStoreTests {
     }
 
     @Test("load accepts schema one pane source without denormalized display fields")
-    func loadAcceptsSchemaOnePaneSourceWithoutDenormalizedDisplayFields() throws {
+    func loadAcceptsSchemaOnePaneSourceWithoutDenormalizedDisplayFields() async throws {
         let url = makeTempURL()
         let paneId = UUID()
         let notificationId = UUID()
@@ -517,7 +533,7 @@ struct InboxNotificationStoreTests {
             fileURL: url
         )
 
-        try store.load()
+        try await store.loadAsync()
 
         let notification = try #require(atom.notifications.first)
         #expect(notification.id == notificationId)
@@ -535,7 +551,7 @@ struct InboxNotificationStoreTests {
     }
 
     @Test("load from missing file uses defaults")
-    func loadMissingFileUsesDefaults() throws {
+    func loadMissingFileUsesDefaults() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("missing-\(UUID()).json")
         let atom = InboxNotificationAtom()
@@ -546,7 +562,7 @@ struct InboxNotificationStoreTests {
             fileURL: url
         )
 
-        try store.load()
+        try await store.loadAsync()
 
         #expect(atom.notifications.isEmpty)
         #expect(prefs.grouping == .byTab)
@@ -554,7 +570,7 @@ struct InboxNotificationStoreTests {
     }
 
     @Test("load from corrupt file quarantines the file before falling back to defaults")
-    func loadCorruptFileQuarantinesBeforeDefaulting() throws {
+    func loadCorruptFileQuarantinesBeforeDefaulting() async throws {
         let url = makeTempURL()
         try "not json".write(to: url, atomically: true, encoding: .utf8)
         let atom = InboxNotificationAtom()
@@ -567,7 +583,7 @@ struct InboxNotificationStoreTests {
             recoveryReporter: { reportedRecovery = $0 }
         )
 
-        try store.load()
+        try await store.loadAsync()
 
         #expect(!FileManager.default.fileExists(atPath: url.path))
         #expect(atom.notifications.isEmpty)
@@ -588,7 +604,7 @@ struct InboxNotificationStoreTests {
     }
 
     @Test("load from unknown schema quarantines instead of interpreting as v1")
-    func loadUnknownSchemaQuarantinesInsteadOfInterpretingAsV1() throws {
+    func loadUnknownSchemaQuarantinesInsteadOfInterpretingAsV1() async throws {
         let url = makeTempURL()
         let json = """
             {
@@ -612,7 +628,7 @@ struct InboxNotificationStoreTests {
             recoveryReporter: { reportedRecovery = $0 }
         )
 
-        try store.load()
+        try await store.loadAsync()
 
         #expect(prefs.grouping == .byTab)
         #expect(prefs.bellEnabled == false)
@@ -621,7 +637,7 @@ struct InboxNotificationStoreTests {
     }
 
     @Test("load accepts schema two payloads from sibling inbox builds")
-    func loadAcceptsSchemaTwoPayloadsFromSiblingInboxBuilds() throws {
+    func loadAcceptsSchemaTwoPayloadsFromSiblingInboxBuilds() async throws {
         let url = makeTempURL()
         let notificationId = UUID()
         let json = """
@@ -657,7 +673,7 @@ struct InboxNotificationStoreTests {
             recoveryReporter: { reportedRecovery = $0 }
         )
 
-        try store.load()
+        try await store.loadAsync()
 
         #expect(FileManager.default.fileExists(atPath: url.path))
         #expect(atom.notifications.map(\.id) == [notificationId])
@@ -666,7 +682,7 @@ struct InboxNotificationStoreTests {
     }
 
     @Test("load quarantines bad notification slice")
-    func loadQuarantinesBadNotificationSlice() throws {
+    func loadQuarantinesBadNotificationSlice() async throws {
         let url = makeTempURL()
         let json = """
             {
@@ -690,7 +706,7 @@ struct InboxNotificationStoreTests {
             recoveryReporter: { reportedRecovery = $0 }
         )
 
-        try store.load()
+        try await store.loadAsync()
 
         #expect(!FileManager.default.fileExists(atPath: url.path))
         #expect(atom.notifications.isEmpty)
@@ -750,13 +766,13 @@ struct InboxNotificationStoreTests {
             prefsAtom: InboxNotificationPrefsAtom(),
             fileURL: url
         )
-        try restoredStore.load()
+        try await restoredStore.loadAsync()
 
         #expect(restoredAtom.notifications.map(\.id) == [staleNotification.id, finalNotification.id])
     }
 
     @Test("load leaves legacy preference fields to settings store")
-    func loadLeavesLegacyPreferenceFieldsToSettingsStore() throws {
+    func loadLeavesLegacyPreferenceFieldsToSettingsStore() async throws {
         let url = makeTempURL()
         let json = """
             {
@@ -781,7 +797,7 @@ struct InboxNotificationStoreTests {
             fileURL: url
         )
 
-        try store.load()
+        try await store.loadAsync()
 
         #expect(atom.notifications.isEmpty)
         #expect(prefs.grouping == .byRepo)

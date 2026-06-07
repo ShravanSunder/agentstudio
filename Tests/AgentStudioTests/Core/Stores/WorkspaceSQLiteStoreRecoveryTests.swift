@@ -9,7 +9,7 @@ import os
 @Suite("WorkspaceSQLiteStoreRecoveryTests", .serialized)
 struct WorkspaceSQLiteStoreRecoveryTests {
     @Test("local snapshot failure prevents core snapshot completion")
-    func localSnapshotFailurePreventsCoreSnapshotCompletion() throws {
+    func localSnapshotFailurePreventsCoreSnapshotCompletion() async throws {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_250)
@@ -44,7 +44,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
     }
 
     @Test("failed core replacement does not advance local snapshot token")
-    func failedCoreReplacementDoesNotAdvanceLocalSnapshotToken() throws {
+    func failedCoreReplacementDoesNotAdvanceLocalSnapshotToken() async throws {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_280)
@@ -88,7 +88,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
     }
 
     @Test("completed snapshot readiness requires matching local snapshot")
-    func completedSnapshotReadinessRequiresMatchingLocalSnapshot() throws {
+    func completedSnapshotReadinessRequiresMatchingLocalSnapshot() async throws {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         let coreCompletedAt = Date(timeIntervalSince1970: 1_700_000_310)
@@ -103,7 +103,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         )
         #expect(try fixture.backend.hasCompletedSnapshot(workspaceId: workspaceId))
 
-        try fixture.localQueue.write { database in
+        try await fixture.localQueue.write { database in
             try database.execute(
                 sql: """
                     UPDATE local_workspace_sqlite_snapshot_status
@@ -121,7 +121,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
     }
 
     @Test("restore repairs stale local completion token after synthesizing local state")
-    func restoreRepairsStaleLocalCompletionTokenAfterSynthesizingLocalState() throws {
+    func restoreRepairsStaleLocalCompletionTokenAfterSynthesizingLocalState() async throws {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         let coreCompletedAt = Date(timeIntervalSince1970: 1_700_000_315)
@@ -134,7 +134,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
                 updatedAt: coreCompletedAt
             )
         )
-        try fixture.localQueue.write { database in
+        try await fixture.localQueue.write { database in
             try database.execute(
                 sql: """
                     UPDATE local_workspace_sqlite_snapshot_status
@@ -157,7 +157,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
     }
 
     @Test("non-corruption local restore failure still restores canonical core state")
-    func nonCorruptionLocalRestoreFailureStillRestoresCanonicalCoreState() throws {
+    func nonCorruptionLocalRestoreFailureStillRestoresCanonicalCoreState() async throws {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         try fixture.backend.save(
@@ -187,7 +187,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
     }
 
     @Test("quarantine failed local restore does not immediately repair same sidecar")
-    func quarantineFailedLocalRestoreDoesNotImmediatelyRepairSameSidecar() throws {
+    func quarantineFailedLocalRestoreDoesNotImmediatelyRepairSameSidecar() async throws {
         let workspaceId = UUID()
         let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
             label: "AgentStudio.sqlite.quarantine.failed.core")
@@ -234,10 +234,10 @@ struct WorkspaceSQLiteStoreRecoveryTests {
     }
 
     @Test("legacy retry imports pending files without stealing active SQLite selection")
-    func legacyRetryImportsPendingFilesWithoutStealingActiveSQLiteSelection() throws {
+    func legacyRetryImportsPendingFilesWithoutStealingActiveSQLiteSelection() async throws {
         let importedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
         let retryWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000012")!
-        let fixture = try makeRetryFixture()
+        let fixture = try await makeRetryFixture()
         let failingBackend = fixture.backend(failingWorkspaceId: retryWorkspaceId)
         let retryBackend = fixture.backend()
         let persistor = makePersistor()
@@ -258,10 +258,12 @@ struct WorkspaceSQLiteStoreRecoveryTests {
             persistor: persistor
         )
 
-        let firstBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: failingBackend)
-        firstBootStore.restore()
-        let secondBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: retryBackend)
-        secondBootStore.restore()
+        let firstBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
+        await firstBootStore.restoreAsync()
+        let secondBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryBackend))
+        await secondBootStore.restoreAsync()
 
         #expect(secondBootStore.identityAtom.workspaceId == importedWorkspaceId)
         #expect(secondBootStore.identityAtom.workspaceName == "Imported First")
@@ -271,10 +273,10 @@ struct WorkspaceSQLiteStoreRecoveryTests {
     }
 
     @Test("legacy retry materialization does not rewrite active selection")
-    func legacyRetryMaterializationDoesNotRewriteActiveSelection() throws {
+    func legacyRetryMaterializationDoesNotRewriteActiveSelection() async throws {
         let importedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000031")!
         let retryWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000032")!
-        let fixture = try makeRetryFixture()
+        let fixture = try await makeRetryFixture()
         let failingBackend = fixture.backend(failingWorkspaceId: retryWorkspaceId)
         let retryBackend = fixture.backend()
         let persistor = makePersistor()
@@ -294,31 +296,34 @@ struct WorkspaceSQLiteStoreRecoveryTests {
             modificationDate: Date(timeIntervalSince1970: 1_700_002_700),
             persistor: persistor
         )
-        let firstBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: failingBackend)
-        firstBootStore.restore()
+        let firstBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
+        await firstBootStore.restoreAsync()
         let activeSelectionUpdatedAtBeforeRetry = try fetchActiveWorkspaceSelectionUpdatedAt(
             in: fixture.coreQueue
         )
 
-        let secondBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: retryBackend)
-        secondBootStore.restore()
+        let secondBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryBackend))
+        await secondBootStore.restoreAsync()
 
         #expect(secondBootStore.identityAtom.workspaceId == importedWorkspaceId)
         #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == importedWorkspaceId)
         #expect(
             try fetchActiveWorkspaceSelectionUpdatedAt(in: fixture.coreQueue) == activeSelectionUpdatedAtBeforeRetry)
-        let thirdBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: retryBackend)
-        thirdBootStore.restore()
+        let thirdBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryBackend))
+        await thirdBootStore.restoreAsync()
         #expect(thirdBootStore.identityAtom.workspaceId == importedWorkspaceId)
         #expect(
             try fetchActiveWorkspaceSelectionUpdatedAt(in: fixture.coreQueue) == activeSelectionUpdatedAtBeforeRetry)
     }
 
     @Test("legacy retry does not replay completed workspace files over newer SQLite state")
-    func legacyRetryDoesNotReplayCompletedWorkspaceFilesOverNewerSQLiteState() throws {
+    func legacyRetryDoesNotReplayCompletedWorkspaceFilesOverNewerSQLiteState() async throws {
         let completedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000013")!
         let retryWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000014")!
-        let fixture = try makeRetryFixture()
+        let fixture = try await makeRetryFixture()
         let failingBackend = fixture.backend(failingWorkspaceId: retryWorkspaceId)
         let retryBackend = fixture.backend()
         let persistor = makePersistor()
@@ -340,8 +345,9 @@ struct WorkspaceSQLiteStoreRecoveryTests {
             persistor: persistor
         )
 
-        let firstBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: failingBackend)
-        firstBootStore.restore()
+        let firstBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
+        await firstBootStore.restoreAsync()
         try retryBackend.save(
             .init(
                 id: completedWorkspaceId,
@@ -350,8 +356,9 @@ struct WorkspaceSQLiteStoreRecoveryTests {
                 updatedAt: Date(timeIntervalSince1970: 1_700_002_400)
             )
         )
-        let secondBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: retryBackend)
-        secondBootStore.restore()
+        let secondBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryBackend))
+        await secondBootStore.restoreAsync()
 
         #expect(secondBootStore.identityAtom.workspaceId == completedWorkspaceId)
         #expect(secondBootStore.identityAtom.workspaceName == "SQLite Mutated Name")
@@ -362,10 +369,10 @@ struct WorkspaceSQLiteStoreRecoveryTests {
     }
 
     @Test("partial initial legacy import hydrates successfully imported workspace")
-    func partialInitialLegacyImportHydratesSuccessfullyImportedWorkspace() throws {
+    func partialInitialLegacyImportHydratesSuccessfullyImportedWorkspace() async throws {
         let importedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000017")!
         let failedWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000018")!
-        let fixture = try makeRetryFixture()
+        let fixture = try await makeRetryFixture()
         let failingBackend = fixture.backend(failingWorkspaceId: failedWorkspaceId)
         let persistor = makePersistor()
         try saveLegacyWorkspace(
@@ -385,8 +392,9 @@ struct WorkspaceSQLiteStoreRecoveryTests {
             persistor: persistor
         )
 
-        let store = WorkspaceStore(persistor: persistor, sqliteBackend: failingBackend)
-        store.restore()
+        let store = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
+        await store.restoreAsync()
 
         #expect(store.identityAtom.workspaceId == importedWorkspaceId)
         #expect(store.identityAtom.workspaceName == "Imported Visible Workspace")
@@ -397,7 +405,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
     }
 
     @Test("local read failure still restores canonical core state")
-    func localReadFailureStillRestoresCanonicalCoreState() throws {
+    func localReadFailureStillRestoresCanonicalCoreState() async throws {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         try fixture.backend.save(
@@ -409,7 +417,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
                 updatedAt: Date(timeIntervalSince1970: 1_700_000_350)
             )
         )
-        try fixture.localQueue.write { database in
+        try await fixture.localQueue.write { database in
             try database.execute(sql: "DROP TABLE local_workspace_sqlite_snapshot_status")
         }
 
@@ -474,7 +482,7 @@ private func makeRecoveryFixture(workspaceId: UUID) throws -> WorkspaceSQLiteRec
 }
 
 @MainActor
-private func makeRetryFixture() throws -> WorkspaceSQLiteRetryFixture {
+private func makeRetryFixture() async throws -> WorkspaceSQLiteRetryFixture {
     let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.retry.core")
     let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.retry.local")
     try WorkspaceCoreMigrations.migrate(coreQueue)

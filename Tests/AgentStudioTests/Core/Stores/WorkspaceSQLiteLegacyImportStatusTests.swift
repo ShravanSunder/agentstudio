@@ -8,7 +8,7 @@ import Testing
 @Suite("WorkspaceSQLiteLegacyImportStatusTests", .serialized)
 struct WorkspaceSQLiteLegacyImportStatusTests {
     @Test("post-commit import-status failure does not replay stale legacy JSON")
-    func postCommitStatusFailureDoesNotReplayStaleLegacyJSON() throws {
+    func postCommitStatusFailureDoesNotReplayStaleLegacyJSON() async throws {
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-00000000AA01")!
         let fixture = try makeLegacyStatusFixture()
         let persistor = makeLegacyStatusPersistor()
@@ -18,7 +18,7 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
             updatedAt: Date(timeIntervalSince1970: 1_700_003_000),
             persistor: persistor
         )
-        try fixture.coreQueue.write { database in
+        try await fixture.coreQueue.write { database in
             try database.execute(
                 sql: """
                     CREATE TRIGGER fail_success_status
@@ -30,9 +30,10 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
                     """
             )
         }
-        let firstBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: fixture.backend)
-        firstBootStore.restore()
-        try fixture.coreQueue.write { database in
+        let firstBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
+        await firstBootStore.restoreAsync()
+        try await fixture.coreQueue.write { database in
             try database.execute(sql: "DROP TRIGGER fail_success_status")
         }
         try fixture.backend.save(
@@ -44,8 +45,9 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
             )
         )
 
-        let secondBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: fixture.backend)
-        secondBootStore.restore()
+        let secondBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
+        await secondBootStore.restoreAsync()
 
         #expect(secondBootStore.identityAtom.workspaceName == "SQLite Newer Name")
         #expect(secondBootStore.identityAtom.workspaceName != "Legacy Name")
@@ -53,7 +55,7 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
     }
 
     @Test("missing status for incomplete rows retries legacy file")
-    func missingStatusForIncompleteRowsRetriesLegacyFile() throws {
+    func missingStatusForIncompleteRowsRetriesLegacyFile() async throws {
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-00000000AA02")!
         let fixture = try makeLegacyStatusFixture(failingLocalWorkspaceId: workspaceId)
         let persistor = makeLegacyStatusPersistor()
@@ -63,9 +65,10 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
             updatedAt: Date(timeIntervalSince1970: 1_700_003_600),
             persistor: persistor
         )
-        let failedBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: fixture.backend)
-        failedBootStore.restore()
-        try fixture.coreQueue.write { database in
+        let failedBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend))
+        await failedBootStore.restoreAsync()
+        try await fixture.coreQueue.write { database in
             try database.execute(
                 sql: "DELETE FROM legacy_workspace_import_status WHERE workspace_id = ?",
                 arguments: [workspaceId.uuidString]
@@ -73,8 +76,9 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
         }
 
         let retryFixture = try makeLegacyStatusFixture(coreQueue: fixture.coreQueue)
-        let retryBootStore = WorkspaceStore(persistor: persistor, sqliteBackend: retryFixture.backend)
-        retryBootStore.restore()
+        let retryBootStore = WorkspaceStore(
+            persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: retryFixture.backend))
+        await retryBootStore.restoreAsync()
 
         #expect(retryBootStore.identityAtom.workspaceId == workspaceId)
         #expect(retryBootStore.identityAtom.workspaceName == "Retryable Legacy")

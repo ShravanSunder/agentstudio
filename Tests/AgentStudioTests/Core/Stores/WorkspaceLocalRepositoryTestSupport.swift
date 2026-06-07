@@ -31,6 +31,37 @@ func workspaceLocalSQLiteBackendWithImportedLegacyLanes(
     )
 }
 
+@MainActor
+func workspaceSQLiteDatastore(from backend: WorkspaceSQLiteStoreBackend) -> WorkspaceSQLiteDatastore {
+    WorkspaceSQLiteDatastore(
+        coreRepository: backend.coreRepository,
+        makeLocalRepository: { workspaceId in
+            try backend.localBackend.repository(for: workspaceId)
+        },
+        makeLocalRestoreRepository: { workspaceId in
+            try backend.localBackend.restoreRepository(for: workspaceId)
+        }
+    )
+}
+
+func workspaceSQLiteDatastore(from localBackend: WorkspaceLocalSQLiteStoreBackend) throws -> WorkspaceSQLiteDatastore {
+    let coreDatabaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+    let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabaseQueue)
+    try coreRepository.migrate()
+    return WorkspaceSQLiteDatastore(
+        coreRepository: coreRepository,
+        makeLocalRepository: { workspaceId in
+            try localBackend.repository(for: workspaceId)
+        },
+        makeLocalRestoreRepository: { workspaceId in
+            try localBackend.restoreRepository(for: workspaceId)
+        },
+        makeLocalLegacyImportDecision: { workspaceId, lane in
+            try localBackend.legacyImportDecision(for: workspaceId, lane: lane)
+        }
+    )
+}
+
 struct WorkspaceLocalSQLiteStoreFixture {
     let repository: WorkspaceLocalRepository
     let databaseQueue: DatabaseQueue

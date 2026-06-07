@@ -18,7 +18,7 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func flushAndRestore_roundTripsExpandedGroupsOnly() throws {
+    func flushAndRestore_roundTripsExpandedGroupsOnly() async throws {
         let workspaceId = UUID()
         let atom = SidebarCacheState()
         let store = SidebarCacheStore(atom: atom, persistor: persistor)
@@ -26,30 +26,30 @@ struct SidebarCacheStoreTests {
         atom.setGroupExpanded("repo:agent-studio", isExpanded: true)
         atom.setCheckoutColor("#ff6600", for: SidebarCheckoutColorKey("repo:agent-studio"))
 
-        try store.flush(for: workspaceId)
+        try await store.flushAsync(for: workspaceId)
 
         let restoredAtom = SidebarCacheState()
-        SidebarCacheStore(atom: restoredAtom, persistor: persistor).restore(for: workspaceId)
+        await SidebarCacheStore(atom: restoredAtom, persistor: persistor).restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
         #expect(restoredAtom.checkoutColors.isEmpty)
     }
 
     @Test
-    func flushAndRestore_roundTripsExpandedGroupsThroughLocalSQLite() throws {
+    func flushAndRestore_roundTripsExpandedGroupsThroughLocalSQLite() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = SidebarCacheState()
         let store = SidebarCacheStore(
             atom: atom,
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
 
         atom.setGroupExpanded("repo:agent-studio", isExpanded: true)
         atom.setCheckoutColor("#ff6600", for: SidebarCheckoutColorKey("repo:agent-studio"))
 
-        try store.flush(for: workspaceId)
+        try await store.flushAsync(for: workspaceId)
 
         #expect(try fixture.repository.fetchExpandedGroups() == [SidebarGroupKey("repo:agent-studio")])
         guard case .missing = persistor.loadSidebarCache(for: workspaceId) else {
@@ -58,18 +58,18 @@ struct SidebarCacheStoreTests {
         }
 
         let restoredAtom = SidebarCacheState()
-        SidebarCacheStore(
+        await SidebarCacheStore(
             atom: restoredAtom,
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
-        ).restore(for: workspaceId)
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        ).restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
         #expect(restoredAtom.checkoutColors.isEmpty)
     }
 
     @Test
-    func restoreWithSQLiteBackendImportsLegacyJSONWhenLaneIsMissing() throws {
+    func restoreWithSQLiteBackendImportsLegacyJSONWhenLaneIsMissing() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         try persistor.saveSidebarCache(
@@ -83,10 +83,10 @@ struct SidebarCacheStoreTests {
         let store = SidebarCacheStore(
             atom: atom,
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
 
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups == [SidebarGroupKey("repo:legacy")])
         #expect(atom.checkoutColors.isEmpty)
@@ -95,7 +95,7 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func unavailableSQLiteBackendResetsSidebarCacheAndBlocksLegacyArchiveReadiness() throws {
+    func unavailableSQLiteBackendResetsSidebarCacheAndBlocksLegacyArchiveReadiness() async throws {
         let workspaceId = UUID()
         try persistor.saveSidebarCache(
             .init(
@@ -108,10 +108,10 @@ struct SidebarCacheStoreTests {
         let store = SidebarCacheStore(
             atom: atom,
             persistor: persistor,
-            sqliteBackend: failingWorkspaceLocalSQLiteBackend()
+            sqliteDatastore: try workspaceSQLiteDatastore(from: failingWorkspaceLocalSQLiteBackend())
         )
 
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(!atom.expandedGroups.contains(SidebarGroupKey("repo:legacy")))
@@ -119,7 +119,7 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func restoreWithSQLiteBackendDoesNotResurrectLegacyJSONAfterEmptyLaneFlush() throws {
+    func restoreWithSQLiteBackendDoesNotResurrectLegacyJSONAfterEmptyLaneFlush() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         try persistor.saveSidebarCache(
@@ -133,18 +133,18 @@ struct SidebarCacheStoreTests {
         let store = SidebarCacheStore(
             atom: atom,
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
 
-        try store.flush(for: workspaceId)
-        store.restore(for: workspaceId)
+        try await store.flushAsync(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(try fixture.repository.hasExpandedGroupsState())
     }
 
     @Test
-    func missingSQLiteExpandedGroupsLaneAfterImportResetsInsteadOfReplayingLegacyJSON() throws {
+    func missingSQLiteExpandedGroupsLaneAfterImportResetsInsteadOfReplayingLegacyJSON() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         try persistor.saveSidebarCache(
@@ -159,10 +159,10 @@ struct SidebarCacheStoreTests {
         let store = SidebarCacheStore(
             atom: atom,
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
-        try store.flush(for: workspaceId)
-        try fixture.databaseQueue.write { database in
+        try await store.flushAsync(for: workspaceId)
+        try await fixture.databaseQueue.write { database in
             try database.execute(
                 sql: """
                     DELETE FROM local_persistence_lane_marker
@@ -179,10 +179,11 @@ struct SidebarCacheStoreTests {
         let restoredStore = SidebarCacheStore(
             atom: restoredAtom,
             persistor: persistor,
-            sqliteBackend: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository)
+            sqliteDatastore: try workspaceSQLiteDatastore(
+                from: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository))
         )
 
-        restoredStore.restore(for: workspaceId)
+        await restoredStore.restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.expandedGroups.isEmpty)
         #expect(!restoredAtom.expandedGroups.contains(SidebarGroupKey("repo:stale")))
@@ -190,34 +191,35 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func missingSQLiteExpandedGroupsLaneAfterImportDoesNotBlockArchiveWhenLegacySidebarFileIsAbsent() throws {
+    func missingSQLiteExpandedGroupsLaneAfterImportDoesNotBlockArchiveWhenLegacySidebarFileIsAbsent() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let restoredAtom = SidebarCacheState()
         let restoredStore = SidebarCacheStore(
             atom: restoredAtom,
             persistor: persistor,
-            sqliteBackend: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository)
+            sqliteDatastore: try workspaceSQLiteDatastore(
+                from: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository))
         )
 
-        restoredStore.restore(for: workspaceId)
+        await restoredStore.restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.expandedGroups.isEmpty)
         #expect(restoredStore.canArchiveLegacySidebarCacheFile)
     }
 
     @Test
-    func restoreWithSQLiteBackendResetsWhenSQLiteExpandedGroupLaneFailsInsteadOfReplayingLegacyJSON() throws {
+    func restoreWithSQLiteBackendResetsWhenSQLiteExpandedGroupLaneFailsInsteadOfReplayingLegacyJSON() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = SidebarCacheState()
         let store = SidebarCacheStore(
             atom: atom,
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
         atom.setGroupExpanded("repo:sqlite", isExpanded: true)
-        try store.flush(for: workspaceId)
+        try await store.flushAsync(for: workspaceId)
         try persistor.saveSidebarCache(
             .init(
                 workspaceId: workspaceId,
@@ -225,7 +227,7 @@ struct SidebarCacheStoreTests {
                 checkoutColors: [:]
             )
         )
-        try fixture.databaseQueue.write { database in
+        try await fixture.databaseQueue.write { database in
             try database.drop(table: "local_sidebar_expanded_group")
         }
 
@@ -233,9 +235,9 @@ struct SidebarCacheStoreTests {
         let restoredStore = SidebarCacheStore(
             atom: restoredAtom,
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
-        restoredStore.restore(for: workspaceId)
+        await restoredStore.restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.expandedGroups.isEmpty)
         #expect(!restoredAtom.expandedGroups.contains(SidebarGroupKey("repo:stale")))
@@ -251,7 +253,7 @@ struct SidebarCacheStoreTests {
             persistor: persistor,
             persistDebounceDuration: .zero
         )
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
         store.startObserving()
 
         atom.setGroupExpanded(SidebarGroupKey("repo:agent-studio"), isExpanded: true)
@@ -275,7 +277,7 @@ struct SidebarCacheStoreTests {
             persistor: persistor,
             persistDebounceDuration: .zero
         )
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
         store.startObserving()
 
         atom.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:agent-studio"))
@@ -300,7 +302,7 @@ struct SidebarCacheStoreTests {
             persistor: persistor,
             persistDebounceDuration: .zero
         )
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
         store.startObserving()
 
         expandedGroupAtom.setGroupExpanded(SidebarGroupKey("repo:agent-studio"), isExpanded: true)
@@ -337,11 +339,11 @@ struct SidebarCacheStoreTests {
             clock: clock
         )
 
-        store.restore(for: workspaceAId)
+        await store.restoreAsync(for: workspaceAId)
         store.startObserving()
         atom.setGroupExpanded(SidebarGroupKey("repo:workspace-a"), isExpanded: true)
         await clock.waitForPendingSleepCount()
-        store.restore(for: workspaceBId)
+        await store.restoreAsync(for: workspaceBId)
         clock.advance(by: .milliseconds(10))
         await Task.yield()
 
@@ -352,18 +354,18 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func restore_corruptSidebarCacheFile_fallsBackToDefaultsAndQuarantines() throws {
+    func restore_corruptSidebarCacheFile_fallsBackToDefaultsAndQuarantines() async throws {
         let workspaceId = UUID()
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
         try Data("not-json".utf8).write(to: cacheURL, options: .atomic)
         var reportedRecovery: PersistenceRecoveryEvent?
 
         let atom = SidebarCacheState()
-        SidebarCacheStore(
+        await SidebarCacheStore(
             atom: atom,
             persistor: persistor,
             recoveryReporter: { reportedRecovery = $0 }
-        ).restore(for: workspaceId)
+        ).restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(atom.checkoutColors.isEmpty)
@@ -381,30 +383,30 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func restore_missingSidebarCacheFile_keepsDefaults() {
+    func restore_missingSidebarCacheFile_keepsDefaults() async {
         let workspaceId = UUID()
         let atom = SidebarCacheState()
 
-        SidebarCacheStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+        await SidebarCacheStore(atom: atom, persistor: persistor).restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(atom.checkoutColors.isEmpty)
     }
 
     @Test
-    func autosaveObservationStateIsExplicitlyArmed() {
+    func autosaveObservationStateIsExplicitlyArmed() async {
         let workspaceId = UUID()
         let store = SidebarCacheStore(atom: SidebarCacheState(), persistor: persistor)
 
         #expect(store.isAutosaveObservationActive == false)
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
         #expect(store.isAutosaveObservationActive == false)
         store.startObserving()
         #expect(store.isAutosaveObservationActive == true)
     }
 
     @Test
-    func flushFailure_reportsSaveFailedRecovery() {
+    func flushFailure_reportsSaveFailedRecovery() async {
         let workspaceId = UUID()
         let blockedDirectoryURL = FileManager.default.temporaryDirectory
             .appending(path: "sidebar-cache-blocked-\(UUID().uuidString)")
@@ -417,8 +419,11 @@ struct SidebarCacheStoreTests {
             recoveryReporter: { reportedRecovery = $0 }
         )
 
-        #expect(throws: Error.self) {
-            try store.flush(for: workspaceId)
+        do {
+            try await store.flushAsync(for: workspaceId)
+            Issue.record("Expected sidebar cache flush to fail")
+        } catch {
+            // Expected path.
         }
 
         #expect(reportedRecovery?.store == .sidebarCache)
@@ -427,7 +432,7 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func restoreLegacyCheckoutColorsLeavesSettingsOwnedAtomUntouched() throws {
+    func restoreLegacyCheckoutColorsLeavesSettingsOwnedAtomUntouched() async throws {
         let workspaceId = UUID()
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
         let json = """
@@ -441,7 +446,7 @@ struct SidebarCacheStoreTests {
 
         let atom = SidebarCacheState()
         atom.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:live"))
-        SidebarCacheStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+        await SidebarCacheStore(atom: atom, persistor: persistor).restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(atom.checkoutColors == [SidebarCheckoutColorKey("repo:live"): "#22cc88"])

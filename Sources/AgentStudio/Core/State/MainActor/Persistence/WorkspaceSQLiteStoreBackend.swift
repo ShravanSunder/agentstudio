@@ -165,7 +165,7 @@ struct WorkspaceSQLiteStoreBackend {
         try writeLocalSnapshotAndCommit(snapshot, state: state, localRepository: localRepository)
     }
 
-    private func writeLocalSnapshotAndCommit(
+    func writeLocalSnapshotAndCommit(
         _ snapshot: WorkspaceSQLiteSnapshot,
         state: WorkspacePersistor.PersistableState,
         localRepository: WorkspaceLocalRepository
@@ -223,6 +223,48 @@ struct WorkspaceSQLiteStoreBackend {
         let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
         try replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: false)
         let localRepository = try localBackend.repository(for: snapshot.id)
+        try writeImportedLegacySnapshot(
+            snapshot,
+            state: state,
+            sourceStatePath: sourceStatePath,
+            localRepository: localRepository
+        )
+    }
+
+    func saveImportedLegacySnapshot(
+        _ snapshot: WorkspaceSQLiteSnapshot,
+        sourceStatePath: String,
+        localRepository: WorkspaceLocalRepository
+    ) throws {
+        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
+        try replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: false)
+        try writeImportedLegacySnapshot(
+            snapshot,
+            state: state,
+            sourceStatePath: sourceStatePath,
+            localRepository: localRepository
+        )
+    }
+
+    func writeImportedLegacySnapshotLocalStateAndCommit(
+        _ snapshot: WorkspaceSQLiteSnapshot,
+        sourceStatePath: String,
+        localRepository: WorkspaceLocalRepository
+    ) throws {
+        try writeImportedLegacySnapshot(
+            snapshot,
+            state: WorkspacePersistenceTransformer.persistableState(from: snapshot),
+            sourceStatePath: sourceStatePath,
+            localRepository: localRepository
+        )
+    }
+
+    private func writeImportedLegacySnapshot(
+        _ snapshot: WorkspaceSQLiteSnapshot,
+        state: WorkspacePersistor.PersistableState,
+        sourceStatePath: String,
+        localRepository: WorkspaceLocalRepository
+    ) throws {
         try localRepository.replaceWorkspaceSnapshotLocalState(
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
             windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
@@ -344,7 +386,7 @@ enum WorkspaceLocalSQLiteLegacyLane: Sendable {
     case cache
 }
 
-enum WorkspaceLocalSQLiteLegacyImportDecision: Sendable {
+enum WorkspaceLocalSQLiteLegacyImportDecision: Equatable, Sendable {
     case allowImport
     case blockReplayAllowArchive
     case blockReplayBlockArchive

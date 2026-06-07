@@ -69,39 +69,34 @@ struct AppBootSequenceTests {
         #expect(appDelegateSource.contains("workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)"))
     }
 
-    @Test("boot injects SQLite workspace backend into canonical store")
-    func bootInjectsSQLiteWorkspaceBackendIntoCanonicalStore() throws {
+    @Test("boot injects SQLite datastore into canonical stores")
+    func bootInjectsSQLiteDatastoreIntoCanonicalStores() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appDelegateSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
             encoding: .utf8
         )
-        let backendFactorySource = try String(
+        let datastoreFactorySource = try String(
             contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift"
+                path: "Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastoreFactory.swift"
             ),
             encoding: .utf8
         )
 
-        #expect(appDelegateSource.contains("makeWorkspaceSQLiteStoreBackend()"))
-        #expect(
-            appDelegateSource.contains("workspaceLocalSQLiteStoreBackend = workspaceSQLiteStoreBackend?.localBackend"))
-        #expect(appDelegateSource.contains("sqliteBackend: workspaceSQLiteStoreBackend"))
-        #expect(appDelegateSource.contains("sqliteBackend: workspaceLocalSQLiteStoreBackend"))
-        #expect(appDelegateSource.contains("WorkspaceSQLiteStoreBackendFactory("))
-        #expect(backendFactorySource.contains("SQLiteDatabaseFactory.makeFileBackedPool("))
-        #expect(backendFactorySource.contains("WorkspaceCoreRepository(databaseWriter: coreDatabasePool)"))
-        #expect(backendFactorySource.contains("WorkspaceLocalRepository("))
-        #expect(backendFactorySource.contains("workspaceId: workspaceId,"))
-        #expect(backendFactorySource.contains("databaseWriter: localDatabasePool"))
-        #expect(backendFactorySource.contains("try coreRepository.migrate()"))
-        #expect(backendFactorySource.contains("try localRepository.migrate()"))
-        #expect(backendFactorySource.contains("SQLiteSidecarQuarantine.quarantine("))
-        #expect(backendFactorySource.contains("legacyImportDecision:"))
+        #expect(appDelegateSource.contains("makeWorkspaceSQLiteDatastore()"))
+        #expect(appDelegateSource.contains("sqliteDatastore: workspaceSQLiteDatastore"))
+        #expect(appDelegateSource.contains("await store.restoreAsync()"))
+        #expect(appDelegateSource.contains("await repoCacheStore.restoreAsync("))
+        #expect(appDelegateSource.contains("await sidebarCacheStore.restoreAsync("))
+        #expect(appDelegateSource.contains("await uiStateStore.restoreAsync("))
+        #expect(!appDelegateSource.contains("workspaceSQLiteStoreBackend"))
+        #expect(!appDelegateSource.contains("workspaceLocalSQLiteStoreBackend"))
+        #expect(datastoreFactorySource.contains("WorkspaceSQLiteDatastoreConfiguration("))
+        #expect(datastoreFactorySource.contains("WorkspaceSQLiteDatastore(configuration: configuration)"))
     }
 
-    @Test("boot injects SQLite repository into inbox notification store")
-    func bootInjectsSQLiteRepositoryIntoInboxNotificationStore() throws {
+    @Test("boot injects feature SQLite adapter into inbox notification store")
+    func bootInjectsFeatureSQLiteAdapterIntoInboxNotificationStore() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appDelegateSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
@@ -113,24 +108,20 @@ struct AppBootSequenceTests {
             encoding: .utf8
         )
 
-        #expect(appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend: WorkspaceLocalSQLiteStoreBackend?"))
-        #expect(appDelegateSource.contains("var workspaceSQLiteStoreBackend: WorkspaceSQLiteStoreBackend?"))
+        #expect(appDelegateSource.contains("var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?"))
+        #expect(!appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend"))
+        #expect(!appDelegateSource.contains("var workspaceSQLiteStoreBackend"))
         #expect(appDelegateSource.contains("var canArchiveLegacyInboxFile = true"))
-        #expect(inboxBootSource.contains("makeInboxNotificationSQLiteRepository("))
+        #expect(inboxBootSource.contains("InboxNotificationSQLiteDatastoreAdapter("))
         #expect(inboxBootSource.contains("workspaceId: workspaceId"))
-        #expect(inboxBootSource.contains("sqliteRepository: sqliteBootDecision.repository"))
+        #expect(inboxBootSource.contains("sqliteAdapter: sqliteAdapter"))
         #expect(inboxBootSource.contains("allowLegacyFilePersistence: sqliteBootDecision.allowLegacyFilePersistence"))
         #expect(inboxBootSource.contains("allowLegacyFileImport: sqliteBootDecision.allowLegacyFileImport"))
-        #expect(inboxBootSource.contains("workspaceLocalSQLiteStoreBackend.restoreRepository("))
-        #expect(inboxBootSource.contains("workspaceLocalSQLiteStoreBackend.legacyImportDecision("))
+        #expect(!inboxBootSource.contains("workspaceLocalSQLiteStoreBackend"))
         #expect(inboxBootSource.contains("canArchiveLegacyInboxFileAfterBlockedImport"))
-        #expect(inboxBootSource.contains("hasMaterializedLegacyImport()"))
-        #expect(inboxBootSource.contains("legacyImportDecision.canArchiveLegacyFile"))
+        #expect(inboxBootSource.contains("await adapter.bootDecision()"))
         #expect(inboxBootSource.contains("InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile("))
-        #expect(inboxBootSource.contains("InboxNotificationSQLiteRepository("))
-        #expect(inboxBootSource.contains("databaseWriter: localRepository.databaseWriter"))
-        #expect(inboxBootSource.contains("allowLegacyFilePersistence: false"))
-        #expect(inboxBootSource.contains("allowLegacyFileImport: false"))
+        #expect(!inboxBootSource.contains("InboxNotificationSQLiteRepository("))
         #expect(inboxBootSource.contains("hadLegacyInboxFile"))
         #expect(inboxBootSource.contains("canArchiveLegacyInboxFile"))
     }
@@ -197,9 +188,9 @@ struct AppBootSequenceTests {
             encoding: .utf8
         )
 
-        #expect(bootSource.contains("bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)"))
-        #expect(bootSource.contains("guard let workspaceSQLiteStoreBackend else { return }"))
-        #expect(bootSource.contains("workspaceSQLiteStoreBackend.hasCompletedSnapshot("))
+        #expect(bootSource.contains("await bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)"))
+        #expect(bootSource.contains("guard let workspaceSQLiteDatastore else { return }"))
+        #expect(bootSource.contains("workspaceSQLiteDatastore.hasCompletedSnapshot("))
         #expect(bootSource.contains("workspaceId: store.identityAtom.workspaceId"))
         #expect(bootSource.contains("guard canArchiveLegacyCompanionFiles else"))
         #expect(bootSource.contains("repoCacheStore.canArchiveLegacyCacheFile"))
@@ -209,16 +200,17 @@ struct AppBootSequenceTests {
         #expect(bootSource.contains("canArchiveLegacyInboxFile"))
         #expect(
             bootSource.contains(
-                "workspaceSQLiteStoreBackend.markLegacyWorkspaceCompanionImportsCompleted("))
-        #expect(bootSource.contains("workspaceSQLiteStoreBackend.markLegacyWorkspaceArchived("))
-        let uiLoadRange = try #require(bootSource.range(of: "bootLoadInboxNotificationStore(persistor: persistor)"))
+                "workspaceSQLiteDatastore.markLegacyWorkspaceCompanionImportsCompleted("))
+        #expect(bootSource.contains("workspaceSQLiteDatastore.markLegacyWorkspaceArchived("))
+        let uiLoadRange = try #require(
+            bootSource.range(of: "await bootLoadInboxNotificationStore(persistor: persistor)"))
         let archiveRange = try #require(
-            bootSource.range(of: "bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)")
+            bootSource.range(of: "await bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)")
         )
         #expect(uiLoadRange.upperBound < archiveRange.lowerBound)
 
         let companionStatusRange = try #require(
-            bootSource.range(of: "workspaceSQLiteStoreBackend.markLegacyWorkspaceCompanionImportsCompleted(")
+            bootSource.range(of: "workspaceSQLiteDatastore.markLegacyWorkspaceCompanionImportsCompleted(")
         )
         let archiveFilesRange = try #require(
             bootSource.range(of: "persistor.archiveLegacyWorkspaceFiles(for: store.identityAtom.workspaceId)")

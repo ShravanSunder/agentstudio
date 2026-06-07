@@ -2,11 +2,15 @@ import Foundation
 import Observation
 
 extension AppDelegate {
-    func bootLoadInboxNotificationStore(persistor: WorkspacePersistor) {
+    func bootLoadInboxNotificationStore(persistor: WorkspacePersistor) async {
         let workspaceId = store.identityAtom.workspaceId
         let fileURL = persistor.notificationInboxFileURL(for: workspaceId)
         let hadLegacyInboxFile = FileManager.default.fileExists(atPath: fileURL.path)
-        let sqliteBootDecision = makeInboxNotificationSQLiteRepository(workspaceId: workspaceId)
+        let sqliteAdapter = workspaceSQLiteDatastore.map {
+            InboxNotificationSQLiteDatastoreAdapter(workspaceId: workspaceId, datastore: $0)
+        }
+        let sqliteBootDecision = await makeInboxNotificationSQLiteBootDecision(adapter: sqliteAdapter)
+        sqliteBootDecision.recoveryEvents.forEach { recordPersistenceRecovery($0) }
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: atomStore.inboxNotification,
             prefsAtom: atomStore.inboxNotificationPrefs,
@@ -15,14 +19,14 @@ extension AppDelegate {
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             },
-            sqliteRepository: sqliteBootDecision.repository,
+            sqliteAdapter: sqliteAdapter,
             allowLegacyFilePersistence: sqliteBootDecision.allowLegacyFilePersistence,
             allowLegacyFileImport: sqliteBootDecision.allowLegacyFileImport
         )
         var didLoadInboxStore = false
         var inboxLoadOutcome: InboxNotificationStore.LoadOutcome?
         do {
-            inboxLoadOutcome = try inboxNotificationStore.load()
+            inboxLoadOutcome = try await inboxNotificationStore.loadAsync()
             didLoadInboxStore = true
         } catch {
             appLogger.warning("Inbox notification store load failed: \(error.localizedDescription)")
@@ -30,8 +34,8 @@ extension AppDelegate {
         canArchiveLegacyInboxFile = InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
             hadLegacyFile: hadLegacyInboxFile,
             didLoadStore: didLoadInboxStore,
-            hasSQLiteRepository: sqliteBootDecision.repository != nil,
-            hasWorkspaceLocalSQLiteBackend: workspaceLocalSQLiteStoreBackend != nil,
+            hasSQLiteRepository: sqliteAdapter != nil,
+            hasWorkspaceLocalSQLiteBackend: workspaceSQLiteDatastore != nil,
             loadOutcome: inboxLoadOutcome,
             canArchiveAfterBlockedImport: sqliteBootDecision.canArchiveLegacyInboxFileAfterBlockedImport
         )
@@ -40,67 +44,22 @@ extension AppDelegate {
         flushPersistenceRecoveryNotifications()
     }
 
-    private func makeInboxNotificationSQLiteRepository(
-        workspaceId: UUID
-    ) -> InboxNotificationSQLiteBootDecision {
-        guard let workspaceLocalSQLiteStoreBackend else {
+    private func makeInboxNotificationSQLiteBootDecision(
+        adapter: InboxNotificationSQLiteDatastoreAdapter?
+    ) async -> InboxNotificationSQLiteBootDecision {
+        guard let adapter else {
             return .init(
-                repository: nil,
                 allowLegacyFilePersistence: true,
                 allowLegacyFileImport: true,
                 canArchiveLegacyInboxFileAfterBlockedImport: false
             )
         }
-        let localRepository: WorkspaceLocalRepository
-        do {
-            localRepository = try workspaceLocalSQLiteStoreBackend.restoreRepository(for: workspaceId)
-        } catch {
-            appLogger.warning("Inbox notification SQLite repository unavailable: \(error.localizedDescription)")
-            recordPersistenceRecovery(
-                .init(
-                    store: .notificationInbox,
-                    workspaceId: workspaceId,
-                    recovery: .resetToDefaults
-                )
-            )
-            return .init(
-                repository: nil,
-                allowLegacyFilePersistence: false,
-                allowLegacyFileImport: false,
-                canArchiveLegacyInboxFileAfterBlockedImport: false
-            )
-        }
-        let legacyImportDecision: WorkspaceLocalSQLiteLegacyImportDecision
-        do {
-            legacyImportDecision = try workspaceLocalSQLiteStoreBackend.legacyImportDecision(
-                for: workspaceId,
-                lane: .local
-            )
-        } catch {
-            appLogger.warning(
-                "Inbox notification legacy import permission check failed: \(error.localizedDescription)"
-            )
-            legacyImportDecision = .blockReplayBlockArchive
-        }
-        let inboxRepository = InboxNotificationSQLiteRepository(
-            workspaceId: workspaceId,
-            databaseWriter: localRepository.databaseWriter
-        )
-        let hasMaterializedLegacyInboxImport: Bool
-        do {
-            hasMaterializedLegacyInboxImport = try inboxRepository.hasMaterializedLegacyImport()
-        } catch {
-            appLogger.warning(
-                "Inbox notification SQLite archive readiness check failed: \(error.localizedDescription)"
-            )
-            hasMaterializedLegacyInboxImport = false
-        }
+        let decision = await adapter.bootDecision()
         return .init(
-            repository: inboxRepository,
-            allowLegacyFilePersistence: true,
-            allowLegacyFileImport: legacyImportDecision.allowsLegacyImport,
-            canArchiveLegacyInboxFileAfterBlockedImport: legacyImportDecision.canArchiveLegacyFile
-                && hasMaterializedLegacyInboxImport
+            allowLegacyFilePersistence: decision.allowLegacyFilePersistence,
+            allowLegacyFileImport: decision.allowLegacyFileImport,
+            canArchiveLegacyInboxFileAfterBlockedImport: decision.canArchiveLegacyInboxFileAfterBlockedImport,
+            recoveryEvents: decision.recoveryEvents
         )
     }
 
@@ -183,10 +142,10 @@ extension AppDelegate {
 }
 
 private struct InboxNotificationSQLiteBootDecision {
-    var repository: InboxNotificationSQLiteRepository?
     var allowLegacyFilePersistence: Bool
     var allowLegacyFileImport: Bool
     var canArchiveLegacyInboxFileAfterBlockedImport: Bool
+    var recoveryEvents: [PersistenceRecoveryEvent] = []
 }
 
 enum InboxNotificationLegacyArchiveReadiness {

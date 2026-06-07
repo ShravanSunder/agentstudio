@@ -7,7 +7,7 @@ import Testing
 @Suite("WorkspaceSQLiteStoreBackendFactoryTests", .serialized)
 struct WorkspaceSQLiteStoreBackendFactoryTests {
     @Test("corrupt core SQLite is quarantined and recreated before legacy workspace import")
-    func corruptCoreSQLiteIsQuarantinedAndRecreatedBeforeLegacyWorkspaceImport() throws {
+    func corruptCoreSQLiteIsQuarantinedAndRecreatedBeforeLegacyWorkspaceImport() async throws {
         let rootDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-sqlite-factory-\(UUID().uuidString)")
         let workspacesDirectory = rootDirectory.appending(path: "workspaces")
@@ -55,11 +55,11 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
         let backend = try #require(factory.makeBackend())
         let store = WorkspaceStore(
             persistor: legacyPersistor,
-            sqliteBackend: backend,
+            sqliteDatastore: workspaceSQLiteDatastore(from: backend),
             recoveryReporter: { event in recoveryEvents.append(event) }
         )
 
-        store.restore()
+        await store.restoreAsync()
 
         #expect(store.identityAtom.workspaceId == workspaceId)
         #expect(store.identityAtom.workspaceName == "Legacy Reimport Workspace")
@@ -76,7 +76,7 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
     }
 
     @Test("corrupt local SQLite is quarantined and does not replay stale legacy UI")
-    func corruptLocalSQLiteIsQuarantinedAndDoesNotReplayStaleLegacyUI() throws {
+    func corruptLocalSQLiteIsQuarantinedAndDoesNotReplayStaleLegacyUI() async throws {
         let rootDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-local-sqlite-factory-\(UUID().uuidString)")
         let workspacesDirectory = rootDirectory.appending(path: "workspaces")
@@ -113,10 +113,10 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
             atom: sidebarState,
             editorChooserState: EditorChooserState(),
             persistor: legacyPersistor,
-            sqliteBackend: backend.localBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: backend.localBackend)
         )
 
-        uiStateStore.restore(for: workspaceId)
+        await uiStateStore.restoreAsync(for: workspaceId)
 
         #expect(sidebarState.filterText.isEmpty)
         #expect(sidebarState.filterText != "stale legacy")
@@ -138,7 +138,7 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
     }
 
     @Test("non-corruption core open failure does not quarantine database sidecars")
-    func nonCorruptionCoreOpenFailureDoesNotQuarantineDatabaseSidecars() throws {
+    func nonCorruptionCoreOpenFailureDoesNotQuarantineDatabaseSidecars() async throws {
         let parentDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-sqlite-blocked-parent-\(UUID().uuidString)")
         try FileManager.default.createDirectory(

@@ -18,7 +18,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func flushAndRestore_roundTripsPersistedUIState() throws {
+    func flushAndRestore_roundTripsPersistedUIState() async throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()
         let uiStateStore = UIStateStore(atom: atom, editorChooserState: EditorChooserState(), persistor: persistor)
@@ -29,7 +29,7 @@ struct UIStateStoreTests {
         atom.setSidebarSurface(.inbox)
         atom.setSidebarHasFocus(true)
 
-        try uiStateStore.flush(for: workspaceId)
+        try await uiStateStore.flushAsync(for: workspaceId)
 
         let restoredAtom = WorkspaceSidebarState()
         let restoredStore = UIStateStore(
@@ -37,7 +37,7 @@ struct UIStateStoreTests {
             editorChooserState: EditorChooserState(),
             persistor: persistor
         )
-        restoredStore.restore(for: workspaceId)
+        await restoredStore.restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.filterText == "terminal")
         #expect(restoredAtom.isFilterVisible)
@@ -47,7 +47,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func flushAndRestore_roundTripsThroughLocalSQLite() throws {
+    func flushAndRestore_roundTripsThroughLocalSQLite() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = WorkspaceSidebarState()
@@ -55,7 +55,7 @@ struct UIStateStoreTests {
             atom: atom,
             editorChooserState: EditorChooserState(),
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
 
         atom.setFilterText("sqlite")
@@ -64,7 +64,7 @@ struct UIStateStoreTests {
         atom.setSidebarSurface(.inbox)
         atom.setSidebarHasFocus(true)
 
-        try uiStateStore.flush(for: workspaceId)
+        try await uiStateStore.flushAsync(for: workspaceId)
 
         let storedState = try #require(try fixture.repository.fetchSidebarState())
         #expect(storedState.filterText == "sqlite")
@@ -81,9 +81,9 @@ struct UIStateStoreTests {
             atom: restoredAtom,
             editorChooserState: EditorChooserState(),
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
-        restoredStore.restore(for: workspaceId)
+        await restoredStore.restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.filterText == "sqlite")
         #expect(restoredAtom.isFilterVisible)
@@ -93,7 +93,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func restoreWithSQLiteBackendImportsLegacyJSONWhenLaneIsMissing() throws {
+    func restoreWithSQLiteBackendImportsLegacyJSONWhenLaneIsMissing() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         try persistor.saveUI(
@@ -110,10 +110,10 @@ struct UIStateStoreTests {
             atom: atom,
             editorChooserState: EditorChooserState(),
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
 
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
 
         #expect(atom.filterText == "legacy")
         #expect(atom.isFilterVisible)
@@ -123,7 +123,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func restoreWithSQLiteBackendResetsWhenSQLiteSidebarLaneFailsInsteadOfReplayingLegacyJSON() throws {
+    func restoreWithSQLiteBackendResetsWhenSQLiteSidebarLaneFailsInsteadOfReplayingLegacyJSON() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = WorkspaceSidebarState()
@@ -131,13 +131,13 @@ struct UIStateStoreTests {
             atom: atom,
             editorChooserState: EditorChooserState(),
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
         atom.setFilterText("sqlite")
         atom.setFilterVisible(true)
         atom.setSidebarCollapsed(true)
         atom.setSidebarSurface(.inbox)
-        try store.flush(for: workspaceId)
+        try await store.flushAsync(for: workspaceId)
         try persistor.saveUI(
             .init(
                 workspaceId: workspaceId,
@@ -147,7 +147,7 @@ struct UIStateStoreTests {
                 sidebarSurface: .inbox
             )
         )
-        try fixture.databaseQueue.write { database in
+        try await fixture.databaseQueue.write { database in
             try database.drop(table: "local_sidebar_state")
         }
 
@@ -156,9 +156,9 @@ struct UIStateStoreTests {
             atom: restoredAtom,
             editorChooserState: EditorChooserState(),
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
-        restoredStore.restore(for: workspaceId)
+        await restoredStore.restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.filterText.isEmpty)
         #expect(restoredAtom.filterText != "stale")
@@ -169,7 +169,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func unavailableSQLiteBackendResetsUIStateAndBlocksLegacyArchiveReadiness() throws {
+    func unavailableSQLiteBackendResetsUIStateAndBlocksLegacyArchiveReadiness() async throws {
         let workspaceId = UUID()
         try persistor.saveUI(
             .init(
@@ -185,10 +185,10 @@ struct UIStateStoreTests {
             atom: atom,
             editorChooserState: EditorChooserState(),
             persistor: persistor,
-            sqliteBackend: failingWorkspaceLocalSQLiteBackend()
+            sqliteDatastore: try workspaceSQLiteDatastore(from: failingWorkspaceLocalSQLiteBackend())
         )
 
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
 
         #expect(atom.filterText.isEmpty)
         #expect(atom.isFilterVisible == false)
@@ -198,7 +198,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func missingSQLiteSidebarLaneAfterCompletedImportResetsAndBlocksLegacyArchive() throws {
+    func missingSQLiteSidebarLaneAfterCompletedImportResetsAndBlocksLegacyArchive() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = WorkspaceSidebarState()
@@ -206,13 +206,13 @@ struct UIStateStoreTests {
             atom: atom,
             editorChooserState: EditorChooserState(),
             persistor: persistor,
-            sqliteBackend: fixture.sqliteBackend
+            sqliteDatastore: try workspaceSQLiteDatastore(from: fixture.sqliteBackend)
         )
         atom.setFilterText("sqlite")
         atom.setFilterVisible(true)
         atom.setSidebarCollapsed(true)
         atom.setSidebarSurface(.inbox)
-        try store.flush(for: workspaceId)
+        try await store.flushAsync(for: workspaceId)
         try persistor.saveUI(
             .init(
                 workspaceId: workspaceId,
@@ -222,7 +222,7 @@ struct UIStateStoreTests {
                 sidebarSurface: .inbox
             )
         )
-        try fixture.databaseQueue.write { database in
+        try await fixture.databaseQueue.write { database in
             try database.execute(
                 sql: "DELETE FROM local_sidebar_state WHERE workspace_id = ?",
                 arguments: [workspaceId.uuidString]
@@ -233,10 +233,11 @@ struct UIStateStoreTests {
             atom: restoredAtom,
             editorChooserState: EditorChooserState(),
             persistor: persistor,
-            sqliteBackend: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository)
+            sqliteDatastore: try workspaceSQLiteDatastore(
+                from: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository))
         )
 
-        restoredStore.restore(for: workspaceId)
+        await restoredStore.restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.filterText.isEmpty)
         #expect(restoredAtom.filterText != "stale")
@@ -245,7 +246,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func missingSQLiteSidebarLaneAfterCompletedImportDoesNotBlockArchiveWhenLegacyUIFileIsAbsent() throws {
+    func missingSQLiteSidebarLaneAfterCompletedImportDoesNotBlockArchiveWhenLegacyUIFileIsAbsent() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let restoredAtom = WorkspaceSidebarState()
@@ -253,10 +254,11 @@ struct UIStateStoreTests {
             atom: restoredAtom,
             editorChooserState: EditorChooserState(),
             persistor: persistor,
-            sqliteBackend: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository)
+            sqliteDatastore: try workspaceSQLiteDatastore(
+                from: workspaceLocalSQLiteBackendWithImportedLegacyLanes(repository: fixture.repository))
         )
 
-        restoredStore.restore(for: workspaceId)
+        await restoredStore.restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.filterText.isEmpty)
         #expect(restoredAtom.sidebarSurface == .repos)
@@ -264,7 +266,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func flush_operatesOnTheProvidedLiveAtomScope() throws {
+    func flush_operatesOnTheProvidedLiveAtomScope() async throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()
         let store = UIStateStore(atom: atom, editorChooserState: EditorChooserState(), persistor: persistor)
@@ -275,14 +277,14 @@ struct UIStateStoreTests {
         atom.setSidebarSurface(.inbox)
         atom.setSidebarHasFocus(true)
 
-        try store.flush(for: workspaceId)
+        try await store.flushAsync(for: workspaceId)
 
         let restoredAtom = WorkspaceSidebarState()
-        UIStateStore(
+        await UIStateStore(
             atom: restoredAtom,
             editorChooserState: EditorChooserState(),
             persistor: persistor
-        ).restore(for: workspaceId)
+        ).restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.filterText == "agent")
         #expect(restoredAtom.isFilterVisible)
@@ -292,7 +294,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func restore_corruptUIFile_fallsBackToDefaults() throws {
+    func restore_corruptUIFile_fallsBackToDefaults() async throws {
         let workspaceId = UUID()
         let corruptURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
@@ -306,7 +308,7 @@ struct UIStateStoreTests {
             recoveryReporter: { reportedRecovery = $0 }
         )
 
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
 
         #expect(atom.filterText.isEmpty)
         #expect(!atom.isFilterVisible)
@@ -326,7 +328,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func flushFailure_reportsSaveFailedRecovery() {
+    func flushFailure_reportsSaveFailedRecovery() async {
         let workspaceId = UUID()
         let blockedDirectoryURL = FileManager.default.temporaryDirectory
             .appending(path: "ui-state-blocked-\(UUID().uuidString)")
@@ -340,8 +342,11 @@ struct UIStateStoreTests {
             recoveryReporter: { reportedRecovery = $0 }
         )
 
-        #expect(throws: Error.self) {
-            try store.flush(for: workspaceId)
+        do {
+            try await store.flushAsync(for: workspaceId)
+            Issue.record("Expected UI state flush to fail")
+        } catch {
+            // Expected path.
         }
 
         #expect(reportedRecovery?.store == .uiState)
@@ -350,7 +355,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func restore_legacyShowMinimizedBarsField_isIgnored() throws {
+    func restore_legacyShowMinimizedBarsField_isIgnored() async throws {
         let workspaceId = UUID()
         let json = """
             {
@@ -368,13 +373,13 @@ struct UIStateStoreTests {
         let atom = WorkspaceSidebarState()
         let store = UIStateStore(atom: atom, editorChooserState: EditorChooserState(), persistor: persistor)
 
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
 
         #expect(atom.sidebarCollapsed)
     }
 
     @Test
-    func restore_missingSidebarCompositionFields_defaultsToCollapsedFalseAndReposSurface() throws {
+    func restore_missingSidebarCompositionFields_defaultsToCollapsedFalseAndReposSurface() async throws {
         let workspaceId = UUID()
         let json = """
             {
@@ -388,11 +393,11 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = WorkspaceSidebarState()
-        UIStateStore(
+        await UIStateStore(
             atom: atom,
             editorChooserState: EditorChooserState(),
             persistor: persistor
-        ).restore(for: workspaceId)
+        ).restoreAsync(for: workspaceId)
 
         #expect(atom.sidebarCollapsed == false)
         #expect(atom.sidebarSurface == .repos)
@@ -400,7 +405,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func restore_corruptFilterFields_preservesOtherUIState() throws {
+    func restore_corruptFilterFields_preservesOtherUIState() async throws {
         let workspaceId = UUID()
         let json = """
             {
@@ -417,11 +422,11 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = WorkspaceSidebarState()
-        UIStateStore(
+        await UIStateStore(
             atom: atom,
             editorChooserState: EditorChooserState(),
             persistor: persistor
-        ).restore(for: workspaceId)
+        ).restoreAsync(for: workspaceId)
 
         #expect(atom.filterText.isEmpty)
         #expect(atom.isFilterVisible == false)
@@ -430,7 +435,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func editorChooserState_isNotOwnedByUIStatePersistence() throws {
+    func editorChooserState_isNotOwnedByUIStatePersistence() async throws {
         let workspaceId = UUID()
         let atom = WorkspaceSidebarState()
         let editorChooser = EditorChooserState()
@@ -439,7 +444,7 @@ struct UIStateStoreTests {
         editorChooser.setBookmarkedEditor("cursor")
         editorChooser.setOpenEditorPane(UUID())
 
-        try store.flush(for: workspaceId)
+        try await store.flushAsync(for: workspaceId)
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         let persistedPayload = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: uiURL)) as? [String: Any]
@@ -450,11 +455,11 @@ struct UIStateStoreTests {
 
         let restoredAtom = WorkspaceSidebarState()
         let restoredEditorChooser = EditorChooserState()
-        UIStateStore(
+        await UIStateStore(
             atom: restoredAtom,
             editorChooserState: restoredEditorChooser,
             persistor: persistor
-        ).restore(for: workspaceId)
+        ).restoreAsync(for: workspaceId)
 
         #expect(restoredEditorChooser.bookmarkedEditorId == nil)
         #expect(restoredEditorChooser.openForPaneId == nil)
@@ -472,7 +477,7 @@ struct UIStateStoreTests {
             persistor: persistor,
             persistDebounceDuration: .zero
         )
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
         store.startObserving()
 
         preferenceAtom.setBookmarkedEditor("cursor")
@@ -497,7 +502,7 @@ struct UIStateStoreTests {
             persistDebounceDuration: .milliseconds(10),
             clock: clock
         )
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
         store.startObserving()
 
         runtimeAtom.setOpenEditorPane(UUID())
@@ -514,7 +519,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func restore_missingEditorChooserState_defaultsToEmptyState() throws {
+    func restore_missingEditorChooserState_defaultsToEmptyState() async throws {
         let workspaceId = UUID()
         let json = """
             {
@@ -529,14 +534,15 @@ struct UIStateStoreTests {
 
         let atom = WorkspaceSidebarState()
         let editorChooser = EditorChooserState()
-        UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor).restore(for: workspaceId)
+        await UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor).restoreAsync(
+            for: workspaceId)
 
         #expect(editorChooser.bookmarkedEditorId == nil)
         #expect(editorChooser.openForPaneId == nil)
     }
 
     @Test
-    func restore_persistedOpenEditorPane_isResetToNil() throws {
+    func restore_persistedOpenEditorPane_isResetToNil() async throws {
         let workspaceId = UUID()
         let persistedPaneId = UUID()
         let json = """
@@ -556,14 +562,15 @@ struct UIStateStoreTests {
 
         let atom = WorkspaceSidebarState()
         let editorChooser = EditorChooserState()
-        UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor).restore(for: workspaceId)
+        await UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor).restoreAsync(
+            for: workspaceId)
 
         #expect(editorChooser.bookmarkedEditorId == nil)
         #expect(editorChooser.openForPaneId == nil)
     }
 
     @Test
-    func restore_corruptEditorChooserState_preservesOtherUIState() throws {
+    func restore_corruptEditorChooserState_preservesOtherUIState() async throws {
         let workspaceId = UUID()
         let json = """
             {
@@ -579,7 +586,8 @@ struct UIStateStoreTests {
 
         let atom = WorkspaceSidebarState()
         let editorChooser = EditorChooserState()
-        UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor).restore(for: workspaceId)
+        await UIStateStore(atom: atom, editorChooserState: editorChooser, persistor: persistor).restoreAsync(
+            for: workspaceId)
 
         #expect(atom.filterText == "terminal")
         #expect(atom.isFilterVisible)
@@ -608,11 +616,11 @@ struct UIStateStoreTests {
             clock: clock
         )
 
-        store.restore(for: workspaceAId)
+        await store.restoreAsync(for: workspaceAId)
         store.startObserving()
         atom.setFilterText("workspace-a-draft")
         await clock.waitForPendingSleepCount()
-        store.restore(for: workspaceBId)
+        await store.restoreAsync(for: workspaceBId)
         clock.advance(by: .milliseconds(10))
         await Task.yield()
 
@@ -623,7 +631,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func autosaveObservationStateIsExplicitlyArmed() {
+    func autosaveObservationStateIsExplicitlyArmed() async {
         let workspaceId = UUID()
         let store = UIStateStore(
             atom: WorkspaceSidebarState(),
@@ -632,14 +640,14 @@ struct UIStateStoreTests {
         )
 
         #expect(store.isAutosaveObservationActive == false)
-        store.restore(for: workspaceId)
+        await store.restoreAsync(for: workspaceId)
         #expect(store.isAutosaveObservationActive == false)
         store.startObserving()
         #expect(store.isAutosaveObservationActive == true)
     }
 
     @Test
-    func setBookmarkedEditor_nilClearsStoredBookmark() {
+    func setBookmarkedEditor_nilClearsStoredBookmark() async {
         let atom = EditorChooserState()
 
         atom.setBookmarkedEditor("cursor")

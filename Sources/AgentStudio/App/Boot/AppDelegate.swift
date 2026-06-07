@@ -26,8 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
     var workspaceSettingsStore: WorkspaceSettingsStore!
-    var workspaceSQLiteStoreBackend: WorkspaceSQLiteStoreBackend?
-    var workspaceLocalSQLiteStoreBackend: WorkspaceLocalSQLiteStoreBackend?
+    var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
@@ -83,12 +82,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let paneRuntimeBus = PaneRuntimeEventBus.shared
         var filesystemSource: FilesystemGitPipeline?
 
-        bootWorkspaceServices(
-            persistor: persistor,
-            paneRuntimeBus: paneRuntimeBus,
-            filesystemSource: &filesystemSource
-        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.bootWorkspaceServices(
+                persistor: persistor,
+                paneRuntimeBus: paneRuntimeBus,
+                filesystemSource: &filesystemSource
+            )
+            self.finishLaunchingAfterWorkspaceBoot()
+        }
+    }
 
+    private func finishLaunchingAfterWorkspaceBoot() {
         // Create main window
         mainWindowController = MainWindowController(
             store: store,

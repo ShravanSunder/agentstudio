@@ -19,19 +19,19 @@ private final class TerminationDrainCompletion: @unchecked Sendable {
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
         do {
-            try repoCacheStore.flush(for: store.identityAtom.workspaceId)
+            try await repoCacheStore.flushAsync(for: store.identityAtom.workspaceId)
         } catch {
             appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
         }
 
         do {
-            try sidebarCacheStore.flush(for: store.identityAtom.workspaceId)
+            try await sidebarCacheStore.flushAsync(for: store.identityAtom.workspaceId)
         } catch {
             appLogger.warning("Sidebar cache flush failed at termination: \(error.localizedDescription)")
         }
 
         do {
-            try uiStateStore.flush(for: store.identityAtom.workspaceId)
+            try await uiStateStore.flushAsync(for: store.identityAtom.workspaceId)
         } catch {
             appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
         }
@@ -62,7 +62,7 @@ extension AppDelegate {
         // back to the pane model, so this must run even when isDirty == false.
         // Run it before inbox flush so any save-failure recovery event can be
         // persisted with the rest of the notification log.
-        if !store.flush() {
+        if !(await store.flushAsync()).succeeded {
             appLogger.warning("Workspace flush failed at termination")
         }
 

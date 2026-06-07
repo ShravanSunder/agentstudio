@@ -56,17 +56,17 @@ struct WorkspaceLegacySQLiteImporter {
     typealias MaterializeLegacyState = (LegacyFile) throws -> WorkspacePersistor.PersistableState
 
     var persistor: WorkspacePersistor
-    var sqliteBackend: WorkspaceSQLiteStoreBackend
+    var sqliteDatastore: WorkspaceSQLiteDatastore
     var recoveryReporter: PersistenceRecoveryReporter?
     var materializeLegacyState: MaterializeLegacyState
 
-    func importWorkspaces(mode: WorkspaceLegacySQLiteImportMode) -> WorkspaceLegacySQLiteImportOutcome {
+    func importWorkspaces(mode: WorkspaceLegacySQLiteImportMode) async -> WorkspaceLegacySQLiteImportOutcome {
         _ = persistor.ensureDirectory()
         let scan = persistor.loadLegacyWorkspaceStateFiles()
         quarantineCorruptFiles(scan.corruptFiles)
         guard !scan.loadedFiles.isEmpty else { return .noLegacyFiles }
 
-        let pendingFiles = pendingFiles(from: scan.loadedFiles, mode: mode)
+        let pendingFiles = await pendingFiles(from: scan.loadedFiles, mode: mode)
         guard !pendingFiles.isEmpty else {
             return mode.keepsCurrentSelection ? .noPendingFilesKeepingSelection : .noLegacyFiles
         }
@@ -76,7 +76,7 @@ struct WorkspaceLegacySQLiteImporter {
         for legacyFile in pendingFiles {
             do {
                 let materializedState = try materializeLegacyState(legacyFile)
-                try sqliteBackend.saveImportedLegacySnapshot(
+                try await sqliteDatastore.saveImportedLegacySnapshot(
                     WorkspacePersistenceTransformer.sqliteSnapshot(from: materializedState),
                     sourceStatePath: legacyFile.url.path
                 )
@@ -93,7 +93,7 @@ struct WorkspaceLegacySQLiteImporter {
                         recovery: .saveFailed
                     )
                 )
-                markImportFailed(legacyFile, error: error)
+                await markImportFailed(legacyFile, error: error)
             }
         }
 
@@ -104,7 +104,7 @@ struct WorkspaceLegacySQLiteImporter {
             return .failedNoUsableImport
         }
         do {
-            try sqliteBackend.selectActiveWorkspace(activeImport.state.id, updatedAt: Date())
+            try await sqliteDatastore.selectActiveWorkspace(activeImport.state.id, updatedAt: Date())
             workspaceLegacySQLiteImportLogger.info(
                 "Imported \(importedFiles.count, privacy: .public) pending legacy workspace file(s) into SQLite; selected active workspace \(activeImport.state.id.uuidString, privacy: .public)"
             )
@@ -122,7 +122,7 @@ struct WorkspaceLegacySQLiteImporter {
                     recovery: .resetToDefaults
                 )
             )
-            markImportFailed(activeImport.file, error: error)
+            await markImportFailed(activeImport.file, error: error)
             return .failedNoUsableImport
         }
     }
@@ -147,28 +147,33 @@ struct WorkspaceLegacySQLiteImporter {
     private func pendingFiles(
         from legacyFiles: [LegacyFile],
         mode: WorkspaceLegacySQLiteImportMode
-    ) -> [LegacyFile] {
-        legacyFiles.filter { legacyFile in
-            classifyLegacyFileForImport(legacyFile, mode: mode).shouldImport
+    ) async -> [LegacyFile] {
+        var pendingFiles: [LegacyFile] = []
+        for legacyFile in legacyFiles {
+            let classification = await classifyLegacyFileForImport(legacyFile, mode: mode)
+            if classification.shouldImport {
+                pendingFiles.append(legacyFile)
+            }
         }
+        return pendingFiles
     }
 
     private func classifyLegacyFileForImport(
         _ legacyFile: LegacyFile,
         mode: WorkspaceLegacySQLiteImportMode
-    ) -> LegacyWorkspaceFileImportClassification {
+    ) async -> LegacyWorkspaceFileImportClassification {
         do {
-            if try sqliteBackend.hasCompletedSnapshot(workspaceId: legacyFile.state.id) {
+            if try await sqliteDatastore.hasCompletedSnapshot(workspaceId: legacyFile.state.id) {
                 return .alreadyCompleted
             }
-            guard
-                let status = try sqliteBackend.coreRepository.fetchLegacyWorkspaceImportStatus(
-                    workspaceId: legacyFile.state.id
-                )
-            else {
+            switch await sqliteDatastore.legacyImportStatus(workspaceId: legacyFile.state.id) {
+            case .missing:
                 return try missingStatusClassification(for: mode)
+            case .found(let status):
+                return status.coreImportedAt == nil || status.lastError != nil ? .pending : .skippedByStatus
+            case .unavailable(let failure):
+                throw failure
             }
-            return status.coreImportedAt == nil || status.lastError != nil ? .pending : .skippedByStatus
         } catch {
             workspaceLegacySQLiteImportLogger.error(
                 "Skipping legacy workspace retry because import status lookup failed: \(error.localizedDescription)"
@@ -201,16 +206,15 @@ struct WorkspaceLegacySQLiteImporter {
         }
     }
 
-    private func markImportFailed(_ legacyFile: LegacyFile, error: any Error) {
-        do {
-            try sqliteBackend.markLegacyWorkspaceImportFailed(
-                legacyFile.state,
-                sourceStatePath: legacyFile.url.path,
-                error: error
-            )
-        } catch {
+    private func markImportFailed(_ legacyFile: LegacyFile, error: any Error) async {
+        let outcome = await sqliteDatastore.markLegacyWorkspaceImportFailed(
+            WorkspacePersistenceTransformer.sqliteSnapshot(from: legacyFile.state),
+            sourceStatePath: legacyFile.url.path,
+            error: error
+        )
+        if case .failedToRecord(let failure) = outcome {
             workspaceLegacySQLiteImportLogger.error(
-                "Failed to record legacy workspace import error: \(error.localizedDescription)"
+                "Failed to record legacy workspace import error: \(failure.description)"
             )
         }
     }
@@ -220,25 +224,25 @@ struct WorkspaceLegacySQLiteImporter {
 extension WorkspaceStore {
     @discardableResult
     func importLegacySQLiteWorkspacesInPlaceOnFirstBoot(
-        _ sqliteBackend: WorkspaceSQLiteStoreBackend
-    ) -> WorkspaceLegacySQLiteImportOutcome {
-        runLegacySQLiteImport(sqliteBackend, mode: .initialInPlaceBootImport)
+        _ sqliteDatastore: WorkspaceSQLiteDatastore
+    ) async -> WorkspaceLegacySQLiteImportOutcome {
+        await runLegacySQLiteImport(sqliteDatastore, mode: .initialInPlaceBootImport)
     }
 
     @discardableResult
     func resumeUnfinishedLegacySQLiteImportKeepingCurrentSelection(
-        _ sqliteBackend: WorkspaceSQLiteStoreBackend
-    ) -> WorkspaceLegacySQLiteImportOutcome {
-        runLegacySQLiteImport(sqliteBackend, mode: .resumeUnfinishedImportKeepingCurrentSelection)
+        _ sqliteDatastore: WorkspaceSQLiteDatastore
+    ) async -> WorkspaceLegacySQLiteImportOutcome {
+        await runLegacySQLiteImport(sqliteDatastore, mode: .resumeUnfinishedImportKeepingCurrentSelection)
     }
 
     @discardableResult
     func resumeUnfinishedLegacySQLiteImportAfterIncompleteSQLiteRestore(
-        _ sqliteBackend: WorkspaceSQLiteStoreBackend,
+        _ sqliteDatastore: WorkspaceSQLiteDatastore,
         hadActiveSelectionBeforeRestore: Bool
-    ) -> WorkspaceLegacySQLiteImportOutcome {
-        runLegacySQLiteImport(
-            sqliteBackend,
+    ) async -> WorkspaceLegacySQLiteImportOutcome {
+        await runLegacySQLiteImport(
+            sqliteDatastore,
             mode: .resumeIncompleteInitialImport(
                 hadActiveSelectionBeforeRestore: hadActiveSelectionBeforeRestore
             )
@@ -249,11 +253,11 @@ extension WorkspaceStore {
     func materializeRestoredSQLiteState(
         from legacyState: WorkspacePersistor.PersistableState,
         sourceStatePath: String,
-        using sqliteBackend: WorkspaceSQLiteStoreBackend
-    ) -> WorkspaceLegacySQLiteMaterializationOutcome {
+        using sqliteDatastore: WorkspaceSQLiteDatastore
+    ) async -> WorkspaceLegacySQLiteMaterializationOutcome {
         do {
             let materializedState = materializedLegacyState(legacyState)
-            try sqliteBackend.saveImportedLegacySnapshot(
+            try await sqliteDatastore.saveImportedLegacySnapshot(
                 WorkspacePersistenceTransformer.sqliteSnapshot(from: materializedState),
                 sourceStatePath: sourceStatePath
             )
@@ -268,20 +272,20 @@ extension WorkspaceStore {
     }
 
     private func runLegacySQLiteImport(
-        _ sqliteBackend: WorkspaceSQLiteStoreBackend,
+        _ sqliteDatastore: WorkspaceSQLiteDatastore,
         mode: WorkspaceLegacySQLiteImportMode
-    ) -> WorkspaceLegacySQLiteImportOutcome {
+    ) async -> WorkspaceLegacySQLiteImportOutcome {
         let stateBeforeImport = currentLiveSQLiteState()
         let importer = WorkspaceLegacySQLiteImporter(
             persistor: persistor,
-            sqliteBackend: sqliteBackend,
+            sqliteDatastore: sqliteDatastore,
             recoveryReporter: recoveryReporter,
             materializeLegacyState: { legacyFile in
                 self.hydrateWorkspaceState(legacyFile.state)
                 return self.materializedLegacyState(legacyFile.state)
             }
         )
-        let outcome = importer.importWorkspaces(mode: mode)
+        let outcome = await importer.importWorkspaces(mode: mode)
         applyLegacySQLiteImportOutcome(outcome, stateBeforeImport: stateBeforeImport)
         return outcome
     }

@@ -26,7 +26,7 @@ final class WorkspaceStore {
     let mutationCoordinator: WorkspaceMutationCoordinator
 
     let persistor: WorkspacePersistor
-    private let sqliteBackend: WorkspaceSQLiteStoreBackend?
+    private let sqliteDatastore: WorkspaceSQLiteDatastore?
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
     let recoveryReporter: PersistenceRecoveryReporter?
@@ -47,7 +47,7 @@ final class WorkspaceStore {
         tabLayoutAtom: WorkspaceTabLayoutAtom? = nil,
         mutationCoordinator: WorkspaceMutationCoordinator? = nil,
         persistor: WorkspacePersistor = WorkspacePersistor(),
-        sqliteBackend: WorkspaceSQLiteStoreBackend? = nil,
+        sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
@@ -88,7 +88,7 @@ final class WorkspaceStore {
                 workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
         self.persistor = persistor
-        self.sqliteBackend = sqliteBackend
+        self.sqliteDatastore = sqliteDatastore
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
         self.recoveryReporter = recoveryReporter
@@ -103,38 +103,76 @@ final class WorkspaceStore {
     // MARK: - Persistence
 
     func restore() {
-        if let sqliteBackend {
-            let hadActiveSelectionBeforeSQLiteRestore = sqliteBackendHasActiveWorkspaceSelection(sqliteBackend)
-            switch restoreFromSQLite(sqliteBackend) {
-            case .restored:
-                resumeUnfinishedLegacySQLiteImportKeepingCurrentSelection(sqliteBackend)
-                return
-            case .uninitialized:
-                if sqliteBackendHasWorkspaceRows(sqliteBackend) {
-                    let outcome = resumeUnfinishedLegacySQLiteImportAfterIncompleteSQLiteRestore(
-                        sqliteBackend,
-                        hadActiveSelectionBeforeRestore: hadActiveSelectionBeforeSQLiteRestore
-                    )
-                    switch outcome {
-                    case .failedNoUsableImport, .noLegacyFiles, .noPendingFilesKeepingSelection,
-                        .retriedWithoutSelectionChange:
-                        reportSQLiteRestoreFailed()
-                    case .failedButImportedSome, .importedInitialActive:
-                        break
-                    }
-                    return
-                }
-                switch importLegacySQLiteWorkspacesInPlaceOnFirstBoot(sqliteBackend) {
-                case .importedInitialActive, .failedButImportedSome, .failedNoUsableImport:
-                    return
-                case .noLegacyFiles, .noPendingFilesKeepingSelection, .retriedWithoutSelectionChange:
-                    break
-                }
-            case .unavailable:
-                return
-            }
+        guard sqliteDatastore == nil else {
+            assertionFailure("Use await restore() when SQLite datastore is enabled")
+            return
+        }
+        _ = restoreFromLegacyJSON()
+    }
+
+    func restoreAsync() async {
+        guard let sqliteDatastore else {
+            _ = restoreFromLegacyJSON()
+            return
         }
 
+        let hadActiveSelectionBeforeSQLiteRestore = await sqliteDatastoreHasActiveWorkspaceSelection(sqliteDatastore)
+        switch await restoreFromSQLite(sqliteDatastore) {
+        case .restored(let recoveryEvents):
+            reportRecoveryEvents(recoveryEvents)
+            await resumeUnfinishedLegacySQLiteImportKeepingCurrentSelection(sqliteDatastore)
+            return
+        case .uninitialized(let recoveryEvents):
+            reportRecoveryEvents(recoveryEvents)
+            if await sqliteDatastoreHasWorkspaceRows(sqliteDatastore) {
+                let outcome = await resumeUnfinishedLegacySQLiteImportAfterIncompleteSQLiteRestore(
+                    sqliteDatastore,
+                    hadActiveSelectionBeforeRestore: hadActiveSelectionBeforeSQLiteRestore
+                )
+                switch outcome {
+                case .failedNoUsableImport, .noLegacyFiles, .noPendingFilesKeepingSelection,
+                    .retriedWithoutSelectionChange:
+                    reportSQLiteRestoreFailed()
+                case .failedButImportedSome, .importedInitialActive:
+                    break
+                }
+                return
+            }
+            switch await importLegacySQLiteWorkspacesInPlaceOnFirstBoot(sqliteDatastore) {
+            case .importedInitialActive, .failedButImportedSome, .failedNoUsableImport:
+                return
+            case .noLegacyFiles, .noPendingFilesKeepingSelection, .retriedWithoutSelectionChange:
+                break
+            }
+        case .unavailable(let recoveryEvents):
+            reportRecoveryEvents(recoveryEvents)
+            if await sqliteDatastoreHasWorkspaceRows(sqliteDatastore) {
+                let outcome = await resumeUnfinishedLegacySQLiteImportAfterIncompleteSQLiteRestore(
+                    sqliteDatastore,
+                    hadActiveSelectionBeforeRestore: hadActiveSelectionBeforeSQLiteRestore
+                )
+                switch outcome {
+                case .failedNoUsableImport, .noLegacyFiles, .noPendingFilesKeepingSelection,
+                    .retriedWithoutSelectionChange:
+                    reportSQLiteRestoreFailed()
+                case .failedButImportedSome, .importedInitialActive:
+                    break
+                }
+            }
+            return
+        }
+
+        if let restoredLegacyState = restoreFromLegacyJSON() {
+            _ = await materializeRestoredSQLiteState(
+                from: restoredLegacyState,
+                sourceStatePath: persistor.canonicalWorkspaceStatePath(for: restoredLegacyState.id),
+                using: sqliteDatastore
+            )
+        }
+    }
+
+    @discardableResult
+    private func restoreFromLegacyJSON() -> WorkspacePersistor.PersistableState? {
         _ = persistor.ensureDirectory()
         switch persistor.load() {
         case .loaded(let state):
@@ -146,13 +184,7 @@ final class WorkspaceStore {
             workspaceStoreLogger.info(
                 "Restored workspace '\(state.name)' with \(hydratedPaneCount) pane(s), \(hydratedTabCount) tab(s), dropped \(droppedPaneCount) pane(s), dropped \(droppedTabCount) tab(s)"
             )
-            if let sqliteBackend {
-                materializeRestoredSQLiteState(
-                    from: state,
-                    sourceStatePath: persistor.canonicalWorkspaceStatePath(for: state.id),
-                    using: sqliteBackend
-                )
-            }
+            return state
         case .corrupt(let error):
             let quarantine = persistor.quarantineCorruptCanonicalWorkspaceFiles()
             workspaceStoreLogger.error(
@@ -169,23 +201,30 @@ final class WorkspaceStore {
         case .missing:
             workspaceStoreLogger.info("No workspace files found — first launch")
         }
+        return nil
     }
 
-    private func sqliteBackendHasActiveWorkspaceSelection(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> Bool {
-        do {
-            return try sqliteBackend.coreRepository.fetchActiveWorkspaceId() != nil
-        } catch {
+    private func sqliteDatastoreHasActiveWorkspaceSelection(_ sqliteDatastore: WorkspaceSQLiteDatastore) async -> Bool {
+        switch await sqliteDatastore.inspectActiveWorkspaceSelection() {
+        case .present:
+            return true
+        case .missing:
+            return false
+        case .unavailable(let failure):
             workspaceStoreLogger.error(
-                "Failed to inspect active SQLite workspace selection: \(error.localizedDescription)")
+                "Failed to inspect active SQLite workspace selection: \(failure.description)")
             return true
         }
     }
 
-    private func sqliteBackendHasWorkspaceRows(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> Bool {
-        do {
-            return try !sqliteBackend.coreRepository.fetchWorkspaces().isEmpty
-        } catch {
-            workspaceStoreLogger.error("Failed to inspect SQLite workspace rows: \(error.localizedDescription)")
+    private func sqliteDatastoreHasWorkspaceRows(_ sqliteDatastore: WorkspaceSQLiteDatastore) async -> Bool {
+        switch await sqliteDatastore.inspectWorkspaceRows() {
+        case .hasWorkspaceRows:
+            return true
+        case .empty:
+            return false
+        case .unavailable(let failure):
+            workspaceStoreLogger.error("Failed to inspect SQLite workspace rows: \(failure.description)")
             return true
         }
     }
@@ -202,9 +241,20 @@ final class WorkspaceStore {
 
     @discardableResult
     func flush() -> Bool {
+        guard sqliteDatastore == nil else {
+            assertionFailure("Use await flush() when SQLite datastore is enabled")
+            return false
+        }
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
-        return persistNow()
+        return persistLegacyJSONSnapshot(persistedAt: Date()).succeeded
+    }
+
+    @discardableResult
+    func flushAsync() async -> WorkspaceStoreFlushOutcome {
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = nil
+        return await persistNow()
     }
 
     var prePersistHook: (() -> Void)?
@@ -252,17 +302,16 @@ final class WorkspaceStore {
             guard let self else { return }
             try? await self.clock.sleep(for: self.persistDebounceDuration)
             guard !Task.isCancelled else { return }
-            _ = self.persistNow()
+            _ = await self.persistNow()
         }
     }
 
     @discardableResult
-    private func persistNow() -> Bool {
-        prePersistHook?()
-
+    private func persistNow() async -> WorkspaceStoreFlushOutcome {
         let persistedAt = Date()
         do {
-            if let sqliteBackend {
+            if let sqliteDatastore {
+                prePersistHook?()
                 let snapshot = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshot(
                     identityAtom: identityAtom,
                     windowMemoryAtom: windowMemoryAtom,
@@ -271,59 +320,44 @@ final class WorkspaceStore {
                     workspaceTabLayoutAtom: tabLayoutAtom,
                     persistedAt: persistedAt
                 )
-                try sqliteBackend.save(snapshot)
+                try await sqliteDatastore.saveWorkspaceSnapshot(snapshot)
             } else {
-                guard persistor.ensureDirectory() else {
-                    workspaceStoreLogger.error(
-                        "Failed to persist workspace because the workspaces directory could not be created"
-                    )
-                    reportSaveFailed()
-                    return false
-                }
-                let state = WorkspacePersistenceTransformer.makePersistableState(
-                    identityAtom: identityAtom,
-                    windowMemoryAtom: windowMemoryAtom,
-                    repositoryTopologyAtom: repositoryTopologyAtom,
-                    workspacePaneAtom: paneAtom,
-                    workspaceTabLayoutAtom: tabLayoutAtom,
-                    persistedAt: persistedAt
-                )
-                try persistor.save(state)
+                return persistLegacyJSONSnapshot(persistedAt: persistedAt)
             }
             if isDirty {
                 isDirty = false
                 ProcessInfo.processInfo.enableSuddenTermination()
             }
-            return true
+            return .persisted
         } catch {
             workspaceStoreLogger.error("Failed to persist workspace: \(error.localizedDescription)")
             reportSaveFailed()
-            return false
+            return .failed(String(describing: error))
         }
     }
 
     private enum SQLiteRestoreOutcome {
-        case restored
-        case uninitialized
-        case unavailable
+        case restored(recoveryEvents: [PersistenceRecoveryEvent])
+        case uninitialized(recoveryEvents: [PersistenceRecoveryEvent])
+        case unavailable(recoveryEvents: [PersistenceRecoveryEvent])
     }
 
-    private func restoreFromSQLite(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> SQLiteRestoreOutcome {
-        switch sqliteBackend.loadResult(preferredWorkspaceId: identityAtom.workspaceId) {
-        case .loaded(let snapshot):
+    private func restoreFromSQLite(_ sqliteDatastore: WorkspaceSQLiteDatastore) async -> SQLiteRestoreOutcome {
+        switch await sqliteDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: identityAtom.workspaceId) {
+        case .loaded(let snapshot, let recoveryEvents):
             let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
             hydrateWorkspaceState(state)
             workspaceStoreLogger.info(
                 "Restored SQLite workspace '\(state.name)' with \(self.paneAtom.panes.count) pane(s), \(self.tabLayoutAtom.tabs.count) tab(s)"
             )
-            return .restored
-        case .uninitialized:
-            return .uninitialized
-        case .unavailable(let error):
+            return .restored(recoveryEvents: recoveryEvents)
+        case .uninitialized(let recoveryEvents):
+            return .uninitialized(recoveryEvents: recoveryEvents)
+        case .unavailable(let failure, let recoveryEvents):
             isRestoringState = false
-            workspaceStoreLogger.error("Failed to restore SQLite workspace: \(error.localizedDescription)")
+            workspaceStoreLogger.error("Failed to restore SQLite workspace: \(failure.description)")
             reportSQLiteRestoreFailed()
-            return .unavailable
+            return .unavailable(recoveryEvents: recoveryEvents)
         }
     }
 
@@ -348,5 +382,54 @@ final class WorkspaceStore {
                 recovery: .saveFailed
             )
         )
+    }
+
+    private func reportRecoveryEvents(_ events: [PersistenceRecoveryEvent]) {
+        for event in events {
+            recoveryReporter?(event)
+        }
+    }
+
+    private func persistLegacyJSONSnapshot(persistedAt: Date) -> WorkspaceStoreFlushOutcome {
+        prePersistHook?()
+        do {
+            guard persistor.ensureDirectory() else {
+                workspaceStoreLogger.error(
+                    "Failed to persist workspace because the workspaces directory could not be created"
+                )
+                reportSaveFailed()
+                return .failed("Failed to create workspaces directory")
+            }
+            let state = WorkspacePersistenceTransformer.makePersistableState(
+                identityAtom: identityAtom,
+                windowMemoryAtom: windowMemoryAtom,
+                repositoryTopologyAtom: repositoryTopologyAtom,
+                workspacePaneAtom: paneAtom,
+                workspaceTabLayoutAtom: tabLayoutAtom,
+                persistedAt: persistedAt
+            )
+            try persistor.save(state)
+            if isDirty {
+                isDirty = false
+                ProcessInfo.processInfo.enableSuddenTermination()
+            }
+            return .persisted
+        } catch {
+            workspaceStoreLogger.error("Failed to persist workspace: \(error.localizedDescription)")
+            reportSaveFailed()
+            return .failed(String(describing: error))
+        }
+    }
+}
+
+enum WorkspaceStoreFlushOutcome: Equatable {
+    case persisted
+    case failed(String)
+
+    var succeeded: Bool {
+        if case .persisted = self {
+            return true
+        }
+        return false
     }
 }
