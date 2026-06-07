@@ -61,11 +61,16 @@ struct WorkspaceSQLiteStoreBackend {
         let tabShells = try coreRepository.fetchTabShells(workspaceId: workspace.id)
         let tabGraph = try coreRepository.fetchTabGraph(workspaceId: workspace.id)
         let localRepository = try localBackend.repository(for: workspace.id)
-        guard try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == coreCompletedAt else {
-            throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
-        }
-        let cursorState = try localRepository.fetchCursorState()
-        let windowState = try localRepository.fetchWindowState()
+        let localCompletedAt = try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt()
+        let localSnapshotMatchesCore = localCompletedAt == coreCompletedAt
+        let cursorState =
+            localSnapshotMatchesCore
+            ? try localRepository.fetchCursorState()
+            : WorkspaceSQLiteStateBridge.defaultCursorState(tabShells: tabShells, tabGraph: tabGraph)
+        let windowState =
+            localSnapshotMatchesCore
+            ? try localRepository.fetchWindowState()
+            : nil
 
         return try WorkspaceSQLiteStateBridge.persistableState(
             from: .init(
@@ -274,6 +279,19 @@ enum WorkspaceSQLiteStateBridge {
             activePaneIdsByArrangementId: Dictionary(uniqueKeysWithValues: activePanePairs),
             drawerExpansionByDrawerId: Dictionary(uniqueKeysWithValues: drawers.map { ($0.drawerId, $0.isExpanded) }),
             activeChildIdsByArrangementDrawer: Dictionary(uniqueKeysWithValues: activeChildPairs)
+        )
+    }
+
+    static func defaultCursorState(
+        tabShells: [WorkspaceCoreRepository.TabShellRecord],
+        tabGraph: WorkspaceCoreRepository.TabGraphRecord
+    ) -> WorkspaceLocalRepository.CursorStateRecord {
+        .init(
+            activeTabId: tabShells.first?.id ?? tabGraph.tabs.first?.tabId,
+            activeArrangementIdsByTabId: [:],
+            activePaneIdsByArrangementId: [:],
+            drawerExpansionByDrawerId: [:],
+            activeChildIdsByArrangementDrawer: [:]
         )
     }
 
