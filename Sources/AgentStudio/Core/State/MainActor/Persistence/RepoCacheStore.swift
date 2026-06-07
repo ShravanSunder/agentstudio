@@ -83,7 +83,7 @@ final class RepoCacheStore {
             guard legacyImportDecision.allowsLegacyImport else {
                 cacheAtom.clear()
                 recentTargetAtom.clear()
-                canArchiveLegacyCacheFile = legacyImportDecision.canArchiveLegacyFile
+                canArchiveLegacyCacheFile = false
                 recoveryReporter?(
                     .init(store: .repoCache, workspaceId: workspaceId, recovery: .resetToDefaults)
                 )

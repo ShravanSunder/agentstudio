@@ -58,7 +58,7 @@ final class SidebarCacheStore {
             let legacyImportDecision = legacyExpandedGroupsImportDecision(for: workspaceId)
             guard legacyImportDecision.allowsLegacyImport else {
                 atom.clear()
-                canArchiveLegacySidebarCacheFile = legacyImportDecision.canArchiveLegacyFile
+                canArchiveLegacySidebarCacheFile = false
                 recoveryReporter?(
                     .init(store: .sidebarCache, workspaceId: workspaceId, recovery: .resetToDefaults)
                 )

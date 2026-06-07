@@ -298,6 +298,54 @@ final class WorkspacePersistorTests {
     }
 
     @Test
+    func test_load_canonicalState_legacyDrawerActivePaneId_doesNotCorruptWorkspace() throws {
+        let drawerChildPaneId = UUIDv7.generate()
+        var parentPane = makePane()
+        parentPane.withDrawer { drawer in
+            drawer.paneIds = [drawerChildPaneId]
+        }
+        let drawerChildPane = Pane(
+            id: drawerChildPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Drawer Child"),
+            kind: .drawerChild(parentPaneId: parentPane.id)
+        )
+        var state = WorkspacePersistor.PersistableState(panes: [parentPane, drawerChildPane])
+        state.tabs = [Tab(paneId: parentPane.id)]
+        try persistor.save(state)
+
+        let stateURL = tempDir.appending(path: "\(state.id.uuidString).workspace.state.json")
+        let payload = try JSONSerialization.jsonObject(with: Data(contentsOf: stateURL))
+        guard
+            var root = payload as? [String: Any],
+            var panes = root["panes"] as? [[String: Any]],
+            var parentPanePayload = panes.first(where: { ($0["id"] as? String) == parentPane.id.uuidString }),
+            var kindPayload = parentPanePayload["kind"] as? [String: Any],
+            var layoutPayload = kindPayload["layout"] as? [String: Any],
+            var drawerPayload = layoutPayload["drawer"] as? [String: Any]
+        else {
+            Issue.record("Unable to locate encoded parent drawer payload")
+            return
+        }
+        drawerPayload["activePaneId"] = drawerChildPaneId.uuidString
+        layoutPayload["drawer"] = drawerPayload
+        kindPayload["layout"] = layoutPayload
+        parentPanePayload["kind"] = kindPayload
+        if let parentIndex = panes.firstIndex(where: { ($0["id"] as? String) == parentPane.id.uuidString }) {
+            panes[parentIndex] = parentPanePayload
+        }
+        root["panes"] = panes
+        let legacyData = try JSONSerialization.data(withJSONObject: root)
+        try legacyData.write(to: stateURL, options: Data.WritingOptions.atomic)
+
+        let loaded = persistor.load().value
+
+        #expect(loaded?.id == state.id)
+        #expect(loaded?.panes.count == 2)
+        #expect(loaded?.panes.first { $0.id == parentPane.id }?.drawer?.paneIds == [drawerChildPaneId])
+    }
+
+    @Test
     func test_load_ignoresCacheAndUIFiles() throws {
         // Arrange — write only cache and UI files, no canonical state
         let workspaceId = UUID()

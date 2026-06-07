@@ -198,7 +198,7 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func missingSQLiteSidebarLaneAfterCompletedImportResetsAndAllowsLegacyArchive() throws {
+    func missingSQLiteSidebarLaneAfterCompletedImportResetsAndBlocksLegacyArchive() throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = WorkspaceSidebarState()
@@ -241,7 +241,7 @@ struct UIStateStoreTests {
         #expect(restoredAtom.filterText.isEmpty)
         #expect(restoredAtom.filterText != "stale")
         #expect(restoredAtom.sidebarSurface == .repos)
-        #expect(restoredStore.canArchiveLegacyUIFile)
+        #expect(!restoredStore.canArchiveLegacyUIFile)
     }
 
     @Test

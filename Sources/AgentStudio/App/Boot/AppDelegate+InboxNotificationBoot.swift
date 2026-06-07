@@ -79,14 +79,25 @@ extension AppDelegate {
             )
             legacyImportDecision = .blockReplayBlockArchive
         }
+        let inboxRepository = InboxNotificationSQLiteRepository(
+            workspaceId: workspaceId,
+            databaseWriter: localRepository.databaseWriter
+        )
+        let hasPersistedInboxSnapshot: Bool
+        do {
+            hasPersistedInboxSnapshot = try inboxRepository.hasPersistedState()
+        } catch {
+            appLogger.warning(
+                "Inbox notification SQLite archive readiness check failed: \(error.localizedDescription)"
+            )
+            hasPersistedInboxSnapshot = false
+        }
         return .init(
-            repository: InboxNotificationSQLiteRepository(
-                workspaceId: workspaceId,
-                databaseWriter: localRepository.databaseWriter
-            ),
+            repository: inboxRepository,
             allowLegacyFilePersistence: true,
             allowLegacyFileImport: legacyImportDecision.allowsLegacyImport,
             canArchiveLegacyInboxFileAfterBlockedImport: legacyImportDecision.canArchiveLegacyFile
+                && hasPersistedInboxSnapshot
         )
     }
 

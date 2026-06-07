@@ -186,7 +186,7 @@ struct SidebarCacheStoreTests {
 
         #expect(restoredAtom.expandedGroups.isEmpty)
         #expect(!restoredAtom.expandedGroups.contains(SidebarGroupKey("repo:stale")))
-        #expect(restoredStore.canArchiveLegacySidebarCacheFile)
+        #expect(!restoredStore.canArchiveLegacySidebarCacheFile)
     }
 
     @Test
