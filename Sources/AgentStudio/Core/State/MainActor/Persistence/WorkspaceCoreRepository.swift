@@ -9,6 +9,17 @@ struct WorkspaceCoreRepository {
         let updatedAt: Date
     }
 
+    struct LegacyImportStatusRecord: Equatable {
+        let workspaceId: UUID
+        var sourceStatePath: String
+        var coreImportedAt: Date?
+        var settingsImportedAt: Date?
+        var localImportedAt: Date?
+        var cacheImportedAt: Date?
+        var archivedAt: Date?
+        var lastError: String?
+    }
+
     let databaseWriter: any DatabaseWriter
 
     func migrate() throws {
@@ -103,14 +114,54 @@ struct WorkspaceCoreRepository {
         }
     }
 
-    func markWorkspaceSQLiteSnapshotIncomplete(workspaceId: UUID) throws {
+    func replaceWorkspaceSnapshot(
+        workspace: WorkspaceRecord,
+        topology: RepositoryTopologyRecord,
+        paneGraph: PaneGraphRecord,
+        tabShells: [TabShellRecord],
+        tabGraph: TabGraphRecord,
+        completedAt: Date
+    ) throws {
         try databaseWriter.write { database in
             try database.execute(
                 sql: """
-                    DELETE FROM workspace_sqlite_snapshot_status
-                    WHERE workspace_id = ?
+                    INSERT INTO workspace(id, name, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        updated_at = excluded.updated_at
                     """,
-                arguments: [workspaceId.uuidString]
+                arguments: [
+                    workspace.id.uuidString,
+                    workspace.name,
+                    workspace.createdAt.timeIntervalSince1970,
+                    workspace.updatedAt.timeIntervalSince1970,
+                ]
+            )
+            try updateActiveWorkspaceSelection(
+                database,
+                workspaceId: workspace.id.uuidString,
+                updatedAt: workspace.updatedAt
+            )
+            try validateTopology(topology, for: workspace.id)
+            try replaceRepositoryTopologyRows(database, workspaceId: workspace.id, topology: topology)
+            try validatePaneGraph(database, workspaceId: workspace.id, graph: paneGraph)
+            try replacePaneGraphRows(database, workspaceId: workspace.id, graph: paneGraph)
+            try validateTabShells(database, workspaceId: workspace.id, shells: tabShells)
+            try replaceTabShellRows(database, workspaceId: workspace.id, shells: tabShells)
+            try validateTabGraph(database, workspaceId: workspace.id, graph: tabGraph)
+            try replaceTabGraphRows(database, workspaceId: workspace.id, graph: tabGraph)
+            try database.execute(
+                sql: """
+                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, completed_at)
+                    VALUES (?, ?)
+                    ON CONFLICT(workspace_id) DO UPDATE SET
+                        completed_at = excluded.completed_at
+                    """,
+                arguments: [
+                    workspace.id.uuidString,
+                    completedAt.timeIntervalSince1970,
+                ]
             )
         }
     }
@@ -146,6 +197,70 @@ struct WorkspaceCoreRepository {
                     arguments: [workspaceId.uuidString]
                 ) ?? 0
             return count > 0
+        }
+    }
+
+    func markLegacyWorkspaceCoreImported(
+        workspaceId: UUID,
+        sourceStatePath: String,
+        importedAt: Date
+    ) throws {
+        try databaseWriter.write { database in
+            try requireWorkspaceExists(database, id: workspaceId)
+            try database.execute(
+                sql: """
+                    INSERT INTO legacy_workspace_import_status(
+                        workspace_id, source_state_path, core_imported_at, last_error
+                    )
+                    VALUES (?, ?, ?, NULL)
+                    ON CONFLICT(workspace_id) DO UPDATE SET
+                        source_state_path = excluded.source_state_path,
+                        core_imported_at = excluded.core_imported_at,
+                        last_error = NULL
+                    """,
+                arguments: [
+                    workspaceId.uuidString,
+                    sourceStatePath,
+                    importedAt.timeIntervalSince1970,
+                ]
+            )
+        }
+    }
+
+    func markLegacyWorkspaceArchived(workspaceId: UUID, archivedAt: Date) throws {
+        try databaseWriter.write { database in
+            try database.execute(
+                sql: """
+                    UPDATE legacy_workspace_import_status
+                    SET archived_at = ?, last_error = NULL
+                    WHERE workspace_id = ?
+                    """,
+                arguments: [
+                    archivedAt.timeIntervalSince1970,
+                    workspaceId.uuidString,
+                ]
+            )
+        }
+    }
+
+    func fetchLegacyWorkspaceImportStatus(workspaceId: UUID) throws -> LegacyImportStatusRecord? {
+        try databaseWriter.read { database in
+            guard
+                let row = try Row.fetchOne(
+                    database,
+                    sql: """
+                        SELECT workspace_id, source_state_path, core_imported_at,
+                               settings_imported_at, local_imported_at, cache_imported_at,
+                               archived_at, last_error
+                        FROM legacy_workspace_import_status
+                        WHERE workspace_id = ?
+                        """,
+                    arguments: [workspaceId.uuidString]
+                )
+            else {
+                return nil
+            }
+            return try decodeLegacyImportStatusRecord(row)
         }
     }
 
@@ -276,6 +391,27 @@ private func decodeWorkspaceRecord(_ row: Row) throws -> WorkspaceCoreRepository
         createdAt: Date(timeIntervalSince1970: createdAt),
         updatedAt: Date(timeIntervalSince1970: updatedAt)
     )
+}
+
+private func decodeLegacyImportStatusRecord(_ row: Row) throws -> WorkspaceCoreRepository.LegacyImportStatusRecord {
+    let workspaceIdString: String = row["workspace_id"]
+    guard let workspaceId = UUID(uuidString: workspaceIdString) else {
+        throw WorkspaceCoreRepositoryError.malformedWorkspaceId(workspaceIdString)
+    }
+    return .init(
+        workspaceId: workspaceId,
+        sourceStatePath: row["source_state_path"],
+        coreImportedAt: optionalDate(row["core_imported_at"]),
+        settingsImportedAt: optionalDate(row["settings_imported_at"]),
+        localImportedAt: optionalDate(row["local_imported_at"]),
+        cacheImportedAt: optionalDate(row["cache_imported_at"]),
+        archivedAt: optionalDate(row["archived_at"]),
+        lastError: row["last_error"]
+    )
+}
+
+private func optionalDate(_ timestamp: Double?) -> Date? {
+    timestamp.map { Date(timeIntervalSince1970: $0) }
 }
 
 private func fetchActiveWorkspaceIdFromDatabase(_ database: Database) throws -> UUID? {

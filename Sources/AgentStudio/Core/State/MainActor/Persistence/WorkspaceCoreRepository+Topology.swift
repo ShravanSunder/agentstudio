@@ -131,7 +131,7 @@ extension WorkspaceCoreRepository {
     }
 }
 
-private func validateTopology(
+func validateTopology(
     _ topology: WorkspaceCoreRepository.RepositoryTopologyRecord,
     for _: UUID
 ) throws {

@@ -227,6 +227,12 @@ extension AppDelegate {
 
     private func bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: WorkspacePersistor) {
         guard let workspaceSQLiteStoreBackend else { return }
+        guard canArchiveLegacyInboxFile else {
+            appLogger.warning(
+                "Skipping legacy workspace archive; notification inbox legacy file has not been restored into SQLite"
+            )
+            return
+        }
         do {
             guard try workspaceSQLiteStoreBackend.hasCompletedSnapshot(workspaceId: store.identityAtom.workspaceId)
             else {
@@ -239,6 +245,16 @@ extension AppDelegate {
         }
         guard let result = persistor.archiveLegacyWorkspaceFiles(for: store.identityAtom.workspaceId) else { return }
         if result.succeeded {
+            do {
+                try workspaceSQLiteStoreBackend.markLegacyWorkspaceArchived(
+                    workspaceId: store.identityAtom.workspaceId,
+                    archivedAt: Date()
+                )
+            } catch {
+                appLogger.warning(
+                    "Legacy workspace files archived, but archived_at status update failed: \(error.localizedDescription)"
+                )
+            }
             appLogger.info(
                 "Archived legacy workspace files into legacy-imported/\(result.archiveDirectoryName, privacy: .public)"
             )

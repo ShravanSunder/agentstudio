@@ -5,6 +5,7 @@ extension AppDelegate {
     func bootLoadInboxNotificationStore(persistor: WorkspacePersistor) {
         let workspaceId = store.identityAtom.workspaceId
         let fileURL = persistor.notificationInboxFileURL(for: workspaceId)
+        let hadLegacyInboxFile = FileManager.default.fileExists(atPath: fileURL.path)
         let (sqliteRepository, allowLegacyFilePersistence) = makeInboxNotificationSQLiteRepository(
             workspaceId: workspaceId
         )
@@ -19,11 +20,16 @@ extension AppDelegate {
             sqliteRepository: sqliteRepository,
             allowLegacyFilePersistence: allowLegacyFilePersistence
         )
+        var didLoadInboxStore = false
         do {
             try inboxNotificationStore.load()
+            didLoadInboxStore = true
         } catch {
             appLogger.warning("Inbox notification store load failed: \(error.localizedDescription)")
         }
+        canArchiveLegacyInboxFile =
+            !hadLegacyInboxFile
+            || (didLoadInboxStore && (sqliteRepository != nil || workspaceLocalSQLiteStoreBackend == nil))
         observeInboxNotificationPersistence()
         hasLoadedInboxNotificationStore = true
         flushPersistenceRecoveryNotifications()

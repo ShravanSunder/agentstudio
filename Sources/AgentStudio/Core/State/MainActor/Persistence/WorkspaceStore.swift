@@ -302,7 +302,10 @@ final class WorkspaceStore {
             persistedAt: legacyState.updatedAt
         )
         do {
-            try sqliteBackend.save(materializedState)
+            try sqliteBackend.saveImportedLegacySnapshot(
+                materializedState,
+                sourceStatePath: persistor.canonicalWorkspaceStatePath(for: legacyState.id)
+            )
         } catch {
             workspaceStoreLogger.error(
                 "Failed to materialize restored legacy workspace into SQLite: \(error.localizedDescription)"

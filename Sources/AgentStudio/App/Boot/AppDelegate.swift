@@ -19,6 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
     var pendingPersistenceRecoveryEvents: [PersistenceRecoveryEvent] = []
     var hasLoadedInboxNotificationStore = false
+    var canArchiveLegacyInboxFile = true
     var terminalActivityRouter: TerminalActivityRouter!
     var traceRuntime: AgentStudioTraceRuntime!
     var repoCacheStore: RepoCacheStore!

@@ -78,23 +78,6 @@ struct WorkspaceSQLiteStoreBackend {
 
     func save(_ state: WorkspacePersistor.PersistableState) throws {
         let workspaceRecord = WorkspaceSQLiteStateBridge.workspaceRecord(from: state)
-        try coreRepository.markWorkspaceSQLiteSnapshotIncomplete(workspaceId: state.id)
-        try coreRepository.upsertWorkspace(workspaceRecord)
-        try coreRepository.selectActiveWorkspace(state.id, updatedAt: state.updatedAt)
-        try coreRepository.replaceRepositoryTopology(
-            workspaceId: state.id,
-            topology: WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: state)
-        )
-        try coreRepository.replacePaneGraph(
-            workspaceId: state.id,
-            graph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: state)
-        )
-        try coreRepository.replaceTabShellsAndGraph(
-            workspaceId: state.id,
-            shells: WorkspaceSQLiteStateBridge.tabShellRecords(from: state),
-            graph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state)
-        )
-
         let localRepository = try localBackend.repository(for: state.id)
         try localRepository.replaceWindowState(
             WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
@@ -104,11 +87,34 @@ struct WorkspaceSQLiteStoreBackend {
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
             updatedAt: state.updatedAt
         )
-        try coreRepository.markWorkspaceSQLiteSnapshotComplete(workspaceId: state.id, completedAt: state.updatedAt)
+        try coreRepository.replaceWorkspaceSnapshot(
+            workspace: workspaceRecord,
+            topology: WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: state),
+            paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: state),
+            tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: state),
+            tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state),
+            completedAt: state.updatedAt
+        )
+    }
+
+    func saveImportedLegacySnapshot(
+        _ state: WorkspacePersistor.PersistableState,
+        sourceStatePath: String
+    ) throws {
+        try save(state)
+        try coreRepository.markLegacyWorkspaceCoreImported(
+            workspaceId: state.id,
+            sourceStatePath: sourceStatePath,
+            importedAt: state.updatedAt
+        )
     }
 
     func hasCompletedSnapshot(workspaceId: UUID) throws -> Bool {
         try coreRepository.hasCompletedWorkspaceSQLiteSnapshot(workspaceId: workspaceId)
+    }
+
+    func markLegacyWorkspaceArchived(workspaceId: UUID, archivedAt: Date) throws {
+        try coreRepository.markLegacyWorkspaceArchived(workspaceId: workspaceId, archivedAt: archivedAt)
     }
 
     private func resolvedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {

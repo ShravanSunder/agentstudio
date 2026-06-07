@@ -105,6 +105,7 @@ struct AppBootSequenceTests {
 
         #expect(appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend: WorkspaceLocalSQLiteStoreBackend?"))
         #expect(appDelegateSource.contains("var workspaceSQLiteStoreBackend: WorkspaceSQLiteStoreBackend?"))
+        #expect(appDelegateSource.contains("var canArchiveLegacyInboxFile = true"))
         #expect(inboxBootSource.contains("makeInboxNotificationSQLiteRepository("))
         #expect(inboxBootSource.contains("workspaceId: workspaceId"))
         #expect(inboxBootSource.contains("sqliteRepository: sqliteRepository"))
@@ -112,6 +113,8 @@ struct AppBootSequenceTests {
         #expect(inboxBootSource.contains("InboxNotificationSQLiteRepository("))
         #expect(inboxBootSource.contains("databaseWriter: localRepository.databaseWriter"))
         #expect(inboxBootSource.contains("return (nil, false)"))
+        #expect(inboxBootSource.contains("hadLegacyInboxFile"))
+        #expect(inboxBootSource.contains("canArchiveLegacyInboxFile"))
     }
 
     @Test("boot archives legacy workspace files after SQLite-backed stores load")
@@ -127,6 +130,8 @@ struct AppBootSequenceTests {
         #expect(
             bootSource.contains(
                 "workspaceSQLiteStoreBackend.hasCompletedSnapshot(workspaceId: store.identityAtom.workspaceId)"))
+        #expect(bootSource.contains("guard canArchiveLegacyInboxFile else"))
+        #expect(bootSource.contains("workspaceSQLiteStoreBackend.markLegacyWorkspaceArchived("))
         let uiLoadRange = try #require(bootSource.range(of: "bootLoadInboxNotificationStore(persistor: persistor)"))
         let archiveRange = try #require(
             bootSource.range(of: "bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)")

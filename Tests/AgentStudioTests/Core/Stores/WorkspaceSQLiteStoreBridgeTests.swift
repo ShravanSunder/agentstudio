@@ -173,6 +173,42 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(!restoredStore.isDirty)
     }
 
+    @Test("failed replacement save preserves the last committed SQLite snapshot")
+    func failedReplacementSavePreservesLastCommittedSQLiteSnapshot() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_250)
+        try fixture.backend.save(
+            .init(
+                id: workspaceId,
+                name: "Committed Workspace",
+                createdAt: createdAt,
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_260)
+            )
+        )
+        let failingBackend = WorkspaceSQLiteStoreBackend(
+            coreRepository: fixture.coreRepository,
+            makeLocalRepository: { _ in
+                throw CocoaError(.fileNoSuchFile)
+            }
+        )
+
+        #expect(throws: CocoaError.self) {
+            try failingBackend.save(
+                .init(
+                    id: workspaceId,
+                    name: "Uncommitted Replacement",
+                    createdAt: createdAt,
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_270)
+                )
+            )
+        }
+
+        let loaded = try #require(try fixture.backend.load(preferredWorkspaceId: workspaceId))
+        #expect(loaded.name == "Committed Workspace")
+        #expect(loaded.name != "Uncommitted Replacement")
+    }
+
     @Test("restore imports legacy workspace JSON into core and local SQLite when rows are missing")
     func restoreImportsLegacyWorkspaceJSONIntoSQLiteWhenRowsAreMissing() throws {
         let workspaceId = UUID()
@@ -223,6 +259,21 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(windowState.windowFrame == CGRect(x: 20, y: 30, width: 1000, height: 700))
         let cursorState = try fixture.localRepository.fetchCursorState()
         #expect(cursorState.activeTabId == tab.id)
+        let importStatus = try #require(
+            try fixture.coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId))
+        let expectedSourcePath = persistor.workspacesDir
+            .appending(path: "\(workspaceId.uuidString).workspace.state.json")
+            .path
+        #expect(importStatus.sourceStatePath == expectedSourcePath)
+        #expect(importStatus.coreImportedAt != nil)
+        try fixture.backend.markLegacyWorkspaceArchived(
+            workspaceId: workspaceId,
+            archivedAt: Date(timeIntervalSince1970: 1_700_000_500)
+        )
+        let archivedStatus = try #require(
+            try fixture.coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId)
+        )
+        #expect(archivedStatus.archivedAt == Date(timeIntervalSince1970: 1_700_000_500))
     }
 
     @Test("restore does not replay stale legacy JSON when SQLite restore fails")

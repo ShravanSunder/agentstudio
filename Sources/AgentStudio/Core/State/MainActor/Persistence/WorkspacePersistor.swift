@@ -273,26 +273,46 @@ struct WorkspacePersistor {
             )
         }
 
-        var archivedFilenames: [String] = []
-        var failedFilenames: [String] = []
-        for sourceURL in candidates {
+        var archivedPairs: [(sourceURL: URL, destinationURL: URL)] = []
+        for (index, sourceURL) in candidates.enumerated() {
             let destinationURL = archiveDirectory.appending(path: sourceURL.lastPathComponent)
             do {
                 try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
-                archivedFilenames.append(sourceURL.lastPathComponent)
+                archivedPairs.append((sourceURL: sourceURL, destinationURL: destinationURL))
             } catch {
-                failedFilenames.append(sourceURL.lastPathComponent)
                 persistorLogger.error(
                     "Failed to archive legacy workspace file \(sourceURL.lastPathComponent): \(error)"
+                )
+                var rollbackFailures: [String] = []
+                for pair in archivedPairs.reversed() {
+                    do {
+                        try FileManager.default.moveItem(at: pair.destinationURL, to: pair.sourceURL)
+                    } catch {
+                        rollbackFailures.append(pair.destinationURL.lastPathComponent)
+                        persistorLogger.error(
+                            "Failed to roll back archived legacy workspace file \(pair.destinationURL.lastPathComponent): \(error)"
+                        )
+                    }
+                }
+                try? FileManager.default.removeItem(at: archiveDirectory)
+                let unarchivedFailures = candidates[index...].map(\.lastPathComponent)
+                return LegacyArchiveResult(
+                    archiveDirectoryName: archiveDirectoryName,
+                    archivedFilenames: rollbackFailures,
+                    failedFilenames: unarchivedFailures + rollbackFailures
                 )
             }
         }
 
         return LegacyArchiveResult(
             archiveDirectoryName: archiveDirectoryName,
-            archivedFilenames: archivedFilenames,
-            failedFilenames: failedFilenames
+            archivedFilenames: archivedPairs.map { $0.sourceURL.lastPathComponent },
+            failedFilenames: []
         )
+    }
+
+    func canonicalWorkspaceStatePath(for workspaceId: UUID) -> String {
+        canonicalFileURL(for: workspaceId).path
     }
 
     @discardableResult
