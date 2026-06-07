@@ -191,12 +191,12 @@ SQLite repositories land:
 - `WorkspaceSQLiteDatastoreActorTests.workspaceLoadReturnsFirstLocalRestoreRecoveryEvents`
   verifies recovery events produced by the first workspace restore opener are
   returned to the MainActor caller instead of being lost behind the actor cache.
-- `WorkspaceSQLiteDatastoreActorTests.inboxBootDrainsRecoveryEventsIfItIsFirstRestoreOpener`
-  verifies inbox boot returns local quarantine/recovery events when inbox is the
-  first lane to open the local sidecar.
-- `WorkspaceSQLiteDatastoreActorTests.cacheRestoreDoesNotLoseRecoveryEventsAlreadyQueuedByWorkspaceLoad`
-  verifies later cache/UI/sidebar restore calls cannot silently drop events that
-  workspace load already queued at the datastore actor.
+- `WorkspaceSQLiteDatastoreActorTests.restoreRepairUsesSaveRepositoryCache`
+  verifies local-snapshot repair uses the datastore actor's save-side repository
+  cache instead of bypassing it with a fresh backend open.
+- `WorkspaceSQLiteDatastoreActorTests.workspaceStatusApisUseDatastoreBoundary`
+  verifies active SQLite status/readiness queries are exposed through the
+  datastore actor without a MainActor store touching repositories directly.
 - `WorkspaceNotificationCountOwnershipTests.worktreeStatusChipsReadInboxProjection`
   verifies notification chips read inbox-owned unread counts, not
   repo-cache-restored stale counts.

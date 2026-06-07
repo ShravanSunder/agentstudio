@@ -1,15 +1,15 @@
 import Foundation
 import GRDB
 
-struct WorkspaceCoreRepository {
-    struct WorkspaceRecord: Equatable {
+struct WorkspaceCoreRepository: Sendable {
+    struct WorkspaceRecord: Equatable, Sendable {
         let id: UUID
         var name: String
         let createdAt: Date
         let updatedAt: Date
     }
 
-    struct LegacyImportStatusRecord: Equatable {
+    struct LegacyImportStatusRecord: Equatable, Sendable {
         let workspaceId: UUID
         var sourceStatePath: String
         var coreImportedAt: Date?

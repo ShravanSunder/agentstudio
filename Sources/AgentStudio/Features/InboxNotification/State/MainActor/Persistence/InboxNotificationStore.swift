@@ -44,6 +44,19 @@ final class InboxNotificationStore {
         }
     }
 
+    struct SQLiteSnapshot: Equatable, Sendable {
+        var notifications: [InboxNotification]
+        var collapsedGroups: Set<InboxNotificationGroupKey>
+        var markLegacyImport: Bool
+    }
+
+    struct SQLiteLoadSnapshot: Equatable, Sendable {
+        var notifications: [InboxNotification]
+        var collapsedGroups: Set<InboxNotificationGroupKey>
+        var hasPersistedState: Bool
+        var hasMaterializedLegacyImport: Bool
+    }
+
     init(
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,

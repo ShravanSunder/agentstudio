@@ -125,7 +125,7 @@ enum WorkspacePersistenceTransformer {
         )
     }
 
-    static func sqliteSnapshot(from state: WorkspacePersistor.PersistableState) -> WorkspaceSQLiteSnapshot {
+    nonisolated static func sqliteSnapshot(from state: WorkspacePersistor.PersistableState) -> WorkspaceSQLiteSnapshot {
         WorkspaceSQLiteSnapshot(
             id: state.id,
             name: state.name,
@@ -143,7 +143,9 @@ enum WorkspacePersistenceTransformer {
         )
     }
 
-    static func persistableState(from snapshot: WorkspaceSQLiteSnapshot) -> WorkspacePersistor.PersistableState {
+    nonisolated static func persistableState(from snapshot: WorkspaceSQLiteSnapshot)
+        -> WorkspacePersistor.PersistableState
+    {
         WorkspacePersistor.PersistableState(
             id: snapshot.id,
             name: snapshot.name,

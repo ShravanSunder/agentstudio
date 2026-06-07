@@ -2,11 +2,11 @@ import Foundation
 import GRDB
 
 extension WorkspaceCoreRepository {
-    struct PaneGraphRecord: Equatable {
+    struct PaneGraphRecord: Equatable, Sendable {
         var panes: [PaneRecord]
     }
 
-    struct PaneRecord: Equatable {
+    struct PaneRecord: Equatable, Sendable {
         let id: UUID
         var content: PaneContentRecord
         var metadata: PaneMetadataRecord
@@ -16,7 +16,7 @@ extension WorkspaceCoreRepository {
         var updatedAt: Date
     }
 
-    enum PaneContentRecord: Equatable {
+    enum PaneContentRecord: Equatable, Sendable {
         case terminal(provider: SessionProvider, lifetime: SessionLifetime)
         case webview(url: URL, title: String, showNavigation: Bool)
         case codeViewer(filePath: URL, scrollToLine: Int?)
@@ -36,7 +36,7 @@ extension WorkspaceCoreRepository {
         }
     }
 
-    struct PaneMetadataRecord: Equatable {
+    struct PaneMetadataRecord: Equatable, Sendable {
         var source: PaneSourceRecord
         var executionBackend: ExecutionBackend
         var createdAt: Date
@@ -70,7 +70,7 @@ extension WorkspaceCoreRepository {
         }
     }
 
-    enum PaneSourceRecord: Equatable {
+    enum PaneSourceRecord: Equatable, Sendable {
         case worktree(repoId: UUID, worktreeId: UUID, launchDirectory: URL)
         case floating(launchDirectory: URL?)
 
@@ -102,7 +102,7 @@ extension WorkspaceCoreRepository {
         }
     }
 
-    struct DurableFacetsRecord: Equatable {
+    struct DurableFacetsRecord: Equatable, Sendable {
         var repoId: UUID?
         var worktreeId: UUID?
         var cwd: URL?
@@ -125,19 +125,19 @@ extension WorkspaceCoreRepository {
         }
     }
 
-    enum PaneResidencyRecord: Equatable {
+    enum PaneResidencyRecord: Equatable, Sendable {
         case active
         case backgrounded
         case pendingUndo(expiresAt: Date)
         case orphaned(worktreePath: String)
     }
 
-    enum PanePlacementRecord: Equatable {
+    enum PanePlacementRecord: Equatable, Sendable {
         case layout
         case drawerChild(parentPaneId: UUID)
     }
 
-    struct DrawerRecord: Equatable {
+    struct DrawerRecord: Equatable, Sendable {
         let drawerId: UUID
         let parentPaneId: UUID
         var childPaneIds: [UUID]

@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 import Testing
+import os
 
 @testable import AgentStudio
 
@@ -210,11 +211,11 @@ struct WorkspaceSQLiteStoreRecoveryTests {
                 updatedAt: Date(timeIntervalSince1970: 2)
             )
         )
-        var repairOpenCount = 0
+        let repairOpenCount = OSAllocatedUnfairLock<Int>(initialState: 0)
         let failingRestoreBackend = WorkspaceSQLiteStoreBackend(
             coreRepository: coreRepository,
             makeLocalRepository: { workspaceId in
-                repairOpenCount += 1
+                repairOpenCount.withLock { $0 += 1 }
                 let repairQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
                     label: "AgentStudio.sqlite.quarantine.failed.local.repair")
                 try WorkspaceLocalMigrations.migrate(repairQueue)
@@ -229,7 +230,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
 
         #expect(loaded.id == workspaceId)
         #expect(loaded.name == "Core Survives Quarantine Failure")
-        #expect(repairOpenCount == 0)
+        #expect(repairOpenCount.withLock { $0 } == 0)
     }
 
     @Test("legacy retry imports pending files without stealing active SQLite selection")

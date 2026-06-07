@@ -2,13 +2,13 @@ import CoreGraphics
 import Foundation
 import GRDB
 
-struct WorkspaceLocalRepository {
-    struct ArrangementDrawerCursorKey: Hashable, Equatable {
+struct WorkspaceLocalRepository: Sendable {
+    struct ArrangementDrawerCursorKey: Hashable, Equatable, Sendable {
         let arrangementId: UUID
         let drawerId: UUID
     }
 
-    struct CursorStateRecord: Equatable {
+    struct CursorStateRecord: Equatable, Sendable {
         var activeTabId: UUID?
         var activeArrangementIdsByTabId: [UUID: UUID?]
         var activePaneIdsByArrangementId: [UUID: UUID?]
@@ -16,26 +16,26 @@ struct WorkspaceLocalRepository {
         var activeChildIdsByArrangementDrawer: [ArrangementDrawerCursorKey: UUID?]
     }
 
-    struct WindowStateRecord: Equatable {
+    struct WindowStateRecord: Equatable, Sendable {
         var sidebarWidth: Double
         var windowFrame: CGRect?
     }
 
-    struct SidebarStateRecord: Equatable {
+    struct SidebarStateRecord: Equatable, Sendable {
         var filterText: String
         var isFilterVisible: Bool
         var sidebarCollapsed: Bool
         var sidebarSurface: SidebarSurface
     }
 
-    struct WorkspaceMemoryRecord: Equatable {
+    struct WorkspaceMemoryRecord: Equatable, Sendable {
         var windowState: WindowStateRecord?
         var sidebarState: SidebarStateRecord?
         var expandedGroups: Set<SidebarGroupKey>
         var recentTargets: [RecentWorkspaceTarget]
     }
 
-    struct CacheStateRecord: Equatable {
+    struct CacheStateRecord: Equatable, Sendable {
         var repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
         var pullRequestCountByWorktreeId: [UUID: Int]

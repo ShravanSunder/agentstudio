@@ -225,10 +225,10 @@ Append under "Step 0 Atomicity Matrix Tests":
   verifies failed local quarantine is not collapsed into recovered local state.
 - `WorkspaceSQLiteDatastoreActorTests.workspaceLoadReturnsFirstLocalRestoreRecoveryEvents`
   verifies recovery events produced by the first workspace restore opener are returned to the MainActor caller instead of being lost behind the actor cache.
-- `WorkspaceSQLiteDatastoreActorTests.inboxBootDrainsRecoveryEventsIfItIsFirstRestoreOpener`
-  verifies inbox boot returns local quarantine/recovery events when inbox is the first lane to open the local sidecar.
-- `WorkspaceSQLiteDatastoreActorTests.cacheRestoreDoesNotLoseRecoveryEventsAlreadyQueuedByWorkspaceLoad`
-  verifies later cache/UI/sidebar restore calls cannot silently drop events that workspace load already queued at the datastore actor.
+- `WorkspaceSQLiteDatastoreActorTests.restoreRepairUsesSaveRepositoryCache`
+  verifies local-snapshot repair uses the datastore actor's save-side repository cache instead of bypassing it with a fresh backend open.
+- `WorkspaceSQLiteDatastoreActorTests.workspaceStatusApisUseDatastoreBoundary`
+  verifies active SQLite status/readiness queries are exposed through the datastore actor without a MainActor store touching repositories directly.
 - `WorkspaceNotificationCountOwnershipTests.worktreeStatusChipsReadInboxProjection`
   verifies notification chips read inbox-owned unread counts, not repo-cache-restored stale counts.
 - `WorkspaceSQLiteSnapshotRoleTests.liveSQLiteSnapshotIsNotLegacyPersistableState`
@@ -1422,7 +1422,7 @@ save/open-for-write
 
 Do not collapse these into one cache method. That would bypass local quarantine handling on restore.
 
-- [ ] **Step 1: Write actor boundary tests**
+- [x] **Step 1: Write actor boundary tests**
 
 Create `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteDatastoreActorTests.swift`:
 
@@ -1530,7 +1530,7 @@ private actor DatastoreProbeRecorder {
 
 ```
 
-- [ ] **Step 2: Run the failing datastore tests**
+- [x] **Step 2: Run the failing datastore tests**
 
 Run:
 
@@ -1544,9 +1544,9 @@ Expected:
 FAIL: cannot find 'WorkspaceSQLiteDatastore' in scope
 ```
 
-- [ ] **Step 3: Add sendable inbox SQLite snapshot payloads**
+- [x] **Step 3: Add sendable inbox SQLite snapshot payloads**
 
-Before `WorkspaceSQLiteDatastore` references inbox payload types, add explicit sendable snapshots inside `InboxNotificationStore`:
+Add explicit sendable SQLite snapshots inside `InboxNotificationStore` for the feature-owned Task 7 routing seam:
 
 ```swift
 struct SQLiteSnapshot: Sendable, Equatable {
@@ -1563,9 +1563,9 @@ struct SQLiteLoadSnapshot: Sendable, Equatable {
 }
 ```
 
-This step does not route inbox persistence yet; it only creates the typed actor-boundary payloads needed for the datastore actor to compile in this task. The actual inbox store routing remains in Task 7.
+This step does not route inbox persistence yet. It only creates the typed payloads that the feature-owned Task 7 adapter will move across its datastore/local-lane boundary. `WorkspaceSQLiteDatastore` is a Core type and must not reference `InboxNotificationStore` or any other Feature type.
 
-- [ ] **Step 4: Implement the datastore actor**
+- [x] **Step 4: Implement the datastore actor**
 
 Create `Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift`:
 
@@ -1605,23 +1605,6 @@ actor WorkspaceSQLiteDatastore {
         case hasWorkspaceRows
         case empty
         case unavailable(WorkspaceSQLiteDatastoreFailure)
-    }
-
-    enum InboxSQLiteBootDecision: Sendable, Equatable {
-        case available(InboxSQLiteBootPolicy, recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
-    struct InboxSQLiteBootPolicy: Sendable, Equatable {
-        var hasSQLiteRepository: Bool
-        var allowLegacyFilePersistence: Bool
-        var allowLegacyFileImport: Bool
-        var canArchiveLegacyInboxFileAfterBlockedImport: Bool
-    }
-
-    enum InboxLoadResult: Sendable, Equatable {
-        case loaded(InboxNotificationStore.SQLiteLoadSnapshot, recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
     }
 
     private var backend: WorkspaceSQLiteStoreBackend?
@@ -1797,85 +1780,6 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    func makeInboxSQLiteBootDecision(workspaceId: UUID) async -> InboxSQLiteBootDecision {
-        do {
-            let backend = try resolvedBackend()
-            let localRepository = try await cachedRestoreLocalRepository(workspaceId: workspaceId)
-            let legacyImportDecision = try backend.localBackend.legacyImportDecision(
-                for: workspaceId,
-                lane: .local
-            )
-            let inboxRepository = InboxNotificationSQLiteRepository(
-                workspaceId: workspaceId,
-                databaseWriter: localRepository.databaseWriter
-            )
-            let hasMaterializedLegacyInboxImport = try inboxRepository.hasMaterializedLegacyImport()
-            return .available(
-                .init(
-                    hasSQLiteRepository: true,
-                    allowLegacyFilePersistence: true,
-                    allowLegacyFileImport: legacyImportDecision.allowsLegacyImport,
-                    canArchiveLegacyInboxFileAfterBlockedImport: legacyImportDecision.canArchiveLegacyFile
-                        && hasMaterializedLegacyInboxImport
-                ),
-                recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId)
-            )
-        } catch {
-            return .unavailable(.init(error), recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
-        }
-    }
-
-    func loadInboxNotifications(workspaceId: UUID) async -> InboxLoadResult {
-        do {
-            let repository = try await inboxNotificationRepositoryForRestore(workspaceId: workspaceId)
-            return .loaded(
-                .init(
-                    notifications: try repository.fetchNotifications(),
-                    collapsedGroups: try repository.fetchCollapsedGroups(),
-                    hasPersistedState: try repository.hasPersistedState(),
-                    hasMaterializedLegacyImport: try repository.hasMaterializedLegacyImport()
-                ),
-                recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId)
-            )
-        } catch {
-            return .unavailable(.init(error), recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
-        }
-    }
-
-    func saveInboxNotifications(
-        _ snapshot: InboxNotificationStore.SQLiteSnapshot,
-        workspaceId: UUID
-    ) async throws {
-        let repository = try await inboxNotificationRepositoryForSave(workspaceId: workspaceId)
-        if snapshot.markLegacyImport {
-            try repository.replaceLegacyImportSnapshot(
-                notifications: snapshot.notifications,
-                collapsedGroups: snapshot.collapsedGroups
-            )
-        } else {
-            try repository.replaceSnapshot(
-                notifications: snapshot.notifications,
-                collapsedGroups: snapshot.collapsedGroups
-            )
-        }
-    }
-
-    private func inboxNotificationRepositoryForRestore(workspaceId: UUID) async throws -> InboxNotificationSQLiteRepository {
-        let localRepository = try await cachedRestoreLocalRepository(workspaceId: workspaceId)
-        return InboxNotificationSQLiteRepository(
-            workspaceId: workspaceId,
-            databaseWriter: localRepository.databaseWriter
-        )
-    }
-
-    private func inboxNotificationRepositoryForSave(workspaceId: UUID) async throws -> InboxNotificationSQLiteRepository {
-        let localRepository = try await cachedSaveLocalRepository(workspaceId: workspaceId)
-        return InboxNotificationSQLiteRepository(
-            workspaceId: workspaceId,
-            databaseWriter: localRepository.databaseWriter
-        )
-    }
-
     private func cachedRestoreLocalRepository(workspaceId: UUID) async throws -> WorkspaceLocalRepository {
         if let repository = restoreLocalRepositoryCache[workspaceId] {
             return repository
@@ -1959,7 +1863,16 @@ struct WorkspaceSQLiteDatastoreFailure: Error, Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 5: Make backend non-MainActor and remove backend-owned local opening**
+Core/Feature DAG correction: do not copy any inbox-specific repository calls
+into `WorkspaceSQLiteDatastore`. `Core` must not import the InboxNotification
+feature slice. Task 6 implements the workspace/core SQLite actor surface only.
+Task 7 routes feature-owned local lanes either through feature-owned adapters in
+`App/` or through generic datastore local-lane operations that accept
+feature-provided `@Sendable` closures. The datastore may own local repository
+opening/caching; it must not name `InboxNotificationStore` or
+`InboxNotificationSQLiteRepository` from a Core file.
+
+- [x] **Step 5: Make backend non-MainActor and remove backend-owned local opening**
 
 Remove `@MainActor` from `WorkspaceSQLiteStoreBackend` and move MainActor-only legacy import decision calls out of backend methods that can run on the datastore actor. Keep `WorkspaceLocalSQLiteLegacyImportDecision` as `Sendable` enum values.
 
@@ -1980,7 +1893,13 @@ WorkspaceSQLiteStoreBackendFactory.localDatabaseURL
 
 These closures must become `@Sendable` and non-MainActor. `AppDataPaths.workspaceLocalSQLiteURL(workspaceId:)` is usable from the actor, so the URL closure does not need MainActor isolation.
 
-Move SQLite backend bootstrap/open/migration off MainActor as well. `WorkspaceSQLiteStoreBackendFactory.openBackend()` must be actor-usable and must not synchronously report recovery through `PersistenceRecoveryReporter`. Production datastore construction passes a sendable `WorkspaceSQLiteDatastoreConfiguration` into `WorkspaceSQLiteDatastore`; the actor lazily opens/migrates core and local repositories on its own executor. Test-only initializers may still pass in-memory repositories directly.
+Move production SQLite backend bootstrap/open/migration off MainActor as well.
+`WorkspaceSQLiteDatastoreFactory` only builds a sendable
+`WorkspaceSQLiteDatastoreConfiguration`; it does not open GRDB pools. The
+datastore actor lazily opens/migrates core and local repositories on its own
+executor. `WorkspaceSQLiteStoreBackendFactory` remains a compatibility path
+until Task 7 removes direct backend use from MainActor stores. Test-only
+initializers may still pass in-memory repositories directly.
 
 Move quarantine/recovery reporting out of synchronous local-repository open closures. `PersistenceRecoveryReporter` is `@MainActor`; actor-run restore/open code must return `PersistenceRecoveryEvent` values or typed recovery outcomes, and the MainActor caller records them.
 
@@ -1988,8 +1907,7 @@ Because the first local restore open normally happens during `loadCanonicalStore
 
 ```text
 loadWorkspaceSnapshot
-makeInboxSQLiteBootDecision
-loadInboxNotifications
+feature-owned inbox SQLite adapter boot/load calls
 loadRepoCacheState
 loadUIState
 loadSidebarState
@@ -2053,11 +1971,11 @@ WorkspaceSQLiteDatastoreActorTests.restoreRepairUsesSaveRepositoryCache
 WorkspaceSQLiteStoreRecoveryTests.localCorruptionStillRestoresWithDefaultState
 WorkspaceSQLiteStoreRecoveryTests.quarantineFailureDoesNotRepairOrReopenBadLocalSidecar
 WorkspaceSQLiteDatastoreActorTests.workspaceLoadReturnsFirstLocalRestoreRecoveryEvents
-WorkspaceSQLiteDatastoreActorTests.inboxBootDrainsRecoveryEventsIfItIsFirstRestoreOpener
-WorkspaceSQLiteDatastoreActorTests.cacheRestoreDoesNotLoseRecoveryEventsAlreadyQueuedByWorkspaceLoad
+WorkspaceSQLiteDatastoreActorTests.restoreRepairUsesSaveRepositoryCache
+WorkspaceSQLiteDatastoreActorTests.workspaceStatusApisUseDatastoreBoundary
 ```
 
-- [ ] **Step 6: Create datastore factory**
+- [x] **Step 6: Create datastore factory**
 
 Create `Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastoreFactory.swift`:
 
@@ -2087,7 +2005,7 @@ struct WorkspaceSQLiteDatastoreFactory {
 
 This factory is intentionally not `@MainActor` and does not open GRDB pools. AppDelegate may create it from MainActor, but SQLite open/migration happens only when the datastore actor resolves its backend.
 
-- [ ] **Step 7: Run datastore and backend tests**
+- [x] **Step 7: Run datastore and backend tests**
 
 Run:
 
@@ -2103,7 +2021,7 @@ Expected:
 All selected tests pass.
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift \
@@ -2410,9 +2328,13 @@ InboxNotificationStoreSQLiteBoundaryTests.saveUsesDatastoreActor
 
 The tests inject a probe datastore and assert the relevant actor API is called. They also assert legacy replay/archive decisions are honored when SQLite state is missing. They include a source-boundary assertion that these stores no longer reference `WorkspaceLocalSQLiteStoreBackend`.
 
-- [ ] **Step 6: Route inbox notification SQLite through datastore**
+- [ ] **Step 6: Route inbox notification SQLite through datastore without breaking the Core/Feature DAG**
 
-Change `InboxNotificationStore` so SQLite mode receives `WorkspaceSQLiteDatastore?` plus `workspaceId` instead of `InboxNotificationSQLiteRepository?`.
+Change `InboxNotificationStore` so SQLite mode no longer receives or stores a
+raw `InboxNotificationSQLiteRepository?`. Do not add InboxNotification
+repository types to `WorkspaceSQLiteDatastore` in Core. Route this lane through
+a feature-owned adapter or a generic datastore local-lane operation supplied
+from `App/`/Feature code.
 
 Use the explicit sendable inbox snapshots added in Task 6. If implementation reveals a missing field, extend these payload types in this task before routing the store:
 
@@ -2435,16 +2357,19 @@ Rewrite the SQLite branches:
 
 ```text
 load()
-    -> await datastore.loadInboxNotifications(workspaceId:)
+    -> await feature-owned adapter/datastore local-lane closure load inbox SQLite
     -> apply SQLiteLoadSnapshot on MainActor
-    -> if no SQLite state and legacy import allowed, decode legacy JSON on MainActor and call datastore.saveInboxNotifications(... markLegacyImport: true)
+    -> if no SQLite state and legacy import allowed, decode legacy JSON on MainActor and save through the adapter/local-lane closure with markLegacyImport: true
 
 save()/flush()
     -> capture SQLiteSnapshot on MainActor
-    -> await datastore.saveInboxNotifications(snapshot, workspaceId:)
+    -> await feature-owned adapter/datastore local-lane closure save inbox SQLite
 ```
 
-Remove `InboxNotificationSQLiteRepository` from `InboxNotificationStore` stored properties. The repository is actor-internal to `WorkspaceSQLiteDatastore`.
+Remove `InboxNotificationSQLiteRepository` from `InboxNotificationStore` stored
+properties. The repository remains feature-owned and is constructed inside the
+feature adapter/local-lane closure that runs on the datastore actor; it is not
+actor-internal Core state.
 
 Update `AppDelegate+InboxNotificationBoot.swift`:
 
@@ -2455,11 +2380,11 @@ bootLoadInboxNotificationStore(persistor:)
 makeInboxNotificationSQLiteRepository(...)
     -> delete
 
-workspaceSQLiteDatastore?.makeInboxSQLiteBootDecision(workspaceId:)
+feature-owned inbox SQLite datastore adapter boot decision
     -> controls allowLegacyFilePersistence / allowLegacyFileImport / archive readiness
 
 InboxNotificationStore(...)
-    -> receives sqliteDatastore: workspaceSQLiteDatastore, workspaceId: workspaceId
+    -> receives the feature-owned inbox SQLite adapter plus workspaceId
 ```
 
 Delete `workspaceLocalSQLiteStoreBackend` from `AppDelegate` unconditionally in this task. No AppDelegate boot path should keep a raw local SQLite backend.

@@ -7,15 +7,14 @@ private let workspaceSQLiteBackendFactoryLogger = Logger(
     category: "WorkspaceSQLiteStoreBackendFactory"
 )
 
-@MainActor
 struct WorkspaceSQLiteStoreBackendFactory {
     var coreDatabaseURL: URL
-    var localDatabaseURL: @MainActor (UUID) -> URL
+    var localDatabaseURL: @Sendable (UUID) -> URL
     var recoveryReporter: PersistenceRecoveryReporter?
 
     init(
         coreDatabaseURL: URL = AppDataPaths.coreSQLiteURL(),
-        localDatabaseURL: @escaping @MainActor (UUID) -> URL = { workspaceId in
+        localDatabaseURL: @escaping @Sendable (UUID) -> URL = { workspaceId in
             AppDataPaths.workspaceLocalSQLiteURL(workspaceId: workspaceId)
         },
         recoveryReporter: PersistenceRecoveryReporter? = nil
@@ -25,6 +24,7 @@ struct WorkspaceSQLiteStoreBackendFactory {
         self.recoveryReporter = recoveryReporter
     }
 
+    @MainActor
     func makeBackend() -> WorkspaceSQLiteStoreBackend? {
         do {
             return try openBackend()
@@ -64,6 +64,7 @@ struct WorkspaceSQLiteStoreBackendFactory {
         }
     }
 
+    @MainActor
     private func openBackend() throws -> WorkspaceSQLiteStoreBackend {
         let coreDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
             at: coreDatabaseURL,
@@ -89,14 +90,15 @@ struct WorkspaceSQLiteStoreBackendFactory {
                     let quarantine = SQLiteSidecarQuarantine.quarantine(
                         databaseURL: localDatabaseURL(workspaceId)
                     )
-                    recoveryReporter?(
-                        .init(
-                            store: .workspace,
-                            workspaceId: workspaceId,
-                            recovery: quarantine.succeeded ? .quarantinedAndReset : .quarantineFailed,
-                            quarantinedFilename: quarantine.recoveryFilename
-                        )
+                    let recoveryEvent = PersistenceRecoveryEvent(
+                        store: .workspace,
+                        workspaceId: workspaceId,
+                        recovery: quarantine.succeeded ? .quarantinedAndReset : .quarantineFailed,
+                        quarantinedFilename: quarantine.recoveryFilename
                     )
+                    MainActor.assumeIsolated {
+                        recoveryReporter?(recoveryEvent)
+                    }
                     guard quarantine.succeeded else {
                         throw WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(workspaceId)
                     }

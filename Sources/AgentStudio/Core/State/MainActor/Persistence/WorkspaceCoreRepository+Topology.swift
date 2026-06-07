@@ -2,13 +2,13 @@ import Foundation
 import GRDB
 
 extension WorkspaceCoreRepository {
-    struct RepositoryTopologyRecord: Equatable {
+    struct RepositoryTopologyRecord: Equatable, Sendable {
         var watchedPaths: [WatchedPathRecord]
         var repos: [RepoRecord]
         var unavailableRepoIds: Set<UUID>
     }
 
-    struct WatchedPathRecord: Equatable {
+    struct WatchedPathRecord: Equatable, Sendable {
         let id: UUID
         var path: URL
         let stableKey: String
@@ -27,7 +27,7 @@ extension WorkspaceCoreRepository {
         }
     }
 
-    struct RepoRecord: Equatable {
+    struct RepoRecord: Equatable, Sendable {
         let id: UUID
         var name: String
         var repoPath: URL
@@ -52,7 +52,7 @@ extension WorkspaceCoreRepository {
         }
     }
 
-    struct WorktreeRecord: Equatable {
+    struct WorktreeRecord: Equatable, Sendable {
         let id: UUID
         let repoId: UUID
         var name: String

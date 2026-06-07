@@ -2,22 +2,22 @@ import Foundation
 import GRDB
 
 extension WorkspaceCoreRepository {
-    struct TabShellRecord: Equatable {
+    struct TabShellRecord: Equatable, Sendable {
         let id: UUID
         var name: String
     }
 
-    struct TabGraphRecord: Equatable {
+    struct TabGraphRecord: Equatable, Sendable {
         var tabs: [TabGraphStateRecord]
     }
 
-    struct TabGraphStateRecord: Equatable {
+    struct TabGraphStateRecord: Equatable, Sendable {
         let tabId: UUID
         var allPaneIds: [UUID]
         var arrangements: [TabArrangementGraphRecord]
     }
 
-    struct TabArrangementGraphRecord: Equatable {
+    struct TabArrangementGraphRecord: Equatable, Sendable {
         let id: UUID
         var name: String
         var isDefault: Bool
@@ -27,7 +27,7 @@ extension WorkspaceCoreRepository {
         var drawerViews: [UUID: DrawerViewGraphRecord]
     }
 
-    struct DrawerViewGraphRecord: Equatable {
+    struct DrawerViewGraphRecord: Equatable, Sendable {
         var layout: DrawerGridLayout
         var minimizedPaneIds: Set<UUID>
     }

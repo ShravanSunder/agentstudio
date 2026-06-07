@@ -1,7 +1,6 @@
 import CoreGraphics
 import Foundation
 
-@MainActor
 struct WorkspaceSQLiteStoreBackend {
     enum LoadResult {
         case loaded(WorkspaceSQLiteSnapshot)
@@ -18,10 +17,18 @@ struct WorkspaceSQLiteStoreBackend {
 
     init(
         coreRepository: WorkspaceCoreRepository,
-        makeLocalRepository: @escaping (UUID) throws -> WorkspaceLocalRepository,
-        makeLocalRestoreRepository: ((UUID) throws -> WorkspaceLocalRepository)? = nil,
+        localBackend: WorkspaceLocalSQLiteStoreBackend
+    ) {
+        self.coreRepository = coreRepository
+        self.localBackend = localBackend
+    }
+
+    init(
+        coreRepository: WorkspaceCoreRepository,
+        makeLocalRepository: @escaping @Sendable (UUID) throws -> WorkspaceLocalRepository,
+        makeLocalRestoreRepository: (@Sendable (UUID) throws -> WorkspaceLocalRepository)? = nil,
         legacyImportDecision:
-            @escaping @MainActor (
+            @escaping @Sendable (
                 UUID,
                 WorkspaceLocalSQLiteLegacyLane
             ) throws -> WorkspaceLocalSQLiteLegacyImportDecision = { _, _ in .allowImport
@@ -120,7 +127,7 @@ struct WorkspaceSQLiteStoreBackend {
         return WorkspacePersistenceTransformer.sqliteSnapshot(from: state)
     }
 
-    private func readLocalSnapshot(
+    func readLocalSnapshot(
         _ localRepository: WorkspaceLocalRepository?,
         matching coreCompletedAt: Date
     ) -> WorkspaceLocalSnapshotRead {
@@ -282,7 +289,7 @@ struct WorkspaceSQLiteStoreBackend {
         try coreRepository.selectActiveWorkspace(workspaceId, updatedAt: updatedAt)
     }
 
-    private func resolvedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
+    func resolvedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
         do {
             if let activeWorkspaceId = try coreRepository.fetchActiveWorkspaceId() {
                 if try coreRepository.hasCompletedWorkspaceSQLiteSnapshot(workspaceId: activeWorkspaceId) {
@@ -316,7 +323,7 @@ struct WorkspaceSQLiteStoreBackend {
     }
 }
 
-private enum WorkspaceLocalSnapshotRead {
+enum WorkspaceLocalSnapshotRead {
     case matched(
         cursorState: WorkspaceLocalRepository.CursorStateRecord,
         windowState: WorkspaceLocalRepository.WindowStateRecord?
@@ -325,21 +332,19 @@ private enum WorkspaceLocalSnapshotRead {
     case unavailable(any Error)
 }
 
-private enum LocalSnapshotRepairDisposition {
+enum LocalSnapshotRepairDisposition {
     case repairAllowed
     case repairBlockedByQuarantineFailure
 }
 
-private struct BackendUninitializedError: Error {}
+struct BackendUninitializedError: Error {}
 
-@MainActor
-enum WorkspaceLocalSQLiteLegacyLane {
+enum WorkspaceLocalSQLiteLegacyLane: Sendable {
     case local
     case cache
 }
 
-@MainActor
-enum WorkspaceLocalSQLiteLegacyImportDecision {
+enum WorkspaceLocalSQLiteLegacyImportDecision: Sendable {
     case allowImport
     case blockReplayAllowArchive
     case blockReplayBlockArchive
@@ -363,20 +368,20 @@ enum WorkspaceLocalSQLiteLegacyImportDecision {
     }
 }
 
-struct WorkspaceLocalSQLiteStoreBackend {
-    private let makeLocalRepository: (UUID) throws -> WorkspaceLocalRepository
-    private let makeLocalRestoreRepository: (UUID) throws -> WorkspaceLocalRepository
+struct WorkspaceLocalSQLiteStoreBackend: Sendable {
+    private let makeLocalRepository: @Sendable (UUID) throws -> WorkspaceLocalRepository
+    private let makeLocalRestoreRepository: @Sendable (UUID) throws -> WorkspaceLocalRepository
     private let makeLegacyImportDecision:
-        @MainActor (
+        @Sendable (
             UUID,
             WorkspaceLocalSQLiteLegacyLane
         ) throws -> WorkspaceLocalSQLiteLegacyImportDecision
 
     init(
-        makeLocalRepository: @escaping (UUID) throws -> WorkspaceLocalRepository,
-        makeLocalRestoreRepository: ((UUID) throws -> WorkspaceLocalRepository)? = nil,
+        makeLocalRepository: @escaping @Sendable (UUID) throws -> WorkspaceLocalRepository,
+        makeLocalRestoreRepository: (@Sendable (UUID) throws -> WorkspaceLocalRepository)? = nil,
         legacyImportDecision:
-            @escaping @MainActor (
+            @escaping @Sendable (
                 UUID,
                 WorkspaceLocalSQLiteLegacyLane
             ) throws -> WorkspaceLocalSQLiteLegacyImportDecision = { _, _ in .allowImport
@@ -397,12 +402,10 @@ struct WorkspaceLocalSQLiteStoreBackend {
         try makeLocalRepository(workspaceId)
     }
 
-    @MainActor
     func restoreRepository(for workspaceId: UUID) throws -> WorkspaceLocalRepository {
         try makeLocalRestoreRepository(workspaceId)
     }
 
-    @MainActor
     func legacyImportDecision(
         for workspaceId: UUID,
         lane: WorkspaceLocalSQLiteLegacyLane
