@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -180,42 +181,66 @@ struct AppBootSequenceTests {
         )
     }
 
-    @Test("boot archives legacy workspace files after SQLite-backed stores load")
-    func bootArchivesLegacyWorkspaceFilesAfterSQLiteBackedStoresLoad() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let bootSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
-            encoding: .utf8
+    @Test("boot archive coordinator marks companion imports before archiving legacy workspace files")
+    func bootArchiveCoordinatorMarksCompanionImportsBeforeArchivingLegacyWorkspaceFiles() async throws {
+        let workspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.boot.archive.core")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+        let localRoot = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: localRoot, withIntermediateDirectories: true)
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { workspaceId in
+                let localURL = localRoot.appending(path: "\(workspaceId.uuidString).local.sqlite")
+                let localPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+                    at: localURL,
+                    label: "AgentStudio.boot.archive.local.\(workspaceId.uuidString)"
+                )
+                try WorkspaceLocalMigrations.migrate(localPool)
+                return WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localPool)
+            }
+        )
+        try await datastore.saveWorkspaceSnapshot(
+            .emptyFixture(
+                id: workspaceId,
+                name: "Archive Ready",
+                updatedAt: Date(timeIntervalSince1970: 1_700_004_000)
+            )
+        )
+        let persistor = WorkspacePersistor(
+            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        )
+        #expect(persistor.ensureDirectory())
+        try persistor.save(.init(id: workspaceId, name: "Legacy Archive Candidate"))
+        try persistor.saveCache(.init(workspaceId: workspaceId))
+        try persistor.saveUI(.init(workspaceId: workspaceId))
+        try persistor.saveSidebarCache(.init(workspaceId: workspaceId))
+        try coreRepository.markLegacyWorkspaceCoreImported(
+            workspaceId: workspaceId,
+            sourceStatePath: persistor.canonicalWorkspaceStatePath(for: workspaceId),
+            importedAt: Date(timeIntervalSince1970: 1_700_004_005)
         )
 
-        #expect(bootSource.contains("await bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)"))
-        #expect(bootSource.contains("guard let workspaceSQLiteDatastore else { return }"))
-        #expect(bootSource.contains("workspaceSQLiteDatastore.hasCompletedSnapshot("))
-        #expect(bootSource.contains("workspaceId: store.identityAtom.workspaceId"))
-        #expect(bootSource.contains("guard canArchiveLegacyCompanionFiles else"))
-        #expect(bootSource.contains("repoCacheStore.canArchiveLegacyCacheFile"))
-        #expect(bootSource.contains("sidebarCacheStore.canArchiveLegacySidebarCacheFile"))
-        #expect(bootSource.contains("uiStateStore.canArchiveLegacyUIFile"))
-        #expect(bootSource.contains("workspaceSettingsStore.canArchiveLegacySettingsFiles"))
-        #expect(bootSource.contains("canArchiveLegacyInboxFile"))
-        #expect(
-            bootSource.contains(
-                "workspaceSQLiteDatastore.markLegacyWorkspaceCompanionImportsCompleted("))
-        #expect(bootSource.contains("workspaceSQLiteDatastore.markLegacyWorkspaceArchived("))
-        let uiLoadRange = try #require(
-            bootSource.range(of: "await bootLoadInboxNotificationStore(persistor: persistor)"))
-        let archiveRange = try #require(
-            bootSource.range(of: "await bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)")
+        let outcome = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
+            workspaceId: workspaceId,
+            persistor: persistor,
+            sqliteDatastore: datastore,
+            canArchiveLegacyCompanionFiles: true,
+            now: { Date(timeIntervalSince1970: 1_700_004_010) }
         )
-        #expect(uiLoadRange.upperBound < archiveRange.lowerBound)
 
-        let companionStatusRange = try #require(
-            bootSource.range(of: "workspaceSQLiteDatastore.markLegacyWorkspaceCompanionImportsCompleted(")
-        )
-        let archiveFilesRange = try #require(
-            bootSource.range(of: "persistor.archiveLegacyWorkspaceFiles(for: store.identityAtom.workspaceId)")
-        )
-        #expect(companionStatusRange.upperBound < archiveFilesRange.lowerBound)
+        guard case .archived = outcome else {
+            Issue.record("Expected legacy workspace files to archive, got \(outcome)")
+            return
+        }
+        let importStatus = try #require(
+            try coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId))
+        #expect(importStatus.settingsImportedAt != nil)
+        #expect(importStatus.localImportedAt != nil)
+        #expect(importStatus.cacheImportedAt != nil)
+        #expect(importStatus.archivedAt != nil)
+        #expect(!persistor.hasLegacyWorkspaceFiles(for: workspaceId))
     }
 
     @Test("legacy workspace archive readiness requires completed SQLite and companion import proof")

@@ -125,10 +125,17 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         let coreCompletedAt = Date(timeIntervalSince1970: 1_700_000_315)
+        let firstPane = makeRecoveryTestPane(title: "First Default Pane")
+        let secondPane = makeRecoveryTestPane(title: "Second Default Pane")
+        let firstTab = Tab(paneId: firstPane.id, name: "First Default Tab")
+        let secondTab = Tab(paneId: secondPane.id, name: "Second Default Tab")
         try fixture.backend.save(
             .init(
                 id: workspaceId,
                 name: "Repair Local Completion",
+                panes: [firstPane, secondPane],
+                tabs: [firstTab, secondTab],
+                activeTabId: secondTab.id,
                 sidebarWidth: 315,
                 createdAt: Date(timeIntervalSince1970: 1_700_000_305),
                 updatedAt: coreCompletedAt
@@ -153,6 +160,16 @@ struct WorkspaceSQLiteStoreRecoveryTests {
 
         #expect(loaded.id == workspaceId)
         #expect(loaded.sidebarWidth == 250)
+        #expect(loaded.activeTabId == firstTab.id)
+        #expect(loaded.tabs.first?.id == firstTab.id)
+        #expect(loaded.tabs.allSatisfy { $0.activeArrangementId == $0.arrangements.first?.id })
+        #expect(
+            loaded.tabs.flatMap(\.arrangements).allSatisfy { arrangement in
+                arrangement.activePaneId
+                    == (arrangement.layout.paneIds.first { !arrangement.minimizedPaneIds.contains($0) }
+                        ?? arrangement.layout.paneIds.first)
+            }
+        )
         #expect(try fixture.backend.hasCompletedSnapshot(workspaceId: workspaceId))
     }
 
@@ -270,6 +287,9 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == importedWorkspaceId)
         #expect(try fixture.coreRepository.fetchWorkspace(id: importedWorkspaceId) != nil)
         #expect(try fixture.coreRepository.fetchWorkspace(id: retryWorkspaceId) != nil)
+        #expect(fixture.localDatabaseURL(for: importedWorkspaceId) != fixture.localDatabaseURL(for: retryWorkspaceId))
+        #expect(FileManager.default.fileExists(atPath: fixture.localDatabaseURL(for: importedWorkspaceId).path))
+        #expect(FileManager.default.fileExists(atPath: fixture.localDatabaseURL(for: retryWorkspaceId).path))
     }
 
     @Test("legacy retry materialization does not rewrite active selection")
@@ -438,8 +458,12 @@ private struct WorkspaceSQLiteRecoveryFixture {
 
 private struct WorkspaceSQLiteRetryFixture {
     let coreQueue: DatabaseQueue
-    let localQueue: DatabaseQueue
+    let localRoot: URL
     let coreRepository: WorkspaceCoreRepository
+
+    func localDatabaseURL(for workspaceId: UUID) -> URL {
+        localRoot.appending(path: "\(workspaceId.uuidString).local.sqlite")
+    }
 
     @MainActor
     func backend(failingWorkspaceId: UUID? = nil) -> WorkspaceSQLiteStoreBackend {
@@ -449,7 +473,12 @@ private struct WorkspaceSQLiteRetryFixture {
                 if workspaceId == failingWorkspaceId {
                     throw WorkspaceSQLiteRecoveryTestError.injectedLocalRepositoryFailure
                 }
-                return WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
+                let localPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+                    at: localDatabaseURL(for: workspaceId),
+                    label: "AgentStudio.sqlite.retry.local.\(workspaceId.uuidString)"
+                )
+                try WorkspaceLocalMigrations.migrate(localPool)
+                return WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localPool)
             }
         )
     }
@@ -457,6 +486,20 @@ private struct WorkspaceSQLiteRetryFixture {
 
 private enum WorkspaceSQLiteRecoveryTestError: Error {
     case injectedLocalRepositoryFailure
+}
+
+private func makeRecoveryTestPane(title: String) -> Pane {
+    let paneId = UUIDv7.generate()
+    return Pane(
+        id: paneId,
+        content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
+        metadata: PaneMetadata(
+            paneId: PaneId(uuid: paneId),
+            source: .floating(launchDirectory: nil, title: title),
+            createdAt: Date(timeIntervalSince1970: 1_700_000_304),
+            title: title
+        )
+    )
 }
 
 @MainActor
@@ -484,12 +527,12 @@ private func makeRecoveryFixture(workspaceId: UUID) throws -> WorkspaceSQLiteRec
 @MainActor
 private func makeRetryFixture() async throws -> WorkspaceSQLiteRetryFixture {
     let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.retry.core")
-    let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.retry.local")
+    let localRoot = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: localRoot, withIntermediateDirectories: true)
     try WorkspaceCoreMigrations.migrate(coreQueue)
-    try WorkspaceLocalMigrations.migrate(localQueue)
     return .init(
         coreQueue: coreQueue,
-        localQueue: localQueue,
+        localRoot: localRoot,
         coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue)
     )
 }

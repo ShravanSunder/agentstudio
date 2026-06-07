@@ -193,59 +193,36 @@ extension AppDelegate {
     }
 
     private func bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: WorkspacePersistor) async {
-        let hasSQLiteBackend = workspaceSQLiteDatastore != nil
-        guard let workspaceSQLiteDatastore else { return }
-        let hasCompletedSnapshot: Bool
-        do {
-            hasCompletedSnapshot = try await workspaceSQLiteDatastore.hasCompletedSnapshot(
-                workspaceId: store.identityAtom.workspaceId
-            )
-        } catch {
-            appLogger.warning(
-                "Skipping legacy workspace archive; SQLite snapshot status unavailable: \(error.localizedDescription)")
-            return
-        }
-        let hasLegacyWorkspaceFiles = persistor.hasLegacyWorkspaceFiles(for: store.identityAtom.workspaceId)
-        let shouldArchiveLegacyFiles = WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
-            hasSQLiteBackend: hasSQLiteBackend,
-            hasCompletedSnapshot: hasCompletedSnapshot,
-            hasLegacyWorkspaceFiles: hasLegacyWorkspaceFiles,
+        let outcome = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
+            workspaceId: store.identityAtom.workspaceId,
+            persistor: persistor,
+            sqliteDatastore: workspaceSQLiteDatastore,
             canArchiveLegacyCompanionFiles: canArchiveLegacyCompanionFiles
         )
-        guard canArchiveLegacyCompanionFiles else {
+        switch outcome {
+        case .skipped(.missingSQLiteDatastore), .skipped(.notReady), .skipped(.noLegacyFiles):
+            return
+        case .skipped(.snapshotStatusUnavailable(let failure)):
+            appLogger.warning(
+                "Skipping legacy workspace archive; SQLite snapshot status unavailable: \(failure.description)"
+            )
+        case .skipped(.incompleteCompanionImports):
             appLogger.warning(
                 "Skipping legacy workspace archive; one or more legacy companion files have not been restored into SQLite/settings"
             )
-            return
-        }
-        guard shouldArchiveLegacyFiles else { return }
-        do {
-            try await workspaceSQLiteDatastore.markLegacyWorkspaceCompanionImportsCompleted(
-                workspaceId: store.identityAtom.workspaceId,
-                importedAt: Date()
-            )
-        } catch {
+        case .skipped(.companionStatusUpdateFailed(let failure)):
             appLogger.warning(
-                "Skipping legacy workspace archive; companion import status update failed: \(error.localizedDescription)"
+                "Skipping legacy workspace archive; companion import status update failed: \(failure.description)"
             )
-            return
-        }
-        guard let result = persistor.archiveLegacyWorkspaceFiles(for: store.identityAtom.workspaceId) else { return }
-        if result.succeeded {
-            do {
-                try await workspaceSQLiteDatastore.markLegacyWorkspaceArchived(
-                    workspaceId: store.identityAtom.workspaceId,
-                    archivedAt: Date()
-                )
-            } catch {
-                appLogger.warning(
-                    "Legacy workspace files archived, but archived_at status update failed: \(error.localizedDescription)"
-                )
-            }
+        case .archived(let directoryName):
             appLogger.info(
-                "Archived legacy workspace files into legacy-imported/\(result.archiveDirectoryName, privacy: .public)"
+                "Archived legacy workspace files into legacy-imported/\(directoryName, privacy: .public)"
             )
-        } else {
+        case .archivedButStatusUpdateFailed(let directoryName, let failure):
+            appLogger.warning(
+                "Legacy workspace files archived into legacy-imported/\(directoryName, privacy: .public), but archived_at status update failed: \(failure.description)"
+            )
+        case .archiveIncomplete(let result):
             appLogger.warning(
                 "Legacy workspace archive incomplete. Archived: \(result.archivedFilenames.joined(separator: ","), privacy: .public). Failed: \(result.failedFilenames.joined(separator: ","), privacy: .public). Incomplete archive directories: \(result.incompleteArchiveDirectoryNames.joined(separator: ","), privacy: .public)"
             )
