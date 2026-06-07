@@ -21,6 +21,16 @@ struct WorkspacePersistor {
         }
     }
 
+    struct LegacyArchiveResult: Sendable, Equatable {
+        let archiveDirectoryName: String
+        let archivedFilenames: [String]
+        let failedFilenames: [String]
+
+        var succeeded: Bool {
+            !archivedFilenames.isEmpty && failedFilenames.isEmpty
+        }
+    }
+
     /// Distinguishes "no file found" from "file exists but is corrupt" on load.
     enum LoadResult<T> {
         case loaded(T)
@@ -236,6 +246,56 @@ struct WorkspacePersistor {
     }
 
     @discardableResult
+    func archiveLegacyWorkspaceFiles(for workspaceId: UUID) -> LegacyArchiveResult? {
+        let candidates = legacyWorkspaceFileURLs(for: workspaceId)
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !candidates.isEmpty else { return nil }
+
+        let archiveDirectoryName = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let archiveDirectory =
+            workspacesDir
+            .appending(path: "legacy-imported")
+            .appending(path: archiveDirectoryName)
+        do {
+            try FileManager.default.createDirectory(
+                at: archiveDirectory,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            persistorLogger.error(
+                "Failed to create legacy workspace archive directory \(archiveDirectory.path): \(error)"
+            )
+            return LegacyArchiveResult(
+                archiveDirectoryName: archiveDirectoryName,
+                archivedFilenames: [],
+                failedFilenames: candidates.map(\.lastPathComponent)
+            )
+        }
+
+        var archivedFilenames: [String] = []
+        var failedFilenames: [String] = []
+        for sourceURL in candidates {
+            let destinationURL = archiveDirectory.appending(path: sourceURL.lastPathComponent)
+            do {
+                try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+                archivedFilenames.append(sourceURL.lastPathComponent)
+            } catch {
+                failedFilenames.append(sourceURL.lastPathComponent)
+                persistorLogger.error(
+                    "Failed to archive legacy workspace file \(sourceURL.lastPathComponent): \(error)"
+                )
+            }
+        }
+
+        return LegacyArchiveResult(
+            archiveDirectoryName: archiveDirectoryName,
+            archivedFilenames: archivedFilenames,
+            failedFilenames: failedFilenames
+        )
+    }
+
+    @discardableResult
     private func quarantineCorruptFile(
         sourceURL: URL,
         fileName: (String) -> String,
@@ -292,6 +352,16 @@ struct WorkspacePersistor {
             ]
         )
         return candidates
+    }
+
+    private func legacyWorkspaceFileURLs(for workspaceId: UUID) -> [URL] {
+        [
+            canonicalFileURL(for: workspaceId),
+            cacheFileURL(for: workspaceId),
+            uiFileURL(for: workspaceId),
+            sidebarCacheFileURL(for: workspaceId),
+            inboxFileURL(for: workspaceId),
+        ]
     }
 
     private func workspaceIdFromCanonicalFile(_ url: URL) -> UUID? {

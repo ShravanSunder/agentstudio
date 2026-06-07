@@ -184,6 +184,10 @@ SQLite repositories land:
   unsupported legacy data, not silently interpreted as v1
 - partial legacy import resumes if the app crashes after core rows commit but
   before settings/local/cache companion files import
+- workspace SQLite restore refuses partial core/local snapshots when workspace
+  rows exist without `workspace_sqlite_snapshot_status`
+- SQLite restore/read failures report recovery and do not replay stale legacy
+  JSON over newer SQLite rows
 - legacy import sets deterministic active workspace selection from the newest
   valid canonical JSON mtime
 - legacy import breaks active-workspace mtime ties by lexicographic workspace UUID

@@ -115,7 +115,7 @@ extension AppDelegate {
     private func bootLoadCanonicalStore() {
         atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
-        let workspaceSQLiteStoreBackend = makeWorkspaceSQLiteStoreBackend()
+        workspaceSQLiteStoreBackend = makeWorkspaceSQLiteStoreBackend()
         workspaceLocalSQLiteStoreBackend = workspaceSQLiteStoreBackend?.localBackend
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
@@ -222,6 +222,31 @@ extension AppDelegate {
         workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)
         uiStateStore.restore(for: store.identityAtom.workspaceId)
         bootLoadInboxNotificationStore(persistor: persistor)
+        bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)
+    }
+
+    private func bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: WorkspacePersistor) {
+        guard let workspaceSQLiteStoreBackend else { return }
+        do {
+            guard try workspaceSQLiteStoreBackend.hasCompletedSnapshot(workspaceId: store.identityAtom.workspaceId)
+            else {
+                return
+            }
+        } catch {
+            appLogger.warning(
+                "Skipping legacy workspace archive; SQLite snapshot status unavailable: \(error.localizedDescription)")
+            return
+        }
+        guard let result = persistor.archiveLegacyWorkspaceFiles(for: store.identityAtom.workspaceId) else { return }
+        if result.succeeded {
+            appLogger.info(
+                "Archived legacy workspace files into legacy-imported/\(result.archiveDirectoryName, privacy: .public)"
+            )
+        } else {
+            appLogger.warning(
+                "Legacy workspace archive incomplete. Archived: \(result.archivedFilenames.joined(separator: ","), privacy: .public). Failed: \(result.failedFilenames.joined(separator: ","), privacy: .public)"
+            )
+        }
     }
 
     private func bootEstablishRuntimeBus(

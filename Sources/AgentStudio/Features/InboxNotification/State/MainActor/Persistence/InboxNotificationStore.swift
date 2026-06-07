@@ -22,6 +22,7 @@ final class InboxNotificationStore {
     private let debounceDuration: Duration
     private let recoveryReporter: PersistenceRecoveryReporter?
     private let sqliteRepository: InboxNotificationSQLiteRepository?
+    private let allowLegacyFilePersistence: Bool
     private var debouncedSaveTask: Task<Void, Never>?
 
     init(
@@ -32,7 +33,8 @@ final class InboxNotificationStore {
         clock: any Clock<Duration> = ContinuousClock(),
         debounceDuration: Duration = .milliseconds(500),
         recoveryReporter: PersistenceRecoveryReporter? = nil,
-        sqliteRepository: InboxNotificationSQLiteRepository? = nil
+        sqliteRepository: InboxNotificationSQLiteRepository? = nil,
+        allowLegacyFilePersistence: Bool = true
     ) {
         self.inboxAtom = inboxAtom
         self.prefsAtom = prefsAtom
@@ -42,6 +44,7 @@ final class InboxNotificationStore {
         self.debounceDuration = debounceDuration
         self.recoveryReporter = recoveryReporter
         self.sqliteRepository = sqliteRepository
+        self.allowLegacyFilePersistence = allowLegacyFilePersistence
     }
 
     private struct Payload: Codable {
@@ -153,16 +156,22 @@ final class InboxNotificationStore {
 
     func load() throws {
         if let sqliteRepository {
-            if try sqliteRepository.hasPersistedState() {
-                try loadSQLiteSnapshot(from: sqliteRepository)
+            do {
+                if try sqliteRepository.hasPersistedState() {
+                    try loadSQLiteSnapshot(from: sqliteRepository)
+                    return
+                }
+                guard let payload = loadLegacyPayloadFromDisk() else { return }
+                apply(payload)
+                try persistCurrentSQLiteSnapshot(to: sqliteRepository)
                 return
+            } catch {
+                reportLoadFailed()
+                throw error
             }
-            guard let payload = loadLegacyPayloadFromDisk() else { return }
-            apply(payload)
-            try persistCurrentSQLiteSnapshot(to: sqliteRepository)
-            return
         }
 
+        guard allowLegacyFilePersistence else { return }
         guard let payload = loadLegacyPayloadFromDisk() else { return }
         apply(payload)
     }
@@ -290,6 +299,9 @@ final class InboxNotificationStore {
                 try persistCurrentSQLiteSnapshot(to: sqliteRepository)
                 return
             }
+            guard allowLegacyFilePersistence else {
+                throw LegacyFilePersistenceDisabledError()
+            }
             let data = try encodedPayloadData()
             try await Self.writePayloadData(data, to: fileURL)
         } catch {
@@ -303,6 +315,9 @@ final class InboxNotificationStore {
             if let sqliteRepository {
                 try persistCurrentSQLiteSnapshot(to: sqliteRepository)
                 return
+            }
+            guard allowLegacyFilePersistence else {
+                throw LegacyFilePersistenceDisabledError()
             }
             let data = try encodedPayloadData()
             try Self.writePayloadDataSynchronously(data, to: fileURL)
@@ -345,7 +360,15 @@ final class InboxNotificationStore {
             .init(store: .notificationInbox, workspaceId: nil, recovery: .saveFailed)
         )
     }
+
+    private func reportLoadFailed() {
+        recoveryReporter?(
+            .init(store: .notificationInbox, workspaceId: nil, recovery: .resetToDefaults)
+        )
+    }
 }
+
+private struct LegacyFilePersistenceDisabledError: Error {}
 
 private func decodeRecoverablePreferenceField<Key: CodingKey, Value: Decodable>(
     _ type: Value.Type,

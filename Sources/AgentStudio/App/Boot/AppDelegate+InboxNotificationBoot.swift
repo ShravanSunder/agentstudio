@@ -5,7 +5,9 @@ extension AppDelegate {
     func bootLoadInboxNotificationStore(persistor: WorkspacePersistor) {
         let workspaceId = store.identityAtom.workspaceId
         let fileURL = persistor.notificationInboxFileURL(for: workspaceId)
-        let sqliteRepository = makeInboxNotificationSQLiteRepository(workspaceId: workspaceId)
+        let (sqliteRepository, allowLegacyFilePersistence) = makeInboxNotificationSQLiteRepository(
+            workspaceId: workspaceId
+        )
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: atomStore.inboxNotification,
             prefsAtom: atomStore.inboxNotificationPrefs,
@@ -14,7 +16,8 @@ extension AppDelegate {
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             },
-            sqliteRepository: sqliteRepository
+            sqliteRepository: sqliteRepository,
+            allowLegacyFilePersistence: allowLegacyFilePersistence
         )
         do {
             try inboxNotificationStore.load()
@@ -28,17 +31,27 @@ extension AppDelegate {
 
     private func makeInboxNotificationSQLiteRepository(
         workspaceId: UUID
-    ) -> InboxNotificationSQLiteRepository? {
-        guard let workspaceLocalSQLiteStoreBackend else { return nil }
+    ) -> (InboxNotificationSQLiteRepository?, Bool) {
+        guard let workspaceLocalSQLiteStoreBackend else { return (nil, true) }
         do {
             let localRepository = try workspaceLocalSQLiteStoreBackend.repository(for: workspaceId)
-            return InboxNotificationSQLiteRepository(
-                workspaceId: workspaceId,
-                databaseWriter: localRepository.databaseWriter
+            return (
+                InboxNotificationSQLiteRepository(
+                    workspaceId: workspaceId,
+                    databaseWriter: localRepository.databaseWriter
+                ),
+                true
             )
         } catch {
             appLogger.warning("Inbox notification SQLite repository unavailable: \(error.localizedDescription)")
-            return nil
+            recordPersistenceRecovery(
+                .init(
+                    store: .notificationInbox,
+                    workspaceId: workspaceId,
+                    recovery: .resetToDefaults
+                )
+            )
+            return (nil, false)
         }
     }
 

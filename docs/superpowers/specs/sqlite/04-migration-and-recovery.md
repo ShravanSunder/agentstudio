@@ -402,6 +402,9 @@ boot
   -> run core migrations
   -> if core has no workspace rows, run the one-time legacy import scan over
      non-archived workspace.state.json files
+  -> if core has workspace rows but the active workspace has no completed
+     workspace_sqlite_snapshot_status row, treat SQLite as incomplete/unavailable
+     and do not replay legacy JSON over those rows
   -> resume incomplete legacy companion imports from legacy_workspace_import_status
   -> read or repair app_workspace_selection.active_workspace_id
   -> restore core workspace/repo/worktree/pane/tab rows for the active workspace
@@ -429,6 +432,13 @@ Normal boot after successful import does not scan legacy JSON files. Legacy
 JSON scanning is only a migration/recovery path when `core.sqlite` has no
 workspace rows or an incomplete import status says a companion import must
 resume.
+
+`workspace_sqlite_snapshot_status` is the authority marker for the core/local
+workspace pair. The marker is cleared before a workspace snapshot save begins
+and written only after core rows, local window memory, and local cursor rows
+all commit. A missing marker when workspace rows exist means the app may have
+crashed mid-save or mid-import; boot must report recovery/reset behavior and
+must not import stale legacy JSON over the newer partial SQLite rows.
 
 If `legacy_workspace_import_status` is empty after migrations, import treats the
 workspace as fresh. If it contains any incomplete records, import resumes only
@@ -595,6 +605,8 @@ The move happens only after:
 ```text
 workspace.state.json
   -> core.sqlite rows committed
+  -> workspace_sqlite_snapshot_status completed row written after matching
+     local cursor/window rows commit
   -> legacy_workspace_import_status.core_imported_at set
 
 workspace.ui.json + workspace.sidebar-cache.json + notification-inbox.json

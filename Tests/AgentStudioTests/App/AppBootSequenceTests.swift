@@ -104,10 +104,34 @@ struct AppBootSequenceTests {
         )
 
         #expect(appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend: WorkspaceLocalSQLiteStoreBackend?"))
-        #expect(inboxBootSource.contains("makeInboxNotificationSQLiteRepository(workspaceId: workspaceId)"))
+        #expect(appDelegateSource.contains("var workspaceSQLiteStoreBackend: WorkspaceSQLiteStoreBackend?"))
+        #expect(inboxBootSource.contains("makeInboxNotificationSQLiteRepository("))
+        #expect(inboxBootSource.contains("workspaceId: workspaceId"))
         #expect(inboxBootSource.contains("sqliteRepository: sqliteRepository"))
+        #expect(inboxBootSource.contains("allowLegacyFilePersistence: allowLegacyFilePersistence"))
         #expect(inboxBootSource.contains("InboxNotificationSQLiteRepository("))
         #expect(inboxBootSource.contains("databaseWriter: localRepository.databaseWriter"))
+        #expect(inboxBootSource.contains("return (nil, false)"))
+    }
+
+    @Test("boot archives legacy workspace files after SQLite-backed stores load")
+    func bootArchivesLegacyWorkspaceFilesAfterSQLiteBackedStoresLoad() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let bootSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
+        )
+
+        #expect(bootSource.contains("bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)"))
+        #expect(bootSource.contains("guard let workspaceSQLiteStoreBackend else { return }"))
+        #expect(
+            bootSource.contains(
+                "workspaceSQLiteStoreBackend.hasCompletedSnapshot(workspaceId: store.identityAtom.workspaceId)"))
+        let uiLoadRange = try #require(bootSource.range(of: "bootLoadInboxNotificationStore(persistor: persistor)"))
+        let archiveRange = try #require(
+            bootSource.range(of: "bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)")
+        )
+        #expect(uiLoadRange.upperBound < archiveRange.lowerBound)
     }
 
     @Test("termination flushes settings before shutdown completes")

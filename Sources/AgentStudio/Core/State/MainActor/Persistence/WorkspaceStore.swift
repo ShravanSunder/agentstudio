@@ -103,8 +103,15 @@ final class WorkspaceStore {
     // MARK: - Persistence
 
     func restore() {
-        if let sqliteBackend, restoreFromSQLite(sqliteBackend) {
-            return
+        if let sqliteBackend {
+            switch restoreFromSQLite(sqliteBackend) {
+            case .restored:
+                return
+            case .uninitialized:
+                break
+            case .unavailable:
+                return
+            }
         }
 
         _ = persistor.ensureDirectory()
@@ -243,11 +250,15 @@ final class WorkspaceStore {
         }
     }
 
-    private func restoreFromSQLite(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> Bool {
-        do {
-            guard let state = try sqliteBackend.load(preferredWorkspaceId: identityAtom.workspaceId) else {
-                return false
-            }
+    private enum SQLiteRestoreOutcome {
+        case restored
+        case uninitialized
+        case unavailable
+    }
+
+    private func restoreFromSQLite(_ sqliteBackend: WorkspaceSQLiteStoreBackend) -> SQLiteRestoreOutcome {
+        switch sqliteBackend.loadResult(preferredWorkspaceId: identityAtom.workspaceId) {
+        case .loaded(let state):
             isRestoringState = true
             WorkspacePersistenceTransformer.hydrate(
                 state,
@@ -261,8 +272,10 @@ final class WorkspaceStore {
             workspaceStoreLogger.info(
                 "Restored SQLite workspace '\(state.name)' with \(self.paneAtom.panes.count) pane(s), \(self.tabLayoutAtom.tabs.count) tab(s)"
             )
-            return true
-        } catch {
+            return .restored
+        case .uninitialized:
+            return .uninitialized
+        case .unavailable(let error):
             isRestoringState = false
             workspaceStoreLogger.error("Failed to restore SQLite workspace: \(error.localizedDescription)")
             recoveryReporter?(
@@ -272,7 +285,7 @@ final class WorkspaceStore {
                     recovery: .resetToDefaults
                 )
             )
-            return false
+            return .unavailable
         }
     }
 

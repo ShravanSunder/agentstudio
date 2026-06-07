@@ -67,6 +67,11 @@ CREATE TABLE legacy_workspace_import_status (
     last_error TEXT
 );
 
+CREATE TABLE workspace_sqlite_snapshot_status (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+    completed_at REAL NOT NULL
+);
+
 CREATE TABLE watched_path (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
@@ -349,6 +354,7 @@ WorkspaceIdentityAtom
 WorkspaceCoreRepository
   -> workspace.updated_at
   -> legacy_workspace_import_status
+  -> workspace_sqlite_snapshot_status
 
 ActiveWorkspaceSelectionAtom
   -> app_workspace_selection.active_workspace_id

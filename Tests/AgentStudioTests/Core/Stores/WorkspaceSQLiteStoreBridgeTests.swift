@@ -224,9 +224,96 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let cursorState = try fixture.localRepository.fetchCursorState()
         #expect(cursorState.activeTabId == tab.id)
     }
+
+    @Test("restore does not replay stale legacy JSON when SQLite restore fails")
+    func restoreDoesNotReplayStaleLegacyJSONWhenSQLiteRestoreFails() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let persistor = WorkspacePersistor(
+            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        )
+        #expect(persistor.ensureDirectory())
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_500)
+        try fixture.backend.save(
+            .init(
+                id: workspaceId,
+                name: "SQLite Authoritative Workspace",
+                createdAt: createdAt,
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_600)
+            )
+        )
+        try persistor.save(
+            .init(
+                id: workspaceId,
+                name: "Stale Legacy Workspace",
+                createdAt: createdAt,
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_100)
+            )
+        )
+        try fixture.coreQueue.write { database in
+            try database.execute(sql: "DROP TABLE pane")
+        }
+        var recoveryEvents: [PersistenceRecoveryEvent] = []
+        let store = WorkspaceStore(
+            persistor: persistor,
+            sqliteBackend: fixture.backend,
+            recoveryReporter: { event in recoveryEvents.append(event) }
+        )
+
+        store.restore()
+
+        #expect(store.identityAtom.workspaceName == "Default Workspace")
+        #expect(store.identityAtom.workspaceName != "Stale Legacy Workspace")
+        #expect(recoveryEvents.contains { $0.store == .workspace && $0.recovery == .resetToDefaults })
+    }
+
+    @Test("restore does not treat incomplete SQLite workspace rows as authoritative")
+    func restoreDoesNotTreatIncompleteSQLiteWorkspaceRowsAsAuthoritative() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let persistor = WorkspacePersistor(
+            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        )
+        #expect(persistor.ensureDirectory())
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_700)
+        try fixture.coreRepository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Partial SQLite Workspace",
+                createdAt: createdAt,
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_800)
+            )
+        )
+        try fixture.coreRepository.selectActiveWorkspace(
+            workspaceId,
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_800)
+        )
+        try persistor.save(
+            .init(
+                id: workspaceId,
+                name: "Stale Legacy Workspace",
+                createdAt: createdAt,
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_100)
+            )
+        )
+        var recoveryEvents: [PersistenceRecoveryEvent] = []
+        let store = WorkspaceStore(
+            persistor: persistor,
+            sqliteBackend: fixture.backend,
+            recoveryReporter: { event in recoveryEvents.append(event) }
+        )
+
+        store.restore()
+
+        #expect(store.identityAtom.workspaceName == "Default Workspace")
+        #expect(store.identityAtom.workspaceName != "Partial SQLite Workspace")
+        #expect(store.identityAtom.workspaceName != "Stale Legacy Workspace")
+        #expect(recoveryEvents.contains { $0.store == .workspace && $0.recovery == .resetToDefaults })
+    }
 }
 
 private struct WorkspaceSQLiteBridgeFixture {
+    let coreQueue: DatabaseQueue
     let coreRepository: WorkspaceCoreRepository
     let localRepository: WorkspaceLocalRepository
     let backend: WorkspaceSQLiteStoreBackend
@@ -246,6 +333,7 @@ private func makeWorkspaceSQLiteBridgeFixture(workspaceId: UUID) throws -> Works
         }
     )
     return .init(
+        coreQueue: coreQueue,
         coreRepository: coreRepository,
         localRepository: localRepository,
         backend: backend

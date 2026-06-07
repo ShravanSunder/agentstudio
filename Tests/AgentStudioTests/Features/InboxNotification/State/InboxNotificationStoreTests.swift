@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -204,6 +205,51 @@ struct InboxNotificationStoreTests {
         #expect(emptyStore.inboxAtom.notifications.isEmpty)
         #expect(emptyStore.sidebarState.collapsedGroups.isEmpty)
         #expect(try fixture.repository.hasPersistedState())
+    }
+
+    @Test("SQLite load failure reports recovery and does not apply stale legacy JSON")
+    func sqliteLoadFailureReportsRecoveryAndDoesNotApplyStaleLegacyJSON() async throws {
+        let url = makeTempURL()
+        let workspaceId = UUID()
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let staleNotification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 140),
+            kind: .agentDesktopNotification,
+            title: "Stale",
+            body: nil,
+            source: .global,
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+        let staleAtom = InboxNotificationAtom()
+        staleAtom.append(staleNotification)
+        try await InboxNotificationStore(
+            inboxAtom: staleAtom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            fileURL: url
+        ).save()
+        try fixture.repository.replaceSnapshot(notifications: [], collapsedGroups: [])
+        try await fixture.databaseQueue.write { database in
+            try database.execute(sql: "DROP TABLE local_notification_inbox_item")
+        }
+        let atom = InboxNotificationAtom()
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            fileURL: url,
+            recoveryReporter: { reportedRecovery = $0 },
+            sqliteRepository: fixture.repository
+        )
+
+        #expect(throws: Error.self) {
+            try store.load()
+        }
+
+        #expect(atom.notifications.isEmpty)
+        #expect(reportedRecovery?.store == .notificationInbox)
+        #expect(reportedRecovery?.recovery == .resetToDefaults)
     }
 
     @Test("load resets runtime-only pending sidebar filter")

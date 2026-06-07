@@ -2,6 +2,16 @@ import CoreGraphics
 import Foundation
 
 struct WorkspaceSQLiteStoreBackend {
+    enum LoadResult {
+        case loaded(WorkspacePersistor.PersistableState)
+        case uninitialized
+        case unavailable(any Error)
+    }
+
+    enum BackendError: Error, Equatable {
+        case incompleteWorkspaceSnapshot(UUID)
+    }
+
     let coreRepository: WorkspaceCoreRepository
     let localBackend: WorkspaceLocalSQLiteStoreBackend
 
@@ -14,11 +24,35 @@ struct WorkspaceSQLiteStoreBackend {
     }
 
     func load(preferredWorkspaceId: UUID) throws -> WorkspacePersistor.PersistableState? {
+        switch loadResult(preferredWorkspaceId: preferredWorkspaceId) {
+        case .loaded(let state):
+            return state
+        case .uninitialized:
+            return nil
+        case .unavailable(let error):
+            throw error
+        }
+    }
+
+    func loadResult(preferredWorkspaceId: UUID) -> LoadResult {
+        do {
+            return .loaded(try loadCompletedSnapshot(preferredWorkspaceId: preferredWorkspaceId))
+        } catch is BackendUninitializedError {
+            return .uninitialized
+        } catch {
+            return .unavailable(error)
+        }
+    }
+
+    private func loadCompletedSnapshot(preferredWorkspaceId: UUID) throws -> WorkspacePersistor.PersistableState {
         let workspaceId = try resolvedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
         guard let workspaceId,
             let workspace = try coreRepository.fetchWorkspace(id: workspaceId)
         else {
-            return nil
+            throw BackendUninitializedError()
+        }
+        guard try coreRepository.hasCompletedWorkspaceSQLiteSnapshot(workspaceId: workspace.id) else {
+            throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
         }
 
         let topology = try coreRepository.fetchRepositoryTopology(workspaceId: workspace.id)
@@ -44,6 +78,7 @@ struct WorkspaceSQLiteStoreBackend {
 
     func save(_ state: WorkspacePersistor.PersistableState) throws {
         let workspaceRecord = WorkspaceSQLiteStateBridge.workspaceRecord(from: state)
+        try coreRepository.markWorkspaceSQLiteSnapshotIncomplete(workspaceId: state.id)
         try coreRepository.upsertWorkspace(workspaceRecord)
         try coreRepository.selectActiveWorkspace(state.id, updatedAt: state.updatedAt)
         try coreRepository.replaceRepositoryTopology(
@@ -69,6 +104,11 @@ struct WorkspaceSQLiteStoreBackend {
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
             updatedAt: state.updatedAt
         )
+        try coreRepository.markWorkspaceSQLiteSnapshotComplete(workspaceId: state.id, completedAt: state.updatedAt)
+    }
+
+    func hasCompletedSnapshot(workspaceId: UUID) throws -> Bool {
+        try coreRepository.hasCompletedWorkspaceSQLiteSnapshot(workspaceId: workspaceId)
     }
 
     private func resolvedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
@@ -81,6 +121,8 @@ struct WorkspaceSQLiteStoreBackend {
         return try coreRepository.fetchWorkspaces().first?.id
     }
 }
+
+private struct BackendUninitializedError: Error {}
 
 struct WorkspaceLocalSQLiteStoreBackend {
     private let makeLocalRepository: (UUID) throws -> WorkspaceLocalRepository

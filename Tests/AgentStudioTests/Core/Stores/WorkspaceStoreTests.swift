@@ -118,6 +118,40 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func archiveLegacyWorkspaceFiles_movesCompanionFilesIntoLegacyImportedDirectory() throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-archive-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        #expect(persistor.ensureDirectory())
+        let workspaceId = UUID()
+        let legacyURLs = [
+            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json"),
+            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json"),
+            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json"),
+            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json"),
+            persistedDir.appending(path: "\(workspaceId.uuidString).notification-inbox.json"),
+        ]
+        for url in legacyURLs {
+            try Data(url.lastPathComponent.utf8).write(to: url, options: .atomic)
+        }
+
+        let result = try #require(persistor.archiveLegacyWorkspaceFiles(for: workspaceId))
+
+        #expect(result.failedFilenames.isEmpty)
+        #expect(Set(result.archivedFilenames) == Set(legacyURLs.map(\.lastPathComponent)))
+        let archiveDirectory =
+            persistedDir
+            .appending(path: "legacy-imported")
+            .appending(path: result.archiveDirectoryName)
+        #expect(FileManager.default.fileExists(atPath: archiveDirectory.path))
+        for url in legacyURLs {
+            #expect(!FileManager.default.fileExists(atPath: url.path))
+            #expect(
+                FileManager.default.fileExists(atPath: archiveDirectory.appending(path: url.lastPathComponent).path))
+        }
+    }
+
+    @Test
     func test_flushFailure_reportsSaveFailedRecovery() {
         let blockedDirectoryURL = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-blocked-\(UUID().uuidString)")

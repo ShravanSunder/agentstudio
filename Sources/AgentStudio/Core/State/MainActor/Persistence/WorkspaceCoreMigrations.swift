@@ -21,6 +21,7 @@ enum WorkspaceCoreMigrations {
         ("003_create_panes", createPaneStatements),
         ("004_create_tabs_and_arrangements", createTabArrangementStatements),
         ("005_repair_tab_graph_layout_storage", repairTabGraphLayoutStorageStatements),
+        ("006_create_workspace_sqlite_snapshot_status", createWorkspaceSQLiteSnapshotStatusStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -124,6 +125,15 @@ enum WorkspaceCoreMigrations {
         """
         CREATE INDEX idx_worktree_repo_id ON worktree(repo_id)
         """,
+    ]
+
+    private static let createWorkspaceSQLiteSnapshotStatusStatements = [
+        """
+        CREATE TABLE workspace_sqlite_snapshot_status (
+            workspace_id TEXT PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+            completed_at REAL NOT NULL
+        )
+        """
     ]
 
     private static let createPaneStatements = [

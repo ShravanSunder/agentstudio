@@ -103,6 +103,52 @@ struct WorkspaceCoreRepository {
         }
     }
 
+    func markWorkspaceSQLiteSnapshotIncomplete(workspaceId: UUID) throws {
+        try databaseWriter.write { database in
+            try database.execute(
+                sql: """
+                    DELETE FROM workspace_sqlite_snapshot_status
+                    WHERE workspace_id = ?
+                    """,
+                arguments: [workspaceId.uuidString]
+            )
+        }
+    }
+
+    func markWorkspaceSQLiteSnapshotComplete(workspaceId: UUID, completedAt: Date) throws {
+        try databaseWriter.write { database in
+            try requireWorkspaceExists(database, id: workspaceId)
+            try database.execute(
+                sql: """
+                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, completed_at)
+                    VALUES (?, ?)
+                    ON CONFLICT(workspace_id) DO UPDATE SET
+                        completed_at = excluded.completed_at
+                    """,
+                arguments: [
+                    workspaceId.uuidString,
+                    completedAt.timeIntervalSince1970,
+                ]
+            )
+        }
+    }
+
+    func hasCompletedWorkspaceSQLiteSnapshot(workspaceId: UUID) throws -> Bool {
+        try databaseWriter.read { database in
+            let count =
+                try Int.fetchOne(
+                    database,
+                    sql: """
+                        SELECT count(*)
+                        FROM workspace_sqlite_snapshot_status
+                        WHERE workspace_id = ?
+                        """,
+                    arguments: [workspaceId.uuidString]
+                ) ?? 0
+            return count > 0
+        }
+    }
+
     func clearActiveWorkspaceSelection(updatedAt: Date) throws {
         try databaseWriter.write { database in
             guard try workspaceCount(database) == 0 else {

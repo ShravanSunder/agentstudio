@@ -1108,7 +1108,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Persistence/SQLiteLocalUXStorage.swift` | Storage tokens that map live sidebar surface and recent workspace target values to local UX schema values |
 | `Core/State/MainActor/Persistence/SQLiteInboxNotificationClaimStorage.swift` | Storage tokens that map live inbox notification claim lanes to local notification claim predicates |
 | `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationSQLiteRepository.swift` | Feature-owned local SQLite repository for notification inbox rows, collapsed inbox groups, claim coalescence, retention, and empty-lane marking |
-| `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` | Main-actor persistence wrapper for inbox notification history and collapsed inbox groups; imports legacy JSON into local SQLite when the local backend is available |
+| `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` | Main-actor persistence wrapper for inbox notification history and collapsed inbox groups; imports legacy JSON into local SQLite only when the inbox lane is uninitialized |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime status tracking and health checks |
 | `App/Panes/ViewRegistry.swift` | paneId → PaneViewSlot mapping (runtime-only) |
 | `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |

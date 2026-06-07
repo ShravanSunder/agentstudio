@@ -43,6 +43,7 @@ struct WorkspaceCoreMigrationTests {
         #expect(tableNames.contains("drawer_view_layout_divider"))
         #expect(tableNames.contains("drawer_view_minimized_pane"))
         #expect(tableNames.contains("legacy_workspace_import_status"))
+        #expect(tableNames.contains("workspace_sqlite_snapshot_status"))
     }
 
     @Test("migration identifiers are stable and run once")
@@ -63,6 +64,7 @@ struct WorkspaceCoreMigrationTests {
                 "003_create_panes",
                 "004_create_tabs_and_arrangements",
                 "005_repair_tab_graph_layout_storage",
+                "006_create_workspace_sqlite_snapshot_status",
             ]
         )
     }

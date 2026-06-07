@@ -25,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
     var workspaceSettingsStore: WorkspaceSettingsStore!
+    var workspaceSQLiteStoreBackend: WorkspaceSQLiteStoreBackend?
     var workspaceLocalSQLiteStoreBackend: WorkspaceLocalSQLiteStoreBackend?
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
