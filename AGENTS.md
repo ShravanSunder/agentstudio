@@ -89,6 +89,7 @@ icons when a sidebar/local action already defines the presentation.
 |-----------|------|----------|
 | `AtomRegistry` | concrete root composition file for Core and Feature atoms plus derived helpers | `Sources/AgentStudio/AtomRegistry.swift` |
 | `SQLiteDatabaseFactory` | generic GRDB database construction, pragmas, WAL, and capability-test connection setup; no product schema knowledge | `Infrastructure/SQLite/SQLiteDatabaseFactory.swift` |
+| `SQLiteSidecarQuarantine` | generic SQLite database/WAL/SHM quarantine helper; no product schema knowledge | `Infrastructure/SQLite/SQLiteSidecarQuarantine.swift` |
 | `WorkspaceCoreMigrations` | `core.sqlite` migration identifiers and core workspace schema DDL; repository-facing only, not a live atom read model | `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` |
 | `WorkspaceLocalMigrations` | `<workspace-id>.local.sqlite` migration identifiers and local UX/cache schema DDL; repository-facing only, not a live atom read model | `Core/State/MainActor/Persistence/WorkspaceLocalMigrations.swift` |
 | `SQLitePaneContentTypeStorage` | repository-facing storage tokens for live `PaneContentType` values used by `pane.content_type` and content-table triggers | `Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift` |
@@ -134,6 +135,7 @@ icons when a sidebar/local action already defines the presentation.
 | `InboxSidebarRuntimeAtom` | runtime pending inbox filter handoff | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
 | `InboxSidebarState` | UI-facing composition surface over inbox sidebar memory + runtime atoms | `Features/InboxNotification/State/MainActor/Atoms/InboxSidebarState.swift` |
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
+| `WorkspaceSQLiteStoreBackendFactory` | product-specific SQLite backend bootstrap, core migration, core sidecar quarantine, and local repository construction | `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoEnrichmentCacheAtom` + `RecentWorkspaceTargetAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
 | `UIStateStore` | persistence wrapper for workspace sidebar memory and editor chooser bookmark until those stores split | `Core/State/MainActor/Persistence/UIStateStore.swift` |
 | `InboxNotificationStore` | persistence wrapper for inbox notification history and collapsed inbox groups; uses feature SQLite repository when the local backend is available and legacy JSON only for uninitialized import | `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` |

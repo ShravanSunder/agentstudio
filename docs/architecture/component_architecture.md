@@ -1102,6 +1102,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` | Shared app-wide focus reader for command visibility and status UI |
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |
+| `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift` | Product-specific SQLite backend bootstrap, core migration, core sidecar quarantine, and local repository construction |
 | `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` | `core.sqlite` migration identifiers and durable workspace schema DDL |
 | `Core/State/MainActor/Persistence/WorkspaceLocalMigrations.swift` | per-workspace `local.sqlite` migration identifiers and local UX/cache schema DDL |
 | `Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift` | Storage tokens that map live `PaneContentType` values to `pane.content_type` |
@@ -1116,6 +1117,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Infrastructure/WorktrunkService.swift` | Git worktree CLI wrapper |
 | `Infrastructure/WorktreeReconciler.swift` | Pure function: matches existing vs discovered worktrees, preserves UUIDs, returns merged list + `WorktreeTopologyDelta` |
 | `Infrastructure/SQLite/SQLiteDatabaseFactory.swift` | Generic GRDB connection setup, pragmas, WAL, and capability-test construction |
+| `Infrastructure/SQLite/SQLiteSidecarQuarantine.swift` | Generic SQLite database/WAL/SHM quarantine helper with no product schema knowledge |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
 | `App/Coordination/PaneCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
