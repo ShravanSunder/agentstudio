@@ -8,7 +8,6 @@ final class RepoEnrichmentCacheAtom {
         let repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
         let pullRequestCountByWorktreeId: [UUID: Int]
-        let notificationCountByWorktreeId: [UUID: Int]
         let sourceRevision: UInt64
         let lastRebuiltAt: Date?
     }
@@ -16,7 +15,6 @@ final class RepoEnrichmentCacheAtom {
     private(set) var repoEnrichmentByRepoId: [UUID: RepoEnrichment] = [:]
     private(set) var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment] = [:]
     private(set) var pullRequestCountByWorktreeId: [UUID: Int] = [:]
-    private(set) var notificationCountByWorktreeId: [UUID: Int] = [:]
     private(set) var sourceRevision: UInt64 = 0
     private(set) var lastRebuiltAt: Date?
 
@@ -38,12 +36,6 @@ final class RepoEnrichmentCacheAtom {
         pullRequestCountByWorktreeId = updated
     }
 
-    func setNotificationCount(_ count: Int, for worktreeId: UUID) {
-        var updated = notificationCountByWorktreeId
-        updated[worktreeId] = count
-        notificationCountByWorktreeId = updated
-    }
-
     func removeWorktree(_ worktreeId: UUID) {
         var worktrees = worktreeEnrichmentByWorktreeId
         worktrees.removeValue(forKey: worktreeId)
@@ -52,10 +44,6 @@ final class RepoEnrichmentCacheAtom {
         var pullRequests = pullRequestCountByWorktreeId
         pullRequests.removeValue(forKey: worktreeId)
         pullRequestCountByWorktreeId = pullRequests
-
-        var notifications = notificationCountByWorktreeId
-        notifications.removeValue(forKey: worktreeId)
-        notificationCountByWorktreeId = notifications
     }
 
     func removeRepo(_ repoId: UUID) {
@@ -79,7 +67,6 @@ final class RepoEnrichmentCacheAtom {
         repoEnrichmentByRepoId = state.repoEnrichmentByRepoId
         worktreeEnrichmentByWorktreeId = state.worktreeEnrichmentByWorktreeId
         pullRequestCountByWorktreeId = state.pullRequestCountByWorktreeId
-        notificationCountByWorktreeId = state.notificationCountByWorktreeId
         sourceRevision = state.sourceRevision
         lastRebuiltAt = state.lastRebuiltAt
     }
@@ -88,7 +75,6 @@ final class RepoEnrichmentCacheAtom {
         repoEnrichmentByRepoId = [:]
         worktreeEnrichmentByWorktreeId = [:]
         pullRequestCountByWorktreeId = [:]
-        notificationCountByWorktreeId = [:]
         sourceRevision = 0
         lastRebuiltAt = nil
     }
@@ -132,7 +118,6 @@ final class RepoCacheAtom {
         let repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
         let pullRequestCountByWorktreeId: [UUID: Int]
-        let notificationCountByWorktreeId: [UUID: Int]
         let recentTargets: [RecentWorkspaceTarget]
         let sourceRevision: UInt64
         let lastRebuiltAt: Date?
@@ -161,10 +146,6 @@ final class RepoCacheAtom {
         enrichmentCacheAtom.pullRequestCountByWorktreeId
     }
 
-    var notificationCountByWorktreeId: [UUID: Int] {
-        enrichmentCacheAtom.notificationCountByWorktreeId
-    }
-
     var recentTargets: [RecentWorkspaceTarget] {
         recentTargetAtom.recentTargets
     }
@@ -187,10 +168,6 @@ final class RepoCacheAtom {
 
     func setPullRequestCount(_ count: Int, for worktreeId: UUID) {
         enrichmentCacheAtom.setPullRequestCount(count, for: worktreeId)
-    }
-
-    func setNotificationCount(_ count: Int, for worktreeId: UUID) {
-        enrichmentCacheAtom.setNotificationCount(count, for: worktreeId)
     }
 
     func recordRecentTarget(_ target: RecentWorkspaceTarget) {
@@ -219,7 +196,6 @@ final class RepoCacheAtom {
                 repoEnrichmentByRepoId: state.repoEnrichmentByRepoId,
                 worktreeEnrichmentByWorktreeId: state.worktreeEnrichmentByWorktreeId,
                 pullRequestCountByWorktreeId: state.pullRequestCountByWorktreeId,
-                notificationCountByWorktreeId: state.notificationCountByWorktreeId,
                 sourceRevision: state.sourceRevision,
                 lastRebuiltAt: state.lastRebuiltAt
             )

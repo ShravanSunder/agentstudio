@@ -68,23 +68,15 @@ struct WorkspaceLocalCacheMigrationTests {
                     """,
                 arguments: [worktreeId, workspaceId, repoId, 5, 4.0]
             )
-            try database.execute(
-                sql: """
-                    INSERT INTO cache_notification_count(worktree_id, workspace_id, repo_id, count, updated_at)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                arguments: [worktreeId, workspaceId, repoId, 6, 5.0]
-            )
             return try Row.fetchOne(
                 database,
                 sql: """
                     SELECT metadata.source_revision, repo.display_name, worktree.branch,
-                           pull_request.count AS pull_request_count, notification.count AS notification_count
+                           pull_request.count AS pull_request_count
                     FROM cache_metadata metadata
                     JOIN cache_repo_enrichment repo ON repo.workspace_id = metadata.workspace_id
                     JOIN cache_worktree_enrichment worktree ON worktree.repo_id = repo.repo_id
                     JOIN cache_pull_request_count pull_request ON pull_request.worktree_id = worktree.worktree_id
-                    JOIN cache_notification_count notification ON notification.worktree_id = worktree.worktree_id
                     WHERE metadata.workspace_id = ?
                     """,
                 arguments: [workspaceId]
@@ -95,7 +87,6 @@ struct WorkspaceLocalCacheMigrationTests {
         #expect(restored?["display_name"] as String? == "project")
         #expect(restored?["branch"] as String? == "main")
         #expect(restored?["pull_request_count"] as Int? == 5)
-        #expect(restored?["notification_count"] as Int? == 6)
     }
 
     @Test("cache counters reject negative values")

@@ -638,7 +638,6 @@ final class WorkspacePersistorTests {
                 )
             ],
             pullRequestCountByWorktreeId: [worktreeId: 2],
-            notificationCountByWorktreeId: [worktreeId: 7],
             recentTargets: [recentTarget],
             sourceRevision: 10,
             lastRebuiltAt: Date(timeIntervalSince1970: 1_700_000_000)
@@ -651,7 +650,6 @@ final class WorkspacePersistorTests {
         #expect(loaded?.repoEnrichmentByRepoId[repoId]?.organizationName == "askluna")
         #expect(loaded?.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
         #expect(loaded?.pullRequestCountByWorktreeId[worktreeId] == 2)
-        #expect(loaded?.notificationCountByWorktreeId[worktreeId] == 7)
         #expect(loaded?.recentTargets == [recentTarget])
         #expect(loaded?.sourceRevision == 10)
     }
@@ -836,7 +834,6 @@ final class WorkspacePersistorTests {
                 "workspaceId": "\(workspaceId.uuidString)",
                 "worktreeEnrichmentByWorktreeId": {},
                 "pullRequestCountByWorktreeId": {},
-                "notificationCountByWorktreeId": {},
                 "sourceRevision": 0
             }
             """
@@ -861,7 +858,6 @@ final class WorkspacePersistorTests {
                 "repoEnrichmentByRepoId": 42,
                 "worktreeEnrichmentByWorktreeId": {},
                 "pullRequestCountByWorktreeId": {},
-                "notificationCountByWorktreeId": {"\(UUID().uuidString)": 3},
                 "recentTargets": [],
                 "sourceRevision": 7
             }

@@ -39,7 +39,6 @@ struct WorkspaceLocalRepository: Sendable {
         var repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
         var pullRequestCountByWorktreeId: [UUID: Int]
-        var notificationCountByWorktreeId: [UUID: Int]
         var sourceRevision: UInt64
         var lastRebuiltAt: Date?
 
@@ -47,7 +46,6 @@ struct WorkspaceLocalRepository: Sendable {
             repoEnrichmentByRepoId: [:],
             worktreeEnrichmentByWorktreeId: [:],
             pullRequestCountByWorktreeId: [:],
-            notificationCountByWorktreeId: [:],
             sourceRevision: 0,
             lastRebuiltAt: nil
         )

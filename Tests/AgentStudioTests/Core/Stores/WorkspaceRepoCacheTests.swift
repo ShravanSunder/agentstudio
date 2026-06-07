@@ -43,7 +43,7 @@ final class RepoCacheAtomTests {
     }
 
     @Test
-    func removeRepo_prunesWorktreeAndCounters() {
+    func removeRepo_prunesWorktreeAndPullRequestCounters() {
         let store = RepoCacheAtom()
         let repoId = UUID()
         let worktreeId = UUID()
@@ -51,14 +51,12 @@ final class RepoCacheAtomTests {
         store.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
         store.setWorktreeEnrichment(.init(worktreeId: worktreeId, repoId: repoId, branch: "feature"))
         store.setPullRequestCount(2, for: worktreeId)
-        store.setNotificationCount(5, for: worktreeId)
 
         store.removeRepo(repoId)
 
         #expect(store.repoEnrichmentByRepoId[repoId] == nil)
         #expect(store.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
         #expect(store.pullRequestCountByWorktreeId[worktreeId] == nil)
-        #expect(store.notificationCountByWorktreeId[worktreeId] == nil)
     }
 
     @Test

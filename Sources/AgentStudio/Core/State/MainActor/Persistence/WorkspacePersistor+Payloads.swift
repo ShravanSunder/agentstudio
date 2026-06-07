@@ -213,7 +213,6 @@ extension WorkspacePersistor {
         var repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
         var pullRequestCountByWorktreeId: [UUID: Int]
-        var notificationCountByWorktreeId: [UUID: Int]
         var recentTargets: [RecentWorkspaceTarget]
         var sourceRevision: UInt64
         var lastRebuiltAt: Date?
@@ -223,7 +222,6 @@ extension WorkspacePersistor {
             repoEnrichmentByRepoId: [UUID: RepoEnrichment] = [:],
             worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment] = [:],
             pullRequestCountByWorktreeId: [UUID: Int] = [:],
-            notificationCountByWorktreeId: [UUID: Int] = [:],
             recentTargets: [RecentWorkspaceTarget] = [],
             sourceRevision: UInt64 = 0,
             lastRebuiltAt: Date? = nil
@@ -233,7 +231,6 @@ extension WorkspacePersistor {
             self.repoEnrichmentByRepoId = repoEnrichmentByRepoId
             self.worktreeEnrichmentByWorktreeId = worktreeEnrichmentByWorktreeId
             self.pullRequestCountByWorktreeId = pullRequestCountByWorktreeId
-            self.notificationCountByWorktreeId = notificationCountByWorktreeId
             self.recentTargets = recentTargets
             self.sourceRevision = sourceRevision
             self.lastRebuiltAt = lastRebuiltAt
@@ -245,7 +242,6 @@ extension WorkspacePersistor {
             case repoEnrichmentByRepoId
             case worktreeEnrichmentByWorktreeId
             case pullRequestCountByWorktreeId
-            case notificationCountByWorktreeId
             case recentTargets
             case sourceRevision
             case lastRebuiltAt
@@ -286,14 +282,6 @@ extension WorkspacePersistor {
                 [UUID: Int].self,
                 from: container,
                 forKey: .pullRequestCountByWorktreeId,
-                schemaVersion: schemaVersion,
-                payloadName: "PersistableCacheState",
-                default: [:]
-            )
-            self.notificationCountByWorktreeId = decodeRecoverableField(
-                [UUID: Int].self,
-                from: container,
-                forKey: .notificationCountByWorktreeId,
                 schemaVersion: schemaVersion,
                 payloadName: "PersistableCacheState",
                 default: [:]

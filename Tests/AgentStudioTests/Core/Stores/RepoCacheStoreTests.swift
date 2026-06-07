@@ -38,7 +38,6 @@ struct RepoCacheStoreTests {
             WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "main")
         )
         atom.setPullRequestCount(3, for: worktree.id)
-        atom.setNotificationCount(2, for: worktree.id)
         atom.recordRecentTarget(
             .forCwd(
                 URL(fileURLWithPath: "/tmp/agent-studio/main"),
@@ -58,7 +57,6 @@ struct RepoCacheStoreTests {
         #expect(restoredAtom.repoEnrichmentByRepoId[repo.id] == .awaitingOrigin(repoId: repo.id))
         #expect(restoredAtom.worktreeEnrichmentByWorktreeId[worktree.id]?.branch == "main")
         #expect(restoredAtom.pullRequestCountByWorktreeId[worktree.id] == 3)
-        #expect(restoredAtom.notificationCountByWorktreeId[worktree.id] == 2)
         #expect(restoredAtom.recentTargets.map(\.id) == ["cwd:/tmp/agent-studio/main"])
         #expect(restoredAtom.sourceRevision == 42)
         #expect(restoredAtom.lastRebuiltAt == Date(timeIntervalSince1970: 123))
@@ -90,7 +88,6 @@ struct RepoCacheStoreTests {
             WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
         )
         cacheAtom.setPullRequestCount(3, for: worktreeId)
-        cacheAtom.setNotificationCount(2, for: worktreeId)
         cacheAtom.markRebuilt(sourceRevision: 42, at: Date(timeIntervalSince1970: 123))
         recentTargetAtom.recordRecentTarget(target)
 
@@ -100,7 +97,6 @@ struct RepoCacheStoreTests {
         #expect(storedCache.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
         #expect(storedCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
         #expect(storedCache.pullRequestCountByWorktreeId[worktreeId] == 3)
-        #expect(storedCache.notificationCountByWorktreeId[worktreeId] == 2)
         #expect(storedCache.sourceRevision == 42)
         #expect(storedCache.lastRebuiltAt == Date(timeIntervalSince1970: 123))
         #expect(try fixture.repository.fetchRecentTargets() == [target])
@@ -121,7 +117,6 @@ struct RepoCacheStoreTests {
         #expect(restoredCacheAtom.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
         #expect(restoredCacheAtom.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
         #expect(restoredCacheAtom.pullRequestCountByWorktreeId[worktreeId] == 3)
-        #expect(restoredCacheAtom.notificationCountByWorktreeId[worktreeId] == 2)
         #expect(restoredCacheAtom.sourceRevision == 42)
         #expect(restoredCacheAtom.lastRebuiltAt == Date(timeIntervalSince1970: 123))
         #expect(restoredRecentTargetAtom.recentTargets == [target])
@@ -144,7 +139,6 @@ struct RepoCacheStoreTests {
                 repoEnrichmentByRepoId: [repoId: .awaitingOrigin(repoId: repoId)],
                 worktreeEnrichmentByWorktreeId: [:],
                 pullRequestCountByWorktreeId: [:],
-                notificationCountByWorktreeId: [:],
                 recentTargets: [target],
                 sourceRevision: 7,
                 lastRebuiltAt: Date(timeIntervalSince1970: 123)
@@ -179,7 +173,6 @@ struct RepoCacheStoreTests {
                 repoEnrichmentByRepoId: [repoId: .awaitingOrigin(repoId: repoId)],
                 worktreeEnrichmentByWorktreeId: [:],
                 pullRequestCountByWorktreeId: [:],
-                notificationCountByWorktreeId: [:],
                 recentTargets: [],
                 sourceRevision: 7,
                 lastRebuiltAt: nil
@@ -219,7 +212,6 @@ struct RepoCacheStoreTests {
                 repoEnrichmentByRepoId: [repoId: .awaitingOrigin(repoId: repoId)],
                 worktreeEnrichmentByWorktreeId: [:],
                 pullRequestCountByWorktreeId: [:],
-                notificationCountByWorktreeId: [:],
                 recentTargets: [target],
                 sourceRevision: 7,
                 lastRebuiltAt: Date(timeIntervalSince1970: 123)
@@ -274,7 +266,6 @@ struct RepoCacheStoreTests {
                 repoEnrichmentByRepoId: [staleRepoId: .awaitingOrigin(repoId: staleRepoId)],
                 worktreeEnrichmentByWorktreeId: [:],
                 pullRequestCountByWorktreeId: [:],
-                notificationCountByWorktreeId: [:],
                 recentTargets: [staleTarget],
                 sourceRevision: 7,
                 lastRebuiltAt: Date(timeIntervalSince1970: 123)
@@ -367,7 +358,6 @@ struct RepoCacheStoreTests {
                 repoEnrichmentByRepoId: [staleRepoId: .awaitingOrigin(repoId: staleRepoId)],
                 worktreeEnrichmentByWorktreeId: [:],
                 pullRequestCountByWorktreeId: [:],
-                notificationCountByWorktreeId: [:],
                 recentTargets: [staleTarget],
                 sourceRevision: 7,
                 lastRebuiltAt: Date(timeIntervalSince1970: 123)
@@ -588,7 +578,6 @@ struct RepoCacheStoreTests {
         #expect(atom.repoEnrichmentByRepoId.isEmpty)
         #expect(atom.worktreeEnrichmentByWorktreeId.isEmpty)
         #expect(atom.pullRequestCountByWorktreeId.isEmpty)
-        #expect(atom.notificationCountByWorktreeId.isEmpty)
         #expect(atom.recentTargets.isEmpty)
         #expect(reportedRecovery?.store == .repoCache)
         #expect(reportedRecovery?.workspaceId == workspaceId)

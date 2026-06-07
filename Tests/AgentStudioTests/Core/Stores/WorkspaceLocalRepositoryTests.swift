@@ -370,7 +370,6 @@ struct WorkspaceLocalRepositoryTests {
             repoEnrichmentByRepoId: [repoId: repoEnrichment],
             worktreeEnrichmentByWorktreeId: [worktreeId: worktreeEnrichment],
             pullRequestCountByWorktreeId: [worktreeId: 7],
-            notificationCountByWorktreeId: [worktreeId: 3],
             sourceRevision: 42,
             lastRebuiltAt: Date(timeIntervalSince1970: 700)
         )
@@ -437,7 +436,6 @@ struct WorkspaceLocalRepositoryTests {
                 repoEnrichmentByRepoId: [repoId: .awaitingOrigin(repoId: repoId)],
                 worktreeEnrichmentByWorktreeId: [:],
                 pullRequestCountByWorktreeId: [:],
-                notificationCountByWorktreeId: [:],
                 sourceRevision: 3,
                 lastRebuiltAt: Date(timeIntervalSince1970: 200)
             ),
@@ -509,9 +507,7 @@ private func assertCacheQueryColumns(
                     worktree.branch,
                     worktree.is_main_worktree,
                     pull_request.repo_id AS pull_request_repo_id,
-                    pull_request.count AS pull_request_count,
-                    notification.repo_id AS notification_repo_id,
-                    notification.count AS notification_count
+                    pull_request.count AS pull_request_count
                 FROM cache_metadata metadata
                 JOIN cache_repo_enrichment repo
                     ON repo.workspace_id = metadata.workspace_id
@@ -522,9 +518,6 @@ private func assertCacheQueryColumns(
                 JOIN cache_pull_request_count pull_request
                     ON pull_request.workspace_id = metadata.workspace_id
                     AND pull_request.worktree_id = worktree.worktree_id
-                JOIN cache_notification_count notification
-                    ON notification.workspace_id = metadata.workspace_id
-                    AND notification.worktree_id = worktree.worktree_id
                 WHERE metadata.workspace_id = ?
                 """,
             arguments: [repoId.uuidString, worktreeId.uuidString, workspaceId.uuidString]
@@ -542,8 +535,6 @@ private func assertCacheQueryColumns(
     let isMainWorktree: Int = row["is_main_worktree"]
     let pullRequestRepoId: String = row["pull_request_repo_id"]
     let pullRequestCount: Int = row["pull_request_count"]
-    let notificationRepoId: String = row["notification_repo_id"]
-    let notificationCount: Int = row["notification_count"]
 
     #expect(sourceRevision == 42)
     #expect(lastRebuiltAt == 700)
@@ -556,6 +547,4 @@ private func assertCacheQueryColumns(
     #expect(isMainWorktree == 0)
     #expect(pullRequestRepoId == repoId.uuidString)
     #expect(pullRequestCount == 7)
-    #expect(notificationRepoId == repoId.uuidString)
-    #expect(notificationCount == 3)
 }

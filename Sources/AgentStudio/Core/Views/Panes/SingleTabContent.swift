@@ -11,6 +11,7 @@ struct SingleTabContent: View {
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
+    let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
 
     init(
@@ -24,6 +25,7 @@ struct SingleTabContent: View {
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
+        notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil
     ) {
         self.tabId = tabId
@@ -36,6 +38,7 @@ struct SingleTabContent: View {
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
+        self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
     }
 
@@ -70,6 +73,7 @@ struct SingleTabContent: View {
                 appLifecycleStore: appLifecycleStore,
                 paneInboxPresentation: paneInboxPresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub,
+                notificationCountForWorktree: notificationCountForWorktree,
                 workspaceWindowId: workspaceWindowId
             )
             .background(AppStyles.Shell.PaneChrome.background)

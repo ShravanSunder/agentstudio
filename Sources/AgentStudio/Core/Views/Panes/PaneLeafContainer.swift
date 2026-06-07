@@ -27,6 +27,7 @@ struct PaneLeafContainer: View {
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
+    let notificationCountForWorktree: (UUID) -> Int
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
     let paneInboxPresentation: PaneInboxPresentation?
@@ -57,6 +58,7 @@ struct PaneLeafContainer: View {
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
+        notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false,
         paneInboxPresentation: PaneInboxPresentation? = nil,
@@ -74,6 +76,7 @@ struct PaneLeafContainer: View {
         self.actionDispatcher = actionDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onOpenPaneGitHub = onOpenPaneGitHub
+        self.notificationCountForWorktree = notificationCountForWorktree
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
         self.paneInboxPresentation = paneInboxPresentation
@@ -237,12 +240,14 @@ struct PaneLeafContainer: View {
         GeometryReader { _ in
             let managementContext = PaneManagementContext.project(
                 paneId: paneHost.id,
-                store: store
+                store: store,
+                notificationCountForWorktree: notificationCountForWorktree
             )
             let locationTargetPaneId = currentLocationTargetPaneId
             let locationContext = PaneManagementContext.project(
                 paneId: locationTargetPaneId,
-                store: store
+                store: store,
+                notificationCountForWorktree: notificationCountForWorktree
             )
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {

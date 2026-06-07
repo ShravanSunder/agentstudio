@@ -126,7 +126,6 @@ final class RepoCacheStore {
                     repoEnrichmentByRepoId: cacheState.repoEnrichmentByRepoId,
                     worktreeEnrichmentByWorktreeId: cacheState.worktreeEnrichmentByWorktreeId,
                     pullRequestCountByWorktreeId: cacheState.pullRequestCountByWorktreeId,
-                    notificationCountByWorktreeId: cacheState.notificationCountByWorktreeId,
                     sourceRevision: cacheState.sourceRevision,
                     lastRebuiltAt: cacheState.lastRebuiltAt
                 )
@@ -191,7 +190,6 @@ final class RepoCacheStore {
             _ = cacheAtom.repoEnrichmentByRepoId
             _ = cacheAtom.worktreeEnrichmentByWorktreeId
             _ = cacheAtom.pullRequestCountByWorktreeId
-            _ = cacheAtom.notificationCountByWorktreeId
             _ = recentTargetAtom.recentTargets
             _ = cacheAtom.sourceRevision
             _ = cacheAtom.lastRebuiltAt
@@ -252,7 +250,6 @@ final class RepoCacheStore {
                 repoEnrichmentByRepoId: cacheAtom.repoEnrichmentByRepoId,
                 worktreeEnrichmentByWorktreeId: cacheAtom.worktreeEnrichmentByWorktreeId,
                 pullRequestCountByWorktreeId: cacheAtom.pullRequestCountByWorktreeId,
-                notificationCountByWorktreeId: cacheAtom.notificationCountByWorktreeId,
                 recentTargets: recentTargetAtom.recentTargets,
                 sourceRevision: cacheAtom.sourceRevision,
                 lastRebuiltAt: cacheAtom.lastRebuiltAt
@@ -289,7 +286,6 @@ final class RepoCacheStore {
                     repoEnrichmentByRepoId: cacheState.repoEnrichmentByRepoId,
                     worktreeEnrichmentByWorktreeId: cacheState.worktreeEnrichmentByWorktreeId,
                     pullRequestCountByWorktreeId: cacheState.pullRequestCountByWorktreeId,
-                    notificationCountByWorktreeId: cacheState.notificationCountByWorktreeId,
                     sourceRevision: cacheState.sourceRevision,
                     lastRebuiltAt: cacheState.lastRebuiltAt
                 )
@@ -335,7 +331,6 @@ final class RepoCacheStore {
             repoEnrichmentByRepoId: cacheAtom.repoEnrichmentByRepoId,
             worktreeEnrichmentByWorktreeId: cacheAtom.worktreeEnrichmentByWorktreeId,
             pullRequestCountByWorktreeId: cacheAtom.pullRequestCountByWorktreeId,
-            notificationCountByWorktreeId: cacheAtom.notificationCountByWorktreeId,
             sourceRevision: cacheAtom.sourceRevision,
             lastRebuiltAt: cacheAtom.lastRebuiltAt
         )

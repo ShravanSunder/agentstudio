@@ -532,6 +532,8 @@ enum WorkspaceLocalMigrations {
             updated_at REAL NOT NULL
         )
         """,
+        // cache_notification_count is retained for migration compatibility only.
+        // Unread notification counts are owned by InboxNotificationAtom and its feature store.
         """
         CREATE TABLE cache_notification_count (
             worktree_id TEXT PRIMARY KEY,

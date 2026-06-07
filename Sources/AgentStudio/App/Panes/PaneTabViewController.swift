@@ -935,6 +935,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
             },
+            notificationCountForWorktree: { worktreeId in
+                WorkspaceNotificationCountProjection.unreadCount(
+                    worktreeId: worktreeId,
+                    inboxAtom: atom(\.inboxNotification)
+                )
+            },
             workspaceWindowId: workspaceWindowId
         )
 
@@ -3087,7 +3093,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return nil
         }
 
-        return PaneManagementContext.project(paneId: paneId, store: store)
+        return PaneManagementContext.project(
+            paneId: paneId,
+            store: store,
+            notificationCountForWorktree: { worktreeId in
+                WorkspaceNotificationCountProjection.unreadCount(
+                    worktreeId: worktreeId,
+                    inboxAtom: atom(\.inboxNotification)
+                )
+            }
+        )
     }
 
     private func activeMainPaneCommandTarget() -> UUID? {

@@ -158,7 +158,42 @@ struct WorkspaceLauncherProjectorTests {
                 )
             )
             atoms.repoCache.setPullRequestCount(3, for: worktree.id)
-            atoms.repoCache.setNotificationCount(2, for: worktree.id)
+            atoms.inboxNotification.append(
+                InboxNotification(
+                    id: UUID(),
+                    timestamp: Date(timeIntervalSince1970: 1),
+                    kind: .unseenActivity,
+                    title: "Unread",
+                    body: "Unread notification",
+                    source: .pane(
+                        .init(
+                            paneId: UUID(),
+                            worktreeId: worktree.id,
+                            worktreeName: worktree.name
+                        )
+                    ),
+                    isRead: false,
+                    isDismissedFromPaneInbox: false
+                )
+            )
+            atoms.inboxNotification.append(
+                InboxNotification(
+                    id: UUID(),
+                    timestamp: Date(timeIntervalSince1970: 2),
+                    kind: .unseenActivity,
+                    title: "Unread",
+                    body: "Unread notification",
+                    source: .pane(
+                        .init(
+                            paneId: UUID(),
+                            worktreeId: worktree.id,
+                            worktreeName: worktree.name
+                        )
+                    ),
+                    isRead: false,
+                    isDismissedFromPaneInbox: false
+                )
+            )
             atoms.repoCache.recordRecentTarget(.forWorktree(path: worktree.path, worktree: worktree, repo: repo))
 
             let result = WorkspaceLauncherProjector.project(store: store)

@@ -18,6 +18,7 @@ struct FlatTabStripContainer: View {
     let appLifecycleStore: AppLifecycleAtom
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
+    let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
 
     @State private var paneFrames: [UUID: CGRect] = [:]
@@ -66,6 +67,7 @@ struct FlatTabStripContainer: View {
         appLifecycleStore: AppLifecycleAtom,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
+        notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil
     ) {
         self.layout = layout
@@ -84,6 +86,7 @@ struct FlatTabStripContainer: View {
         self.appLifecycleStore = appLifecycleStore
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
+        self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
     }
 
@@ -279,6 +282,7 @@ struct FlatTabStripContainer: View {
                 isInactivePersistentTab: state.isInactivePersistentTab,
                 paneInboxPresentation: paneInboxPresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub,
+                notificationCountForWorktree: notificationCountForWorktree,
                 workspaceWindowId: workspaceWindowId
             )
             .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: state.closingPaneIds)
@@ -324,6 +328,7 @@ struct FlatTabStripContainer: View {
             onPaneFocusTrigger: onPaneFocusTrigger,
             paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: onOpenPaneGitHub,
+            notificationCountForWorktree: notificationCountForWorktree,
             drawerDropTarget: drawerDropTarget,
             dismissCoordinateView: drawerDismissCoordinateView,
             workspaceWindowId: workspaceWindowId,
@@ -431,6 +436,7 @@ struct FlatTabStripContainer: View {
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,
             onOpenPaneGitHub: onOpenPaneGitHub,
+            notificationCountForWorktree: notificationCountForWorktree,
             paneInboxPresentation: paneInboxPresentation,
             ordinal: ordinal,
             workspaceWindowId: workspaceWindowId

@@ -281,7 +281,6 @@ struct PersistenceChaosTests {
             "repoEnrichmentByRepoId": {},
             "worktreeEnrichmentByWorktreeId": {},
             "pullRequestCountByWorktreeId": {},
-            "notificationCountByWorktreeId": {},
             "recentTargets": [],
             "sourceRevision": 0,
             "lastRebuiltAt": null

@@ -21,7 +21,8 @@ struct PaneManagementContext: Equatable {
 
     static func project(
         paneId: UUID,
-        store: WorkspaceStore
+        store: WorkspaceStore,
+        notificationCountForWorktree: (UUID) -> Int = { _ in 0 }
     ) -> Self {
         let workspacePane = store.paneAtom
         let workspaceRepositoryTopology = store.repositoryTopologyAtom
@@ -65,7 +66,7 @@ struct PaneManagementContext: Equatable {
             )
             statusChips = WorkspaceStatusChipsModel(
                 branchStatus: branchStatus,
-                notificationCount: repoCache.notificationCountByWorktreeId[worktreeId, default: 0]
+                notificationCount: notificationCountForWorktree(worktreeId)
             )
         } else if let resolvedWorktreeId =
             workspaceLookup.repoAndWorktree(containing: pane?.metadata.cwd)?.worktree.id
@@ -76,7 +77,7 @@ struct PaneManagementContext: Equatable {
             )
             statusChips = WorkspaceStatusChipsModel(
                 branchStatus: branchStatus,
-                notificationCount: repoCache.notificationCountByWorktreeId[resolvedWorktreeId, default: 0]
+                notificationCount: notificationCountForWorktree(resolvedWorktreeId)
             )
         } else {
             statusChips = nil

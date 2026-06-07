@@ -13,14 +13,11 @@ enum WorkspaceLocalRepositoryCodecs {
 
     enum CountTable {
         case pullRequest
-        case notification
 
         var name: String {
             switch self {
             case .pullRequest:
                 "cache_pull_request_count"
-            case .notification:
-                "cache_notification_count"
             }
         }
     }

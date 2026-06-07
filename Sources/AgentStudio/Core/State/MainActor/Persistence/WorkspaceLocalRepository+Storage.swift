@@ -421,19 +421,6 @@ enum WorkspaceLocalRepositoryStorage {
                 )
             )
         }
-        for (worktreeId, count) in cacheState.notificationCountByWorktreeId {
-            try WorkspaceLocalRepositoryCodecs.insertCount(
-                database,
-                table: .notification,
-                row: .init(
-                    workspaceIdString: workspaceIdString,
-                    worktreeId: worktreeId,
-                    repoId: cacheState.worktreeEnrichmentByWorktreeId[worktreeId]?.repoId,
-                    count: count,
-                    updatedAtValue: updatedAtValue
-                )
-            )
-        }
     }
 
     static func fetchCacheRows(
@@ -463,18 +450,12 @@ enum WorkspaceLocalRepositoryStorage {
             table: .pullRequest,
             workspaceIdString: workspaceIdString
         )
-        let notificationCounts = try WorkspaceLocalRepositoryCodecs.fetchCounts(
-            database,
-            table: .notification,
-            workspaceIdString: workspaceIdString
-        )
         let sourceRevisionValue: Int64 = metadataRow?["source_revision"] ?? 0
         let lastRebuiltAtValue: Double? = metadataRow?["last_rebuilt_at"]
         return .init(
             repoEnrichmentByRepoId: repoEnrichments,
             worktreeEnrichmentByWorktreeId: worktreeEnrichments,
             pullRequestCountByWorktreeId: pullRequestCounts,
-            notificationCountByWorktreeId: notificationCounts,
             sourceRevision: UInt64(sourceRevisionValue),
             lastRebuiltAt: lastRebuiltAtValue.map(Date.init(timeIntervalSince1970:))
         )
@@ -512,7 +493,6 @@ enum WorkspaceLocalRepositoryStorage {
             "cache_repo_enrichment",
             "cache_worktree_enrichment",
             "cache_pull_request_count",
-            "cache_notification_count",
         ] where try rowExists(database, table: table, workspaceId: workspaceId) {
             return true
         }
