@@ -131,8 +131,19 @@ struct WorkspaceSQLiteStoreBackend {
     }
 
     private func resolvedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
-        if let activeWorkspaceId = try coreRepository.fetchActiveWorkspaceId() {
-            return activeWorkspaceId
+        do {
+            if let activeWorkspaceId = try coreRepository.fetchActiveWorkspaceId() {
+                return activeWorkspaceId
+            }
+        } catch let error as WorkspaceCoreRepositoryError {
+            switch error {
+            case .activeWorkspaceSelectionDangling, .malformedWorkspaceId:
+                if let repairedWorkspaceId = try coreRepository.repairActiveWorkspaceSelection(updatedAt: Date()) {
+                    return repairedWorkspaceId
+                }
+            default:
+                throw error
+            }
         }
         if try coreRepository.fetchWorkspace(id: preferredWorkspaceId) != nil {
             return preferredWorkspaceId

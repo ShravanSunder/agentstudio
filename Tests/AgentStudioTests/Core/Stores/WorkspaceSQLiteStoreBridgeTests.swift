@@ -173,6 +173,29 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(!restoredStore.isDirty)
     }
 
+    @Test("restore repairs dangling active workspace selection before hydrating SQLite")
+    func restoreRepairsDanglingActiveWorkspaceSelectionBeforeHydratingSQLite() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_220)
+        try fixture.backend.save(
+            .init(
+                id: workspaceId,
+                name: "Repairable SQLite Workspace",
+                createdAt: createdAt,
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_230)
+            )
+        )
+        let danglingWorkspaceId = UUID()
+        try setRawActiveWorkspaceSelection(danglingWorkspaceId.uuidString, in: fixture.coreQueue)
+
+        let loaded = try #require(try fixture.backend.load(preferredWorkspaceId: workspaceId))
+
+        #expect(loaded.id == workspaceId)
+        #expect(loaded.name == "Repairable SQLite Workspace")
+        #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == workspaceId)
+    }
+
     @Test("failed replacement save preserves the last committed SQLite snapshot")
     func failedReplacementSavePreservesLastCommittedSQLiteSnapshot() throws {
         let workspaceId = UUID()
@@ -430,4 +453,19 @@ private func makeWorkspaceSQLiteBridgeFixture(workspaceId: UUID) throws -> Works
         localRepository: localRepository,
         backend: backend
     )
+}
+
+private func setRawActiveWorkspaceSelection(_ value: String, in databaseQueue: DatabaseQueue) throws {
+    try databaseQueue.writeWithoutTransaction { database in
+        try database.execute(sql: "PRAGMA foreign_keys = OFF")
+        try database.execute(
+            sql: """
+                UPDATE app_workspace_selection
+                SET active_workspace_id = ?
+                WHERE singleton_id = 1
+                """,
+            arguments: [value]
+        )
+        try database.execute(sql: "PRAGMA foreign_keys = ON")
+    }
 }
