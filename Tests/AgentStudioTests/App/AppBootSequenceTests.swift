@@ -76,18 +76,28 @@ struct AppBootSequenceTests {
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
             encoding: .utf8
         )
+        let backendFactorySource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift"
+            ),
+            encoding: .utf8
+        )
 
         #expect(appDelegateSource.contains("makeWorkspaceSQLiteStoreBackend()"))
         #expect(
             appDelegateSource.contains("workspaceLocalSQLiteStoreBackend = workspaceSQLiteStoreBackend?.localBackend"))
         #expect(appDelegateSource.contains("sqliteBackend: workspaceSQLiteStoreBackend"))
         #expect(appDelegateSource.contains("sqliteBackend: workspaceLocalSQLiteStoreBackend"))
-        #expect(appDelegateSource.contains("WorkspaceCoreRepository(databaseWriter: coreDatabasePool)"))
-        #expect(appDelegateSource.contains("WorkspaceLocalRepository("))
-        #expect(appDelegateSource.contains("workspaceId: workspaceId,"))
-        #expect(appDelegateSource.contains("databaseWriter: localDatabasePool"))
-        #expect(appDelegateSource.contains("try coreRepository.migrate()"))
-        #expect(appDelegateSource.contains("try localRepository.migrate()"))
+        #expect(appDelegateSource.contains("WorkspaceSQLiteStoreBackendFactory("))
+        #expect(backendFactorySource.contains("SQLiteDatabaseFactory.makeFileBackedPool("))
+        #expect(backendFactorySource.contains("WorkspaceCoreRepository(databaseWriter: coreDatabasePool)"))
+        #expect(backendFactorySource.contains("WorkspaceLocalRepository("))
+        #expect(backendFactorySource.contains("workspaceId: workspaceId,"))
+        #expect(backendFactorySource.contains("databaseWriter: localDatabasePool"))
+        #expect(backendFactorySource.contains("try coreRepository.migrate()"))
+        #expect(backendFactorySource.contains("try localRepository.migrate()"))
+        #expect(backendFactorySource.contains("SQLiteSidecarQuarantine.quarantine("))
+        #expect(backendFactorySource.contains("allowsLegacyImport:"))
     }
 
     @Test("boot injects SQLite repository into inbox notification store")
@@ -110,9 +120,11 @@ struct AppBootSequenceTests {
         #expect(inboxBootSource.contains("workspaceId: workspaceId"))
         #expect(inboxBootSource.contains("sqliteRepository: sqliteRepository"))
         #expect(inboxBootSource.contains("allowLegacyFilePersistence: allowLegacyFilePersistence"))
+        #expect(inboxBootSource.contains("allowLegacyFileImport: allowLegacyFileImport"))
+        #expect(inboxBootSource.contains("workspaceLocalSQLiteStoreBackend.allowsLegacyImport("))
         #expect(inboxBootSource.contains("InboxNotificationSQLiteRepository("))
         #expect(inboxBootSource.contains("databaseWriter: localRepository.databaseWriter"))
-        #expect(inboxBootSource.contains("return (nil, false)"))
+        #expect(inboxBootSource.contains("return (nil, false, false)"))
         #expect(inboxBootSource.contains("hadLegacyInboxFile"))
         #expect(inboxBootSource.contains("canArchiveLegacyInboxFile"))
     }
