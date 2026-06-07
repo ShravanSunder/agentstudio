@@ -185,18 +185,25 @@ struct WorkspaceCoreRepository {
     }
 
     func hasCompletedWorkspaceSQLiteSnapshot(workspaceId: UUID) throws -> Bool {
+        try fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) != nil
+    }
+
+    func fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: UUID) throws -> Date? {
         try databaseWriter.read { database in
-            let count =
-                try Int.fetchOne(
+            guard
+                let completedAt = try Double.fetchOne(
                     database,
                     sql: """
-                        SELECT count(*)
+                        SELECT completed_at
                         FROM workspace_sqlite_snapshot_status
                         WHERE workspace_id = ?
                         """,
                     arguments: [workspaceId.uuidString]
-                ) ?? 0
-            return count > 0
+                )
+            else {
+                return nil
+            }
+            return Date(timeIntervalSince1970: completedAt)
         }
     }
 
@@ -229,6 +236,19 @@ struct WorkspaceCoreRepository {
 
     func markLegacyWorkspaceArchived(workspaceId: UUID, archivedAt: Date) throws {
         try databaseWriter.write { database in
+            let statusCount =
+                try Int.fetchOne(
+                    database,
+                    sql: """
+                        SELECT count(*)
+                        FROM legacy_workspace_import_status
+                        WHERE workspace_id = ?
+                        """,
+                    arguments: [workspaceId.uuidString]
+                ) ?? 0
+            guard statusCount > 0 else {
+                throw WorkspaceCoreRepositoryError.legacyImportStatusNotFound(workspaceId)
+            }
             try database.execute(
                 sql: """
                     UPDATE legacy_workspace_import_status
@@ -317,6 +337,7 @@ enum WorkspaceCoreRepositoryError: Error, Equatable {
     case tabShellSetRequiresGraphReplacement(existingTabIds: Set<UUID>, incomingTabIds: Set<UUID>)
     case duplicateTabPaneId(tabId: UUID, paneId: UUID)
     case duplicateArrangementId(UUID)
+    case legacyImportStatusNotFound(UUID)
     case paneBelongsToDifferentWorkspace(paneId: UUID, expectedWorkspaceId: UUID, actualWorkspaceId: UUID)
     case drawerBelongsToDifferentWorkspace(drawerId: UUID, expectedWorkspaceId: UUID, actualWorkspaceId: UUID)
     case tabBelongsToDifferentWorkspace(tabId: UUID, expectedWorkspaceId: UUID, actualWorkspaceId: UUID)

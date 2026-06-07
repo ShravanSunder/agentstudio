@@ -51,7 +51,8 @@ struct WorkspaceSQLiteStoreBackend {
         else {
             throw BackendUninitializedError()
         }
-        guard try coreRepository.hasCompletedWorkspaceSQLiteSnapshot(workspaceId: workspace.id) else {
+        let coreCompletedAt = try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspace.id)
+        guard let coreCompletedAt else {
             throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
         }
 
@@ -60,6 +61,9 @@ struct WorkspaceSQLiteStoreBackend {
         let tabShells = try coreRepository.fetchTabShells(workspaceId: workspace.id)
         let tabGraph = try coreRepository.fetchTabGraph(workspaceId: workspace.id)
         let localRepository = try localBackend.repository(for: workspace.id)
+        guard try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == coreCompletedAt else {
+            throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
+        }
         let cursorState = try localRepository.fetchCursorState()
         let windowState = try localRepository.fetchWindowState()
 
@@ -79,13 +83,10 @@ struct WorkspaceSQLiteStoreBackend {
     func save(_ state: WorkspacePersistor.PersistableState) throws {
         let workspaceRecord = WorkspaceSQLiteStateBridge.workspaceRecord(from: state)
         let localRepository = try localBackend.repository(for: state.id)
-        try localRepository.replaceWindowState(
-            WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
-            updatedAt: state.updatedAt
-        )
-        try localRepository.replaceCursorState(
+        try localRepository.replaceWorkspaceSnapshotLocalState(
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
-            updatedAt: state.updatedAt
+            windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
+            completedAt: state.updatedAt
         )
         try coreRepository.replaceWorkspaceSnapshot(
             workspace: workspaceRecord,

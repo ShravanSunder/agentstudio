@@ -71,6 +71,58 @@ struct WorkspaceLocalRepository {
         }
     }
 
+    func replaceWorkspaceSnapshotLocalState(
+        cursorState: CursorStateRecord,
+        windowState: WindowStateRecord?,
+        completedAt: Date
+    ) throws {
+        try databaseWriter.write { database in
+            try WorkspaceLocalRepositoryStorage.replaceWindowStateRows(
+                database,
+                workspaceId: workspaceId,
+                windowState: windowState,
+                updatedAt: completedAt
+            )
+            try WorkspaceLocalRepositoryStorage.replaceCursorRows(
+                database,
+                workspaceId: workspaceId,
+                cursorState: cursorState,
+                updatedAt: completedAt
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_workspace_sqlite_snapshot_status(workspace_id, completed_at)
+                    VALUES (?, ?)
+                    ON CONFLICT(workspace_id) DO UPDATE SET
+                        completed_at = excluded.completed_at
+                    """,
+                arguments: [
+                    workspaceId.uuidString,
+                    completedAt.timeIntervalSince1970,
+                ]
+            )
+        }
+    }
+
+    func fetchCompletedWorkspaceSQLiteSnapshotAt() throws -> Date? {
+        try databaseWriter.read { database in
+            guard
+                let completedAt = try Double.fetchOne(
+                    database,
+                    sql: """
+                        SELECT completed_at
+                        FROM local_workspace_sqlite_snapshot_status
+                        WHERE workspace_id = ?
+                        """,
+                    arguments: [workspaceId.uuidString]
+                )
+            else {
+                return nil
+            }
+            return Date(timeIntervalSince1970: completedAt)
+        }
+    }
+
     func fetchCursorState() throws -> CursorStateRecord {
         try databaseWriter.read { database in
             try WorkspaceLocalRepositoryStorage.fetchCursorRows(database, workspaceId: workspaceId)

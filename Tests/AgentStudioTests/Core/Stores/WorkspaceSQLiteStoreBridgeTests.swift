@@ -209,6 +209,44 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(loaded.name != "Uncommitted Replacement")
     }
 
+    @Test("restore rejects mixed core and local SQLite snapshot tokens after partial replacement")
+    func restoreRejectsMixedCoreAndLocalSQLiteSnapshotTokensAfterPartialReplacement() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_280)
+        try fixture.backend.save(
+            .init(
+                id: workspaceId,
+                name: "Committed Workspace",
+                activeTabId: nil,
+                sidebarWidth: 250,
+                createdAt: createdAt,
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_290)
+            )
+        )
+        let invalidPaneId = UUID()
+        let invalidTab = Tab(paneId: invalidPaneId, name: "Invalid Replacement Tab")
+
+        #expect(throws: (any Error).self) {
+            try fixture.backend.save(
+                .init(
+                    id: workspaceId,
+                    name: "Invalid Replacement",
+                    panes: [],
+                    tabs: [invalidTab],
+                    activeTabId: invalidTab.id,
+                    sidebarWidth: 999,
+                    createdAt: createdAt,
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_300)
+                )
+            )
+        }
+
+        #expect(throws: WorkspaceSQLiteStoreBackend.BackendError.incompleteWorkspaceSnapshot(workspaceId)) {
+            _ = try fixture.backend.load(preferredWorkspaceId: workspaceId)
+        }
+    }
+
     @Test("restore imports legacy workspace JSON into core and local SQLite when rows are missing")
     func restoreImportsLegacyWorkspaceJSONIntoSQLiteWhenRowsAreMissing() throws {
         let workspaceId = UUID()

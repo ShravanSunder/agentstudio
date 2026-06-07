@@ -260,7 +260,7 @@ extension AppDelegate {
             )
         } else {
             appLogger.warning(
-                "Legacy workspace archive incomplete. Archived: \(result.archivedFilenames.joined(separator: ","), privacy: .public). Failed: \(result.failedFilenames.joined(separator: ","), privacy: .public)"
+                "Legacy workspace archive incomplete. Archived: \(result.archivedFilenames.joined(separator: ","), privacy: .public). Failed: \(result.failedFilenames.joined(separator: ","), privacy: .public). Incomplete archive directories: \(result.incompleteArchiveDirectoryNames.joined(separator: ","), privacy: .public)"
             )
         }
     }

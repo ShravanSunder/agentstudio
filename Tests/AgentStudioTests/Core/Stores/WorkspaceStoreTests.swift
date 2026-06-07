@@ -152,6 +152,38 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func archiveLegacyWorkspaceFilesReportsPriorIncompleteArchiveDirectory() throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-incomplete-archive-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        #expect(persistor.ensureDirectory())
+        let workspaceId = UUID()
+        let stateURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
+        try Data("state".utf8).write(to: stateURL, options: .atomic)
+        let incompleteDirectoryName = "2026-06-06T00-00-00Z"
+        let incompleteDirectory =
+            persistedDir
+            .appending(path: "legacy-imported")
+            .appending(path: incompleteDirectoryName)
+        try FileManager.default.createDirectory(at: incompleteDirectory, withIntermediateDirectories: true)
+        try Data("partial".utf8).write(
+            to: incompleteDirectory.appending(path: "\(workspaceId.uuidString).workspace.cache.json"),
+            options: .atomic
+        )
+        try Data("incomplete".utf8).write(
+            to: incompleteDirectory.appending(path: ".archive-incomplete-\(workspaceId.uuidString).marker"),
+            options: .atomic
+        )
+
+        let result = try #require(persistor.archiveLegacyWorkspaceFiles(for: workspaceId))
+
+        #expect(result.archivedFilenames.isEmpty)
+        #expect(result.incompleteArchiveDirectoryNames == [incompleteDirectoryName])
+        #expect(!result.succeeded)
+        #expect(FileManager.default.fileExists(atPath: stateURL.path))
+    }
+
+    @Test
     func test_flushFailure_reportsSaveFailedRecovery() {
         let blockedDirectoryURL = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-blocked-\(UUID().uuidString)")

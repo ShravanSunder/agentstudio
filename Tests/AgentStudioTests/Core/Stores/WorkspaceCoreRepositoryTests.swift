@@ -158,6 +158,27 @@ struct WorkspaceCoreRepositoryTests {
         }
     }
 
+    @Test("legacy archive status rejects missing import status row")
+    func legacyArchiveStatusRejectsMissingImportStatusRow() throws {
+        let repository = try makeFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000019")!
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Imported",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+
+        #expect(throws: WorkspaceCoreRepositoryError.legacyImportStatusNotFound(workspaceId)) {
+            try repository.markLegacyWorkspaceArchived(
+                workspaceId: workspaceId,
+                archivedAt: Date(timeIntervalSince1970: 300)
+            )
+        }
+    }
+
     @Test("active workspace clear is rejected while workspace rows remain")
     func activeWorkspaceClearIsRejectedWhileWorkspaceRowsRemain() throws {
         let repository = try makeFixture().repository

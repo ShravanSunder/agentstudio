@@ -25,9 +25,24 @@ struct WorkspacePersistor {
         let archiveDirectoryName: String
         let archivedFilenames: [String]
         let failedFilenames: [String]
+        let incompleteArchiveDirectoryNames: [String]
+
+        init(
+            archiveDirectoryName: String,
+            archivedFilenames: [String],
+            failedFilenames: [String],
+            incompleteArchiveDirectoryNames: [String] = []
+        ) {
+            self.archiveDirectoryName = archiveDirectoryName
+            self.archivedFilenames = archivedFilenames
+            self.failedFilenames = failedFilenames
+            self.incompleteArchiveDirectoryNames = incompleteArchiveDirectoryNames
+        }
 
         var succeeded: Bool {
-            !archivedFilenames.isEmpty && failedFilenames.isEmpty
+            !archivedFilenames.isEmpty
+                && failedFilenames.isEmpty
+                && incompleteArchiveDirectoryNames.isEmpty
         }
     }
 
@@ -247,6 +262,15 @@ struct WorkspacePersistor {
 
     @discardableResult
     func archiveLegacyWorkspaceFiles(for workspaceId: UUID) -> LegacyArchiveResult? {
+        let incompleteArchiveDirectoryNames = incompleteLegacyArchiveDirectoryNames(for: workspaceId)
+        if !incompleteArchiveDirectoryNames.isEmpty {
+            return LegacyArchiveResult(
+                archiveDirectoryName: "",
+                archivedFilenames: [],
+                failedFilenames: [],
+                incompleteArchiveDirectoryNames: incompleteArchiveDirectoryNames
+            )
+        }
         let candidates = legacyWorkspaceFileURLs(for: workspaceId)
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !candidates.isEmpty else { return nil }
@@ -294,12 +318,17 @@ struct WorkspacePersistor {
                         )
                     }
                 }
-                try? FileManager.default.removeItem(at: archiveDirectory)
+                if rollbackFailures.isEmpty {
+                    try? FileManager.default.removeItem(at: archiveDirectory)
+                } else {
+                    markIncompleteLegacyArchiveDirectory(archiveDirectory, workspaceId: workspaceId)
+                }
                 let unarchivedFailures = candidates[index...].map(\.lastPathComponent)
                 return LegacyArchiveResult(
                     archiveDirectoryName: archiveDirectoryName,
                     archivedFilenames: rollbackFailures,
-                    failedFilenames: unarchivedFailures + rollbackFailures
+                    failedFilenames: unarchivedFailures + rollbackFailures,
+                    incompleteArchiveDirectoryNames: rollbackFailures.isEmpty ? [] : [archiveDirectoryName]
                 )
             }
         }
@@ -313,6 +342,45 @@ struct WorkspacePersistor {
 
     func canonicalWorkspaceStatePath(for workspaceId: UUID) -> String {
         canonicalFileURL(for: workspaceId).path
+    }
+
+    private func incompleteLegacyArchiveDirectoryNames(for workspaceId: UUID) -> [String] {
+        let archiveRoot = workspacesDir.appending(path: "legacy-imported")
+        guard
+            let directoryURLs = try? FileManager.default.contentsOfDirectory(
+                at: archiveRoot,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            )
+        else {
+            return []
+        }
+        return directoryURLs.compactMap { directoryURL in
+            guard
+                (try? directoryURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+                FileManager.default.fileExists(
+                    atPath: directoryURL.appending(path: incompleteArchiveMarkerName(for: workspaceId)).path
+                )
+            else {
+                return nil
+            }
+            return directoryURL.lastPathComponent
+        }
+        .sorted()
+    }
+
+    private func markIncompleteLegacyArchiveDirectory(_ archiveDirectory: URL, workspaceId: UUID) {
+        let markerURL = archiveDirectory.appending(path: incompleteArchiveMarkerName(for: workspaceId))
+        do {
+            try Data("incomplete".utf8).write(to: markerURL, options: .atomic)
+        } catch {
+            persistorLogger.error(
+                "Failed to mark incomplete legacy workspace archive \(archiveDirectory.path): \(error)"
+            )
+        }
+    }
+
+    private func incompleteArchiveMarkerName(for workspaceId: UUID) -> String {
+        ".archive-incomplete-\(workspaceId.uuidString).marker"
     }
 
     @discardableResult

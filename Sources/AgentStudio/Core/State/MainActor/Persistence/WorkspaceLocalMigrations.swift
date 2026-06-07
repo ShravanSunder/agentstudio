@@ -22,6 +22,7 @@ enum WorkspaceLocalMigrations {
         ("004_create_cache_tables", createCacheTableStatements),
         ("005_enforce_notification_claim_keys", enforceNotificationClaimKeyStatements),
         ("006_create_local_persistence_lane_markers", createLocalPersistenceLaneMarkerStatements),
+        ("007_create_local_workspace_sqlite_snapshot_status", createLocalWorkspaceSQLiteSnapshotStatusStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -583,5 +584,14 @@ enum WorkspaceLocalMigrations {
         CREATE INDEX idx_local_persistence_lane_marker_workspace_id
         ON local_persistence_lane_marker(workspace_id)
         """,
+    ]
+
+    private static let createLocalWorkspaceSQLiteSnapshotStatusStatements = [
+        """
+        CREATE TABLE local_workspace_sqlite_snapshot_status (
+            workspace_id TEXT PRIMARY KEY,
+            completed_at REAL NOT NULL
+        )
+        """
     ]
 }
