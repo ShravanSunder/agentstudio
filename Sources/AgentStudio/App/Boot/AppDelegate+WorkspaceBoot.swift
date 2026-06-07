@@ -199,24 +199,32 @@ extension AppDelegate {
     }
 
     private func bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: WorkspacePersistor) {
+        let hasSQLiteBackend = workspaceSQLiteStoreBackend != nil
         guard let workspaceSQLiteStoreBackend else { return }
+        let hasCompletedSnapshot: Bool
+        do {
+            hasCompletedSnapshot = try workspaceSQLiteStoreBackend.hasCompletedSnapshot(
+                workspaceId: store.identityAtom.workspaceId
+            )
+        } catch {
+            appLogger.warning(
+                "Skipping legacy workspace archive; SQLite snapshot status unavailable: \(error.localizedDescription)")
+            return
+        }
+        let hasLegacyWorkspaceFiles = persistor.hasLegacyWorkspaceFiles(for: store.identityAtom.workspaceId)
+        let shouldArchiveLegacyFiles = WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
+            hasSQLiteBackend: hasSQLiteBackend,
+            hasCompletedSnapshot: hasCompletedSnapshot,
+            hasLegacyWorkspaceFiles: hasLegacyWorkspaceFiles,
+            canArchiveLegacyCompanionFiles: canArchiveLegacyCompanionFiles
+        )
         guard canArchiveLegacyCompanionFiles else {
             appLogger.warning(
                 "Skipping legacy workspace archive; one or more legacy companion files have not been restored into SQLite/settings"
             )
             return
         }
-        do {
-            guard try workspaceSQLiteStoreBackend.hasCompletedSnapshot(workspaceId: store.identityAtom.workspaceId)
-            else {
-                return
-            }
-        } catch {
-            appLogger.warning(
-                "Skipping legacy workspace archive; SQLite snapshot status unavailable: \(error.localizedDescription)")
-            return
-        }
-        guard persistor.hasLegacyWorkspaceFiles(for: store.identityAtom.workspaceId) else { return }
+        guard shouldArchiveLegacyFiles else { return }
         do {
             try workspaceSQLiteStoreBackend.markLegacyWorkspaceCompanionImportsCompleted(
                 workspaceId: store.identityAtom.workspaceId,
@@ -437,5 +445,19 @@ extension AppDelegate {
                 .updateWatchedFolders(paths: watchedPaths.map(\.path))
             )
         }
+    }
+}
+
+enum WorkspaceLegacyArchiveReadiness {
+    static func canArchiveLegacyFiles(
+        hasSQLiteBackend: Bool,
+        hasCompletedSnapshot: Bool,
+        hasLegacyWorkspaceFiles: Bool,
+        canArchiveLegacyCompanionFiles: Bool
+    ) -> Bool {
+        hasSQLiteBackend
+            && hasCompletedSnapshot
+            && hasLegacyWorkspaceFiles
+            && canArchiveLegacyCompanionFiles
     }
 }

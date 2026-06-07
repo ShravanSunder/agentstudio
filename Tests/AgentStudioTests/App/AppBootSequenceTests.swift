@@ -199,9 +199,8 @@ struct AppBootSequenceTests {
 
         #expect(bootSource.contains("bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)"))
         #expect(bootSource.contains("guard let workspaceSQLiteStoreBackend else { return }"))
-        #expect(
-            bootSource.contains(
-                "workspaceSQLiteStoreBackend.hasCompletedSnapshot(workspaceId: store.identityAtom.workspaceId)"))
+        #expect(bootSource.contains("workspaceSQLiteStoreBackend.hasCompletedSnapshot("))
+        #expect(bootSource.contains("workspaceId: store.identityAtom.workspaceId"))
         #expect(bootSource.contains("guard canArchiveLegacyCompanionFiles else"))
         #expect(bootSource.contains("repoCacheStore.canArchiveLegacyCacheFile"))
         #expect(bootSource.contains("sidebarCacheStore.canArchiveLegacySidebarCacheFile"))
@@ -225,6 +224,50 @@ struct AppBootSequenceTests {
             bootSource.range(of: "persistor.archiveLegacyWorkspaceFiles(for: store.identityAtom.workspaceId)")
         )
         #expect(companionStatusRange.upperBound < archiveFilesRange.lowerBound)
+    }
+
+    @Test("legacy workspace archive readiness requires completed SQLite and companion import proof")
+    func legacyWorkspaceArchiveReadinessRequiresCompletedSQLiteAndCompanionImportProof() {
+        #expect(
+            WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
+                hasSQLiteBackend: true,
+                hasCompletedSnapshot: true,
+                hasLegacyWorkspaceFiles: true,
+                canArchiveLegacyCompanionFiles: true
+            )
+        )
+        #expect(
+            !WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
+                hasSQLiteBackend: false,
+                hasCompletedSnapshot: true,
+                hasLegacyWorkspaceFiles: true,
+                canArchiveLegacyCompanionFiles: true
+            )
+        )
+        #expect(
+            !WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
+                hasSQLiteBackend: true,
+                hasCompletedSnapshot: false,
+                hasLegacyWorkspaceFiles: true,
+                canArchiveLegacyCompanionFiles: true
+            )
+        )
+        #expect(
+            !WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
+                hasSQLiteBackend: true,
+                hasCompletedSnapshot: true,
+                hasLegacyWorkspaceFiles: false,
+                canArchiveLegacyCompanionFiles: true
+            )
+        )
+        #expect(
+            !WorkspaceLegacyArchiveReadiness.canArchiveLegacyFiles(
+                hasSQLiteBackend: true,
+                hasCompletedSnapshot: true,
+                hasLegacyWorkspaceFiles: true,
+                canArchiveLegacyCompanionFiles: false
+            )
+        )
     }
 
     @Test("termination flushes settings before shutdown completes")
