@@ -242,6 +242,7 @@ Add these rows near the SQLite persistence rows:
 ```markdown
 | `WorkspaceSQLiteDatastore` | actor boundary for product SQLite I/O, repository caching, core/local commit sequencing, local quarantine state, and legacy import status decisions; does not own atoms | `Core/State/SQLite/WorkspaceSQLiteDatastore.swift` |
 | `WorkspaceSQLiteSnapshot` | immutable live SQLite bridge snapshot passed across the MainActor/datastore boundary; not a legacy JSON DTO and not a row projection | `Core/State/SQLite/WorkspaceSQLiteSnapshot.swift` |
+| `WorkspaceSQLiteRecoveryClassifier` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths; no repository or atom ownership | `Core/State/SQLite/WorkspaceSQLiteRecoveryClassifier.swift` |
 ```
 
 Update existing rows:

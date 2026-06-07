@@ -35,6 +35,11 @@ actor WorkspaceSQLiteDatastore {
         case unavailable(WorkspaceSQLiteDatastoreFailure)
     }
 
+    enum CompletedSnapshotStatusResult: Equatable, Sendable {
+        case completed(Bool, recoveryEvents: [PersistenceRecoveryEvent])
+        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+    }
+
     enum WorkspaceRowsInspectionResult: Equatable, Sendable {
         case hasWorkspaceRows
         case empty
@@ -97,6 +102,7 @@ actor WorkspaceSQLiteDatastore {
 
     private var saveLocalRepositoryCache: [UUID: WorkspaceLocalRepository] = [:]
     private var restoreLocalRepositoryCache: [UUID: WorkspaceLocalRepository] = [:]
+    private var pendingGlobalRecoveryEvents: [PersistenceRecoveryEvent] = []
     private var pendingRecoveryEventsByWorkspaceId: [UUID: [PersistenceRecoveryEvent]] = [:]
 
     init(
@@ -161,13 +167,26 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    func hasCompletedSnapshot(workspaceId: UUID) async throws -> Bool {
-        let backend = try resolvedBackend()
-        guard try backend.coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) != nil else {
-            return false
+    func completedSnapshotStatus(workspaceId: UUID) async -> CompletedSnapshotStatusResult {
+        do {
+            let backend = try resolvedBackend()
+            guard
+                try backend.coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) != nil
+            else {
+                return .completed(false, recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
+            }
+            let localRepository = try await cachedRestoreLocalRepository(workspaceId: workspaceId)
+            return .completed(
+                try backend.hasCompletedSnapshot(workspaceId: workspaceId, localRepository: localRepository),
+                recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId)
+            )
+        } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(let workspaceId, _) {
+            return .completed(false, recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
+        } catch WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(let workspaceId, _) {
+            return .completed(false, recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
+        } catch {
+            return .unavailable(.init(error), recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
         }
-        let localRepository = try await cachedRestoreLocalRepository(workspaceId: workspaceId)
-        return try backend.hasCompletedSnapshot(workspaceId: workspaceId, localRepository: localRepository)
     }
 
     func selectActiveWorkspace(_ workspaceId: UUID, updatedAt: Date) async throws {
@@ -359,29 +378,76 @@ actor WorkspaceSQLiteDatastore {
         guard let configuration else {
             throw WorkspaceSQLiteDatastoreError.missingConfiguration
         }
+        do {
+            let openedBackend = try openConfiguredBackend(configuration: configuration)
+            backend = openedBackend
+            return openedBackend
+        } catch {
+            guard WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(error) else {
+                throw error
+            }
+        }
+
+        let quarantine = SQLiteSidecarQuarantine.quarantine(databaseURL: configuration.coreDatabaseURL)
+        appendGlobalRecoveryEvent(
+            .init(
+                store: .workspace,
+                workspaceId: nil,
+                recovery: quarantine.succeeded ? .quarantinedAndReset : .quarantineFailed,
+                quarantinedFilename: quarantine.recoveryFilename
+            )
+        )
+        guard quarantine.succeeded else {
+            throw WorkspaceSQLiteDatastoreError.coreQuarantineFailed
+        }
+        let openedBackend = try openConfiguredBackend(configuration: configuration)
+        backend = openedBackend
+        return openedBackend
+    }
+
+    private func openConfiguredBackend(configuration: WorkspaceSQLiteDatastoreConfiguration) throws
+        -> WorkspaceSQLiteStoreBackend
+    {
         let coreDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
             at: configuration.coreDatabaseURL,
             label: "AgentStudio.sqlite.core"
         )
         let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabasePool)
         try coreRepository.migrate()
-        let openedBackend = WorkspaceSQLiteStoreBackend(
+        return WorkspaceSQLiteStoreBackend(
             coreRepository: coreRepository,
-            makeLocalRepository: { workspaceId in
-                let localDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
-                    at: configuration.localDatabaseURL(workspaceId),
-                    label: "AgentStudio.sqlite.local.\(workspaceId.uuidString)"
-                )
-                let localRepository = WorkspaceLocalRepository(
-                    workspaceId: workspaceId,
-                    databaseWriter: localDatabasePool
-                )
-                try localRepository.migrate()
-                return localRepository
+            makeLocalRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache },
+            makeLocalRestoreRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache },
+            legacyImportDecision: { workspaceId, lane in
+                guard
+                    let status = try coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId)
+                else {
+                    return .allowImport
+                }
+                switch lane {
+                case .local:
+                    return status.localImportedAt == nil ? .allowImport : .blockReplayAllowArchive
+                case .cache:
+                    return status.cacheImportedAt == nil ? .allowImport : .blockReplayAllowArchive
+                }
             }
         )
-        backend = openedBackend
-        return openedBackend
+    }
+
+    private static func openConfiguredLocalRepository(
+        workspaceId: UUID,
+        configuration: WorkspaceSQLiteDatastoreConfiguration
+    ) throws -> WorkspaceLocalRepository {
+        let localDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: configuration.localDatabaseURL(workspaceId),
+            label: "AgentStudio.sqlite.local.\(workspaceId.uuidString)"
+        )
+        let localRepository = WorkspaceLocalRepository(
+            workspaceId: workspaceId,
+            databaseWriter: localDatabasePool
+        )
+        try localRepository.migrate()
+        return localRepository
     }
 
     private func cachedSaveLocalRepository(workspaceId: UUID) async throws -> WorkspaceLocalRepository {
@@ -447,34 +513,60 @@ actor WorkspaceSQLiteDatastore {
         guard let configuration else {
             throw WorkspaceSQLiteDatastoreError.missingConfiguration
         }
-        let localDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
-            at: configuration.localDatabaseURL(workspaceId),
-            label: "AgentStudio.sqlite.local.\(workspaceId.uuidString)"
-        )
-        let repository = WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localDatabasePool)
-        try repository.migrate()
-        return repository
+        return try Self.openConfiguredLocalRepository(workspaceId: workspaceId, configuration: configuration)
     }
 
     private func makeLocalRepositoryForRestore(_ workspaceId: UUID) throws -> WorkspaceLocalRepository {
         if let makeLocalRestoreRepository {
             return try makeLocalRestoreRepository(workspaceId)
         }
-        return try makeLocalRepositoryForSave(workspaceId)
+        guard let configuration else {
+            return try makeLocalRepositoryForSave(workspaceId)
+        }
+        do {
+            return try Self.openConfiguredLocalRepository(workspaceId: workspaceId, configuration: configuration)
+        } catch {
+            guard WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(error) else {
+                throw error
+            }
+            let quarantine = SQLiteSidecarQuarantine.quarantine(
+                databaseURL: configuration.localDatabaseURL(workspaceId)
+            )
+            guard quarantine.succeeded else {
+                throw WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(
+                    workspaceId,
+                    quarantinedFilename: quarantine.recoveryFilename
+                )
+            }
+            do {
+                _ = try Self.openConfiguredLocalRepository(workspaceId: workspaceId, configuration: configuration)
+            } catch {
+            }
+            throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
+                workspaceId,
+                quarantinedFilename: quarantine.recoveryFilename
+            )
+        }
     }
 
     private func appendRecoveryEvent(_ event: PersistenceRecoveryEvent, workspaceId: UUID) {
         pendingRecoveryEventsByWorkspaceId[workspaceId, default: []].append(event)
     }
 
+    private func appendGlobalRecoveryEvent(_ event: PersistenceRecoveryEvent) {
+        pendingGlobalRecoveryEvents.append(event)
+    }
+
     private func drainRecoveryEvents(workspaceId: UUID) -> [PersistenceRecoveryEvent] {
-        let events = pendingRecoveryEventsByWorkspaceId[workspaceId] ?? []
+        let events = pendingGlobalRecoveryEvents + (pendingRecoveryEventsByWorkspaceId[workspaceId] ?? [])
+        pendingGlobalRecoveryEvents = []
         pendingRecoveryEventsByWorkspaceId[workspaceId] = nil
         return events
     }
 
     private func drainAllRecoveryEvents() -> [PersistenceRecoveryEvent] {
-        let events = pendingRecoveryEventsByWorkspaceId.values.flatMap { $0 }
+        let events = pendingGlobalRecoveryEvents + pendingRecoveryEventsByWorkspaceId.values.flatMap { $0 }
+        pendingGlobalRecoveryEvents = []
         pendingRecoveryEventsByWorkspaceId.removeAll()
         return events
     }
@@ -499,6 +591,7 @@ actor WorkspaceSQLiteDatastore {
 enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
     case missingConfiguration
     case useDatastoreLocalRepositoryCache
+    case coreQuarantineFailed
 }
 
 struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {

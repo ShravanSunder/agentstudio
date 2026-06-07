@@ -163,8 +163,19 @@ struct WorkspaceLegacySQLiteImporter {
         mode: WorkspaceLegacySQLiteImportMode
     ) async -> LegacyWorkspaceFileImportClassification {
         do {
-            if try await sqliteDatastore.hasCompletedSnapshot(workspaceId: legacyFile.state.id) {
-                return .alreadyCompleted
+            switch await sqliteDatastore.completedSnapshotStatus(workspaceId: legacyFile.state.id) {
+            case .completed(let isCompleted, let recoveryEvents):
+                for event in recoveryEvents {
+                    recoveryReporter?(event)
+                }
+                if isCompleted {
+                    return .alreadyCompleted
+                }
+            case .unavailable(let failure, let recoveryEvents):
+                for event in recoveryEvents {
+                    recoveryReporter?(event)
+                }
+                throw failure
             }
             switch await sqliteDatastore.legacyImportStatus(workspaceId: legacyFile.state.id) {
             case .missing:

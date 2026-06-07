@@ -222,7 +222,7 @@ struct AppBootSequenceTests {
             importedAt: Date(timeIntervalSince1970: 1_700_004_005)
         )
 
-        let outcome = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
+        let archiveResult = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
             workspaceId: workspaceId,
             persistor: persistor,
             sqliteDatastore: datastore,
@@ -230,10 +230,11 @@ struct AppBootSequenceTests {
             now: { Date(timeIntervalSince1970: 1_700_004_010) }
         )
 
-        guard case .archived = outcome else {
-            Issue.record("Expected legacy workspace files to archive, got \(outcome)")
+        guard case .archived = archiveResult.outcome else {
+            Issue.record("Expected legacy workspace files to archive, got \(archiveResult.outcome)")
             return
         }
+        #expect(archiveResult.recoveryEvents.isEmpty)
         let importStatus = try #require(
             try coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId))
         #expect(importStatus.settingsImportedAt != nil)
@@ -241,6 +242,55 @@ struct AppBootSequenceTests {
         #expect(importStatus.cacheImportedAt != nil)
         #expect(importStatus.archivedAt != nil)
         #expect(!persistor.hasLegacyWorkspaceFiles(for: workspaceId))
+    }
+
+    @Test("boot archive coordinator returns local recovery events discovered during readiness")
+    func bootArchiveCoordinatorReturnsLocalRecoveryEventsDiscoveredDuringReadiness() async throws {
+        let workspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.boot.archive.recovery.core")
+        let seedLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.boot.archive.recovery.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(seedLocalQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+        let seedBackend = WorkspaceSQLiteStoreBackend(
+            coreRepository: coreRepository,
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: seedLocalQueue) }
+        )
+        try seedBackend.save(.emptyFixture(id: workspaceId, name: "Archive Recovery"))
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: seedLocalQueue) },
+            makeLocalRestoreRepository: { workspaceId in
+                throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
+                    workspaceId,
+                    quarantinedFilename: "\(workspaceId.uuidString).local.sqlite.corrupt-test"
+                )
+            }
+        )
+        let persistor = WorkspacePersistor(
+            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        )
+        #expect(persistor.ensureDirectory())
+        try persistor.save(.init(id: workspaceId, name: "Legacy Archive Candidate"))
+
+        let archiveResult = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
+            workspaceId: workspaceId,
+            persistor: persistor,
+            sqliteDatastore: datastore,
+            canArchiveLegacyCompanionFiles: true
+        )
+
+        #expect(archiveResult.outcome == .skipped(.notReady))
+        #expect(
+            archiveResult.recoveryEvents.contains { event in
+                event.store == .workspace
+                    && event.workspaceId == workspaceId
+                    && event.recovery == .quarantinedAndReset
+                    && event.quarantinedFilename?.contains(".local.sqlite.corrupt-test") == true
+            },
+            "Recovery events: \(archiveResult.recoveryEvents)"
+        )
     }
 
     @Test("legacy workspace archive readiness requires completed SQLite and companion import proof")

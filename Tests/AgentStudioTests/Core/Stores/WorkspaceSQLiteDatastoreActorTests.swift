@@ -174,8 +174,113 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(await datastore.inspectWorkspaceRows() == .empty)
         try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "Status"))
         #expect(await datastore.inspectWorkspaceRows() == .hasWorkspaceRows)
-        #expect(try await datastore.hasCompletedSnapshot(workspaceId: workspaceId))
+        guard
+            case .completed(true, let recoveryEvents) = await datastore.completedSnapshotStatus(
+                workspaceId: workspaceId
+            )
+        else {
+            Issue.record("Expected completed snapshot status")
+            return
+        }
+        #expect(recoveryEvents.isEmpty)
         #expect(await datastore.legacyImportStatus(workspaceId: workspaceId) == .missing)
+    }
+
+    @Test("production datastore quarantines corrupt core SQLite before reporting uninitialized")
+    func productionDatastoreQuarantinesCorruptCoreSQLiteBeforeReportingUninitialized() async throws {
+        let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "core-quarantine")
+        let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
+        try Data("not a sqlite database".utf8).write(to: coreSQLiteURL)
+        let datastore = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreSQLiteURL,
+            localDatabaseURL: { workspaceId in
+                rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+            }
+        ).makeDatastore()
+
+        let result = await datastore.loadWorkspaceSnapshot(preferredWorkspaceId: UUID())
+
+        guard case .uninitialized(let recoveryEvents) = result else {
+            Issue.record("Expected uninitialized result after core quarantine, got \(result)")
+            return
+        }
+        #expect(
+            recoveryEvents.contains { event in
+                event.store == .workspace
+                    && event.workspaceId == nil
+                    && event.recovery == .quarantinedAndReset
+                    && event.quarantinedFilename?.contains("core.sqlite.corrupt-") == true
+            },
+            "Recovery events: \(recoveryEvents)"
+        )
+        #expect(FileManager.default.fileExists(atPath: coreSQLiteURL.path))
+    }
+
+    @Test("production datastore quarantines corrupt local SQLite and reports first restore event")
+    func productionDatastoreQuarantinesCorruptLocalSQLiteAndReportsFirstRestoreEvent() async throws {
+        let workspaceId = UUID()
+        let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "local-quarantine")
+        let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
+        let localSQLiteURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+        let factory = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreSQLiteURL,
+            localDatabaseURL: { _ in localSQLiteURL }
+        )
+        do {
+            let seedDatastore = factory.makeDatastore()
+            try await seedDatastore.saveWorkspaceSnapshot(
+                .emptyFixture(id: workspaceId, name: "Local Quarantine")
+            )
+        }
+        try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
+        let restoreDatastore = factory.makeDatastore()
+
+        let result = await restoreDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
+
+        guard case .loaded(let snapshot, let recoveryEvents) = result else {
+            Issue.record("Expected loaded snapshot after local quarantine, got \(result)")
+            return
+        }
+        #expect(snapshot.id == workspaceId)
+        #expect(
+            recoveryEvents.contains { event in
+                event.store == .workspace
+                    && event.workspaceId == workspaceId
+                    && event.recovery == .quarantinedAndReset
+                    && event.quarantinedFilename?.contains(".local.sqlite.corrupt-") == true
+            },
+            "Recovery events: \(recoveryEvents)"
+        )
+        #expect(FileManager.default.fileExists(atPath: localSQLiteURL.path))
+    }
+
+    @Test("production datastore legacy lane decisions honor completed companion import status")
+    func productionDatastoreLegacyLaneDecisionsHonorCompletedCompanionImportStatus() async throws {
+        let workspaceId = UUID()
+        let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "legacy-decision")
+        let datastore = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: rootDirectory.appending(path: "core.sqlite"),
+            localDatabaseURL: { workspaceId in
+                rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+            }
+        ).makeDatastore()
+        try await datastore.saveImportedLegacySnapshot(
+            .emptyFixture(id: workspaceId, name: "Imported"),
+            sourceStatePath: "legacy/workspace.state.json"
+        )
+        try await datastore.markLegacyWorkspaceCompanionImportsCompleted(
+            workspaceId: workspaceId,
+            importedAt: Date(timeIntervalSince1970: 3)
+        )
+
+        #expect(
+            await datastore.localLegacyImportDecision(workspaceId: workspaceId, lane: .local)
+                == .found(.blockReplayAllowArchive)
+        )
+        #expect(
+            await datastore.localLegacyImportDecision(workspaceId: workspaceId, lane: .cache)
+                == .found(.blockReplayAllowArchive)
+        )
     }
 }
 
@@ -185,4 +290,11 @@ private actor DatastoreProbeRecorder {
     func record(_ event: WorkspaceSQLiteDatastore.ProbeEvent) {
         events.append(event)
     }
+}
+
+private func makeDatastoreActorTemporaryDirectory(prefix: String) throws -> URL {
+    let directory = FileManager.default.temporaryDirectory
+        .appending(path: "agentstudio-datastore-\(prefix)-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
 }

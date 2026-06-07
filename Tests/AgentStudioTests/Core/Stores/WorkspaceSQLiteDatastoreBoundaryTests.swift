@@ -23,7 +23,7 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
 
         #expect(source.contains("sqliteDatastore: WorkspaceSQLiteDatastore"))
         #expect(source.contains("await sqliteDatastore.legacyImportStatus("))
-        #expect(source.contains("await sqliteDatastore.hasCompletedSnapshot("))
+        #expect(source.contains("await sqliteDatastore.completedSnapshotStatus("))
         #expect(!source.contains("sqliteBackend: WorkspaceSQLiteStoreBackend"))
         #expect(!source.contains("WorkspaceCoreRepository"))
         #expect(!source.contains("fetchLegacyWorkspaceImportStatus("))
@@ -50,6 +50,23 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         #expect(!inboxBootSource.contains("makeInboxNotificationSQLiteRepository("))
         #expect(!inboxBootSource.contains("workspaceLocalSQLiteStoreBackend"))
         #expect(!inboxBootSource.contains("InboxNotificationSQLiteRepository("))
+    }
+
+    @Test("configuration backed datastore keeps local SQLite IO behind actor caches")
+    func configurationBackedDatastoreKeepsLocalSQLiteIOBehindActorCaches() throws {
+        let source = try projectSource("Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift")
+
+        #expect(
+            source.contains(
+                "makeLocalRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache }"
+            )
+        )
+        #expect(
+            source.contains(
+                "makeLocalRestoreRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache }"
+            )
+        )
+        #expect(!source.contains("func hasCompletedSnapshot(workspaceId: UUID) async"))
     }
 
     private func projectSource(_ relativePath: String) throws -> String {

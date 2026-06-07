@@ -17,23 +17,34 @@ enum WorkspaceLegacyArchiveCoordinator {
         case archivedButStatusUpdateFailed(directoryName: String, WorkspaceSQLiteDatastoreFailure)
     }
 
+    struct ArchiveResult: Equatable, Sendable {
+        var outcome: Outcome
+        var recoveryEvents: [PersistenceRecoveryEvent]
+    }
+
     static func archiveLegacyWorkspaceFilesIfReady(
         workspaceId: UUID,
         persistor: WorkspacePersistor,
         sqliteDatastore: WorkspaceSQLiteDatastore?,
         canArchiveLegacyCompanionFiles: Bool,
         now: @Sendable () -> Date = Date.init
-    ) async -> Outcome {
+    ) async -> ArchiveResult {
         let hasSQLiteBackend = sqliteDatastore != nil
         guard let sqliteDatastore else {
-            return .skipped(.missingSQLiteDatastore)
+            return .init(outcome: .skipped(.missingSQLiteDatastore), recoveryEvents: [])
         }
 
         let hasCompletedSnapshot: Bool
-        do {
-            hasCompletedSnapshot = try await sqliteDatastore.hasCompletedSnapshot(workspaceId: workspaceId)
-        } catch {
-            return .skipped(.snapshotStatusUnavailable(.init(error)))
+        var recoveryEvents: [PersistenceRecoveryEvent] = []
+        switch await sqliteDatastore.completedSnapshotStatus(workspaceId: workspaceId) {
+        case .completed(let isCompleted, let events):
+            hasCompletedSnapshot = isCompleted
+            recoveryEvents.append(contentsOf: events)
+        case .unavailable(let failure, let events):
+            return .init(
+                outcome: .skipped(.snapshotStatusUnavailable(failure)),
+                recoveryEvents: events
+            )
         }
 
         let hasLegacyWorkspaceFiles = persistor.hasLegacyWorkspaceFiles(for: workspaceId)
@@ -44,10 +55,10 @@ enum WorkspaceLegacyArchiveCoordinator {
             canArchiveLegacyCompanionFiles: canArchiveLegacyCompanionFiles
         )
         guard canArchiveLegacyCompanionFiles else {
-            return .skipped(.incompleteCompanionImports)
+            return .init(outcome: .skipped(.incompleteCompanionImports), recoveryEvents: recoveryEvents)
         }
         guard shouldArchiveLegacyFiles else {
-            return .skipped(.notReady)
+            return .init(outcome: .skipped(.notReady), recoveryEvents: recoveryEvents)
         }
 
         do {
@@ -56,14 +67,17 @@ enum WorkspaceLegacyArchiveCoordinator {
                 importedAt: now()
             )
         } catch {
-            return .skipped(.companionStatusUpdateFailed(.init(error)))
+            return .init(
+                outcome: .skipped(.companionStatusUpdateFailed(.init(error))),
+                recoveryEvents: recoveryEvents
+            )
         }
 
         guard let result = persistor.archiveLegacyWorkspaceFiles(for: workspaceId) else {
-            return .skipped(.noLegacyFiles)
+            return .init(outcome: .skipped(.noLegacyFiles), recoveryEvents: recoveryEvents)
         }
         guard result.succeeded else {
-            return .archiveIncomplete(result)
+            return .init(outcome: .archiveIncomplete(result), recoveryEvents: recoveryEvents)
         }
 
         do {
@@ -72,11 +86,17 @@ enum WorkspaceLegacyArchiveCoordinator {
                 archivedAt: now()
             )
         } catch {
-            return .archivedButStatusUpdateFailed(
-                directoryName: result.archiveDirectoryName,
-                .init(error)
+            return .init(
+                outcome: .archivedButStatusUpdateFailed(
+                    directoryName: result.archiveDirectoryName,
+                    .init(error)
+                ),
+                recoveryEvents: recoveryEvents
             )
         }
-        return .archived(directoryName: result.archiveDirectoryName)
+        return .init(
+            outcome: .archived(directoryName: result.archiveDirectoryName),
+            recoveryEvents: recoveryEvents
+        )
     }
 }

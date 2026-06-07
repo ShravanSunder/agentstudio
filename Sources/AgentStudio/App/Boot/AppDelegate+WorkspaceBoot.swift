@@ -193,12 +193,16 @@ extension AppDelegate {
     }
 
     private func bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: WorkspacePersistor) async {
-        let outcome = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
+        let archiveResult = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
             workspaceId: store.identityAtom.workspaceId,
             persistor: persistor,
             sqliteDatastore: workspaceSQLiteDatastore,
             canArchiveLegacyCompanionFiles: canArchiveLegacyCompanionFiles
         )
+        for event in archiveResult.recoveryEvents {
+            recordPersistenceRecovery(event)
+        }
+        let outcome = archiveResult.outcome
         switch outcome {
         case .skipped(.missingSQLiteDatastore), .skipped(.notReady), .skipped(.noLegacyFiles):
             return
