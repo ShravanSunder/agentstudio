@@ -99,17 +99,17 @@ struct WorkspaceSQLiteStoreBackendFactory {
                     throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(workspaceId)
                 }
             },
-            allowsLegacyImport: { workspaceId, lane in
+            legacyImportDecision: { workspaceId, lane in
                 guard
                     let status = try coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId)
                 else {
-                    return true
+                    return .allowImport
                 }
                 switch lane {
                 case .local:
-                    return status.localImportedAt == nil
+                    return status.localImportedAt == nil ? .allowImport : .blockReplayAllowArchive
                 case .cache:
-                    return status.cacheImportedAt == nil
+                    return status.cacheImportedAt == nil ? .allowImport : .blockReplayAllowArchive
                 }
             }
         )

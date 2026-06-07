@@ -312,7 +312,7 @@ struct RepoCacheStoreTests {
         #expect(restoredCacheAtom.repoEnrichmentByRepoId[staleRepoId] == nil)
         #expect(restoredCacheAtom.sourceRevision == 0)
         #expect(restoredRecentTargetAtom.recentTargets.isEmpty)
-        #expect(!restoredStore.canArchiveLegacyCacheFile)
+        #expect(restoredStore.canArchiveLegacyCacheFile)
     }
 
     @Test

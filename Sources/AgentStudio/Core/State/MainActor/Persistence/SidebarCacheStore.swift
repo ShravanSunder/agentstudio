@@ -55,9 +55,10 @@ final class SidebarCacheStore {
         case .restored:
             return
         case .missing:
-            guard canImportLegacyExpandedGroups(for: workspaceId) else {
+            let legacyImportDecision = legacyExpandedGroupsImportDecision(for: workspaceId)
+            guard legacyImportDecision.allowsLegacyImport else {
                 atom.clear()
-                canArchiveLegacySidebarCacheFile = false
+                canArchiveLegacySidebarCacheFile = legacyImportDecision.canArchiveLegacyFile
                 recoveryReporter?(
                     .init(store: .sidebarCache, workspaceId: workspaceId, recovery: .resetToDefaults)
                 )
@@ -172,15 +173,17 @@ final class SidebarCacheStore {
         }
     }
 
-    private func canImportLegacyExpandedGroups(for workspaceId: UUID) -> Bool {
-        guard let sqliteBackend else { return true }
+    private func legacyExpandedGroupsImportDecision(
+        for workspaceId: UUID
+    ) -> WorkspaceLocalSQLiteLegacyImportDecision {
+        guard let sqliteBackend else { return .allowImport }
         do {
-            return try sqliteBackend.allowsLegacyImport(for: workspaceId, lane: .local)
+            return try sqliteBackend.legacyImportDecision(for: workspaceId, lane: .local)
         } catch {
             sidebarCacheStoreLogger.warning(
                 "Sidebar cache legacy import permission check failed: \(error.localizedDescription)"
             )
-            return false
+            return .blockReplayBlockArchive
         }
     }
 

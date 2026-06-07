@@ -253,6 +253,36 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == workspaceId)
     }
 
+    @Test("restore prefers caller workspace when active workspace selection is missing")
+    func restorePrefersCallerWorkspaceWhenActiveWorkspaceSelectionIsMissing() throws {
+        let preferredWorkspaceId = UUID()
+        let newerWorkspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: preferredWorkspaceId)
+        try fixture.backend.save(
+            .init(
+                id: preferredWorkspaceId,
+                name: "Preferred Workspace",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_250),
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_260)
+            )
+        )
+        try fixture.backend.save(
+            .init(
+                id: newerWorkspaceId,
+                name: "Newer Fallback Workspace",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_270),
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_280)
+            )
+        )
+        try setRawActiveWorkspaceSelection(nil, in: fixture.coreQueue)
+
+        let loaded = try #require(try fixture.backend.load(preferredWorkspaceId: preferredWorkspaceId))
+
+        #expect(loaded.id == preferredWorkspaceId)
+        #expect(loaded.name == "Preferred Workspace")
+        #expect(try fixture.coreRepository.fetchActiveWorkspaceId() == preferredWorkspaceId)
+    }
+
     @Test("failed replacement save preserves the last committed SQLite snapshot")
     func failedReplacementSavePreservesLastCommittedSQLiteSnapshot() throws {
         let workspaceId = UUID()

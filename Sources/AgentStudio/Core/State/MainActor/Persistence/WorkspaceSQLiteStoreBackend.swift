@@ -20,14 +20,18 @@ struct WorkspaceSQLiteStoreBackend {
         coreRepository: WorkspaceCoreRepository,
         makeLocalRepository: @escaping (UUID) throws -> WorkspaceLocalRepository,
         makeLocalRestoreRepository: ((UUID) throws -> WorkspaceLocalRepository)? = nil,
-        allowsLegacyImport: @escaping @MainActor (UUID, WorkspaceLocalSQLiteLegacyLane) throws -> Bool = { _, _ in true
-        }
+        legacyImportDecision:
+            @escaping @MainActor (
+                UUID,
+                WorkspaceLocalSQLiteLegacyLane
+            ) throws -> WorkspaceLocalSQLiteLegacyImportDecision = { _, _ in .allowImport
+            }
     ) {
         self.coreRepository = coreRepository
         self.localBackend = WorkspaceLocalSQLiteStoreBackend(
             makeLocalRepository: makeLocalRepository,
             makeLocalRestoreRepository: makeLocalRestoreRepository,
-            allowsLegacyImport: allowsLegacyImport
+            legacyImportDecision: legacyImportDecision
         )
     }
 
@@ -149,23 +153,26 @@ struct WorkspaceSQLiteStoreBackend {
             if let activeWorkspaceId = try coreRepository.fetchActiveWorkspaceId() {
                 return activeWorkspaceId
             }
-            if let repairedWorkspaceId = try coreRepository.repairActiveWorkspaceSelection(updatedAt: Date()) {
-                return repairedWorkspaceId
+            if let preferredWorkspaceId = try selectPreferredWorkspaceIfAvailable(preferredWorkspaceId) {
+                return preferredWorkspaceId
             }
         } catch let error as WorkspaceCoreRepositoryError {
             switch error {
             case .activeWorkspaceSelectionDangling, .malformedWorkspaceId:
-                if let repairedWorkspaceId = try coreRepository.repairActiveWorkspaceSelection(updatedAt: Date()) {
-                    return repairedWorkspaceId
+                if let preferredWorkspaceId = try selectPreferredWorkspaceIfAvailable(preferredWorkspaceId) {
+                    return preferredWorkspaceId
                 }
             default:
                 throw error
             }
         }
-        if try coreRepository.fetchWorkspace(id: preferredWorkspaceId) != nil {
-            return preferredWorkspaceId
-        }
-        return try coreRepository.fetchWorkspaces().first?.id
+        return try coreRepository.repairActiveWorkspaceSelection(updatedAt: Date())
+    }
+
+    private func selectPreferredWorkspaceIfAvailable(_ preferredWorkspaceId: UUID) throws -> UUID? {
+        guard try coreRepository.fetchWorkspace(id: preferredWorkspaceId) != nil else { return nil }
+        try coreRepository.selectActiveWorkspace(preferredWorkspaceId, updatedAt: Date())
+        return preferredWorkspaceId
     }
 }
 
@@ -177,16 +184,49 @@ enum WorkspaceLocalSQLiteLegacyLane {
     case cache
 }
 
+@MainActor
+enum WorkspaceLocalSQLiteLegacyImportDecision {
+    case allowImport
+    case blockReplayAllowArchive
+    case blockReplayBlockArchive
+
+    var allowsLegacyImport: Bool {
+        switch self {
+        case .allowImport:
+            return true
+        case .blockReplayAllowArchive, .blockReplayBlockArchive:
+            return false
+        }
+    }
+
+    var canArchiveLegacyFile: Bool {
+        switch self {
+        case .blockReplayAllowArchive:
+            return true
+        case .allowImport, .blockReplayBlockArchive:
+            return false
+        }
+    }
+}
+
 struct WorkspaceLocalSQLiteStoreBackend {
     private let makeLocalRepository: (UUID) throws -> WorkspaceLocalRepository
     private let makeLocalRestoreRepository: (UUID) throws -> WorkspaceLocalRepository
-    private let legacyImportPermission: @MainActor (UUID, WorkspaceLocalSQLiteLegacyLane) throws -> Bool
+    private let makeLegacyImportDecision:
+        @MainActor (
+            UUID,
+            WorkspaceLocalSQLiteLegacyLane
+        ) throws -> WorkspaceLocalSQLiteLegacyImportDecision
 
     init(
         makeLocalRepository: @escaping (UUID) throws -> WorkspaceLocalRepository,
         makeLocalRestoreRepository: ((UUID) throws -> WorkspaceLocalRepository)? = nil,
-        allowsLegacyImport: @escaping @MainActor (UUID, WorkspaceLocalSQLiteLegacyLane) throws -> Bool = { _, _ in true
-        }
+        legacyImportDecision:
+            @escaping @MainActor (
+                UUID,
+                WorkspaceLocalSQLiteLegacyLane
+            ) throws -> WorkspaceLocalSQLiteLegacyImportDecision = { _, _ in .allowImport
+            }
     ) {
         self.makeLocalRepository = makeLocalRepository
         if let makeLocalRestoreRepository {
@@ -196,7 +236,7 @@ struct WorkspaceLocalSQLiteStoreBackend {
                 try makeLocalRepository(workspaceId)
             }
         }
-        self.legacyImportPermission = allowsLegacyImport
+        self.makeLegacyImportDecision = legacyImportDecision
     }
 
     func repository(for workspaceId: UUID) throws -> WorkspaceLocalRepository {
@@ -209,11 +249,11 @@ struct WorkspaceLocalSQLiteStoreBackend {
     }
 
     @MainActor
-    func allowsLegacyImport(
+    func legacyImportDecision(
         for workspaceId: UUID,
         lane: WorkspaceLocalSQLiteLegacyLane
-    ) throws -> Bool {
-        try legacyImportPermission(workspaceId, lane)
+    ) throws -> WorkspaceLocalSQLiteLegacyImportDecision {
+        try makeLegacyImportDecision(workspaceId, lane)
     }
 }
 

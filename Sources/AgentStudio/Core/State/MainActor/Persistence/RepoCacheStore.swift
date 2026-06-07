@@ -79,10 +79,11 @@ final class RepoCacheStore {
         case .restored:
             return
         case .missing:
-            guard canImportLegacyRepoCache(for: workspaceId) else {
+            let legacyImportDecision = legacyRepoCacheImportDecision(for: workspaceId)
+            guard legacyImportDecision.allowsLegacyImport else {
                 cacheAtom.clear()
                 recentTargetAtom.clear()
-                canArchiveLegacyCacheFile = false
+                canArchiveLegacyCacheFile = legacyImportDecision.canArchiveLegacyFile
                 recoveryReporter?(
                     .init(store: .repoCache, workspaceId: workspaceId, recovery: .resetToDefaults)
                 )
@@ -253,17 +254,25 @@ final class RepoCacheStore {
         }
     }
 
-    private func canImportLegacyRepoCache(for workspaceId: UUID) -> Bool {
-        guard let sqliteBackend else { return true }
+    private func legacyRepoCacheImportDecision(
+        for workspaceId: UUID
+    ) -> WorkspaceLocalSQLiteLegacyImportDecision {
+        guard let sqliteBackend else { return .allowImport }
         do {
-            let canImportCache = try sqliteBackend.allowsLegacyImport(for: workspaceId, lane: .cache)
-            let canImportRecentTargets = try sqliteBackend.allowsLegacyImport(for: workspaceId, lane: .local)
-            return canImportCache && canImportRecentTargets
+            let cacheDecision = try sqliteBackend.legacyImportDecision(for: workspaceId, lane: .cache)
+            let recentTargetDecision = try sqliteBackend.legacyImportDecision(for: workspaceId, lane: .local)
+            if cacheDecision.allowsLegacyImport, recentTargetDecision.allowsLegacyImport {
+                return .allowImport
+            }
+            if cacheDecision.canArchiveLegacyFile, recentTargetDecision.canArchiveLegacyFile {
+                return .blockReplayAllowArchive
+            }
+            return .blockReplayBlockArchive
         } catch {
             repoCacheStoreLogger.warning(
                 "Repo cache legacy import permission check failed: \(error.localizedDescription)"
             )
-            return false
+            return .blockReplayBlockArchive
         }
     }
 

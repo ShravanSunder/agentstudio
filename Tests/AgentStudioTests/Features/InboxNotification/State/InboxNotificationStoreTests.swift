@@ -285,6 +285,42 @@ struct InboxNotificationStoreTests {
         #expect(reportedRecovery?.recovery == .resetToDefaults)
     }
 
+    @Test("SQLite persisted inbox snapshot wins even when legacy import is blocked")
+    func sqlitePersistedInboxSnapshotWinsEvenWhenLegacyImportIsBlocked() throws {
+        let url = makeTempURL()
+        let workspaceId = UUID()
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let sqliteNotification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 220),
+            kind: .agentDesktopNotification,
+            title: "SQLite Snapshot",
+            body: nil,
+            source: .global,
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+        try fixture.repository.replaceSnapshot(
+            notifications: [sqliteNotification],
+            collapsedGroups: [InboxNotificationGroupKey("repo:sqlite")]
+        )
+        let atom = InboxNotificationAtom()
+        let sidebarState = InboxSidebarState()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            sidebarState: sidebarState,
+            fileURL: url,
+            sqliteRepository: fixture.repository,
+            allowLegacyFileImport: false
+        )
+
+        try store.load()
+
+        #expect(atom.notifications.map(\.id) == [sqliteNotification.id])
+        #expect(sidebarState.collapsedGroups == [InboxNotificationGroupKey("repo:sqlite")])
+    }
+
     @Test("SQLite load failure reports recovery and does not apply stale legacy JSON")
     func sqliteLoadFailureReportsRecoveryAndDoesNotApplyStaleLegacyJSON() async throws {
         let url = makeTempURL()

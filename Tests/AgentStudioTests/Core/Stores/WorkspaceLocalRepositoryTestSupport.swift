@@ -27,7 +27,7 @@ func workspaceLocalSQLiteBackendWithImportedLegacyLanes(
 ) -> WorkspaceLocalSQLiteStoreBackend {
     WorkspaceLocalSQLiteStoreBackend(
         makeLocalRepository: { _ in repository },
-        allowsLegacyImport: { _, _ in false }
+        legacyImportDecision: { _, _ in .blockReplayAllowArchive }
     )
 }
 
