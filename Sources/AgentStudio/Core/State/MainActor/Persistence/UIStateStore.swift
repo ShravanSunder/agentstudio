@@ -52,7 +52,17 @@ final class UIStateStore {
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
         canArchiveLegacyUIFile = true
-        if restoreFromSQLite(for: workspaceId) {
+        switch restoreFromSQLite(for: workspaceId) {
+        case .restored:
+            return
+        case .missing:
+            break
+        case .unavailable:
+            atom.clear()
+            canArchiveLegacyUIFile = false
+            recoveryReporter?(
+                .init(store: .uiState, workspaceId: workspaceId, recovery: .resetToDefaults)
+            )
             return
         }
         switch persistor.loadUI(for: workspaceId) {
@@ -158,14 +168,14 @@ final class UIStateStore {
         }
     }
 
-    private func restoreFromSQLite(for workspaceId: UUID) -> Bool {
-        guard let sqliteBackend else { return false }
+    private func restoreFromSQLite(for workspaceId: UUID) -> LocalSQLiteRestoreOutcome {
+        guard let sqliteBackend else { return .missing }
         do {
             let repository = try sqliteBackend.repository(for: workspaceId)
             guard try repository.hasSidebarState(),
                 let state = try repository.fetchSidebarState()
             else {
-                return false
+                return .missing
             }
             isRestoringState = true
             atom.hydrate(
@@ -175,10 +185,11 @@ final class UIStateStore {
                 sidebarSurface: state.sidebarSurface
             )
             isRestoringState = false
-            return true
+            return .restored
         } catch {
+            isRestoringState = false
             uiStateStoreLogger.warning("UI state SQLite restore failed: \(error.localizedDescription)")
-            return false
+            return .unavailable(error)
         }
     }
 

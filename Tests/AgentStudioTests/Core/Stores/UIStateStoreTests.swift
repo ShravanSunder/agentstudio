@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -122,7 +123,53 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func failedLegacyMaterializationBlocksUIArchiveReadiness() throws {
+    func restoreWithSQLiteBackendResetsWhenSQLiteSidebarLaneFailsInsteadOfReplayingLegacyJSON() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let atom = WorkspaceSidebarState()
+        let store = UIStateStore(
+            atom: atom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+        atom.setFilterText("sqlite")
+        atom.setFilterVisible(true)
+        atom.setSidebarCollapsed(true)
+        atom.setSidebarSurface(.inbox)
+        try store.flush(for: workspaceId)
+        try persistor.saveUI(
+            .init(
+                workspaceId: workspaceId,
+                filterText: "stale",
+                isFilterVisible: true,
+                sidebarCollapsed: true,
+                sidebarSurface: .inbox
+            )
+        )
+        try fixture.databaseQueue.write { database in
+            try database.drop(table: "local_sidebar_state")
+        }
+
+        let restoredAtom = WorkspaceSidebarState()
+        let restoredStore = UIStateStore(
+            atom: restoredAtom,
+            editorChooserState: EditorChooserState(),
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+        restoredStore.restore(for: workspaceId)
+
+        #expect(restoredAtom.filterText.isEmpty)
+        #expect(restoredAtom.filterText != "stale")
+        #expect(restoredAtom.isFilterVisible == false)
+        #expect(restoredAtom.sidebarCollapsed == false)
+        #expect(restoredAtom.sidebarSurface == .repos)
+        #expect(!restoredStore.canArchiveLegacyUIFile)
+    }
+
+    @Test
+    func unavailableSQLiteBackendResetsUIStateAndBlocksLegacyArchiveReadiness() throws {
         let workspaceId = UUID()
         try persistor.saveUI(
             .init(
@@ -143,7 +190,10 @@ struct UIStateStoreTests {
 
         store.restore(for: workspaceId)
 
-        #expect(atom.filterText == "legacy")
+        #expect(atom.filterText.isEmpty)
+        #expect(atom.isFilterVisible == false)
+        #expect(atom.sidebarCollapsed == false)
+        #expect(atom.sidebarSurface == .repos)
         #expect(!store.canArchiveLegacyUIFile)
     }
 

@@ -75,7 +75,18 @@ final class RepoCacheStore {
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
         canArchiveLegacyCacheFile = true
-        if restoreFromSQLite(for: workspaceId) {
+        switch restoreFromSQLite(for: workspaceId) {
+        case .restored:
+            return
+        case .missing:
+            break
+        case .unavailable:
+            cacheAtom.clear()
+            recentTargetAtom.clear()
+            canArchiveLegacyCacheFile = false
+            recoveryReporter?(
+                .init(store: .repoCache, workspaceId: workspaceId, recovery: .resetToDefaults)
+            )
             return
         }
         switch persistor.loadCache(for: workspaceId) {
@@ -202,14 +213,14 @@ final class RepoCacheStore {
         }
     }
 
-    private func restoreFromSQLite(for workspaceId: UUID) -> Bool {
-        guard let sqliteBackend else { return false }
+    private func restoreFromSQLite(for workspaceId: UUID) -> LocalSQLiteRestoreOutcome {
+        guard let sqliteBackend else { return .missing }
         do {
             let repository = try sqliteBackend.repository(for: workspaceId)
             guard try repository.hasCacheState(),
                 try repository.hasRecentTargetsState()
             else {
-                return false
+                return .missing
             }
             let cacheState = try repository.fetchCacheState()
             let recentTargets = try repository.fetchRecentTargets()
@@ -226,11 +237,11 @@ final class RepoCacheStore {
             )
             recentTargetAtom.hydrate(recentTargets: recentTargets)
             isRestoringState = false
-            return true
+            return .restored
         } catch {
             isRestoringState = false
             repoCacheStoreLogger.warning("Repo cache SQLite restore failed: \(error.localizedDescription)")
-            return false
+            return .unavailable(error)
         }
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -94,7 +95,7 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func failedLegacyMaterializationBlocksSidebarCacheArchiveReadiness() throws {
+    func unavailableSQLiteBackendResetsSidebarCacheAndBlocksLegacyArchiveReadiness() throws {
         let workspaceId = UUID()
         try persistor.saveSidebarCache(
             .init(
@@ -112,7 +113,8 @@ struct SidebarCacheStoreTests {
 
         store.restore(for: workspaceId)
 
-        #expect(atom.expandedGroups == [SidebarGroupKey("repo:legacy")])
+        #expect(atom.expandedGroups.isEmpty)
+        #expect(!atom.expandedGroups.contains(SidebarGroupKey("repo:legacy")))
         #expect(!store.canArchiveLegacySidebarCacheFile)
     }
 
@@ -139,6 +141,42 @@ struct SidebarCacheStoreTests {
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(try fixture.repository.hasExpandedGroupsState())
+    }
+
+    @Test
+    func restoreWithSQLiteBackendResetsWhenSQLiteExpandedGroupLaneFailsInsteadOfReplayingLegacyJSON() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let atom = SidebarCacheState()
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+        atom.setGroupExpanded("repo:sqlite", isExpanded: true)
+        try store.flush(for: workspaceId)
+        try persistor.saveSidebarCache(
+            .init(
+                workspaceId: workspaceId,
+                expandedGroups: [SidebarGroupKey("repo:stale")],
+                checkoutColors: [:]
+            )
+        )
+        try fixture.databaseQueue.write { database in
+            try database.drop(table: "local_sidebar_expanded_group")
+        }
+
+        let restoredAtom = SidebarCacheState()
+        let restoredStore = SidebarCacheStore(
+            atom: restoredAtom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+        restoredStore.restore(for: workspaceId)
+
+        #expect(restoredAtom.expandedGroups.isEmpty)
+        #expect(!restoredAtom.expandedGroups.contains(SidebarGroupKey("repo:stale")))
+        #expect(!restoredStore.canArchiveLegacySidebarCacheFile)
     }
 
     @Test

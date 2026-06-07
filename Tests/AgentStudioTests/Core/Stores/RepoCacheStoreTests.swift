@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -169,7 +170,7 @@ struct RepoCacheStoreTests {
     }
 
     @Test
-    func failedLegacyMaterializationBlocksCacheArchiveReadiness() throws {
+    func unavailableSQLiteBackendResetsCacheAndBlocksLegacyArchiveReadiness() throws {
         let workspaceId = UUID()
         let repoId = UUID()
         try persistor.saveCache(
@@ -195,7 +196,9 @@ struct RepoCacheStoreTests {
 
         store.restore(for: workspaceId)
 
-        #expect(cacheAtom.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
+        #expect(cacheAtom.repoEnrichmentByRepoId[repoId] == nil)
+        #expect(cacheAtom.repoEnrichmentByRepoId.isEmpty)
+        #expect(recentTargetAtom.recentTargets.isEmpty)
         #expect(!store.canArchiveLegacyCacheFile)
     }
 
@@ -239,6 +242,61 @@ struct RepoCacheStoreTests {
         #expect(recentTargetAtom.recentTargets.isEmpty)
         #expect(try fixture.repository.hasCacheState())
         #expect(try fixture.repository.hasRecentTargetsState())
+    }
+
+    @Test
+    func restoreWithSQLiteBackendResetsWhenSQLiteCacheLaneFailsInsteadOfReplayingLegacyJSON() throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let sqliteRepoId = UUID()
+        let staleRepoId = UUID()
+        let staleTarget = RecentWorkspaceTarget.forCwd(
+            URL(fileURLWithPath: "/tmp/stale-cache"),
+            title: "stale",
+            subtitle: "/tmp/stale-cache",
+            lastOpenedAt: Date(timeIntervalSince1970: 456)
+        )
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheStore(
+            cacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+        cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: sqliteRepoId))
+        recentTargetAtom.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/sqlite-cache")))
+        try store.flush(for: workspaceId)
+        try persistor.saveCache(
+            .init(
+                workspaceId: workspaceId,
+                repoEnrichmentByRepoId: [staleRepoId: .awaitingOrigin(repoId: staleRepoId)],
+                worktreeEnrichmentByWorktreeId: [:],
+                pullRequestCountByWorktreeId: [:],
+                notificationCountByWorktreeId: [:],
+                recentTargets: [staleTarget],
+                sourceRevision: 7,
+                lastRebuiltAt: Date(timeIntervalSince1970: 123)
+            )
+        )
+        try fixture.databaseQueue.write { database in
+            try database.drop(table: "cache_metadata")
+        }
+
+        let restoredCacheAtom = RepoEnrichmentCacheAtom()
+        let restoredRecentTargetAtom = RecentWorkspaceTargetAtom()
+        let restoredStore = RepoCacheStore(
+            cacheAtom: restoredCacheAtom,
+            recentTargetAtom: restoredRecentTargetAtom,
+            persistor: persistor,
+            sqliteBackend: fixture.sqliteBackend
+        )
+        restoredStore.restore(for: workspaceId)
+
+        #expect(restoredCacheAtom.repoEnrichmentByRepoId.isEmpty)
+        #expect(restoredCacheAtom.repoEnrichmentByRepoId[staleRepoId] == nil)
+        #expect(restoredRecentTargetAtom.recentTargets.isEmpty)
+        #expect(!restoredStore.canArchiveLegacyCacheFile)
     }
 
     @Test

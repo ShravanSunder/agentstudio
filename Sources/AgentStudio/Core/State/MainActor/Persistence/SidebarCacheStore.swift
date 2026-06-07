@@ -51,7 +51,17 @@ final class SidebarCacheStore {
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
         canArchiveLegacySidebarCacheFile = true
-        if restoreFromSQLite(for: workspaceId) {
+        switch restoreFromSQLite(for: workspaceId) {
+        case .restored:
+            return
+        case .missing:
+            break
+        case .unavailable:
+            atom.clear()
+            canArchiveLegacySidebarCacheFile = false
+            recoveryReporter?(
+                .init(store: .sidebarCache, workspaceId: workspaceId, recovery: .resetToDefaults)
+            )
             return
         }
         switch persistor.loadSidebarCache(for: workspaceId) {
@@ -139,19 +149,19 @@ final class SidebarCacheStore {
         }
     }
 
-    private func restoreFromSQLite(for workspaceId: UUID) -> Bool {
-        guard let sqliteBackend else { return false }
+    private func restoreFromSQLite(for workspaceId: UUID) -> LocalSQLiteRestoreOutcome {
+        guard let sqliteBackend else { return .missing }
         do {
             let repository = try sqliteBackend.repository(for: workspaceId)
-            guard try repository.hasExpandedGroupsState() else { return false }
+            guard try repository.hasExpandedGroupsState() else { return .missing }
             isRestoringState = true
             atom.setExpandedGroups(try repository.fetchExpandedGroups())
             isRestoringState = false
-            return true
+            return .restored
         } catch {
             isRestoringState = false
             sidebarCacheStoreLogger.warning("Sidebar cache SQLite restore failed: \(error.localizedDescription)")
-            return false
+            return .unavailable(error)
         }
     }
 
