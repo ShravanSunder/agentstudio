@@ -127,6 +127,27 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(InboxToolbarUnreadBadgeText.text(for: 100) == "99+")
     }
 
+    @Test("window frame changes update workspace-local memory without legacy defaults")
+    func windowFrameChangesUpdateWorkspaceLocalMemoryWithoutLegacyDefaults() async {
+        let legacyWindowFrameKey = "windowFrame"
+        UserDefaults.standard.removeObject(forKey: legacyWindowFrameKey)
+        defer { UserDefaults.standard.removeObject(forKey: legacyWindowFrameKey) }
+
+        await withMainWindowControllerHarness { harness in
+            let frame = NSRect(x: 40, y: 60, width: 900, height: 650)
+            harness.window.setFrame(frame, display: false)
+            harness.atoms.workspaceWindowMemory.setWindowFrame(nil)
+            UserDefaults.standard.removeObject(forKey: legacyWindowFrameKey)
+
+            harness.controller.windowDidMove(
+                Notification(name: NSWindow.didMoveNotification, object: harness.window)
+            )
+
+            #expect(harness.atoms.workspaceWindowMemory.windowFrame == frame)
+            #expect(UserDefaults.standard.object(forKey: legacyWindowFrameKey) == nil)
+        }
+    }
+
     @Test("bell badge sits in the bell icon top trailing corner")
     func bellBadgeSitsInBellIconTopTrailingCorner() async throws {
         let inboxAtom = InboxNotificationAtom()

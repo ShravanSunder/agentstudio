@@ -26,9 +26,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
+    private var workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom!
     private let windowId = UUID()
 
-    private static let windowFrameKey = "windowFrame"
     private static let estimatedTitlebarHeight: CGFloat = 40
 
     convenience init(
@@ -65,6 +65,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         self.init(window: window)
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
+        self.workspaceWindowMemoryAtom = store.windowMemoryAtom
         self.inboxAtom = inboxAtom
         self.uiState = atom(\.workspaceSidebarState)
         window.delegate = self
@@ -122,7 +123,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func saveWindowFrame() {
         guard let frame = window?.frame else { return }
-        UserDefaults.standard.set(NSStringFromRect(frame), forKey: Self.windowFrameKey)
+        workspaceWindowMemoryAtom.setWindowFrame(frame)
     }
 
     // MARK: - Frame Validation
