@@ -17,8 +17,10 @@ case "$CHANNEL" in
       exit 1
     fi
     TOKEN="agent-studio"
-    CONFLICT="agent-studio@beta"
     DATA_DIR=".agentstudio"
+    CASK_NAME="Agent Studio"
+    APP_BUNDLE_NAME="AgentStudio.app"
+    APP_CACHE_DOMAIN="com.agentstudio.app"
     ;;
   beta)
     if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
@@ -26,8 +28,10 @@ case "$CHANNEL" in
       exit 1
     fi
     TOKEN="agent-studio@beta"
-    CONFLICT="agent-studio"
     DATA_DIR=".agent-studio-b"
+    CASK_NAME="Agent Studio Beta"
+    APP_BUNDLE_NAME="AgentStudio Beta.app"
+    APP_CACHE_DOMAIN="com.agentstudio.app.beta"
     ;;
   *)
     echo "unsupported cask channel: $CHANNEL" >&2
@@ -41,19 +45,19 @@ cask "$TOKEN" do
   sha256 "$SHA256"
 
   url "https://github.com/ShravanSunder/agentstudio/releases/download/v#{version}/AgentStudio-v#{version}-macos.zip"
-  name "Agent Studio"
+  name "$CASK_NAME"
   desc "Terminal application with Ghostty terminal emulator and project management"
   homepage "https://github.com/ShravanSunder/agentstudio"
 
-  conflicts_with cask: "$CONFLICT"
   depends_on macos: :tahoe
 
-  app "AgentStudio.app"
+  app "$APP_BUNDLE_NAME"
 
   zap trash: [
     "~/$DATA_DIR",
-    "~/Library/Caches/com.agentstudio.app",
-    "~/Library/Preferences/com.agentstudio.app.plist",
+    "~/Library/Caches/$APP_CACHE_DOMAIN",
+    "~/Library/Preferences/$APP_CACHE_DOMAIN.plist",
+    "~/Library/Saved Application State/$APP_CACHE_DOMAIN.savedState",
   ]
 end
 EOF
