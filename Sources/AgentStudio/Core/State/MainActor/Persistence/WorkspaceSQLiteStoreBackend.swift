@@ -133,6 +133,18 @@ struct WorkspaceSQLiteStoreBackend {
         )
     }
 
+    func markLegacyWorkspaceImportFailed(
+        _ state: WorkspacePersistor.PersistableState,
+        sourceStatePath: String,
+        error: any Error
+    ) throws {
+        try coreRepository.markLegacyWorkspaceImportFailed(
+            workspace: WorkspaceSQLiteStateBridge.workspaceRecord(from: state),
+            sourceStatePath: sourceStatePath,
+            error: String(describing: error)
+        )
+    }
+
     func hasCompletedSnapshot(workspaceId: UUID) throws -> Bool {
         try coreRepository.hasCompletedWorkspaceSQLiteSnapshot(workspaceId: workspaceId)
     }

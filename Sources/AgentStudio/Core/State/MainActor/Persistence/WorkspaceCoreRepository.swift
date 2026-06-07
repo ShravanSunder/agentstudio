@@ -234,6 +234,46 @@ struct WorkspaceCoreRepository {
         }
     }
 
+    func markLegacyWorkspaceImportFailed(
+        workspace: WorkspaceRecord,
+        sourceStatePath: String,
+        error: String
+    ) throws {
+        try databaseWriter.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO workspace(id, name, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        updated_at = excluded.updated_at
+                    """,
+                arguments: [
+                    workspace.id.uuidString,
+                    workspace.name,
+                    workspace.createdAt.timeIntervalSince1970,
+                    workspace.updatedAt.timeIntervalSince1970,
+                ]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO legacy_workspace_import_status(
+                        workspace_id, source_state_path, last_error
+                    )
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(workspace_id) DO UPDATE SET
+                        source_state_path = excluded.source_state_path,
+                        last_error = excluded.last_error
+                    """,
+                arguments: [
+                    workspace.id.uuidString,
+                    sourceStatePath,
+                    error,
+                ]
+            )
+        }
+    }
+
     func markLegacyWorkspaceCompanionImportsCompleted(
         workspaceId: UUID,
         importedAt: Date
