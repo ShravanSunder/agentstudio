@@ -22,6 +22,23 @@ First-time setup: `mise install && mise run doctor-mac && mise run setup && mise
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
+## Release Process
+
+Releases are tag-driven from `main` via `.github/workflows/release.yml`; tag parsing lives in `scripts/release-tag-metadata.sh`.
+
+- Stable: `v0.0.54` → `AgentStudio.app`, `com.agentstudio.app`, `~/.agentstudio`, `agentstudio://oauth/callback`, Homebrew `agent-studio`.
+- Beta: `v0.0.54-beta.5` → `AgentStudio Beta.app`, `com.agentstudio.app.beta`, `~/.agent-studio-b`, `agentstudio-beta://oauth/callback`, Homebrew `agent-studio@beta`.
+
+Before pushing a release tag, verify from the merged `main` commit:
+
+```bash
+mise run lint
+mise run test
+bash scripts/verify-release-scripts.sh
+```
+
+After the workflow finishes, smoke the downloaded `.app` plist/signature/notarization and confirm the matching Homebrew cask SHA was updated.
+
 ### No Wall-Clock Tests
 
 Wall-clock sleeps make tests flaky. CI machines run at different speeds, so "sleep 50ms and expect X" is not a contract.
