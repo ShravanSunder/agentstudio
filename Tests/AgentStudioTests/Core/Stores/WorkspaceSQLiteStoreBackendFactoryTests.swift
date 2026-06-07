@@ -139,6 +139,52 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
         #expect(try restoredRecoveredRepository.fetchSidebarState() == nil)
     }
 
+    @Test("workspace store restore reports corrupt local SQLite recovery")
+    func workspaceStoreRestoreReportsCorruptLocalSQLiteRecovery() async throws {
+        let rootDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-workspace-store-local-recovery-\(UUID().uuidString)")
+        let workspacesDirectory = rootDirectory.appending(path: "workspaces")
+        let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
+        let workspaceId = UUID()
+        let localSQLiteURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+        try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+        let factory = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreSQLiteURL,
+            localDatabaseURL: { _ in localSQLiteURL }
+        )
+        try await factory.makeDatastore().saveWorkspaceSnapshot(
+            .emptyFixture(id: workspaceId, name: "Store Recovery Source")
+        )
+        try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
+        var recoveryEvents: [PersistenceRecoveryEvent] = []
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Before Restore",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(workspacesDir: workspacesDirectory),
+            sqliteDatastore: factory.makeDatastore(),
+            recoveryReporter: { recoveryEvents.append($0) }
+        )
+
+        await store.restoreAsync()
+
+        #expect(store.identityAtom.workspaceId == workspaceId)
+        #expect(store.identityAtom.workspaceName == "Store Recovery Source")
+        #expect(
+            recoveryEvents.contains { event in
+                event.store == .workspace
+                    && event.workspaceId == workspaceId
+                    && event.recovery == .quarantinedAndReset
+                    && event.quarantinedFilename?.contains(".local.sqlite.corrupt-") == true
+            },
+            "Recovery events: \(recoveryEvents)"
+        )
+    }
+
     @Test("non-corruption core open failure does not quarantine database sidecars")
     func nonCorruptionCoreOpenFailureDoesNotQuarantineDatabaseSidecars() async throws {
         let parentDirectory = FileManager.default.temporaryDirectory

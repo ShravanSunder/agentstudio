@@ -8,8 +8,8 @@ import os
 @MainActor
 @Suite("WorkspaceSQLiteStoreRecoveryTests", .serialized)
 struct WorkspaceSQLiteStoreRecoveryTests {
-    @Test("local snapshot failure prevents core snapshot completion")
-    func localSnapshotFailurePreventsCoreSnapshotCompletion() async throws {
+    @Test("local snapshot failure leaves staged core recoverable")
+    func localSnapshotFailureLeavesStagedCoreRecoverable() async throws {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_250)
@@ -40,7 +40,11 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         }
 
         #expect(try !fixture.backend.hasCompletedSnapshot(workspaceId: workspaceId))
-        #expect(try fixture.backend.load(preferredWorkspaceId: workspaceId) == nil)
+        let recovered = try #require(try fixture.backend.load(preferredWorkspaceId: workspaceId))
+        #expect(recovered.id == workspaceId)
+        #expect(recovered.name == "Staged Core Without Local")
+        #expect(recovered.sidebarWidth == 250)
+        #expect(try fixture.backend.hasCompletedSnapshot(workspaceId: workspaceId))
     }
 
     @Test("failed core replacement does not advance local snapshot token")

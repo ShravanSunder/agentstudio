@@ -80,6 +80,49 @@ struct WorkspaceCoreMigrationTests {
         )
     }
 
+    @Test("snapshot staging migration preserves existing completion token")
+    func snapshotStagingMigrationPreservesExistingCompletionToken() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let workspaceId = UUID().uuidString
+        let completedAt = 1_700_004_000.0
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "006_create_workspace_sqlite_snapshot_status"
+        )
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO workspace(id, name, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [workspaceId, "Migrated Completion", 1.0, completedAt]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, completed_at)
+                    VALUES (?, ?)
+                    """,
+                arguments: [workspaceId, completedAt]
+            )
+        }
+
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+
+        let tokens = try databaseQueue.read { database in
+            try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT staged_at, completed_at
+                    FROM workspace_sqlite_snapshot_status
+                    WHERE workspace_id = ?
+                    """,
+                arguments: [workspaceId]
+            )
+        }
+        #expect((tokens?["staged_at"] as Double?) == completedAt)
+        #expect((tokens?["completed_at"] as Double?) == completedAt)
+    }
+
     @Test("workspace selection round trips")
     func workspaceSelectionRoundTrips() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()

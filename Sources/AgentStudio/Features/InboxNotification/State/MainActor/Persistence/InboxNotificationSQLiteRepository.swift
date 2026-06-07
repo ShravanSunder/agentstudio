@@ -92,6 +92,7 @@ struct InboxNotificationSQLiteRepository {
             if let existing = try coalescenceCandidate(database, for: notification) {
                 let replacement = merge(existing, notification)
                 try upsertNotificationRow(database, notification: replacement)
+                try markPersistedState(database)
                 return MutationOutcome(
                     notificationId: replacement.id,
                     didCoalesce: true,

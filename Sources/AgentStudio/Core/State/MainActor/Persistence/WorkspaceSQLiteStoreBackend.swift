@@ -64,14 +64,18 @@ struct WorkspaceSQLiteStoreBackend {
     }
 
     private func loadCompletedSnapshot(preferredWorkspaceId: UUID) throws -> WorkspaceSQLiteSnapshot {
-        let workspaceId = try resolvedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
+        let workspaceId =
+            try resolvedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
+            ?? coreRepository.fetchRecoverableStagedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
         guard let workspaceId,
             let workspace = try coreRepository.fetchWorkspace(id: workspaceId)
         else {
             throw BackendUninitializedError()
         }
         let coreCompletedAt = try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspace.id)
-        guard let coreCompletedAt else {
+        let stagedAt = try coreRepository.fetchStagedWorkspaceSQLiteSnapshotAt(workspaceId: workspace.id)
+        let isRecoveringStagedSnapshot = coreCompletedAt == nil
+        guard let snapshotToken = coreCompletedAt ?? stagedAt else {
             throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
         }
 
@@ -96,21 +100,31 @@ struct WorkspaceSQLiteStoreBackend {
         }
         let cursorState: WorkspaceLocalRepository.CursorStateRecord
         let windowState: WorkspaceLocalRepository.WindowStateRecord?
-        switch readLocalSnapshot(localRepository, matching: coreCompletedAt) {
+        let localSnapshotIsUsable: Bool
+        switch readLocalSnapshot(localRepository, matching: snapshotToken) {
         case .matched(let restoredCursorState, let restoredWindowState):
             cursorState = restoredCursorState
             windowState = restoredWindowState
+            localSnapshotIsUsable = true
         case .needsDefaultLocalState, .unavailable:
             cursorState = WorkspaceSQLiteStateBridge.defaultCursorState(tabShells: tabShells, tabGraph: tabGraph)
             windowState = nil
+            var didRepairLocalSnapshot = false
             if localRepairDisposition == .repairAllowed {
-                repairLocalSnapshotIfPossible(
+                didRepairLocalSnapshot = repairLocalSnapshotIfPossible(
                     workspaceId: workspace.id,
                     cursorState: cursorState,
                     windowState: windowState,
-                    completedAt: coreCompletedAt
+                    completedAt: snapshotToken
                 )
             }
+            localSnapshotIsUsable = didRepairLocalSnapshot
+        }
+        if isRecoveringStagedSnapshot {
+            guard localSnapshotIsUsable else {
+                throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
+            }
+            try markWorkspaceSnapshotCommitted(workspaceId: workspace.id, committedAt: snapshotToken)
         }
 
         let state = try WorkspaceSQLiteStateBridge.persistableState(
@@ -170,6 +184,8 @@ struct WorkspaceSQLiteStoreBackend {
         state: WorkspacePersistor.PersistableState,
         localRepository: WorkspaceLocalRepository
     ) throws {
+        // Commit order is core staged -> local completed -> core completed.
+        // Restore only trusts a core completion token that the local sidecar can match.
         try localRepository.replaceWorkspaceSnapshotLocalState(
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
             windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
@@ -198,12 +214,13 @@ struct WorkspaceSQLiteStoreBackend {
         try coreRepository.markWorkspaceSQLiteSnapshotCommitted(workspaceId: workspaceId, committedAt: committedAt)
     }
 
+    @discardableResult
     private func repairLocalSnapshotIfPossible(
         workspaceId: UUID,
         cursorState: WorkspaceLocalRepository.CursorStateRecord,
         windowState: WorkspaceLocalRepository.WindowStateRecord?,
         completedAt: Date
-    ) {
+    ) -> Bool {
         do {
             let localRepository = try localBackend.repository(for: workspaceId)
             try localRepository.replaceWorkspaceSnapshotLocalState(
@@ -211,8 +228,9 @@ struct WorkspaceSQLiteStoreBackend {
                 windowState: windowState,
                 completedAt: completedAt
             )
+            return true
         } catch {
-            return
+            return false
         }
     }
 
@@ -559,23 +577,25 @@ enum WorkspaceSQLiteStateBridge {
     ) -> WorkspaceLocalRepository.CursorStateRecord {
         let drawers = state.panes.compactMap(\.drawer)
         let arrangementCursorPairs = state.tabs.map { tab in
-            (tab.id, Optional(tab.activeArrangementId))
+            (tab.id, tab.activeArrangementId)
         }
         let activePanePairs = state.tabs.flatMap { tab in
-            tab.arrangements.map { arrangement in
-                (arrangement.id, arrangement.activePaneId)
+            tab.arrangements.compactMap { arrangement in
+                arrangement.activePaneId.map { (arrangement.id, $0) }
             }
         }
         let activeChildPairs = state.tabs.flatMap { tab in
             tab.arrangements.flatMap { arrangement in
-                arrangement.drawerViews.map { drawerId, drawerView in
-                    (
-                        WorkspaceLocalRepository.ArrangementDrawerCursorKey(
-                            arrangementId: arrangement.id,
-                            drawerId: drawerId
-                        ),
-                        drawerView.activeChildId
-                    )
+                arrangement.drawerViews.compactMap { drawerId, drawerView in
+                    drawerView.activeChildId.map {
+                        (
+                            WorkspaceLocalRepository.ArrangementDrawerCursorKey(
+                                arrangementId: arrangement.id,
+                                drawerId: drawerId
+                            ),
+                            $0
+                        )
+                    }
                 }
             }
         }
@@ -868,7 +888,7 @@ enum WorkspaceSQLiteStateBridge {
         let arrangements = state.arrangements.map { arrangement in
             paneArrangement(from: arrangement, cursorState: cursorState)
         }
-        let rememberedActiveArrangementId = flattenedCursor(cursorState.activeArrangementIdsByTabId[state.tabId])
+        let rememberedActiveArrangementId = cursorState.activeArrangementIdsByTabId[state.tabId]
         let activeArrangementId =
             rememberedActiveArrangementId
             ?? arrangements.first(where: \.isDefault)?.id
@@ -894,7 +914,7 @@ enum WorkspaceSQLiteStateBridge {
             layout: record.layout,
             minimizedPaneIds: record.minimizedPaneIds,
             showsMinimizedPanes: record.showsMinimizedPanes,
-            activePaneId: flattenedCursor(cursorState.activePaneIdsByArrangementId[record.id]),
+            activePaneId: cursorState.activePaneIdsByArrangementId[record.id],
             drawerViews: record.drawerViews.map { drawerId, drawerView in
                 let key = WorkspaceLocalRepository.ArrangementDrawerCursorKey(
                     arrangementId: record.id,
@@ -904,7 +924,7 @@ enum WorkspaceSQLiteStateBridge {
                     drawerId,
                     DrawerView(
                         layout: drawerView.layout,
-                        activeChildId: flattenedCursor(cursorState.activeChildIdsByArrangementDrawer[key]),
+                        activeChildId: cursorState.activeChildIdsByArrangementDrawer[key],
                         minimizedPaneIds: drawerView.minimizedPaneIds
                     )
                 )
@@ -912,11 +932,6 @@ enum WorkspaceSQLiteStateBridge {
                 partialResult[pair.0] = pair.1
             }
         )
-    }
-
-    private static func flattenedCursor(_ value: UUID??) -> UUID? {
-        guard let value else { return nil }
-        return value
     }
 
     private static func canonicalRepo(from record: WorkspaceCoreRepository.RepoRecord) -> CanonicalRepo {

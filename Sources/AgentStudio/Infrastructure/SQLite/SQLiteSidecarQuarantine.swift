@@ -2,11 +2,24 @@ import Foundation
 
 enum SQLiteSidecarQuarantine {
     struct Result: Sendable, Equatable {
+        enum Status: Sendable, Equatable {
+            case moved
+            case nothingToMove
+            case failed
+        }
+
         let quarantinedFilenames: [String]
         let failedFilenames: [String]
 
+        var status: Status {
+            if !failedFilenames.isEmpty {
+                return .failed
+            }
+            return quarantinedFilenames.isEmpty ? .nothingToMove : .moved
+        }
+
         var succeeded: Bool {
-            !quarantinedFilenames.isEmpty && failedFilenames.isEmpty
+            status != .failed
         }
 
         var recoveryFilename: String? {

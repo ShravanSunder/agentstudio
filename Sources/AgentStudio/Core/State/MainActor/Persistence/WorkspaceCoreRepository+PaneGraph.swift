@@ -20,6 +20,8 @@ extension WorkspaceCoreRepository {
         case terminal(provider: SessionProvider, lifetime: SessionLifetime)
         case webview(url: URL, title: String, showNavigation: Bool)
         case codeViewer(filePath: URL, scrollToLine: Int?)
+        /// `contentType` and `payloadKind` are routing/index tokens; `payloadJSON`
+        /// is the content-specific representation for payload-backed pane types.
         case payload(contentType: PaneContentType, payloadKind: String, payloadJSON: String)
 
         var contentType: PaneContentType {

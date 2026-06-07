@@ -37,7 +37,7 @@ enum WorkspaceLocalRepositoryStorage {
                     INSERT INTO local_tab_cursor(tab_id, workspace_id, active_arrangement_id, updated_at)
                     VALUES (?, ?, ?, ?)
                     """,
-                arguments: [tabId.uuidString, workspaceIdString, arrangementId?.uuidString, updatedAtValue]
+                arguments: [tabId.uuidString, workspaceIdString, arrangementId.uuidString, updatedAtValue]
             )
         }
         for (arrangementId, paneId) in cursorState.activePaneIdsByArrangementId {
@@ -46,7 +46,7 @@ enum WorkspaceLocalRepositoryStorage {
                     INSERT INTO local_arrangement_cursor(arrangement_id, workspace_id, active_pane_id, updated_at)
                     VALUES (?, ?, ?, ?)
                     """,
-                arguments: [arrangementId.uuidString, workspaceIdString, paneId?.uuidString, updatedAtValue]
+                arguments: [arrangementId.uuidString, workspaceIdString, paneId.uuidString, updatedAtValue]
             )
         }
         for (drawerId, isExpanded) in cursorState.drawerExpansionByDrawerId {
@@ -70,7 +70,7 @@ enum WorkspaceLocalRepositoryStorage {
                     key.arrangementId.uuidString,
                     key.drawerId.uuidString,
                     workspaceIdString,
-                    activeChildId?.uuidString,
+                    activeChildId.uuidString,
                     updatedAtValue,
                 ]
             )
@@ -139,40 +139,40 @@ enum WorkspaceLocalRepositoryStorage {
         )
     }
 
-    private static func activeArrangementIdsByTabId(from rows: [Row]) throws -> [UUID: UUID?] {
+    private static func activeArrangementIdsByTabId(from rows: [Row]) throws -> [UUID: UUID] {
         try Dictionary(
-            uniqueKeysWithValues: rows.map { row in
+            uniqueKeysWithValues: rows.compactMap { row in
                 let tabId = try WorkspaceLocalRepositoryCodecs.uuid(
                     row["tab_id"],
                     WorkspaceLocalRepositoryError.malformedTabId
                 )
-                let arrangementIdString: String? = row["active_arrangement_id"]
+                guard let arrangementIdString: String = row["active_arrangement_id"] else {
+                    return nil
+                }
                 return (
                     tabId,
-                    try arrangementIdString.map {
-                        try WorkspaceLocalRepositoryCodecs.uuid(
-                            $0,
-                            WorkspaceLocalRepositoryError.malformedArrangementId
-                        )
-                    }
+                    try WorkspaceLocalRepositoryCodecs.uuid(
+                        arrangementIdString,
+                        WorkspaceLocalRepositoryError.malformedArrangementId
+                    )
                 )
             }
         )
     }
 
-    private static func activePaneIdsByArrangementId(from rows: [Row]) throws -> [UUID: UUID?] {
+    private static func activePaneIdsByArrangementId(from rows: [Row]) throws -> [UUID: UUID] {
         try Dictionary(
-            uniqueKeysWithValues: rows.map { row in
+            uniqueKeysWithValues: rows.compactMap { row in
                 let arrangementId = try WorkspaceLocalRepositoryCodecs.uuid(
                     row["arrangement_id"],
                     WorkspaceLocalRepositoryError.malformedArrangementId
                 )
-                let paneIdString: String? = row["active_pane_id"]
+                guard let paneIdString: String = row["active_pane_id"] else {
+                    return nil
+                }
                 return (
                     arrangementId,
-                    try paneIdString.map {
-                        try WorkspaceLocalRepositoryCodecs.uuid($0, WorkspaceLocalRepositoryError.malformedPaneId)
-                    }
+                    try WorkspaceLocalRepositoryCodecs.uuid(paneIdString, WorkspaceLocalRepositoryError.malformedPaneId)
                 )
             }
         )
@@ -193,9 +193,9 @@ enum WorkspaceLocalRepositoryStorage {
 
     private static func activeChildIdsByArrangementDrawer(
         from rows: [Row]
-    ) throws -> [WorkspaceLocalRepository.ArrangementDrawerCursorKey: UUID?] {
+    ) throws -> [WorkspaceLocalRepository.ArrangementDrawerCursorKey: UUID] {
         try Dictionary(
-            uniqueKeysWithValues: rows.map { row in
+            uniqueKeysWithValues: rows.compactMap { row in
                 let arrangementId = try WorkspaceLocalRepositoryCodecs.uuid(
                     row["arrangement_id"],
                     WorkspaceLocalRepositoryError.malformedArrangementId
@@ -204,12 +204,15 @@ enum WorkspaceLocalRepositoryStorage {
                     row["drawer_id"],
                     WorkspaceLocalRepositoryError.malformedDrawerId
                 )
-                let activeChildIdString: String? = row["active_child_id"]
+                guard let activeChildIdString: String = row["active_child_id"] else {
+                    return nil
+                }
                 return (
                     .init(arrangementId: arrangementId, drawerId: drawerId),
-                    try activeChildIdString.map {
-                        try WorkspaceLocalRepositoryCodecs.uuid($0, WorkspaceLocalRepositoryError.malformedPaneId)
-                    }
+                    try WorkspaceLocalRepositoryCodecs.uuid(
+                        activeChildIdString,
+                        WorkspaceLocalRepositoryError.malformedPaneId
+                    )
                 )
             }
         )

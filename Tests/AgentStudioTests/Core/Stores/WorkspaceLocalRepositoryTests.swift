@@ -34,6 +34,54 @@ struct WorkspaceLocalRepositoryTests {
         #expect(restoredState == cursorState)
     }
 
+    @Test("null local cursor rows restore as absent cursor memory")
+    func nullLocalCursorRowsRestoreAsAbsentCursorMemory() throws {
+        let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000101")!
+        let fixture = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId)
+        let tabId = UUID(uuidString: "10000000-0000-0000-0000-000000000111")!
+        let arrangementId = UUID(uuidString: "10000000-0000-0000-0000-000000000121")!
+        let drawerId = UUID(uuidString: "10000000-0000-0000-0000-000000000141")!
+        try fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO local_workspace_cursor(workspace_id, active_tab_id, updated_at)
+                    VALUES (?, NULL, ?)
+                    """,
+                arguments: [workspaceId.uuidString, 100.0]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_tab_cursor(tab_id, workspace_id, active_arrangement_id, updated_at)
+                    VALUES (?, ?, NULL, ?)
+                    """,
+                arguments: [tabId.uuidString, workspaceId.uuidString, 100.0]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_arrangement_cursor(arrangement_id, workspace_id, active_pane_id, updated_at)
+                    VALUES (?, ?, NULL, ?)
+                    """,
+                arguments: [arrangementId.uuidString, workspaceId.uuidString, 100.0]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_arrangement_drawer_cursor(
+                        arrangement_id, drawer_id, workspace_id, active_child_id, updated_at
+                    )
+                    VALUES (?, ?, ?, NULL, ?)
+                    """,
+                arguments: [arrangementId.uuidString, drawerId.uuidString, workspaceId.uuidString, 100.0]
+            )
+        }
+
+        let restoredState = try fixture.repository.fetchCursorState()
+
+        #expect(restoredState.activeTabId == nil)
+        #expect(restoredState.activeArrangementIdsByTabId.isEmpty)
+        #expect(restoredState.activePaneIdsByArrangementId.isEmpty)
+        #expect(restoredState.activeChildIdsByArrangementDrawer.isEmpty)
+    }
+
     @Test("drawer expansion setter collapses other drawers in one repository write")
     func drawerExpansionSetterCollapsesOtherDrawersInOneRepositoryWrite() throws {
         let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000002")!

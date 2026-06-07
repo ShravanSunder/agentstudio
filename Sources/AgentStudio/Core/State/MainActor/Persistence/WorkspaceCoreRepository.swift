@@ -303,6 +303,51 @@ struct WorkspaceCoreRepository: Sendable {
         }
     }
 
+    func fetchStagedWorkspaceSQLiteSnapshotAt(workspaceId: UUID) throws -> Date? {
+        try databaseWriter.read { database in
+            guard
+                let stagedAt = try Double.fetchOne(
+                    database,
+                    sql: """
+                        SELECT staged_at
+                        FROM workspace_sqlite_snapshot_status
+                        WHERE workspace_id = ?
+                          AND staged_at IS NOT NULL
+                          AND completed_at IS NULL
+                        """,
+                    arguments: [workspaceId.uuidString]
+                )
+            else {
+                return nil
+            }
+            return Date(timeIntervalSince1970: stagedAt)
+        }
+    }
+
+    func fetchRecoverableStagedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
+        try databaseWriter.read { database in
+            guard try !completedWorkspaceSQLiteSnapshotExists(database) else {
+                return nil
+            }
+            if let activeWorkspaceIdString = try fetchActiveWorkspaceIdStringFromDatabase(database),
+                UUID(uuidString: activeWorkspaceIdString) != nil,
+                try workspaceExists(database, id: activeWorkspaceIdString),
+                try stagedWorkspaceSQLiteSnapshotExists(database, id: activeWorkspaceIdString)
+            {
+                return UUID(uuidString: activeWorkspaceIdString)
+            }
+            if try workspaceExists(database, id: preferredWorkspaceId.uuidString),
+                try stagedWorkspaceSQLiteSnapshotExists(database, id: preferredWorkspaceId.uuidString)
+            {
+                return preferredWorkspaceId
+            }
+            guard let fallbackIdString = try fetchFallbackStagedWorkspaceIdString(database) else {
+                return nil
+            }
+            return UUID(uuidString: fallbackIdString)
+        }
+    }
+
     func markLegacyWorkspaceCoreImported(
         workspaceId: UUID,
         sourceStatePath: String,
@@ -720,6 +765,35 @@ private func fetchFallbackCompletedWorkspaceIdString(_ database: Database) throw
     )
 }
 
+private func fetchFallbackStagedWorkspaceIdString(_ database: Database) throws -> String? {
+    try String.fetchOne(
+        database,
+        sql: """
+            SELECT workspace.id
+            FROM workspace
+            JOIN workspace_sqlite_snapshot_status
+              ON workspace_sqlite_snapshot_status.workspace_id = workspace.id
+            WHERE workspace_sqlite_snapshot_status.staged_at IS NOT NULL
+              AND workspace_sqlite_snapshot_status.completed_at IS NULL
+            ORDER BY workspace.updated_at DESC, workspace.id ASC
+            LIMIT 1
+            """
+    )
+}
+
+private func completedWorkspaceSQLiteSnapshotExists(_ database: Database) throws -> Bool {
+    let count =
+        try Int.fetchOne(
+            database,
+            sql: """
+                SELECT count(*)
+                FROM workspace_sqlite_snapshot_status
+                WHERE completed_at IS NOT NULL
+                """
+        ) ?? 0
+    return count > 0
+}
+
 private func completedWorkspaceSQLiteSnapshotExists(_ database: Database, id: String) throws -> Bool {
     let count =
         try Int.fetchOne(
@@ -729,6 +803,22 @@ private func completedWorkspaceSQLiteSnapshotExists(_ database: Database, id: St
                 FROM workspace_sqlite_snapshot_status
                 WHERE workspace_id = ?
                   AND completed_at IS NOT NULL
+                """,
+            arguments: [id]
+        ) ?? 0
+    return count > 0
+}
+
+private func stagedWorkspaceSQLiteSnapshotExists(_ database: Database, id: String) throws -> Bool {
+    let count =
+        try Int.fetchOne(
+            database,
+            sql: """
+                SELECT count(*)
+                FROM workspace_sqlite_snapshot_status
+                WHERE workspace_id = ?
+                  AND staged_at IS NOT NULL
+                  AND completed_at IS NULL
                 """,
             arguments: [id]
         ) ?? 0

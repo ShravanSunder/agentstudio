@@ -104,8 +104,7 @@ final class WorkspaceStore {
 
     func restore() {
         guard sqliteDatastore == nil else {
-            assertionFailure("Use await restore() when SQLite datastore is enabled")
-            return
+            preconditionFailure("Use await restoreAsync() when SQLite datastore is enabled")
         }
         _ = restoreFromLegacyJSON()
     }
@@ -242,8 +241,7 @@ final class WorkspaceStore {
     @discardableResult
     func flush() -> Bool {
         guard sqliteDatastore == nil else {
-            assertionFailure("Use await flush() when SQLite datastore is enabled")
-            return false
+            preconditionFailure("Use await flushAsync() when SQLite datastore is enabled")
         }
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil

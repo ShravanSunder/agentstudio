@@ -6,14 +6,18 @@ extension WorkspaceSQLiteStoreBackend {
         localRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository,
         repairLocalRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository
     ) async throws -> WorkspaceSQLiteSnapshot {
-        let workspaceId = try resolvedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
+        let workspaceId =
+            try resolvedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
+            ?? coreRepository.fetchRecoverableStagedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
         guard let workspaceId,
             let workspace = try coreRepository.fetchWorkspace(id: workspaceId)
         else {
             throw BackendUninitializedError()
         }
         let coreCompletedAt = try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspace.id)
-        guard let coreCompletedAt else {
+        let stagedAt = try coreRepository.fetchStagedWorkspaceSQLiteSnapshotAt(workspaceId: workspace.id)
+        let isRecoveringStagedSnapshot = coreCompletedAt == nil
+        guard let snapshotToken = coreCompletedAt ?? stagedAt else {
             throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
         }
 
@@ -38,22 +42,32 @@ extension WorkspaceSQLiteStoreBackend {
         }
         let cursorState: WorkspaceLocalRepository.CursorStateRecord
         let windowState: WorkspaceLocalRepository.WindowStateRecord?
-        switch readLocalSnapshot(localRepository, matching: coreCompletedAt) {
+        let localSnapshotIsUsable: Bool
+        switch readLocalSnapshot(localRepository, matching: snapshotToken) {
         case .matched(let restoredCursorState, let restoredWindowState):
             cursorState = restoredCursorState
             windowState = restoredWindowState
+            localSnapshotIsUsable = true
         case .needsDefaultLocalState, .unavailable:
             cursorState = WorkspaceSQLiteStateBridge.defaultCursorState(tabShells: tabShells, tabGraph: tabGraph)
             windowState = nil
+            var didRepairLocalSnapshot = false
             if localRepairDisposition == .repairAllowed {
-                await repairLocalSnapshotIfPossible(
+                didRepairLocalSnapshot = await repairLocalSnapshotIfPossible(
                     workspaceId: workspace.id,
                     cursorState: cursorState,
                     windowState: windowState,
-                    completedAt: coreCompletedAt,
+                    completedAt: snapshotToken,
                     repairLocalRepositoryForWorkspaceId: repairLocalRepositoryForWorkspaceId
                 )
             }
+            localSnapshotIsUsable = didRepairLocalSnapshot
+        }
+        if isRecoveringStagedSnapshot {
+            guard localSnapshotIsUsable else {
+                throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
+            }
+            try markWorkspaceSnapshotCommitted(workspaceId: workspace.id, committedAt: snapshotToken)
         }
 
         let state = try WorkspaceSQLiteStateBridge.persistableState(
@@ -78,13 +92,14 @@ extension WorkspaceSQLiteStoreBackend {
         return try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == coreCompletedAt
     }
 
+    @discardableResult
     private func repairLocalSnapshotIfPossible(
         workspaceId: UUID,
         cursorState: WorkspaceLocalRepository.CursorStateRecord,
         windowState: WorkspaceLocalRepository.WindowStateRecord?,
         completedAt: Date,
         repairLocalRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository
-    ) async {
+    ) async -> Bool {
         do {
             let localRepository = try await repairLocalRepositoryForWorkspaceId(workspaceId)
             try localRepository.replaceWorkspaceSnapshotLocalState(
@@ -92,8 +107,9 @@ extension WorkspaceSQLiteStoreBackend {
                 windowState: windowState,
                 completedAt: completedAt
             )
+            return true
         } catch {
-            return
+            return false
         }
     }
 }

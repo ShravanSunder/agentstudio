@@ -92,6 +92,11 @@ actor WorkspaceSQLiteDatastore {
         case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
     }
 
+    private struct LocalRepositoryOpenResult: Sendable {
+        var repository: WorkspaceLocalRepository
+        var recoveryEvent: PersistenceRecoveryEvent?
+    }
+
     private var backend: WorkspaceSQLiteStoreBackend?
     private let configuration: WorkspaceSQLiteDatastoreConfiguration?
     private let makeLocalRepository: (@Sendable (UUID) throws -> WorkspaceLocalRepository)?
@@ -150,7 +155,11 @@ actor WorkspaceSQLiteDatastore {
     func loadWorkspaceSnapshot(preferredWorkspaceId: UUID) async -> LoadResult {
         await recordProbe(.loadWorkspaceSnapshot)
         do {
-            let snapshot = try await resolvedBackend().loadCompletedSnapshot(
+            let backend = try resolvedBackend()
+            let recoverableStagedWorkspaceId = try backend.coreRepository.fetchRecoverableStagedWorkspaceId(
+                preferredWorkspaceId: preferredWorkspaceId
+            )
+            let snapshot = try await backend.loadCompletedSnapshot(
                 preferredWorkspaceId: preferredWorkspaceId,
                 localRepositoryForWorkspaceId: { workspaceId in
                     try await self.cachedRestoreLocalRepository(workspaceId: workspaceId)
@@ -159,6 +168,16 @@ actor WorkspaceSQLiteDatastore {
                     try await self.cachedSaveLocalRepository(workspaceId: workspaceId)
                 }
             )
+            if recoverableStagedWorkspaceId == snapshot.id {
+                appendRecoveryEvent(
+                    .init(
+                        store: .workspace,
+                        workspaceId: snapshot.id,
+                        recovery: .resetToDefaults
+                    ),
+                    workspaceId: snapshot.id
+                )
+            }
             return .loaded(snapshot, recoveryEvents: drainRecoveryEvents(workspaceId: snapshot.id))
         } catch is BackendUninitializedError {
             return .uninitialized(recoveryEvents: drainAllRecoveryEvents())
@@ -454,10 +473,13 @@ actor WorkspaceSQLiteDatastore {
         if let cachedRepository = saveLocalRepositoryCache[workspaceId] {
             return cachedRepository
         }
-        let repository = try makeLocalRepositoryForSave(workspaceId)
-        saveLocalRepositoryCache[workspaceId] = repository
+        let result = try makeLocalRepositoryForSave(workspaceId)
+        if let recoveryEvent = result.recoveryEvent {
+            appendRecoveryEvent(recoveryEvent, workspaceId: workspaceId)
+        }
+        saveLocalRepositoryCache[workspaceId] = result.repository
         await recordProbe(.localRepositoryOpened(workspaceId, .save))
-        return repository
+        return result.repository
     }
 
     private func cachedRestoreLocalRepository(workspaceId: UUID) async throws -> WorkspaceLocalRepository {
@@ -465,10 +487,13 @@ actor WorkspaceSQLiteDatastore {
             return cachedRepository
         }
         do {
-            let repository = try makeLocalRepositoryForRestore(workspaceId)
-            restoreLocalRepositoryCache[workspaceId] = repository
+            let result = try makeLocalRepositoryForRestore(workspaceId)
+            if let recoveryEvent = result.recoveryEvent {
+                appendRecoveryEvent(recoveryEvent, workspaceId: workspaceId)
+            }
+            restoreLocalRepositoryCache[workspaceId] = result.repository
             await recordProbe(.localRepositoryOpened(workspaceId, .restore))
-            return repository
+            return result.repository
         } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
             let recoveredWorkspaceId,
             let quarantinedFilename
@@ -506,25 +531,44 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
-    private func makeLocalRepositoryForSave(_ workspaceId: UUID) throws -> WorkspaceLocalRepository {
+    private func makeLocalRepositoryForSave(_ workspaceId: UUID) throws -> LocalRepositoryOpenResult {
         if let makeLocalRepository {
-            return try makeLocalRepository(workspaceId)
+            return .init(repository: try makeLocalRepository(workspaceId), recoveryEvent: nil)
         }
         guard let configuration else {
             throw WorkspaceSQLiteDatastoreError.missingConfiguration
         }
-        return try Self.openConfiguredLocalRepository(workspaceId: workspaceId, configuration: configuration)
+        return try Self.openConfiguredLocalRepositoryWithRecovery(
+            workspaceId: workspaceId,
+            configuration: configuration
+        )
     }
 
-    private func makeLocalRepositoryForRestore(_ workspaceId: UUID) throws -> WorkspaceLocalRepository {
+    private func makeLocalRepositoryForRestore(_ workspaceId: UUID) throws -> LocalRepositoryOpenResult {
         if let makeLocalRestoreRepository {
-            return try makeLocalRestoreRepository(workspaceId)
+            return .init(repository: try makeLocalRestoreRepository(workspaceId), recoveryEvent: nil)
         }
         guard let configuration else {
             return try makeLocalRepositoryForSave(workspaceId)
         }
+        return try Self.openConfiguredLocalRepositoryWithRecovery(
+            workspaceId: workspaceId,
+            configuration: configuration
+        )
+    }
+
+    private static func openConfiguredLocalRepositoryWithRecovery(
+        workspaceId: UUID,
+        configuration: WorkspaceSQLiteDatastoreConfiguration
+    ) throws -> LocalRepositoryOpenResult {
         do {
-            return try Self.openConfiguredLocalRepository(workspaceId: workspaceId, configuration: configuration)
+            return .init(
+                repository: try Self.openConfiguredLocalRepository(
+                    workspaceId: workspaceId,
+                    configuration: configuration
+                ),
+                recoveryEvent: nil
+            )
         } catch {
             guard WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(error) else {
                 throw error
@@ -538,13 +582,17 @@ actor WorkspaceSQLiteDatastore {
                     quarantinedFilename: quarantine.recoveryFilename
                 )
             }
-            do {
-                _ = try Self.openConfiguredLocalRepository(workspaceId: workspaceId, configuration: configuration)
-            } catch {
-            }
-            throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
-                workspaceId,
-                quarantinedFilename: quarantine.recoveryFilename
+            return .init(
+                repository: try Self.openConfiguredLocalRepository(
+                    workspaceId: workspaceId,
+                    configuration: configuration
+                ),
+                recoveryEvent: .init(
+                    store: .workspace,
+                    workspaceId: workspaceId,
+                    recovery: .quarantinedAndReset,
+                    quarantinedFilename: quarantine.recoveryFilename
+                )
             )
         }
     }

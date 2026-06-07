@@ -10,10 +10,10 @@ struct WorkspaceLocalRepository: Sendable {
 
     struct CursorStateRecord: Equatable, Sendable {
         var activeTabId: UUID?
-        var activeArrangementIdsByTabId: [UUID: UUID?]
-        var activePaneIdsByArrangementId: [UUID: UUID?]
+        var activeArrangementIdsByTabId: [UUID: UUID]
+        var activePaneIdsByArrangementId: [UUID: UUID]
         var drawerExpansionByDrawerId: [UUID: Bool]
-        var activeChildIdsByArrangementDrawer: [ArrangementDrawerCursorKey: UUID?]
+        var activeChildIdsByArrangementDrawer: [ArrangementDrawerCursorKey: UUID]
     }
 
     struct WindowStateRecord: Equatable, Sendable {
@@ -111,6 +111,7 @@ struct WorkspaceLocalRepository: Sendable {
                         SELECT completed_at
                         FROM local_workspace_sqlite_snapshot_status
                         WHERE workspace_id = ?
+                          AND completed_at IS NOT NULL
                         """,
                     arguments: [workspaceId.uuidString]
                 )
