@@ -506,7 +506,13 @@ struct WorkspacePersistor {
         }
 
         do {
-            let decoded = try JSONDecoder().decode(type, from: data)
+            let decodeData: Data
+            if type == PersistableState.self {
+                decodeData = Self.dataRoutingLegacyDrawerActivePaneIds(data)
+            } else {
+                decodeData = data
+            }
+            let decoded = try JSONDecoder().decode(type, from: decodeData)
             return .loaded(decoded)
         } catch {
             persistorLogger.error(

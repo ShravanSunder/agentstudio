@@ -299,19 +299,38 @@ final class WorkspacePersistorTests {
 
     @Test
     func test_load_canonicalState_legacyDrawerActivePaneId_doesNotCorruptWorkspace() throws {
-        let drawerChildPaneId = UUIDv7.generate()
+        let firstDrawerChildPaneId = UUIDv7.generate()
+        let secondDrawerChildPaneId = UUIDv7.generate()
         var parentPane = makePane()
         parentPane.withDrawer { drawer in
-            drawer.paneIds = [drawerChildPaneId]
+            drawer.paneIds = [firstDrawerChildPaneId, secondDrawerChildPaneId]
         }
-        let drawerChildPane = Pane(
-            id: drawerChildPaneId,
+        guard let drawerId = parentPane.drawer?.drawerId else {
+            Issue.record("Parent pane did not receive a drawer")
+            return
+        }
+        let firstDrawerChildPane = Pane(
+            id: firstDrawerChildPaneId,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Drawer Child"),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "First Drawer Child"),
             kind: .drawerChild(parentPaneId: parentPane.id)
         )
-        var state = WorkspacePersistor.PersistableState(panes: [parentPane, drawerChildPane])
-        state.tabs = [Tab(paneId: parentPane.id)]
+        let secondDrawerChildPane = Pane(
+            id: secondDrawerChildPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Second Drawer Child"),
+            kind: .drawerChild(parentPaneId: parentPane.id)
+        )
+        var tab = Tab(paneId: parentPane.id)
+        tab.arrangements[0].drawerViews[drawerId] = DrawerView(
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([firstDrawerChildPaneId, secondDrawerChildPaneId])),
+            activeChildId: firstDrawerChildPaneId
+        )
+        var state = WorkspacePersistor.PersistableState(
+            panes: [parentPane, firstDrawerChildPane, secondDrawerChildPane],
+            tabs: [tab]
+        )
+        state.activeTabId = tab.id
         try persistor.save(state)
 
         let stateURL = tempDir.appending(path: "\(state.id.uuidString).workspace.state.json")
@@ -322,12 +341,20 @@ final class WorkspacePersistorTests {
             var parentPanePayload = panes.first(where: { ($0["id"] as? String) == parentPane.id.uuidString }),
             var kindPayload = parentPanePayload["kind"] as? [String: Any],
             var layoutPayload = kindPayload["layout"] as? [String: Any],
-            var drawerPayload = layoutPayload["drawer"] as? [String: Any]
+            var drawerPayload = layoutPayload["drawer"] as? [String: Any],
+            var tabs = root["tabs"] as? [[String: Any]],
+            var firstTab = tabs.first,
+            var arrangements = firstTab["arrangements"] as? [[String: Any]],
+            var firstArrangement = arrangements.first,
+            var drawerViews = firstArrangement["drawerViews"] as? [Any],
+            let drawerViewKeyIndex = drawerViews.firstIndex(where: { ($0 as? String) == drawerId.uuidString }),
+            drawerViews.indices.contains(drawerViewKeyIndex + 1),
+            var drawerViewPayload = drawerViews[drawerViewKeyIndex + 1] as? [String: Any]
         else {
-            Issue.record("Unable to locate encoded parent drawer payload")
+            Issue.record("Unable to locate encoded parent drawer and arrangement drawer view payload")
             return
         }
-        drawerPayload["activePaneId"] = drawerChildPaneId.uuidString
+        drawerPayload["activePaneId"] = secondDrawerChildPaneId.uuidString
         layoutPayload["drawer"] = drawerPayload
         kindPayload["layout"] = layoutPayload
         parentPanePayload["kind"] = kindPayload
@@ -335,14 +362,27 @@ final class WorkspacePersistorTests {
             panes[parentIndex] = parentPanePayload
         }
         root["panes"] = panes
+        drawerViewPayload.removeValue(forKey: "activeChildId")
+        drawerViews[drawerViewKeyIndex + 1] = drawerViewPayload
+        firstArrangement["drawerViews"] = drawerViews
+        arrangements[0] = firstArrangement
+        firstTab["arrangements"] = arrangements
+        tabs[0] = firstTab
+        root["tabs"] = tabs
         let legacyData = try JSONSerialization.data(withJSONObject: root)
         try legacyData.write(to: stateURL, options: Data.WritingOptions.atomic)
 
         let loaded = persistor.load().value
 
         #expect(loaded?.id == state.id)
-        #expect(loaded?.panes.count == 2)
-        #expect(loaded?.panes.first { $0.id == parentPane.id }?.drawer?.paneIds == [drawerChildPaneId])
+        #expect(loaded?.panes.count == 3)
+        #expect(
+            loaded?.panes.first { $0.id == parentPane.id }?.drawer?.paneIds == [
+                firstDrawerChildPaneId,
+                secondDrawerChildPaneId,
+            ]
+        )
+        #expect(loaded?.tabs.first?.arrangements.first?.drawerViews[drawerId]?.activeChildId == secondDrawerChildPaneId)
     }
 
     @Test
