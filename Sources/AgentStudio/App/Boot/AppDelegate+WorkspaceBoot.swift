@@ -116,7 +116,7 @@ extension AppDelegate {
         atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
         let workspaceSQLiteStoreBackend = makeWorkspaceSQLiteStoreBackend()
-        let workspaceLocalSQLiteStoreBackend = workspaceSQLiteStoreBackend?.localBackend
+        workspaceLocalSQLiteStoreBackend = workspaceSQLiteStoreBackend?.localBackend
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,

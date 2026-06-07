@@ -18,6 +18,21 @@ struct InboxNotificationSQLiteRepository {
     let workspaceId: UUID
     let databaseWriter: any DatabaseWriter
 
+    func replaceSnapshot(
+        notifications: [InboxNotification],
+        collapsedGroups: Set<InboxNotificationGroupKey>
+    ) throws {
+        try databaseWriter.write { database in
+            try deleteNotificationRows(database)
+            for notification in notifications {
+                try upsertNotificationRow(database, notification: notification)
+            }
+            _ = try enforceRetentionCap(database)
+            try replaceCollapsedGroupRows(database, groups: collapsedGroups)
+            try markPersistedState(database)
+        }
+    }
+
     func replaceAll(_ notifications: [InboxNotification]) throws {
         try databaseWriter.write { database in
             try deleteNotificationRows(database)
@@ -25,6 +40,7 @@ struct InboxNotificationSQLiteRepository {
                 try upsertNotificationRow(database, notification: notification)
             }
             _ = try enforceRetentionCap(database)
+            try markPersistedState(database)
         }
     }
 
@@ -37,6 +53,7 @@ struct InboxNotificationSQLiteRepository {
     func append(_ notification: InboxNotification) throws -> RetentionOutcome {
         try databaseWriter.write { database in
             try upsertNotificationRow(database, notification: notification)
+            try markPersistedState(database)
             return try enforceRetentionCap(database)
         }
     }
@@ -57,6 +74,7 @@ struct InboxNotificationSQLiteRepository {
             }
 
             try upsertNotificationRow(database, notification: notification)
+            try markPersistedState(database)
             return MutationOutcome(
                 notificationId: notification.id,
                 didCoalesce: false,
@@ -143,33 +161,21 @@ struct InboxNotificationSQLiteRepository {
                     """,
                 arguments: [workspaceId.uuidString]
             )
+            try markPersistedState(database)
         }
     }
 
     func clearAll() throws {
         try databaseWriter.write { database in
             try deleteNotificationRows(database)
+            try markPersistedState(database)
         }
     }
 
     func replaceCollapsedGroups(_ groups: Set<InboxNotificationGroupKey>) throws {
         try databaseWriter.write { database in
-            try database.execute(
-                sql: """
-                    DELETE FROM local_notification_inbox_collapsed_group
-                    WHERE workspace_id = ?
-                    """,
-                arguments: [workspaceId.uuidString]
-            )
-            for group in groups {
-                try database.execute(
-                    sql: """
-                        INSERT INTO local_notification_inbox_collapsed_group(workspace_id, group_key)
-                        VALUES (?, ?)
-                        """,
-                    arguments: [workspaceId.uuidString, group.rawValue]
-                )
-            }
+            try replaceCollapsedGroupRows(database, groups: groups)
+            try markPersistedState(database)
         }
     }
 
@@ -189,6 +195,14 @@ struct InboxNotificationSQLiteRepository {
             groupKeys.map { rawValue in InboxNotificationGroupKey(rawValue) }
         )
         return collapsedGroups
+    }
+
+    func hasPersistedState() throws -> Bool {
+        try databaseWriter.read { database in
+            if try persistenceLaneExists(database) { return true }
+            if try rowExists(database, table: "local_notification_inbox_item") { return true }
+            return try rowExists(database, table: "local_notification_inbox_collapsed_group")
+        }
     }
 
     private func updateNotification(id: UUID, setClause: String) throws -> Bool {
@@ -348,6 +362,28 @@ struct InboxNotificationSQLiteRepository {
         )
     }
 
+    private func replaceCollapsedGroupRows(
+        _ database: Database,
+        groups: Set<InboxNotificationGroupKey>
+    ) throws {
+        try database.execute(
+            sql: """
+                DELETE FROM local_notification_inbox_collapsed_group
+                WHERE workspace_id = ?
+                """,
+            arguments: [workspaceId.uuidString]
+        )
+        for group in groups {
+            try database.execute(
+                sql: """
+                    INSERT INTO local_notification_inbox_collapsed_group(workspace_id, group_key)
+                    VALUES (?, ?)
+                    """,
+                arguments: [workspaceId.uuidString, group.rawValue]
+            )
+        }
+    }
+
     private func upsertNotificationRow(
         _ database: Database,
         notification: InboxNotification
@@ -485,6 +521,48 @@ struct InboxNotificationSQLiteRepository {
             }
         )
     }
+
+    private func markPersistedState(_ database: Database) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO local_persistence_lane_marker(workspace_id, lane, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(workspace_id, lane) DO UPDATE SET
+                    updated_at = excluded.updated_at
+                """,
+            arguments: [
+                workspaceId.uuidString,
+                Self.persistenceLane,
+                Date().timeIntervalSince1970,
+            ]
+        )
+    }
+
+    private func persistenceLaneExists(_ database: Database) throws -> Bool {
+        let count =
+            try Int.fetchOne(
+                database,
+                sql: """
+                    SELECT count(*)
+                    FROM local_persistence_lane_marker
+                    WHERE workspace_id = ? AND lane = ?
+                    """,
+                arguments: [workspaceId.uuidString, Self.persistenceLane]
+            ) ?? 0
+        return count > 0
+    }
+
+    private func rowExists(_ database: Database, table: String) throws -> Bool {
+        let count =
+            try Int.fetchOne(
+                database,
+                sql: "SELECT count(*) FROM \(table) WHERE workspace_id = ? LIMIT 1",
+                arguments: [workspaceId.uuidString]
+            ) ?? 0
+        return count > 0
+    }
+
+    private static let persistenceLane = "notification_inbox"
 }
 
 enum InboxNotificationSQLiteRepositoryError: Error, Equatable {

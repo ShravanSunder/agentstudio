@@ -79,8 +79,7 @@ struct AppBootSequenceTests {
 
         #expect(appDelegateSource.contains("makeWorkspaceSQLiteStoreBackend()"))
         #expect(
-            appDelegateSource.contains(
-                "let workspaceLocalSQLiteStoreBackend = workspaceSQLiteStoreBackend?.localBackend"))
+            appDelegateSource.contains("workspaceLocalSQLiteStoreBackend = workspaceSQLiteStoreBackend?.localBackend"))
         #expect(appDelegateSource.contains("sqliteBackend: workspaceSQLiteStoreBackend"))
         #expect(appDelegateSource.contains("sqliteBackend: workspaceLocalSQLiteStoreBackend"))
         #expect(appDelegateSource.contains("WorkspaceCoreRepository(databaseWriter: coreDatabasePool)"))
@@ -89,6 +88,26 @@ struct AppBootSequenceTests {
         #expect(appDelegateSource.contains("databaseWriter: localDatabasePool"))
         #expect(appDelegateSource.contains("try coreRepository.migrate()"))
         #expect(appDelegateSource.contains("try localRepository.migrate()"))
+    }
+
+    @Test("boot injects SQLite repository into inbox notification store")
+    func bootInjectsSQLiteRepositoryIntoInboxNotificationStore() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+            encoding: .utf8
+        )
+        let inboxBootSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Boot/AppDelegate+InboxNotificationBoot.swift"),
+            encoding: .utf8
+        )
+
+        #expect(appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend: WorkspaceLocalSQLiteStoreBackend?"))
+        #expect(inboxBootSource.contains("makeInboxNotificationSQLiteRepository(workspaceId: workspaceId)"))
+        #expect(inboxBootSource.contains("sqliteRepository: sqliteRepository"))
+        #expect(inboxBootSource.contains("InboxNotificationSQLiteRepository("))
+        #expect(inboxBootSource.contains("databaseWriter: localRepository.databaseWriter"))
     }
 
     @Test("termination flushes settings before shutdown completes")

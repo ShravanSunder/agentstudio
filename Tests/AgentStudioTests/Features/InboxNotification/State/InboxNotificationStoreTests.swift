@@ -70,6 +70,142 @@ struct InboxNotificationStoreTests {
         #expect(sidebarState2.collapsedGroups == [InboxNotificationGroupKey("repo:agent-studio")])
     }
 
+    @Test("flush and restore round trip notifications and collapsed groups through local SQLite")
+    func flushAndRestoreRoundTripThroughLocalSQLite() throws {
+        let url = makeTempURL()
+        let workspaceId = UUID()
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let atom1 = InboxNotificationAtom()
+        let prefs1 = InboxNotificationPrefsAtom()
+        let sidebarState1 = InboxSidebarState()
+        let store1 = InboxNotificationStore(
+            inboxAtom: atom1,
+            prefsAtom: prefs1,
+            sidebarState: sidebarState1,
+            fileURL: url,
+            sqliteRepository: fixture.repository
+        )
+        let note = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 42),
+            kind: .agentDesktopNotification,
+            title: "SQLite",
+            body: nil,
+            source: .global,
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+
+        atom1.append(note)
+        prefs1.setGrouping(.byRepo)
+        sidebarState1.setGroupCollapsed(InboxNotificationGroupKey("repo:agent-studio"), isCollapsed: true)
+        try store1.flush()
+
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(try fixture.repository.fetchNotifications().map(\.id) == [note.id])
+        #expect(try fixture.repository.fetchCollapsedGroups() == [InboxNotificationGroupKey("repo:agent-studio")])
+
+        let atom2 = InboxNotificationAtom()
+        let prefs2 = InboxNotificationPrefsAtom()
+        let sidebarState2 = InboxSidebarState()
+        let store2 = InboxNotificationStore(
+            inboxAtom: atom2,
+            prefsAtom: prefs2,
+            sidebarState: sidebarState2,
+            fileURL: url,
+            sqliteRepository: fixture.repository
+        )
+        try store2.load()
+
+        #expect(atom2.notifications.map(\.id) == [note.id])
+        #expect(sidebarState2.collapsedGroups == [InboxNotificationGroupKey("repo:agent-studio")])
+        #expect(prefs2.grouping == .byTab)
+    }
+
+    @Test("SQLite restore imports legacy JSON once when the inbox lane is missing")
+    func sqliteRestoreImportsLegacyJSONOnceWhenInboxLaneIsMissing() async throws {
+        let url = makeTempURL()
+        let workspaceId = UUID()
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let legacyAtom = InboxNotificationAtom()
+        let legacySidebarState = InboxSidebarState()
+        let legacyStore = InboxNotificationStore(
+            inboxAtom: legacyAtom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            sidebarState: legacySidebarState,
+            fileURL: url
+        )
+        let note = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 84),
+            kind: .agentDesktopNotification,
+            title: "Legacy",
+            body: nil,
+            source: .global,
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+        legacyAtom.append(note)
+        legacySidebarState.setGroupCollapsed(InboxNotificationGroupKey("repo:legacy"), isCollapsed: true)
+        try await legacyStore.save()
+
+        let atom = InboxNotificationAtom()
+        let sidebarState = InboxSidebarState()
+        let sqliteStore = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            sidebarState: sidebarState,
+            fileURL: url,
+            sqliteRepository: fixture.repository
+        )
+        try sqliteStore.load()
+
+        #expect(atom.notifications.map(\.id) == [note.id])
+        #expect(sidebarState.collapsedGroups == [InboxNotificationGroupKey("repo:legacy")])
+        #expect(try fixture.repository.fetchNotifications().map(\.id) == [note.id])
+        #expect(try fixture.repository.fetchCollapsedGroups() == [InboxNotificationGroupKey("repo:legacy")])
+        #expect(try fixture.repository.hasPersistedState())
+    }
+
+    @Test("SQLite restore does not resurrect stale legacy JSON after an empty flush")
+    func sqliteRestoreDoesNotResurrectStaleLegacyJSONAfterEmptyFlush() async throws {
+        let url = makeTempURL()
+        let workspaceId = UUID()
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let staleAtom = InboxNotificationAtom()
+        staleAtom.append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(timeIntervalSince1970: 120),
+                kind: .agentDesktopNotification,
+                title: "Stale",
+                body: nil,
+                source: .global,
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+        try await InboxNotificationStore(
+            inboxAtom: staleAtom,
+            prefsAtom: InboxNotificationPrefsAtom(),
+            fileURL: url
+        ).save()
+        let emptyStore = InboxNotificationStore(
+            inboxAtom: InboxNotificationAtom(),
+            prefsAtom: InboxNotificationPrefsAtom(),
+            sidebarState: InboxSidebarState(),
+            fileURL: url,
+            sqliteRepository: fixture.repository
+        )
+
+        try emptyStore.flush()
+        try emptyStore.load()
+
+        #expect(emptyStore.inboxAtom.notifications.isEmpty)
+        #expect(emptyStore.sidebarState.collapsedGroups.isEmpty)
+        #expect(try fixture.repository.hasPersistedState())
+    }
+
     @Test("load resets runtime-only pending sidebar filter")
     func loadResetsRuntimeOnlyPendingSidebarFilter() async throws {
         let url = makeTempURL()

@@ -8,8 +8,9 @@ private let inboxNotificationStoreLogger = Logger(
 
 /// Persistence wrapper over the notification-inbox feature atoms.
 ///
-/// One store owns one JSON file that persists the inbox log, preferences, and
-/// sidebar presentation state together.
+/// Persists the inbox log and collapsed sidebar groups.
+///
+/// Preferences are settings-owned, and pending sidebar filters are runtime-only.
 @MainActor
 final class InboxNotificationStore {
     let inboxAtom: InboxNotificationAtom
@@ -20,6 +21,7 @@ final class InboxNotificationStore {
     private let clock: any Clock<Duration>
     private let debounceDuration: Duration
     private let recoveryReporter: PersistenceRecoveryReporter?
+    private let sqliteRepository: InboxNotificationSQLiteRepository?
     private var debouncedSaveTask: Task<Void, Never>?
 
     init(
@@ -29,7 +31,8 @@ final class InboxNotificationStore {
         fileURL: URL,
         clock: any Clock<Duration> = ContinuousClock(),
         debounceDuration: Duration = .milliseconds(500),
-        recoveryReporter: PersistenceRecoveryReporter? = nil
+        recoveryReporter: PersistenceRecoveryReporter? = nil,
+        sqliteRepository: InboxNotificationSQLiteRepository? = nil
     ) {
         self.inboxAtom = inboxAtom
         self.prefsAtom = prefsAtom
@@ -38,6 +41,7 @@ final class InboxNotificationStore {
         self.clock = clock
         self.debounceDuration = debounceDuration
         self.recoveryReporter = recoveryReporter
+        self.sqliteRepository = sqliteRepository
     }
 
     private struct Payload: Codable {
@@ -148,7 +152,23 @@ final class InboxNotificationStore {
     }
 
     func load() throws {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        if let sqliteRepository {
+            if try sqliteRepository.hasPersistedState() {
+                try loadSQLiteSnapshot(from: sqliteRepository)
+                return
+            }
+            guard let payload = loadLegacyPayloadFromDisk() else { return }
+            apply(payload)
+            try persistCurrentSQLiteSnapshot(to: sqliteRepository)
+            return
+        }
+
+        guard let payload = loadLegacyPayloadFromDisk() else { return }
+        apply(payload)
+    }
+
+    private func loadLegacyPayloadFromDisk() -> Payload? {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
 
         let data: Data
         do {
@@ -164,7 +184,7 @@ final class InboxNotificationStore {
                     quarantinedFilename: quarantinedURL?.lastPathComponent
                 )
             )
-            return
+            return nil
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -182,11 +202,20 @@ final class InboxNotificationStore {
                     quarantinedFilename: quarantinedURL?.lastPathComponent
                 )
             )
-            return
+            return nil
         }
 
+        return payload
+    }
+
+    private func apply(_ payload: Payload) {
         inboxAtom.replaceAll(payload.notifications)
         sidebarState.hydrate(collapsedGroups: payload.sidebarState.collapsedGroups)
+    }
+
+    private func loadSQLiteSnapshot(from repository: InboxNotificationSQLiteRepository) throws {
+        inboxAtom.replaceAll(try repository.fetchNotifications())
+        sidebarState.hydrate(collapsedGroups: try repository.fetchCollapsedGroups())
     }
 
     func save() async throws {
@@ -257,6 +286,10 @@ final class InboxNotificationStore {
 
     private func persistCurrentPayloadAsync() async throws {
         do {
+            if let sqliteRepository {
+                try persistCurrentSQLiteSnapshot(to: sqliteRepository)
+                return
+            }
             let data = try encodedPayloadData()
             try await Self.writePayloadData(data, to: fileURL)
         } catch {
@@ -267,6 +300,10 @@ final class InboxNotificationStore {
 
     private func persistCurrentPayloadSynchronously() throws {
         do {
+            if let sqliteRepository {
+                try persistCurrentSQLiteSnapshot(to: sqliteRepository)
+                return
+            }
             let data = try encodedPayloadData()
             try Self.writePayloadDataSynchronously(data, to: fileURL)
         } catch {
@@ -294,6 +331,13 @@ final class InboxNotificationStore {
             )
             return nil
         }
+    }
+
+    private func persistCurrentSQLiteSnapshot(to repository: InboxNotificationSQLiteRepository) throws {
+        try repository.replaceSnapshot(
+            notifications: inboxAtom.notifications,
+            collapsedGroups: sidebarState.collapsedGroups
+        )
     }
 
     private func reportSaveFailed() {

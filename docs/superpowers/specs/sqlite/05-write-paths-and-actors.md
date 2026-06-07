@@ -598,8 +598,11 @@ InboxNotificationStore
      prefs                -> settings.json
      notifications        -> local_notification_inbox_item
      collapsedGroups      -> local_notification_inbox_collapsed_group
-  -> ceases to be the live persistence owner after cutover; live writes route
-     through WorkspaceSettingsStore and WorkspaceLocalStore
+  -> live store writes notification history and collapsed groups through
+     InboxNotificationSQLiteRepository when the per-workspace local SQLite
+     backend is available
+  -> legacy JSON remains an import/fallback source; settings-owned preferences
+     continue to route through WorkspaceSettingsStore
 
 CommandBarState
   -> keeps existing UserDefaults recents in Step 1

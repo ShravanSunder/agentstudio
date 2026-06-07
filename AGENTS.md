@@ -94,6 +94,7 @@ icons when a sidebar/local action already defines the presentation.
 | `SQLitePaneContentTypeStorage` | repository-facing storage tokens for live `PaneContentType` values used by `pane.content_type` and content-table triggers | `Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift` |
 | `SQLiteLocalUXStorage` | repository-facing storage tokens for sidebar surface and recent workspace target vocabulary used by local UX schema checks | `Core/State/MainActor/Persistence/SQLiteLocalUXStorage.swift` |
 | `SQLiteInboxNotificationClaimStorage` | repository-facing storage tokens for inbox claim-lane merge predicates used by local notification schema indexes | `Core/State/MainActor/Persistence/SQLiteInboxNotificationClaimStorage.swift` |
+| `InboxNotificationSQLiteRepository` | feature-owned local SQLite repository for notification inbox rows, collapsed inbox groups, claim coalescence, retention, and empty-lane marking | `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationSQLiteRepository.swift` |
 | `ActiveWorkspaceSelectionAtom` | global active workspace id selection, independent from per-workspace metadata hydration | `Core/State/MainActor/Atoms/ActiveWorkspaceSelectionAtom.swift` |
 | `WorkspaceIdentityAtom` | workspace id, name, and creation timestamp | `Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift` |
 | `WorkspaceWindowMemoryAtom` | local sidebar width and window frame memory | `Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift` |
@@ -135,6 +136,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoEnrichmentCacheAtom` + `RecentWorkspaceTargetAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
 | `UIStateStore` | persistence wrapper for workspace sidebar memory and editor chooser bookmark until those stores split | `Core/State/MainActor/Persistence/UIStateStore.swift` |
+| `InboxNotificationStore` | persistence wrapper for inbox notification history and collapsed inbox groups; uses feature SQLite repository when the local backend is available and legacy JSON only as import/fallback | `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` |
 | `AppLifecycleAtom` | application active/terminating state | `Core/State/MainActor/Atoms/AppLifecycleAtom.swift` |
 | `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
 | `PaneFilesystemProjectionAtom` | pane-scoped filesystem projection state derived from runtime envelopes | `Core/State/MainActor/Atoms/PaneFilesystemProjectionAtom.swift` |

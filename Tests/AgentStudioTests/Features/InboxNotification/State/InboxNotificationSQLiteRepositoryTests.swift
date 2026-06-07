@@ -103,6 +103,20 @@ struct InboxNotificationSQLiteRepositoryTests {
         #expect(try fixture.repository.fetchCollapsedGroups() == groups)
     }
 
+    @Test("empty inbox snapshots mark the SQLite lane as initialized")
+    func emptyInboxSnapshotsMarkTheSQLiteLaneAsInitialized() throws {
+        let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000009")!
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+
+        #expect(try fixture.repository.hasPersistedState() == false)
+
+        try fixture.repository.replaceSnapshot(notifications: [], collapsedGroups: [])
+
+        #expect(try fixture.repository.fetchNotifications().isEmpty)
+        #expect(try fixture.repository.fetchCollapsedGroups().isEmpty)
+        #expect(try fixture.repository.hasPersistedState())
+    }
+
     @Test("upsert by claim mirrors InboxNotificationAtom coalescence rules")
     func upsertByClaimMirrorsInboxNotificationAtomCoalescenceRules() throws {
         let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000003")!
@@ -310,12 +324,12 @@ struct InboxNotificationSQLiteRepositoryTests {
     }
 }
 
-private struct InboxNotificationSQLiteRepositoryFixture {
+struct InboxNotificationSQLiteRepositoryFixture {
     let repository: InboxNotificationSQLiteRepository
     let databaseQueue: DatabaseQueue
 }
 
-private func makeInboxNotificationSQLiteRepositoryFixture(
+func makeInboxNotificationSQLiteRepositoryFixture(
     workspaceId: UUID
 ) throws -> InboxNotificationSQLiteRepositoryFixture {
     let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()

@@ -3,7 +3,9 @@ import Observation
 
 extension AppDelegate {
     func bootLoadInboxNotificationStore(persistor: WorkspacePersistor) {
-        let fileURL = persistor.notificationInboxFileURL(for: store.identityAtom.workspaceId)
+        let workspaceId = store.identityAtom.workspaceId
+        let fileURL = persistor.notificationInboxFileURL(for: workspaceId)
+        let sqliteRepository = makeInboxNotificationSQLiteRepository(workspaceId: workspaceId)
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: atomStore.inboxNotification,
             prefsAtom: atomStore.inboxNotificationPrefs,
@@ -11,7 +13,8 @@ extension AppDelegate {
             fileURL: fileURL,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
-            }
+            },
+            sqliteRepository: sqliteRepository
         )
         do {
             try inboxNotificationStore.load()
@@ -21,6 +24,22 @@ extension AppDelegate {
         observeInboxNotificationPersistence()
         hasLoadedInboxNotificationStore = true
         flushPersistenceRecoveryNotifications()
+    }
+
+    private func makeInboxNotificationSQLiteRepository(
+        workspaceId: UUID
+    ) -> InboxNotificationSQLiteRepository? {
+        guard let workspaceLocalSQLiteStoreBackend else { return nil }
+        do {
+            let localRepository = try workspaceLocalSQLiteStoreBackend.repository(for: workspaceId)
+            return InboxNotificationSQLiteRepository(
+                workspaceId: workspaceId,
+                databaseWriter: localRepository.databaseWriter
+            )
+        } catch {
+            appLogger.warning("Inbox notification SQLite repository unavailable: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     func bootStartInboxNotificationRouter(bus: EventBus<RuntimeEnvelope>) {
