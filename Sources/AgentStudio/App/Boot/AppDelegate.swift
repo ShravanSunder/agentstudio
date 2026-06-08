@@ -310,7 +310,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        true
+        false
     }
 
     // MARK: - Menu Setup

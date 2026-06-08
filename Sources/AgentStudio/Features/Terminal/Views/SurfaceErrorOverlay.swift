@@ -4,18 +4,39 @@ import SwiftUI
 /// Overlay view shown when a surface encounters an error
 /// Matches Ghostty's SurfaceRendererUnhealthyView and SurfaceErrorView patterns
 struct SurfaceErrorOverlay: View {
+    private enum Content {
+        case health(SurfaceHealth)
+        case restorationPaused
+
+        var isVisible: Bool {
+            switch self {
+            case .health(let health): return !health.isHealthy
+            case .restorationPaused: return true
+            }
+        }
+    }
+
     let health: SurfaceHealth
     let onRestart: () -> Void
     let onDismiss: (() -> Void)?
+    private let content: Content
 
     init(health: SurfaceHealth, onRestart: @escaping () -> Void, onDismiss: (() -> Void)? = nil) {
         self.health = health
         self.onRestart = onRestart
         self.onDismiss = onDismiss
+        self.content = .health(health)
+    }
+
+    init(restorationPausedOnStart: @escaping () -> Void, onDismiss: (() -> Void)? = nil) {
+        self.health = .healthy
+        self.onRestart = restorationPausedOnStart
+        self.onDismiss = onDismiss
+        self.content = .restorationPaused
     }
 
     var body: some View {
-        if !health.isHealthy {
+        if content.isVisible {
             ZStack {
                 // Semi-transparent background
                 Color.black.opacity(0.85)
@@ -38,18 +59,42 @@ struct SurfaceErrorOverlay: View {
 
     @ViewBuilder
     private var errorContent: some View {
-        switch health {
-        case .healthy:
-            EmptyView()
+        switch content {
+        case .restorationPaused:
+            restorationPausedView()
 
-        case .unhealthy(let reason):
-            unhealthyView(reason: reason)
+        case .health(let health):
+            switch health {
+            case .healthy:
+                EmptyView()
 
-        case .processExited(let exitCode):
-            processExitedView(exitCode: exitCode)
+            case .unhealthy(let reason):
+                unhealthyView(reason: reason)
 
-        case .dead:
-            deadView()
+            case .processExited(let exitCode):
+                processExitedView(exitCode: exitCode)
+
+            case .dead:
+                deadView()
+            }
+        }
+    }
+
+    private func restorationPausedView() -> some View {
+        VStack(spacing: AppStyles.WorkspaceFocus.Terminal.errorOverlaySectionSpacing) {
+            Image(systemName: "pause.circle.fill")
+                .font(.system(size: AppStyles.General.Typography.text5xl))
+                .foregroundColor(.accentColor)
+
+            Text("Terminal Restore Paused")
+                .font(.system(size: AppStyles.General.Typography.textXl, weight: .bold))
+
+            Text("Agent Studio restored this pane without starting the terminal process during app launch.")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: 350)
+
+            startButtons
         }
     }
 
@@ -129,6 +174,24 @@ struct SurfaceErrorOverlay: View {
         .padding(.top, AppStyles.WorkspaceFocus.Terminal.errorOverlayActionTopPadding)
     }
 
+    private var startButtons: some View {
+        HStack(spacing: 12) {
+            if let onDismiss {
+                Button("Close Tab") {
+                    onDismiss()
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Button("Start Terminal") {
+                onRestart()
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(.top, AppStyles.WorkspaceFocus.Terminal.errorOverlayActionTopPadding)
+    }
+
     private func unhealthyMessage(for reason: SurfaceHealth.UnhealthyReason) -> String {
         switch reason {
         case .rendererUnhealthy:
@@ -182,6 +245,28 @@ final class SurfaceErrorOverlayView: NSView {
         let overlay = SurfaceErrorOverlay(
             health: health,
             onRestart: { [weak self] in
+                self?.onRestart?()
+            },
+            onDismiss: { [weak self] in
+                self?.onDismiss?()
+            }
+        )
+
+        let hosting = NSHostingView(rootView: overlay)
+        hosting.frame = bounds
+        hosting.autoresizingMask = [.width, .height]
+        addSubview(hosting)
+        hostingView = hosting
+
+        isHidden = false
+    }
+
+    func configureRestorationPaused() {
+        currentHealth = .healthy
+        hostingView?.removeFromSuperview()
+
+        let overlay = SurfaceErrorOverlay(
+            restorationPausedOnStart: { [weak self] in
                 self?.onRestart?()
             },
             onDismiss: { [weak self] in

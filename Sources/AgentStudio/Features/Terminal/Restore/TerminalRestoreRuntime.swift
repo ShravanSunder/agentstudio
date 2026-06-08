@@ -51,6 +51,7 @@ struct TerminalRestoreRuntime {
     }
 
     func zmxAttachCommand(for pane: Pane, store: WorkspaceStore) -> String? {
+        guard sessionConfiguration.isOperational else { return nil }
         guard let sessionId = zmxSessionId(for: pane, store: store) else { return nil }
         guard let zmxPath = sessionConfiguration.zmxPath else { return nil }
         return ZmxBackend.buildAttachCommand(
@@ -96,6 +97,7 @@ struct TerminalRestoreRuntime {
     }
 
     func zmxAttachDiagnostics(for pane: Pane, store: WorkspaceStore) -> ZmxAttachDiagnostics? {
+        guard sessionConfiguration.isOperational else { return nil }
         guard pane.provider == .zmx else { return nil }
         guard let sessionId = zmxSessionId(for: pane, store: store) else { return nil }
         guard let zmxPath = sessionConfiguration.zmxPath else { return nil }
@@ -115,7 +117,7 @@ struct TerminalRestoreRuntime {
     private static func discoverLiveSessionIds(
         sessionConfiguration: SessionConfiguration
     ) async -> Set<String> {
-        guard let zmxPath = sessionConfiguration.zmxPath else { return [] }
+        guard sessionConfiguration.isOperational, let zmxPath = sessionConfiguration.zmxPath else { return [] }
         let backend = ZmxBackend(
             zmxPath: zmxPath,
             zmxDir: sessionConfiguration.zmxDir,

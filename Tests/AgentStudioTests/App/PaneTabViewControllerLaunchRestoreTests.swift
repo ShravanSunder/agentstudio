@@ -135,6 +135,115 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     @Test
+    func settledLayout_defersSurfaceCreationUntilLayoutCallbackUnwinds() async {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Deferred Restore"),
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id, name: "Deferred Restore")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
+        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+
+        await Task.yield()
+
+        #expect(harness.surfaceManager.createdPaneIds == [pane.id])
+    }
+
+    @Test
+    func initialLaunchRestore_registersPlaceholderInsteadOfCreatingSurface() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Initial Placeholder"),
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id, name: "Initial Placeholder")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.viewRegistry.beginInitialRestore()
+
+        harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
+        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        await Task.yield()
+
+        let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
+        #expect(placeholder.mode == .restorationPaused)
+        #expect(placeholder.shouldRetryCreationWhenBoundsChange == false)
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        #expect(harness.viewRegistry.isInitialRestorePending == true)
+    }
+
+    @Test
+    func initialLaunchRestore_mountsNonTerminalVisiblePane() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(
+            content: .webview(
+                WebviewState(
+                    url: try #require(URL(string: "https://example.com/initial-webview")),
+                    showNavigation: true
+                )
+            ),
+            metadata: PaneMetadata(
+                source: .floating(launchDirectory: nil, title: "Initial Webview"),
+                title: "Initial Webview"
+            )
+        )
+        let tab = Tab(paneId: pane.id, name: "Initial Webview")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.viewRegistry.beginInitialRestore()
+
+        harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
+        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        await Task.yield()
+
+        #expect(harness.viewRegistry.webviewView(for: pane.id) != nil)
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        #expect(harness.viewRegistry.isInitialRestorePending == true)
+    }
+
+    @Test
+    func restoreAllViews_initialRestorePausesZmxTerminalSurfaceCreation() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Initial Full Restore"),
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id, name: "Initial Full Restore")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.viewRegistry.beginInitialRestore()
+
+        await harness.coordinator.restoreAllViews(
+            in: CGRect(x: 0, y: 0, width: 1200, height: 800)
+        )
+
+        let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
+        #expect(placeholder.mode == .restorationPaused)
+        #expect(placeholder.shouldRetryCreationWhenBoundsChange == false)
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        #expect(harness.viewRegistry.isInitialRestorePending == false)
+    }
+
+    @Test
     func restoreAllViews_usesLifecycleStoreBounds() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }

@@ -162,6 +162,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     /// Local event monitor for arrangement bar keyboard shortcut
     private var arrangementBarEventMonitor: Any?
     private var notificationTasks: [Task<Void, Never>] = []
+    private var pendingVisibleViewRestoreTask: Task<Void, Never>?
 
     /// Focus tracking — only refocus when the active tab or pane actually changes
     private var lastFocusedTabId: UUID?
@@ -414,6 +415,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func shutdown() {
+        pendingVisibleViewRestoreTask?.cancel()
+        pendingVisibleViewRestoreTask = nil
         if let monitor = arrangementBarEventMonitor {
             NSEvent.removeMonitor(monitor)
             arrangementBarEventMonitor = nil
@@ -427,7 +430,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     isolated deinit {
         let monitor = arrangementBarEventMonitor
         let tasks = notificationTasks
+        let pendingVisibleViewRestoreTask = pendingVisibleViewRestoreTask
         Task { @MainActor in
+            pendingVisibleViewRestoreTask?.cancel()
             if let monitor {
                 NSEvent.removeMonitor(monitor)
             }
@@ -991,8 +996,18 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             "PaneTabViewController terminalContainerBoundsChanged reason=\(reason) bounds=\(NSStringFromRect(terminalContainerBounds))"
         )
         RestoreTrace.log(geometryHierarchySnapshot(reason: reason))
-        executor.restoreVisibleViewsForActiveTabIfNeeded()
-        syncVisibleTerminalGeometry(reason: reason)
+        scheduleVisibleViewRestoreAfterLayout(reason: reason)
+    }
+
+    private func scheduleVisibleViewRestoreAfterLayout(reason: StaticString) {
+        pendingVisibleViewRestoreTask?.cancel()
+        pendingVisibleViewRestoreTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            self.executor.restoreVisibleViewsForActiveTabIfNeeded()
+            self.syncVisibleTerminalGeometry(reason: reason)
+            self.pendingVisibleViewRestoreTask = nil
+        }
     }
 
     func syncVisibleTerminalGeometry(reason: StaticString) {

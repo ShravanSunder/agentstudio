@@ -55,6 +55,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.minSize = NSSize(width: 720, height: 600)
+        window.isRestorable = false
 
         // Always launch maximized to the current screen (not full-screen mode)
         if let screen = NSScreen.main {

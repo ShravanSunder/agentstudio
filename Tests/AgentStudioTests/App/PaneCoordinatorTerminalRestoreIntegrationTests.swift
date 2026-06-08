@@ -6,7 +6,7 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct Luna295DirectZmxAttachIntegrationTests {
+struct PaneCoordinatorTerminalRestoreIntegrationTests {
     init() {
         installTestAtomRegistryIfNeeded()
     }
@@ -213,6 +213,55 @@ struct Luna295DirectZmxAttachIntegrationTests {
         await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
+    }
+
+    @Test
+    func activePartialRestoreThenFullRestore_pausesHiddenZmxWithLiveSessionDuringInitialRestore() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let visiblePane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+        let hiddenPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+
+        let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
+        let hiddenTab = Tab(paneId: hiddenPane.id, name: "Hidden")
+        harness.store.appendTab(visibleTab)
+        harness.store.appendTab(hiddenTab)
+        harness.store.setActiveTab(visibleTab.id)
+
+        let liveSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: hiddenPane.id
+        )
+        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
+            sessionConfiguration: fixtureSessionConfiguration,
+            liveSessionIdsProvider: { _ in [liveSessionId] }
+        )
+        harness.viewRegistry.beginInitialRestore()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.windowLifecycleStore.recordLaunchLayoutSettled()
+
+        harness.coordinator.restoreViewsForActiveTabIfNeeded()
+
+        let visiblePlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: visiblePane.id))
+        #expect(visiblePlaceholder.mode == .restorationPaused)
+        #expect(harness.viewRegistry.isInitialRestorePending == true)
+
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
+
+        let hiddenPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenPane.id))
+        #expect(hiddenPlaceholder.mode == .restorationPaused)
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        #expect(harness.viewRegistry.isInitialRestorePending == false)
     }
 
     @Test

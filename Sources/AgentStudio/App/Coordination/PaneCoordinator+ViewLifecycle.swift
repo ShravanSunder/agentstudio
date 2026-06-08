@@ -773,13 +773,15 @@ extension PaneCoordinator {
         }
 
         RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
-        if viewRegistry.view(for: paneId) != nil
-            || createViewForContent(
-                pane: pane,
-                initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
-                treatAsRestoredSessionStart: true
-            ) != nil
-        {
+        if viewRegistry.view(for: paneId) != nil {
+            progress.restored += 1
+        } else if registerInitialRestorePlaceholderIfNeeded(for: pane) {
+            progress.restored += 1
+        } else if createViewForContent(
+            pane: pane,
+            initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
+            treatAsRestoredSessionStart: true
+        ) != nil {
             progress.restored += 1
         } else {
             progress.failedPaneIds.append(paneId)
@@ -791,54 +793,6 @@ extension PaneCoordinator {
             liveHiddenSessionIds: liveHiddenSessionIds,
             progress: &progress
         )
-    }
-
-    func restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: Bool = false) {
-        guard let activeTab = store.tabLayoutAtom.activeTab else { return }
-        if !windowLifecycleStore.isLaunchLayoutSettled {
-            let hasPreparingPlaceholder = activeTab.activePaneIds.contains { paneId in
-                viewRegistry.terminalStatusPlaceholderView(for: paneId)?.shouldRetryCreationWhenBoundsChange == true
-            }
-            guard forceWhenBoundsExist || hasPreparingPlaceholder || windowLifecycleStore.isReadyForLaunchRestore else {
-                RestoreTrace.log(
-                    "restoreViewsForActiveTabIfNeeded skipped launchLayoutUnsettled bounds=\(NSStringFromRect(windowLifecycleStore.terminalContainerBounds)) settled=\(windowLifecycleStore.isLaunchLayoutSettled)"
-                )
-                return
-            }
-        }
-        let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
-        guard !terminalContainerBounds.isEmpty else {
-            RestoreTrace.log("restoreViewsForActiveTabIfNeeded skipped boundsUnavailable")
-            return
-        }
-        guard activeTabHasMissingVisibleView(activeTab) else { return }
-        RestoreTrace.log(
-            "restoreViewsForActiveTabIfNeeded activeTab=\(activeTab.id) bounds=\(NSStringFromRect(terminalContainerBounds))"
-        )
-        let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
-        let visiblePaneIds = TerminalRestoreScheduler.order(
-            store.paneAtom.panes.keys.map(PaneId.init(uuid:)),
-            resolver: visibilityTierResolver
-        )
-        .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
-        .map(\.uuid)
-
-        for paneId in visiblePaneIds {
-            guard let pane = store.paneAtom.pane(paneId) else { continue }
-            guard store.tabLayoutAtom.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {
-                continue
-            }
-            if let placeholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) {
-                guard placeholder.shouldRetryCreationWhenBoundsChange else { continue }
-            } else if viewRegistry.view(for: paneId) != nil {
-                continue
-            }
-            _ = createViewForContent(
-                pane: pane,
-                initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
-                treatAsRestoredSessionStart: true
-            )
-        }
     }
 
     private func restoreDrawerPanes(
@@ -863,16 +817,18 @@ extension PaneCoordinator {
                 continue
             }
             RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(parentPane.id)")
-            if viewRegistry.view(for: drawerPaneId) != nil
-                || createViewForContent(
-                    pane: drawerPane,
-                    initialFrame: initialFrame(
-                        for: drawerPane,
-                        resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
-                    ),
-                    treatAsRestoredSessionStart: true
-                ) != nil
-            {
+            if viewRegistry.view(for: drawerPaneId) != nil {
+                progress.drawerRestored += 1
+            } else if registerInitialRestorePlaceholderIfNeeded(for: drawerPane) {
+                progress.drawerRestored += 1
+            } else if createViewForContent(
+                pane: drawerPane,
+                initialFrame: initialFrame(
+                    for: drawerPane,
+                    resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
+                ),
+                treatAsRestoredSessionStart: true
+            ) != nil {
                 progress.drawerRestored += 1
             } else {
                 progress.failedDrawerPaneIds.append(drawerPaneId)
