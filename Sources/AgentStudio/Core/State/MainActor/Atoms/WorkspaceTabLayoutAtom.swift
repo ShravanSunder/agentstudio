@@ -167,9 +167,15 @@ final class WorkspaceTabLayoutAtom {
         arrangementAtom.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
     }
 
-    func breakUpTab(_ tabId: UUID) -> [Tab] {
+    func breakUpTab(
+        _ tabId: UUID,
+        drawerPayloadsByParentPaneId: [UUID: PaneDrawerMovePayload] = [:]
+    ) -> [Tab] {
         guard let tabIndex = shellAtom.tabShells.firstIndex(where: { $0.id == tabId }) else { return [] }
-        let newStates = arrangementAtom.breakUpTab(tabId)
+        let newStates = arrangementAtom.breakUpTab(
+            tabId,
+            drawerPayloadsByParentPaneId: drawerPayloadsByParentPaneId
+        )
         guard !newStates.isEmpty else { return [] }
 
         shellAtom.removeTabShell(tabId)
@@ -180,9 +186,19 @@ final class WorkspaceTabLayoutAtom {
         return newStates.compactMap { derived.tab($0.tabId) }
     }
 
-    func extractPane(_ paneId: UUID, fromTab tabId: UUID) -> Tab? {
+    func extractPane(
+        _ paneId: UUID,
+        fromTab tabId: UUID,
+        drawerPayload: PaneDrawerMovePayload? = nil
+    ) -> Tab? {
         guard let sourceIndex = shellAtom.tabShells.firstIndex(where: { $0.id == tabId }) else { return nil }
-        guard let newState = arrangementAtom.extractPane(paneId, fromTab: tabId) else { return nil }
+        guard
+            let newState = arrangementAtom.extractPane(
+                paneId,
+                fromTab: tabId,
+                drawerPayload: drawerPayload
+            )
+        else { return nil }
         shellAtom.insertTabShell(TabShell(id: newState.tabId, name: "Tab"), at: sourceIndex + 1)
         shellAtom.setActiveTab(newState.tabId)
         return derived.tab(newState.tabId)
@@ -205,7 +221,8 @@ final class WorkspaceTabLayoutAtom {
         intoTarget targetId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        drawerPayloadsByParentPaneId: [UUID: PaneDrawerMovePayload] = [:]
     ) {
         guard sourceId != targetId else { return }
         arrangementAtom.mergeTab(
@@ -213,7 +230,8 @@ final class WorkspaceTabLayoutAtom {
             intoTarget: targetId,
             at: targetPaneId,
             direction: direction,
-            position: position
+            position: position,
+            drawerPayloadsByParentPaneId: drawerPayloadsByParentPaneId
         )
         shellAtom.removeTabShell(sourceId)
         shellAtom.setActiveTab(targetId)

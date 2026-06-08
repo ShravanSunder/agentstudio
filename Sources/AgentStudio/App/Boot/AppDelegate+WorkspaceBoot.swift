@@ -115,7 +115,8 @@ extension AppDelegate {
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
-        workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore()
+        traceRuntime = .fromEnvironment()
+        workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
@@ -159,7 +160,6 @@ extension AppDelegate {
                 self?.recordPersistenceRecovery(event)
             }
         )
-        traceRuntime = .fromEnvironment()
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         await store.restoreAsync()
@@ -175,8 +175,8 @@ extension AppDelegate {
         )
     }
 
-    private func makeWorkspaceSQLiteDatastore() -> WorkspaceSQLiteDatastore? {
-        WorkspaceSQLiteDatastoreFactory().makeDatastore()
+    private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore? {
+        WorkspaceSQLiteDatastoreFactory(traceRuntime: traceRuntime).makeDatastore()
     }
 
     private func bootLoadCacheStore(persistor: WorkspacePersistor) async {

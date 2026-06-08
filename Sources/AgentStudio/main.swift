@@ -21,8 +21,13 @@ func debugLog(_ message: String) {
     }
 }
 
+let ghosttyArguments = GhosttyLaunchArguments.sanitized(CommandLine.arguments)
+let ghosttyInitStatus = GhosttyLaunchArguments.withUnsafeArgv(from: ghosttyArguments) { argc, argv in
+    ghostty_init(argc, argv)
+}
+
 // Initialize Ghostty library first (required before any other calls)
-if ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) != GHOSTTY_SUCCESS {
+if ghosttyInitStatus != GHOSTTY_SUCCESS {
     print("Fatal: ghostty_init failed")
     exit(1)
 }
@@ -32,6 +37,7 @@ let app = NSApplication.shared
 
 // Set activation policy to make it a proper GUI app (required for CLI-launched binaries)
 app.setActivationPolicy(.regular)
+UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
 RestoreTrace.log("main: app activation policy set, debugLogPath=\(debugLogPath)")
 
 let delegate = AppDelegate()
@@ -48,4 +54,4 @@ if !ghosttyInitialized {
 // Activate the app to bring it to front
 app.activate(ignoringOtherApps: true)
 
-_ = NSApplicationMain(CommandLine.argc, CommandLine.unsafeArgv)
+app.run()

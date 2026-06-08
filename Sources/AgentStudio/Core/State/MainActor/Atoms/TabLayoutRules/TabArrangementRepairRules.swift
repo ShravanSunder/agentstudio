@@ -7,24 +7,39 @@ enum TabArrangementRepairRules {
         layoutSizingMode: DropSizingMode = .halveTarget,
         from arrangements: [PaneArrangement]
     ) -> [PaneArrangement] {
+        removingPanes(
+            Set([paneId]),
+            removingDrawerIds: drawerIds,
+            layoutSizingMode: layoutSizingMode,
+            from: arrangements
+        )
+    }
+
+    static func removingPanes(
+        _ paneIds: Set<UUID>,
+        removingDrawerIds drawerIds: Set<UUID> = [],
+        layoutSizingMode: DropSizingMode = .halveTarget,
+        from arrangements: [PaneArrangement]
+    ) -> [PaneArrangement] {
         arrangements.map { arrangement in
             var updated = arrangement
             for drawerId in drawerIds {
                 updated.drawerViews.removeValue(forKey: drawerId)
             }
             updated.drawerViews = pruningInvalidDrawerViewPaneIds(
-                validPaneIds: Set(updated.drawerViews.flatMap { $0.value.layout.paneIds }.filter { $0 != paneId }),
+                validPaneIds: Set(
+                    updated.drawerViews.flatMap { $0.value.layout.paneIds }.filter { !paneIds.contains($0) }),
                 from: updated.drawerViews
             )
-            if updated.layout.contains(paneId),
-                let newLayout = updated.layout.removing(paneId: paneId, sizingMode: layoutSizingMode)
-            {
-                updated.layout = newLayout
-            } else if updated.layout.contains(paneId) {
-                updated.layout = Layout()
+            for paneId in paneIds where updated.layout.contains(paneId) {
+                if let newLayout = updated.layout.removing(paneId: paneId, sizingMode: layoutSizingMode) {
+                    updated.layout = newLayout
+                } else {
+                    updated.layout = Layout()
+                }
             }
-            updated.minimizedPaneIds.remove(paneId)
-            if updated.activePaneId == paneId {
+            updated.minimizedPaneIds.subtract(paneIds)
+            if let activePaneId = updated.activePaneId, paneIds.contains(activePaneId) {
                 updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated)
             }
             return updated

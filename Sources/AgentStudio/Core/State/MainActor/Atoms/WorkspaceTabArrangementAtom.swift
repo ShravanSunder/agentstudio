@@ -15,6 +15,18 @@ struct CrossTabPaneMoveMutation: Equatable {
     let drawerPaneIds: [UUID]
 }
 
+struct PaneDrawerMovePayload: Equatable {
+    let drawerId: UUID
+    let drawerPaneIds: [UUID]
+    let drawerView: DrawerView?
+
+    init(drawerId: UUID, drawerPaneIds: [UUID], drawerView: DrawerView? = nil) {
+        self.drawerId = drawerId
+        self.drawerPaneIds = drawerPaneIds
+        self.drawerView = drawerView
+    }
+}
+
 @MainActor
 @Observable
 final class WorkspaceTabArrangementAtom {
@@ -162,14 +174,18 @@ final class WorkspaceTabArrangementAtom {
     }
 
     func removePaneReferences(_ paneId: UUID, removingDrawerIds drawerIds: Set<UUID> = []) {
+        removePaneReferences(Set([paneId]), removingDrawerIds: drawerIds)
+    }
+
+    func removePaneReferences(_ paneIds: Set<UUID>, removingDrawerIds drawerIds: Set<UUID> = []) {
         for tabIndex in arrangementStates.indices {
-            arrangementStates[tabIndex].allPaneIds.removeAll { $0 == paneId }
-            arrangementStates[tabIndex].arrangements = TabArrangementRepairRules.removingPane(
-                paneId,
+            arrangementStates[tabIndex].allPaneIds.removeAll { paneIds.contains($0) }
+            arrangementStates[tabIndex].arrangements = TabArrangementRepairRules.removingPanes(
+                paneIds,
                 removingDrawerIds: drawerIds,
                 from: arrangementStates[tabIndex].arrangements
             )
-            if arrangementStates[tabIndex].zoomedPaneId == paneId {
+            if let zoomedPaneId = arrangementStates[tabIndex].zoomedPaneId, paneIds.contains(zoomedPaneId) {
                 arrangementStates[tabIndex].zoomedPaneId = nil
             }
         }
@@ -350,6 +366,7 @@ final class WorkspaceTabArrangementAtom {
             return
         }
 
+        var didPlaceDrawerPane = false
         for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
             guard arrangementStates[tabIndex].arrangements[arrangementIndex].layout.contains(parentPaneId) else {
                 continue
@@ -360,9 +377,11 @@ final class WorkspaceTabArrangementAtom {
 
             if drawerView.layout.contains(drawerPaneId) {
                 drawerView.activeChildId = drawerPaneId
+                didPlaceDrawerPane = true
             } else if drawerView.layout.isEmpty {
                 drawerView.layout = DrawerGridLayout(topRow: Layout(paneId: drawerPaneId))
                 drawerView.activeChildId = drawerPaneId
+                didPlaceDrawerPane = true
             } else {
                 let targetPaneId = targetDrawerPaneId ?? drawerView.layout.paneIds.last
                 if let targetPaneId,
@@ -377,10 +396,15 @@ final class WorkspaceTabArrangementAtom {
                     if arrangementIndex == activeArrangementIndex(for: tabIndex) {
                         drawerView.activeChildId = drawerPaneId
                     }
+                    didPlaceDrawerPane = true
                 }
             }
 
             arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+        }
+
+        if didPlaceDrawerPane, !arrangementStates[tabIndex].allPaneIds.contains(drawerPaneId) {
+            arrangementStates[tabIndex].allPaneIds.append(drawerPaneId)
         }
     }
 
@@ -408,6 +432,7 @@ final class WorkspaceTabArrangementAtom {
             }
             arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
         }
+        arrangementStates[tabIndex].allPaneIds.removeAll { $0 == drawerPaneId }
     }
 
     func setActiveDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, inTab tabId: UUID) {
@@ -532,13 +557,19 @@ final class WorkspaceTabArrangementAtom {
             .resizing(splitId: splitId, ratio: newRatio)
     }
 
-    func breakUpTab(_ tabId: UUID) -> [TabArrangementState] {
+    func breakUpTab(
+        _ tabId: UUID,
+        drawerPayloadsByParentPaneId: [UUID: PaneDrawerMovePayload] = [:]
+    ) -> [TabArrangementState] {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("breakUpTab: tab \(tabId) not found")
             return []
         }
         let state = arrangementStates[tabIndex]
-        let newStates = TabArrangementMutationRules.breakingUpTab(state)
+        let newStates = TabArrangementMutationRules.breakingUpTab(
+            state,
+            drawerPayloadsByParentPaneId: drawerPayloadsByParentPaneId
+        )
         guard !newStates.isEmpty else {
             workspaceTabArrangementLogger.warning(
                 "breakUpTab: tab \(tabId) has fewer than two panes in the active arrangement")
@@ -551,7 +582,11 @@ final class WorkspaceTabArrangementAtom {
         return newStates
     }
 
-    func extractPane(_ paneId: UUID, fromTab tabId: UUID) -> TabArrangementState? {
+    func extractPane(
+        _ paneId: UUID,
+        fromTab tabId: UUID,
+        drawerPayload: PaneDrawerMovePayload? = nil
+    ) -> TabArrangementState? {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("extractPane: tab \(tabId) not found")
             return nil
@@ -560,7 +595,13 @@ final class WorkspaceTabArrangementAtom {
             workspaceTabArrangementLogger.warning("extractPane: paneId \(paneId) not in tab \(tabId)")
             return nil
         }
-        guard let result = TabArrangementMutationRules.extractingPane(paneId, from: arrangementStates[tabIndex]) else {
+        guard
+            let result = TabArrangementMutationRules.extractingPane(
+                paneId,
+                from: arrangementStates[tabIndex],
+                drawerPayload: drawerPayload
+            )
+        else {
             workspaceTabArrangementLogger.warning(
                 "extractPane: pane \(paneId) cannot be extracted because the active arrangement has fewer than two panes"
             )
@@ -669,7 +710,8 @@ final class WorkspaceTabArrangementAtom {
         intoTarget targetId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        drawerPayloadsByParentPaneId: [UUID: PaneDrawerMovePayload] = [:]
     ) {
         guard sourceId != targetId else {
             workspaceTabArrangementLogger.warning("mergeTab: sourceId and targetId are the same tab \(sourceId)")
@@ -694,7 +736,8 @@ final class WorkspaceTabArrangementAtom {
                 into: arrangementStates[targetTabIndex],
                 at: targetPaneId,
                 direction: direction,
-                position: position
+                position: position,
+                drawerPayloadsByParentPaneId: drawerPayloadsByParentPaneId
             )
         else {
             workspaceTabArrangementLogger.warning(

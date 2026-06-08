@@ -48,8 +48,7 @@ final class SidebarCacheStore {
 
     func restore(for workspaceId: UUID) {
         guard sqliteDatastore == nil else {
-            assertionFailure("Use await restoreAsync(for:) when SQLite datastore is enabled")
-            return
+            preconditionFailure("Use await restoreAsync(for:) when SQLite datastore is enabled")
         }
         restoreFromLegacyFiles(workspaceId: workspaceId, legacyImportDecision: .allowImport)
     }
@@ -127,8 +126,7 @@ final class SidebarCacheStore {
 
     func flush(for workspaceId: UUID) throws {
         guard sqliteDatastore == nil else {
-            assertionFailure("Use await flushAsync(for:) when SQLite datastore is enabled")
-            throw CocoaError(.fileWriteUnknown)
+            preconditionFailure("Use await flushAsync(for:) when SQLite datastore is enabled")
         }
         activeWorkspaceId = workspaceId
         debouncedSaveTask?.cancel()
@@ -251,6 +249,8 @@ final class SidebarCacheStore {
     }
 
     private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
-        recoveryEvents.forEach { recoveryReporter?($0) }
+        for recoveryEvent in recoveryEvents {
+            recoveryReporter?(recoveryEvent)
+        }
     }
 }

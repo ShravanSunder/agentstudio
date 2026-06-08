@@ -14,6 +14,9 @@ enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
     case eventbus
     case inbox
     case paneInbox
+    case persistenceOperation = "persistence.operation"
+    case persistenceRecovery = "persistence.recovery"
+    case persistenceSnapshot = "persistence.snapshot"
     case restore
     case runtime
     case surface

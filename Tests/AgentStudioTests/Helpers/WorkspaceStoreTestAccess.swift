@@ -297,8 +297,13 @@ extension WorkspaceStore {
     func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
         tabLayoutAtom.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
     }
-    func breakUpTab(_ tabId: UUID) -> [Tab] { tabLayoutAtom.breakUpTab(tabId) }
-    func extractPane(_ paneId: UUID, fromTab tabId: UUID) -> Tab? { tabLayoutAtom.extractPane(paneId, fromTab: tabId) }
+    func breakUpTab(_ tabId: UUID) -> [Tab] {
+        tabLayoutAtom.breakUpTab(tabId, drawerPayloadsByParentPaneId: drawerMovePayloadsByParentPaneId(inTab: tabId))
+    }
+    func extractPane(_ paneId: UUID, fromTab tabId: UUID) -> Tab? {
+        tabLayoutAtom.extractPane(
+            paneId, fromTab: tabId, drawerPayload: drawerMovePayload(forParentPaneId: paneId, inTab: tabId))
+    }
     func mergeTab(
         sourceId: UUID,
         intoTarget targetId: UUID,
@@ -311,7 +316,8 @@ extension WorkspaceStore {
             intoTarget: targetId,
             at: targetPaneId,
             direction: direction,
-            position: position
+            position: position,
+            drawerPayloadsByParentPaneId: drawerMovePayloadsByParentPaneId(inTab: sourceId)
         )
     }
     @discardableResult
@@ -354,5 +360,28 @@ extension WorkspaceStore {
     }
     func restoreFromPaneSnapshot(_ snapshot: WorkspaceMutationCoordinator.PaneCloseSnapshot) {
         mutationCoordinator.restoreFromPaneSnapshot(snapshot)
+    }
+
+    private func drawerMovePayloadsByParentPaneId(inTab tabId: UUID) -> [UUID: PaneDrawerMovePayload] {
+        guard let tab = tabLayoutAtom.tab(tabId) else { return [:] }
+        return Dictionary(
+            uniqueKeysWithValues: tab.allPaneIds.compactMap { paneId in
+                guard let payload = drawerMovePayload(forParentPaneId: paneId, inTab: tabId) else { return nil }
+                return (paneId, payload)
+            }
+        )
+    }
+
+    private func drawerMovePayload(forParentPaneId parentPaneId: UUID, inTab tabId: UUID) -> PaneDrawerMovePayload? {
+        guard let drawer = paneAtom.pane(parentPaneId)?.drawer else { return nil }
+        guard !drawer.paneIds.isEmpty else { return nil }
+        let drawerView = tabLayoutAtom.tab(tabId)?.arrangements
+            .compactMap { $0.drawerViews[drawer.drawerId] }
+            .first
+        return PaneDrawerMovePayload(
+            drawerId: drawer.drawerId,
+            drawerPaneIds: drawer.paneIds,
+            drawerView: drawerView
+        )
     }
 }

@@ -6,10 +6,11 @@ enum TabArrangementMutationRules {
         from state: TabArrangementState
     ) -> PaneArrangement? {
         let activeArrangement = activeArrangement(in: state)
+        let mainLayoutPaneIds = mainLayoutPaneIds(in: state)
         guard
             let arrangementLayout = layoutForNewArrangement(
                 basedOn: activeArrangement.layout,
-                allPaneIds: state.allPaneIds
+                allPaneIds: mainLayoutPaneIds
             )
         else { return nil }
         let arrangementPaneIds = Set(arrangementLayout.paneIds)
@@ -112,25 +113,33 @@ enum TabArrangementMutationRules {
         return updated
     }
 
-    static func breakingUpTab(_ state: TabArrangementState) -> [TabArrangementState] {
+    static func breakingUpTab(
+        _ state: TabArrangementState,
+        drawerPayloadsByParentPaneId: [UUID: PaneDrawerMovePayload] = [:]
+    ) -> [TabArrangementState] {
         let tabPaneIds = defaultArrangement(in: state).layout.paneIds
         guard tabPaneIds.count > 1 else { return [] }
 
         return tabPaneIds.map { paneId in
             let tab = Tab(paneId: paneId)
-            return TabArrangementState(
+            var newState = TabArrangementState(
                 tabId: tab.id,
                 allPaneIds: tab.allPaneIds,
                 arrangements: tab.arrangements,
                 activeArrangementId: tab.activeArrangementId,
                 zoomedPaneId: tab.zoomedPaneId
             )
+            if let drawerPayload = drawerPayloadsByParentPaneId[paneId] {
+                applyDrawerPayload(drawerPayload, to: &newState)
+            }
+            return newState
         }
     }
 
     static func extractingPane(
         _ paneId: UUID,
-        from state: TabArrangementState
+        from state: TabArrangementState,
+        drawerPayload: PaneDrawerMovePayload? = nil
     ) -> (updatedState: TabArrangementState, extractedState: TabArrangementState)? {
         guard activeArrangement(in: state).layout.paneIds.count > 1 else { return nil }
         guard state.allPaneIds.contains(paneId) else { return nil }
@@ -140,17 +149,27 @@ enum TabArrangementMutationRules {
             updated.zoomedPaneId = nil
         }
 
-        updated.arrangements = removingUserPane(paneId, from: updated.arrangements)
-        updated.allPaneIds.removeAll { $0 == paneId }
+        let movedPaneIds = Set([paneId] + (drawerPayload?.drawerPaneIds ?? []))
+        let movedDrawerIds = Set([drawerPayload?.drawerId].compactMap(\.self))
+        updated.arrangements = TabArrangementRepairRules.removingPanes(
+            movedPaneIds,
+            removingDrawerIds: movedDrawerIds,
+            layoutSizingMode: .proportional,
+            from: updated.arrangements
+        )
+        updated.allPaneIds.removeAll { movedPaneIds.contains($0) }
 
         let newTab = Tab(paneId: paneId)
-        let extractedState = TabArrangementState(
+        var extractedState = TabArrangementState(
             tabId: newTab.id,
             allPaneIds: newTab.allPaneIds,
             arrangements: newTab.arrangements,
             activeArrangementId: newTab.activeArrangementId,
             zoomedPaneId: newTab.zoomedPaneId
         )
+        if let drawerPayload {
+            applyDrawerPayload(drawerPayload, to: &extractedState)
+        }
         return (updated, extractedState)
     }
 
@@ -159,7 +178,8 @@ enum TabArrangementMutationRules {
         into target: TabArrangementState,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        drawerPayloadsByParentPaneId: [UUID: PaneDrawerMovePayload] = [:]
     ) -> TabArrangementState? {
         let targetArrangement = activeArrangement(in: target)
         guard targetArrangement.layout.contains(targetPaneId) else { return nil }
@@ -188,14 +208,21 @@ enum TabArrangementMutationRules {
                 guard let updatedLayout else { return nil }
                 updated.arrangements[arrangementIndex].layout = updatedLayout
                 updated.arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
+                if let drawerPayload = drawerPayloadsByParentPaneId[paneId] {
+                    updated.arrangements[arrangementIndex].drawerViews[drawerPayload.drawerId] =
+                        drawerView(for: drawerPayload)
+                }
                 if position == .after {
                     currentTarget = paneId
                 }
             }
         }
 
-        for paneId in sourcePaneIds where !updated.allPaneIds.contains(paneId) {
-            updated.allPaneIds.append(paneId)
+        for paneId in sourcePaneIds {
+            let movedPaneIds = [paneId] + (drawerPayloadsByParentPaneId[paneId]?.drawerPaneIds ?? [])
+            for movedPaneId in movedPaneIds where !updated.allPaneIds.contains(movedPaneId) {
+                updated.allPaneIds.append(movedPaneId)
+            }
         }
         return updated
     }
@@ -206,6 +233,43 @@ enum TabArrangementMutationRules {
 
     private static func activeArrangement(in state: TabArrangementState) -> PaneArrangement {
         state.arrangements[activeArrangementIndex(in: state)]
+    }
+
+    private static func mainLayoutPaneIds(in state: TabArrangementState) -> [UUID] {
+        let drawerViewPaneIds = Set(
+            state.arrangements.flatMap { arrangement in
+                arrangement.drawerViews.values.flatMap(\.layout.paneIds)
+            })
+        return state.allPaneIds.filter { !drawerViewPaneIds.contains($0) }
+    }
+
+    private static func applyDrawerPayload(_ drawerPayload: PaneDrawerMovePayload, to state: inout TabArrangementState)
+    {
+        for drawerPaneId in drawerPayload.drawerPaneIds where !state.allPaneIds.contains(drawerPaneId) {
+            state.allPaneIds.append(drawerPaneId)
+        }
+        for arrangementIndex in state.arrangements.indices {
+            state.arrangements[arrangementIndex].drawerViews[drawerPayload.drawerId] =
+                drawerView(for: drawerPayload)
+        }
+    }
+
+    private static func drawerView(for drawerPayload: PaneDrawerMovePayload) -> DrawerView {
+        guard let drawerView = drawerPayload.drawerView,
+            !drawerView.layout.isEmpty,
+            Set(drawerPayload.drawerPaneIds).isSubset(of: Set(drawerView.layout.paneIds))
+        else {
+            return drawerViewSeed(drawerPayload)
+        }
+        return drawerView
+    }
+
+    private static func drawerViewSeed(_ drawerPayload: PaneDrawerMovePayload) -> DrawerView {
+        DrawerView(
+            layout: DrawerGridLayout(topRow: Layout.autoTiled(drawerPayload.drawerPaneIds)),
+            activeChildId: drawerPayload.drawerPaneIds.first,
+            minimizedPaneIds: []
+        )
     }
 
     private static func layoutForNewArrangement(
