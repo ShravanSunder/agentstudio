@@ -22,13 +22,12 @@ enum GhosttyLaunchArguments {
         ) -> Result
     ) -> Result {
         var cArguments: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) }
+        cArguments.append(nil)
         defer {
             for argumentPointer in cArguments {
                 free(argumentPointer)
             }
         }
-
-        cArguments.append(nil)
 
         return cArguments.withUnsafeMutableBufferPointer { buffer in
             body(UInt(arguments.count), buffer.baseAddress)

@@ -431,8 +431,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let monitor = arrangementBarEventMonitor
         let tasks = notificationTasks
         let pendingVisibleViewRestoreTask = pendingVisibleViewRestoreTask
+        pendingVisibleViewRestoreTask?.cancel()
         Task { @MainActor in
-            pendingVisibleViewRestoreTask?.cancel()
             if let monitor {
                 NSEvent.removeMonitor(monitor)
             }

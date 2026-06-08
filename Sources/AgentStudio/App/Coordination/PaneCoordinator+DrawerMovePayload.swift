@@ -3,12 +3,11 @@ import Foundation
 extension PaneCoordinator {
     func drawerMovePayloadsByParentPaneId(inTab tabId: UUID) -> [UUID: PaneDrawerMovePayload] {
         guard let tab = store.tabLayoutAtom.tab(tabId) else { return [:] }
-        return Dictionary(
-            uniqueKeysWithValues: tab.allPaneIds.compactMap { paneId in
-                guard let payload = drawerMovePayload(forParentPaneId: paneId, inTab: tabId) else { return nil }
-                return (paneId, payload)
-            }
-        )
+        let payloads = tab.allPaneIds.compactMap { paneId -> (UUID, PaneDrawerMovePayload)? in
+            guard let payload = drawerMovePayload(forParentPaneId: paneId, inTab: tabId) else { return nil }
+            return (paneId, payload)
+        }
+        return Dictionary(payloads, uniquingKeysWith: { first, _ in first })
     }
 
     func drawerMovePayload(forParentPaneId parentPaneId: UUID, inTab tabId: UUID) -> PaneDrawerMovePayload? {

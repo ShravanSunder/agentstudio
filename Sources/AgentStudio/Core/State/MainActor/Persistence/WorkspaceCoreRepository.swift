@@ -351,11 +351,11 @@ struct WorkspaceCoreRepository: Sendable {
     func fetchActiveOrPreferredRecoverableStagedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
         try databaseWriter.read { database in
             if let activeWorkspaceIdString = try fetchActiveWorkspaceIdStringFromDatabase(database),
-                UUID(uuidString: activeWorkspaceIdString) != nil,
+                let activeWorkspaceId = UUID(uuidString: activeWorkspaceIdString),
                 try workspaceExists(database, id: activeWorkspaceIdString),
                 try stagedWorkspaceSQLiteSnapshotExists(database, id: activeWorkspaceIdString)
             {
-                return UUID(uuidString: activeWorkspaceIdString)
+                return activeWorkspaceId
             }
             if try workspaceExists(database, id: preferredWorkspaceId.uuidString),
                 try stagedWorkspaceSQLiteSnapshotExists(database, id: preferredWorkspaceId.uuidString)
