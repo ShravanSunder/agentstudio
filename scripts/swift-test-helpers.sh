@@ -21,6 +21,49 @@ prebuild_swift_tests() {
   swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 }
 
+run_non_serialized_swift_tests() {
+  local label="$1"
+
+  if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
+    SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
+    if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
+    if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
+    run_swift_with_timeout \
+      "parallel $label" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --parallel --num-workers "$SWIFT_TEST_WORKERS" \
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+  else
+    run_swift_with_timeout \
+      "serial $label" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+  fi
+}
+
+webkit_suite_filters() {
+  cat <<'EOF'
+WebKitSerializedTests/BridgePaneControllerTests
+WebKitSerializedTests/BridgeSchemeHandlerSpikeTests
+WebKitSerializedTests/BridgeContentWorldIsolationTests
+WebKitSerializedTests/BridgeTransportIntegrationTests
+WebKitSerializedTests/BridgeWebKitSpikeTests
+WebKitSerializedTests/InboxPostHandlerTests
+WebKitSerializedTests/InboxNotificationBridgeWebKitIntegrationTests
+WebKitSerializedTests/WebviewPaneControllerTests
+EOF
+}
+
+run_webkit_suites() {
+  echo "--- WebKit serialized tests (serial) ---"
+  while IFS= read -r filter; do
+    [ -n "$filter" ] || continue
+    run_webkit_suite_with_retry "$filter" || return $?
+  done < <(webkit_suite_filters)
+}
+
 run_swift_with_timeout() {
   local label="$1"
   shift
