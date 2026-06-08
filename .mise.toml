@@ -106,6 +106,9 @@ set -e
 echo "--- swift-format lint ---"
 swift-format lint --recursive Sources/ Tests/ 2>&1 && echo "swift-format: OK" || { echo "swift-format: FAIL"; exit 1; }
 echo "--- swiftlint ---"
+if [ -d "/Library/Developer/CommandLineTools/usr/lib/sourcekitdInProc.framework" ]; then
+  export DYLD_FRAMEWORK_PATH="/Library/Developer/CommandLineTools/usr/lib${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}"
+fi
 swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"; exit 1; }
 echo "--- architecture boundary checks ---"
 bash scripts/check-core-boundary-imports.sh
