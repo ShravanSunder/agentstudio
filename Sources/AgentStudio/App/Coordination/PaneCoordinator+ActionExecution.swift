@@ -311,7 +311,13 @@ extension PaneCoordinator {
             executeClosePane(tabId: tabId, paneId: paneId)
 
         case .extractPaneToTab(let tabId, let paneId):
-            guard let newTab = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId) else {
+            guard
+                let newTab = store.tabLayoutAtom.extractPane(
+                    paneId,
+                    fromTab: tabId,
+                    drawerPayload: drawerMovePayload(forParentPaneId: paneId, inTab: tabId)
+                )
+            else {
                 Self.logger.warning("extractPaneToTab: failed to extract pane \(paneId) from tab \(tabId)")
                 break
             }
@@ -795,7 +801,10 @@ extension PaneCoordinator {
     }
 
     private func executeBreakUpTab(_ tabId: UUID) {
-        let newTabs = store.tabLayoutAtom.breakUpTab(tabId)
+        let newTabs = store.tabLayoutAtom.breakUpTab(
+            tabId,
+            drawerPayloadsByParentPaneId: drawerMovePayloadsByParentPaneId(inTab: tabId)
+        )
         for newTab in newTabs {
             guard let paneId = newTab.activePaneId else { continue }
             guard let pane = store.paneAtom.pane(paneId) else {

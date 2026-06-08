@@ -56,12 +56,13 @@ final class WorkspaceMutationCoordinator {
     func removePane(_ paneId: UUID) -> Bool {
         let removedPane = workspacePaneAtom.pane(paneId)
         let removedDrawerIds = Set([removedPane?.drawer?.drawerId].compactMap(\.self))
+        let removedPaneIds = Set([paneId] + (removedPane?.drawer?.paneIds ?? []))
         guard workspacePaneAtom.deletePaneAndOwnedDrawerChildren(paneId) else {
             Logger(subsystem: "com.agentstudio", category: "WorkspaceMutationCoordinator")
                 .warning("removePane: pane \(paneId) not found")
             return false
         }
-        workspaceTabArrangementAtom.removePaneReferences(paneId, removingDrawerIds: removedDrawerIds)
+        workspaceTabArrangementAtom.removePaneReferences(removedPaneIds, removingDrawerIds: removedDrawerIds)
         removeEmptyTabs()
         return true
     }

@@ -44,7 +44,7 @@ struct WorkspaceSQLiteSnapshotDiagnostics: Sendable {
     private func tabPaneMembershipMismatches() -> [String] {
         snapshot.tabs.flatMap { tab in
             let tabPaneIds = Set(tab.allPaneIds)
-            return tab.arrangements.flatMap { arrangement in
+            let arrangementMismatches = tab.arrangements.flatMap { arrangement in
                 arrangement.layout.paneIds.compactMap {
                     mismatchSummary(
                         tabId: tab.id,
@@ -68,6 +68,24 @@ struct WorkspaceSQLiteSnapshotDiagnostics: Sendable {
                         }
                     }
             }
+
+            let arrangedPaneIds = Set(
+                tab.arrangements.flatMap { arrangement in
+                    arrangement.layout.paneIds
+                        + arrangement.drawerViews.values.flatMap(\.layout.paneIds)
+                }
+            )
+            let orphanedMembershipMismatches =
+                tabPaneIds
+                .subtracting(arrangedPaneIds)
+                .sorted(by: { $0.uuidString < $1.uuidString })
+                .map {
+                    membershipOrphanSummary(
+                        tabId: tab.id,
+                        paneId: $0
+                    )
+                }
+            return arrangementMismatches + orphanedMembershipMismatches
         }
     }
 
@@ -90,6 +108,14 @@ struct WorkspaceSQLiteSnapshotDiagnostics: Sendable {
         parts.append("pane=\(paneId.uuidString)")
         parts.append("source=\(source)")
         return parts.joined(separator: "|")
+    }
+
+    private func membershipOrphanSummary(tabId: UUID, paneId: UUID) -> String {
+        [
+            "tab=\(tabId.uuidString)",
+            "pane=\(paneId.uuidString)",
+            "source=membership_orphan",
+        ].joined(separator: "|")
     }
 
     private func sourceFacetMismatches() -> [String] {

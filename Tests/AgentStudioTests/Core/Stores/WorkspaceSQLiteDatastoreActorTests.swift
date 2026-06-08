@@ -93,13 +93,42 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(contents.contains("\"body\":\"persistence.snapshot.failed\""))
         #expect(contents.contains("\"agentstudio.trace.tag\":\"persistence.snapshot\""))
         #expect(contents.contains("\"agentstudio.persistence.operation\":\"workspace.save\""))
-        #expect(contents.contains("\"agentstudio.persistence.phase\":\"commit_core\""))
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"stage_core\""))
         #expect(contents.contains("\"agentstudio.persistence.outcome\":\"failed\""))
         #expect(contents.contains("\"agentstudio.persistence.recovery.kind\":\"save_failed\""))
         #expect(contents.contains("\"agentstudio.workspace.snapshot.has_tab_membership_mismatch\":true"))
         #expect(contents.contains("\"agentstudio.workspace.snapshot.tab_membership_mismatches\""))
         #expect(contents.contains("\"agentstudio.persistence.error.description\""))
         #expect(contents.contains("arrangementPaneMissingFromTab"))
+    }
+
+    @Test("workspace save local open failure emits local persistence recovery trace")
+    func workspaceSaveLocalOpenFailureEmitsLocalPersistenceRecoveryTrace() async throws {
+        let workspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.local-open-failure-trace.core")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        let traceRuntime = makePersistenceTraceRuntime(tags: "persistence.recovery,persistence.snapshot")
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { _ in throw CocoaError(.fileNoSuchFile) },
+            traceRuntime: traceRuntime
+        )
+
+        do {
+            try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "Local Open Failure"))
+            Issue.record("Expected local repository open failure")
+        } catch is CocoaError {
+        } catch {
+            Issue.record("Expected CocoaError, got \(error)")
+        }
+        try await traceRuntime.flush()
+
+        let contents = try persistenceTraceContents(from: traceRuntime)
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"open_local_save\""))
+        #expect(contents.contains("\"agentstudio.sqlite.database\":\"local\""))
+        #expect(contents.contains("\"agentstudio.persistence.recovery.kind\":\"save_failed\""))
+        #expect(contents.contains("\"body\":\"persistence.snapshot.failed\""))
     }
 
     @Test("cached local repository saves still emit operation trace records")
@@ -472,7 +501,81 @@ struct WorkspaceSQLiteDatastoreActorTests {
             recoveryEvents.contains {
                 $0.store == .workspace
                     && $0.workspaceId == workspaceId
-                    && $0.recovery == .resetToDefaults
+                    && $0.recovery == .localStateRebuilt
+            }
+        )
+    }
+
+    @Test("datastore prefers active staged workspace over another completed workspace")
+    func datastorePrefersActiveStagedWorkspaceOverAnotherCompletedWorkspace() async throws {
+        let completedWorkspaceId = UUID()
+        let stagedWorkspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.multi-staged-recovery.core")
+        let completedLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.multi-staged-recovery.completed-local")
+        let stagedRepairLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.multi-staged-recovery.staged-local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(completedLocalQueue)
+        try WorkspaceLocalMigrations.migrate(stagedRepairLocalQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+        let completingDatastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { workspaceId in
+                WorkspaceLocalRepository(
+                    workspaceId: workspaceId,
+                    databaseWriter: workspaceId == completedWorkspaceId ? completedLocalQueue : stagedRepairLocalQueue
+                )
+            }
+        )
+        try await completingDatastore.saveWorkspaceSnapshot(
+            .emptyFixture(
+                id: completedWorkspaceId,
+                name: "Completed Workspace",
+                updatedAt: Date(timeIntervalSince1970: 10)
+            )
+        )
+        let failingDatastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { _ in throw CocoaError(.fileNoSuchFile) }
+        )
+        do {
+            try await failingDatastore.saveWorkspaceSnapshot(
+                .emptyFixture(
+                    id: stagedWorkspaceId,
+                    name: "Active Staged Workspace",
+                    updatedAt: Date(timeIntervalSince1970: 20)
+                )
+            )
+            Issue.record("Expected local save failure")
+        } catch is CocoaError {
+        } catch {
+            Issue.record("Expected CocoaError, got \(error)")
+        }
+        let recoveringDatastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { workspaceId in
+                WorkspaceLocalRepository(
+                    workspaceId: workspaceId,
+                    databaseWriter: workspaceId == completedWorkspaceId ? completedLocalQueue : stagedRepairLocalQueue
+                )
+            }
+        )
+
+        let result = await recoveringDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: stagedWorkspaceId)
+
+        guard case .loaded(let snapshot, let recoveryEvents) = result else {
+            Issue.record("Expected active staged workspace recovery, got \(result)")
+            return
+        }
+        #expect(snapshot.id == stagedWorkspaceId)
+        #expect(snapshot.name == "Active Staged Workspace")
+        #expect(
+            recoveryEvents.contains {
+                $0.store == .workspace
+                    && $0.workspaceId == stagedWorkspaceId
+                    && $0.recovery == .localStateRebuilt
             }
         )
     }

@@ -348,6 +348,24 @@ struct WorkspaceCoreRepository: Sendable {
         }
     }
 
+    func fetchActiveOrPreferredRecoverableStagedWorkspaceId(preferredWorkspaceId: UUID) throws -> UUID? {
+        try databaseWriter.read { database in
+            if let activeWorkspaceIdString = try fetchActiveWorkspaceIdStringFromDatabase(database),
+                UUID(uuidString: activeWorkspaceIdString) != nil,
+                try workspaceExists(database, id: activeWorkspaceIdString),
+                try stagedWorkspaceSQLiteSnapshotExists(database, id: activeWorkspaceIdString)
+            {
+                return UUID(uuidString: activeWorkspaceIdString)
+            }
+            if try workspaceExists(database, id: preferredWorkspaceId.uuidString),
+                try stagedWorkspaceSQLiteSnapshotExists(database, id: preferredWorkspaceId.uuidString)
+            {
+                return preferredWorkspaceId
+            }
+            return nil
+        }
+    }
+
     func markLegacyWorkspaceCoreImported(
         workspaceId: UUID,
         sourceStatePath: String,

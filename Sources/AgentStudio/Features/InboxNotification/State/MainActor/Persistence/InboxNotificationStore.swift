@@ -191,8 +191,7 @@ final class InboxNotificationStore {
     @discardableResult
     func load() throws -> LoadOutcome {
         guard sqliteAdapter == nil else {
-            assertionFailure("Use await loadAsync() when SQLite datastore is enabled")
-            return .missing
+            preconditionFailure("Use await loadAsync() when SQLite datastore is enabled")
         }
 
         guard allowLegacyFilePersistence else { return .missing }
@@ -289,8 +288,7 @@ final class InboxNotificationStore {
 
     func flush() throws {
         guard sqliteAdapter == nil else {
-            assertionFailure("Use await save() when SQLite datastore is enabled")
-            throw LegacyFilePersistenceDisabledError()
+            preconditionFailure("Use await save() when SQLite datastore is enabled")
         }
         cancelPendingDebouncedSave()
         try persistCurrentPayloadSynchronously()

@@ -20,6 +20,9 @@ extension PersistenceRecoveryEvent {
         if recovery == .saveFailed {
             return saveFailureNotificationTitle
         }
+        if recovery == .localStateRebuilt {
+            return "Workspace local state rebuilt"
+        }
 
         return switch store {
         case .workspace:
@@ -65,11 +68,20 @@ extension PersistenceRecoveryEvent {
                 "The saved file could not be loaded, so it was moved aside and defaults were used."
             case .quarantineFailed:
                 "The saved file could not be loaded, and moving it aside failed. Defaults were used."
+            case .localStateRebuilt:
+                "The workspace graph was restored, but local focus and window state were rebuilt."
             case .saveFailed:
                 "The app could not save this state file. Recent changes may not be restored after restart."
             }
 
-        guard let quarantinedFilename else { return action }
-        return "\(action) Quarantined file: \(quarantinedFilename)"
+        var details: [String] = []
+        if let workspaceId {
+            details.append("Workspace: \(workspaceId.uuidString)")
+        }
+        if let quarantinedFilename {
+            details.append("Quarantined file: \(quarantinedFilename)")
+        }
+        guard !details.isEmpty else { return action }
+        return "\(action) \(details.joined(separator: " "))"
     }
 }

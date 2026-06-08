@@ -658,6 +658,130 @@ final class WorkspaceStoreDrawerTests {
     }
 
     @Test
+    func test_removePane_cascadeDeletesDrawerChildrenFromTabMembershipAndSaves() async throws {
+        let pane = createTabbedPane()
+        let sibling = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
+        #expect(
+            store.insertPane(
+                sibling.id,
+                inTab: tab.id,
+                at: pane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+        let drawerPane = try #require(store.addDrawerPane(to: pane.id))
+
+        store.removePane(pane.id)
+
+        let remainingTab = try #require(store.tabLayoutAtom.tabContaining(paneId: sibling.id))
+        #expect(!remainingTab.allPaneIds.contains(pane.id))
+        #expect(!remainingTab.allPaneIds.contains(drawerPane.id))
+        try await saveLiveWorkspaceSnapshotToSQLite()
+    }
+
+    @Test
+    func test_createArrangementAfterDrawerPane_excludesDrawerChildFromMainLayoutAndSaves() async throws {
+        let pane = createTabbedPane()
+        let drawerPane = try #require(store.addDrawerPane(to: pane.id))
+        let tab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
+
+        let arrangementId = try #require(store.createArrangement(name: "Focus", inTab: tab.id))
+
+        let updatedTab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
+        let arrangement = try #require(updatedTab.arrangements.first { $0.id == arrangementId })
+        #expect(!arrangement.layout.contains(drawerPane.id))
+        #expect(arrangement.drawerViews.values.contains { $0.layout.contains(drawerPane.id) })
+        try await saveLiveWorkspaceSnapshotToSQLite()
+    }
+
+    @Test
+    func test_extractDrawerOwningPane_movesDrawerChildMembershipAndSaves() async throws {
+        let pane = createTabbedPane()
+        let sibling = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let sourceTab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
+        #expect(
+            store.insertPane(
+                sibling.id,
+                inTab: sourceTab.id,
+                at: pane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+        let drawerPane = try #require(store.addDrawerPane(to: pane.id))
+
+        let extractedTab = try #require(store.extractPane(pane.id, fromTab: sourceTab.id))
+
+        let updatedSourceTab = try #require(store.tabLayoutAtom.tabContaining(paneId: sibling.id))
+        #expect(!updatedSourceTab.allPaneIds.contains(drawerPane.id))
+        #expect(extractedTab.allPaneIds.contains(pane.id))
+        #expect(extractedTab.allPaneIds.contains(drawerPane.id))
+        #expect(
+            extractedTab.arrangements.contains { arrangement in
+                arrangement.drawerViews.values.contains { $0.layout.contains(drawerPane.id) }
+            })
+        try await saveLiveWorkspaceSnapshotToSQLite()
+    }
+
+    @Test
+    func test_breakUpTab_movesDrawerChildrenWithParentPanesAndSaves() async throws {
+        let pane = createTabbedPane()
+        let sibling = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let originalTab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
+        #expect(
+            store.insertPane(
+                sibling.id,
+                inTab: originalTab.id,
+                at: pane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+        let drawerPane = try #require(store.addDrawerPane(to: pane.id))
+
+        let newTabs = store.breakUpTab(originalTab.id)
+
+        let ownerTab = try #require(newTabs.first { $0.allPaneIds.contains(pane.id) })
+        #expect(ownerTab.allPaneIds.contains(drawerPane.id))
+        #expect(
+            ownerTab.arrangements.contains { arrangement in
+                arrangement.drawerViews.values.contains { $0.layout.contains(drawerPane.id) }
+            })
+        try await saveLiveWorkspaceSnapshotToSQLite()
+    }
+
+    @Test
+    func test_mergeDrawerOwningTab_movesDrawerChildMembershipAndSaves() async throws {
+        let sourceParent = createTabbedPane()
+        let sourceTab = try #require(store.tabLayoutAtom.tabContaining(paneId: sourceParent.id))
+        let drawerPane = try #require(store.addDrawerPane(to: sourceParent.id))
+        let targetPane = createTabbedPane()
+        let targetTab = try #require(store.tabLayoutAtom.tabContaining(paneId: targetPane.id))
+
+        store.mergeTab(
+            sourceId: sourceTab.id,
+            intoTarget: targetTab.id,
+            at: targetPane.id,
+            direction: .horizontal,
+            position: .after
+        )
+
+        let mergedTab = try #require(store.tabLayoutAtom.tabContaining(paneId: sourceParent.id))
+        #expect(mergedTab.id == targetTab.id)
+        #expect(mergedTab.allPaneIds.contains(drawerPane.id))
+        #expect(
+            mergedTab.arrangements.contains { arrangement in
+                arrangement.drawerViews.values.contains { $0.layout.contains(drawerPane.id) }
+            })
+        try await saveLiveWorkspaceSnapshotToSQLite()
+    }
+
+    @Test
 
     func test_removeLastDrawerPane_preservesIsExpanded() {
         // Arrange — collapsed drawer with one pane

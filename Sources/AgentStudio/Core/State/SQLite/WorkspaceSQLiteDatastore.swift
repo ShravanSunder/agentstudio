@@ -60,6 +60,8 @@ actor WorkspaceSQLiteDatastore {
 
     func saveWorkspaceSnapshot(_ snapshot: WorkspaceSQLiteSnapshot) async throws {
         await recordProbe(.saveWorkspaceSnapshot)
+        var failurePhase = WorkspaceSQLiteTracePhase.openCore
+        var failureDatabase: WorkspaceSQLiteTraceDatabase? = .core
         await traceRecorder.recordOperation(
             .workspaceSave,
             phase: .stageCore,
@@ -80,6 +82,8 @@ actor WorkspaceSQLiteDatastore {
         do {
             let backend = try resolvedBackend()
             let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
+            failurePhase = .stageCore
+            failureDatabase = .core
             try backend.replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: true)
             await traceRecorder.recordOperation(
                 .workspaceSave,
@@ -89,11 +93,15 @@ actor WorkspaceSQLiteDatastore {
                 workspaceId: snapshot.id,
                 database: .core
             )
+            failurePhase = .openLocalSave
+            failureDatabase = .local
             let localRepository = try await cachedSaveLocalRepository(
                 workspaceId: snapshot.id,
                 operation: .workspaceSave,
                 lane: .workspace
             )
+            failurePhase = .writeLocal
+            failureDatabase = .local
             await traceRecorder.recordOperation(
                 .workspaceSave,
                 phase: .writeLocal,
@@ -120,38 +128,53 @@ actor WorkspaceSQLiteDatastore {
                 database: .core
             )
         } catch {
-            await traceRecorder.recordSnapshot(
-                .init(
-                    snapshot: snapshot,
-                    operation: .workspaceSave,
-                    phase: .commitCore,
-                    outcome: .failed,
-                    error: error
-                )
-            )
-            await traceRecorder.recordOperation(
-                .workspaceSave,
-                phase: .commitCore,
-                lane: .workspace,
-                outcome: .failed,
-                workspaceId: snapshot.id,
+            await recordWorkspaceSaveFailure(
+                snapshot: snapshot,
+                phase: failurePhase,
+                database: failureDatabase,
                 error: error
-            )
-            await traceRecorder.recordRecovery(
-                .init(
-                    recoveryKind: .saveFailed,
-                    operation: .workspaceSave,
-                    phase: .commitCore,
-                    lane: .workspace,
-                    outcome: .failed,
-                    workspaceId: snapshot.id,
-                    database: .core,
-                    databaseURL: nil,
-                    error: error
-                )
             )
             throw error
         }
+    }
+
+    private func recordWorkspaceSaveFailure(
+        snapshot: WorkspaceSQLiteSnapshot,
+        phase: WorkspaceSQLiteTracePhase,
+        database: WorkspaceSQLiteTraceDatabase?,
+        error: any Error
+    ) async {
+        await traceRecorder.recordSnapshot(
+            .init(
+                snapshot: snapshot,
+                operation: .workspaceSave,
+                phase: phase,
+                outcome: .failed,
+                error: error
+            )
+        )
+        await traceRecorder.recordOperation(
+            .workspaceSave,
+            phase: phase,
+            lane: .workspace,
+            outcome: .failed,
+            workspaceId: snapshot.id,
+            database: database,
+            error: error
+        )
+        await traceRecorder.recordRecovery(
+            .init(
+                recoveryKind: .saveFailed,
+                operation: .workspaceSave,
+                phase: phase,
+                lane: .workspace,
+                outcome: .failed,
+                workspaceId: snapshot.id,
+                database: database,
+                databaseURL: nil,
+                error: error
+            )
+        )
     }
 
     func loadWorkspaceSnapshot(preferredWorkspaceId: UUID) async -> LoadResult {
@@ -166,9 +189,11 @@ actor WorkspaceSQLiteDatastore {
         )
         do {
             let backend = try resolvedBackend()
-            let recoverableStagedWorkspaceId = try backend.coreRepository.fetchRecoverableStagedWorkspaceId(
-                preferredWorkspaceId: preferredWorkspaceId
-            )
+            let recoverableStagedWorkspaceId =
+                try backend.coreRepository.fetchActiveOrPreferredRecoverableStagedWorkspaceId(
+                    preferredWorkspaceId: preferredWorkspaceId
+                )
+                ?? backend.coreRepository.fetchRecoverableStagedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
             let snapshot = try await backend.loadCompletedSnapshot(
                 preferredWorkspaceId: preferredWorkspaceId,
                 localRepositoryForWorkspaceId: { workspaceId in
@@ -191,7 +216,7 @@ actor WorkspaceSQLiteDatastore {
                     .init(
                         store: .workspace,
                         workspaceId: snapshot.id,
-                        recovery: .resetToDefaults
+                        recovery: .localStateRebuilt
                     ),
                     workspaceId: snapshot.id
                 )
@@ -201,7 +226,7 @@ actor WorkspaceSQLiteDatastore {
                         operation: .workspaceLoad,
                         phase: .synthesizeDefaults,
                         lane: .workspace,
-                        outcome: .reset,
+                        outcome: .recovered,
                         workspaceId: snapshot.id,
                         database: nil,
                         databaseURL: nil,

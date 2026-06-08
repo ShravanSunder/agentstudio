@@ -49,8 +49,7 @@ final class UIStateStore {
 
     func restore(for workspaceId: UUID) {
         guard sqliteDatastore == nil else {
-            assertionFailure("Use await restoreAsync(for:) when SQLite datastore is enabled")
-            return
+            preconditionFailure("Use await restoreAsync(for:) when SQLite datastore is enabled")
         }
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
@@ -137,8 +136,7 @@ final class UIStateStore {
 
     func flush(for workspaceId: UUID) throws {
         guard sqliteDatastore == nil else {
-            assertionFailure("Use await flushAsync(for:) when SQLite datastore is enabled")
-            throw CocoaError(.fileWriteUnknown)
+            preconditionFailure("Use await flushAsync(for:) when SQLite datastore is enabled")
         }
         activeWorkspaceId = workspaceId
         debouncedSaveTask?.cancel()

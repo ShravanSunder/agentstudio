@@ -84,6 +84,33 @@ extension WorkspaceSQLiteSnapshot {
         )
     }
 
+    static func snapshotWithMembershipPaneMissingFromArrangements(workspaceId: UUID = UUID()) -> Self {
+        let layoutPaneId = UUIDv7.generate()
+        let orphanPaneId = UUIDv7.generate()
+        let layoutPane = makePane(id: layoutPaneId)
+        let orphanPane = makePane(id: orphanPaneId)
+        let arrangement = PaneArrangement(
+            layout: Layout(paneId: layoutPaneId),
+            activePaneId: layoutPaneId
+        )
+        let tab = Tab(
+            name: "Invalid Membership Graph",
+            allPaneIds: [layoutPaneId, orphanPaneId],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+
+        return Self(
+            id: workspaceId,
+            name: "Invalid Membership Workspace Graph",
+            panes: [layoutPane, orphanPane],
+            tabs: [tab],
+            activeTabId: tab.id,
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 2)
+        )
+    }
+
     static func snapshotWithPaneSourceFacetRepoMismatch(workspaceId: UUID = UUID()) -> Self {
         let sourceRepoId = UUID()
         let facetRepoId = UUID()
