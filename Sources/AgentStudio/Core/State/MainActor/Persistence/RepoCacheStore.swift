@@ -17,6 +17,7 @@ final class RepoCacheStore {
     private var isObservingCacheState = false
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
+    private var lastPersistedProjection: PersistedProjection?
     private(set) var canArchiveLegacyCacheFile = true
 
     var isAutosaveObservationActive: Bool {
@@ -111,6 +112,7 @@ final class RepoCacheStore {
         guard legacyImportDecision.allowsLegacyImport else {
             cacheAtom.clear()
             recentTargetAtom.clear()
+            lastPersistedProjection = currentPersistedProjection()
             canArchiveLegacyCacheFile = !persistor.hasLegacyCacheFile(for: workspaceId)
             recoveryReporter?(
                 .init(store: .repoCache, workspaceId: workspaceId, recovery: .resetToDefaults)
@@ -131,14 +133,21 @@ final class RepoCacheStore {
             )
             recentTargetAtom.hydrate(recentTargets: cacheState.recentTargets)
             isRestoringState = false
+            if sqliteDatastore == nil {
+                lastPersistedProjection = currentPersistedProjection()
+            }
             canArchiveLegacyCacheFile = sqliteDatastore == nil
         case .missing:
             cacheAtom.clear()
             recentTargetAtom.clear()
+            if sqliteDatastore == nil {
+                lastPersistedProjection = currentPersistedProjection()
+            }
         case .corrupt(let error):
             let quarantinedURL = persistor.quarantineCorruptRepoCacheFile(for: workspaceId)
             cacheAtom.clear()
             recentTargetAtom.clear()
+            lastPersistedProjection = currentPersistedProjection()
             repoCacheStoreLogger.warning(
                 "Cache file corrupt; quarantined before resetting cache/local memory: \(error)"
             )
@@ -172,6 +181,7 @@ final class RepoCacheStore {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         try persistLegacyJSONNow(for: workspaceId)
+        lastPersistedProjection = currentPersistedProjection()
     }
 
     func flushAsync(for workspaceId: UUID) async throws {
@@ -214,14 +224,16 @@ final class RepoCacheStore {
             guard !Task.isCancelled else { return }
             guard let self else { return }
             do {
-                try await self.persistNow(for: workspaceId)
+                try await self.persistNow(for: workspaceId, force: false)
             } catch {
                 repoCacheStoreLogger.warning("Repo cache autosave failed: \(error.localizedDescription)")
             }
         }
     }
 
-    private func persistNow(for workspaceId: UUID) async throws {
+    private func persistNow(for workspaceId: UUID, force: Bool = true) async throws {
+        let persistedProjection = currentPersistedProjection()
+        guard force || persistedProjection != lastPersistedProjection else { return }
         do {
             if let sqliteDatastore {
                 try await sqliteDatastore.saveRepoCacheState(
@@ -229,9 +241,11 @@ final class RepoCacheStore {
                     recentTargets: recentTargetAtom.recentTargets,
                     workspaceId: workspaceId
                 )
+                lastPersistedProjection = persistedProjection
                 return
             }
             try persistLegacyJSONNow(for: workspaceId)
+            lastPersistedProjection = persistedProjection
         } catch {
             recoveryReporter?(
                 .init(store: .repoCache, workspaceId: workspaceId, recovery: .saveFailed)
@@ -292,6 +306,7 @@ final class RepoCacheStore {
             )
             recentTargetAtom.hydrate(recentTargets: recentTargets)
             isRestoringState = false
+            lastPersistedProjection = currentPersistedProjection()
             return .restored
         case .unavailable(let failure, let recoveryEvents):
             isRestoringState = false
@@ -316,7 +331,7 @@ final class RepoCacheStore {
     private func materializeSQLiteIfNeeded(for workspaceId: UUID) async -> Bool {
         guard sqliteDatastore != nil else { return true }
         do {
-            try await persistNow(for: workspaceId)
+            try await persistNow(for: workspaceId, force: true)
             return true
         } catch {
             repoCacheStoreLogger.warning(
@@ -336,9 +351,72 @@ final class RepoCacheStore {
         )
     }
 
+    private func currentPersistedProjection() -> PersistedProjection {
+        .init(
+            cacheState: currentCacheStateRecord(),
+            recentTargets: recentTargetAtom.recentTargets
+        )
+    }
+
     private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
         for recoveryEvent in recoveryEvents {
             recoveryReporter?(recoveryEvent)
+        }
+    }
+
+    private struct PersistedProjection: Equatable {
+        let repoEnrichmentByRepoId: [UUID: RepoEnrichmentProjection]
+        let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichmentProjection]
+        let pullRequestCountByWorktreeId: [UUID: Int]
+        let sourceRevision: UInt64
+        let lastRebuiltAt: Date?
+        let recentTargets: [RecentWorkspaceTarget]
+
+        init(
+            cacheState: WorkspaceLocalRepository.CacheStateRecord,
+            recentTargets: [RecentWorkspaceTarget]
+        ) {
+            repoEnrichmentByRepoId = cacheState.repoEnrichmentByRepoId.mapValues {
+                RepoEnrichmentProjection(enrichment: $0)
+            }
+            worktreeEnrichmentByWorktreeId = cacheState.worktreeEnrichmentByWorktreeId.mapValues {
+                WorktreeEnrichmentProjection(enrichment: $0)
+            }
+            pullRequestCountByWorktreeId = cacheState.pullRequestCountByWorktreeId
+            sourceRevision = cacheState.sourceRevision
+            lastRebuiltAt = cacheState.lastRebuiltAt
+            self.recentTargets = recentTargets
+        }
+    }
+
+    private enum RepoEnrichmentProjection: Equatable {
+        case awaitingOrigin(repoId: UUID)
+        case resolvedLocal(repoId: UUID, identity: RepoIdentity)
+        case resolvedRemote(repoId: UUID, raw: RawRepoOrigin, identity: RepoIdentity)
+
+        init(enrichment: RepoEnrichment) {
+            switch enrichment {
+            case .awaitingOrigin(let repoId):
+                self = .awaitingOrigin(repoId: repoId)
+            case .resolvedLocal(let repoId, let identity, _):
+                self = .resolvedLocal(repoId: repoId, identity: identity)
+            case .resolvedRemote(let repoId, let raw, let identity, _):
+                self = .resolvedRemote(repoId: repoId, raw: raw, identity: identity)
+            }
+        }
+    }
+
+    private struct WorktreeEnrichmentProjection: Equatable {
+        let worktreeId: UUID
+        let repoId: UUID
+        let branch: String
+        let isMainWorktree: Bool
+
+        init(enrichment: WorktreeEnrichment) {
+            worktreeId = enrichment.worktreeId
+            repoId = enrichment.repoId
+            branch = enrichment.branch
+            isMainWorktree = enrichment.isMainWorktree
         }
     }
 }
