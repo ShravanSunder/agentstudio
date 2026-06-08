@@ -25,6 +25,32 @@ final class WorkspaceStoreDrawerTests {
         return pane
     }
 
+    private func saveLiveWorkspaceSnapshotToSQLite() async throws {
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.drawer.save.core.\(UUID().uuidString)"
+        )
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.drawer.save.local.\(UUID().uuidString)"
+        )
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { workspaceId in
+                WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
+            }
+        )
+        let snapshot = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshot(
+            identityAtom: store.identityAtom,
+            windowMemoryAtom: store.windowMemoryAtom,
+            repositoryTopologyAtom: store.repositoryTopologyAtom,
+            workspacePaneAtom: store.paneAtom,
+            workspaceTabLayoutAtom: store.tabLayoutAtom,
+            persistedAt: Date(timeIntervalSince1970: 1_780_000_000)
+        )
+        try await datastore.saveWorkspaceSnapshot(snapshot)
+    }
+
     // MARK: - addDrawerPane
 
     @Test
@@ -60,6 +86,15 @@ final class WorkspaceStoreDrawerTests {
 
         let tab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
         #expect(tab.allPaneIds.contains(drawerPane.id))
+    }
+
+    @Test
+    func test_addDrawerPane_liveWorkspaceSnapshotSavesToSQLite() async throws {
+        let pane = createTabbedPane()
+
+        _ = try #require(store.addDrawerPane(to: pane.id))
+
+        try await saveLiveWorkspaceSnapshotToSQLite()
     }
 
     @Test
@@ -215,6 +250,24 @@ final class WorkspaceStoreDrawerTests {
         #expect(view.layout.topRow.contains(first.id))
     }
 
+    @Test
+    func test_insertDrawerPane_liveWorkspaceSnapshotSavesToSQLite() async throws {
+        let parent = createTabbedPane()
+        let first = try #require(store.addDrawerPane(to: parent.id))
+
+        _ = try #require(
+            store.insertDrawerPane(
+                in: parent.id,
+                at: first.id,
+                direction: .vertical,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+
+        try await saveLiveWorkspaceSnapshotToSQLite()
+    }
+
     // MARK: - removeDrawerPane
 
     @Test
@@ -243,6 +296,17 @@ final class WorkspaceStoreDrawerTests {
 
         let tab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
         #expect(!tab.allPaneIds.contains(drawerPane.id))
+    }
+
+    @Test
+    func test_removeDrawerPane_liveWorkspaceSnapshotSavesToSQLite() async throws {
+        let pane = createTabbedPane()
+        _ = try #require(store.addDrawerPane(to: pane.id))
+        let remainingDrawerPane = try #require(store.addDrawerPane(to: pane.id))
+
+        store.removeDrawerPane(remainingDrawerPane.id, from: pane.id)
+
+        try await saveLiveWorkspaceSnapshotToSQLite()
     }
 
     @Test
