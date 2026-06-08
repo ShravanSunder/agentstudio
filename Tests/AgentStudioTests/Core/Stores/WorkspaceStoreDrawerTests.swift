@@ -53,6 +53,16 @@ final class WorkspaceStoreDrawerTests {
     }
 
     @Test
+    func test_addDrawerPane_addsDrawerChildToTabMembership() throws {
+        let pane = createTabbedPane()
+
+        let drawerPane = try #require(store.addDrawerPane(to: pane.id))
+
+        let tab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
+        #expect(tab.allPaneIds.contains(drawerPane.id))
+    }
+
+    @Test
 
     func test_addDrawerPane_appendsToExistingDrawer() {
         let pane = createTabbedPane()
@@ -222,6 +232,17 @@ final class WorkspaceStoreDrawerTests {
 
         // dp1 removed from store
         #expect((store.pane(dp1.id)) == nil)
+    }
+
+    @Test
+    func test_removeDrawerPane_removesDrawerChildFromTabMembership() throws {
+        let pane = createTabbedPane()
+        let drawerPane = try #require(store.addDrawerPane(to: pane.id))
+
+        store.removeDrawerPane(drawerPane.id, from: pane.id)
+
+        let tab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
+        #expect(!tab.allPaneIds.contains(drawerPane.id))
     }
 
     @Test

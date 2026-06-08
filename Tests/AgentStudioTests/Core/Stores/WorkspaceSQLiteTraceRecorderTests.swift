@@ -101,6 +101,29 @@ struct WorkspaceSQLiteTraceRecorderTests {
         #expect(contents.contains("\"agentstudio.persistence.error.description\":\"missingConfiguration\""))
     }
 
+    @Test("snapshot records expose drawer view membership mismatch diagnostics")
+    func snapshotRecordsExposeDrawerViewMembershipMismatchDiagnostics() async throws {
+        let traceRuntime = makeTraceRuntime(tags: "persistence.snapshot")
+        let recorder = WorkspaceSQLiteTraceRecorder(traceRuntime: traceRuntime)
+
+        await recorder.recordSnapshot(
+            .init(
+                snapshot: .snapshotWithDrawerViewPaneMissingFromTab(),
+                operation: .workspaceSave,
+                phase: .commitCore,
+                outcome: .failed,
+                error: nil
+            )
+        )
+        try await traceRuntime.flush()
+
+        let contents = try traceContents(from: traceRuntime)
+        #expect(contents.contains("\"agentstudio.workspace.snapshot.has_tab_membership_mismatch\":true"))
+        #expect(contents.contains("source=drawer_view"))
+        #expect(contents.contains("drawer="))
+        #expect(contents.contains("\"agentstudio.workspace.snapshot.drawer_view_pane_counts\""))
+    }
+
     @Test("snapshot records expose source facet mismatch diagnostics")
     func snapshotRecordsExposeSourceFacetMismatchDiagnostics() async throws {
         let traceRuntime = makeTraceRuntime(tags: "persistence.snapshot")

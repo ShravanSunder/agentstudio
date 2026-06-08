@@ -27,6 +27,8 @@ struct WorkspaceSQLiteSnapshotDiagnostics: Sendable {
             .stringArray(snapshot.tabs.map(Self.tabPaneCountSummary(_:)))
         attributes["agentstudio.workspace.snapshot.arrangement_pane_counts"] =
             .stringArray(snapshot.tabs.flatMap(Self.arrangementPaneCountSummaries(_:)))
+        attributes["agentstudio.workspace.snapshot.drawer_view_pane_counts"] =
+            .stringArray(snapshot.tabs.flatMap(Self.drawerViewPaneCountSummaries(_:)))
         attributes["agentstudio.workspace.snapshot.tab_membership_mismatches"] =
             .stringArray(tabPaneMembershipMismatches)
         attributes["agentstudio.workspace.snapshot.source_facet_mismatches"] =
@@ -43,16 +45,51 @@ struct WorkspaceSQLiteSnapshotDiagnostics: Sendable {
         snapshot.tabs.flatMap { tab in
             let tabPaneIds = Set(tab.allPaneIds)
             return tab.arrangements.flatMap { arrangement in
-                arrangement.layout.paneIds.compactMap { paneId -> String? in
-                    guard !tabPaneIds.contains(paneId) else { return nil }
-                    return [
-                        "tab=\(tab.id.uuidString)",
-                        "arrangement=\(arrangement.id.uuidString)",
-                        "pane=\(paneId.uuidString)",
-                    ].joined(separator: "|")
+                arrangement.layout.paneIds.compactMap {
+                    mismatchSummary(
+                        tabId: tab.id,
+                        arrangementId: arrangement.id,
+                        drawerId: nil,
+                        paneId: $0,
+                        source: "arrangement_layout",
+                        tabPaneIds: tabPaneIds
+                    )
                 }
+                    + arrangement.drawerViews.flatMap { drawerId, drawerView in
+                        drawerView.layout.paneIds.compactMap {
+                            mismatchSummary(
+                                tabId: tab.id,
+                                arrangementId: arrangement.id,
+                                drawerId: drawerId,
+                                paneId: $0,
+                                source: "drawer_view",
+                                tabPaneIds: tabPaneIds
+                            )
+                        }
+                    }
             }
         }
+    }
+
+    private func mismatchSummary(
+        tabId: UUID,
+        arrangementId: UUID,
+        drawerId: UUID?,
+        paneId: UUID,
+        source: String,
+        tabPaneIds: Set<UUID>
+    ) -> String? {
+        guard !tabPaneIds.contains(paneId) else { return nil }
+        var parts = [
+            "tab=\(tabId.uuidString)",
+            "arrangement=\(arrangementId.uuidString)",
+        ]
+        if let drawerId {
+            parts.append("drawer=\(drawerId.uuidString)")
+        }
+        parts.append("pane=\(paneId.uuidString)")
+        parts.append("source=\(source)")
+        return parts.joined(separator: "|")
     }
 
     private func sourceFacetMismatches() -> [String] {
@@ -88,6 +125,20 @@ struct WorkspaceSQLiteSnapshotDiagnostics: Sendable {
                 "arrangement=\(arrangement.id.uuidString)",
                 "panes=\(arrangement.layout.paneIds.count)",
             ].joined(separator: "|")
+        }
+    }
+
+    private static func drawerViewPaneCountSummaries(_ tab: Tab) -> [String] {
+        tab.arrangements.flatMap { arrangement in
+            arrangement.drawerViews.keys.sorted(by: { $0.uuidString < $1.uuidString }).compactMap { drawerId in
+                guard let drawerView = arrangement.drawerViews[drawerId] else { return nil }
+                return [
+                    "tab=\(tab.id.uuidString)",
+                    "arrangement=\(arrangement.id.uuidString)",
+                    "drawer=\(drawerId.uuidString)",
+                    "panes=\(drawerView.layout.paneIds.count)",
+                ].joined(separator: "|")
+            }
         }
     }
 }

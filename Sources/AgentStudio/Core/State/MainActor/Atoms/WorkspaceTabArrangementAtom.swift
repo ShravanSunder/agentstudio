@@ -350,6 +350,10 @@ final class WorkspaceTabArrangementAtom {
             return
         }
 
+        if !arrangementStates[tabIndex].allPaneIds.contains(drawerPaneId) {
+            arrangementStates[tabIndex].allPaneIds.append(drawerPaneId)
+        }
+
         for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
             guard arrangementStates[tabIndex].arrangements[arrangementIndex].layout.contains(parentPaneId) else {
                 continue
@@ -408,6 +412,7 @@ final class WorkspaceTabArrangementAtom {
             }
             arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
         }
+        arrangementStates[tabIndex].allPaneIds.removeAll { $0 == drawerPaneId }
     }
 
     func setActiveDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, inTab tabId: UUID) {

@@ -53,6 +53,37 @@ extension WorkspaceSQLiteSnapshot {
         )
     }
 
+    static func snapshotWithDrawerViewPaneMissingFromTab(workspaceId: UUID = UUID()) -> Self {
+        let parentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+        let drawerId = UUIDv7.generate()
+        let parentPane = makePane(id: parentPaneId)
+        let drawerPane = makePane(id: drawerPaneId)
+        let arrangement = PaneArrangement(
+            layout: Layout(paneId: parentPaneId),
+            activePaneId: parentPaneId,
+            drawerViews: [
+                drawerId: DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)))
+            ]
+        )
+        let tab = Tab(
+            name: "Invalid Drawer View Graph",
+            allPaneIds: [parentPaneId],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+
+        return Self(
+            id: workspaceId,
+            name: "Invalid Drawer Workspace Graph",
+            panes: [parentPane, drawerPane],
+            tabs: [tab],
+            activeTabId: tab.id,
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 2)
+        )
+    }
+
     static func snapshotWithPaneSourceFacetRepoMismatch(workspaceId: UUID = UUID()) -> Self {
         let sourceRepoId = UUID()
         let facetRepoId = UUID()
