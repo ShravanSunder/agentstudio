@@ -534,13 +534,14 @@ struct InboxNotificationSQLiteRepository {
                 """,
             arguments: [workspaceId.uuidString, overflow]
         )
-        for droppedId in droppedIds {
+        if !droppedIds.isEmpty {
+            let placeholders = Array(repeating: "?", count: droppedIds.count).joined(separator: ", ")
             try database.execute(
                 sql: """
                     DELETE FROM local_notification_inbox_item
-                    WHERE workspace_id = ? AND id = ?
+                    WHERE workspace_id = ? AND id IN (\(placeholders))
                     """,
-                arguments: [workspaceId.uuidString, droppedId]
+                arguments: StatementArguments([workspaceId.uuidString] + droppedIds)
             )
         }
 

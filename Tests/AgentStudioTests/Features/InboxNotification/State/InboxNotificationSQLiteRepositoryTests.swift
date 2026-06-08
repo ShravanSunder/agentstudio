@@ -302,6 +302,47 @@ struct InboxNotificationSQLiteRepositoryTests {
         #expect(rowCount == cap)
     }
 
+    @Test("retention cap deletes overflow rows with one batch statement")
+    func retentionCapDeletesOverflowRowsWithOneBatchStatement() throws {
+        let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000074")!
+        let recorder = SQLStatementRecorder()
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(
+            workspaceId: workspaceId,
+            statementRecorder: recorder
+        )
+        let cap = AppPolicies.InboxNotification.maxRetained
+        for index in 0..<(cap + 2) {
+            try insertRawNotificationRow(
+                databaseQueue: fixture.databaseQueue,
+                row: .init(
+                    workspaceId: workspaceId,
+                    id: UUID(uuidString: "20000000-0000-0000-0000-\(String(format: "%012d", 200 + index))")!,
+                    timestamp: TimeInterval(index),
+                    kind: InboxNotificationKind.agentDesktopNotification.rawValue,
+                    title: "Seed \(index)",
+                    sourceKind: "global"
+                )
+            )
+        }
+        let incomingNotification = makeRepositoryNotification(
+            id: UUID(uuidString: "20000000-0000-0000-0000-000000008888")!,
+            timestamp: Date(timeIntervalSince1970: TimeInterval(cap + 3)),
+            title: "Incoming"
+        )
+        recorder.reset()
+
+        let outcome = try fixture.repository.append(incomingNotification)
+        let deleteStatements = recorder.statements().filter {
+            $0
+                .replacingOccurrences(of: "\n", with: " ")
+                .lowercased()
+                .contains("delete from local_notification_inbox_item")
+        }
+
+        #expect(outcome.droppedNotificationIds.count == 3)
+        #expect(deleteStatements.count == 1)
+    }
+
     @Test("read dismiss and clear mutations update persisted rows")
     func readDismissAndClearMutationsUpdatePersistedRows() throws {
         let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000005")!
@@ -342,10 +383,42 @@ struct InboxNotificationSQLiteRepositoryFixture {
     let databaseQueue: DatabaseQueue
 }
 
+final class SQLStatementRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedStatements: [String] = []
+
+    func record(_ statement: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        recordedStatements.append(statement)
+    }
+
+    func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+        recordedStatements.removeAll()
+    }
+
+    func statements() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedStatements
+    }
+}
+
 func makeInboxNotificationSQLiteRepositoryFixture(
-    workspaceId: UUID
+    workspaceId: UUID,
+    statementRecorder: SQLStatementRecorder? = nil
 ) throws -> InboxNotificationSQLiteRepositoryFixture {
-    let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+    var configuration = SQLiteDatabaseFactory.makeConfiguration(label: "AgentStudio.sqlite.inbox-test")
+    if let statementRecorder {
+        configuration.prepareDatabase { database in
+            database.trace { event in
+                statementRecorder.record("\(event)")
+            }
+        }
+    }
+    let databaseQueue = try DatabaseQueue(named: nil, configuration: configuration)
     try WorkspaceLocalMigrations.migrate(databaseQueue)
     return .init(
         repository: InboxNotificationSQLiteRepository(workspaceId: workspaceId, databaseWriter: databaseQueue),
