@@ -170,6 +170,7 @@ extension AppDelegate {
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
         )
+        synchronizeApplicationLifecycleStateAfterWorkspaceBoot(isApplicationActive: NSApp.isActive)
         RestoreTrace.log(
             "store.restore complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.panes.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
