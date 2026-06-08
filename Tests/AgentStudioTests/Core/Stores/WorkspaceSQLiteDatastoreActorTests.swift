@@ -33,6 +33,109 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(await recorder.events.contains(.localRepositoryOpened(workspaceId, .save)))
     }
 
+    @Test("workspace save emits persistence operation trace records")
+    func workspaceSaveEmitsPersistenceOperationTraceRecords() async throws {
+        let workspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.trace.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.trace.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let traceRuntime = makePersistenceTraceRuntime(tags: "persistence.operation")
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue) },
+            traceRuntime: traceRuntime
+        )
+
+        try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "Trace Save"))
+        try await traceRuntime.flush()
+
+        let contents = try persistenceTraceContents(from: traceRuntime)
+        #expect(contents.contains("\"agentstudio.trace.tag\":\"persistence.operation\""))
+        #expect(contents.contains("\"agentstudio.persistence.operation\":\"workspace.save\""))
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"stage_core\""))
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"write_local\""))
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"commit_core\""))
+        #expect(contents.contains("\"agentstudio.persistence.outcome\":\"succeeded\""))
+        #expect(contents.contains("\"agentstudio.workspace.id\":\"\(workspaceId.uuidString)\""))
+        #expect(!contents.contains("\"agentstudio.trace.tag\":\"persistence.recovery\""))
+    }
+
+    @Test("workspace save validation failure emits persistence recovery trace")
+    func workspaceSaveValidationFailureEmitsPersistenceRecoveryTrace() async throws {
+        let workspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.save-failure-trace.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.save-failure-trace.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let traceRuntime = makePersistenceTraceRuntime(tags: "persistence.recovery,persistence.snapshot")
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue) },
+            traceRuntime: traceRuntime
+        )
+
+        do {
+            try await datastore.saveWorkspaceSnapshot(
+                .snapshotWithArrangementPaneMissingFromTab(workspaceId: workspaceId)
+            )
+            Issue.record("Expected workspace save validation failure")
+        } catch {
+            #expect(String(describing: error).contains("arrangementPaneMissingFromTab"))
+        }
+        try await traceRuntime.flush()
+
+        let contents = try persistenceTraceContents(from: traceRuntime)
+        #expect(contents.contains("\"body\":\"persistence.recovery.failed\""))
+        #expect(contents.contains("\"agentstudio.trace.tag\":\"persistence.recovery\""))
+        #expect(contents.contains("\"body\":\"persistence.snapshot.failed\""))
+        #expect(contents.contains("\"agentstudio.trace.tag\":\"persistence.snapshot\""))
+        #expect(contents.contains("\"agentstudio.persistence.operation\":\"workspace.save\""))
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"commit_core\""))
+        #expect(contents.contains("\"agentstudio.persistence.outcome\":\"failed\""))
+        #expect(contents.contains("\"agentstudio.persistence.recovery.kind\":\"save_failed\""))
+        #expect(contents.contains("\"agentstudio.workspace.snapshot.has_tab_membership_mismatch\":true"))
+        #expect(contents.contains("\"agentstudio.workspace.snapshot.tab_membership_mismatches\""))
+        #expect(contents.contains("\"agentstudio.persistence.error.description\""))
+        #expect(contents.contains("arrangementPaneMissingFromTab"))
+    }
+
+    @Test("cached local repository saves still emit operation trace records")
+    func cachedLocalRepositorySavesStillEmitOperationTraceRecords() async throws {
+        let workspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.cached-trace.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.cached-trace.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let traceRuntime = makePersistenceTraceRuntime(tags: "persistence.operation")
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue) },
+            traceRuntime: traceRuntime
+        )
+
+        try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "Trace Cache Warmup"))
+        try await datastore.saveUIState(
+            .init(
+                filterText: "repos",
+                isFilterVisible: true,
+                sidebarCollapsed: false,
+                sidebarSurface: .repos
+            ),
+            workspaceId: workspaceId
+        )
+        try await traceRuntime.flush()
+
+        let contents = try persistenceTraceContents(from: traceRuntime)
+        #expect(contents.contains("\"agentstudio.persistence.operation\":\"ui_state.save\""))
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"write_local\""))
+        #expect(contents.contains("\"agentstudio.persistence.outcome\":\"succeeded\""))
+    }
+
     @Test("local repository is cached by workspace id across production saves")
     func localRepositoryIsCachedByWorkspaceIdAcrossProductionSaves() async throws {
         let workspaceId = UUID()
@@ -254,6 +357,40 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(FileManager.default.fileExists(atPath: localSQLiteURL.path))
     }
 
+    @Test("production datastore emits persistence recovery trace for corrupt local SQLite")
+    func productionDatastoreEmitsPersistenceRecoveryTraceForCorruptLocalSQLite() async throws {
+        let workspaceId = UUID()
+        let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "local-quarantine-trace")
+        let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
+        let localSQLiteURL = rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+        let seedFactory = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreSQLiteURL,
+            localDatabaseURL: { _ in localSQLiteURL }
+        )
+        try await seedFactory.makeDatastore().saveWorkspaceSnapshot(
+            .emptyFixture(id: workspaceId, name: "Local Quarantine Trace")
+        )
+        try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
+        let traceRuntime = makePersistenceTraceRuntime(tags: "persistence.recovery")
+        let restoreDatastore = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreSQLiteURL,
+            localDatabaseURL: { _ in localSQLiteURL },
+            traceRuntime: traceRuntime
+        ).makeDatastore()
+
+        _ = await restoreDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
+        try await traceRuntime.flush()
+
+        let contents = try persistenceTraceContents(from: traceRuntime)
+        #expect(contents.contains("\"body\":\"persistence.recovery.quarantined\""))
+        #expect(contents.contains("\"agentstudio.trace.tag\":\"persistence.recovery\""))
+        #expect(contents.contains("\"agentstudio.persistence.operation\":\"workspace.load\""))
+        #expect(contents.contains("\"agentstudio.persistence.phase\":\"quarantine_sidecars\""))
+        #expect(contents.contains("\"agentstudio.persistence.recovery.kind\":\"local_quarantine\""))
+        #expect(contents.contains("\"agentstudio.workspace.id\":\"\(workspaceId.uuidString)\""))
+        #expect(!contents.contains("\"agentstudio.trace.tag\":\"persistence.operation\""))
+    }
+
     @Test("production datastore quarantines corrupt local SQLite before save")
     func productionDatastoreQuarantinesCorruptLocalSQLiteBeforeSave() async throws {
         let workspaceId = UUID()
@@ -382,5 +519,30 @@ private func makeDatastoreActorTemporaryDirectory(prefix: String) throws -> URL 
     let directory = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-datastore-\(prefix)-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
+}
+
+private func makePersistenceTraceRuntime(tags: String) -> AgentStudioTraceRuntime {
+    AgentStudioTraceRuntime(
+        configuration: AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_DIR": persistenceTraceDirectoryURL().path,
+            "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+            "AGENTSTUDIO_TRACE_NAME": "sqlite-datastore",
+            "AGENTSTUDIO_TRACE_TAGS": tags,
+        ]),
+        processIdentifier: 920,
+        timeUnixNano: { 2000 }
+    )
+}
+
+private func persistenceTraceContents(from traceRuntime: AgentStudioTraceRuntime) throws -> String {
+    let outputFileURL = try #require(traceRuntime.outputFileURL)
+    return try String(contentsOf: outputFileURL, encoding: .utf8)
+}
+
+private func persistenceTraceDirectoryURL() -> URL {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agentstudio-sqlite-datastore-trace-\(UUID().uuidString)", isDirectory: true)
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return directory
 }

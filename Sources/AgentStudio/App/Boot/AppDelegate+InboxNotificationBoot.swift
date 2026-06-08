@@ -10,7 +10,9 @@ extension AppDelegate {
             InboxNotificationSQLiteDatastoreAdapter(workspaceId: workspaceId, datastore: $0)
         }
         let sqliteBootDecision = await makeInboxNotificationSQLiteBootDecision(adapter: sqliteAdapter)
-        sqliteBootDecision.recoveryEvents.forEach { recordPersistenceRecovery($0) }
+        for recoveryEvent in sqliteBootDecision.recoveryEvents {
+            recordPersistenceRecovery(recoveryEvent)
+        }
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: atomStore.inboxNotification,
             prefsAtom: atomStore.inboxNotificationPrefs,
@@ -120,7 +122,7 @@ extension AppDelegate {
             pendingPersistenceRecoveryEvents.append(event)
             return
         }
-        atomStore.inboxNotification.append(.persistenceRecovery(event))
+        appendPersistenceRecoveryNotificationIfNeeded(for: event)
     }
 
     func flushPersistenceRecoveryNotifications() {
@@ -128,8 +130,21 @@ extension AppDelegate {
         let pendingEvents = pendingPersistenceRecoveryEvents
         pendingPersistenceRecoveryEvents.removeAll()
         for event in pendingEvents {
-            atomStore.inboxNotification.append(.persistenceRecovery(event))
+            appendPersistenceRecoveryNotificationIfNeeded(for: event)
         }
+    }
+
+    private func appendPersistenceRecoveryNotificationIfNeeded(for event: PersistenceRecoveryEvent) {
+        let notification = InboxNotification.persistenceRecovery(event)
+        let alreadyHasUnreadMatchingNotification = atomStore.inboxNotification.notifications.contains { existing in
+            existing.kind == .persistenceRecovery
+                && existing.title == notification.title
+                && existing.body == notification.body
+                && !existing.isRead
+                && !existing.isDismissedFromPaneInbox
+        }
+        guard !alreadyHasUnreadMatchingNotification else { return }
+        atomStore.inboxNotification.append(notification)
     }
 
     private func isPaneCurrentlyAttendedForNotifications(_ paneId: UUID) -> Bool {

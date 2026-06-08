@@ -1,97 +1,7 @@
 import Foundation
 import GRDB
 
-struct WorkspaceSQLiteDatastoreConfiguration: Sendable {
-    var coreDatabaseURL: URL
-    var localDatabaseURL: @Sendable (UUID) -> URL
-}
-
 actor WorkspaceSQLiteDatastore {
-    enum LocalRepositoryOpenMode: Equatable, Sendable {
-        case restore
-        case save
-    }
-
-    enum ProbeEvent: Equatable, Sendable {
-        case saveWorkspaceSnapshot
-        case loadWorkspaceSnapshot
-        case localRepositoryOpened(UUID, LocalRepositoryOpenMode)
-    }
-
-    enum LoadResult: Equatable, Sendable {
-        case loaded(WorkspaceSQLiteSnapshot, recoveryEvents: [PersistenceRecoveryEvent])
-        case uninitialized(recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
-    enum LegacyImportStatusResult: Equatable, Sendable {
-        case found(WorkspaceCoreRepository.LegacyImportStatusRecord)
-        case missing
-        case unavailable(WorkspaceSQLiteDatastoreFailure)
-    }
-
-    enum LocalLegacyImportDecisionResult: Equatable, Sendable {
-        case found(WorkspaceLocalSQLiteLegacyImportDecision)
-        case unavailable(WorkspaceSQLiteDatastoreFailure)
-    }
-
-    enum CompletedSnapshotStatusResult: Equatable, Sendable {
-        case completed(Bool, recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
-    enum WorkspaceRowsInspectionResult: Equatable, Sendable {
-        case hasWorkspaceRows
-        case empty
-        case unavailable(WorkspaceSQLiteDatastoreFailure)
-    }
-
-    enum ActiveWorkspaceSelectionInspectionResult: Equatable, Sendable {
-        case present
-        case missing
-        case unavailable(WorkspaceSQLiteDatastoreFailure)
-    }
-
-    enum LocalCacheLoadResult: Equatable, Sendable {
-        case loaded(LocalCacheLoadPayload)
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
-    struct LocalCacheLoadPayload: Equatable, Sendable {
-        var cacheState: WorkspaceLocalRepository.CacheStateRecord?
-        var recentTargets: [RecentWorkspaceTarget]?
-        var cacheLegacyDecision: WorkspaceLocalSQLiteLegacyImportDecision
-        var recentTargetLegacyDecision: WorkspaceLocalSQLiteLegacyImportDecision
-        var recoveryEvents: [PersistenceRecoveryEvent]
-    }
-
-    enum LocalUILoadResult: Equatable, Sendable {
-        case loaded(LocalUILoadPayload)
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
-    struct LocalUILoadPayload: Equatable, Sendable {
-        var state: WorkspaceLocalRepository.SidebarStateRecord?
-        var legacyDecision: WorkspaceLocalSQLiteLegacyImportDecision
-        var recoveryEvents: [PersistenceRecoveryEvent]
-    }
-
-    enum LocalSidebarLoadResult: Equatable, Sendable {
-        case loaded(LocalSidebarLoadPayload)
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
-    struct LocalSidebarLoadPayload: Equatable, Sendable {
-        var expandedGroups: Set<SidebarGroupKey>?
-        var legacyDecision: WorkspaceLocalSQLiteLegacyImportDecision
-        var recoveryEvents: [PersistenceRecoveryEvent]
-    }
-
-    enum LocalRepositoryOperationResult<Output: Sendable>: Sendable {
-        case completed(Output, recoveryEvents: [PersistenceRecoveryEvent])
-        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
-    }
-
     private struct LocalRepositoryOpenResult: Sendable {
         var repository: WorkspaceLocalRepository
         var recoveryEvent: PersistenceRecoveryEvent?
@@ -104,6 +14,7 @@ actor WorkspaceSQLiteDatastore {
     private let makeLocalLegacyImportDecision:
         (@Sendable (UUID, WorkspaceLocalSQLiteLegacyLane) throws -> WorkspaceLocalSQLiteLegacyImportDecision)?
     private let probe: (@Sendable (ProbeEvent) async -> Void)?
+    private let traceRecorder: WorkspaceSQLiteTraceRecorder
 
     private var saveLocalRepositoryCache: [UUID: WorkspaceLocalRepository] = [:]
     private var restoreLocalRepositoryCache: [UUID: WorkspaceLocalRepository] = [:]
@@ -112,6 +23,7 @@ actor WorkspaceSQLiteDatastore {
 
     init(
         configuration: WorkspaceSQLiteDatastoreConfiguration,
+        traceRuntime: AgentStudioTraceRuntime? = nil,
         probe: (@Sendable (ProbeEvent) async -> Void)? = nil
     ) {
         self.backend = nil
@@ -120,6 +32,7 @@ actor WorkspaceSQLiteDatastore {
         self.makeLocalRestoreRepository = nil
         self.makeLocalLegacyImportDecision = nil
         self.probe = probe
+        self.traceRecorder = WorkspaceSQLiteTraceRecorder(traceRuntime: traceRuntime)
     }
 
     init(
@@ -129,6 +42,7 @@ actor WorkspaceSQLiteDatastore {
         makeLocalLegacyImportDecision:
             (@Sendable (UUID, WorkspaceLocalSQLiteLegacyLane) throws -> WorkspaceLocalSQLiteLegacyImportDecision)? =
             nil,
+        traceRuntime: AgentStudioTraceRuntime? = nil,
         probe: (@Sendable (ProbeEvent) async -> Void)? = nil
     ) {
         self.backend = WorkspaceSQLiteStoreBackend(
@@ -141,19 +55,115 @@ actor WorkspaceSQLiteDatastore {
         self.makeLocalRestoreRepository = makeLocalRestoreRepository ?? makeLocalRepository
         self.makeLocalLegacyImportDecision = makeLocalLegacyImportDecision
         self.probe = probe
+        self.traceRecorder = WorkspaceSQLiteTraceRecorder(traceRuntime: traceRuntime)
     }
 
     func saveWorkspaceSnapshot(_ snapshot: WorkspaceSQLiteSnapshot) async throws {
         await recordProbe(.saveWorkspaceSnapshot)
-        let backend = try resolvedBackend()
-        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-        try backend.replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: true)
-        let localRepository = try await cachedSaveLocalRepository(workspaceId: snapshot.id)
-        try backend.writeLocalSnapshotAndCommit(snapshot, state: state, localRepository: localRepository)
+        await traceRecorder.recordOperation(
+            .workspaceSave,
+            phase: .stageCore,
+            lane: .workspace,
+            outcome: .started,
+            workspaceId: snapshot.id,
+            database: .core
+        )
+        await traceRecorder.recordSnapshot(
+            .init(
+                snapshot: snapshot,
+                operation: .workspaceSave,
+                phase: .stageCore,
+                outcome: .started,
+                error: nil
+            )
+        )
+        do {
+            let backend = try resolvedBackend()
+            let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
+            try backend.replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: true)
+            await traceRecorder.recordOperation(
+                .workspaceSave,
+                phase: .stageCore,
+                lane: .workspace,
+                outcome: .succeeded,
+                workspaceId: snapshot.id,
+                database: .core
+            )
+            let localRepository = try await cachedSaveLocalRepository(
+                workspaceId: snapshot.id,
+                operation: .workspaceSave,
+                lane: .workspace
+            )
+            await traceRecorder.recordOperation(
+                .workspaceSave,
+                phase: .writeLocal,
+                lane: .workspace,
+                outcome: .started,
+                workspaceId: snapshot.id,
+                database: .local
+            )
+            try backend.writeLocalSnapshotAndCommit(snapshot, state: state, localRepository: localRepository)
+            await traceRecorder.recordOperation(
+                .workspaceSave,
+                phase: .writeLocal,
+                lane: .workspace,
+                outcome: .succeeded,
+                workspaceId: snapshot.id,
+                database: .local
+            )
+            await traceRecorder.recordOperation(
+                .workspaceSave,
+                phase: .commitCore,
+                lane: .workspace,
+                outcome: .succeeded,
+                workspaceId: snapshot.id,
+                database: .core
+            )
+        } catch {
+            await traceRecorder.recordSnapshot(
+                .init(
+                    snapshot: snapshot,
+                    operation: .workspaceSave,
+                    phase: .commitCore,
+                    outcome: .failed,
+                    error: error
+                )
+            )
+            await traceRecorder.recordOperation(
+                .workspaceSave,
+                phase: .commitCore,
+                lane: .workspace,
+                outcome: .failed,
+                workspaceId: snapshot.id,
+                error: error
+            )
+            await traceRecorder.recordRecovery(
+                .init(
+                    recoveryKind: .saveFailed,
+                    operation: .workspaceSave,
+                    phase: .commitCore,
+                    lane: .workspace,
+                    outcome: .failed,
+                    workspaceId: snapshot.id,
+                    database: .core,
+                    databaseURL: nil,
+                    error: error
+                )
+            )
+            throw error
+        }
     }
 
     func loadWorkspaceSnapshot(preferredWorkspaceId: UUID) async -> LoadResult {
         await recordProbe(.loadWorkspaceSnapshot)
+        await traceRecorder.recordOperation(
+            .workspaceLoad,
+            phase: .openCore,
+            lane: .workspace,
+            outcome: .started,
+            workspaceId: preferredWorkspaceId,
+            database: .core
+        )
         do {
             let backend = try resolvedBackend()
             let recoverableStagedWorkspaceId = try backend.coreRepository.fetchRecoverableStagedWorkspaceId(
@@ -162,10 +172,18 @@ actor WorkspaceSQLiteDatastore {
             let snapshot = try await backend.loadCompletedSnapshot(
                 preferredWorkspaceId: preferredWorkspaceId,
                 localRepositoryForWorkspaceId: { workspaceId in
-                    try await self.cachedRestoreLocalRepository(workspaceId: workspaceId)
+                    try await self.cachedRestoreLocalRepository(
+                        workspaceId: workspaceId,
+                        operation: .workspaceLoad,
+                        lane: .workspace
+                    )
                 },
                 repairLocalRepositoryForWorkspaceId: { workspaceId in
-                    try await self.cachedSaveLocalRepository(workspaceId: workspaceId)
+                    try await self.cachedSaveLocalRepository(
+                        workspaceId: workspaceId,
+                        operation: .workspaceLoad,
+                        lane: .workspace
+                    )
                 }
             )
             if recoverableStagedWorkspaceId == snapshot.id {
@@ -177,11 +195,49 @@ actor WorkspaceSQLiteDatastore {
                     ),
                     workspaceId: snapshot.id
                 )
+                await traceRecorder.recordRecovery(
+                    .init(
+                        recoveryKind: .incompleteSnapshot,
+                        operation: .workspaceLoad,
+                        phase: .synthesizeDefaults,
+                        lane: .workspace,
+                        outcome: .reset,
+                        workspaceId: snapshot.id,
+                        database: nil,
+                        databaseURL: nil,
+                        error: nil
+                    )
+                )
             }
+            await traceRecorder.recordOperation(
+                .workspaceLoad,
+                phase: .openCore,
+                lane: .workspace,
+                outcome: .succeeded,
+                workspaceId: snapshot.id,
+                database: .core
+            )
             return .loaded(snapshot, recoveryEvents: drainRecoveryEvents(workspaceId: snapshot.id))
         } catch is BackendUninitializedError {
+            await traceRecorder.recordOperation(
+                .workspaceLoad,
+                phase: .openCore,
+                lane: .workspace,
+                outcome: .skipped,
+                workspaceId: preferredWorkspaceId,
+                database: .core
+            )
             return .uninitialized(recoveryEvents: drainAllRecoveryEvents())
         } catch {
+            await traceRecorder.recordOperation(
+                .workspaceLoad,
+                phase: .openCore,
+                lane: .workspace,
+                outcome: .failed,
+                workspaceId: preferredWorkspaceId,
+                database: .core,
+                error: error
+            )
             return .unavailable(.init(error), recoveryEvents: drainAllRecoveryEvents())
         }
     }
@@ -194,7 +250,11 @@ actor WorkspaceSQLiteDatastore {
             else {
                 return .completed(false, recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId))
             }
-            let localRepository = try await cachedRestoreLocalRepository(workspaceId: workspaceId)
+            let localRepository = try await cachedRestoreLocalRepository(
+                workspaceId: workspaceId,
+                operation: .snapshotStatus,
+                lane: .workspace
+            )
             return .completed(
                 try backend.hasCompletedSnapshot(workspaceId: workspaceId, localRepository: localRepository),
                 recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId)
@@ -226,7 +286,11 @@ actor WorkspaceSQLiteDatastore {
     func saveImportedLegacySnapshot(_ snapshot: WorkspaceSQLiteSnapshot, sourceStatePath: String) async throws {
         let backend = try resolvedBackend()
         try backend.replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: false)
-        let localRepository = try await cachedSaveLocalRepository(workspaceId: snapshot.id)
+        let localRepository = try await cachedSaveLocalRepository(
+            workspaceId: snapshot.id,
+            operation: .legacyImport,
+            lane: .legacyImport
+        )
         try backend.writeImportedLegacySnapshotLocalStateAndCommit(
             snapshot,
             sourceStatePath: sourceStatePath,
@@ -295,7 +359,11 @@ actor WorkspaceSQLiteDatastore {
 
     func loadRepoCacheState(workspaceId: UUID) async -> LocalCacheLoadResult {
         do {
-            let repository = try await cachedRestoreLocalRepository(workspaceId: workspaceId)
+            let repository = try await cachedRestoreLocalRepository(
+                workspaceId: workspaceId,
+                operation: .repoCacheLoad,
+                lane: .repoCache
+            )
             let cacheState = try repository.hasCacheState() ? repository.fetchCacheState() : nil
             let recentTargets = try repository.hasRecentTargetsState() ? repository.fetchRecentTargets() : nil
             let cacheDecision = try legacyImportDecision(workspaceId: workspaceId, lane: .cache)
@@ -319,15 +387,52 @@ actor WorkspaceSQLiteDatastore {
         recentTargets: [RecentWorkspaceTarget],
         workspaceId: UUID
     ) async throws {
-        let repository = try await cachedSaveLocalRepository(workspaceId: workspaceId)
-        let updatedAt = Date()
-        try repository.replaceCacheState(cacheState: cacheState, updatedAt: updatedAt)
-        try repository.replaceRecentTargets(recentTargets, updatedAt: updatedAt)
+        await traceRecorder.recordOperation(
+            .repoCacheSave,
+            phase: .writeLocal,
+            lane: .repoCache,
+            outcome: .started,
+            workspaceId: workspaceId,
+            database: .local
+        )
+        let repository = try await cachedSaveLocalRepository(
+            workspaceId: workspaceId,
+            operation: .repoCacheSave,
+            lane: .repoCache
+        )
+        do {
+            let updatedAt = Date()
+            try repository.replaceCacheState(cacheState: cacheState, updatedAt: updatedAt)
+            try repository.replaceRecentTargets(recentTargets, updatedAt: updatedAt)
+            await traceRecorder.recordOperation(
+                .repoCacheSave,
+                phase: .writeLocal,
+                lane: .repoCache,
+                outcome: .succeeded,
+                workspaceId: workspaceId,
+                database: .local
+            )
+        } catch {
+            await traceRecorder.recordOperation(
+                .repoCacheSave,
+                phase: .writeLocal,
+                lane: .repoCache,
+                outcome: .failed,
+                workspaceId: workspaceId,
+                database: .local,
+                error: error
+            )
+            throw error
+        }
     }
 
     func loadUIState(workspaceId: UUID) async -> LocalUILoadResult {
         do {
-            let repository = try await cachedRestoreLocalRepository(workspaceId: workspaceId)
+            let repository = try await cachedRestoreLocalRepository(
+                workspaceId: workspaceId,
+                operation: .uiStateLoad,
+                lane: .uiState
+            )
             let state = try repository.hasSidebarState() ? repository.fetchSidebarState() : nil
             return .loaded(
                 .init(
@@ -342,13 +447,50 @@ actor WorkspaceSQLiteDatastore {
     }
 
     func saveUIState(_ state: WorkspaceLocalRepository.SidebarStateRecord, workspaceId: UUID) async throws {
-        let repository = try await cachedSaveLocalRepository(workspaceId: workspaceId)
-        try repository.replaceSidebarState(state, updatedAt: Date())
+        await traceRecorder.recordOperation(
+            .uiStateSave,
+            phase: .writeLocal,
+            lane: .uiState,
+            outcome: .started,
+            workspaceId: workspaceId,
+            database: .local
+        )
+        let repository = try await cachedSaveLocalRepository(
+            workspaceId: workspaceId,
+            operation: .uiStateSave,
+            lane: .uiState
+        )
+        do {
+            try repository.replaceSidebarState(state, updatedAt: Date())
+            await traceRecorder.recordOperation(
+                .uiStateSave,
+                phase: .writeLocal,
+                lane: .uiState,
+                outcome: .succeeded,
+                workspaceId: workspaceId,
+                database: .local
+            )
+        } catch {
+            await traceRecorder.recordOperation(
+                .uiStateSave,
+                phase: .writeLocal,
+                lane: .uiState,
+                outcome: .failed,
+                workspaceId: workspaceId,
+                database: .local,
+                error: error
+            )
+            throw error
+        }
     }
 
     func loadSidebarState(workspaceId: UUID) async -> LocalSidebarLoadResult {
         do {
-            let repository = try await cachedRestoreLocalRepository(workspaceId: workspaceId)
+            let repository = try await cachedRestoreLocalRepository(
+                workspaceId: workspaceId,
+                operation: .sidebarLoad,
+                lane: .sidebar
+            )
             let expandedGroups = try repository.hasExpandedGroupsState() ? repository.fetchExpandedGroups() : nil
             return .loaded(
                 .init(
@@ -363,8 +505,41 @@ actor WorkspaceSQLiteDatastore {
     }
 
     func saveSidebarState(expandedGroups: Set<SidebarGroupKey>, workspaceId: UUID) async throws {
-        let repository = try await cachedSaveLocalRepository(workspaceId: workspaceId)
-        try repository.replaceExpandedGroups(expandedGroups, updatedAt: Date())
+        await traceRecorder.recordOperation(
+            .sidebarSave,
+            phase: .writeLocal,
+            lane: .sidebar,
+            outcome: .started,
+            workspaceId: workspaceId,
+            database: .local
+        )
+        let repository = try await cachedSaveLocalRepository(
+            workspaceId: workspaceId,
+            operation: .sidebarSave,
+            lane: .sidebar
+        )
+        do {
+            try repository.replaceExpandedGroups(expandedGroups, updatedAt: Date())
+            await traceRecorder.recordOperation(
+                .sidebarSave,
+                phase: .writeLocal,
+                lane: .sidebar,
+                outcome: .succeeded,
+                workspaceId: workspaceId,
+                database: .local
+            )
+        } catch {
+            await traceRecorder.recordOperation(
+                .sidebarSave,
+                phase: .writeLocal,
+                lane: .sidebar,
+                outcome: .failed,
+                workspaceId: workspaceId,
+                database: .local,
+                error: error
+            )
+            throw error
+        }
     }
 
     func performLocalRestoreOperation<Output: Sendable>(
@@ -372,7 +547,11 @@ actor WorkspaceSQLiteDatastore {
         _ operation: @Sendable (WorkspaceLocalRepository) throws -> Output
     ) async -> LocalRepositoryOperationResult<Output> {
         do {
-            let repository = try await cachedRestoreLocalRepository(workspaceId: workspaceId)
+            let repository = try await cachedRestoreLocalRepository(
+                workspaceId: workspaceId,
+                operation: .inboxLoad,
+                lane: .inbox
+            )
             return .completed(
                 try operation(repository),
                 recoveryEvents: drainRecoveryEvents(workspaceId: workspaceId)
@@ -386,10 +565,47 @@ actor WorkspaceSQLiteDatastore {
         workspaceId: UUID,
         _ operation: @Sendable (WorkspaceLocalRepository) throws -> Output
     ) async throws -> Output {
-        let repository = try await cachedSaveLocalRepository(workspaceId: workspaceId)
-        return try operation(repository)
+        await traceRecorder.recordOperation(
+            .inboxSave,
+            phase: .writeLocal,
+            lane: .inbox,
+            outcome: .started,
+            workspaceId: workspaceId,
+            database: .local
+        )
+        let repository = try await cachedSaveLocalRepository(
+            workspaceId: workspaceId,
+            operation: .inboxSave,
+            lane: .inbox
+        )
+        do {
+            let output = try operation(repository)
+            await traceRecorder.recordOperation(
+                .inboxSave,
+                phase: .writeLocal,
+                lane: .inbox,
+                outcome: .succeeded,
+                workspaceId: workspaceId,
+                database: .local
+            )
+            return output
+        } catch {
+            await traceRecorder.recordOperation(
+                .inboxSave,
+                phase: .writeLocal,
+                lane: .inbox,
+                outcome: .failed,
+                workspaceId: workspaceId,
+                database: .local,
+                error: error
+            )
+            throw error
+        }
     }
 
+}
+
+extension WorkspaceSQLiteDatastore {
     private func resolvedBackend() throws -> WorkspaceSQLiteStoreBackend {
         if let backend {
             return backend
@@ -469,20 +685,50 @@ actor WorkspaceSQLiteDatastore {
         return localRepository
     }
 
-    private func cachedSaveLocalRepository(workspaceId: UUID) async throws -> WorkspaceLocalRepository {
+    private func cachedSaveLocalRepository(
+        workspaceId: UUID,
+        operation: WorkspaceSQLiteTraceOperation,
+        lane: WorkspaceSQLiteTraceLane
+    ) async throws -> WorkspaceLocalRepository {
         if let cachedRepository = saveLocalRepositoryCache[workspaceId] {
             return cachedRepository
         }
         let result = try makeLocalRepositoryForSave(workspaceId)
         if let recoveryEvent = result.recoveryEvent {
             appendRecoveryEvent(recoveryEvent, workspaceId: workspaceId)
+            await traceRecorder.recordRecovery(
+                .init(
+                    recoveryKind: .localQuarantine,
+                    operation: operation,
+                    phase: .quarantineSidecars,
+                    lane: lane,
+                    outcome: .quarantined,
+                    workspaceId: workspaceId,
+                    database: .local,
+                    databaseURL: configuration?.localDatabaseURL(workspaceId),
+                    error: nil
+                )
+            )
         }
         saveLocalRepositoryCache[workspaceId] = result.repository
+        await traceRecorder.recordOperation(
+            operation,
+            phase: .openLocalSave,
+            lane: lane,
+            outcome: .succeeded,
+            workspaceId: workspaceId,
+            database: .local,
+            databaseURL: configuration?.localDatabaseURL(workspaceId)
+        )
         await recordProbe(.localRepositoryOpened(workspaceId, .save))
         return result.repository
     }
 
-    private func cachedRestoreLocalRepository(workspaceId: UUID) async throws -> WorkspaceLocalRepository {
+    private func cachedRestoreLocalRepository(
+        workspaceId: UUID,
+        operation: WorkspaceSQLiteTraceOperation,
+        lane: WorkspaceSQLiteTraceLane
+    ) async throws -> WorkspaceLocalRepository {
         if let cachedRepository = restoreLocalRepositoryCache[workspaceId] {
             return cachedRepository
         }
@@ -490,8 +736,30 @@ actor WorkspaceSQLiteDatastore {
             let result = try makeLocalRepositoryForRestore(workspaceId)
             if let recoveryEvent = result.recoveryEvent {
                 appendRecoveryEvent(recoveryEvent, workspaceId: workspaceId)
+                await traceRecorder.recordRecovery(
+                    .init(
+                        recoveryKind: .localQuarantine,
+                        operation: operation,
+                        phase: .quarantineSidecars,
+                        lane: lane,
+                        outcome: .quarantined,
+                        workspaceId: workspaceId,
+                        database: .local,
+                        databaseURL: configuration?.localDatabaseURL(workspaceId),
+                        error: nil
+                    )
+                )
             }
             restoreLocalRepositoryCache[workspaceId] = result.repository
+            await traceRecorder.recordOperation(
+                operation,
+                phase: .openLocalRestore,
+                lane: lane,
+                outcome: .succeeded,
+                workspaceId: workspaceId,
+                database: .local,
+                databaseURL: configuration?.localDatabaseURL(workspaceId)
+            )
             await recordProbe(.localRepositoryOpened(workspaceId, .restore))
             return result.repository
         } catch WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
@@ -506,6 +774,19 @@ actor WorkspaceSQLiteDatastore {
                     quarantinedFilename: quarantinedFilename
                 ),
                 workspaceId: recoveredWorkspaceId
+            )
+            await traceRecorder.recordRecovery(
+                .init(
+                    recoveryKind: .localQuarantine,
+                    operation: operation,
+                    phase: .quarantineSidecars,
+                    lane: lane,
+                    outcome: .quarantined,
+                    workspaceId: recoveredWorkspaceId,
+                    database: .local,
+                    databaseURL: configuration?.localDatabaseURL(recoveredWorkspaceId),
+                    error: nil
+                )
             )
             throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
                 recoveredWorkspaceId,
@@ -523,6 +804,19 @@ actor WorkspaceSQLiteDatastore {
                     quarantinedFilename: quarantinedFilename
                 ),
                 workspaceId: failedWorkspaceId
+            )
+            await traceRecorder.recordRecovery(
+                .init(
+                    recoveryKind: .quarantineFailed,
+                    operation: operation,
+                    phase: .quarantineSidecars,
+                    lane: lane,
+                    outcome: .failed,
+                    workspaceId: failedWorkspaceId,
+                    database: .local,
+                    databaseURL: configuration?.localDatabaseURL(failedWorkspaceId),
+                    error: nil
+                )
             )
             throw WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(
                 failedWorkspaceId,
@@ -634,23 +928,4 @@ actor WorkspaceSQLiteDatastore {
         let backend = try resolvedBackend()
         return try backend.localBackend.legacyImportDecision(for: workspaceId, lane: lane)
     }
-}
-
-enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
-    case missingConfiguration
-    case useDatastoreLocalRepositoryCache
-    case coreQuarantineFailed
-}
-
-struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
-    let description: String
-
-    init(_ error: any Error) {
-        self.description = String(describing: error)
-    }
-}
-
-enum LegacyImportFailureRecordOutcome: Equatable, Sendable {
-    case recorded
-    case failedToRecord(WorkspaceSQLiteDatastoreFailure)
 }

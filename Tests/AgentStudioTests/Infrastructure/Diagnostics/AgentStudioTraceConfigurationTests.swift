@@ -79,6 +79,19 @@ struct AgentStudioTraceConfigurationTests {
     }
 
     @Test
+    func persistenceTraceTagsParseAsOperationAndRecoverySiblings() {
+        let exactSelection = AgentStudioTraceTag.parseSelection(
+            "persistence.operation,persistence.recovery,persistence.snapshot"
+        )
+        let wildcardSelection = AgentStudioTraceTag.parseSelection("persistence.*")
+
+        #expect(exactSelection.tags == [.persistenceOperation, .persistenceRecovery, .persistenceSnapshot])
+        #expect(exactSelection.unknownSelectors.isEmpty)
+        #expect(wildcardSelection.tags == [.persistenceOperation, .persistenceRecovery, .persistenceSnapshot])
+        #expect(wildcardSelection.unknownSelectors.isEmpty)
+    }
+
+    @Test
     func tagSelectionKeepsMixedKnownAndUnknownSelectors() {
         let selection = AgentStudioTraceTag.parseSelection(" Runtime, paneInbox, missing.tag ")
 

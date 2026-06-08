@@ -17,7 +17,11 @@ extension InboxNotification {
 
 extension PersistenceRecoveryEvent {
     fileprivate var notificationTitle: String {
-        switch store {
+        if recovery == .saveFailed {
+            return saveFailureNotificationTitle
+        }
+
+        return switch store {
         case .workspace:
             "Workspace reset"
         case .repoCache:
@@ -30,6 +34,23 @@ extension PersistenceRecoveryEvent {
             "Sidebar cache reset"
         case .notificationInbox:
             "Notification inbox reset"
+        }
+    }
+
+    private var saveFailureNotificationTitle: String {
+        switch store {
+        case .workspace:
+            "Workspace save failed"
+        case .repoCache:
+            "Repository cache save failed"
+        case .workspaceSettings:
+            "Workspace settings save failed"
+        case .uiState:
+            "UI state save failed"
+        case .sidebarCache:
+            "Sidebar cache save failed"
+        case .notificationInbox:
+            "Notification inbox save failed"
         }
     }
 

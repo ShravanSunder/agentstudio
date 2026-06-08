@@ -27,4 +27,22 @@ struct AppDelegatePersistenceRecoveryTests {
         #expect(delegate.atomStore.inboxNotification.notifications.count == 1)
         #expect(delegate.atomStore.inboxNotification.notifications.first?.kind == .persistenceRecovery)
     }
+
+    @Test("duplicate unread recovery events do not flood inbox")
+    func duplicateUnreadRecoveryEventsDoNotFloodInbox() {
+        let delegate = AppDelegate()
+        delegate.atomStore = AtomRegistry()
+        delegate.hasLoadedInboxNotificationStore = true
+        let event = PersistenceRecoveryEvent(
+            store: .workspace,
+            workspaceId: UUID(),
+            recovery: .saveFailed
+        )
+
+        delegate.recordPersistenceRecovery(event)
+        delegate.recordPersistenceRecovery(event)
+
+        #expect(delegate.atomStore.inboxNotification.notifications.count == 1)
+        #expect(delegate.atomStore.inboxNotification.notifications.first?.title == "Workspace save failed")
+    }
 }

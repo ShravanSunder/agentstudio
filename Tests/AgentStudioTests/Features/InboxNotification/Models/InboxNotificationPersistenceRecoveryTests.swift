@@ -37,4 +37,15 @@ struct InboxNotificationPersistenceRecoveryTests {
         #expect(saveFailed.body?.contains("could not save") == true)
         #expect(quarantineFailed.body?.contains("moving it aside failed") == true)
     }
+
+    @Test("workspace save failure is not titled as workspace reset")
+    func workspaceSaveFailureIsNotTitledAsWorkspaceReset() {
+        let notification = InboxNotification.persistenceRecovery(
+            .init(store: .workspace, workspaceId: UUID(), recovery: .saveFailed)
+        )
+
+        #expect(notification.title == "Workspace save failed")
+        #expect(notification.title != "Workspace reset")
+        #expect(notification.body?.contains("could not save") == true)
+    }
 }
