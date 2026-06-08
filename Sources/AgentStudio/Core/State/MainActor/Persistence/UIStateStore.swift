@@ -52,6 +52,10 @@ final class UIStateStore {
             assertionFailure("Use await restoreAsync(for:) when SQLite datastore is enabled")
             return
         }
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = nil
+        activeWorkspaceId = workspaceId
+        canArchiveLegacyUIFile = true
         restoreFromLegacyFiles(workspaceId: workspaceId, legacyImportDecision: .allowImport)
     }
 
