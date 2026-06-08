@@ -7,7 +7,6 @@ import AppKit
 enum TerminalStatusPlaceholderMode: Equatable {
     case preparing
     case failedToStart
-    case restorationPaused
 }
 
 @MainActor
@@ -94,9 +93,6 @@ final class TerminalStatusPlaceholderView: NSView, PaneMountedContent {
         case .failedToStart:
             startupOverlay.hide()
             errorOverlay.configure(health: .unhealthy(reason: .initializationFailed))
-        case .restorationPaused:
-            startupOverlay.hide()
-            errorOverlay.configureRestorationPaused()
         }
     }
 }

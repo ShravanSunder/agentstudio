@@ -773,15 +773,13 @@ extension PaneCoordinator {
         }
 
         RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
-        if viewRegistry.view(for: paneId) != nil {
-            progress.restored += 1
-        } else if registerInitialRestorePlaceholderIfNeeded(for: pane) {
-            progress.restored += 1
-        } else if createViewForContent(
-            pane: pane,
-            initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
-            treatAsRestoredSessionStart: true
-        ) != nil {
+        if viewRegistry.view(for: paneId) != nil
+            || createViewForContent(
+                pane: pane,
+                initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
+                treatAsRestoredSessionStart: true
+            ) != nil
+        {
             progress.restored += 1
         } else {
             progress.failedPaneIds.append(paneId)
@@ -817,18 +815,16 @@ extension PaneCoordinator {
                 continue
             }
             RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(parentPane.id)")
-            if viewRegistry.view(for: drawerPaneId) != nil {
-                progress.drawerRestored += 1
-            } else if registerInitialRestorePlaceholderIfNeeded(for: drawerPane) {
-                progress.drawerRestored += 1
-            } else if createViewForContent(
-                pane: drawerPane,
-                initialFrame: initialFrame(
-                    for: drawerPane,
-                    resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
-                ),
-                treatAsRestoredSessionStart: true
-            ) != nil {
+            if viewRegistry.view(for: drawerPaneId) != nil
+                || createViewForContent(
+                    pane: drawerPane,
+                    initialFrame: initialFrame(
+                        for: drawerPane,
+                        resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
+                    ),
+                    treatAsRestoredSessionStart: true
+                ) != nil
+            {
                 progress.drawerRestored += 1
             } else {
                 progress.failedDrawerPaneIds.append(drawerPaneId)

@@ -159,7 +159,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     @Test
-    func initialLaunchRestore_registersPlaceholderInsteadOfCreatingSurface() async throws {
+    func initialLaunchRestore_attemptsVisibleZmxSurfaceCreation() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -179,9 +179,9 @@ struct PaneTabViewControllerLaunchRestoreTests {
         await Task.yield()
 
         let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
-        #expect(placeholder.mode == .restorationPaused)
+        #expect(placeholder.mode == .failedToStart)
         #expect(placeholder.shouldRetryCreationWhenBoundsChange == false)
-        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        #expect(harness.surfaceManager.createdPaneIds == [pane.id])
         #expect(harness.viewRegistry.isInitialRestorePending == true)
     }
 
@@ -219,7 +219,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     @Test
-    func restoreAllViews_initialRestorePausesZmxTerminalSurfaceCreation() async throws {
+    func restoreAllViews_initialRestoreAttemptsZmxTerminalSurfaceCreation() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -237,10 +237,29 @@ struct PaneTabViewControllerLaunchRestoreTests {
         )
 
         let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
-        #expect(placeholder.mode == .restorationPaused)
+        #expect(placeholder.mode == .failedToStart)
         #expect(placeholder.shouldRetryCreationWhenBoundsChange == false)
-        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        #expect(harness.surfaceManager.createdPaneIds == [pane.id])
         #expect(harness.viewRegistry.isInitialRestorePending == false)
+    }
+
+    @Test
+    func terminalRestoreDoesNotExposeManualPausedStartupState() throws {
+        let sourcePaths = [
+            "Sources/AgentStudio/App/Coordination/PaneCoordinator+ActiveTabRestore.swift",
+            "Sources/AgentStudio/App/Coordination/PaneCoordinator+ViewLifecycle.swift",
+            "Sources/AgentStudio/Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift",
+            "Sources/AgentStudio/Features/Terminal/Views/SurfaceErrorOverlay.swift",
+        ]
+
+        for sourcePath in sourcePaths {
+            let sourceURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appending(path: sourcePath)
+            let source = try String(contentsOf: sourceURL, encoding: .utf8)
+            #expect(!source.contains("restorationPaused"))
+            #expect(!source.contains("Terminal Restore Paused"))
+            #expect(!source.contains("Start Terminal"))
+        }
     }
 
     @Test

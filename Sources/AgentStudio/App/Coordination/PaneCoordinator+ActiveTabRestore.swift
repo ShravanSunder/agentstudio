@@ -39,7 +39,7 @@ extension PaneCoordinator {
                 resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
             )
             RestoreTrace.log(
-                "restoreViewsForActiveTabIfNeeded initialRestorePlaceholder activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIds.count)"
+                "restoreViewsForActiveTabIfNeeded initialRestoreVisibleViews activeTab=\(activeTab.id) visiblePaneCount=\(visiblePaneIds.count)"
             )
             return
         }
@@ -60,9 +60,6 @@ extension PaneCoordinator {
             guard let pane = store.paneAtom.pane(paneId) else { continue }
             guard paneBelongsToActiveTab(pane, activeTab: activeTab) else { continue }
             guard viewRegistry.view(for: paneId) == nil else { continue }
-            if registerInitialRestorePlaceholderIfNeeded(for: pane) {
-                continue
-            }
             _ = createViewForContent(
                 pane: pane,
                 initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
@@ -94,17 +91,5 @@ extension PaneCoordinator {
 
     private func paneBelongsToActiveTab(_ pane: Pane, activeTab: Tab) -> Bool {
         store.tabLayoutAtom.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id
-    }
-
-    func registerInitialRestorePlaceholderIfNeeded(for pane: Pane) -> Bool {
-        guard shouldPauseInitialRestoreSurfaceCreation(for: pane) else { return false }
-        registerTerminalPlaceholderIfNeeded(for: pane, mode: .restorationPaused)
-        return true
-    }
-
-    func shouldPauseInitialRestoreSurfaceCreation(for pane: Pane) -> Bool {
-        guard viewRegistry.isInitialRestorePending else { return false }
-        guard case .terminal = pane.content else { return false }
-        return pane.provider == .zmx
     }
 }

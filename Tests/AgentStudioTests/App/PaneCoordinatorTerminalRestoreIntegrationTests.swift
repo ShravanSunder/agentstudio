@@ -216,7 +216,7 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
     }
 
     @Test
-    func activePartialRestoreThenFullRestore_pausesHiddenZmxWithLiveSessionDuringInitialRestore() async throws {
+    func activePartialRestoreThenFullRestore_attemptsZmxAttachDuringInitialRestore() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -253,14 +253,15 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         harness.coordinator.restoreViewsForActiveTabIfNeeded()
 
         let visiblePlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: visiblePane.id))
-        #expect(visiblePlaceholder.mode == .restorationPaused)
+        #expect(visiblePlaceholder.mode == .failedToStart)
+        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
         #expect(harness.viewRegistry.isInitialRestorePending == true)
 
         await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         let hiddenPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: hiddenPane.id))
-        #expect(hiddenPlaceholder.mode == .restorationPaused)
-        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        #expect(hiddenPlaceholder.mode == .failedToStart)
+        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
         #expect(harness.viewRegistry.isInitialRestorePending == false)
     }
 
