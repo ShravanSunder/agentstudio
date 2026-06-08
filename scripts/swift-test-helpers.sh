@@ -60,7 +60,7 @@ run_webkit_suites() {
   echo "--- WebKit serialized tests (serial) ---"
   while IFS= read -r filter; do
     [ -n "$filter" ] || continue
-    run_webkit_suite_with_retry "$filter"
+    run_webkit_suite_with_retry "$filter" || return $?
   done < <(webkit_suite_filters)
 }
 
