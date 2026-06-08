@@ -109,6 +109,8 @@ echo "--- swiftlint ---"
 swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"; exit 1; }
 echo "--- architecture boundary checks ---"
 bash scripts/check-core-boundary-imports.sh
+echo "--- release script checks ---"
+bash scripts/verify-release-scripts.sh
 """
 
 [tasks.doctor-mac]
@@ -432,7 +434,8 @@ cp "$BUILD_PATH/release/AgentStudio" "$APP_DIR/MacOS/"
 cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
 MARKETING_VERSION="${APP_MARKETING_VERSION:-0.0.1-dev}"
 BUILD_VERSION="${APP_BUILD_VERSION:-$(git rev-list --count HEAD)}"
-bash scripts/inject-bundle-version.sh "$APP_DIR/Info.plist" "$MARKETING_VERSION" "$BUILD_VERSION"
+RELEASE_CHANNEL="${APP_RELEASE_CHANNEL:-stable}"
+bash scripts/inject-bundle-version.sh "$APP_DIR/Info.plist" "$MARKETING_VERSION" "$BUILD_VERSION" "$RELEASE_CHANNEL"
 cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
 
 # terminfo

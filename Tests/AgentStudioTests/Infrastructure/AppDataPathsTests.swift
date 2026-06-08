@@ -29,11 +29,28 @@ struct AppDataPathsTests {
     }
 
     @Test
+    func test_rootDirectory_defaultsToBetaLocation() {
+        let root = AppDataPaths.rootDirectory(
+            environment: [:],
+            releaseChannel: .beta,
+            isDebugBuild: false
+        )
+
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+        #expect(root.path == "\(homeDir)/.agent-studio-b")
+    }
+
+    @Test
     func test_rootDirectory_envOverrideWinsForReleaseAndDebug() {
         let env = ["AGENTSTUDIO_DATA_DIR": "~/custom-agentstudio"]
 
         let releaseRoot = AppDataPaths.rootDirectory(
             environment: env,
+            isDebugBuild: false
+        )
+        let betaRoot = AppDataPaths.rootDirectory(
+            environment: env,
+            releaseChannel: .beta,
             isDebugBuild: false
         )
         let debugRoot = AppDataPaths.rootDirectory(
@@ -43,6 +60,7 @@ struct AppDataPathsTests {
 
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
         #expect(releaseRoot.path == "\(homeDir)/custom-agentstudio")
+        #expect(betaRoot.path == "\(homeDir)/custom-agentstudio")
         #expect(debugRoot.path == "\(homeDir)/custom-agentstudio")
     }
 

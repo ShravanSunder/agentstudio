@@ -579,7 +579,7 @@ struct WorkspaceSettingsStoreTests {
         workspacesDir: URL? = nil,
         legacyPersistor: WorkspacePersistor? = nil,
         persistDebounceDuration: Duration = .zero,
-        clock: any Clock<Duration> = ContinuousClock(),
+        clock: (any Clock<Duration> & Sendable)? = ContinuousClock(),
         quarantineCorruptSettingsFile: (@MainActor (UUID) -> URL?)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) -> WorkspaceSettingsStore {

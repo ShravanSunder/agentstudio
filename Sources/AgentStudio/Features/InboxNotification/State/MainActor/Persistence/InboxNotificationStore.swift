@@ -18,7 +18,7 @@ final class InboxNotificationStore {
     let sidebarState: InboxSidebarState
 
     private let fileURL: URL
-    private let clock: any Clock<Duration>
+    private let delay: AsyncDelay
     private let debounceDuration: Duration
     private let recoveryReporter: PersistenceRecoveryReporter?
     private let sqliteAdapter: InboxNotificationSQLiteDatastoreAdapter?
@@ -62,7 +62,7 @@ final class InboxNotificationStore {
         prefsAtom: InboxNotificationPrefsAtom,
         sidebarState: InboxSidebarState = .init(),
         fileURL: URL,
-        clock: any Clock<Duration> = ContinuousClock(),
+        clock: (any Clock<Duration> & Sendable)? = nil,
         debounceDuration: Duration = .milliseconds(500),
         recoveryReporter: PersistenceRecoveryReporter? = nil,
         sqliteAdapter: InboxNotificationSQLiteDatastoreAdapter? = nil,
@@ -73,7 +73,7 @@ final class InboxNotificationStore {
         self.prefsAtom = prefsAtom
         self.sidebarState = sidebarState
         self.fileURL = fileURL
-        self.clock = clock
+        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.debounceDuration = debounceDuration
         self.recoveryReporter = recoveryReporter
         self.sqliteAdapter = sqliteAdapter
@@ -327,10 +327,11 @@ final class InboxNotificationStore {
 
     func scheduleDebouncedSave() {
         debouncedSaveTask?.cancel()
-        debouncedSaveTask = Task { [weak self] in
-            guard let self else { return }
+        let delay = self.delay
+        let debounceDuration = self.debounceDuration
+        debouncedSaveTask = Task { [weak self, delay, debounceDuration] in
             do {
-                try await clock.sleep(for: debounceDuration)
+                try await delay.wait(debounceDuration)
             } catch is CancellationError {
                 return
             } catch {
@@ -339,6 +340,7 @@ final class InboxNotificationStore {
                 )
             }
             guard !Task.isCancelled else { return }
+            guard let self else { return }
             do {
                 try await persistCurrentPayloadAsync()
             } catch {

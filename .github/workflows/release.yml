@@ -141,16 +141,24 @@ jobs:
             [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" Sources/AgentStudio/Resources/terminfo/67/
           fi
 
-      - name: Determine version
+      - name: Determine release metadata
         id: version
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            RAW_VERSION="${GITHUB_REF#refs/tags/}"
-            echo "version=${RAW_VERSION}" >> "$GITHUB_OUTPUT"
-            echo "marketing_version=${RAW_VERSION#v}" >> "$GITHUB_OUTPUT"
+            bash scripts/release-tag-metadata.sh "${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           else
             echo "version=dev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
             echo "marketing_version=0.0.1-dev" >> "$GITHUB_OUTPUT"
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "cask_token=agent-studio" >> "$GITHUB_OUTPUT"
+            echo "cask_file=Casks/agent-studio.rb" >> "$GITHUB_OUTPUT"
+            echo "data_dir_name=.agentstudio" >> "$GITHUB_OUTPUT"
+            echo "app_bundle_name=AgentStudio.app" >> "$GITHUB_OUTPUT"
+            echo "bundle_identifier=com.agentstudio.app" >> "$GITHUB_OUTPUT"
+            echo "bundle_name=AgentStudio" >> "$GITHUB_OUTPUT"
+            echo "bundle_display_name=Agent Studio" >> "$GITHUB_OUTPUT"
+            echo "app_cache_domain=com.agentstudio.app" >> "$GITHUB_OUTPUT"
           fi
           echo "build_version=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
@@ -171,9 +179,11 @@ jobs:
       - name: Create App Bundle
         run: |
           set -euo pipefail
-          APP_DIR="AgentStudio.app/Contents"
-          rm -rf AgentStudio.app
+          APP_BUNDLE_NAME="${{ steps.version.outputs.app_bundle_name }}"
+          APP_DIR="$APP_BUNDLE_NAME/Contents"
+          rm -rf "$APP_BUNDLE_NAME"
           mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
+          echo "APP_BUNDLE_NAME=$APP_BUNDLE_NAME" >> "$GITHUB_ENV"
 
           cp .build/release/AgentStudio "$APP_DIR/MacOS/"
           [ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
@@ -181,7 +191,8 @@ jobs:
           bash scripts/inject-bundle-version.sh \
             "$APP_DIR/Info.plist" \
             "${{ steps.version.outputs.marketing_version }}" \
-            "${{ steps.version.outputs.build_version }}"
+            "${{ steps.version.outputs.build_version }}" \
+            "${{ steps.version.outputs.channel }}"
           cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
           [ -d "Sources/AgentStudio/Resources/terminfo" ] && cp -R Sources/AgentStudio/Resources/terminfo "$APP_DIR/Resources/"
           if [ -d "Sources/AgentStudio/Resources/ghostty" ]; then
@@ -211,7 +222,7 @@ jobs:
         run: |
           set -euo pipefail
           ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
-          APP="AgentStudio.app"
+          APP="${APP_BUNDLE_NAME:?missing app bundle name}"
 
           if [ "$CAN_SIGN" = "true" ]; then
             echo "Signing with: $SIGNING_IDENTITY"
@@ -257,7 +268,7 @@ jobs:
           set -euo pipefail
 
           echo "Creating ZIP for notarization..."
-          ditto -c -k --keepParent AgentStudio.app AgentStudio-notarize.zip
+          ditto -c -k --keepParent "${APP_BUNDLE_NAME:?missing app bundle name}" AgentStudio-notarize.zip
 
           echo "Submitting to Apple notary service..."
           SUBMISSION_ID=$(xcrun notarytool submit AgentStudio-notarize.zip \
@@ -312,8 +323,8 @@ jobs:
         if: steps.signing.outputs.can_sign == 'true'
         run: |
           set -euo pipefail
-          xcrun stapler staple AgentStudio.app
-          spctl --assess --type execute --verbose AgentStudio.app
+          xcrun stapler staple "${APP_BUNDLE_NAME:?missing app bundle name}"
+          spctl --assess --type execute --verbose "${APP_BUNDLE_NAME:?missing app bundle name}"
           rm -f AgentStudio-notarize.zip
 
       # --- Package and release ---
@@ -321,7 +332,7 @@ jobs:
       - name: Create ZIP Archive
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          ditto -c -k --keepParent AgentStudio.app "AgentStudio-${VERSION}-macos.zip"
+          ditto -c -k --keepParent "${APP_BUNDLE_NAME:?missing app bundle name}" "AgentStudio-${VERSION}-macos.zip"
           echo "ARTIFACT_NAME=AgentStudio-${VERSION}-macos.zip" >> $GITHUB_ENV
 
       - name: Compute SHA256
@@ -343,7 +354,7 @@ jobs:
           files: ${{ env.ARTIFACT_NAME }}
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+          prerelease: ${{ steps.version.outputs.is_prerelease == 'true' }}
           body: |
             **SHA256:** `${{ env.RELEASE_SHA256 }}`
         env:
@@ -352,36 +363,11 @@ jobs:
       # --- Update Homebrew tap ---
 
       - name: Update Homebrew tap
-        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
-          SHA256="${{ env.RELEASE_SHA256 }}"
-          # Strip 'v' prefix for cask version
-          CASK_VERSION="${VERSION#v}"
-
-          # Use credential helper to avoid PAT in git clone URL
-          git config --global credential.helper store
-          echo "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com" > ~/.git-credentials
-
-          git clone https://github.com/ShravanSunder/homebrew-agentstudio.git /tmp/homebrew-tap
-          cd /tmp/homebrew-tap
-
-          # Line-anchored sed to avoid matching comments or other fields
-          sed -i '' 's/^  version ".*"$/  version "'"${CASK_VERSION}"'"/' Casks/agent-studio.rb
-          sed -i '' 's/^  sha256 ".*"$/  sha256 "'"${SHA256}"'"/' Casks/agent-studio.rb
-
-          # Validate the update worked
-          grep -q "version \"${CASK_VERSION}\"" Casks/agent-studio.rb || { echo "::error::Failed to update cask version"; exit 1; }
-          grep -q "sha256 \"${SHA256}\"" Casks/agent-studio.rb || { echo "::error::Failed to update cask sha256"; exit 1; }
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/agent-studio.rb
-          git commit -m "Update agent-studio to v${CASK_VERSION}"
-          git push origin main
-
-          # Clean up credentials
-          rm -f ~/.git-credentials
+          bash scripts/update-homebrew-tap.sh \
+            "${{ steps.version.outputs.channel }}" \
+            "${{ steps.version.outputs.version }}" \
+            "${{ env.RELEASE_SHA256 }}"

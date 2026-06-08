@@ -368,8 +368,8 @@ struct AppBootSequenceTests {
         #expect(!appDelegateSource.contains("consumePendingFilter"))
     }
 
-    @Test("production code avoids the clock-based Task.sleep overload")
-    func productionCodeAvoidsClockBasedTaskSleep() throws {
+    @Test("production code avoids generic clock-based sleep overloads")
+    func productionCodeAvoidsGenericClockBasedSleep() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let sourceRoot = projectRoot.appending(path: "Sources/AgentStudio")
         let sourceFiles =
@@ -380,10 +380,13 @@ struct AppBootSequenceTests {
         var offenders: [String] = []
 
         for sourceFile in sourceFiles {
+            let relativePath = sourceFile.path.replacingOccurrences(of: projectRoot.path + "/", with: "")
+            guard relativePath != "Sources/AgentStudio/Infrastructure/Extensions/FoundationExtensions.swift" else {
+                continue
+            }
             let source = try String(contentsOf: sourceFile, encoding: .utf8)
             for (lineIndex, line) in source.split(separator: "\n", omittingEmptySubsequences: false).enumerated()
-            where line.contains("Task.sleep(for:") {
-                let relativePath = sourceFile.path.replacingOccurrences(of: projectRoot.path + "/", with: "")
+            where Self.isGenericClockSleep(line) {
                 offenders.append("\(relativePath):\(lineIndex + 1): \(line)")
             }
         }
@@ -392,11 +395,18 @@ struct AppBootSequenceTests {
             offenders.isEmpty,
             """
             macOS 26.4 release startup reproduced swift_task_dealloc crashes in the \
-            generic clock-based Task.sleep overload. Use Duration.nanosecondsForTaskSleep \
-            with Task.sleep(nanoseconds:) instead.
+            generic clock-based sleep path. Use Duration.nanosecondsForTaskSleep \
+            with Task.sleep(nanoseconds:) for production sleeps instead.
 
             \(offenders.joined(separator: "\n"))
             """
         )
+    }
+
+    private static func isGenericClockSleep(_ line: Substring) -> Bool {
+        let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmedLine.hasPrefix("//") else { return false }
+        return trimmedLine.contains("Task.sleep(for:")
+            || trimmedLine.contains(".sleep(for:")
     }
 }

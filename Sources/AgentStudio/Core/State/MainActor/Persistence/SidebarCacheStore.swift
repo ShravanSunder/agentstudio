@@ -10,7 +10,7 @@ final class SidebarCacheStore {
     private let persistor: WorkspacePersistor
     private let sqliteDatastore: WorkspaceSQLiteDatastore?
     private let persistDebounceDuration: Duration
-    private let clock: any Clock<Duration>
+    private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
     private var isObservingCacheState = false
@@ -27,14 +27,14 @@ final class SidebarCacheStore {
         persistor: WorkspacePersistor = WorkspacePersistor(),
         sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
-        clock: any Clock<Duration> = ContinuousClock(),
+        clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
         self.persistor = persistor
         self.sqliteDatastore = sqliteDatastore
         self.persistDebounceDuration = persistDebounceDuration
-        self.clock = clock
+        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.recoveryReporter = recoveryReporter
     }
 
@@ -164,10 +164,12 @@ final class SidebarCacheStore {
     private func schedulePersist() {
         guard let workspaceId = activeWorkspaceId else { return }
         debouncedSaveTask?.cancel()
-        debouncedSaveTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await self.clock.sleep(for: self.persistDebounceDuration)
+        let delay = self.delay
+        let persistDebounceDuration = self.persistDebounceDuration
+        debouncedSaveTask = Task { @MainActor [weak self, delay, persistDebounceDuration, workspaceId] in
+            try? await delay.wait(persistDebounceDuration)
             guard !Task.isCancelled else { return }
+            guard let self else { return }
             do {
                 try await self.persistNow(for: workspaceId)
             } catch {

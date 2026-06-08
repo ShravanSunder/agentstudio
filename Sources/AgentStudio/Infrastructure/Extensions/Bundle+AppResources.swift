@@ -12,7 +12,7 @@ extension Bundle {
     static var appResources: Bundle {
         if let resourceURL = Self.main.resourceURL {
             let candidate = resourceURL.appendingPathComponent(resourceBundleName)
-            if let bundle = Bundle(url: candidate) {
+            if let bundle = Self(url: candidate) {
                 return bundle
             }
         }

@@ -28,7 +28,7 @@ final class WorkspaceStore {
     let persistor: WorkspacePersistor
     private let sqliteDatastore: WorkspaceSQLiteDatastore?
     private let persistDebounceDuration: Duration
-    private let clock: any Clock<Duration>
+    private let delay: AsyncDelay
     let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
     private var isObservingPersistedState = false
@@ -49,7 +49,7 @@ final class WorkspaceStore {
         persistor: WorkspacePersistor = WorkspacePersistor(),
         sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
-        clock: any Clock<Duration> = ContinuousClock(),
+        clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
@@ -90,7 +90,7 @@ final class WorkspaceStore {
         self.persistor = persistor
         self.sqliteDatastore = sqliteDatastore
         self.persistDebounceDuration = persistDebounceDuration
-        self.clock = clock
+        delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.recoveryReporter = recoveryReporter
         observePersistedState()
     }
@@ -296,10 +296,12 @@ final class WorkspaceStore {
         }
 
         debouncedSaveTask?.cancel()
-        debouncedSaveTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await self.clock.sleep(for: self.persistDebounceDuration)
+        let delay = self.delay
+        let persistDebounceDuration = self.persistDebounceDuration
+        debouncedSaveTask = Task { @MainActor [weak self, delay, persistDebounceDuration] in
+            try? await delay.wait(persistDebounceDuration)
             guard !Task.isCancelled else { return }
+            guard let self else { return }
             _ = await self.persistNow()
         }
     }

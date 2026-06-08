@@ -14,15 +14,23 @@ actor FilesystemActor {
         let sleep: @Sendable (Duration) async throws -> Void
 
         static func continuous() -> Self {
-            make(clock: ContinuousClock())
-        }
-
-        static func make<C: Clock>(clock: C) -> Self where C.Duration == Duration, C: Sendable {
+            let clock = ContinuousClock()
             let origin = clock.now
             return Self(
                 now: { origin.duration(to: clock.now) },
                 sleep: { duration in
-                    try await clock.sleep(for: duration)
+                    try await AsyncDelay.taskSleep.wait(duration)
+                }
+            )
+        }
+
+        static func make<C: Clock>(clock: C) -> Self where C.Duration == Duration, C: Sendable {
+            let origin = clock.now
+            let delay = AsyncDelay.clock(clock)
+            return Self(
+                now: { origin.duration(to: clock.now) },
+                sleep: { duration in
+                    try await delay.wait(duration)
                 }
             )
         }
@@ -797,11 +805,12 @@ actor FilesystemActor {
     private func startFallbackRescan() {
         fallbackRescanTask?.cancel()
         guard !watchedFolderIds.isEmpty else { return }
-        fallbackRescanTask = Task { [weak self] in
-            guard let self else { return }
+        let schedulingClock = self.schedulingClock
+        fallbackRescanTask = Task { [weak self, schedulingClock] in
             while !Task.isCancelled {
-                try? await self.schedulingClock.sleep(.seconds(300))
+                try? await schedulingClock.sleep(.seconds(300))
                 guard !Task.isCancelled else { break }
+                guard let self else { break }
                 let rescanResult = await self.rescanAllWatchedFolders()
                 await self.emitRemovedClones(
                     noLongerReferencedByAnyWatchedFolder: rescanResult.removedClonePaths
