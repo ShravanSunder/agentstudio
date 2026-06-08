@@ -2,7 +2,7 @@ import Foundation
 
 /// Tracks where a session currently resides in the application lifecycle.
 /// Used by the Reconciler to determine intent — avoids false-positive orphan detection.
-enum SessionResidency: Equatable, Codable, Hashable {
+enum SessionResidency: Equatable, Codable, Hashable, Sendable {
     /// Session is in a layout, view exists, fully active.
     case active
     /// Session was closed and is in the undo window. Not an orphan.
@@ -28,6 +28,6 @@ enum SessionResidency: Equatable, Codable, Hashable {
     }
 }
 
-enum WorktreeUnavailableReason: Equatable, Codable, Hashable {
+enum WorktreeUnavailableReason: Equatable, Codable, Hashable, Sendable {
     case worktreeNotFound(path: String)
 }

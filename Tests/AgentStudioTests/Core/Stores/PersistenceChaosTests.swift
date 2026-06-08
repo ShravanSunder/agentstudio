@@ -84,7 +84,7 @@ struct PersistenceChaosTests {
                 flavor: flavor,
                 store: .repoCache,
                 workspaceId: workspaceId,
-                recovery: .rebuiltFromEvents
+                recovery: .quarantinedAndReset
             )
         }
     }
@@ -120,11 +120,11 @@ struct PersistenceChaosTests {
                 )
             )
 
-            let atom = UIStateAtom()
+            let atom = WorkspaceSidebarState()
             var recoveryEvents: [PersistenceRecoveryEvent] = []
             UIStateStore(
                 atom: atom,
-                editorChooserAtom: EditorChooserAtom(),
+                editorChooserState: EditorChooserState(),
                 persistor: persistor,
                 recoveryReporter: { recoveryEvents.append($0) }
             ).restore(for: workspaceId)
@@ -163,7 +163,7 @@ struct PersistenceChaosTests {
                 )
             )
 
-            let atom = SidebarCacheAtom()
+            let atom = SidebarCacheState()
             var recoveryEvents: [PersistenceRecoveryEvent] = []
             SidebarCacheStore(
                 atom: atom,
@@ -213,7 +213,7 @@ struct PersistenceChaosTests {
                 recoveryReporter: { recoveryEvents.append($0) }
             )
 
-            try? store.load()
+            _ = try? store.load()
 
             #expect(inboxAtom.notifications.isEmpty)
             assertRecoveryEvents(
@@ -281,7 +281,6 @@ struct PersistenceChaosTests {
             "repoEnrichmentByRepoId": {},
             "worktreeEnrichmentByWorktreeId": {},
             "pullRequestCountByWorktreeId": {},
-            "notificationCountByWorktreeId": {},
             "recentTargets": [],
             "sourceRevision": 0,
             "lastRebuiltAt": null

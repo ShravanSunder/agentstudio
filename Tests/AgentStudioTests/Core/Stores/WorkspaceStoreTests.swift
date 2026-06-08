@@ -118,6 +118,89 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func archiveLegacyWorkspaceFiles_movesCompanionFilesIntoLegacyImportedDirectory() throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-archive-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        #expect(persistor.ensureDirectory())
+        let workspaceId = UUID()
+        let legacyURLs = [
+            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json"),
+            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json"),
+            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json"),
+            persistedDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json"),
+            persistedDir.appending(path: "\(workspaceId.uuidString).notification-inbox.json"),
+        ]
+        for url in legacyURLs {
+            try Data(url.lastPathComponent.utf8).write(to: url, options: .atomic)
+        }
+
+        let result = try #require(persistor.archiveLegacyWorkspaceFiles(for: workspaceId))
+
+        #expect(result.failedFilenames.isEmpty)
+        #expect(Set(result.archivedFilenames) == Set(legacyURLs.map(\.lastPathComponent)))
+        let archiveDirectory =
+            persistedDir
+            .appending(path: "legacy-imported")
+            .appending(path: result.archiveDirectoryName)
+        #expect(FileManager.default.fileExists(atPath: archiveDirectory.path))
+        for url in legacyURLs {
+            #expect(!FileManager.default.fileExists(atPath: url.path))
+            #expect(
+                FileManager.default.fileExists(atPath: archiveDirectory.appending(path: url.lastPathComponent).path))
+        }
+    }
+
+    @Test
+    func hasLegacyWorkspaceFilesReportsWhetherAnyLegacyFileExists() throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-legacy-file-presence-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        #expect(persistor.ensureDirectory())
+        let workspaceId = UUID()
+
+        #expect(!persistor.hasLegacyWorkspaceFiles(for: workspaceId))
+
+        let stateURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
+        try Data("state".utf8).write(to: stateURL, options: .atomic)
+
+        #expect(persistor.hasLegacyWorkspaceFiles(for: workspaceId))
+    }
+
+    @Test
+    func archiveLegacyWorkspaceFilesReportsPriorIncompleteArchiveDirectory() throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-incomplete-archive-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        #expect(persistor.ensureDirectory())
+        let workspaceId = UUID()
+        let stateURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
+        try Data("state".utf8).write(to: stateURL, options: .atomic)
+        let incompleteDirectoryName = "2026-06-06T00-00-00Z"
+        let incompleteDirectory =
+            persistedDir
+            .appending(path: "legacy-imported")
+            .appending(path: incompleteDirectoryName)
+        try FileManager.default.createDirectory(at: incompleteDirectory, withIntermediateDirectories: true)
+        try Data("partial".utf8).write(
+            to: incompleteDirectory.appending(path: "\(workspaceId.uuidString).workspace.cache.json"),
+            options: .atomic
+        )
+        try Data("incomplete".utf8).write(
+            to: incompleteDirectory.appending(path: ".archive-incomplete-\(workspaceId.uuidString).marker"),
+            options: .atomic
+        )
+
+        let result = try #require(persistor.archiveLegacyWorkspaceFiles(for: workspaceId))
+
+        #expect(result.archivedFilenames.isEmpty)
+        #expect(result.failedFilenames == [stateURL.lastPathComponent])
+        #expect(result.incompleteArchiveDirectoryNames == [incompleteDirectoryName])
+        #expect(!result.succeeded)
+        #expect(FileManager.default.fileExists(atPath: stateURL.path))
+    }
+
+    @Test
     func test_flushFailure_reportsSaveFailedRecovery() {
         let blockedDirectoryURL = FileManager.default.temporaryDirectory
             .appending(path: "workspace-store-blocked-\(UUID().uuidString)")
@@ -130,7 +213,7 @@ final class WorkspaceStoreTests {
 
         #expect(store.flush() == false)
         #expect(reportedRecovery?.store == .workspace)
-        #expect(reportedRecovery?.workspaceId == store.metadataAtom.workspaceId)
+        #expect(reportedRecovery?.workspaceId == store.identityAtom.workspaceId)
         #expect(reportedRecovery?.recovery == .saveFailed)
     }
 
@@ -162,6 +245,36 @@ final class WorkspaceStoreTests {
         let restoredStore = WorkspaceStore(persistor: persistor)
         restoredStore.restore()
         #expect(restoredStore.pane(pane.id)?.title == "Scoped")
+    }
+
+    @Test
+    func test_workspaceStore_exposesResolvedTabWriteOwners() {
+        let tabCursorAtom = WorkspaceTabCursorAtom()
+        let tabShellAtom = WorkspaceTabShellAtom(cursorAtom: tabCursorAtom)
+        let tabGraphAtom = WorkspaceTabGraphAtom()
+        let arrangementCursorAtom = WorkspaceArrangementCursorAtom()
+        let panePresentationAtom = WorkspacePanePresentationAtom()
+        let tabArrangementAtom = WorkspaceTabArrangementAtom(
+            graphAtom: tabGraphAtom,
+            cursorAtom: arrangementCursorAtom,
+            presentationAtom: panePresentationAtom
+        )
+        let tabLayoutAtom = WorkspaceTabLayoutAtom(
+            shellAtom: tabShellAtom,
+            arrangementAtom: tabArrangementAtom
+        )
+
+        let store = WorkspaceStore(
+            tabLayoutAtom: tabLayoutAtom,
+            persistor: WorkspacePersistor(workspacesDir: tempDir)
+        )
+
+        #expect(store.tabShellAtom === tabShellAtom)
+        #expect(store.tabCursorAtom === tabCursorAtom)
+        #expect(store.tabArrangementAtom === tabArrangementAtom)
+        #expect(store.tabGraphAtom === tabGraphAtom)
+        #expect(store.arrangementCursorAtom === arrangementCursorAtom)
+        #expect(store.panePresentationAtom === panePresentationAtom)
     }
 
     // MARK: - Pane CRUD
@@ -247,7 +360,7 @@ final class WorkspaceStoreTests {
     }
 
     @Test
-    func updatePaneLiveLocation_clearsLiveRepoAndWorktreeWhenCwdLeavesKnownWorktrees() {
+    func updatePaneLiveLocation_clearsLiveRepoAndWorktreeWhenCwdLeavesKnownWorktrees() throws {
         let repo = store.addRepo(at: URL(filePath: "/tmp/live-clear-repo"))
         let main = Worktree(
             repoId: repo.id,
@@ -256,10 +369,12 @@ final class WorkspaceStoreTests {
             isMainWorktree: true
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main])
+        let storedWorktree = try #require(store.repos.first { $0.id == repo.id }?.worktrees.first)
         let pane = store.createPane(
-            source: .worktree(worktreeId: main.id, repoId: repo.id, launchDirectory: main.path),
+            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
             title: "Terminal"
         )
+        store.appendTab(Tab(paneId: pane.id))
 
         let externalCwd = URL(filePath: "/tmp/outside-known-worktrees")
         let result = store.paneAtom.updatePaneCWDAndResolvedContext(
@@ -276,14 +391,22 @@ final class WorkspaceStoreTests {
         #expect(updated?.metadata.repoName == nil)
         #expect(updated?.metadata.worktreeName == nil)
 
+        #expect(store.flush())
+        let restoredStore = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        restoredStore.restore()
+        let restoredPane = try #require(restoredStore.pane(pane.id))
+        #expect(restoredPane.metadata.cwd == externalCwd)
+        #expect(restoredPane.repoId == nil)
+        #expect(restoredPane.worktreeId == nil)
+
         guard case .worktree(let launchWorktreeId, let launchRepoId, let launchDirectory) = updated?.metadata.source
         else {
             Issue.record("Expected launch source to remain worktree provenance")
             return
         }
-        #expect(launchWorktreeId == main.id)
+        #expect(launchWorktreeId == storedWorktree.id)
         #expect(launchRepoId == repo.id)
-        #expect(launchDirectory == main.path)
+        #expect(launchDirectory == storedWorktree.path)
     }
 
     @Test
@@ -1197,6 +1320,227 @@ final class WorkspaceStoreTests {
         }
 
         #expect(store.isDirty)
+    }
+
+    @Test
+    func test_zoomPresentationChangeDoesNotDirtyWorkspacePersistence() async {
+        let pane = store.paneAtom.createPane(source: .floating(launchDirectory: nil, title: "Zoom"))
+        let tab = Tab(paneId: pane.id)
+        store.tabLayoutAtom.appendTab(tab)
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.tabLayoutAtom.toggleZoom(paneId: pane.id, inTab: tab.id)
+
+        for _ in 0..<10 where store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(!store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnDirectTabWriteOwnerMutation() async {
+        let pane = store.paneAtom.createPane(source: .floating(launchDirectory: nil, title: "Graph"))
+        let tab = Tab(paneId: pane.id)
+        store.tabLayoutAtom.appendTab(tab)
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.tabGraphAtom.replaceStates([])
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnActiveTabCursorMutation() async {
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let firstTab = Tab(paneId: firstPane.id)
+        store.appendTab(firstTab)
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let secondTab = Tab(paneId: secondPane.id)
+        store.appendTab(secondTab)
+        #expect(store.activeTabId == secondTab.id)
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.setActiveTab(firstTab.id)
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnActiveArrangementCursorMutation() async throws {
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let tab = Tab(paneId: firstPane.id)
+        store.appendTab(tab)
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        #expect(
+            store.insertPane(
+                secondPane.id,
+                inTab: tab.id,
+                at: firstPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            ))
+        let customArrangementId = try #require(store.createArrangement(name: "Focus", inTab: tab.id))
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.switchArrangement(to: customArrangementId, inTab: tab.id)
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnActivePaneCursorMutation() async {
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let tab = Tab(paneId: firstPane.id)
+        store.appendTab(tab)
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        #expect(
+            store.insertPane(
+                secondPane.id,
+                inTab: tab.id,
+                at: firstPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            ))
+        #expect(store.tab(tab.id)?.activePaneId == secondPane.id)
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.setActivePane(firstPane.id, inTab: tab.id)
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnActiveDrawerChildCursorMutation() async throws {
+        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+        let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        #expect(store.drawerView(forParent: parentPane.id)?.activeChildId == secondDrawerPane.id)
+        #expect(store.flush())
+        #expect(!store.isDirty)
+
+        store.setActiveDrawerPane(firstDrawerPane.id, in: parentPane.id)
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_repoEnrichmentDisplayChangeDoesNotDirtyWorkspacePersistence() async throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-derived-display-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
+        let worktreePath = repoPath.appending(path: "sqlite")
+        let pane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                source: .worktree(worktreeId: worktreeId, repoId: repoId, launchDirectory: worktreePath),
+                title: "Terminal",
+                facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: worktreePath)
+            )
+        )
+        let tab = Tab(paneId: pane.id)
+        #expect(persistor.ensureDirectory())
+        try persistor.save(
+            .init(
+                repos: [CanonicalRepo(id: repoId, name: "agent-studio", repoPath: repoPath)],
+                worktrees: [CanonicalWorktree(id: worktreeId, repoId: repoId, name: "sqlite", path: worktreePath)],
+                panes: [pane],
+                tabs: [tab],
+                activeTabId: tab.id
+            )
+        )
+
+        let atoms = AtomRegistry()
+        let clock = TestPushClock()
+        let scopedStore = WorkspaceStore(
+            identityAtom: atoms.workspaceIdentity,
+            windowMemoryAtom: atoms.workspaceWindowMemory,
+            repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
+            paneAtom: atoms.workspacePane,
+            tabShellAtom: atoms.workspaceTabShell,
+            tabArrangementAtom: atoms.workspaceTabArrangement,
+            tabLayoutAtom: atoms.workspaceTabLayout,
+            mutationCoordinator: atoms.workspaceMutationCoordinator,
+            persistor: persistor,
+            persistDebounceDuration: .seconds(1),
+            clock: clock
+        )
+        scopedStore.restore()
+        await Task.yield()
+        #expect(!scopedStore.isDirty)
+        #expect(clock.pendingSleepCount == 0)
+
+        let restoredPane = try #require(scopedStore.pane(pane.id))
+        #expect(restoredPane.repoId == repoId)
+        #expect(restoredPane.worktreeId == worktreeId)
+        #expect(restoredPane.metadata.cwd == worktreePath)
+        #expect(scopedStore.activeTabId == tab.id)
+
+        atoms.repoEnrichmentCache.setRepoEnrichment(
+            .resolvedRemote(
+                repoId: repoId,
+                raw: RawRepoOrigin(origin: "origin-url", upstream: "upstream-url"),
+                identity: RepoIdentity(
+                    groupKey: "org",
+                    remoteSlug: "org/agent-studio",
+                    organizationName: "org",
+                    displayName: "agent-studio"
+                ),
+                updatedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        await Task.yield()
+
+        let derivedPane = try #require(scopedStore.pane(pane.id))
+        #expect(derivedPane.metadata.facets.organizationName == "org")
+        #expect(derivedPane.metadata.facets.origin == "origin-url")
+        #expect(!scopedStore.isDirty)
+        #expect(clock.pendingSleepCount == 0)
+        #expect(scopedStore.flush())
+
+        switch persistor.load() {
+        case .loaded(let persistedState):
+            let persistedPane = try #require(persistedState.panes.first)
+            #expect(persistedPane.metadata.facets.organizationName == nil)
+            #expect(persistedPane.metadata.facets.origin == nil)
+            #expect(persistedPane.metadata.facets.upstream == nil)
+        case .missing:
+            Issue.record("Expected workspace state file after flush")
+        case .corrupt(let error):
+            Issue.record("Expected decodable workspace state, got \(error)")
+        }
     }
 
     // MARK: - Undo

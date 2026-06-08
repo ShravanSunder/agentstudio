@@ -91,11 +91,14 @@
 │    WorkspacePaneAtom             pane records (content, drawer)      │
 │    WorkspaceRepositoryTopologyAtom                                   │
 │                                  repos + worktrees                   │
-│    WorkspaceTabArrangementAtom   arrangements per tab                │
-│    WorkspaceTabLayoutAtom        tabs + active tab + active          │
-│                                  pane (CANONICAL active-pane         │
-│                                  source)                             │
-│    WorkspaceTabShellAtom         shell/active-tab state              │
+│    WorkspaceTabShellAtom         tab identity/order                  │
+│    WorkspaceTabCursorAtom        active tab cursor                   │
+│    WorkspaceTabGraphAtom         tab membership + layout graph       │
+│    WorkspaceArrangementCursorAtom                                   │
+│                                  arrangement/pane/drawer cursors     │
+│    WorkspacePanePresentationAtom runtime zoom/presentation           │
+│    WorkspaceTabArrangementAtom   compatibility mutation facade       │
+│    WorkspaceTabLayoutAtom        compatibility read facade           │
 │    PaneFilesystemProjectionAtom  fs projection per pane              │
 │                                                                      │
 │   Derived (push-based, no canonical state):                          │
@@ -121,7 +124,7 @@
 │                                  (← renamed from WorkspaceFocus)     │
 │    PaneDisplayDerived            pane display formatting             │
 │    TabDisplayDerived             tab display formatting              │
-│    WorkspaceTabDerived           tab composition over shell+arr      │
+│    WorkspaceTabLayoutDerived     tab composition over split tab owners│
 │    WorkspaceLookupDerived        lookup helpers                      │
 │    DynamicViewDerived            view composition                    │
 │                                                                      │

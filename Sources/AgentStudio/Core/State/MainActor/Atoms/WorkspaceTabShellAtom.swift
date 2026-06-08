@@ -7,15 +7,20 @@ private let workspaceTabShellLogger = Logger(subsystem: "com.agentstudio", categ
 @MainActor
 @Observable
 final class WorkspaceTabShellAtom {
+    let cursorAtom: WorkspaceTabCursorAtom
     private(set) var tabShells: [TabShell] = []
-    private(set) var activeTabId: UUID?
+
+    init(cursorAtom: WorkspaceTabCursorAtom = WorkspaceTabCursorAtom()) {
+        self.cursorAtom = cursorAtom
+    }
+
+    var activeTabId: UUID? {
+        cursorAtom.activeTabId
+    }
 
     func hydrate(persistedTabs: [Tab], activeTabId: UUID?) {
         tabShells = persistedTabs.map { TabShell(id: $0.id, name: $0.name) }
-        self.activeTabId = activeTabId
-        if self.activeTabId == nil || !tabShells.contains(where: { $0.id == self.activeTabId }) {
-            self.activeTabId = tabShells.first?.id
-        }
+        cursorAtom.hydrate(activeTabId: activeTabId, availableTabIds: tabShells.map(\.id))
     }
 
     func tabShell(_ id: UUID) -> TabShell? {
@@ -24,14 +29,12 @@ final class WorkspaceTabShellAtom {
 
     func appendTabShell(_ shell: TabShell) {
         tabShells.append(shell)
-        activeTabId = shell.id
+        cursorAtom.selectTab(shell.id, availableTabIds: tabShells.map(\.id))
     }
 
     func removeTabShell(_ tabId: UUID) {
         tabShells.removeAll { $0.id == tabId }
-        if activeTabId == tabId {
-            activeTabId = tabShells.last?.id
-        }
+        cursorAtom.removeTab(tabId, remainingTabIds: tabShells.map(\.id))
     }
 
     func insertTabShell(_ shell: TabShell, at index: Int) {
@@ -73,7 +76,7 @@ final class WorkspaceTabShellAtom {
     }
 
     func setActiveTab(_ tabId: UUID?) {
-        activeTabId = tabId
+        cursorAtom.selectTab(tabId, availableTabIds: tabShells.map(\.id))
     }
 
     func renameTab(_ tabId: UUID, name: String) {

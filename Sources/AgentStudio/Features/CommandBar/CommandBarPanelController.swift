@@ -213,7 +213,7 @@ final class CommandBarPanelController {
     }
 
     private var currentContext: WorkspacePaneFocus {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -260,7 +260,7 @@ final class CommandBarPanelController {
     }
 
     private var canOpenWorktreeInCurrentTab: Bool {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )

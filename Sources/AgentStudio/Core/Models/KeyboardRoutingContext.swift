@@ -21,7 +21,7 @@ extension KeyboardRoutingContext {
     static func current(
         windowLifecycle: WindowLifecycleAtom,
         managementLayer: ManagementLayerAtom,
-        uiState: UIStateAtom,
+        uiState: WorkspaceSidebarState,
         commandBarSurface: CommandBarSurfaceAtom,
         transientKeyboardSurface: TransientKeyboardSurfaceAtom,
         workspaceWindowId: UUID? = nil

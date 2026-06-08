@@ -45,9 +45,14 @@ struct PaneManagementContextTests {
                 )
             )
             atoms.repoCache.setPullRequestCount(2, for: worktree.id)
-            atoms.repoCache.setNotificationCount(1, for: worktree.id)
 
-            let context = PaneManagementContext.project(paneId: pane.id, store: store)
+            let context = PaneManagementContext.project(
+                paneId: pane.id,
+                store: store,
+                notificationCountForWorktree: { resolvedWorktreeId in
+                    resolvedWorktreeId == worktree.id ? 1 : 0
+                }
+            )
 
             #expect(context.targetPath?.path == "/tmp/agent-studio/subdir")
             #expect(context.identityRows.first(where: { $0.id == "repo" })?.text == repo.name)

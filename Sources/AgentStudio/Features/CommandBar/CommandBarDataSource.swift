@@ -47,7 +47,7 @@ enum CommandBarDataSource {
         dispatcher: CommandDispatcher,
         notificationInboxCommands: InboxNotificationCommands? = nil
     ) -> [CommandBarItem] {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -138,7 +138,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [CommandBarItem] {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -171,7 +171,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [CommandBarItem] {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -221,7 +221,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [CommandBarItem] {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -422,7 +422,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> CommandBarLevel {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -519,7 +519,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> CommandBarLevel {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -563,7 +563,7 @@ enum CommandBarDataSource {
         sourcePaneId: UUID,
         sourceTabId: UUID
     ) -> CommandBarLevel {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -625,7 +625,7 @@ enum CommandBarDataSource {
         for def: CommandSpec,
         store: WorkspaceStore
     ) -> CommandBarLevel {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -661,7 +661,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> CommandBarLevel {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )

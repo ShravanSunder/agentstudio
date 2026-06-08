@@ -935,6 +935,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
             },
+            notificationCountForWorktree: { worktreeId in
+                WorkspaceNotificationCountProjection.unreadCount(
+                    worktreeId: worktreeId,
+                    inboxAtom: atom(\.inboxNotification)
+                )
+            },
             workspaceWindowId: workspaceWindowId
         )
 
@@ -1277,7 +1283,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         let keyboardContext = KeyboardRoutingContext.current(
             windowLifecycle: windowLifecycleStore,
             managementLayer: atom(\.managementLayer),
-            uiState: atom(\.uiState),
+            uiState: atom(\.workspaceSidebarState),
             commandBarSurface: atom(\.commandBarSurface),
             transientKeyboardSurface: atom(\.transientKeyboardSurface),
             workspaceWindowId: workspaceWindowId
@@ -2971,7 +2977,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
             let installedTargets = installedEditorTargetsProvider()
             var resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
-                bookmarkedEditorId: atom(\.editorChooser).state.bookmarkedEditorId,
+                bookmarkedEditorId: atom(\.editorChooser).bookmarkedEditorId,
                 installedTargets: installedTargets
             )
             if case .bookmarkedEditorNotInstalled = resolution {
@@ -2990,7 +2996,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return openFinderHandler(targetPath)
         case .openPaneLocationInEditorMenu:
             guard let activePaneId = activePaneIdForChooserRequest() else { return false }
-            if atom(\.editorChooser).state.openForPaneId == activePaneId {
+            if atom(\.editorChooser).openForPaneId == activePaneId {
                 atom(\.editorChooser).setOpenEditorPane(nil)
                 return true
             }
@@ -3087,7 +3093,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return nil
         }
 
-        return PaneManagementContext.project(paneId: paneId, store: store)
+        return PaneManagementContext.project(
+            paneId: paneId,
+            store: store,
+            notificationCountForWorktree: { worktreeId in
+                WorkspaceNotificationCountProjection.unreadCount(
+                    worktreeId: worktreeId,
+                    inboxAtom: atom(\.inboxNotification)
+                )
+            }
+        )
     }
 
     private func activeMainPaneCommandTarget() -> UUID? {

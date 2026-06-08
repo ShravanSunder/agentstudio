@@ -13,8 +13,8 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 │  PERSISTENCE WRAPPERS OVER MAIN-ACTOR ATOMS                           │
 │  ┌───────────────┐  ┌─────────────────┐  ┌───────────────┐            │
 │  │WorkspaceStore │  │RepoCacheStore   │  │UIStateStore   │            │
-│  │metadata/topol │  │RepoCacheAtom    │  │UIStateAtom    │            │
-│  │pane/tab atoms │  │(enrichment)     │  │(app shell)    │            │
+│  │metadata/topol │  │EnrichmentCache  │  │SidebarMemory  │            │
+│  │pane/tab atoms │  │+RecentTargets   │  │(sidebar mem)  │            │
 │  └───────┬───────┘  └────────┬────────┘  └───────────────┘            │
 │          │                   │                                         │
 │  ┌───────┴──────────┐  ┌─────┴────────────┐                           │
@@ -50,7 +50,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 ## Architecture Principles
 
 - **Pane as primary entity** — `Pane` is the stable identity across model, runtime, view registry, surface metadata, and restore flows
-- **Atomic stores (Jotai-style)** — Each domain has its own `@MainActor @Observable` atom: workspace metadata, repository topology, pane registry, tab layout, repo enrichment, UI shell state, app lifecycle, window lifecycle, terminal surfaces, runtime status, and feature-local state. No god-store. Each atom owns one domain and has one reason to change. Persistence wrappers save atom groups to disk. Feature atoms live inside their feature slice at `Features/<slice>/State/MainActor/Atoms/` — see [directory_structure.md — Feature Slice Self-Containment](directory_structure.md).
+- **Atomic stores (Jotai-style)** — Each domain has its own `@MainActor @Observable` atom: workspace identity, window memory, repository topology, pane graph, drawer cursor, tab shell, tab cursor, tab graph, arrangement cursor, pane presentation, repo enrichment, UI shell state, app lifecycle, window lifecycle, terminal surfaces, runtime status, and feature-local state. No god-store. Each atom owns one domain and has one reason to change. Compatibility facades such as `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, and `WorkspaceTabLayoutAtom` bridge existing call sites while split write owners land. Persistence wrappers save atom groups to disk. Feature atoms live inside their feature slice at `Features/<slice>/State/MainActor/Atoms/` — see [directory_structure.md — Feature Slice Self-Containment](directory_structure.md).
 - **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
 - **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
 - **Lifecycle ingress stays separate** — `ApplicationLifecycleMonitor` owns AppKit ingress only. It mutates `AppLifecycleAtom` and `WindowLifecycleAtom`, both `@Observable` atomic stores with `private(set)` mutation surfaces. `WindowLifecycleAtom` holds transient window facts only: key/focus state, terminal container bounds, launch-layout-settle state, and derived readiness; none of those readiness properties are persisted.
@@ -61,9 +61,9 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 
 Current atom vocabulary:
 
-- **Atoms** own mutable state and synchronous domain operations, for example `WorkspaceMetadataAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`, `RepoCacheAtom`, `UIStateAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms.
+- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom`, `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom`, `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `EditorPreferenceAtom`, `EditorChooserRuntimeAtom`, `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, `WorkspaceTabLayoutAtom`, and `RepoCacheAtom` remain composed compatibility/read surfaces for existing consumers while split owners land.
 - **Persistence wrappers** own load/save boundaries and debounced disk I/O, for example `WorkspaceStore`, `RepoCacheStore`, `SidebarCacheStore`, and `UIStateStore`.
-- **Derived readers** compute projections without owning data, for example `WorkspaceFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
+- **Derived readers** compute projections without owning data, for example `WorkspacePaneDerived`, `WorkspaceTabLayoutDerived`, `WorkspacePaneFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
 - **Coordinators** sequence mutations across atoms/stores and runtime systems. They own no durable domain state.
 
 ## Coordination Planes
@@ -84,26 +84,44 @@ The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain is 
 ## Data Model at a Glance
 
 ```
+ActiveWorkspaceSelectionAtom            ← global active workspace id
+
 WorkspaceStore (workspace.state.json persistence wrapper)
-├── WorkspaceMetadataAtom               ← workspace identity and window/sidebar metadata
+├── WorkspaceIdentityAtom               ← workspace id, name, created-at timestamp
+├── WorkspaceWindowMemoryAtom           ← local sidebar width and window frame
 ├── WorkspaceRepositoryTopologyAtom     ← repos, worktrees, watched paths, availability
-├── WorkspacePaneAtom                   ← panes, metadata/content/residency, drawers
-└── WorkspaceTabLayoutAtom              ← tabs, arrangements, active selection, layout
+├── WorkspacePaneGraphAtom              ← pane identity/content/residency, durable metadata, drawer membership
+├── WorkspaceDrawerCursorAtom           ← local drawer expansion cursor
+├── WorkspacePaneAtom                   ← compatibility facade over pane graph + drawer cursor
+├── WorkspaceTabShellAtom               ← tab identity and ordering
+├── WorkspaceTabCursorAtom              ← active tab cursor
+├── WorkspaceTabGraphAtom               ← tab membership and arrangement/layout graph
+├── WorkspaceArrangementCursorAtom      ← active arrangement, active pane, drawer child cursors
+├── WorkspacePanePresentationAtom       ← runtime pane presentation such as zoom
+├── WorkspaceTabArrangementAtom         ← compatibility mutation facade over tab graph/cursors/presentation
+├── WorkspaceTabLayoutAtom              ← compatibility read facade
+└── WorkspaceTabLayoutDerived           ← rich tab read model
 
-RepoCacheAtom (derived enrichment — workspace.cache.json, rebuildable)
-├── repoEnrichmentByRepoId             ← origin, identity, groupKey, displayName
-├── worktreeEnrichmentByWorktreeId     ← branch, git snapshot
-├── pullRequestCountByWorktreeId       ← PR badges
-└── (notification counts moved — unread bells now derive from
-                                        InboxNotificationAtom.unreadCount(
-                                        forWorktreeId:) per LUNA-361)
+RepoCacheStore (workspace.cache.json, rebuildable/local cache)
+├── RepoEnrichmentCacheAtom            ← origin, identity, branch, git snapshot,
+│                                         PR counts, rebuild metadata
+├── RecentWorkspaceTargetAtom          ← local recent workspace targets
+└── RepoCacheAtom                      ← composed read surface for repo/sidebar UI
 
-UIStateAtom (presentation prefs + sidebar composition — workspace.ui.json)
-├── expandedGroups, checkoutColors, filterText, isFilterVisible
-└── sidebarCollapsed, sidebarSurface, sidebarHasFocus   ← composition
-                                                          state; has-
-                                                          Focus is
-                                                          runtime-only
+WorkspaceSQLiteDatastore (core.sqlite + workspace local.sqlite)
+├── WorkspaceCoreRepository            ← core graph/status rows
+├── cached WorkspaceLocalRepository    ← local UX/cache/inbox sidecar rows
+└── WorkspaceSQLiteSnapshot            ← live actor-crossing snapshot, not legacy JSON
+
+WorkspaceSidebarMemoryAtom (workspace.ui.json)
+├── filterText, isFilterVisible
+└── sidebarCollapsed, sidebarSurface
+
+SidebarFocusRuntimeAtom (runtime only)
+└── sidebarHasFocus
+
+WorkspaceSidebarState
+└── composed UI-facing reader/mutator over sidebar memory + runtime focus
 ```
 
 ## Mutation Flow (Summary)
@@ -142,6 +160,7 @@ Each document owns a specific concern. No two documents are authoritative for th
 |----------|-----------|--------|
 | [Component Architecture](component_architecture.md) | Structural overview — how components compose | Data model (pane, tab, layout, session), service layer, command bar, persistence format, store boundaries, coordinator role, invariants |
 | [Workspace Data Architecture](workspace_data_architecture.md) | Workspace-level data — repos, worktrees, enrichment | Three-tier persistence (canonical/cache/UI), canonical vs enrichment models, enrichment pipeline (FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → CacheCoordinator), topology/discovery lifecycle, sidebar data flow, ordering/replay contracts |
+| [Atom Persistence Boundaries](atom_persistence_boundaries.md) | Atom-to-SQLite boundary model | Write-owner atom rules, lifecycle lanes, derived read models, legacy import DTOs, row projections, runtime-only surfaces, and Step 0 boundary map |
 | [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane-level runtime contracts | Pane runtime contracts (C1-C16), event envelope (RuntimeEnvelope), per-pane event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching, attach readiness (5a), restart reconcile (5b), visibility-tier scheduling (12a), Ghostty action coverage (7a), RuntimeCommand dispatch (10), source/sink/projection vocabulary, agent harness model, directory placement, migration path |
 | [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus threading and coordination | Actor fan-out, boundary actors (FilesystemActor, ForgeActor, ContainerActor) plus plugin context mediation, `@concurrent nonisolated` for per-pane work, multiplexed `@Observable` + event stream, connection patterns (AsyncStream vs direct call vs @Observable), data flow per contract, Swift 6.2 threading model |
 | [Window System Design](window_system_design.md) | Window/tab/pane structural model | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |

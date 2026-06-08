@@ -8,7 +8,8 @@ import Testing
 struct WorkspacePersistenceTransformerTests {
     @Test
     func hydrate_restoresWorktreeBoundPaneWhenTopologyIsPresent() {
-        let metadataAtom = WorkspaceMetadataAtom()
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
         let topologyAtom = WorkspaceRepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
@@ -50,7 +51,8 @@ struct WorkspacePersistenceTransformerTests {
 
         WorkspacePersistenceTransformer.hydrate(
             state,
-            metadataAtom: metadataAtom,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom
@@ -64,15 +66,18 @@ struct WorkspacePersistenceTransformerTests {
 
     @Test
     func makePersistableState_prunesTemporaryPanesFromTabs() {
-        let metadataAtom = WorkspaceMetadataAtom()
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
         let topologyAtom = WorkspaceRepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        metadataAtom.hydrate(
+        identityAtom.hydrate(
             workspaceId: UUID(),
             workspaceName: "Workspace",
-            createdAt: Date(timeIntervalSince1970: 1000),
+            createdAt: Date(timeIntervalSince1970: 1000)
+        )
+        windowMemoryAtom.hydrate(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -86,7 +91,8 @@ struct WorkspacePersistenceTransformerTests {
         tabLayoutAtom.setActiveTab(tab.id)
 
         let state = WorkspacePersistenceTransformer.makePersistableState(
-            metadataAtom: metadataAtom,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
@@ -100,16 +106,110 @@ struct WorkspacePersistenceTransformerTests {
     }
 
     @Test
+    func makePersistableState_stripsDisplayFacetsWhilePreservingDrawerExpansion() throws {
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
+        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
+        let worktreePath = repoPath.appending(path: "sqlite")
+        topologyAtom.hydrate(
+            runtimeRepos: [
+                Repo(
+                    id: repoId,
+                    name: "agent-studio",
+                    repoPath: repoPath,
+                    worktrees: [
+                        Worktree(id: worktreeId, repoId: repoId, name: "sqlite", path: worktreePath)
+                    ]
+                )
+            ],
+            watchedPaths: [],
+            unavailableRepoIds: []
+        )
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        cacheAtom.setRepoEnrichment(
+            .resolvedRemote(
+                repoId: repoId,
+                raw: RawRepoOrigin(origin: "origin-url", upstream: "upstream-url"),
+                identity: RepoIdentity(
+                    groupKey: "org",
+                    remoteSlug: "org/agent-studio",
+                    organizationName: "org",
+                    displayName: "agent-studio"
+                ),
+                updatedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        let paneAtom = WorkspacePaneAtom(
+            repositoryTopologyAtom: topologyAtom,
+            repoEnrichmentCacheAtom: cacheAtom
+        )
+        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+
+        identityAtom.hydrate(
+            workspaceId: UUID(),
+            workspaceName: "Workspace",
+            createdAt: Date(timeIntervalSince1970: 1000)
+        )
+        windowMemoryAtom.hydrate(sidebarWidth: 250, windowFrame: nil)
+
+        let pane = paneAtom.createPane(
+            source: .worktree(worktreeId: worktreeId, repoId: repoId, launchDirectory: worktreePath),
+            facets: PaneContextFacets(
+                repoId: repoId,
+                repoName: "stale repo",
+                worktreeId: worktreeId,
+                worktreeName: "stale worktree",
+                cwd: worktreePath,
+                parentFolder: "stale parent",
+                organizationName: "stale org",
+                origin: "stale origin",
+                upstream: "stale upstream",
+                tags: ["swift"]
+            )
+        )
+        paneAtom.toggleDrawer(for: pane.id)
+        tabLayoutAtom.appendTab(Tab(paneId: pane.id))
+
+        let state = WorkspacePersistenceTransformer.makePersistableState(
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: topologyAtom,
+            workspacePaneAtom: paneAtom,
+            workspaceTabLayoutAtom: tabLayoutAtom,
+            persistedAt: Date(timeIntervalSince1970: 2000)
+        )
+
+        let persistedPane = try #require(state.panes.first)
+        #expect(persistedPane.drawer?.isExpanded == true)
+        #expect(persistedPane.metadata.facets.repoId == repoId)
+        #expect(persistedPane.metadata.facets.worktreeId == worktreeId)
+        #expect(persistedPane.metadata.facets.cwd == worktreePath)
+        #expect(persistedPane.metadata.facets.tags == ["swift"])
+        #expect(persistedPane.metadata.facets.repoName == nil)
+        #expect(persistedPane.metadata.facets.worktreeName == nil)
+        #expect(persistedPane.metadata.facets.parentFolder == nil)
+        #expect(persistedPane.metadata.facets.organizationName == nil)
+        #expect(persistedPane.metadata.facets.origin == nil)
+        #expect(persistedPane.metadata.facets.upstream == nil)
+    }
+
+    @Test
     func makePersistableState_prunesTemporaryPanesFromArrangementMinimizedPaneIds() {
-        let metadataAtom = WorkspaceMetadataAtom()
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
         let topologyAtom = WorkspaceRepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        metadataAtom.hydrate(
+        identityAtom.hydrate(
             workspaceId: UUID(),
             workspaceName: "Workspace",
-            createdAt: Date(timeIntervalSince1970: 1000),
+            createdAt: Date(timeIntervalSince1970: 1000)
+        )
+        windowMemoryAtom.hydrate(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -128,7 +228,8 @@ struct WorkspacePersistenceTransformerTests {
         tabLayoutAtom.setActiveTab(tab.id)
 
         let state = WorkspacePersistenceTransformer.makePersistableState(
-            metadataAtom: metadataAtom,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
@@ -141,15 +242,18 @@ struct WorkspacePersistenceTransformerTests {
 
     @Test
     func makePersistableState_prunesTemporaryPanesFromDrawerViews() throws {
-        let metadataAtom = WorkspaceMetadataAtom()
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
         let topologyAtom = WorkspaceRepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        metadataAtom.hydrate(
+        identityAtom.hydrate(
             workspaceId: UUID(),
             workspaceName: "Workspace",
-            createdAt: Date(timeIntervalSince1970: 1000),
+            createdAt: Date(timeIntervalSince1970: 1000)
+        )
+        windowMemoryAtom.hydrate(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -182,7 +286,8 @@ struct WorkspacePersistenceTransformerTests {
         tabLayoutAtom.setActiveTab(tab.id)
 
         let state = WorkspacePersistenceTransformer.makePersistableState(
-            metadataAtom: metadataAtom,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
@@ -197,15 +302,18 @@ struct WorkspacePersistenceTransformerTests {
 
     @Test
     func makePersistableState_repairSkipsMinimizedRemainingPaneWhenActivePaneWasPruned() {
-        let metadataAtom = WorkspaceMetadataAtom()
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
         let topologyAtom = WorkspaceRepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        metadataAtom.hydrate(
+        identityAtom.hydrate(
             workspaceId: UUID(),
             workspaceName: "Workspace",
-            createdAt: Date(timeIntervalSince1970: 1000),
+            createdAt: Date(timeIntervalSince1970: 1000)
+        )
+        windowMemoryAtom.hydrate(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -224,7 +332,8 @@ struct WorkspacePersistenceTransformerTests {
         tabLayoutAtom.setActiveTab(tab.id)
 
         let state = WorkspacePersistenceTransformer.makePersistableState(
-            metadataAtom: metadataAtom,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
@@ -237,15 +346,18 @@ struct WorkspacePersistenceTransformerTests {
 
     @Test
     func makePersistableState_fallsBackToDefaultWhenActiveCustomArrangementBecomesEmpty() throws {
-        let metadataAtom = WorkspaceMetadataAtom()
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
         let topologyAtom = WorkspaceRepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        metadataAtom.hydrate(
+        identityAtom.hydrate(
             workspaceId: UUID(),
             workspaceName: "Workspace",
-            createdAt: Date(timeIntervalSince1970: 1000),
+            createdAt: Date(timeIntervalSince1970: 1000)
+        )
+        windowMemoryAtom.hydrate(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -271,7 +383,8 @@ struct WorkspacePersistenceTransformerTests {
         tabLayoutAtom.setActiveTab(tab.id)
 
         let state = WorkspacePersistenceTransformer.makePersistableState(
-            metadataAtom: metadataAtom,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,
@@ -286,15 +399,18 @@ struct WorkspacePersistenceTransformerTests {
 
     @Test
     func makePersistableState_preservesTabWhenDefaultArrangementIsEmptyButCustomArrangementHasPane() {
-        let metadataAtom = WorkspaceMetadataAtom()
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
         let topologyAtom = WorkspaceRepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
-        metadataAtom.hydrate(
+        identityAtom.hydrate(
             workspaceId: UUID(),
             workspaceName: "Workspace",
-            createdAt: Date(timeIntervalSince1970: 1000),
+            createdAt: Date(timeIntervalSince1970: 1000)
+        )
+        windowMemoryAtom.hydrate(
             sidebarWidth: 250,
             windowFrame: nil
         )
@@ -323,7 +439,8 @@ struct WorkspacePersistenceTransformerTests {
         tabLayoutAtom.setActiveTab(tab.id)
 
         let state = WorkspacePersistenceTransformer.makePersistableState(
-            metadataAtom: metadataAtom,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
             workspaceTabLayoutAtom: tabLayoutAtom,

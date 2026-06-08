@@ -101,7 +101,7 @@ AppDelegate
 ├── AtomRegistry                  ← composition root for all shared atoms
 ├── WorkspaceStore             ← persistence wrapper, restore from disk
 ├── RepoCacheStore             ← persistence wrapper for RepoCacheAtom
-├── UIStateStore               ← persistence wrapper for UIStateAtom
+├── UIStateStore               ← persistence wrapper for sidebar memory
 ├── AppLifecycleAtom          ← app active/terminating state (in-memory)
 ├── WindowLifecycleAtom       ← key/focused window identity (in-memory)
 ├── SessionRuntime             ← runtime health tracking

@@ -1,0 +1,707 @@
+import Foundation
+import GRDB
+import Testing
+
+@testable import AgentStudio
+
+@Suite("WorkspaceCoreMigrationTests")
+struct WorkspaceCoreMigrationTests {
+    @Test("fresh core database creates workspace graph tables")
+    func freshCoreDatabaseCreatesWorkspaceGraphTables() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+
+        let tableNames = try databaseQueue.read { database in
+            try String.fetchAll(
+                database,
+                sql: """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                    ORDER BY name
+                    """
+            )
+        }
+
+        #expect(tableNames.contains("workspace"))
+        #expect(tableNames.contains("app_workspace_selection"))
+        #expect(tableNames.contains("repo"))
+        #expect(tableNames.contains("worktree"))
+        #expect(tableNames.contains("pane"))
+        #expect(tableNames.contains("pane_content_terminal"))
+        #expect(tableNames.contains("drawer"))
+        #expect(tableNames.contains("drawer_pane"))
+        #expect(tableNames.contains("tab_shell"))
+        #expect(tableNames.contains("tab_pane"))
+        #expect(tableNames.contains("tab_arrangement"))
+        #expect(tableNames.contains("arrangement_layout_pane"))
+        #expect(tableNames.contains("arrangement_layout_divider"))
+        #expect(tableNames.contains("arrangement_minimized_pane"))
+        #expect(tableNames.contains("arrangement_drawer_view"))
+        #expect(tableNames.contains("drawer_view_layout_pane"))
+        #expect(tableNames.contains("drawer_view_layout_divider"))
+        #expect(tableNames.contains("drawer_view_minimized_pane"))
+        #expect(tableNames.contains("legacy_workspace_import_status"))
+        #expect(tableNames.contains("workspace_sqlite_snapshot_status"))
+        let snapshotStatusColumns = try databaseQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(workspace_sqlite_snapshot_status)")
+        }
+        let columnsByName = Dictionary(
+            uniqueKeysWithValues: snapshotStatusColumns.map { row in
+                (row["name"] as String, row)
+            })
+        #expect(columnsByName["staged_at"] != nil)
+        #expect(columnsByName["completed_at"] != nil)
+        #expect((columnsByName["completed_at"]?["notnull"] as Int?) == 0)
+    }
+
+    @Test("migration identifiers are stable and run once")
+    func migrationIdentifiersAreStableAndRunOnce() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+
+        let completedMigrations = try databaseQueue.read { database in
+            try WorkspaceCoreMigrations.migrator.completedMigrations(database)
+        }
+
+        #expect(
+            completedMigrations == [
+                "001_create_workspace",
+                "002_create_repo_worktree_topology",
+                "003_create_panes",
+                "004_create_tabs_and_arrangements",
+                "005_repair_tab_graph_layout_storage",
+                "006_create_workspace_sqlite_snapshot_status",
+                "007_stage_workspace_sqlite_snapshot_status",
+            ]
+        )
+    }
+
+    @Test("snapshot staging migration preserves existing completion token")
+    func snapshotStagingMigrationPreservesExistingCompletionToken() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let workspaceId = UUID().uuidString
+        let completedAt = 1_700_004_000.0
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "006_create_workspace_sqlite_snapshot_status"
+        )
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO workspace(id, name, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [workspaceId, "Migrated Completion", 1.0, completedAt]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO workspace_sqlite_snapshot_status(workspace_id, completed_at)
+                    VALUES (?, ?)
+                    """,
+                arguments: [workspaceId, completedAt]
+            )
+        }
+
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+
+        let tokens = try databaseQueue.read { database in
+            try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT staged_at, completed_at
+                    FROM workspace_sqlite_snapshot_status
+                    WHERE workspace_id = ?
+                    """,
+                arguments: [workspaceId]
+            )
+        }
+        #expect((tokens?["staged_at"] as Double?) == completedAt)
+        #expect((tokens?["completed_at"] as Double?) == completedAt)
+    }
+
+    @Test("workspace selection round trips")
+    func workspaceSelectionRoundTrips() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let workspaceId = UUID()
+
+        let restoredActiveWorkspaceId = try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO workspace(id, name, created_at, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [
+                    workspaceId.uuidString,
+                    "SQLite Workspace",
+                    1.0,
+                    1.0,
+                ]
+            )
+            try database.execute(
+                sql: "UPDATE app_workspace_selection SET active_workspace_id = ? WHERE singleton_id = 1",
+                arguments: [workspaceId.uuidString]
+            )
+            return try String.fetchOne(
+                database,
+                sql: "SELECT active_workspace_id FROM app_workspace_selection WHERE singleton_id = 1"
+            )
+        }
+
+        #expect(restoredActiveWorkspaceId == workspaceId.uuidString)
+    }
+
+    @Test("foreign keys reject dangling workspace references")
+    func foreignKeysRejectDanglingWorkspaceReferences() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let missingWorkspaceId = UUID().uuidString
+
+        #expect(throws: DatabaseError.self) {
+            try databaseQueue.write { database in
+                try database.execute(
+                    sql: """
+                        INSERT INTO repo(id, workspace_id, name, repo_path, stable_key, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        UUID().uuidString,
+                        missingWorkspaceId,
+                        "missing-workspace-repo",
+                        "/tmp/missing-workspace-repo",
+                        "missing-workspace-repo",
+                        1.0,
+                    ]
+                )
+            }
+        }
+    }
+
+    @Test("worktree rejects repo from different workspace")
+    func worktreeRejectsRepoFromDifferentWorkspace() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let worktreeWorkspaceId = UUID().uuidString
+        let repoWorkspaceId = UUID().uuidString
+        let repoId = UUID().uuidString
+
+        expectDatabaseError(containing: "FOREIGN KEY constraint failed") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: worktreeWorkspaceId)
+                try insertWorkspace(database, workspaceId: repoWorkspaceId)
+                try insertRepo(database, workspaceId: repoWorkspaceId, repoId: repoId)
+                try database.execute(
+                    sql: """
+                        INSERT INTO worktree(id, workspace_id, repo_id, name, path, stable_key, is_main_worktree)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        UUID().uuidString,
+                        worktreeWorkspaceId,
+                        repoId,
+                        "mismatched",
+                        "/tmp/mismatched",
+                        "mismatched",
+                        0,
+                    ]
+                )
+            }
+        }
+    }
+
+    @Test("unavailable repo rejects repo from different workspace")
+    func unavailableRepoRejectsRepoFromDifferentWorkspace() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let unavailableWorkspaceId = UUID().uuidString
+        let repoWorkspaceId = UUID().uuidString
+        let repoId = UUID().uuidString
+
+        expectDatabaseError(containing: "FOREIGN KEY constraint failed") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: unavailableWorkspaceId)
+                try insertWorkspace(database, workspaceId: repoWorkspaceId)
+                try insertRepo(database, workspaceId: repoWorkspaceId, repoId: repoId)
+                try database.execute(
+                    sql: """
+                        INSERT INTO unavailable_repo(workspace_id, repo_id)
+                        VALUES (?, ?)
+                        """,
+                    arguments: [unavailableWorkspaceId, repoId]
+                )
+            }
+        }
+    }
+
+    @Test("pane source repo rejects repo from different workspace")
+    func paneSourceRepoRejectsRepoFromDifferentWorkspace() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let paneWorkspaceId = UUID().uuidString
+        let repoWorkspaceId = UUID().uuidString
+        let repoId = UUID().uuidString
+
+        expectDatabaseError(containing: "pane source_repo_id must belong to pane workspace") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: paneWorkspaceId)
+                try insertWorkspace(database, workspaceId: repoWorkspaceId)
+                try insertRepo(database, workspaceId: repoWorkspaceId, repoId: repoId)
+                try insertPane(
+                    database,
+                    workspaceId: paneWorkspaceId,
+                    paneId: UUID().uuidString,
+                    sourceRepoId: repoId
+                )
+            }
+        }
+    }
+
+    @Test("pane source worktree rejects worktree from different workspace")
+    func paneSourceWorktreeRejectsWorktreeFromDifferentWorkspace() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let paneWorkspaceId = UUID().uuidString
+        let repoWorkspaceId = UUID().uuidString
+        let repoId = UUID().uuidString
+        let worktreeId = UUID().uuidString
+
+        expectDatabaseError(containing: "pane source_worktree_id must belong to pane workspace") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: paneWorkspaceId)
+                try insertWorkspace(database, workspaceId: repoWorkspaceId)
+                try insertRepo(database, workspaceId: repoWorkspaceId, repoId: repoId)
+                try insertWorktree(database, workspaceId: repoWorkspaceId, repoId: repoId, worktreeId: worktreeId)
+                try insertPane(
+                    database,
+                    workspaceId: paneWorkspaceId,
+                    paneId: UUID().uuidString,
+                    sourceWorktreeId: worktreeId
+                )
+            }
+        }
+    }
+
+    @Test("pane content storage uses live pane graph vocabulary")
+    func paneContentStorageUsesLivePaneGraphVocabulary() {
+        #expect(SQLitePaneContentTypeStorage.storageValue(for: .terminal) == "terminal")
+        #expect(SQLitePaneContentTypeStorage.storageValue(for: .browser) == "browser")
+        #expect(SQLitePaneContentTypeStorage.storageValue(for: .diff) == "diff")
+        #expect(SQLitePaneContentTypeStorage.storageValue(for: .editor) == "editor")
+        #expect(SQLitePaneContentTypeStorage.storageValue(for: .review) == "review")
+        #expect(SQLitePaneContentTypeStorage.storageValue(for: .agent) == "agent")
+        #expect(SQLitePaneContentTypeStorage.storageValue(for: .codeViewer) == "codeViewer")
+        #expect(SQLitePaneContentTypeStorage.storageValue(for: .plugin("acme")) == "plugin:acme")
+    }
+
+    @Test("pane content rejects mismatched payload table")
+    func paneContentRejectsMismatchedPayloadTable() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let workspaceId = UUID().uuidString
+        let paneId = UUID().uuidString
+
+        expectDatabaseError(containing: "pane_content_webview requires browser pane") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: workspaceId)
+                try insertPane(database, workspaceId: workspaceId, paneId: paneId)
+                try database.execute(
+                    sql: """
+                        INSERT INTO pane_content_terminal(pane_id, provider, lifetime)
+                        VALUES (?, ?, ?)
+                        """,
+                    arguments: [paneId, "zmx", "persistent"]
+                )
+                try database.execute(
+                    sql: """
+                        INSERT INTO pane_content_webview(pane_id, url, title, show_navigation)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                    arguments: [paneId, "https://example.com", "Example", 1]
+                )
+            }
+        }
+    }
+
+    @Test("browser pane content uses webview payload table")
+    func browserPaneContentUsesWebviewPayloadTable() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let workspaceId = UUID().uuidString
+        let paneId = UUID().uuidString
+
+        let storedURL = try databaseQueue.write { database in
+            try insertWorkspace(database, workspaceId: workspaceId)
+            try insertPane(
+                database,
+                workspaceId: workspaceId,
+                paneId: paneId,
+                contentType: SQLitePaneContentTypeStorage.storageValue(for: .browser)
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO pane_content_webview(pane_id, url, title, show_navigation)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [paneId, "https://example.com", "Example", 1]
+            )
+            return try String.fetchOne(
+                database, sql: "SELECT url FROM pane_content_webview WHERE pane_id = ?",
+                arguments: [paneId])
+        }
+
+        #expect(storedURL == "https://example.com")
+    }
+
+    @Test("pane content type is immutable")
+    func paneContentTypeIsImmutable() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let workspaceId = UUID().uuidString
+        let paneId = UUID().uuidString
+
+        expectDatabaseError(containing: "pane content_type is immutable") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: workspaceId)
+                try insertPane(database, workspaceId: workspaceId, paneId: paneId)
+                try database.execute(
+                    sql: "UPDATE pane SET content_type = ? WHERE id = ?",
+                    arguments: [SQLitePaneContentTypeStorage.storageValue(for: .browser), paneId]
+                )
+            }
+        }
+    }
+
+    @Test("pane content type rejects unsupported storage tokens")
+    func paneContentTypeRejectsUnsupportedStorageTokens() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let workspaceId = UUID().uuidString
+        let paneId = UUID().uuidString
+
+        expectDatabaseError(containing: "pane content_type is not supported") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: workspaceId)
+                try insertPane(database, workspaceId: workspaceId, paneId: paneId, contentType: "webview")
+            }
+        }
+    }
+
+    @Test("tab pane membership enforces one owning tab per pane")
+    func tabPaneMembershipEnforcesOneOwningTabPerPane() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let workspaceId = UUID().uuidString
+        let paneId = UUID().uuidString
+        let firstTabId = UUID().uuidString
+        let secondTabId = UUID().uuidString
+
+        expectDatabaseError(containing: "UNIQUE constraint failed: tab_pane.pane_id") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: workspaceId)
+                try insertPane(database, workspaceId: workspaceId, paneId: paneId)
+                try insertTabShell(database, workspaceId: workspaceId, tabId: firstTabId, name: "First", sortIndex: 0)
+                try insertTabShell(database, workspaceId: workspaceId, tabId: secondTabId, name: "Second", sortIndex: 1)
+                try database.execute(
+                    sql: """
+                        INSERT INTO tab_pane(tab_id, pane_id, sort_index)
+                        VALUES (?, ?, ?)
+                        """,
+                    arguments: [firstTabId, paneId, 0]
+                )
+                try database.execute(
+                    sql: """
+                        INSERT INTO tab_pane(tab_id, pane_id, sort_index)
+                        VALUES (?, ?, ?)
+                        """,
+                    arguments: [secondTabId, paneId, 0]
+                )
+            }
+        }
+    }
+
+    @Test("tab arrangement enforces one default per tab")
+    func tabArrangementEnforcesOneDefaultPerTab() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let workspaceId = UUID().uuidString
+        let tabId = UUID().uuidString
+
+        expectDatabaseError(containing: "UNIQUE constraint failed: tab_arrangement.tab_id") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: workspaceId)
+                try insertTabShell(database, workspaceId: workspaceId, tabId: tabId, name: "Workspace", sortIndex: 0)
+                try insertTabArrangement(
+                    database, tabId: tabId, arrangementId: UUID().uuidString, name: "Default", isDefault: true,
+                    sortIndex: 0)
+                try insertTabArrangement(
+                    database, tabId: tabId, arrangementId: UUID().uuidString, name: "Also Default", isDefault: true,
+                    sortIndex: 1)
+            }
+        }
+    }
+
+    @Test("drawer table enforces one drawer per parent pane")
+    func drawerTableEnforcesOneDrawerPerParentPane() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let workspaceId = UUID().uuidString
+        let parentPaneId = UUID().uuidString
+
+        expectDatabaseError(containing: "UNIQUE constraint failed: drawer.parent_pane_id") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: workspaceId)
+                try insertPane(database, workspaceId: workspaceId, paneId: parentPaneId)
+                try insertDrawer(
+                    database,
+                    drawerId: UUID().uuidString,
+                    parentPaneId: parentPaneId,
+                    title: "First Drawer"
+                )
+                try insertDrawer(
+                    database,
+                    drawerId: UUID().uuidString,
+                    parentPaneId: parentPaneId,
+                    title: "Second Drawer"
+                )
+            }
+        }
+    }
+
+    @Test("drawer pane membership enforces one owning drawer per pane")
+    func drawerPaneMembershipEnforcesOneOwningDrawerPerPane() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        let workspaceId = UUID().uuidString
+        let firstParentPaneId = UUID().uuidString
+        let secondParentPaneId = UUID().uuidString
+        let childPaneId = UUID().uuidString
+        let firstDrawerId = UUID().uuidString
+        let secondDrawerId = UUID().uuidString
+
+        expectDatabaseError(containing: "UNIQUE constraint failed: drawer_pane.pane_id") {
+            try databaseQueue.write { database in
+                try insertWorkspace(database, workspaceId: workspaceId)
+                try insertPane(database, workspaceId: workspaceId, paneId: firstParentPaneId)
+                try insertPane(database, workspaceId: workspaceId, paneId: secondParentPaneId)
+                try insertPane(database, workspaceId: workspaceId, paneId: childPaneId)
+                try insertDrawer(
+                    database, drawerId: firstDrawerId, parentPaneId: firstParentPaneId, title: "First Drawer")
+                try insertDrawer(
+                    database,
+                    drawerId: secondDrawerId,
+                    parentPaneId: secondParentPaneId,
+                    title: "Second Drawer"
+                )
+                try database.execute(
+                    sql: """
+                        INSERT INTO drawer_pane(drawer_id, pane_id, sort_index)
+                        VALUES (?, ?, ?)
+                        """,
+                    arguments: [firstDrawerId, childPaneId, 0]
+                )
+                try database.execute(
+                    sql: """
+                        INSERT INTO drawer_pane(drawer_id, pane_id, sort_index)
+                        VALUES (?, ?, ?)
+                        """,
+                    arguments: [secondDrawerId, childPaneId, 0]
+                )
+            }
+        }
+    }
+
+    private func expectDatabaseError(
+        containing expectedMessage: String,
+        _ operation: () throws -> Void
+    ) {
+        do {
+            try operation()
+            Issue.record("Expected DatabaseError containing '\(expectedMessage)'")
+        } catch let error as DatabaseError {
+            #expect(error.message?.contains(expectedMessage) == true)
+        } catch {
+            Issue.record("Expected DatabaseError containing '\(expectedMessage)', got \(error)")
+        }
+    }
+
+    private func insertWorkspace(_ database: Database, workspaceId: String) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO workspace(id, name, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+            arguments: [
+                workspaceId,
+                "SQLite Workspace",
+                1.0,
+                1.0,
+            ]
+        )
+    }
+
+    private func insertRepo(
+        _ database: Database,
+        workspaceId: String,
+        repoId: String,
+        stableKey: String = "repo"
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO repo(id, workspace_id, name, repo_path, stable_key, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                repoId,
+                workspaceId,
+                stableKey,
+                "/tmp/\(stableKey)",
+                stableKey,
+                1.0,
+            ]
+        )
+    }
+
+    private func insertWorktree(
+        _ database: Database,
+        workspaceId: String,
+        repoId: String,
+        worktreeId: String,
+        stableKey: String = "worktree"
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO worktree(id, workspace_id, repo_id, name, path, stable_key, is_main_worktree)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                worktreeId,
+                workspaceId,
+                repoId,
+                stableKey,
+                "/tmp/\(stableKey)",
+                stableKey,
+                0,
+            ]
+        )
+    }
+
+    private func insertPane(
+        _ database: Database,
+        workspaceId: String,
+        paneId: String,
+        contentType: String = SQLitePaneContentTypeStorage.storageValue(for: .terminal),
+        sourceRepoId: String? = nil,
+        sourceWorktreeId: String? = nil,
+        parentPaneId: String? = nil
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO pane(
+                    id, workspace_id, content_type, execution_backend, source_kind,
+                    source_repo_id, source_worktree_id, launch_directory, title, cwd,
+                    residency_kind, kind, parent_pane_id, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                paneId,
+                workspaceId,
+                contentType,
+                "zmx",
+                "workspace",
+                sourceRepoId,
+                sourceWorktreeId,
+                "/tmp",
+                "Terminal",
+                "/tmp",
+                "active",
+                parentPaneId == nil ? "leaf" : "drawerChild",
+                parentPaneId,
+                1.0,
+                1.0,
+            ]
+        )
+    }
+
+    private func insertTabShell(
+        _ database: Database,
+        workspaceId: String,
+        tabId: String,
+        name: String,
+        sortIndex: Int
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO tab_shell(id, workspace_id, name, sort_index)
+                VALUES (?, ?, ?, ?)
+                """,
+            arguments: [tabId, workspaceId, name, sortIndex]
+        )
+    }
+
+    private func insertTabPane(
+        _ database: Database,
+        tabId: String,
+        paneId: String,
+        sortIndex: Int = 0
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO tab_pane(tab_id, pane_id, sort_index)
+                VALUES (?, ?, ?)
+                """,
+            arguments: [tabId, paneId, sortIndex]
+        )
+    }
+
+    private func insertTabArrangement(
+        _ database: Database,
+        tabId: String,
+        arrangementId: String,
+        name: String,
+        isDefault: Bool,
+        sortIndex: Int
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO tab_arrangement(id, tab_id, name, is_default, shows_minimized_panes, sort_index)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [arrangementId, tabId, name, isDefault ? 1 : 0, 0, sortIndex]
+        )
+    }
+
+    private func insertDrawer(
+        _ database: Database,
+        drawerId: String,
+        parentPaneId: String,
+        title _: String
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO drawer(id, parent_pane_id)
+                VALUES (?, ?)
+                """,
+            arguments: [drawerId, parentPaneId]
+        )
+    }
+
+    private func insertDrawerPane(
+        _ database: Database,
+        drawerId: String,
+        paneId: String,
+        sortIndex: Int = 0
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO drawer_pane(drawer_id, pane_id, sort_index)
+                VALUES (?, ?, ?)
+                """,
+            arguments: [drawerId, paneId, sortIndex]
+        )
+    }
+}

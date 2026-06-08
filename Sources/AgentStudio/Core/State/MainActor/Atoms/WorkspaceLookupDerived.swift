@@ -24,7 +24,7 @@ struct WorkspaceLookupDerived {
     func paneLocations(
         for worktreeId: UUID,
         workspacePane: WorkspacePaneAtom,
-        workspaceTab: WorkspaceTabDerived
+        workspaceTab: WorkspaceTabLayoutDerived
     ) -> [WorkspacePaneLocation] {
         workspacePane.panes(for: worktreeId)
             .compactMap { pane in

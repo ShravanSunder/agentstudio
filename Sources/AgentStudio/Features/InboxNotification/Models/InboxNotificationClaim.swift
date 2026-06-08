@@ -1,6 +1,6 @@
 import Foundation
 
-enum InboxNotificationClaimLane: String, Sendable, Codable, Equatable, Hashable {
+enum InboxNotificationClaimLane: String, Sendable, Codable, Equatable, Hashable, CaseIterable {
     case actionNeeded
     case safety
     case activity

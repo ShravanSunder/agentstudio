@@ -298,6 +298,115 @@ final class WorkspacePersistorTests {
     }
 
     @Test
+    func test_load_canonicalState_legacyDrawerActivePaneId_doesNotCorruptWorkspace() throws {
+        try assertLegacyDrawerActivePaneIdRoutesToDrawerView(using: .alternatingArray)
+    }
+
+    @Test
+    func test_load_canonicalState_keyedDrawerViews_legacyDrawerActivePaneId_doesNotCorruptWorkspace() throws {
+        try assertLegacyDrawerActivePaneIdRoutesToDrawerView(using: .keyedObject)
+    }
+
+    private enum LegacyDrawerViewsShape {
+        case alternatingArray
+        case keyedObject
+    }
+
+    private func assertLegacyDrawerActivePaneIdRoutesToDrawerView(
+        using drawerViewsShape: LegacyDrawerViewsShape
+    ) throws {
+        let firstDrawerChildPaneId = UUIDv7.generate()
+        let secondDrawerChildPaneId = UUIDv7.generate()
+        var parentPane = makePane()
+        parentPane.withDrawer { drawer in
+            drawer.paneIds = [firstDrawerChildPaneId, secondDrawerChildPaneId]
+        }
+        guard let drawerId = parentPane.drawer?.drawerId else {
+            Issue.record("Parent pane did not receive a drawer")
+            return
+        }
+        let firstDrawerChildPane = Pane(
+            id: firstDrawerChildPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "First Drawer Child"),
+            kind: .drawerChild(parentPaneId: parentPane.id)
+        )
+        let secondDrawerChildPane = Pane(
+            id: secondDrawerChildPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Second Drawer Child"),
+            kind: .drawerChild(parentPaneId: parentPane.id)
+        )
+        var tab = Tab(paneId: parentPane.id)
+        tab.arrangements[0].drawerViews[drawerId] = DrawerView(
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([firstDrawerChildPaneId, secondDrawerChildPaneId])),
+            activeChildId: firstDrawerChildPaneId
+        )
+        var state = WorkspacePersistor.PersistableState(
+            panes: [parentPane, firstDrawerChildPane, secondDrawerChildPane],
+            tabs: [tab]
+        )
+        state.activeTabId = tab.id
+        try persistor.save(state)
+
+        let stateURL = tempDir.appending(path: "\(state.id.uuidString).workspace.state.json")
+        let payload = try JSONSerialization.jsonObject(with: Data(contentsOf: stateURL))
+        guard
+            var root = payload as? [String: Any],
+            var panes = root["panes"] as? [[String: Any]],
+            var parentPanePayload = panes.first(where: { ($0["id"] as? String) == parentPane.id.uuidString }),
+            var kindPayload = parentPanePayload["kind"] as? [String: Any],
+            var layoutPayload = kindPayload["layout"] as? [String: Any],
+            var drawerPayload = layoutPayload["drawer"] as? [String: Any],
+            var tabs = root["tabs"] as? [[String: Any]],
+            var firstTab = tabs.first,
+            var arrangements = firstTab["arrangements"] as? [[String: Any]],
+            var firstArrangement = arrangements.first,
+            var drawerViews = firstArrangement["drawerViews"] as? [Any],
+            let drawerViewKeyIndex = drawerViews.firstIndex(where: { ($0 as? String) == drawerId.uuidString }),
+            drawerViews.indices.contains(drawerViewKeyIndex + 1),
+            var drawerViewPayload = drawerViews[drawerViewKeyIndex + 1] as? [String: Any]
+        else {
+            Issue.record("Unable to locate encoded parent drawer and arrangement drawer view payload")
+            return
+        }
+        drawerPayload["activePaneId"] = secondDrawerChildPaneId.uuidString
+        layoutPayload["drawer"] = drawerPayload
+        kindPayload["layout"] = layoutPayload
+        parentPanePayload["kind"] = kindPayload
+        if let parentIndex = panes.firstIndex(where: { ($0["id"] as? String) == parentPane.id.uuidString }) {
+            panes[parentIndex] = parentPanePayload
+        }
+        root["panes"] = panes
+        drawerViewPayload.removeValue(forKey: "activeChildId")
+        switch drawerViewsShape {
+        case .alternatingArray:
+            drawerViews[drawerViewKeyIndex + 1] = drawerViewPayload
+            firstArrangement["drawerViews"] = drawerViews
+        case .keyedObject:
+            firstArrangement["drawerViews"] = [drawerId.uuidString: drawerViewPayload]
+        }
+        arrangements[0] = firstArrangement
+        firstTab["arrangements"] = arrangements
+        tabs[0] = firstTab
+        root["tabs"] = tabs
+        let legacyData = try JSONSerialization.data(withJSONObject: root)
+        try legacyData.write(to: stateURL, options: Data.WritingOptions.atomic)
+
+        let loaded = persistor.load().value
+
+        #expect(loaded?.id == state.id)
+        #expect(loaded?.panes.count == 3)
+        #expect(
+            loaded?.panes.first { $0.id == parentPane.id }?.drawer?.paneIds == [
+                firstDrawerChildPaneId,
+                secondDrawerChildPaneId,
+            ]
+        )
+        #expect(loaded?.tabs.first?.arrangements.first?.drawerViews[drawerId]?.activeChildId == secondDrawerChildPaneId)
+    }
+
+    @Test
     func test_load_ignoresCacheAndUIFiles() throws {
         // Arrange — write only cache and UI files, no canonical state
         let workspaceId = UUID()
@@ -529,7 +638,6 @@ final class WorkspacePersistorTests {
                 )
             ],
             pullRequestCountByWorktreeId: [worktreeId: 2],
-            notificationCountByWorktreeId: [worktreeId: 7],
             recentTargets: [recentTarget],
             sourceRevision: 10,
             lastRebuiltAt: Date(timeIntervalSince1970: 1_700_000_000)
@@ -542,7 +650,6 @@ final class WorkspacePersistorTests {
         #expect(loaded?.repoEnrichmentByRepoId[repoId]?.organizationName == "askluna")
         #expect(loaded?.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
         #expect(loaded?.pullRequestCountByWorktreeId[worktreeId] == 2)
-        #expect(loaded?.notificationCountByWorktreeId[worktreeId] == 7)
         #expect(loaded?.recentTargets == [recentTarget])
         #expect(loaded?.sourceRevision == 10)
     }
@@ -727,7 +834,6 @@ final class WorkspacePersistorTests {
                 "workspaceId": "\(workspaceId.uuidString)",
                 "worktreeEnrichmentByWorktreeId": {},
                 "pullRequestCountByWorktreeId": {},
-                "notificationCountByWorktreeId": {},
                 "sourceRevision": 0
             }
             """
@@ -752,7 +858,6 @@ final class WorkspacePersistorTests {
                 "repoEnrichmentByRepoId": 42,
                 "worktreeEnrichmentByWorktreeId": {},
                 "pullRequestCountByWorktreeId": {},
-                "notificationCountByWorktreeId": {"\(UUID().uuidString)": 3},
                 "recentTargets": [],
                 "sourceRevision": 7
             }

@@ -13,7 +13,8 @@ extension WorkspaceStore {
         clock: any Clock<Duration> & Sendable = ContinuousClock()
     ) {
         self.init(
-            metadataAtom: WorkspaceMetadataAtom(),
+            identityAtom: WorkspaceIdentityAtom(),
+            windowMemoryAtom: WorkspaceWindowMemoryAtom(),
             repositoryTopologyAtom: catalogAtom,
             paneAtom: graphAtom,
             tabShellAtom: interactionAtom.shellAtom,
@@ -31,10 +32,10 @@ extension WorkspaceStore {
         )
     }
 
-    var workspaceId: UUID { metadataAtom.workspaceId }
-    var workspaceName: String { metadataAtom.workspaceName }
-    var sidebarWidth: CGFloat { metadataAtom.sidebarWidth }
-    var windowFrame: CGRect? { metadataAtom.windowFrame }
+    var workspaceId: UUID { identityAtom.workspaceId }
+    var workspaceName: String { identityAtom.workspaceName }
+    var sidebarWidth: CGFloat { windowMemoryAtom.sidebarWidth }
+    var windowFrame: CGRect? { windowMemoryAtom.windowFrame }
     var repos: [Repo] { repositoryTopologyAtom.repos }
     var watchedPaths: [WatchedPath] { repositoryTopologyAtom.watchedPaths }
     var panes: [UUID: Pane] { paneAtom.panes }
@@ -340,8 +341,8 @@ extension WorkspaceStore {
     func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
         repositoryTopologyAtom.reconcileDiscoveredWorktrees(repoId, worktrees: worktrees)
     }
-    func setSidebarWidth(_ sidebarWidth: CGFloat) { metadataAtom.setSidebarWidth(sidebarWidth) }
-    func setWindowFrame(_ windowFrame: CGRect?) { metadataAtom.setWindowFrame(windowFrame) }
+    func setSidebarWidth(_ sidebarWidth: CGFloat) { windowMemoryAtom.setSidebarWidth(sidebarWidth) }
+    func setWindowFrame(_ windowFrame: CGRect?) { windowMemoryAtom.setWindowFrame(windowFrame) }
     func snapshotForClose(tabId: UUID) -> WorkspaceMutationCoordinator.TabCloseSnapshot? {
         mutationCoordinator.snapshotForClose(tabId: tabId)
     }

@@ -78,7 +78,8 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         title: String = "Terminal",
         facets: PaneContextFacets = .empty,
         checkoutRef: String? = nil,
-        note: String? = nil
+        note: String? = nil,
+        fillNilSourceFacets: Bool = true
     ) {
         self.paneId = paneId
         self.contentType = contentType
@@ -91,7 +92,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
             worktreeId: source.worktreeId,
             cwd: source.launchDirectory
         )
-        self.facets = facets.fillingNilFields(from: sourceFacets)
+        self.facets = fillNilSourceFacets ? facets.fillingNilFields(from: sourceFacets) : facets
         self.checkoutRef = checkoutRef
         self.note = Self.normalizedNote(note)
     }
@@ -130,7 +131,8 @@ struct PaneMetadata: Codable, Hashable, Sendable {
 
     func canonicalizedIdentity(
         paneId: PaneId,
-        contentType: PaneContentType
+        contentType: PaneContentType,
+        fillNilSourceFacets: Bool = true
     ) -> Self {
         Self(
             paneId: paneId,
@@ -141,7 +143,8 @@ struct PaneMetadata: Codable, Hashable, Sendable {
             title: title,
             facets: facets,
             checkoutRef: checkoutRef,
-            note: note
+            note: note,
+            fillNilSourceFacets: fillNilSourceFacets
         )
     }
 

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Per-arrangement view state for a non-empty drawer.
-struct DrawerView: Codable, Hashable {
+struct DrawerView: Codable, Hashable, Sendable {
     /// Spatial arrangement of panes within the drawer's local grid.
     var layout: DrawerGridLayout
     /// Currently focused pane in the drawer. Nil only when empty.
@@ -50,7 +50,7 @@ struct DrawerView: Codable, Hashable {
 
 /// A named complete view of panes within a Tab.
 /// Each tab has exactly one default arrangement and zero or more custom arrangements.
-struct PaneArrangement: Codable, Identifiable, Hashable {
+struct PaneArrangement: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     /// Display name for this arrangement.
     var name: String

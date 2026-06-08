@@ -2,7 +2,7 @@ import Foundation
 
 /// A git worktree within a repo — structure-only.
 /// All enrichment data (branch, status) comes from RepoCacheAtom via the event bus.
-struct Worktree: Codable, Identifiable, Hashable {
+struct Worktree: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     let repoId: UUID
     var name: String

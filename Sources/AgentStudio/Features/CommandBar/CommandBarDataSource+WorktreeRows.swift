@@ -113,7 +113,7 @@ extension CommandBarDataSource {
         repo: Repo,
         store: WorkspaceStore
     ) -> WorktreePresence {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )

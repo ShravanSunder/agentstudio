@@ -184,8 +184,8 @@ func configureMainWindowKeyboardOwner(
     let windowId = UUID()
     windowLifecycleStore.recordWindowRegistered(windowId)
     windowLifecycleStore.recordWindowBecameKey(windowId)
-    atoms.uiState.setSidebarCollapsed(false)
-    atoms.uiState.setSidebarHasFocus(false)
+    atoms.workspaceSidebarState.setSidebarCollapsed(false)
+    atoms.workspaceSidebarState.setSidebarHasFocus(false)
     atoms.managementLayer.deactivate()
 }
 

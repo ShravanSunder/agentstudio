@@ -6,7 +6,7 @@ extension AppDelegate {
         persistor: WorkspacePersistor,
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
-    ) {
+    ) async {
         // The boot order is the contract:
         // 1. restore the durable workspace model,
         // 2. load rebuildable caches without autosave observation,
@@ -16,9 +16,9 @@ extension AppDelegate {
         //
         // `WorkspaceBootStep.purpose` carries the per-step "why" and is covered by
         // tests so future boot changes cannot silently become an unlabeled ordering bet.
-        WorkspaceBootSequence.run { [self] step in
+        await WorkspaceBootSequence.runAsync { [self] step in
             recordBootStep(step)
-            executeBootStep(
+            await executeBootStep(
                 step,
                 persistor: persistor,
                 paneRuntimeBus: paneRuntimeBus,
@@ -85,14 +85,14 @@ extension AppDelegate {
         persistor: WorkspacePersistor,
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
-    ) {
+    ) async {
         switch step {
         case .loadCanonicalStore:
-            bootLoadCanonicalStore()
+            await bootLoadCanonicalStore()
         case .loadCacheStore:
-            bootLoadCacheStore(persistor: persistor)
+            await bootLoadCacheStore(persistor: persistor)
         case .loadUIStore:
-            bootLoadUIStore(persistor: persistor)
+            await bootLoadUIStore(persistor: persistor)
         case .establishRuntimeBus:
             bootEstablishRuntimeBus(paneRuntimeBus: paneRuntimeBus, filesystemSource: &filesystemSource)
         case .startFilesystemActor:
@@ -112,34 +112,49 @@ extension AppDelegate {
         }
     }
 
-    private func bootLoadCanonicalStore() {
+    private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
+        workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore()
         store = WorkspaceStore(
-            metadataAtom: atomStore.workspaceMetadata,
+            identityAtom: atomStore.workspaceIdentity,
+            windowMemoryAtom: atomStore.workspaceWindowMemory,
             repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
             paneAtom: atomStore.workspacePane,
             tabLayoutAtom: atomStore.workspaceTabLayout,
             mutationCoordinator: atomStore.workspaceMutationCoordinator,
+            sqliteDatastore: workspaceSQLiteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
         repoCacheStore = RepoCacheStore(
-            atom: atomStore.repoCache,
+            cacheAtom: atomStore.repoEnrichmentCache,
+            recentTargetAtom: atomStore.recentWorkspaceTarget,
+            sqliteDatastore: workspaceSQLiteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
         sidebarCacheStore = SidebarCacheStore(
             atom: atomStore.sidebarCache,
+            sqliteDatastore: workspaceSQLiteDatastore,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
         )
         uiStateStore = UIStateStore(
-            atom: atomStore.uiState,
-            editorChooserAtom: atomStore.editorChooser,
+            atom: atomStore.workspaceSidebarState,
+            editorChooserState: atomStore.editorChooser,
+            sqliteDatastore: workspaceSQLiteDatastore,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
+        workspaceSettingsStore = WorkspaceSettingsStore(
+            editorPreferenceAtom: atomStore.editorPreference,
+            sidebarCheckoutColorAtom: atomStore.sidebarCheckoutColor,
+            inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
@@ -147,7 +162,7 @@ extension AppDelegate {
         traceRuntime = .fromEnvironment()
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
-        store.restore()
+        await store.restoreAsync()
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
         windowLifecycleStore = atomStore.windowLifecycle
@@ -160,15 +175,70 @@ extension AppDelegate {
         )
     }
 
-    private func bootLoadCacheStore(persistor: WorkspacePersistor) {
-        _ = persistor
-        repoCacheStore.restore(for: store.metadataAtom.workspaceId)
-        sidebarCacheStore.restore(for: store.metadataAtom.workspaceId)
+    private func makeWorkspaceSQLiteDatastore() -> WorkspaceSQLiteDatastore? {
+        WorkspaceSQLiteDatastoreFactory().makeDatastore()
     }
 
-    private func bootLoadUIStore(persistor: WorkspacePersistor) {
-        uiStateStore.restore(for: store.metadataAtom.workspaceId)
-        bootLoadInboxNotificationStore(persistor: persistor)
+    private func bootLoadCacheStore(persistor: WorkspacePersistor) async {
+        _ = persistor
+        await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
+        await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
+    }
+
+    private func bootLoadUIStore(persistor: WorkspacePersistor) async {
+        workspaceSettingsStore.restore(for: store.identityAtom.workspaceId)
+        await uiStateStore.restoreAsync(for: store.identityAtom.workspaceId)
+        await bootLoadInboxNotificationStore(persistor: persistor)
+        await bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: persistor)
+    }
+
+    private func bootArchiveLegacyWorkspaceFilesIfNeeded(persistor: WorkspacePersistor) async {
+        let archiveResult = await WorkspaceLegacyArchiveCoordinator.archiveLegacyWorkspaceFilesIfReady(
+            workspaceId: store.identityAtom.workspaceId,
+            persistor: persistor,
+            sqliteDatastore: workspaceSQLiteDatastore,
+            canArchiveLegacyCompanionFiles: canArchiveLegacyCompanionFiles
+        )
+        for event in archiveResult.recoveryEvents {
+            recordPersistenceRecovery(event)
+        }
+        let outcome = archiveResult.outcome
+        switch outcome {
+        case .skipped(.missingSQLiteDatastore), .skipped(.notReady), .skipped(.noLegacyFiles):
+            return
+        case .skipped(.snapshotStatusUnavailable(let failure)):
+            appLogger.warning(
+                "Skipping legacy workspace archive; SQLite snapshot status unavailable: \(failure.description)"
+            )
+        case .skipped(.incompleteCompanionImports):
+            appLogger.warning(
+                "Skipping legacy workspace archive; one or more legacy companion files have not been restored into SQLite/settings"
+            )
+        case .skipped(.companionStatusUpdateFailed(let failure)):
+            appLogger.warning(
+                "Skipping legacy workspace archive; companion import status update failed: \(failure.description)"
+            )
+        case .archived(let directoryName):
+            appLogger.info(
+                "Archived legacy workspace files into legacy-imported/\(directoryName, privacy: .public)"
+            )
+        case .archivedButStatusUpdateFailed(let directoryName, let failure):
+            appLogger.warning(
+                "Legacy workspace files archived into legacy-imported/\(directoryName, privacy: .public), but archived_at status update failed: \(failure.description)"
+            )
+        case .archiveIncomplete(let result):
+            appLogger.warning(
+                "Legacy workspace archive incomplete. Archived: \(result.archivedFilenames.joined(separator: ","), privacy: .public). Failed: \(result.failedFilenames.joined(separator: ","), privacy: .public). Incomplete archive directories: \(result.incompleteArchiveDirectoryNames.joined(separator: ","), privacy: .public)"
+            )
+        }
+    }
+
+    private var canArchiveLegacyCompanionFiles: Bool {
+        repoCacheStore.canArchiveLegacyCacheFile
+            && sidebarCacheStore.canArchiveLegacySidebarCacheFile
+            && uiStateStore.canArchiveLegacyUIFile
+            && workspaceSettingsStore.canArchiveLegacySettingsFiles
+            && canArchiveLegacyInboxFile
     }
 
     private func bootEstablishRuntimeBus(
@@ -258,11 +328,11 @@ extension AppDelegate {
             if let topologySyncTask {
                 await topologySyncTask.value
             }
-            self?.completeBootPersistenceObservation()
+            await self?.completeBootPersistenceObservation()
         }
     }
 
-    private func completeBootPersistenceObservation() {
+    private func completeBootPersistenceObservation() async {
         // Restore and topology replay intentionally run without debounced persistence
         // observation. They can mutate cache atoms many times while runtime cleanup and
         // filesystem discovery are also starting. Arming observation here keeps startup
@@ -271,11 +341,12 @@ extension AppDelegate {
         repoCacheStore.startObserving()
         sidebarCacheStore.startObserving()
         uiStateStore.startObserving()
+        workspaceSettingsStore.startObserving()
         assertBootPersistenceObservationArmed()
 
         if pruneStaleCache(store: store, repoCache: repoCache) {
             do {
-                try repoCacheStore.flush(for: store.metadataAtom.workspaceId)
+                try await repoCacheStore.flushAsync(for: store.identityAtom.workspaceId)
             } catch {
                 appLogger.warning("Failed to persist pruned repo cache during boot: \(error.localizedDescription)")
             }
@@ -294,6 +365,10 @@ extension AppDelegate {
         assert(
             uiStateStore.isAutosaveObservationActive,
             "UIStateStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
+        )
+        assert(
+            workspaceSettingsStore.isAutosaveObservationActive,
+            "WorkspaceSettingsStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
         )
     }
 
@@ -345,5 +420,19 @@ extension AppDelegate {
                 .updateWatchedFolders(paths: watchedPaths.map(\.path))
             )
         }
+    }
+}
+
+enum WorkspaceLegacyArchiveReadiness {
+    static func canArchiveLegacyFiles(
+        hasSQLiteBackend: Bool,
+        hasCompletedSnapshot: Bool,
+        hasLegacyWorkspaceFiles: Bool,
+        canArchiveLegacyCompanionFiles: Bool
+    ) -> Bool {
+        hasSQLiteBackend
+            && hasCompletedSnapshot
+            && hasLegacyWorkspaceFiles
+            && canArchiveLegacyCompanionFiles
     }
 }

@@ -1,7 +1,12 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
+
+private final class RepoCacheObservationInvalidationCounter: @unchecked Sendable {
+    var didInvalidate = false
+}
 
 @Suite(.serialized)
 @MainActor
@@ -38,7 +43,7 @@ final class RepoCacheAtomTests {
     }
 
     @Test
-    func removeRepo_prunesWorktreeAndCounters() {
+    func removeRepo_prunesWorktreeAndPullRequestCounters() {
         let store = RepoCacheAtom()
         let repoId = UUID()
         let worktreeId = UUID()
@@ -46,14 +51,12 @@ final class RepoCacheAtomTests {
         store.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
         store.setWorktreeEnrichment(.init(worktreeId: worktreeId, repoId: repoId, branch: "feature"))
         store.setPullRequestCount(2, for: worktreeId)
-        store.setNotificationCount(5, for: worktreeId)
 
         store.removeRepo(repoId)
 
         #expect(store.repoEnrichmentByRepoId[repoId] == nil)
         #expect(store.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
         #expect(store.pullRequestCountByWorktreeId[worktreeId] == nil)
-        #expect(store.notificationCountByWorktreeId[worktreeId] == nil)
     }
 
     @Test
@@ -104,5 +107,88 @@ final class RepoCacheAtomTests {
         store.removeRecentTarget("cwd:/tmp/missing")
 
         #expect(store.recentTargets == [second])
+    }
+
+    @Test
+    func composedRepoCacheRoutesMutationsToSplitOwners() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheAtom(
+            enrichmentCacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom
+        )
+        let repoId = UUID()
+        let target = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/agent-studio"))
+
+        store.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+        store.recordRecentTarget(target)
+
+        #expect(cacheAtom.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
+        #expect(recentTargetAtom.recentTargets == [target])
+    }
+
+    @Test
+    func clearingEnrichmentCacheDoesNotClearRecentTargets() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheAtom(
+            enrichmentCacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom
+        )
+        let repoId = UUID()
+        let target = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/agent-studio"))
+
+        store.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+        store.recordRecentTarget(target)
+
+        cacheAtom.clear()
+
+        #expect(store.repoEnrichmentByRepoId.isEmpty)
+        #expect(store.recentTargets == [target])
+    }
+
+    @Test
+    func composedRepoCacheObservationTracksEnrichmentOwner() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheAtom(
+            enrichmentCacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom
+        )
+        let repoId = UUID()
+        let invalidationCounter = RepoCacheObservationInvalidationCounter()
+
+        withObservationTracking {
+            _ = store.repoEnrichmentByRepoId
+            _ = store.recentTargets
+        } onChange: {
+            invalidationCounter.didInvalidate = true
+        }
+
+        cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+
+        #expect(invalidationCounter.didInvalidate)
+    }
+
+    @Test
+    func composedRepoCacheObservationTracksRecentTargetOwner() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let recentTargetAtom = RecentWorkspaceTargetAtom()
+        let store = RepoCacheAtom(
+            enrichmentCacheAtom: cacheAtom,
+            recentTargetAtom: recentTargetAtom
+        )
+        let target = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/agent-studio"))
+        let invalidationCounter = RepoCacheObservationInvalidationCounter()
+
+        withObservationTracking {
+            _ = store.recentTargets
+        } onChange: {
+            invalidationCounter.didInvalidate = true
+        }
+
+        recentTargetAtom.recordRecentTarget(target)
+
+        #expect(invalidationCounter.didInvalidate)
     }
 }

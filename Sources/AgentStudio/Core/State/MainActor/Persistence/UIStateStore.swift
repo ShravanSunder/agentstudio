@@ -6,9 +6,9 @@ private let uiStateStoreLogger = Logger(subsystem: "com.agentstudio", category: 
 
 @MainActor
 final class UIStateStore {
-    private let atom: UIStateAtom
-    private let editorChooserAtom: EditorChooserAtom
+    private let atom: WorkspaceSidebarState
     private let persistor: WorkspacePersistor
+    private let sqliteDatastore: WorkspaceSQLiteDatastore?
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     private let recoveryReporter: PersistenceRecoveryReporter?
@@ -16,22 +16,24 @@ final class UIStateStore {
     private var isObservingUIState = false
     private var isRestoringState = false
     private var activeWorkspaceId: UUID?
+    private(set) var canArchiveLegacyUIFile = true
 
     var isAutosaveObservationActive: Bool {
         isObservingUIState
     }
 
     init(
-        atom: UIStateAtom,
-        editorChooserAtom: EditorChooserAtom,
+        atom: WorkspaceSidebarState,
+        editorChooserState _: EditorChooserState? = nil,
         persistor: WorkspacePersistor = WorkspacePersistor(),
+        sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
-        self.editorChooserAtom = editorChooserAtom
         self.persistor = persistor
+        self.sqliteDatastore = sqliteDatastore
         self.persistDebounceDuration = persistDebounceDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.recoveryReporter = recoveryReporter
@@ -46,9 +48,55 @@ final class UIStateStore {
     }
 
     func restore(for workspaceId: UUID) {
+        guard sqliteDatastore == nil else {
+            assertionFailure("Use await restoreAsync(for:) when SQLite datastore is enabled")
+            return
+        }
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
+        canArchiveLegacyUIFile = true
+        restoreFromLegacyFiles(workspaceId: workspaceId, legacyImportDecision: .allowImport)
+    }
+
+    func restoreAsync(for workspaceId: UUID) async {
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = nil
+        activeWorkspaceId = workspaceId
+        canArchiveLegacyUIFile = true
+        if let sqliteDatastore {
+            switch await restoreFromSQLite(for: workspaceId, sqliteDatastore: sqliteDatastore) {
+            case .restored:
+                return
+            case .missing(let legacyImportDecision, let recoveryEvents):
+                reportRecoveryEvents(recoveryEvents)
+                await restoreFromLegacyFilesAsync(workspaceId: workspaceId, legacyImportDecision: legacyImportDecision)
+                return
+            case .unavailable(let recoveryEvents):
+                reportRecoveryEvents(recoveryEvents)
+                atom.clear()
+                canArchiveLegacyUIFile = false
+                recoveryReporter?(
+                    .init(store: .uiState, workspaceId: workspaceId, recovery: .resetToDefaults)
+                )
+                return
+            }
+        }
+        restoreFromLegacyFiles(workspaceId: workspaceId, legacyImportDecision: .allowImport)
+    }
+
+    private func restoreFromLegacyFiles(
+        workspaceId: UUID,
+        legacyImportDecision: WorkspaceLocalSQLiteLegacyImportDecision
+    ) {
+        guard legacyImportDecision.allowsLegacyImport else {
+            atom.clear()
+            canArchiveLegacyUIFile = !persistor.hasLegacyUIFile(for: workspaceId)
+            recoveryReporter?(
+                .init(store: .uiState, workspaceId: workspaceId, recovery: .resetToDefaults)
+            )
+            return
+        }
         switch persistor.loadUI(for: workspaceId) {
         case .loaded(let state):
             isRestoringState = true
@@ -58,8 +106,8 @@ final class UIStateStore {
                 sidebarCollapsed: state.sidebarCollapsed,
                 sidebarSurface: state.sidebarSurface
             )
-            editorChooserAtom.hydrate(bookmarkedEditorId: state.editorChooserState.bookmarkedEditorId)
             isRestoringState = false
+            canArchiveLegacyUIFile = sqliteDatastore == nil
         case .missing:
             break
         case .corrupt(let error):
@@ -69,18 +117,40 @@ final class UIStateStore {
                 .init(
                     store: .uiState,
                     workspaceId: workspaceId,
-                    recovery: .quarantinedAndReset,
+                    recovery: quarantinedURL == nil ? .quarantineFailed : .quarantinedAndReset,
                     quarantinedFilename: quarantinedURL?.lastPathComponent
                 )
             )
         }
     }
 
+    private func restoreFromLegacyFilesAsync(
+        workspaceId: UUID,
+        legacyImportDecision: WorkspaceLocalSQLiteLegacyImportDecision
+    ) async {
+        restoreFromLegacyFiles(workspaceId: workspaceId, legacyImportDecision: legacyImportDecision)
+        guard legacyImportDecision.allowsLegacyImport, persistor.hasLegacyUIFile(for: workspaceId) else {
+            return
+        }
+        canArchiveLegacyUIFile = await materializeSQLiteIfNeeded(for: workspaceId)
+    }
+
     func flush(for workspaceId: UUID) throws {
+        guard sqliteDatastore == nil else {
+            assertionFailure("Use await flushAsync(for:) when SQLite datastore is enabled")
+            throw CocoaError(.fileWriteUnknown)
+        }
         activeWorkspaceId = workspaceId
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
-        try persistNow(for: workspaceId)
+        try persistLegacyJSONNow(for: workspaceId)
+    }
+
+    func flushAsync(for workspaceId: UUID) async throws {
+        activeWorkspaceId = workspaceId
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = nil
+        try await persistNow(for: workspaceId)
     }
 
     private func observeUIState() {
@@ -91,10 +161,9 @@ final class UIStateStore {
             _ = atom.isFilterVisible
             _ = atom.sidebarCollapsed
             _ = atom.sidebarSurface
-            _ = editorChooserAtom.state.bookmarkedEditorId
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
-                // UIStateAtom and EditorChooserAtom are @MainActor; this traps if that ownership changes.
+                // WorkspaceSidebarState is @MainActor; this traps if that ownership changes.
                 guard let self else { return }
                 let shouldIgnore = self.isRestoringState
                 self.isObservingUIState = false
@@ -115,31 +184,82 @@ final class UIStateStore {
             guard !Task.isCancelled else { return }
             guard let self else { return }
             do {
-                try self.persistNow(for: workspaceId)
+                try await self.persistNow(for: workspaceId)
             } catch {
                 uiStateStoreLogger.warning("UI state autosave failed: \(error.localizedDescription)")
             }
         }
     }
 
-    private func persistNow(for workspaceId: UUID) throws {
+    private func persistNow(for workspaceId: UUID) async throws {
         do {
-            guard persistor.ensureDirectory() else {
-                throw CocoaError(.fileWriteUnknown)
+            if let sqliteDatastore {
+                try await sqliteDatastore.saveUIState(currentSidebarStateRecord(), workspaceId: workspaceId)
+                return
             }
-            try persistor.saveUI(
-                .init(
-                    workspaceId: workspaceId,
-                    filterText: atom.filterText,
-                    isFilterVisible: atom.isFilterVisible,
-                    sidebarCollapsed: atom.sidebarCollapsed,
-                    sidebarSurface: atom.sidebarSurface,
-                    editorChooserState: .init(bookmarkedEditorId: editorChooserAtom.state.bookmarkedEditorId)
-                )
-            )
+            try persistLegacyJSONNow(for: workspaceId)
         } catch {
             reportSaveFailed(workspaceId: workspaceId)
             throw error
+        }
+    }
+
+    private func persistLegacyJSONNow(for workspaceId: UUID) throws {
+        guard persistor.ensureDirectory() else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try persistor.saveUI(
+            .init(
+                workspaceId: workspaceId,
+                filterText: atom.filterText,
+                isFilterVisible: atom.isFilterVisible,
+                sidebarCollapsed: atom.sidebarCollapsed,
+                sidebarSurface: atom.sidebarSurface
+            )
+        )
+    }
+
+    private enum SQLiteRestoreOutcome {
+        case restored
+        case missing(WorkspaceLocalSQLiteLegacyImportDecision, recoveryEvents: [PersistenceRecoveryEvent])
+        case unavailable(recoveryEvents: [PersistenceRecoveryEvent])
+    }
+
+    private func restoreFromSQLite(
+        for workspaceId: UUID,
+        sqliteDatastore: WorkspaceSQLiteDatastore
+    ) async -> SQLiteRestoreOutcome {
+        switch await sqliteDatastore.loadUIState(workspaceId: workspaceId) {
+        case .loaded(let payload):
+            guard let state = payload.state else {
+                return .missing(payload.legacyDecision, recoveryEvents: payload.recoveryEvents)
+            }
+            isRestoringState = true
+            atom.hydrate(
+                filterText: state.filterText,
+                isFilterVisible: state.isFilterVisible,
+                sidebarCollapsed: state.sidebarCollapsed,
+                sidebarSurface: state.sidebarSurface
+            )
+            isRestoringState = false
+            return .restored
+        case .unavailable(let failure, let recoveryEvents):
+            isRestoringState = false
+            uiStateStoreLogger.warning("UI state SQLite restore failed: \(failure.description)")
+            return .unavailable(recoveryEvents: recoveryEvents)
+        }
+    }
+
+    private func materializeSQLiteIfNeeded(for workspaceId: UUID) async -> Bool {
+        guard sqliteDatastore != nil else { return true }
+        do {
+            try await persistNow(for: workspaceId)
+            return true
+        } catch {
+            uiStateStoreLogger.warning(
+                "UI state legacy import materialization failed: \(error.localizedDescription)"
+            )
+            return false
         }
     }
 
@@ -147,5 +267,18 @@ final class UIStateStore {
         recoveryReporter?(
             .init(store: .uiState, workspaceId: workspaceId, recovery: .saveFailed)
         )
+    }
+
+    private func currentSidebarStateRecord() -> WorkspaceLocalRepository.SidebarStateRecord {
+        .init(
+            filterText: atom.filterText,
+            isFilterVisible: atom.isFilterVisible,
+            sidebarCollapsed: atom.sidebarCollapsed,
+            sidebarSurface: atom.sidebarSurface
+        )
+    }
+
+    private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
+        recoveryEvents.forEach { recoveryReporter?($0) }
     }
 }

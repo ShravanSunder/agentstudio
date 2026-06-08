@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-State is distributed across independent `@Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). `WorkspaceStore` is a persistence wrapper over four atoms (`WorkspaceMetadataAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneAtom`, `WorkspaceTabLayoutAtom`). `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary entity — referenced by UUID across every layer. Tabs own arrangements containing flat pane-strip layouts. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
+State is distributed across independent `@Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). `ActiveWorkspaceSelectionAtom` owns the global active workspace id, while `WorkspaceStore` is a persistence wrapper over the currently hydrated workspace atoms (`WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspacePaneAtom`, `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom`, `WorkspaceTabArrangementAtom`, `WorkspaceTabLayoutAtom`). `WorkspaceTabLayoutDerived` is the rich tab read model. `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary entity — referenced by UUID across every layer. Tabs own arrangements containing flat pane-strip layouts. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
 
 ---
 
@@ -10,8 +10,8 @@ State is distributed across independent `@Observable` atoms (Jotai-style atomic 
 
 ### 1.1 Architecture Principles
 
-1. **Pane identity is primary** — `Pane` is the primary entity in the window system. `PaneId` (UUID v7) is the single identity used across every layer: `WorkspacePaneAtom`, `Layout`, `ViewRegistry`, `SurfaceManager`, `SessionRuntime`, and zmx. A pane exists independently of layout position, tab, or surface and can move between tabs and layout positions while keeping identity.
-2. **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` atom. `WorkspaceMetadataAtom` owns workspace identity, `WorkspaceRepositoryTopologyAtom` owns repos/worktrees, `WorkspacePaneAtom` owns panes, `WorkspaceTabLayoutAtom` owns tabs/arrangements. `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store — each atom has one domain, one reason to change, testable in isolation.
+1. **Pane identity is primary** — `Pane` is the primary entity in the window system. `PaneId` (UUID v7) is the single identity used across every layer: `WorkspacePaneGraphAtom`, `WorkspacePaneAtom`, `Layout`, `ViewRegistry`, `SurfaceManager`, `SessionRuntime`, and zmx. A pane exists independently of layout position, tab, or surface and can move between tabs and layout positions while keeping identity.
+2. **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` atom. `ActiveWorkspaceSelectionAtom` owns the global active workspace id, `WorkspaceIdentityAtom` owns hydrated workspace identity, `WorkspaceWindowMemoryAtom` owns local window/sidebar memory, `WorkspaceRepositoryTopologyAtom` owns repos/worktrees, `WorkspacePaneGraphAtom` owns the core pane graph, `WorkspaceDrawerCursorAtom` owns local drawer expansion, `WorkspaceTabShellAtom` owns tab identity/order, `WorkspaceTabCursorAtom` owns active-tab local memory, `WorkspaceTabGraphAtom` owns tab membership and arrangement layout graph, `WorkspaceArrangementCursorAtom` owns arrangement focus cursors, and `WorkspacePanePresentationAtom` owns runtime-only tab zoom. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, and `WorkspaceTabLayoutAtom` remain compatibility mutation/read facades over split owners while callers migrate to derived readers. `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store — each atom has one domain, one reason to change, testable in isolation.
 3. **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers — the compiler enforces the boundary.
 4. **Coordinator for cross-store sequencing** — A coordinator sequences operations across multiple stores for a single user action. Owns no state, contains no domain logic. If a coordinator method contains an `if` that decides what to do with domain data, that logic belongs in a store.
 5. **Explicit layout model** — `Layout` is a flat pane-strip value type with ordered `PaneEntry` items. Leaves reference panes by ID. No `NSView` references, no opaque blobs.
@@ -39,10 +39,10 @@ Configuration injection pattern: prefer constructor injection with defaults over
 │  │WorkspaceStore│    │SessionRuntime │    │    ViewRegistry       │   │
 │  │ (persistence │    │ statuses      │    │ paneId → PaneViewSlot│   │
 │  │  wrapper)    │◄───│ backends      │    │ renderTree()         │   │
-│  │ Metadata Atom│    └───────┬───────┘    └──────────┬───────────┘   │
+│  │ Identity/Win │    └───────┬───────┘    └──────────┬───────────┘   │
 │  │ Topology Atom│            │                       │               │
-│  │ Pane Atom    │            │                       │               │
-│  │ TabLayout Atm│            │                       │               │
+│  │ Pane graph   │            │                       │               │
+│  │ Tab owners   │            │                       │               │
 │  └──────┬───────┘            │                       │               │
 │         │            ┌───────┴───────────────────────┴────────┐      │
 │         │            │      PaneCoordinator                   │      │
@@ -70,17 +70,27 @@ Configuration injection pattern: prefer constructor injection with defaults over
 
 ```mermaid
 erDiagram
-    WorkspaceStore ||--|| WorkspaceMetadataAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceIdentityAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceWindowMemoryAtom : "wraps"
     WorkspaceStore ||--|| WorkspaceRepositoryTopologyAtom : "wraps"
-    WorkspaceStore ||--|| WorkspacePaneAtom : "wraps"
-    WorkspaceStore ||--|| WorkspaceTabLayoutAtom : "wraps"
+    WorkspaceStore ||--|| WorkspacePaneGraphAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceDrawerCursorAtom : "wraps"
+    WorkspaceStore ||--|| WorkspacePaneAtom : "facade"
+    WorkspaceStore ||--|| WorkspaceTabShellAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceTabCursorAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceTabGraphAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceArrangementCursorAtom : "wraps"
+    WorkspaceStore ||--|| WorkspacePanePresentationAtom : "wraps"
+    WorkspaceStore ||--|| WorkspaceTabArrangementAtom : "facade"
+    WorkspaceStore ||--|| WorkspaceTabLayoutAtom : "facade"
 
     WorkspaceRepositoryTopologyAtom ||--o{ Repo : "repos[]"
     Repo ||--o{ Worktree : "worktrees[]"
 
-    WorkspacePaneAtom ||--o{ Pane : "panes[]"
-    WorkspaceTabLayoutAtom ||--o{ Tab : "tabs[]"
-    WorkspaceTabLayoutAtom ||--o| Tab : "activeTabId"
+    WorkspacePaneGraphAtom ||--o{ Pane : "pane graph"
+    WorkspacePaneAtom ||--o{ Pane : "derived panes[]"
+    WorkspaceTabLayoutDerived ||--o{ Tab : "tabs[]"
+    WorkspaceTabLayoutDerived ||--o| Tab : "activeTabId"
 
     Tab ||--o{ PaneArrangement : "arrangements[]"
     Tab ||--o| Pane : "activePaneId"
@@ -123,7 +133,7 @@ Models are split across two stores. See [Workspace Data Architecture](workspace_
 | `isMainWorktree` | `Bool` | Whether this is the main checkout |
 | `stableKey` | `String` | SHA-256 of path, derived |
 
-All enrichment (branch, git status, origin, PR counts) lives in `RepoCacheAtom`, populated by the event bus. See the "Three Persistence Tiers" section in workspace_data_architecture.md.
+All enrichment (branch, git status, origin, PR counts) lives in `RepoEnrichmentCacheAtom`, populated by the event bus and exposed through the composed `RepoCacheAtom` read surface. See the "Three Persistence Tiers" section in workspace_data_architecture.md.
 
 > **Files:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
 
@@ -221,7 +231,7 @@ Dynamic views are projections of workspace state into virtual tab groups, used b
 
 ### 2.5 Tab
 
-A tab in the workspace. Contains panes organized into arrangements. Order is implicit — determined by array position in `WorkspaceTabLayoutAtom.tabs`.
+A tab in the workspace. Contains panes organized into arrangements. Order is implicit — determined by array position in `WorkspaceTabShellAtom.tabShells` and exposed through `WorkspaceTabLayoutDerived.tabs`.
 
 | Field | Type | Persisted | Notes |
 |-------|------|-----------|-------|
@@ -317,8 +327,8 @@ Templates define the initial pane layout when opening a worktree. Not yet wired 
 AppDelegate (creates all services in dependency order)
 ├── AtomRegistry                     ← composition root for all shared atoms
 ├── WorkspaceStore                ← persistence wrapper over four atoms
-├── RepoCacheStore                ← persistence wrapper for RepoCacheAtom
-├── UIStateStore                  ← persistence wrapper for UIStateAtom
+├── RepoCacheStore                ← persistence wrapper for enrichment cache + recent targets
+├── UIStateStore                  ← persistence wrapper for sidebar memory
 ├── AppLifecycleAtom             ← app active/terminating state (in-memory)
 ├── WindowLifecycleAtom          ← key/focused window identity, terminal geometry (in-memory)
 ├── ApplicationLifecycleMonitor   ← AppKit lifecycle ingress into lifecycle stores
@@ -375,14 +385,23 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 
 | Atom | Domain |
 |------|--------|
-| `metadataAtom: WorkspaceMetadataAtom` | Workspace identity, sidebar width, window frame |
+| `identityAtom: WorkspaceIdentityAtom` | Workspace id, name, and creation timestamp |
+| `windowMemoryAtom: WorkspaceWindowMemoryAtom` | Local sidebar width and window frame |
 | `repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom` | Repos, worktrees, watched paths, availability |
-| `paneAtom: WorkspacePaneAtom` | Pane registry, pane metadata/content/residency, drawers |
-| `tabLayoutAtom: WorkspaceTabLayoutAtom` | Tabs, arrangements, active selection, zoom/minimize |
+| `paneGraphAtom: WorkspacePaneGraphAtom` | Core pane graph: identity, content, residency, durable metadata, drawer membership |
+| `drawerCursorAtom: WorkspaceDrawerCursorAtom` | Local drawer expansion cursor |
+| `paneAtom: WorkspacePaneAtom` | Compatibility mutation facade over pane graph + drawer cursor |
+| `tabShellAtom: WorkspaceTabShellAtom` | Tab identity and ordering |
+| `tabCursorAtom: WorkspaceTabCursorAtom` | Active tab cursor |
+| `tabGraphAtom: WorkspaceTabGraphAtom` | Tab membership and arrangement/layout graph |
+| `arrangementCursorAtom: WorkspaceArrangementCursorAtom` | Active arrangement, active pane, and drawer child cursors |
+| `panePresentationAtom: WorkspacePanePresentationAtom` | Runtime-only pane presentation such as zoom |
+| `tabArrangementAtom: WorkspaceTabArrangementAtom` | Compatibility mutation facade over tab graph, arrangement cursor, and presentation |
+| `tabLayoutAtom: WorkspaceTabLayoutAtom` | Compatibility read facade over tab shell and arrangement facades |
 | `mutationCoordinator: WorkspaceMutationCoordinator` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
 
 **Public role:**
-- owns the four canonical workspace atoms plus `WorkspaceMutationCoordinator`
+- owns the split workspace atom graph plus `WorkspaceMutationCoordinator`
 - restores persisted canonical state into those atoms
 - observes atom changes, marks canonical state dirty, and debounces persistence
 - flushes canonical state to disk on demand
@@ -393,7 +412,9 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 - forwarding mutation methods that belong to the owning atom or coordinator
 
 **Persistence:**
-- `restore()` — Load from disk via `WorkspacePersistor`, hydrate all four atoms through `WorkspacePersistenceTransformer`
+- `restore()` — Load from disk via `WorkspacePersistor`, hydrate workspace atoms through `WorkspacePersistenceTransformer`
+- `WorkspaceStore+LegacySQLiteImport` — Thin SQLite cutover call site. It builds importer input from the current atoms, invokes `WorkspaceLegacySQLiteImporter`, and applies the returned enum outcome by hydrating either the selected imported workspace or the pre-import SQLite state.
+- `WorkspaceLegacySQLiteImporter` — Owns only legacy `workspace.state.json` import policy: scanning, corrupt-file quarantine, pending-status filtering, retry behavior, and active-workspace selection for first boot or incomplete initial import. It returns `WorkspaceLegacySQLiteImportOutcome` instead of booleans so every caller handles `noLegacyFiles`, `noPendingFilesKeepingSelection`, `importedInitialActive`, `retriedWithoutSelectionChange`, `failedButImportedSome`, and `failedNoUsableImport` explicitly.
 - `flush()` — Cancel pending debounce, persist immediately
 - `observePersistedState()` — Uses `withObservationTracking` on persisted fields across all atoms; triggers debounced save on change
 - `prePersistHook` — Called before each persist (used by `PaneCoordinator` to sync webview states)
@@ -525,12 +546,27 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 
 > **Authoritative spec:** [Workspace Data Architecture](workspace_data_architecture.md) defines the complete three-tier model including canonical models (`CanonicalRepo`, `CanonicalWorktree`), enrichment models (`RepoEnrichment`, `WorktreeEnrichment`), and the event-driven enrichment pipeline. This section summarizes the persistence split; the workspace data doc is the source of truth for model shapes and lifecycle flows.
 
+The SQLite foundation now exists as `SQLiteDatabaseFactory`,
+`WorkspaceCoreMigrations`, `WorkspaceLocalMigrations`, and repository-facing
+storage tokens such as `SQLitePaneContentTypeStorage`, `SQLiteLocalUXStorage`,
+and `SQLiteInboxNotificationClaimStorage`. The live app path now opens
+`core.sqlite`, the active workspace's `local.sqlite`, and settings JSON first.
+Legacy JSON stores are import/fallback sources only; once a lane is marked
+imported, stale JSON must not replay over SQLite/settings state.
+Workspace archive readiness requires matching core and local SQLite snapshot
+completion timestamps. If the local sidecar is corrupt, stale, missing, or
+otherwise unreadable during restore, the app hydrates the authoritative core
+workspace with deterministic local defaults and repairs local completion when it
+can. Sidecar quarantine is reserved for SQLite corruption or `NOTADB` failures;
+non-corruption open failures do not move database files.
+
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
-- Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
-- Derived enrichment data (`RepoCacheAtom`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. Notification unread counts moved to `InboxNotificationAtom` per LUNA-361 (derived via `unreadCount(forWorktreeId:)`, not cached in this tier).
-- Workspace-scoped UI preferences and sidebar composition state (`UIStateAtom`) in `workspace.ui.json`
-- Global app preferences and keybindings are stored separately from workspace state
+- Canonical workspace model (`WorkspaceStore`) writes through `WorkspaceSQLiteDatastore` into `core.sqlite` plus cursor/window rows in `local.sqlite`; legacy `workspace.state.json` is imported only when SQLite is uninitialized.
+- Legacy `workspace.state.json` import policy lives in `WorkspaceLegacySQLiteImporter`. `WorkspaceStore` remains the owning persistence wrapper and applies the importer's discriminated outcome, but it does not own the retry/selection state machine. Import materialization writes workspace rows without changing `active_workspace_id`; only the explicit selected outcome may update active workspace selection.
+- Derived enrichment data (`RepoEnrichmentCacheAtom`) and local recent workspace targets (`RecentWorkspaceTargetAtom`) write to per-workspace `local.sqlite`. The old `workspace.cache.json` file is a one-time import source. Enrichment contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts, and rebuild metadata. Notification unread counts are inbox-owned and derived from `InboxNotificationAtom`. Enrichment is written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. `RepoCacheAtom` is the composed read surface for existing repo/sidebar consumers.
+- Workspace-scoped sidebar shell memory (`WorkspaceSidebarMemoryAtom`) writes to local UX rows, with runtime focus kept on `SidebarFocusRuntimeAtom` and composed for UI reads by `WorkspaceSidebarState`. Legacy `workspace.ui.json` is imported only for uninitialized local lanes.
+- Global and workspace preferences use settings JSON rather than workspace graph rows.
 
 This prevents derived data from silently becoming canonical truth and aligns each persisted file with exactly one reason to change.
 
@@ -552,8 +588,9 @@ This prevents derived data from silently becoming canonical truth and aligns eac
 #### Store Ownership
 
 - `WorkspaceStore` → canonical workspace model in `workspace.state.json`
-- `RepoCacheAtom` → derived git/wt/gh metadata + status in `workspace.cache.json`
-- `UIStateAtom` → workspace-scoped UI preferences + sidebar composition state (`sidebarCollapsed`, `sidebarSurface`, `sidebarHasFocus` — last one runtime-only) in `workspace.ui.json`
+- `RepoEnrichmentCacheAtom` + `RecentWorkspaceTargetAtom` → derived git/wt/gh metadata, counts, rebuild metadata, and recent target history in `workspace.cache.json`
+- `WorkspaceSidebarMemoryAtom` → workspace-scoped sidebar shell memory (`filterText`, `isFilterVisible`, `sidebarCollapsed`, `sidebarSurface`) in `workspace.ui.json`
+- `SidebarFocusRuntimeAtom` → runtime-only sidebar focus (`sidebarHasFocus`), never written to `workspace.ui.json`
 - `PreferencesStore` → global app preferences in `preferences.global.json`
 - `KeybindingsStore` → command-to-shortcut overrides in `keybindings.json`
 
@@ -627,10 +664,10 @@ Required cache validity fields:
 #### Load / Refresh Sequencing
 
 1. Load `workspace.state.json` into `WorkspaceStore`
-2. Load `workspace.ui.json` into `UIStateAtom`
+2. Load `workspace.ui.json` into `WorkspaceSidebarMemoryAtom`
 3. Load global preferences and keybindings into their stores
 4. Load `workspace.cache.json` only if cache revision matches canonical workspace revision
-5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `RepoCacheAtom`
+5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `RepoEnrichmentCacheAtom` through `RepoCacheAtom`
 
 Coordinator owns sequencing, not domain decisions:
 
@@ -647,7 +684,7 @@ Coordinator owns sequencing, not domain decisions:
 #### Rules and Invariants
 
 1. Canonical state never depends on cache correctness
-2. Cache can be deleted at any time without data loss
+2. Enrichment cache can be deleted at any time without canonical data loss; recent target memory resets if the shared cache file is quarantined
 3. Cache must be versioned against canonical state revision
 4. Every persisted file has one owning store and one reason to change
 5. Cross-store flows are coordinator-only sequencing
@@ -680,7 +717,7 @@ Git worktree management via the `wt` CLI tool. Singleton.
 
 > **File:** `Infrastructure/WorktrunkService.swift`
 >
-> Worktree discovery flows through the enrichment pipeline: AppDelegate persists watched scope and triggers the watched-folder command → `FilesystemActor` scans and emits `.repoDiscovered` / `.repoRemoved` → `WorkspaceCacheCoordinator` registers or marks unavailable canonical entries in `WorkspaceStore` and seeds enrichment in `RepoCacheAtom`. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline.
+> Worktree discovery flows through the enrichment pipeline: AppDelegate persists watched scope and triggers the watched-folder command → `FilesystemActor` scans and emits `.repoDiscovered` / `.repoRemoved` → `WorkspaceCacheCoordinator` registers or marks unavailable canonical entries in `WorkspaceStore` and seeds enrichment in `RepoEnrichmentCacheAtom` through the `RepoCacheAtom` read/write facade. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline.
 
 ### 3.12 Command Bar System
 
@@ -1054,21 +1091,46 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Core/Models/SessionStatus.swift` | 7-state session lifecycle machine (future zmx health) |
 | **Core/State/MainActor** | |
-| `Core/State/MainActor/Atoms/WorkspaceMetadataAtom.swift` | Workspace identity, sidebar width, window frame |
+| `Core/State/MainActor/Atoms/ActiveWorkspaceSelectionAtom.swift` | Global active workspace id selection |
+| `Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift` | Workspace id, name, and creation timestamp |
+| `Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift` | Local sidebar width and window frame |
 | `Core/State/MainActor/Atoms/WorkspaceRepositoryTopologyAtom.swift` | Repos, worktrees, watched paths, availability |
-| `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` | Pane registry, pane metadata/content/residency, drawers |
-| `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` | Tabs, arrangements, active selection, zoom/minimize |
+| `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` | Core pane graph: identity, content, residency, durable metadata, drawer membership |
+| `Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift` | Local drawer expansion cursor |
+| `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` | Compatibility mutation facade over pane graph + drawer cursor |
+| `Core/State/MainActor/Atoms/WorkspacePaneDerived.swift` | Rich pane read model composed from graph, cursor, topology, and cache facts |
+| `Core/State/MainActor/Atoms/WorkspaceTabShellAtom.swift` | Tab identity and ordering |
+| `Core/State/MainActor/Atoms/WorkspaceTabCursorAtom.swift` | Active tab cursor |
+| `Core/State/MainActor/Atoms/WorkspaceTabGraphAtom.swift` | Tab membership and arrangement/layout graph |
+| `Core/State/MainActor/Atoms/WorkspaceArrangementCursorAtom.swift` | Active arrangement, active pane, and drawer child cursors |
+| `Core/State/MainActor/Atoms/WorkspacePanePresentationAtom.swift` | Runtime-only pane presentation such as zoom |
+| `Core/State/MainActor/Atoms/WorkspaceTabArrangementAtom.swift` | Compatibility mutation facade over tab graph, arrangement cursor, and presentation |
+| `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` | Compatibility read facade over tab shell and arrangement facades |
+| `Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift` | Rich tab read model composed from shell, cursor, graph, arrangement cursor, and presentation |
 | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
-| `Core/State/MainActor/Atoms/WorkspaceFocus.swift` | Shared `WorkspaceFocus` and `FocusRequirement` domain types for command visibility and status UI |
-| `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` | Shared app-wide focus reader for command visibility and status UI |
+| `Core/State/MainActor/Atoms/WorkspacePaneFocus.swift` | Shared `WorkspacePaneFocus` and `FocusRequirement` domain types for command visibility and status UI |
+| `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` | Runtime focus owner for main-pane, empty-drawer, and drawer-pane focus |
+| `Core/State/MainActor/Atoms/WorkspacePaneFocusDerived.swift` | Shared app-wide pane focus reader for command visibility and status UI |
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
+| `Core/State/MainActor/Persistence/WorkspaceStore+LegacySQLiteImport.swift` | Thin `WorkspaceStore` call site plus `WorkspaceLegacySQLiteImporter` legacy JSON import policy and enum outcomes |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |
+| `Core/State/SQLite/WorkspaceSQLiteRecoveryClassifier.swift` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths; no repository or atom ownership |
+| `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift` | Product-specific SQLite backend bootstrap, core migration, core sidecar quarantine, and local repository construction |
+| `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` | `core.sqlite` migration identifiers and durable workspace schema DDL |
+| `Core/State/MainActor/Persistence/WorkspaceLocalMigrations.swift` | per-workspace `local.sqlite` migration identifiers and local UX/cache schema DDL |
+| `Core/State/MainActor/Persistence/SQLitePaneContentTypeStorage.swift` | Storage tokens that map live `PaneContentType` values to `pane.content_type` |
+| `Core/State/MainActor/Persistence/SQLiteLocalUXStorage.swift` | Storage tokens that map live sidebar surface and recent workspace target values to local UX schema values |
+| `Core/State/MainActor/Persistence/SQLiteInboxNotificationClaimStorage.swift` | Storage tokens that map live inbox notification claim lanes to local notification claim predicates |
+| `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationSQLiteRepository.swift` | Feature-owned local SQLite repository for notification inbox rows, collapsed inbox groups, claim coalescence, retention, empty-lane marking, and legacy-import materialization proof |
+| `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` | Main-actor persistence wrapper for inbox notification history and collapsed inbox groups; imports legacy JSON into local SQLite only when the inbox lane is uninitialized |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime status tracking and health checks |
 | `App/Panes/ViewRegistry.swift` | paneId → PaneViewSlot mapping (runtime-only) |
 | `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
 | **Infrastructure** | |
 | `Infrastructure/WorktrunkService.swift` | Git worktree CLI wrapper |
 | `Infrastructure/WorktreeReconciler.swift` | Pure function: matches existing vs discovered worktrees, preserves UUIDs, returns merged list + `WorktreeTopologyDelta` |
+| `Infrastructure/SQLite/SQLiteDatabaseFactory.swift` | Generic GRDB connection setup, pragmas, WAL, and capability-test construction |
+| `Infrastructure/SQLite/SQLiteSidecarQuarantine.swift` | Generic SQLite database/WAL/SHM quarantine helper with no product schema knowledge |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
 | `App/Coordination/PaneCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
@@ -1114,6 +1176,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 
 - **[Architecture Overview](README.md)** — System overview and document index
 - **[Workspace Data Architecture](workspace_data_architecture.md)** — Three-tier persistence, enrichment pipeline, event bus contracts, sidebar data flow
+- **[Atom Persistence Boundaries](atom_persistence_boundaries.md)** — Write-owner atom rules, lifecycle lanes, derived read models, and SQLite boundary map
 - **[Pane Runtime Architecture](pane_runtime_architecture.md)** — Pane runtime contracts, RuntimeEnvelope, event taxonomy
 - **[Session Lifecycle](session_lifecycle.md)** — Pane creation, close, undo, restore flows; runtime status; zmx backend
 - **[Surface Architecture](ghostty_surface_architecture.md)** — Ghostty surface ownership, state machine, health monitoring, crash isolation

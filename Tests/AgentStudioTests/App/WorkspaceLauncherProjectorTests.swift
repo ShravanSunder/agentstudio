@@ -17,7 +17,8 @@ struct WorkspaceLauncherProjectorTests {
         persistor.ensureDirectory()
         atoms.repoCache.clear()
         let store = WorkspaceStore(
-            metadataAtom: atoms.workspaceMetadata,
+            identityAtom: atoms.workspaceIdentity,
+            windowMemoryAtom: atoms.workspaceWindowMemory,
             repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
             paneAtom: atoms.workspacePane,
             tabLayoutAtom: atoms.workspaceTabLayout,
@@ -32,7 +33,8 @@ struct WorkspaceLauncherProjectorTests {
     func project_noRepos_returnsFolderIntakeState() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                metadataAtom: atoms.workspaceMetadata,
+                identityAtom: atoms.workspaceIdentity,
+                windowMemoryAtom: atoms.workspaceWindowMemory,
                 repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
                 paneAtom: atoms.workspacePane,
                 tabLayoutAtom: atoms.workspaceTabLayout,
@@ -135,7 +137,8 @@ struct WorkspaceLauncherProjectorTests {
     func project_reposButNoTabs_returnsLauncherStateWithEnrichedCards() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                metadataAtom: atoms.workspaceMetadata,
+                identityAtom: atoms.workspaceIdentity,
+                windowMemoryAtom: atoms.workspaceWindowMemory,
                 repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
                 paneAtom: atoms.workspacePane,
                 tabLayoutAtom: atoms.workspaceTabLayout,
@@ -155,7 +158,42 @@ struct WorkspaceLauncherProjectorTests {
                 )
             )
             atoms.repoCache.setPullRequestCount(3, for: worktree.id)
-            atoms.repoCache.setNotificationCount(2, for: worktree.id)
+            atoms.inboxNotification.append(
+                InboxNotification(
+                    id: UUID(),
+                    timestamp: Date(timeIntervalSince1970: 1),
+                    kind: .unseenActivity,
+                    title: "Unread",
+                    body: "Unread notification",
+                    source: .pane(
+                        .init(
+                            paneId: UUID(),
+                            worktreeId: worktree.id,
+                            worktreeName: worktree.name
+                        )
+                    ),
+                    isRead: false,
+                    isDismissedFromPaneInbox: false
+                )
+            )
+            atoms.inboxNotification.append(
+                InboxNotification(
+                    id: UUID(),
+                    timestamp: Date(timeIntervalSince1970: 2),
+                    kind: .unseenActivity,
+                    title: "Unread",
+                    body: "Unread notification",
+                    source: .pane(
+                        .init(
+                            paneId: UUID(),
+                            worktreeId: worktree.id,
+                            worktreeName: worktree.name
+                        )
+                    ),
+                    isRead: false,
+                    isDismissedFromPaneInbox: false
+                )
+            )
             atoms.repoCache.recordRecentTarget(.forWorktree(path: worktree.path, worktree: worktree, repo: repo))
 
             let result = WorkspaceLauncherProjector.project(store: store)
@@ -176,7 +214,8 @@ struct WorkspaceLauncherProjectorTests {
     func project_reposAndTabsPresent_returnsEmptyLauncherModel() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                metadataAtom: atoms.workspaceMetadata,
+                identityAtom: atoms.workspaceIdentity,
+                windowMemoryAtom: atoms.workspaceWindowMemory,
                 repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
                 paneAtom: atoms.workspacePane,
                 tabLayoutAtom: atoms.workspaceTabLayout,

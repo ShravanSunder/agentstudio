@@ -1,0 +1,419 @@
+# Test Checkpoints
+
+## Status
+
+Checkpoint C6 for the AgentStudio SQLite cutover.
+
+This file owns the TDD gates for the migration and repository work.
+
+## Migration TDD Contract
+
+SQLite implementation starts with migration tests, not app UI tests.
+
+```text
+test target
+  -> open temporary SQLite database
+  -> run DatabaseMigrator
+  -> assert expected tables, indexes, FKs, virtual tables, and pragmas
+  -> insert invalid rows to prove constraints reject impossible state
+  -> insert valid rows to prove round-trip mapping
+  -> prove pane content tokens use the live PaneContentType vocabulary
+  -> prove unsupported pane content_type tokens are rejected before hydration
+  -> prove workspace-scoped rows reject cross-workspace repo/worktree links,
+     unavailable repo rows, and pane source metadata links
+  -> prove pane-link rows reject cross-workspace tab, drawer, arrangement,
+     drawer-view, and parent-pane links before repository hydration can claim
+     panes from another workspace
+  -> prove each tab rejects multiple default arrangements
+  -> prove drawer, drawer-pane, and tab-pane single-owner constraints reject
+     duplicate ownership for the intended UNIQUE constraint, not an unrelated
+     SQL error
+```
+
+Use in-memory `DatabaseQueue` for pure schema/constraint tests when possible.
+Use temporary file-backed `DatabasePool` for WAL, sidecar quarantine, and
+concurrent read/write behavior.
+
+Every migration that creates or changes tables needs a focused test before its
+repository code lands.
+
+## Step 0 Atom Boundary Tests
+
+- ActiveWorkspaceSelectionAtom can update active_workspace_id without hydrating
+  or mutating a WorkspaceIdentityAtom
+- workspace identity can mutate without scheduling local window/sidebar writes
+- sidebar width and window frame can mutate without scheduling core workspace
+  writes
+- sidebar filter/surface/collapse memory can mutate without changing runtime
+  sidebar focus
+- checkout color settings can mutate without rewriting local expanded groups
+- editor bookmark persists through the settings path while editor chooser
+  open-pane and available-target state remains runtime-only
+- inbox collapsed groups persist through the local path while pendingFilter
+  remains runtime-only
+- active tab cursor can be tested independently from tab shell ordering if
+  `WorkspaceTabCursorAtom` lands before SQLite
+- pane graph mutations can run without writing drawer expansion cursor state
+- pane metadata display facets can be derived from topology/cache without
+  requiring the pane graph atom to own repo/worktree names or remote labels
+- drawer expansion cursor mutations can run without writing pane/drawer
+  membership graph state
+- arrangement graph mutations can run without writing active arrangement,
+  active pane, or active drawer child cursor state unless the same semantic
+  command explicitly changes focus
+- zoom/presentation state resets independently from persisted arrangement graph
+  and local arrangement cursor state
+- after the `pane-shortcuts` PR merges, shortcut/presentation atoms such as
+  ArrangementPanelPresentationAtom, CommandBarSurfaceAtom, and
+  TransientKeyboardSurfaceAtom remain runtime/read inputs and do not acquire
+  SQLite write ownership during Step 0
+- after the `command-bar-repo-worktree-actions` PR merges, pane-note presentation
+  remains runtime but `PaneMetadata.note` is classified as durable pane graph
+  metadata
+- arrangement-panel placement remains runtime presentation state and is not
+  persisted
+- after the `pane-shortcuts` PR merges, ActionStateSnapshot and validators read
+  rich pane/tab state through derived readers rather than reaching separately
+  into graph/cursor atoms
+- KeyboardRoutingContext and ActiveKeyboardSurface remain runtime shortcut
+  routing read models derived from stable owner plus command/transient surfaces
+- PaneOrdinalMap remains a pure helper derived from tab or drawer pane order,
+  not an atom and not a persisted row model
+- repo enrichment cache can reset without deleting recent workspace targets
+- pane/tab arrangement composed read models still expose the same command
+  validation inputs after graph/cursor/runtime atom splits
+- mixed domain structs are classified as write-owner state, derived read model,
+  row projection, or legacy import DTO before SQLite repositories land
+- `Pane`, `Drawer`, `Tab`, `PaneArrangement`, and `DrawerView` are not stored
+  directly in write-owner atoms after Step 0; they are derived read-model
+  values or compatibility aliases only
+- legacy JSON import uses explicit `Legacy*Payload` DTOs for pane/tab/drawer
+  shapes instead of treating live write-owner state as Codable payload
+- `PaneMetadata` and `PaneContextFacets` are tested by field: durable routing
+  fields plus title/note live in pane graph state, display/cache fields come from
+  topology/cache-derived readers, and legacy payload fields are import-only
+- any renamed/split Pane, Drawer, Tab, PaneArrangement, or DrawerView role keeps
+  explicit tests proving old UI/validator behavior still reads through the
+  derived read model
+- lifecycle-grouped atoms are preserved: creating a pane may project pane,
+  content, tag, drawer, and drawer membership changes through one pane graph
+  write owner instead of table-shaped atoms
+- WorkspaceTabGraphAtom owns tab_pane plus arrangement/layout rows, while
+  WorkspaceTabShellAtom owns shell identity/order only
+- creating a new tab updates WorkspaceTabShellAtom and WorkspaceTabGraphAtom
+  as separate write owners, and optionally WorkspaceTabCursorAtom for focus,
+  without merging shell ownership into the graph atom
+
+## Step 0 Atomicity Matrix Tests
+
+These tests make the write-boundary matrix reviewable. Names may be adjusted to
+match final file layout, but every behavior must have focused coverage before
+SQLite repositories land:
+
+- `WorkspaceTabCursorAtomTests.selectTabRejectsMissingTab`
+  verifies active tab cursor cannot point at a missing shell row.
+- `WorkspaceTabCreationAtomicityTests.createTabProjectsShellGraphAndCursorTogether`
+  verifies new tab shell, default graph, membership, and active cursor project
+  as one composed layout.
+- `WorkspaceTabShellAtomTests.renameAndReorderDoNotTouchTabGraph`
+  verifies shell-only mutations do not dirty tab graph or cursor owners.
+- `WorkspacePaneInsertionAtomicityTests.insertPaneProjectsGraphCursorAndZoomResetTogether`
+  verifies pane graph, tab graph, arrangement cursor, and presentation zoom reset
+  update through one coordinator-visible projection.
+- `WorkspacePaneResidencyAtomicityTests.reactivatePaneProjectsResidencyLayoutCursorAndZoomTogether`
+  verifies reactivation changes residency, layout membership, active pane cursor,
+  and zoom reset together.
+- `WorkspacePaneResidencyAtomicityTests.backgroundPaneRepairsGraphCursorAndEmptyTabTogether`
+  verifies backgrounding a pane removes layout references, changes residency, and
+  repairs affected tab/cursor state including empty-tab cleanup.
+- `WorkspacePaneDeletionAtomicityTests.closePaneClearsDanglingPaneAndTabCursorIdsSynchronously`
+  verifies close/delete clears active pane, active drawer child, related cursor
+  references, and last-pane tab shell/cursor state before UI can observe deleted
+  ids.
+- `WorkspaceTabDeletionAtomicityTests.closeTabClearsPaneGraphCursorsAndPresentationTogether`
+  verifies explicit close-tab removes pane graph, tab shell/graph, tab cursor,
+  arrangement cursor, drawer cursor, and presentation state together.
+- `WorkspacePaneMoveAtomicityTests.crossTabMoveRepairsCursorsAndZoomTogether`
+  verifies source and destination tab graphs/cursors are repaired together and
+  source/destination zoom is cleared as needed.
+- `WorkspaceDrawerMutationAtomicityTests.attachDrawerPaneProjectsMembershipAndCursorTogether`
+  verifies drawer membership/layout and active child projection update together.
+- `WorkspaceDrawerMutationAtomicityTests.detachLastChildUpdatesDrawerViewGraphPreservesExpansionAndClearsActiveChild`
+  verifies drawer-view graph cleanup, drawer expansion preservation, and active
+  child clearing happen together.
+- `WorkspaceDrawerCursorAtomTests.expandDrawerCollapsesOtherDrawersAndDerivedPaneReflectsItAtomically`
+  verifies in-memory mutual exclusion and same-tick derived `Pane.drawer`
+  reflection, not only future SQL transaction shape.
+- `WorkspaceArrangementCursorAtomTests.switchArrangementRestoresRememberedPaneAndDrawerCursor`
+  verifies the new arrangement's remembered active pane and active drawer child
+  are exposed, or deterministic defaults are used.
+- `WorkspacePanePresentationAtomTests.zoomDoesNotMutatePersistedOwners`
+  verifies zoom/presentation is runtime-only.
+- `WorkspaceTopologyPruneAtomicityTests.pruneClearsGraphAndCursorReferencesBeforeReturn`
+  verifies topology deletes/prunes clear graph and cursor references
+  synchronously.
+- `WorkspaceTopologyReassociationAtomicityTests.reassociateRepoRestoresPaneResidencyBeforeReturn`
+  verifies reassociation restores orphaned pane residency before the topology
+  mutation returns.
+- `WorkspaceUndoRestoreAtomicityTests.restoreSnapshotProjectsGraphCursorsAndPresentationTogether`
+  verifies undo restore follows create-tab, insert/reactivate-pane, and drawer
+  attach atomicity rules.
+- `ActionStateSnapshotBoundaryTests.snapshotCallSitesUseDerivedReadersAfterAtomSplit`
+  verifies all production `WorkspaceCommandResolver.snapshot` call sites consume
+  derived read models instead of independently reaching into graph/cursor atoms.
+  Cover at least `ActionExecutor`, `DrawerDropDispatch`, and every
+  `PaneTabViewController` snapshot site.
+
+## Datastore Addendum Tests
+
+- `WorkspaceSQLiteDatastoreActorTests.workspaceSaveRunsThroughDatastoreActor`
+  verifies SQLite save work enters the datastore actor boundary instead of
+  calling repositories directly from MainActor stores.
+- `WorkspaceSQLiteCommitProtocolTests.stagedOnlyRowDoesNotCountAsCompleted`
+  verifies a staged core snapshot is not authoritative until core completion is
+  marked after local write.
+- `WorkspaceSQLiteCommitProtocolTests.activeSelectionRepairIgnoresStagedOnlyRows`
+  verifies active-workspace repair and fallback selection require
+  `completed_at IS NOT NULL`.
+- `WorkspaceSQLiteLegacyImportStatusTests.postCommitStatusFailureDoesNotReplayStaleLegacyJSON`
+  verifies legacy import status bookkeeping failure does not make an
+  already-completed snapshot pending again.
+- `WorkspaceSQLiteLegacyImportStatusTests.missingStatusForIncompleteRowsRetriesLegacyFile`
+  verifies incomplete first-boot import rows without a status row still retry
+  the legacy file when no active SQLite selection existed before restore
+  repair.
+- `WorkspaceSQLiteStoreBridgeTests.restoreDoesNotTreatIncompleteSQLiteWorkspaceRowsAsAuthoritative`
+  verifies already-selected partial SQLite rows reset/report instead of
+  replaying stale legacy JSON after active-selection repair clears the
+  incomplete selection.
+- `WorkspaceSQLiteLocalRecoveryTests.failedLocalQuarantineDoesNotImmediatelyReopenBadSidecar`
+  verifies failed local quarantine is not collapsed into recovered local state.
+- `WorkspaceSQLiteDatastoreActorTests.workspaceLoadReturnsFirstLocalRestoreRecoveryEvents`
+  verifies recovery events produced by the first workspace restore opener are
+  returned to the MainActor caller instead of being lost behind the actor cache.
+- `WorkspaceSQLiteDatastoreActorTests.restoreRepairUsesSaveRepositoryCache`
+  verifies local-snapshot repair uses the datastore actor's save-side repository
+  cache instead of bypassing it with a fresh backend open.
+- `WorkspaceSQLiteDatastoreActorTests.workspaceStatusApisUseDatastoreBoundary`
+  verifies active SQLite status/readiness queries are exposed through the
+  datastore actor without a MainActor store touching repositories directly.
+- `WorkspaceNotificationCountOwnershipTests.worktreeStatusChipsReadInboxProjection`
+  verifies notification chips read inbox-owned unread counts, not
+  repo-cache-restored stale counts.
+- `WorkspaceSQLiteSnapshotRoleTests.liveSQLiteSnapshotIsNotLegacyPersistableState`
+  verifies SQLite save/load APIs use a live SQLite snapshot type distinct from
+  legacy JSON payload DTOs.
+
+## Core Tests
+
+- fresh core database runs all migrations
+- migration identifiers are stable and run once:
+  `001_create_workspace`, `002_create_repo_worktree_topology`,
+  `003_create_panes`, `004_create_tabs_and_arrangements`
+- foreign keys are enabled
+- WAL mode is enabled for file-backed databases
+- existing workspace state JSON imports once into core rows
+- multiple legacy workspace state JSON files import when the core database is
+  empty, without adding a workspace picker in Step 1
+- legacy import routes embedded cursor fields to local rows:
+  activeTabId, activeArrangementId, activePaneId, activeChildId, drawer
+  isExpanded
+- legacy import tolerates pre-DrawerView JSON where Drawer.activePaneId exists
+  and routes the value to local drawer-child cursor state when resolvable
+- unsupported legacy JSON schemaVersion values are reported and quarantined as
+  unsupported legacy data, not silently interpreted as v1
+- partial legacy import resumes if the app crashes after core rows commit but
+  before settings/local/cache companion files import
+- workspace SQLite restore refuses partial core/local snapshots when workspace
+  rows exist without `workspace_sqlite_snapshot_status`
+- SQLite restore/read failures report recovery and do not replay stale legacy
+  JSON over newer SQLite rows
+- legacy import sets deterministic active workspace selection from the newest
+  valid canonical JSON mtime
+- legacy import breaks active-workspace mtime ties by lexicographic workspace UUID
+- NULL or invalid active workspace selection falls back to newest workspace row
+- existing JSON is not re-imported over existing core rows
+- successfully imported legacy JSON files move to `legacy-imported/`
+- legacy JSON files move only after core/settings/local imports for that
+  workspace all succeed
+- corrupt JSON is quarantined and does not overwrite valid SQLite state
+- workspace metadata round trips
+- app workspace selection round trips
+- watched paths round trip
+- repos and worktrees round trip with stable UUIDs and stable keys
+- worktrees cannot point at repos from another workspace
+- unavailable repo rows cannot point at repos from another workspace
+- unavailable repo ids round trip
+- panes round trip through decomposed pane/content/drawer/tag rows
+- pane source repo/worktree ids cannot point outside the pane workspace
+- PaneMetadata durable source/cwd/title/note/tag fields round trip without storing
+  repoName, worktreeName, origin, upstream, organizationName, or parentFolder as
+  core pane columns
+- pane-note popover draft/presentation state is not persisted
+- tabs round trip through shell, membership, arrangement, layout, and
+  drawer-view rows
+- each tab rejects multiple default arrangements
+- every arrangement layout/drawer-view pane row has matching tab_pane
+  membership for the owning tab
+- drawer-view row layout rejects the same pane appearing in both top and bottom
+  rows
+- drawer view `row_split_ratio` round trips
+- drawer grid layout is treated as the Step 1 two-row top/bottom model
+- schema rejects multiple drawers for one parent pane and one child pane in
+  multiple drawers
+- validators reject the same pane appearing in both the main arrangement layout
+  and a drawer view for that arrangement
+- one pane title change writes only pane-related rows
+- one tab arrangement change writes only that tab's arrangement subtree
+- tab/pane/layout reorders do not violate `UNIQUE(..., sort_index)` midway
+- repo/worktree reassociation reconciles changed worktree rows in one
+  transaction without transient stable-key uniqueness failures
+- legacy transformer prune-on-save behavior is replaced by FK cascades,
+  validator rejection, and hydrate-time local cursor reconciliation
+- core corruption quarantines DB, WAL, and SHM together
+
+## Settings Tests
+
+- missing settings file produces defaults
+- existing UI/sidebar/inbox preference JSON imports into settings file
+- settings file is pretty-printed and sorted
+- settings unknown keys are stripped unless a future schema explicitly preserves
+  opaque keys
+- corrupt settings file is quarantined and reset without touching core/local
+- checkout colors round trip
+- notification preferences round trip
+- editor bookmark round trips
+- editor chooser open pane and available targets are not written to settings
+
+## Local Tests
+
+- fresh local database runs all migrations
+- migration identifiers are stable and run once:
+  `001_create_local_cursors`, `002_create_local_workspace_memory`,
+  `003_create_local_notifications`, `004_create_cache_tables`,
+  `005_enforce_notification_claim_keys`
+- local boolean columns reject non-boolean integer values
+- local lookup indexes are asserted by name, including cache lookup indexes
+- sidebar surface storage rejects values outside the live surface vocabulary
+- sidebar surface and recent target kind storage tokens match live Core enum
+  vocabularies
+- notification claim lane storage tokens match the live
+  `InboxNotificationClaimLane.canMergeWithinActivitySession` vocabulary
+- recent workspace target storage enforces the worktree-vs-cwd referent shape
+- cache revisions and count summaries reject negative values
+- local UX state imports from current UI/sidebar/inbox JSON
+- fresh local database seeds deterministic cursor defaults from the core graph
+- active tab round trips through local cursor rows
+- active arrangement round trips through local cursor rows
+- active pane round trips through local cursor rows
+- active drawer child round trips through local cursor rows
+- active drawer child is scoped by arrangement id plus drawer id
+- drawer expanded state round trips through local cursor rows
+- drawer expanded state allows only one expanded drawer per workspace at the
+  schema boundary
+- drawer expansion replacement collapses the old expanded row before expanding
+  the target row because the schema uniqueness guard is immediate
+- legacy Drawer.isExpanded imports to local_drawer_cursor, not the core drawer
+  row
+- expanding a drawer writes the target drawer and collapses other drawer cursor
+  rows in one local transaction
+- expanding a drawer synchronously collapses other drawer cursor atoms in memory
+  before observers see the mutation
+- detaching the last drawer child preserves the drawer expansion cursor while
+  repairing the active drawer child cursor
+- zoomed pane state is not persisted and hydrates as nil
+- insert-pane mutations that also focus the inserted pane commit core layout
+  rows first, then local active-pane cursor state
+- local UX writes are coalesced and do not block core writes
+- local UX writes flush on app background, termination, and workspace close
+- missing/corrupt local cursor rows fall back to deterministic first/default
+  rows from the core graph
+- recent workspace targets round trip
+- notification inbox items round trip
+- inbox sidebar pendingFilter is not persisted; collapsed groups are persisted
+- notification claim candidate lookup indexes support repository upsert logic
+  without rejecting non-coalescing safety claims or distinct active/dismissed
+  activity candidates
+- local notification claim-key checks reject unknown lanes and partial claim
+  tuples while allowing absent claim keys
+- notification repository tests assert SQLite append/upsert behavior remains
+  equivalent to `InboxNotificationAtom.upsertByClaim`, including lane/session
+  merge policy and read/dismiss state
+- notification retention cap deletes oldest overflow rows in the same local
+  transaction as append/upsert
+- sidebar expanded groups round trip
+- repo enrichment round trips
+- worktree enrichment round trips
+- pull request counts round trip
+- inbox-owned unread counts do not round trip through repo-cache rows
+- deleting cache_* rows preserves local_* rows
+- bad cache_* payload rows rebuild the affected cache table/row family without
+  quarantining the whole local database
+- local reconciliation prunes copied core ids after core topology deletes
+- core deletes synchronously clear dangling in-memory cursor ids before the UI
+  observes the completed user action
+- local reconciliation runs after core delete/topology-prune mutations before
+  the user action is considered settled
+- deleting local.sqlite does not delete core rows or settings
+- local corruption quarantines only local DB sidecars
+- window frame restore has only one live source after cutover; local.sqlite
+  replaces the existing UserDefaults path
+- legacy global windowFrame UserDefaults is not written after local window state
+  becomes live
+
+## Deferred Persistence Surface Tests
+
+These are not Step 1 SQLite migrations, but the spec pins their current loss
+semantics so a later migration can write targeted tests.
+
+- CommandBarState recents keep the current 8-item cap until a root local store
+  replaces direct UserDefaults writes
+- URLHistoryService keeps the current 14-day retention, 100-entry cap,
+  URL de-duplication, and favorites behavior until a future audit moves it
+- SurfaceManager checkpoint decode failure remains log-and-ignore while the file
+  is classified as rebuildable runtime state
+- WebKit website data remains framework-managed in Step 1 and is covered by a
+  future webview persistence/reset audit rather than SQLite migration tests
+- PaneInboxPresentationAtom filter modes are runtime-only in Step 1
+- Bridge ReviewState.viewedFiles is runtime-only in Step 1
+
+## Integration Tests
+
+- app relaunch restores the same repos, worktrees, panes, and tabs from core
+- app relaunch restores active workspace selection from core
+- app relaunch restores active tab/pane/arrangement from local when present
+- app relaunch restores settings and local UX memory when present
+- app relaunch survives missing local database
+- deleting the active workspace selects a deterministic remaining workspace or
+  falls back to empty/welcome state when none remain
+- workflow/session pointer rows survive cache rebuild once those tables exist
+- runtime-only atoms are not persisted
+
+## Documentation Checkpoints
+
+- AGENTS.md component table reflects the implemented atom/store split
+- architecture docs reflect write-owner atoms, derived readers, and the
+  core/settings/local persistence boundaries
+- SQLite checkpoint docs use the final atom/store names and migration ids
+- no current docs describe atoms as one-to-one SQL table models
+
+## Capability Tests
+
+- GRDB-backed connection enables foreign keys
+- GRDB-backed queue and file-backed writer connections use `busy_timeout=2000`
+- file-backed GRDB database uses WAL and `synchronous=NORMAL` where required
+- FTS5 capability smoke test passes before session search migrations land
+- JSON payload columns round-trip as text without relying on JSON1
+- if JSON1 ever becomes required, the same GRDB-backed connection proves
+  `json_extract(...)` works
+
+## Non-Goals
+
+- Do not store the whole workspace as one SQLite blob.
+- Do not store all panes as one SQLite blob.
+- Do not store all tabs as one SQLite blob.
+- Do not keep JSON and SQLite as peer sources of truth.
+- Do not store full Claude Code or Codex transcripts.
+- Do not store large provider tool outputs.
+- Do not introduce DuckDB in Step 1.
+- Do not redesign the final session UI in this step.

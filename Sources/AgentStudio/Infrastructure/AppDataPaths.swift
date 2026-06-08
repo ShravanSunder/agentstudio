@@ -57,6 +57,25 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
+    static func coreSQLiteURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isDebugBuild: Bool = Self.isDebugBuild
+    ) -> URL {
+        rootDirectory(environment: environment, isDebugBuild: isDebugBuild)
+            .appending(path: "core.sqlite")
+            .standardizedFileURL
+    }
+
+    static func workspaceLocalSQLiteURL(
+        workspaceId: UUID,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isDebugBuild: Bool = Self.isDebugBuild
+    ) -> URL {
+        workspacesDirectory(environment: environment, isDebugBuild: isDebugBuild)
+            .appending(path: "\(workspaceId.uuidString).local.sqlite")
+            .standardizedFileURL
+    }
+
     static func zmxDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         releaseChannel: ReleaseChannel = .current,

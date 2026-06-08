@@ -2,25 +2,65 @@ import Foundation
 import Observation
 
 extension AppDelegate {
-    func bootLoadInboxNotificationStore(persistor: WorkspacePersistor) {
-        let fileURL = persistor.notificationInboxFileURL(for: store.metadataAtom.workspaceId)
+    func bootLoadInboxNotificationStore(persistor: WorkspacePersistor) async {
+        let workspaceId = store.identityAtom.workspaceId
+        let fileURL = persistor.notificationInboxFileURL(for: workspaceId)
+        let hadLegacyInboxFile = FileManager.default.fileExists(atPath: fileURL.path)
+        let sqliteAdapter = workspaceSQLiteDatastore.map {
+            InboxNotificationSQLiteDatastoreAdapter(workspaceId: workspaceId, datastore: $0)
+        }
+        let sqliteBootDecision = await makeInboxNotificationSQLiteBootDecision(adapter: sqliteAdapter)
+        sqliteBootDecision.recoveryEvents.forEach { recordPersistenceRecovery($0) }
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: atomStore.inboxNotification,
             prefsAtom: atomStore.inboxNotificationPrefs,
-            sidebarStateAtom: atomStore.inboxSidebarState,
+            sidebarState: atomStore.inboxSidebarState,
             fileURL: fileURL,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
-            }
+            },
+            sqliteAdapter: sqliteAdapter,
+            allowLegacyFilePersistence: sqliteBootDecision.allowLegacyFilePersistence,
+            allowLegacyFileImport: sqliteBootDecision.allowLegacyFileImport
         )
+        var didLoadInboxStore = false
+        var inboxLoadOutcome: InboxNotificationStore.LoadOutcome?
         do {
-            try inboxNotificationStore.load()
+            inboxLoadOutcome = try await inboxNotificationStore.loadAsync()
+            didLoadInboxStore = true
         } catch {
             appLogger.warning("Inbox notification store load failed: \(error.localizedDescription)")
         }
+        canArchiveLegacyInboxFile = InboxNotificationLegacyArchiveReadiness.canArchiveLegacyFile(
+            hadLegacyFile: hadLegacyInboxFile,
+            didLoadStore: didLoadInboxStore,
+            hasSQLiteRepository: sqliteAdapter != nil,
+            hasWorkspaceLocalSQLiteBackend: workspaceSQLiteDatastore != nil,
+            loadOutcome: inboxLoadOutcome,
+            canArchiveAfterBlockedImport: sqliteBootDecision.canArchiveLegacyInboxFileAfterBlockedImport
+        )
         observeInboxNotificationPersistence()
         hasLoadedInboxNotificationStore = true
         flushPersistenceRecoveryNotifications()
+    }
+
+    private func makeInboxNotificationSQLiteBootDecision(
+        adapter: InboxNotificationSQLiteDatastoreAdapter?
+    ) async -> InboxNotificationSQLiteBootDecision {
+        guard let adapter else {
+            return .init(
+                allowLegacyFilePersistence: true,
+                allowLegacyFileImport: true,
+                canArchiveLegacyInboxFileAfterBlockedImport: false
+            )
+        }
+        let decision = await adapter.bootDecision()
+        return .init(
+            allowLegacyFilePersistence: decision.allowLegacyFilePersistence,
+            allowLegacyFileImport: decision.allowLegacyFileImport,
+            canArchiveLegacyInboxFileAfterBlockedImport: decision.canArchiveLegacyInboxFileAfterBlockedImport,
+            recoveryEvents: decision.recoveryEvents
+        )
     }
 
     func bootStartInboxNotificationRouter(bus: EventBus<RuntimeEnvelope>) {
@@ -65,9 +105,6 @@ extension AppDelegate {
     private func observeInboxNotificationPersistence() {
         withObservationTracking {
             _ = atomStore.inboxNotification.notifications
-            _ = atomStore.inboxNotificationPrefs.grouping
-            _ = atomStore.inboxNotificationPrefs.sort
-            _ = atomStore.inboxNotificationPrefs.bellEnabled
             _ = atomStore.inboxSidebarState.collapsedGroups
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -101,5 +138,28 @@ extension AppDelegate {
             attendedPaneId: atomStore.attendedPane.attendedPaneId,
             pane: { store.paneAtom.pane($0) }
         )
+    }
+}
+
+private struct InboxNotificationSQLiteBootDecision {
+    var allowLegacyFilePersistence: Bool
+    var allowLegacyFileImport: Bool
+    var canArchiveLegacyInboxFileAfterBlockedImport: Bool
+    var recoveryEvents: [PersistenceRecoveryEvent] = []
+}
+
+enum InboxNotificationLegacyArchiveReadiness {
+    static func canArchiveLegacyFile(
+        hadLegacyFile: Bool,
+        didLoadStore: Bool,
+        hasSQLiteRepository: Bool,
+        hasWorkspaceLocalSQLiteBackend: Bool,
+        loadOutcome: InboxNotificationStore.LoadOutcome?,
+        canArchiveAfterBlockedImport: Bool
+    ) -> Bool {
+        guard hadLegacyFile else { return true }
+        guard didLoadStore else { return false }
+        guard hasSQLiteRepository || !hasWorkspaceLocalSQLiteBackend else { return false }
+        return loadOutcome?.hasMaterializedLegacyFile == true || canArchiveAfterBlockedImport
     }
 }

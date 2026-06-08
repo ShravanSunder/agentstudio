@@ -8,6 +8,7 @@ struct PersistenceRecoveryEvent: Sendable, Equatable {
     enum Store: String, Sendable, Codable, Equatable {
         case workspace
         case repoCache
+        case workspaceSettings
         case uiState
         case sidebarCache
         case notificationInbox

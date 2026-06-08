@@ -2,18 +2,18 @@ import Foundation
 
 /// Flat pane strip layout shared by pane containers.
 /// Every pane is a direct sibling in left-to-right order with a preserved width ratio.
-struct Layout: Codable, Hashable {
-    struct PaneEntry: Codable, Hashable {
+struct Layout: Codable, Hashable, Sendable {
+    struct PaneEntry: Codable, Hashable, Sendable {
         let paneId: UUID
         let ratio: Double
     }
 
-    enum SplitDirection: String, Codable, Hashable {
+    enum SplitDirection: String, Codable, Hashable, Sendable {
         case horizontal
         case vertical
     }
 
-    enum Position {
+    enum Position: Sendable {
         case before
         case after
     }
@@ -275,6 +275,6 @@ struct Layout: Codable, Hashable {
     }
 }
 
-enum FocusDirection: Equatable, Hashable {
+enum FocusDirection: Equatable, Hashable, Sendable {
     case left, right, up, down
 }

@@ -72,7 +72,7 @@ struct CommandBarView: View {
     }
 
     private var currentContext: WorkspacePaneFocus {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -144,7 +144,7 @@ struct CommandBarView: View {
     }
 
     private var canOpenWorktreeInCurrentTab: Bool {
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )

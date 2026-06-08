@@ -8,6 +8,7 @@ enum InboxNotificationIntegrationHarness {
         let bus: EventBus<RuntimeEnvelope>
         let inboxAtom: InboxNotificationAtom
         let prefsAtom: InboxNotificationPrefsAtom
+        let topologyAtom: WorkspaceRepositoryTopologyAtom
         let paneAtom: WorkspacePaneAtom
         let tabLayout: WorkspaceTabLayoutAtom
         let windowLifecycle: WindowLifecycleAtom
@@ -28,7 +29,8 @@ enum InboxNotificationIntegrationHarness {
         let bus = EventBus<RuntimeEnvelope>()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
-        let paneAtom = WorkspacePaneAtom()
+        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let paneAtom = WorkspacePaneAtom(repositoryTopologyAtom: topologyAtom)
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
@@ -53,6 +55,7 @@ enum InboxNotificationIntegrationHarness {
             bus: bus,
             inboxAtom: inboxAtom,
             prefsAtom: prefsAtom,
+            topologyAtom: topologyAtom,
             paneAtom: paneAtom,
             tabLayout: tabLayout,
             windowLifecycle: windowLifecycle,
@@ -74,6 +77,26 @@ enum InboxNotificationIntegrationHarness {
         worktreeId: UUID? = nil,
         worktreeName: String? = nil
     ) -> UUID {
+        if let repoId, let worktreeId {
+            let repoName = repoName ?? "Repo"
+            let worktreeName = worktreeName ?? "Worktree"
+            let repoPath = URL(filePath: "/tmp/\(repoName)")
+            let worktree = Worktree(
+                id: worktreeId,
+                repoId: repoId,
+                name: worktreeName,
+                path: repoPath.appending(path: worktreeName)
+            )
+            let repo = Repo(
+                id: repoId,
+                name: repoName,
+                repoPath: repoPath,
+                worktrees: [worktree]
+            )
+            let repos = fixture.topologyAtom.repos.filter { $0.id != repoId } + [repo]
+            fixture.topologyAtom.hydrate(runtimeRepos: repos, watchedPaths: [], unavailableRepoIds: [])
+        }
+
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: contentType,

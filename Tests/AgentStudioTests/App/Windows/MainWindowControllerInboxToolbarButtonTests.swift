@@ -69,7 +69,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
             #expect(worktreeToolbarButton?.currentSymbolName == "square.stack.3d.down.right.fill")
             #expect(inboxToolbarButton?.currentSymbolName == "bell")
 
-            harness.atoms.uiState.setSidebarSurface(.inbox)
+            harness.atoms.workspaceSidebarState.setSidebarSurface(.inbox)
 
             await eventually("inbox toolbar icon should become active") {
                 worktreeToolbarButton?.currentSymbolName == "square.stack.3d.down.right"
@@ -90,7 +90,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
             bellButton?.performClick(nil)
 
             await eventually("inbox bell should switch sidebar surface") {
-                harness.atoms.uiState.sidebarSurface == .inbox
+                harness.atoms.workspaceSidebarState.sidebarSurface == .inbox
             }
         }
     }
@@ -125,6 +125,27 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(InboxToolbarUnreadBadgeText.text(for: 1) == "1")
         #expect(InboxToolbarUnreadBadgeText.text(for: 99) == "99")
         #expect(InboxToolbarUnreadBadgeText.text(for: 100) == "99+")
+    }
+
+    @Test("window frame changes update workspace-local memory without legacy defaults")
+    func windowFrameChangesUpdateWorkspaceLocalMemoryWithoutLegacyDefaults() async {
+        let legacyWindowFrameKey = "windowFrame"
+        UserDefaults.standard.removeObject(forKey: legacyWindowFrameKey)
+        defer { UserDefaults.standard.removeObject(forKey: legacyWindowFrameKey) }
+
+        await withMainWindowControllerHarness { harness in
+            let frame = NSRect(x: 40, y: 60, width: 900, height: 650)
+            harness.window.setFrame(frame, display: false)
+            harness.atoms.workspaceWindowMemory.setWindowFrame(nil)
+            UserDefaults.standard.removeObject(forKey: legacyWindowFrameKey)
+
+            harness.controller.windowDidMove(
+                Notification(name: NSWindow.didMoveNotification, object: harness.window)
+            )
+
+            #expect(harness.atoms.workspaceWindowMemory.windowFrame == frame)
+            #expect(UserDefaults.standard.object(forKey: legacyWindowFrameKey) == nil)
+        }
     }
 
     @Test("bell badge sits in the bell icon top trailing corner")
@@ -204,7 +225,8 @@ private func withMainWindowControllerHarness<T>(
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
     let atoms = AtomRegistry()
     let store = WorkspaceStore(
-        metadataAtom: atoms.workspaceMetadata,
+        identityAtom: atoms.workspaceIdentity,
+        windowMemoryAtom: atoms.workspaceWindowMemory,
         repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
         paneAtom: atoms.workspacePane,
         tabLayoutAtom: atoms.workspaceTabLayout,
@@ -242,7 +264,7 @@ private func withMainWindowControllerHarness<T>(
             viewRegistry: viewRegistry,
             inboxAtom: inboxAtom,
             inboxPrefsAtom: inboxPrefsAtom,
-            inboxSidebarStateAtom: InboxSidebarStateAtom(),
+            inboxSidebarState: InboxSidebarState(),
             paneInboxPresenter: paneInboxPresenter
         )
         controller = windowController

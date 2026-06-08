@@ -3,7 +3,7 @@ import Foundation
 /// Cache-backed recent launcher target for workspace tabless states.
 /// Derived activity metadata only — never canonical workspace structure.
 struct RecentWorkspaceTarget: Codable, Hashable, Sendable, Identifiable {
-    enum Kind: String, Codable, Sendable {
+    enum Kind: String, Codable, Sendable, CaseIterable {
         case worktree
         case cwdOnly
     }

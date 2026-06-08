@@ -2,7 +2,7 @@ import Foundation
 
 /// A drawer container attached to a parent layout pane.
 /// View state such as layout, focus, and minimized panes lives on `PaneArrangement`.
-struct Drawer: Codable, Hashable {
+struct Drawer: Codable, Hashable, Sendable {
     let drawerId: UUID
     let parentPaneId: UUID
     /// Pane IDs owned by this drawer, in insertion order.
@@ -26,20 +26,7 @@ struct Drawer: Codable, Hashable {
         case drawerId, parentPaneId, paneIds, isExpanded
     }
 
-    private enum LegacyCodingKeys: String, CodingKey {
-        case activePaneId
-    }
-
     init(from decoder: Decoder) throws {
-        let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
-        if legacyContainer.contains(.activePaneId) {
-            throw DecodingError.dataCorruptedError(
-                forKey: .activePaneId,
-                in: legacyContainer,
-                debugDescription: "Drawer active pane state must be stored on per-arrangement DrawerView"
-            )
-        }
-
         let container = try decoder.container(keyedBy: CodingKeys.self)
         drawerId = try container.decode(UUID.self, forKey: .drawerId)
         parentPaneId = try container.decode(UUID.self, forKey: .parentPaneId)

@@ -149,7 +149,6 @@ final class WorkspaceCacheCoordinatorTests {
             )
         )
         repoCache.setPullRequestCount(5, for: worktreeId)
-        repoCache.setNotificationCount(2, for: worktreeId)
 
         coordinator.handleTopology(
             SystemEnvelope.test(
@@ -161,7 +160,6 @@ final class WorkspaceCacheCoordinatorTests {
 
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
         #expect(repoCache.pullRequestCountByWorktreeId[worktreeId] == nil)
-        #expect(repoCache.notificationCountByWorktreeId[worktreeId] == nil)
     }
 
     @Test

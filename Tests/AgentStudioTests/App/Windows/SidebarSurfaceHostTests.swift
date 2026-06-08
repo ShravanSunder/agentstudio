@@ -8,13 +8,13 @@ import Testing
 struct SidebarSurfaceHostTests {
     @Test("repos surface maps to repo explorer child")
     func childKindRepos() {
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         #expect(SidebarSurfaceHost.currentChildKind(uiState: uiState) == .repoExplorer)
     }
 
     @Test("inbox surface maps to inbox child")
     func childKindInbox() {
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         uiState.setSidebarSurface(.inbox)
 
         #expect(SidebarSurfaceHost.currentChildKind(uiState: uiState) == .inbox)
@@ -63,7 +63,7 @@ struct SidebarSurfaceHostTests {
             name: "main",
             path: URL(fileURLWithPath: "/tmp/repo")
         )
-        let sidebarState = InboxSidebarStateAtom()
+        let sidebarState = InboxSidebarState()
 
         try await withIsolatedCommandDispatcher(
             configure: {

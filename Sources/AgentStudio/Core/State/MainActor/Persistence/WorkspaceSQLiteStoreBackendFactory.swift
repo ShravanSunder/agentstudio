@@ -1,0 +1,140 @@
+import Foundation
+import GRDB
+import os.log
+
+private let workspaceSQLiteBackendFactoryLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "WorkspaceSQLiteStoreBackendFactory"
+)
+
+struct WorkspaceSQLiteStoreBackendFactory {
+    var coreDatabaseURL: URL
+    var localDatabaseURL: @Sendable (UUID) -> URL
+    var recoveryReporter: PersistenceRecoveryReporter?
+
+    init(
+        coreDatabaseURL: URL = AppDataPaths.coreSQLiteURL(),
+        localDatabaseURL: @escaping @Sendable (UUID) -> URL = { workspaceId in
+            AppDataPaths.workspaceLocalSQLiteURL(workspaceId: workspaceId)
+        },
+        recoveryReporter: PersistenceRecoveryReporter? = nil
+    ) {
+        self.coreDatabaseURL = coreDatabaseURL
+        self.localDatabaseURL = localDatabaseURL
+        self.recoveryReporter = recoveryReporter
+    }
+
+    @MainActor
+    func makeBackend() -> WorkspaceSQLiteStoreBackend? {
+        do {
+            return try openBackend()
+        } catch {
+            workspaceSQLiteBackendFactoryLogger.error(
+                "Failed to prepare SQLite workspace backend before quarantine: \(error.localizedDescription)"
+            )
+            guard WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(error) else {
+                return nil
+            }
+        }
+
+        let quarantine = SQLiteSidecarQuarantine.quarantine(databaseURL: coreDatabaseURL)
+        recoveryReporter?(
+            .init(
+                store: .workspace,
+                workspaceId: nil,
+                recovery: quarantine.succeeded ? .quarantinedAndReset : .quarantineFailed,
+                quarantinedFilename: quarantine.recoveryFilename
+            )
+        )
+
+        do {
+            return try openBackend()
+        } catch {
+            workspaceSQLiteBackendFactoryLogger.error(
+                "Failed to prepare SQLite workspace backend after quarantine: \(error.localizedDescription)"
+            )
+            recoveryReporter?(
+                .init(
+                    store: .workspace,
+                    workspaceId: nil,
+                    recovery: .resetToDefaults
+                )
+            )
+            return nil
+        }
+    }
+
+    @MainActor
+    private func openBackend() throws -> WorkspaceSQLiteStoreBackend {
+        let coreDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.core"
+        )
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreDatabasePool)
+        try coreRepository.migrate()
+        return WorkspaceSQLiteStoreBackend(
+            coreRepository: coreRepository,
+            makeLocalRepository: { workspaceId in
+                try makeLocalRepository(workspaceId: workspaceId)
+            },
+            makeLocalRestoreRepository: { workspaceId in
+                do {
+                    return try makeLocalRepository(workspaceId: workspaceId)
+                } catch {
+                    workspaceSQLiteBackendFactoryLogger.error(
+                        "Failed to prepare local SQLite workspace backend before quarantine: \(error.localizedDescription)"
+                    )
+                    guard WorkspaceSQLiteRecoveryClassifier.shouldQuarantine(error) else {
+                        throw error
+                    }
+                    let quarantine = SQLiteSidecarQuarantine.quarantine(
+                        databaseURL: localDatabaseURL(workspaceId)
+                    )
+                    guard quarantine.succeeded else {
+                        throw WorkspaceLocalSQLiteStoreBackendError.quarantineFailed(
+                            workspaceId,
+                            quarantinedFilename: quarantine.recoveryFilename
+                        )
+                    }
+                    do {
+                        _ = try makeLocalRepository(workspaceId: workspaceId)
+                    } catch {
+                        workspaceSQLiteBackendFactoryLogger.error(
+                            "Failed to prepare local SQLite workspace backend after quarantine: \(error.localizedDescription)"
+                        )
+                    }
+                    throw WorkspaceLocalSQLiteStoreBackendError.recoveredFromCorruption(
+                        workspaceId,
+                        quarantinedFilename: quarantine.recoveryFilename
+                    )
+                }
+            },
+            legacyImportDecision: { workspaceId, lane in
+                guard
+                    let status = try coreRepository.fetchLegacyWorkspaceImportStatus(workspaceId: workspaceId)
+                else {
+                    return .allowImport
+                }
+                switch lane {
+                case .local:
+                    return status.localImportedAt == nil ? .allowImport : .blockReplayAllowArchive
+                case .cache:
+                    return status.cacheImportedAt == nil ? .allowImport : .blockReplayAllowArchive
+                }
+            }
+        )
+    }
+
+    private func makeLocalRepository(workspaceId: UUID) throws -> WorkspaceLocalRepository {
+        let localDatabasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: localDatabaseURL(workspaceId),
+            label: "AgentStudio.sqlite.local.\(workspaceId.uuidString)"
+        )
+        let localRepository = WorkspaceLocalRepository(
+            workspaceId: workspaceId,
+            databaseWriter: localDatabasePool
+        )
+        try localRepository.migrate()
+        return localRepository
+    }
+}

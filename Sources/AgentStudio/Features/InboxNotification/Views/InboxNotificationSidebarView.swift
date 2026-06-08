@@ -26,9 +26,9 @@ struct InboxNotificationSidebarView: View {
 
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
-    let uiState: UIStateAtom
-    let sidebarCache: SidebarCacheAtom
-    let inboxSidebarState: InboxSidebarStateAtom
+    let uiState: WorkspaceSidebarState
+    let sidebarCache: SidebarCacheState
+    let inboxSidebarState: InboxSidebarState
     let workspacePaneAtom: WorkspacePaneAtom
     let workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
     let repoCache: RepoCacheAtom
@@ -49,9 +49,9 @@ struct InboxNotificationSidebarView: View {
     init(
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,
-        uiState: UIStateAtom,
-        sidebarCache: SidebarCacheAtom,
-        inboxSidebarState: InboxSidebarStateAtom,
+        uiState: WorkspaceSidebarState,
+        sidebarCache: SidebarCacheState,
+        inboxSidebarState: InboxSidebarState,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
         repoCache: RepoCacheAtom,

@@ -17,7 +17,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
     private var inboxAtom: InboxNotificationAtom?
-    private var uiState: UIStateAtom?
+    private var uiState: WorkspaceSidebarState?
     private weak var worktreeToolbarButton: SidebarToolbarButton?
     private weak var inboxToolbarButton: SidebarToolbarButton?
     private var inboxToolbarBadgeHostingView: NSHostingView<UnreadCountBadge>?
@@ -26,9 +26,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
+    private var workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom!
     private let windowId = UUID()
 
-    private static let windowFrameKey = "windowFrame"
     private static let estimatedTitlebarHeight: CGFloat = 40
 
     convenience init(
@@ -40,7 +40,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         viewRegistry: ViewRegistry,
         inboxAtom: InboxNotificationAtom,
         inboxPrefsAtom: InboxNotificationPrefsAtom,
-        inboxSidebarStateAtom: InboxSidebarStateAtom,
+        inboxSidebarState: InboxSidebarState,
         paneInboxPresenter: PaneInboxNotificationPresenter,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
@@ -65,8 +65,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         self.init(window: window)
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
+        self.workspaceWindowMemoryAtom = store.windowMemoryAtom
         self.inboxAtom = inboxAtom
-        self.uiState = atom(\.uiState)
+        self.uiState = atom(\.workspaceSidebarState)
         window.delegate = self
         applicationLifecycleMonitor.handleWindowRegistered(windowId)
 
@@ -81,7 +82,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             viewRegistry: viewRegistry,
             inboxAtom: inboxAtom,
             inboxPrefsAtom: inboxPrefsAtom,
-            inboxSidebarStateAtom: inboxSidebarStateAtom,
+            inboxSidebarState: inboxSidebarState,
             paneInboxPresenter: paneInboxPresenter,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
@@ -122,7 +123,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func saveWindowFrame() {
         guard let frame = window?.frame else { return }
-        UserDefaults.standard.set(NSStringFromRect(frame), forKey: Self.windowFrameKey)
+        workspaceWindowMemoryAtom.setWindowFrame(frame)
     }
 
     // MARK: - Frame Validation

@@ -98,7 +98,7 @@ final class GhosttySurfaceShortcutTests {
                     let context = KeyboardRoutingContext.current(
                         windowLifecycle: atoms.windowLifecycle,
                         managementLayer: atoms.managementLayer,
-                        uiState: atoms.uiState,
+                        uiState: atoms.workspaceSidebarState,
                         commandBarSurface: atoms.commandBarSurface,
                         transientKeyboardSurface: atoms.transientKeyboardSurface
                     )
@@ -128,7 +128,7 @@ final class GhosttySurfaceShortcutTests {
             let context = KeyboardRoutingContext.current(
                 windowLifecycle: atoms.windowLifecycle,
                 managementLayer: atoms.managementLayer,
-                uiState: atoms.uiState,
+                uiState: atoms.workspaceSidebarState,
                 commandBarSurface: atoms.commandBarSurface,
                 transientKeyboardSurface: atoms.transientKeyboardSurface
             )
@@ -164,7 +164,7 @@ final class GhosttySurfaceShortcutTests {
             let context = KeyboardRoutingContext.current(
                 windowLifecycle: atoms.windowLifecycle,
                 managementLayer: atoms.managementLayer,
-                uiState: atoms.uiState,
+                uiState: atoms.workspaceSidebarState,
                 commandBarSurface: atoms.commandBarSurface,
                 transientKeyboardSurface: atoms.transientKeyboardSurface
             )

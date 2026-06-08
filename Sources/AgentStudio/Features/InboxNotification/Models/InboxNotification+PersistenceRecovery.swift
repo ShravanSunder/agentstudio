@@ -22,6 +22,8 @@ extension PersistenceRecoveryEvent {
             "Workspace reset"
         case .repoCache:
             "Repository cache rebuilt"
+        case .workspaceSettings:
+            "Workspace settings reset"
         case .uiState:
             "UI state reset"
         case .sidebarCache:

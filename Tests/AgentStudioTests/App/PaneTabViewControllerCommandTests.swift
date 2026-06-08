@@ -397,7 +397,7 @@ struct PaneTabViewControllerCommandTests {
         atom(\.editorChooser).setBookmarkedEditor("missing-editor")
 
         harness.controller.execute(.openPaneLocationInBookmarkedEditor)
-        #expect(atom(\.editorChooser).state.bookmarkedEditorId == nil)
+        #expect(atom(\.editorChooser).bookmarkedEditorId == nil)
         #expect(harness.launchRecorder.openedEditors.count == 1)
         #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.cursor.id)
         #expect(
@@ -429,7 +429,7 @@ struct PaneTabViewControllerCommandTests {
 
         harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(atom(\.editorChooser).state.openForPaneId == drawerPane.id)
+        #expect(atom(\.editorChooser).openForPaneId == drawerPane.id)
     }
 
     @Test("targeted focusPane opens owning drawer and selects drawer child")

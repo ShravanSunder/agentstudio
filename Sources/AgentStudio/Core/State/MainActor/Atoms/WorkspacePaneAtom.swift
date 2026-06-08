@@ -13,28 +13,67 @@ enum PaneCWDContextUpdateResult: Equatable {
 @MainActor
 @Observable
 final class WorkspacePaneAtom {
-    private(set) var panes: [UUID: Pane] = [:]
+    let graphAtom: WorkspacePaneGraphAtom
+    let drawerCursorAtom: WorkspaceDrawerCursorAtom
+    private let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom?
+    private let repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom?
+
+    init(
+        graphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
+        drawerCursorAtom: WorkspaceDrawerCursorAtom = WorkspaceDrawerCursorAtom(),
+        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom? = nil,
+        repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom? = nil
+    ) {
+        self.graphAtom = graphAtom
+        self.drawerCursorAtom = drawerCursorAtom
+        self.repositoryTopologyAtom = repositoryTopologyAtom
+        self.repoEnrichmentCacheAtom = repoEnrichmentCacheAtom
+    }
+
+    var panes: [UUID: Pane] {
+        derived.panes
+    }
+
+    /// Legacy JSON persistence projection. This composes the graph owner with
+    /// the drawer cursor so current workspace.state.json saves retain drawer
+    /// expansion, while excluding topology/cache display facets.
+    var legacyPersistablePanes: [UUID: Pane] {
+        liveSQLitePanes
+    }
+
+    /// Live SQLite projection of the pane graph plus local drawer cursor facts.
+    /// This keeps derived topology/cache display facets out of core rows while
+    /// preserving the current atom-owned pane graph.
+    var liveSQLitePanes: [UUID: Pane] {
+        Dictionary(
+            uniqueKeysWithValues: graphAtom.paneStates.map { paneId, state in
+                let drawerId = state.drawer?.drawerId
+                return (
+                    paneId,
+                    state.pane(
+                        isDrawerExpanded: drawerId.map { drawerCursorAtom.isExpanded(drawerId: $0) } ?? false
+                    )
+                )
+            }
+        )
+    }
+
+    private var derived: WorkspacePaneDerived {
+        WorkspacePaneDerived(
+            graphAtom: graphAtom,
+            drawerCursorAtom: drawerCursorAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
+            repoEnrichmentCacheAtom: repoEnrichmentCacheAtom
+        )
+    }
 
     func hydrate(persistedPanes: [Pane], validWorktreeIds: Set<UUID>) {
-        panes = Dictionary(persistedPanes.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
-        panes = panes.filter { _, pane in
-            guard let worktreeId = pane.worktreeId else { return true }
-            return validWorktreeIds.contains(worktreeId)
-        }
-
-        let validPaneIds = Set(panes.keys)
-        for paneId in panes.keys {
-            guard panes[paneId]?.drawer != nil else { continue }
-            panes[paneId]!.withDrawer { drawer in
-                let stalePaneIds = drawer.paneIds.filter { !validPaneIds.contains($0) }
-                guard !stalePaneIds.isEmpty else { return }
-                drawer.paneIds.removeAll { !validPaneIds.contains($0) }
-            }
-        }
+        graphAtom.hydrate(persistedPanes: persistedPanes, validWorktreeIds: validWorktreeIds)
+        drawerCursorAtom.hydrate(persistedPanes: persistedPanes, validDrawerIds: graphAtom.drawerIds)
     }
 
     func pane(_ id: UUID) -> Pane? {
-        guard let pane = panes[id] else {
+        guard let pane = derived.pane(id) else {
             workspacePaneLogger.warning("pane(\(id)): not found in store")
             return nil
         }
@@ -46,7 +85,8 @@ final class WorkspacePaneAtom {
     }
 
     func addPane(_ pane: Pane) {
-        panes[pane.id] = pane
+        graphAtom.addPane(pane)
+        drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
     }
 
     func paneCount(for worktreeId: UUID) -> Int {
@@ -73,13 +113,15 @@ final class WorkspacePaneAtom {
         residency: SessionResidency = .active,
         facets: PaneContextFacets = .empty
     ) -> Pane {
-        let pane = Pane(
-            content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
-            metadata: PaneMetadata(source: .init(source), title: title, facets: facets),
-            residency: residency
+        let state = graphAtom.createPane(
+            source: source,
+            title: title,
+            provider: provider,
+            lifetime: lifetime,
+            residency: residency,
+            facets: facets
         )
-        panes[pane.id] = pane
-        return pane
+        return pane(state.id)!
     }
 
     @discardableResult
@@ -88,36 +130,30 @@ final class WorkspacePaneAtom {
         metadata: PaneMetadata,
         residency: SessionResidency = .active
     ) -> Pane {
-        let pane = Pane(content: content, metadata: metadata, residency: residency)
-        panes[pane.id] = pane
-        return pane
+        let state = graphAtom.createPane(content: content, metadata: metadata, residency: residency)
+        return pane(state.id)!
     }
 
     @discardableResult
     func insertRestoredPane(_ pane: Pane) -> Bool {
-        guard panes[pane.id] == nil else { return false }
-        panes[pane.id] = pane
-        return true
+        let didInsert = graphAtom.insertRestoredPane(pane)
+        if didInsert {
+            drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
+        }
+        return didInsert
     }
 
     @discardableResult
     func deletePaneAndOwnedDrawerChildren(_ paneId: UUID) -> Bool {
-        guard panes[paneId] != nil else { return false }
-        if let drawer = panes[paneId]?.drawer {
-            for childId in drawer.paneIds {
-                panes.removeValue(forKey: childId)
-            }
+        let didDelete = graphAtom.deletePaneAndOwnedDrawerChildren(paneId)
+        if didDelete {
+            drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
         }
-        panes.removeValue(forKey: paneId)
-        return true
+        return didDelete
     }
 
     func updatePaneTitle(_ paneId: UUID, title: String) {
-        guard panes[paneId] != nil else {
-            workspacePaneLogger.warning("updatePaneTitle: pane \(paneId) not found")
-            return
-        }
-        panes[paneId]!.metadata.updateTitle(title)
+        graphAtom.updatePaneTitle(paneId, title: title)
     }
 
     func renamePane(_ paneId: UUID, title: String) {
@@ -125,20 +161,11 @@ final class WorkspacePaneAtom {
     }
 
     func updatePaneCWD(_ paneId: UUID, cwd: URL?) {
-        guard panes[paneId] != nil else {
-            workspacePaneLogger.warning("updatePaneCWD: pane \(paneId) not found")
-            return
-        }
-        guard panes[paneId]!.metadata.facets.cwd != cwd else { return }
-        panes[paneId]!.metadata.updateCWD(cwd)
+        graphAtom.updatePaneCWD(paneId, cwd: cwd)
     }
 
     func updatePaneNote(_ paneId: UUID, note: String?) {
-        guard panes[paneId] != nil else {
-            workspacePaneLogger.warning("updatePaneNote: pane \(paneId) not found")
-            return
-        }
-        panes[paneId]!.metadata.updateNote(note)
+        graphAtom.updatePaneNote(paneId, note: note)
     }
 
     func updatePaneCWDAndResolvedContext(
@@ -146,63 +173,24 @@ final class WorkspacePaneAtom {
         cwd: URL?,
         resolvedContext: (repo: Repo, worktree: Worktree)?
     ) -> PaneCWDContextUpdateResult {
-        guard panes[paneId] != nil else {
-            workspacePaneLogger.warning("updatePaneCWDAndResolvedContext: pane \(paneId) not found")
-            return .paneMissing
-        }
-
-        var facets = panes[paneId]!.metadata.facets
-        facets.cwd = cwd
-        if let resolvedContext {
-            facets.repoId = resolvedContext.repo.id
-            facets.repoName = resolvedContext.repo.name
-            facets.worktreeId = resolvedContext.worktree.id
-            facets.worktreeName = resolvedContext.worktree.name
-        } else {
-            facets.repoId = nil
-            facets.repoName = nil
-            facets.worktreeId = nil
-            facets.worktreeName = nil
-        }
-
-        guard facets != panes[paneId]!.metadata.facets else {
-            return .unchanged
-        }
-
-        panes[paneId]!.metadata.updateFacets(facets)
-        return .applied
+        graphAtom.updatePaneCWDAndResolvedContext(paneId, cwd: cwd, resolvedContext: resolvedContext)
     }
 
     func updatePaneWebviewState(_ paneId: UUID, state: WebviewState) {
-        guard panes[paneId] != nil else {
-            workspacePaneLogger.warning("updatePaneWebviewState: pane \(paneId) not found")
-            return
-        }
-        panes[paneId]!.content = .webview(state)
+        graphAtom.updatePaneWebviewState(paneId, state: state)
     }
 
     func syncPaneWebviewState(_ paneId: UUID, state: WebviewState) {
-        guard panes[paneId] != nil else {
-            workspacePaneLogger.warning("syncPaneWebviewState: pane \(paneId) not found")
-            return
-        }
-        panes[paneId]!.content = .webview(state)
+        graphAtom.syncPaneWebviewState(paneId, state: state)
     }
 
     func setResidency(_ residency: SessionResidency, for paneId: UUID) {
-        guard panes[paneId] != nil else {
-            workspacePaneLogger.warning("setResidency: pane \(paneId) not found")
-            return
-        }
-        panes[paneId]!.residency = residency
+        graphAtom.setResidency(residency, for: paneId)
     }
 
     func purgeOrphanedPane(_ paneId: UUID) {
-        guard let pane = panes[paneId], pane.residency == .backgrounded else {
-            workspacePaneLogger.warning("purgeOrphanedPane: pane \(paneId) is not backgrounded")
-            return
-        }
-        panes.removeValue(forKey: paneId)
+        graphAtom.purgeOrphanedPane(paneId)
+        drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
     }
 
     @discardableResult
@@ -224,31 +212,21 @@ final class WorkspacePaneAtom {
         content: PaneContent,
         metadata: PaneMetadata
     ) -> Pane? {
-        guard panes[parentPaneId] != nil else {
-            workspacePaneLogger.warning("addDrawerPane: parent pane \(parentPaneId) not found")
+        guard let drawerPane = graphAtom.addDrawerPane(to: parentPaneId, content: content, metadata: metadata) else {
             return nil
         }
-
-        let drawerPane = Pane(
-            content: content,
-            metadata: metadata,
-            kind: .drawerChild(parentPaneId: parentPaneId)
-        )
-
-        panes[drawerPane.id] = drawerPane
-        panes[parentPaneId]!.withDrawer { drawer in
-            drawer.paneIds.append(drawerPane.id)
-            drawer.isExpanded = true
+        if let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
+            drawerCursorAtom.expandDrawer(drawerId: drawerId)
         }
-        return drawerPane
+        return pane(drawerPane.id)
     }
 
     @discardableResult
     func insertDrawerPane(
         in parentPaneId: UUID,
         at targetDrawerPaneId: UUID,
-        direction: SplitNewDirection,
-        sizingMode: DropSizingMode,
+        direction _: SplitNewDirection,
+        sizingMode _: DropSizingMode,
         parentFallbackCWD: URL?
     ) -> Pane? {
         guard let metadata = inheritedDrawerMetadata(from: parentPaneId, parentFallbackCWD: parentFallbackCWD) else {
@@ -258,15 +236,93 @@ final class WorkspacePaneAtom {
         return insertDrawerPane(
             in: parentPaneId,
             at: targetDrawerPaneId,
-            direction: direction,
-            sizingMode: sizingMode,
+            direction: .right,
+            sizingMode: .halveTarget,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: metadata
         )
     }
 
+    @discardableResult
+    func insertDrawerPane(
+        in parentPaneId: UUID,
+        at targetDrawerPaneId: UUID,
+        direction _: SplitNewDirection,
+        sizingMode _: DropSizingMode,
+        content: PaneContent,
+        metadata: PaneMetadata
+    ) -> Pane? {
+        guard
+            let drawerPane = graphAtom.insertDrawerPane(
+                in: parentPaneId,
+                at: targetDrawerPaneId,
+                content: content,
+                metadata: metadata
+            )
+        else { return nil }
+        if let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
+            drawerCursorAtom.expandDrawer(drawerId: drawerId)
+        }
+        return pane(drawerPane.id)
+    }
+
+    func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
+        graphAtom.removeDrawerPane(drawerPaneId, from: parentPaneId)
+        drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
+    }
+
+    @discardableResult
+    func detachDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) -> Pane? {
+        guard let detached = graphAtom.detachDrawerPane(drawerPaneId, from: parentPaneId) else { return nil }
+        drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
+        return pane(detached.id)
+    }
+
+    func toggleDrawer(for paneId: UUID) {
+        guard let drawerId = graphAtom.paneState(paneId)?.drawer?.drawerId else {
+            workspacePaneLogger.warning("toggleDrawer: pane \(paneId) has no drawer")
+            return
+        }
+        drawerCursorAtom.toggleDrawer(drawerId: drawerId)
+    }
+
+    func collapseAllDrawers() {
+        drawerCursorAtom.collapseAllDrawers()
+    }
+
+    @discardableResult
+    func orphanPanes(forUnavailableWorktreePathsById unavailablePathByWorktreeId: [UUID: String]) -> [UUID] {
+        graphAtom.orphanPanes(forUnavailableWorktreePathsById: unavailablePathByWorktreeId)
+    }
+
+    @discardableResult
+    func orphanPanesForWorktree(_ worktreeId: UUID, path: String) -> [UUID] {
+        graphAtom.orphanPanesForWorktree(worktreeId, path: path)
+    }
+
+    @discardableResult
+    func restoreOrphanedPaneResidency(
+        forWorktreeIds worktreeIds: Set<UUID>,
+        activeLayoutPaneIds: Set<UUID>
+    ) -> Bool {
+        graphAtom.restoreOrphanedPaneResidency(forWorktreeIds: worktreeIds, activeLayoutPaneIds: activeLayoutPaneIds)
+    }
+
+    func snapshotPanes(with ids: [UUID]) -> [Pane] {
+        ids.compactMap { pane($0) }
+    }
+
+    @discardableResult
+    func restoreDrawerPane(_ drawerPane: Pane, to parentPaneId: UUID) -> Bool {
+        let didRestore = graphAtom.restoreDrawerPane(drawerPane, to: parentPaneId)
+        if didRestore, let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
+            drawerCursorAtom.expandDrawer(drawerId: drawerId)
+        }
+        return didRestore
+    }
+
     private func inheritedDrawerMetadata(from parentPaneId: UUID, parentFallbackCWD: URL?) -> PaneMetadata? {
-        guard let parentPane = panes[parentPaneId] else { return nil }
+        guard let parentPane = pane(parentPaneId) else { return nil }
 
         let inheritedCWD =
             parentPane.metadata.facets.cwd
@@ -293,198 +349,5 @@ final class WorkspacePaneAtom {
             title: "Drawer",
             facets: inheritedFacets
         )
-    }
-
-    @discardableResult
-    func insertDrawerPane(
-        in parentPaneId: UUID,
-        at targetDrawerPaneId: UUID,
-        direction: SplitNewDirection,
-        sizingMode: DropSizingMode,
-        content: PaneContent,
-        metadata: PaneMetadata
-    ) -> Pane? {
-        guard let parentPane = panes[parentPaneId], let drawer = parentPane.drawer else {
-            workspacePaneLogger.warning("insertDrawerPane: parent pane \(parentPaneId) has no drawer")
-            return nil
-        }
-        guard drawer.paneIds.contains(targetDrawerPaneId) else {
-            workspacePaneLogger.warning("insertDrawerPane: target \(targetDrawerPaneId) not in drawer")
-            return nil
-        }
-
-        let drawerPane = Pane(
-            content: content,
-            metadata: metadata,
-            kind: .drawerChild(parentPaneId: parentPaneId)
-        )
-
-        panes[drawerPane.id] = drawerPane
-        panes[parentPaneId]!.withDrawer { drawer in
-            drawer.paneIds.append(drawerPane.id)
-            drawer.isExpanded = true
-        }
-        return drawerPane
-    }
-
-    func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
-        guard panes[parentPaneId] != nil, panes[parentPaneId]!.drawer != nil else {
-            workspacePaneLogger.warning("removeDrawerPane: parent pane \(parentPaneId) has no drawer")
-            return
-        }
-
-        panes[parentPaneId]!.withDrawer { drawer in
-            drawer.paneIds.removeAll { $0 == drawerPaneId }
-        }
-
-        if panes[parentPaneId]!.drawer!.paneIds.isEmpty {
-            let previousDrawer = panes[parentPaneId]!.drawer!
-            panes[parentPaneId]!.kind = .layout(
-                drawer: Drawer(
-                    drawerId: previousDrawer.drawerId,
-                    parentPaneId: parentPaneId,
-                    isExpanded: previousDrawer.isExpanded
-                )
-            )
-        }
-
-        panes.removeValue(forKey: drawerPaneId)
-    }
-
-    @discardableResult
-    func detachDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) -> Pane? {
-        guard var drawerPane = panes[drawerPaneId], drawerPane.parentPaneId == parentPaneId else {
-            workspacePaneLogger.warning(
-                "detachDrawerPane: pane \(drawerPaneId) is not a child of \(parentPaneId)"
-            )
-            return nil
-        }
-        guard let parentPane = panes[parentPaneId], let existingDrawer = parentPane.drawer else {
-            workspacePaneLogger.warning("detachDrawerPane: parent pane \(parentPaneId) has no drawer")
-            return nil
-        }
-
-        let wasExpanded = existingDrawer.isExpanded
-        panes[parentPaneId]!.withDrawer { drawer in
-            drawer.paneIds.removeAll { $0 == drawerPaneId }
-        }
-
-        if panes[parentPaneId]!.drawer?.paneIds.isEmpty == true {
-            panes[parentPaneId]!.kind = .layout(
-                drawer: Drawer(
-                    drawerId: existingDrawer.drawerId,
-                    parentPaneId: parentPaneId,
-                    isExpanded: wasExpanded
-                )
-            )
-        }
-
-        drawerPane.kind = .layout(drawer: Drawer(parentPaneId: drawerPaneId))
-        panes[drawerPaneId] = drawerPane
-        return drawerPane
-    }
-
-    func toggleDrawer(for paneId: UUID) {
-        guard panes[paneId] != nil, panes[paneId]!.drawer != nil else {
-            workspacePaneLogger.warning("toggleDrawer: pane \(paneId) has no drawer")
-            return
-        }
-
-        let willExpand = !panes[paneId]!.drawer!.isExpanded
-        if willExpand {
-            for otherPaneId in panes.keys where otherPaneId != paneId {
-                if panes[otherPaneId]?.drawer?.isExpanded == true {
-                    panes[otherPaneId]!.withDrawer { $0.isExpanded = false }
-                }
-            }
-        }
-
-        panes[paneId]!.withDrawer { $0.isExpanded = willExpand }
-    }
-
-    func collapseAllDrawers() {
-        for paneId in panes.keys where panes[paneId]?.drawer?.isExpanded == true {
-            panes[paneId]!.withDrawer { $0.isExpanded = false }
-        }
-    }
-
-    @discardableResult
-    func orphanPanes(forUnavailableWorktreePathsById unavailablePathByWorktreeId: [UUID: String]) -> [UUID] {
-        let affectedPaneIds = panes.values
-            .filter { pane in
-                guard let worktreeId = pane.worktreeId else { return false }
-                return unavailablePathByWorktreeId[worktreeId] != nil
-            }
-            .map(\.id)
-
-        guard !affectedPaneIds.isEmpty else { return [] }
-        for paneId in affectedPaneIds {
-            guard let worktreeId = panes[paneId]?.worktreeId,
-                let missingPath = unavailablePathByWorktreeId[worktreeId]
-            else { continue }
-            guard panes[paneId]?.residency.isPendingUndo != true else { continue }
-            panes[paneId]?.residency = .orphaned(reason: .worktreeNotFound(path: missingPath))
-        }
-        return affectedPaneIds
-    }
-
-    @discardableResult
-    func orphanPanesForWorktree(_ worktreeId: UUID, path: String) -> [UUID] {
-        let affectedPaneIds = panes.values
-            .filter { $0.worktreeId == worktreeId }
-            .filter { pane in
-                switch pane.residency {
-                case .active, .backgrounded:
-                    return true
-                case .pendingUndo, .orphaned:
-                    return false
-                }
-            }
-            .map(\.id)
-
-        guard !affectedPaneIds.isEmpty else { return [] }
-        for paneId in affectedPaneIds {
-            panes[paneId]?.residency = .orphaned(reason: .worktreeNotFound(path: path))
-        }
-        return affectedPaneIds
-    }
-
-    @discardableResult
-    func restoreOrphanedPaneResidency(
-        forWorktreeIds worktreeIds: Set<UUID>,
-        activeLayoutPaneIds: Set<UUID>
-    ) -> Bool {
-        var didRestore = false
-        for paneId in panes.keys {
-            guard let worktreeId = panes[paneId]?.worktreeId else { continue }
-            guard worktreeIds.contains(worktreeId) else { continue }
-            guard panes[paneId]?.residency.isOrphaned == true else { continue }
-            panes[paneId]?.residency = activeLayoutPaneIds.contains(paneId) ? .active : .backgrounded
-            didRestore = true
-        }
-        return didRestore
-    }
-
-    func snapshotPanes(with ids: [UUID]) -> [Pane] {
-        ids.compactMap { panes[$0] }
-    }
-
-    @discardableResult
-    func restoreDrawerPane(_ drawerPane: Pane, to parentPaneId: UUID) -> Bool {
-        guard panes[parentPaneId] != nil else {
-            workspacePaneLogger.warning("restoreDrawerPane: parent pane \(parentPaneId) not found")
-            return false
-        }
-        guard panes[parentPaneId]?.drawer != nil else {
-            workspacePaneLogger.warning("restoreDrawerPane: parent pane \(parentPaneId) has no drawer")
-            return false
-        }
-
-        panes[drawerPane.id] = drawerPane
-        panes[parentPaneId]!.withDrawer { drawer in
-            drawer.paneIds.append(drawerPane.id)
-            drawer.isExpanded = true
-        }
-        return true
     }
 }

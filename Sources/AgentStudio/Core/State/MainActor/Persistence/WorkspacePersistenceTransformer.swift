@@ -4,15 +4,18 @@ import Foundation
 enum WorkspacePersistenceTransformer {
     static func hydrate(
         _ state: WorkspacePersistor.PersistableState,
-        metadataAtom: WorkspaceMetadataAtom,
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
         repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
     ) {
-        metadataAtom.hydrate(
+        identityAtom.hydrate(
             workspaceId: state.id,
             workspaceName: state.name,
-            createdAt: state.createdAt,
+            createdAt: state.createdAt
+        )
+        windowMemoryAtom.hydrate(
             sidebarWidth: state.sidebarWidth,
             windowFrame: state.windowFrame
         )
@@ -34,19 +37,20 @@ enum WorkspacePersistenceTransformer {
         workspaceTabLayoutAtom.hydrate(
             persistedTabs: state.tabs,
             activeTabId: state.activeTabId,
-            validPaneIds: Set(workspacePaneAtom.panes.keys)
+            validPaneIds: workspacePaneAtom.graphAtom.paneIds
         )
     }
 
     static func makePersistableState(
-        metadataAtom: WorkspaceMetadataAtom,
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
         repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date
     ) -> WorkspacePersistor.PersistableState {
         let persistablePanes = Array(
-            workspacePaneAtom.panes.values.filter { pane in
+            workspacePaneAtom.legacyPersistablePanes.values.filter { pane in
                 if case .terminal(let terminalState) = pane.content {
                     return terminalState.lifetime != .temporary
                 }
@@ -60,19 +64,104 @@ enum WorkspacePersistenceTransformer {
         pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds, activeTabId: &prunedActiveTabId)
 
         return WorkspacePersistor.PersistableState(
-            id: metadataAtom.workspaceId,
-            name: metadataAtom.workspaceName,
+            id: identityAtom.workspaceId,
+            name: identityAtom.workspaceName,
             repos: canonicalRepos(from: repositoryTopologyAtom.repos),
             worktrees: canonicalWorktrees(from: repositoryTopologyAtom.repos),
             unavailableRepoIds: repositoryTopologyAtom.unavailableRepoIds,
             panes: persistablePanes,
             tabs: prunedTabs,
             activeTabId: prunedActiveTabId,
-            sidebarWidth: metadataAtom.sidebarWidth,
-            windowFrame: metadataAtom.windowFrame,
+            sidebarWidth: windowMemoryAtom.sidebarWidth,
+            windowFrame: windowMemoryAtom.windowFrame,
             watchedPaths: repositoryTopologyAtom.watchedPaths,
-            createdAt: metadataAtom.createdAt,
+            createdAt: identityAtom.createdAt,
             updatedAt: persistedAt
+        )
+    }
+
+    static func makeLiveSQLiteState(
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
+        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        workspacePaneAtom: WorkspacePaneAtom,
+        workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
+        persistedAt: Date
+    ) -> WorkspacePersistor.PersistableState {
+        persistableState(
+            from: makeLiveSQLiteSnapshot(
+                identityAtom: identityAtom,
+                windowMemoryAtom: windowMemoryAtom,
+                repositoryTopologyAtom: repositoryTopologyAtom,
+                workspacePaneAtom: workspacePaneAtom,
+                workspaceTabLayoutAtom: workspaceTabLayoutAtom,
+                persistedAt: persistedAt
+            )
+        )
+    }
+
+    static func makeLiveSQLiteSnapshot(
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
+        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        workspacePaneAtom: WorkspacePaneAtom,
+        workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
+        persistedAt: Date
+    ) -> WorkspaceSQLiteSnapshot {
+        WorkspaceSQLiteSnapshot(
+            id: identityAtom.workspaceId,
+            name: identityAtom.workspaceName,
+            repos: canonicalRepos(from: repositoryTopologyAtom.repos),
+            worktrees: canonicalWorktrees(from: repositoryTopologyAtom.repos),
+            unavailableRepoIds: repositoryTopologyAtom.unavailableRepoIds,
+            panes: Array(workspacePaneAtom.liveSQLitePanes.values),
+            tabs: workspaceTabLayoutAtom.tabs,
+            activeTabId: workspaceTabLayoutAtom.activeTabId,
+            sidebarWidth: windowMemoryAtom.sidebarWidth,
+            windowFrame: windowMemoryAtom.windowFrame,
+            watchedPaths: repositoryTopologyAtom.watchedPaths,
+            createdAt: identityAtom.createdAt,
+            updatedAt: persistedAt
+        )
+    }
+
+    nonisolated static func sqliteSnapshot(
+        from state: WorkspacePersistor.PersistableState
+    ) -> WorkspaceSQLiteSnapshot {
+        WorkspaceSQLiteSnapshot(
+            id: state.id,
+            name: state.name,
+            repos: state.repos,
+            worktrees: state.worktrees,
+            unavailableRepoIds: state.unavailableRepoIds,
+            panes: state.panes,
+            tabs: state.tabs,
+            activeTabId: state.activeTabId,
+            sidebarWidth: state.sidebarWidth,
+            windowFrame: state.windowFrame,
+            watchedPaths: state.watchedPaths,
+            createdAt: state.createdAt,
+            updatedAt: state.updatedAt
+        )
+    }
+
+    nonisolated static func persistableState(from snapshot: WorkspaceSQLiteSnapshot)
+        -> WorkspacePersistor.PersistableState
+    {
+        WorkspacePersistor.PersistableState(
+            id: snapshot.id,
+            name: snapshot.name,
+            repos: snapshot.repos,
+            worktrees: snapshot.worktrees,
+            unavailableRepoIds: snapshot.unavailableRepoIds,
+            panes: snapshot.panes,
+            tabs: snapshot.tabs,
+            activeTabId: snapshot.activeTabId,
+            sidebarWidth: snapshot.sidebarWidth,
+            windowFrame: snapshot.windowFrame,
+            watchedPaths: snapshot.watchedPaths,
+            createdAt: snapshot.createdAt,
+            updatedAt: snapshot.updatedAt
         )
     }
 

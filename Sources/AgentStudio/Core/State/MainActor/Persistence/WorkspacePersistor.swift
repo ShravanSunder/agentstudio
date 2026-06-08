@@ -21,6 +21,47 @@ struct WorkspacePersistor {
         }
     }
 
+    struct LegacyArchiveResult: Sendable, Equatable {
+        let archiveDirectoryName: String
+        let archivedFilenames: [String]
+        let failedFilenames: [String]
+        let incompleteArchiveDirectoryNames: [String]
+
+        init(
+            archiveDirectoryName: String,
+            archivedFilenames: [String],
+            failedFilenames: [String],
+            incompleteArchiveDirectoryNames: [String] = []
+        ) {
+            self.archiveDirectoryName = archiveDirectoryName
+            self.archivedFilenames = archivedFilenames
+            self.failedFilenames = failedFilenames
+            self.incompleteArchiveDirectoryNames = incompleteArchiveDirectoryNames
+        }
+
+        var succeeded: Bool {
+            !archivedFilenames.isEmpty
+                && failedFilenames.isEmpty
+                && incompleteArchiveDirectoryNames.isEmpty
+        }
+    }
+
+    struct LegacyWorkspaceStateFile {
+        let url: URL
+        let state: PersistableState
+        let modificationDate: Date
+    }
+
+    struct CorruptLegacyWorkspaceStateFile {
+        let url: URL
+        let error: any Error
+    }
+
+    struct LegacyWorkspaceStateScan {
+        let loadedFiles: [LegacyWorkspaceStateFile]
+        let corruptFiles: [CorruptLegacyWorkspaceStateFile]
+    }
+
     /// Distinguishes "no file found" from "file exists but is corrupt" on load.
     enum LoadResult<T> {
         case loaded(T)
@@ -136,6 +177,44 @@ struct WorkspacePersistor {
         return decodeFromFile(fileURL, as: PersistableState.self)
     }
 
+    func loadLegacyWorkspaceStateFiles() -> LegacyWorkspaceStateScan {
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(
+                at: workspacesDir,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            return .init(loadedFiles: [], corruptFiles: [])
+        }
+
+        let canonicalFiles =
+            contents
+            .filter { $0.lastPathComponent.hasSuffix(Self.canonicalSuffix) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        var loadedFiles: [LegacyWorkspaceStateFile] = []
+        var corruptFiles: [CorruptLegacyWorkspaceStateFile] = []
+        for fileURL in canonicalFiles {
+            switch decodeFromFile(fileURL, as: PersistableState.self) {
+            case .loaded(let state):
+                loadedFiles.append(
+                    .init(
+                        url: fileURL,
+                        state: state,
+                        modificationDate: modificationDate(for: fileURL)
+                    )
+                )
+            case .corrupt(let error):
+                corruptFiles.append(.init(url: fileURL, error: error))
+            case .missing:
+                break
+            }
+        }
+        return .init(loadedFiles: loadedFiles, corruptFiles: corruptFiles)
+    }
+
     func loadCache(for workspaceId: UUID) -> LoadResult<PersistableCacheState> {
         decodeFromFile(cacheFileURL(for: workspaceId), as: PersistableCacheState.self)
     }
@@ -173,6 +252,11 @@ struct WorkspacePersistor {
             return nil
         }
 
+        return quarantineCorruptCanonicalWorkspaceFiles(at: canonicalURL)
+    }
+
+    @discardableResult
+    func quarantineCorruptCanonicalWorkspaceFiles(at canonicalURL: URL) -> CanonicalQuarantineResult? {
         let workspaceId = workspaceIdFromCanonicalFile(canonicalURL)
         let timestamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
@@ -203,6 +287,17 @@ struct WorkspacePersistor {
     }
 
     @discardableResult
+    func quarantineCorruptRepoCacheFile(for workspaceId: UUID) -> URL? {
+        quarantineCorruptFile(
+            sourceURL: cacheFileURL(for: workspaceId),
+            fileName: { timestamp in
+                "\(workspaceId.uuidString).workspace.cache.corrupt-\(timestamp).json"
+            },
+            label: "repo cache"
+        )
+    }
+
+    @discardableResult
     func quarantineCorruptUIFile(for workspaceId: UUID) -> URL? {
         quarantineCorruptFile(
             sourceURL: uiFileURL(for: workspaceId),
@@ -222,6 +317,151 @@ struct WorkspacePersistor {
             },
             label: "sidebar cache"
         )
+    }
+
+    @discardableResult
+    func archiveLegacyWorkspaceFiles(for workspaceId: UUID) -> LegacyArchiveResult? {
+        let candidates = legacyWorkspaceFileURLs(for: workspaceId)
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        let incompleteArchiveDirectoryNames = incompleteLegacyArchiveDirectoryNames(for: workspaceId)
+        if !incompleteArchiveDirectoryNames.isEmpty {
+            return LegacyArchiveResult(
+                archiveDirectoryName: "",
+                archivedFilenames: [],
+                failedFilenames: candidates.map(\.lastPathComponent),
+                incompleteArchiveDirectoryNames: incompleteArchiveDirectoryNames
+            )
+        }
+        guard !candidates.isEmpty else { return nil }
+
+        let archiveDirectoryName = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let archiveDirectory =
+            workspacesDir
+            .appending(path: "legacy-imported")
+            .appending(path: archiveDirectoryName)
+        do {
+            try FileManager.default.createDirectory(
+                at: archiveDirectory,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            persistorLogger.error(
+                "Failed to create legacy workspace archive directory \(archiveDirectory.path): \(error)"
+            )
+            return LegacyArchiveResult(
+                archiveDirectoryName: archiveDirectoryName,
+                archivedFilenames: [],
+                failedFilenames: candidates.map(\.lastPathComponent)
+            )
+        }
+
+        var archivedPairs: [(sourceURL: URL, destinationURL: URL)] = []
+        for (index, sourceURL) in candidates.enumerated() {
+            let destinationURL = archiveDirectory.appending(path: sourceURL.lastPathComponent)
+            do {
+                try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+                archivedPairs.append((sourceURL: sourceURL, destinationURL: destinationURL))
+            } catch {
+                persistorLogger.error(
+                    "Failed to archive legacy workspace file \(sourceURL.lastPathComponent): \(error)"
+                )
+                var rollbackFailures: [String] = []
+                for pair in archivedPairs.reversed() {
+                    do {
+                        try FileManager.default.moveItem(at: pair.destinationURL, to: pair.sourceURL)
+                    } catch {
+                        rollbackFailures.append(pair.destinationURL.lastPathComponent)
+                        persistorLogger.error(
+                            "Failed to roll back archived legacy workspace file \(pair.destinationURL.lastPathComponent): \(error)"
+                        )
+                    }
+                }
+                if rollbackFailures.isEmpty {
+                    try? FileManager.default.removeItem(at: archiveDirectory)
+                } else {
+                    markIncompleteLegacyArchiveDirectory(archiveDirectory, workspaceId: workspaceId)
+                }
+                let unarchivedFailures = candidates[index...].map(\.lastPathComponent)
+                return LegacyArchiveResult(
+                    archiveDirectoryName: archiveDirectoryName,
+                    archivedFilenames: rollbackFailures,
+                    failedFilenames: unarchivedFailures + rollbackFailures,
+                    incompleteArchiveDirectoryNames: rollbackFailures.isEmpty ? [] : [archiveDirectoryName]
+                )
+            }
+        }
+
+        return LegacyArchiveResult(
+            archiveDirectoryName: archiveDirectoryName,
+            archivedFilenames: archivedPairs.map { $0.sourceURL.lastPathComponent },
+            failedFilenames: []
+        )
+    }
+
+    func canonicalWorkspaceStatePath(for workspaceId: UUID) -> String {
+        canonicalFileURL(for: workspaceId).path
+    }
+
+    func hasLegacyCacheFile(for workspaceId: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: cacheFileURL(for: workspaceId).path)
+    }
+
+    func hasLegacyUIFile(for workspaceId: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: uiFileURL(for: workspaceId).path)
+    }
+
+    func hasLegacySidebarCacheFile(for workspaceId: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: sidebarCacheFileURL(for: workspaceId).path)
+    }
+
+    func hasLegacyWorkspaceFiles(for workspaceId: UUID) -> Bool {
+        legacyWorkspaceFileURLs(for: workspaceId)
+            .contains { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private func incompleteLegacyArchiveDirectoryNames(for workspaceId: UUID) -> [String] {
+        let archiveRoot = workspacesDir.appending(path: "legacy-imported")
+        guard
+            let directoryURLs = try? FileManager.default.contentsOfDirectory(
+                at: archiveRoot,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            )
+        else {
+            return []
+        }
+        return directoryURLs.compactMap { directoryURL in
+            guard
+                (try? directoryURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
+                FileManager.default.fileExists(
+                    atPath: directoryURL.appending(path: incompleteArchiveMarkerName(for: workspaceId)).path
+                )
+            else {
+                return nil
+            }
+            return directoryURL.lastPathComponent
+        }
+        .sorted()
+    }
+
+    private func markIncompleteLegacyArchiveDirectory(_ archiveDirectory: URL, workspaceId: UUID) {
+        let markerURL = archiveDirectory.appending(path: incompleteArchiveMarkerName(for: workspaceId))
+        do {
+            try Data("incomplete".utf8).write(to: markerURL, options: .atomic)
+        } catch {
+            persistorLogger.error(
+                "Failed to mark incomplete legacy workspace archive \(archiveDirectory.path): \(error)"
+            )
+        }
+    }
+
+    private func incompleteArchiveMarkerName(for workspaceId: UUID) -> String {
+        ".archive-incomplete-\(workspaceId.uuidString).marker"
+    }
+
+    private func modificationDate(for url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+            ?? .distantPast
     }
 
     @discardableResult
@@ -283,6 +523,16 @@ struct WorkspacePersistor {
         return candidates
     }
 
+    private func legacyWorkspaceFileURLs(for workspaceId: UUID) -> [URL] {
+        [
+            canonicalFileURL(for: workspaceId),
+            cacheFileURL(for: workspaceId),
+            uiFileURL(for: workspaceId),
+            sidebarCacheFileURL(for: workspaceId),
+            inboxFileURL(for: workspaceId),
+        ]
+    }
+
     private func workspaceIdFromCanonicalFile(_ url: URL) -> UUID? {
         let fileName = url.lastPathComponent
         guard fileName.hasSuffix(Self.canonicalSuffix) else { return nil }
@@ -332,7 +582,13 @@ struct WorkspacePersistor {
         }
 
         do {
-            let decoded = try JSONDecoder().decode(type, from: data)
+            let decodeData: Data
+            if type == PersistableState.self {
+                decodeData = Self.dataRoutingLegacyDrawerActivePaneIds(data)
+            } else {
+                decodeData = data
+            }
+            let decoded = try JSONDecoder().decode(type, from: decodeData)
             return .loaded(decoded)
         } catch {
             persistorLogger.error(

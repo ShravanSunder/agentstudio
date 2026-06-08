@@ -283,7 +283,7 @@ struct WorkspaceArrangementViewDerived {
 The struct is recreated each access (no stored state). `@Observable`
 propagation works through the underlying atoms — when any source atom
 changes, callers re-read via the derived atom and see fresh values.
-Matches `WorkspaceTabDerived` (which assembles `Tab` from the
+Matches `WorkspaceTabLayoutDerived` (which assembles `Tab` from the
 shell + arrangement atoms).
 
 **Threading + management-mode override:** the derived struct is

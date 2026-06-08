@@ -23,7 +23,7 @@ enum DrawerEditorChooserFactory {
     }
 
     static func makeTrailingActions(
-        editorChooser: EditorChooserAtom,
+        editorChooser: EditorChooserState,
         paneId: UUID,
         workspaceWindowId: UUID? = nil,
         canOpenTarget: Bool,
@@ -47,7 +47,7 @@ enum DrawerEditorChooserFactory {
             editorMenuContent: AnyView(
                 EditorChooserPopover(
                     items: items,
-                    bookmarkedEditorId: editorChooser.state.bookmarkedEditorId,
+                    bookmarkedEditorId: editorChooser.bookmarkedEditorId,
                     directLaunchHintText: directLaunchHintText,
                     directLaunchShortcutText: directLaunchShortcutText,
                     style: .standard,
@@ -57,7 +57,7 @@ enum DrawerEditorChooserFactory {
                     },
                     onToggleBookmark: { editorId in
                         editorChooser.setBookmarkedEditor(
-                            editorChooser.state.bookmarkedEditorId == editorId ? nil : editorId
+                            editorChooser.bookmarkedEditorId == editorId ? nil : editorId
                         )
                     },
                     onDismiss: {
@@ -77,7 +77,7 @@ enum DrawerEditorChooserFactory {
                 )
             ),
             editorMenuPresented: Binding(
-                get: { editorChooser.state.openForPaneId == paneId },
+                get: { editorChooser.openForPaneId == paneId },
                 set: { isPresented in
                     if isPresented {
                         editorChooser.setAvailableTargets(refreshInstalledTargets())
@@ -88,7 +88,7 @@ enum DrawerEditorChooserFactory {
                 }
             ),
             buttonTitle: buttonTitle(
-                bookmarkedEditorId: editorChooser.state.bookmarkedEditorId,
+                bookmarkedEditorId: editorChooser.bookmarkedEditorId,
                 targets: editorChooser.availableTargets.isEmpty
                     ? ExternalEditorTarget.curatedOrder
                     : editorChooser.availableTargets

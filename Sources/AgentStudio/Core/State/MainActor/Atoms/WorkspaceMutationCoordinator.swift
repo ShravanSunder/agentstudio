@@ -33,8 +33,8 @@ final class WorkspaceMutationCoordinator {
     private let workspaceTabShellAtom: WorkspaceTabShellAtom
     private let workspaceTabArrangementAtom: WorkspaceTabArrangementAtom
 
-    private var workspaceTab: WorkspaceTabDerived {
-        WorkspaceTabDerived(
+    private var workspaceTab: WorkspaceTabLayoutDerived {
+        WorkspaceTabLayoutDerived(
             shellAtom: workspaceTabShellAtom,
             arrangementAtom: workspaceTabArrangementAtom
         )

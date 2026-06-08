@@ -9,14 +9,14 @@ import Testing
 struct InboxNotificationSidebarViewTests {
     @Test("preseeded filter state is consumed when the inbox mounts")
     func preseededFilterDraftIsConsumedOnMount() async {
-        let inboxSidebarState = InboxSidebarStateAtom()
+        let inboxSidebarState = InboxSidebarState()
         inboxSidebarState.setPendingFilter(.worktree(id: UUID()))
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: InboxNotificationAtom(),
                 prefsAtom: InboxNotificationPrefsAtom(),
-                uiState: UIStateAtom(),
-                sidebarCache: SidebarCacheAtom(),
+                uiState: WorkspaceSidebarState(),
+                sidebarCache: SidebarCacheState(),
                 inboxSidebarState: inboxSidebarState,
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
@@ -107,9 +107,9 @@ struct InboxNotificationSidebarViewTests {
                 let view = InboxNotificationSidebarView(
                     inboxAtom: InboxNotificationAtom(),
                     prefsAtom: InboxNotificationPrefsAtom(),
-                    uiState: UIStateAtom(),
-                    sidebarCache: SidebarCacheAtom(),
-                    inboxSidebarState: InboxSidebarStateAtom(),
+                    uiState: WorkspaceSidebarState(),
+                    sidebarCache: SidebarCacheState(),
+                    inboxSidebarState: InboxSidebarState(),
                     workspacePaneAtom: WorkspacePaneAtom(),
                     workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                     repoCache: RepoCacheAtom(),
@@ -138,9 +138,9 @@ struct InboxNotificationSidebarViewTests {
                     rootView: InboxNotificationSidebarView(
                         inboxAtom: InboxNotificationAtom(),
                         prefsAtom: InboxNotificationPrefsAtom(),
-                        uiState: UIStateAtom(),
-                        sidebarCache: SidebarCacheAtom(),
-                        inboxSidebarState: InboxSidebarStateAtom(),
+                        uiState: WorkspaceSidebarState(),
+                        sidebarCache: SidebarCacheState(),
+                        inboxSidebarState: InboxSidebarState(),
                         workspacePaneAtom: WorkspacePaneAtom(),
                         workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                         repoCache: RepoCacheAtom(),
@@ -557,9 +557,9 @@ struct InboxNotificationSidebarViewSourceGroupTests {
             rootView: InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
                 prefsAtom: prefsAtom,
-                uiState: UIStateAtom(),
-                sidebarCache: SidebarCacheAtom(),
-                inboxSidebarState: InboxSidebarStateAtom(),
+                uiState: WorkspaceSidebarState(),
+                sidebarCache: SidebarCacheState(),
+                inboxSidebarState: InboxSidebarState(),
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: repositoryTopologyAtom,
                 repoCache: repoCache,
@@ -625,9 +625,9 @@ struct InboxNotificationSidebarViewSourceGroupTests {
             rootView: InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
                 prefsAtom: prefsAtom,
-                uiState: UIStateAtom(),
-                sidebarCache: SidebarCacheAtom(),
-                inboxSidebarState: InboxSidebarStateAtom(),
+                uiState: WorkspaceSidebarState(),
+                sidebarCache: SidebarCacheState(),
+                inboxSidebarState: InboxSidebarState(),
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: repositoryTopologyAtom,
                 repoCache: repoCache,
@@ -682,7 +682,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
 struct InboxSidebarFocusActivationTests {
     @Test("publishing non-nil inbox focus flips sidebarHasFocus true")
     func nonNilInboxFocusPublishesTrue() {
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         #expect(uiState.sidebarHasFocus == false)
 
         InboxSidebarFocusPublisher.publish(focusedField: .search, into: uiState)
@@ -692,7 +692,7 @@ struct InboxSidebarFocusActivationTests {
 
     @Test("publishing nil inbox focus flips sidebarHasFocus false")
     func nilInboxFocusPublishesFalse() {
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         uiState.setSidebarHasFocus(true)
 
         InboxSidebarFocusPublisher.publish(focusedField: nil, into: uiState)
@@ -702,7 +702,7 @@ struct InboxSidebarFocusActivationTests {
 
     @Test("focus bridge publishes sidebar focus and escape callback through mounted view")
     func focusBridgePublishesMountedViewEvents() async throws {
-        let uiState = UIStateAtom()
+        let uiState = WorkspaceSidebarState()
         let workspacePaneAtom = WorkspacePaneAtom()
         var didRefocusActivePane = false
         let hostingView = NSHostingView(
@@ -710,8 +710,8 @@ struct InboxSidebarFocusActivationTests {
                 inboxAtom: InboxNotificationAtom(),
                 prefsAtom: InboxNotificationPrefsAtom(),
                 uiState: uiState,
-                sidebarCache: SidebarCacheAtom(),
-                inboxSidebarState: InboxSidebarStateAtom(),
+                sidebarCache: SidebarCacheState(),
+                inboxSidebarState: InboxSidebarState(),
                 workspacePaneAtom: workspacePaneAtom,
                 workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
@@ -867,7 +867,7 @@ private struct InboxSidebarRootHarness: View {
     let activeFilterLabel: String?
     let grouping: InboxNotificationGrouping
     let sections: [InboxNotificationListSection]
-    let uiState = UIStateAtom()
+    let uiState = WorkspaceSidebarState()
 
     @State private var searchText = ""
     @State private var groupingMenuOpen = false

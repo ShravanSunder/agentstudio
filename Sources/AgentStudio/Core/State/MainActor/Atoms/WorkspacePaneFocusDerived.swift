@@ -3,7 +3,7 @@ import Foundation
 @MainActor
 struct WorkspacePaneFocusDerived {
     func currentFocus(
-        workspaceTab: WorkspaceTabDerived,
+        workspaceTab: WorkspaceTabLayoutDerived,
         workspacePane: WorkspacePaneAtom,
         workspaceFocusOwner: WorkspaceFocusOwnerAtom
     ) -> WorkspacePaneFocus {

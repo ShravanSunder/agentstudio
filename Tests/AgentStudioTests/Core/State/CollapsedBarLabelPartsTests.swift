@@ -13,7 +13,8 @@ final class CollapsedBarLabelPartsTests {
     init() {
         registry = AtomRegistry()
         store = WorkspaceStore(
-            metadataAtom: registry.workspaceMetadata,
+            identityAtom: registry.workspaceIdentity,
+            windowMemoryAtom: registry.workspaceWindowMemory,
             repositoryTopologyAtom: registry.workspaceRepositoryTopology,
             paneAtom: registry.workspacePane,
             tabLayoutAtom: registry.workspaceTabLayout,

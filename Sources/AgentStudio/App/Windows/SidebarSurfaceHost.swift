@@ -7,9 +7,9 @@ struct SidebarSurfaceHost: View {
     }
 
     let store: WorkspaceStore
-    let uiState: UIStateAtom
-    let sidebarCache: SidebarCacheAtom
-    let inboxSidebarState: InboxSidebarStateAtom
+    let uiState: WorkspaceSidebarState
+    let sidebarCache: SidebarCacheState
+    let inboxSidebarState: InboxSidebarState
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
@@ -60,7 +60,7 @@ struct SidebarSurfaceHost: View {
         }
     }
 
-    static func currentChildKind(uiState: UIStateAtom) -> ChildKind {
+    static func currentChildKind(uiState: WorkspaceSidebarState) -> ChildKind {
         switch uiState.sidebarSurface {
         case .repos:
             .repoExplorer
@@ -78,7 +78,7 @@ struct SidebarSurfaceHost: View {
 
     static func showNotifications(
         for worktree: Worktree,
-        inboxSidebarState: InboxSidebarStateAtom,
+        inboxSidebarState: InboxSidebarState,
         dispatcher: CommandDispatcher
     ) {
         inboxSidebarState.setPendingFilter(.worktree(id: worktree.id))

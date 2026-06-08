@@ -2,7 +2,7 @@ import Foundation
 
 /// Discriminant union encoding a pane's container context.
 /// Layout panes always have a drawer. Drawer children never do.
-enum PaneKind: Codable, Hashable {
+enum PaneKind: Codable, Hashable, Sendable {
     /// Top-level pane in a tab's layout tree. Always has a drawer container.
     case layout(drawer: Drawer)
     /// Child pane inside a drawer. Knows its parent. Cannot have a sub-drawer.
@@ -12,7 +12,7 @@ enum PaneKind: Codable, Hashable {
 /// The primary entity in the window system. Replaces TerminalSession as the universal identity.
 /// `id` (paneId) is the single identity used across all layers: WorkspaceStore, Layout,
 /// ViewRegistry, SurfaceManager, SessionRuntime, and zmx.
-struct Pane: Codable, Identifiable, Hashable {
+struct Pane: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     /// The content displayed in this pane.
     var content: PaneContent
@@ -71,7 +71,8 @@ struct Pane: Codable, Identifiable, Hashable {
         }
         self.metadata = decodedMetadata.canonicalizedIdentity(
             paneId: PaneId(uuid: id),
-            contentType: Self.contentType(for: content)
+            contentType: Self.contentType(for: content),
+            fillNilSourceFacets: false
         )
         self.residency = try container.decode(SessionResidency.self, forKey: .residency)
         self.kind = try container.decode(PaneKind.self, forKey: .kind)

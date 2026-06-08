@@ -102,8 +102,8 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
             let harness = makeHarness(windowLifecycleStore: atoms.windowLifecycle)
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
-            atoms.uiState.setSidebarSurface(.inbox)
-            atoms.uiState.setSidebarHasFocus(true)
+            atoms.workspaceSidebarState.setSidebarSurface(.inbox)
+            atoms.workspaceSidebarState.setSidebarHasFocus(true)
 
             let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Pane"))
             let tab = Tab(paneId: pane.id)

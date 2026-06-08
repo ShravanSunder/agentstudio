@@ -62,4 +62,11 @@ enum WorkspaceBootSequence {
             perform(step)
         }
     }
+
+    @MainActor
+    static func runAsync(_ perform: (WorkspaceBootStep) async -> Void) async {
+        for step in orderedSteps {
+            await perform(step)
+        }
+    }
 }

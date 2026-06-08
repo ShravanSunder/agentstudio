@@ -12,18 +12,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var atomStore: AtomRegistry!
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
-    var uiState: UIStateAtom! { atomStore.uiState }
+    var uiState: WorkspaceSidebarState! { atomStore.workspaceSidebarState }
     var inboxNotificationStore: InboxNotificationStore!
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!
     var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
     var pendingPersistenceRecoveryEvents: [PersistenceRecoveryEvent] = []
     var hasLoadedInboxNotificationStore = false
+    var canArchiveLegacyInboxFile = true
     var terminalActivityRouter: TerminalActivityRouter!
     var traceRuntime: AgentStudioTraceRuntime!
     var repoCacheStore: RepoCacheStore!
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
+    var workspaceSettingsStore: WorkspaceSettingsStore!
+    var workspaceSQLiteDatastore: WorkspaceSQLiteDatastore?
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
@@ -79,12 +82,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let paneRuntimeBus = PaneRuntimeEventBus.shared
         var filesystemSource: FilesystemGitPipeline?
 
-        bootWorkspaceServices(
-            persistor: persistor,
-            paneRuntimeBus: paneRuntimeBus,
-            filesystemSource: &filesystemSource
-        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.bootWorkspaceServices(
+                persistor: persistor,
+                paneRuntimeBus: paneRuntimeBus,
+                filesystemSource: &filesystemSource
+            )
+            self.finishLaunchingAfterWorkspaceBoot()
+        }
+    }
 
+    private func finishLaunchingAfterWorkspaceBoot() {
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
@@ -95,7 +104,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             viewRegistry: viewRegistry,
             inboxAtom: atomStore.inboxNotification,
             inboxPrefsAtom: atomStore.inboxNotificationPrefs,
-            inboxSidebarStateAtom: atomStore.inboxSidebarState,
+            inboxSidebarState: atomStore.inboxSidebarState,
             paneInboxPresenter: paneInboxNotificationPresenter,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
@@ -280,7 +289,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 viewRegistry: viewRegistry,
                 inboxAtom: atomStore.inboxNotification,
                 inboxPrefsAtom: atomStore.inboxNotificationPrefs,
-                inboxSidebarStateAtom: atomStore.inboxSidebarState,
+                inboxSidebarState: atomStore.inboxSidebarState,
                 paneInboxPresenter: paneInboxNotificationPresenter,
                 closeTransitionCoordinator: closeTransitionCoordinator
             )
@@ -336,7 +345,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         let definition = CommandDispatcher.shared.definition(for: command)
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )

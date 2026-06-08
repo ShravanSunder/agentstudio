@@ -33,7 +33,7 @@ final class RepoExplorerFocusableView: NSView {
 }
 
 struct RepoExplorerFocusBridge: NSViewRepresentable {
-    let uiState: UIStateAtom
+    let uiState: WorkspaceSidebarState
 
     func makeNSView(context: Context) -> RepoExplorerFocusableView {
         let view = RepoExplorerFocusableView()
@@ -61,7 +61,7 @@ enum RepoExplorerFocusPublisher {
     @MainActor
     static func publish(
         focusedField: RepoExplorerFocus?,
-        into uiState: UIStateAtom
+        into uiState: WorkspaceSidebarState
     ) {
         uiState.setSidebarHasFocus(focusedField != nil)
     }
@@ -88,11 +88,11 @@ struct RepoExplorerView: View {
         atom(\.repoCache)
     }
 
-    private var uiState: UIStateAtom {
-        atom(\.uiState)
+    private var uiState: WorkspaceSidebarState {
+        atom(\.workspaceSidebarState)
     }
 
-    private var sidebarCache: SidebarCacheAtom {
+    private var sidebarCache: SidebarCacheState {
         atom(\.sidebarCache)
     }
 

@@ -53,9 +53,10 @@ struct WorkspaceEmptyStateModel: Equatable {
 enum WorkspaceLauncherProjector {
     static func project(store: WorkspaceStore) -> WorkspaceEmptyStateModel {
         let repoCache = atom(\.repoCache)
+        let inboxAtom = atom(\.inboxNotification)
         let welcome = atom(\.welcome)
         let repositoryTopology = store.repositoryTopologyAtom
-        let workspaceTab = WorkspaceTabDerived(
+        let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
@@ -82,6 +83,7 @@ enum WorkspaceLauncherProjector {
                     recentTargets: repoCache.recentTargets,
                     store: store,
                     repoCache: repoCache,
+                    inboxAtom: inboxAtom,
                     checkoutColorHexByRepoId: checkoutColorHexByRepoId
                 )
                 .prefix(15)
@@ -100,6 +102,7 @@ enum WorkspaceLauncherProjector {
         recentTargets: [RecentWorkspaceTarget],
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
+        inboxAtom: InboxNotificationAtom,
         checkoutColorHexByRepoId: [UUID: String]
     ) -> [WorkspaceRecentCardModel] {
         recentTargets.compactMap { target in
@@ -107,6 +110,7 @@ enum WorkspaceLauncherProjector {
                 target: target,
                 store: store,
                 repoCache: repoCache,
+                inboxAtom: inboxAtom,
                 checkoutColorHexByRepoId: checkoutColorHexByRepoId
             )
         }
@@ -116,6 +120,7 @@ enum WorkspaceLauncherProjector {
         target: RecentWorkspaceTarget,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
+        inboxAtom: InboxNotificationAtom,
         checkoutColorHexByRepoId: [UUID: String]
     ) -> WorkspaceRecentCardModel? {
         if let worktreeId = target.worktreeId,
@@ -127,6 +132,7 @@ enum WorkspaceLauncherProjector {
                 worktree: worktree,
                 repo: repo,
                 repoCache: repoCache,
+                inboxAtom: inboxAtom,
                 iconColorHex: checkoutColorHexByRepoId[repo.id]
             )
         }
@@ -137,6 +143,7 @@ enum WorkspaceLauncherProjector {
                 worktree: resolvedContext.worktree,
                 repo: resolvedContext.repo,
                 repoCache: repoCache,
+                inboxAtom: inboxAtom,
                 iconColorHex: checkoutColorHexByRepoId[resolvedContext.repo.id]
             )
         }
@@ -149,6 +156,7 @@ enum WorkspaceLauncherProjector {
         worktree: Worktree,
         repo: Repo,
         repoCache: RepoCacheAtom,
+        inboxAtom: InboxNotificationAtom,
         iconColorHex: String?
     ) -> WorkspaceRecentCardModel {
         let branchStatus = RepoExplorerView.branchStatus(
@@ -157,7 +165,10 @@ enum WorkspaceLauncherProjector {
         )
         let chipModel = WorkspaceStatusChipsModel(
             branchStatus: branchStatus,
-            notificationCount: repoCache.notificationCountByWorktreeId[worktree.id, default: 0]
+            notificationCount: WorkspaceNotificationCountProjection.unreadCount(
+                worktreeId: worktree.id,
+                inboxAtom: inboxAtom
+            )
         )
         let branchName = atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
