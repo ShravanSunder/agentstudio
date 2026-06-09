@@ -20,8 +20,7 @@ extension PaneCoordinator {
         )
     }
 
-    /// Open a terminal for a worktree. Creates pane + tab + view.
-    /// Returns the pane if a new one was created, nil if already open.
+    /// Open a terminal for a worktree.
     @discardableResult
     func openTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
         if let existingTab = store.tabLayoutAtom.tabs.first(where: { tab in
@@ -73,7 +72,7 @@ extension PaneCoordinator {
             lifetime: .persistent,
             residency: .active
         )
-        viewRegistry.ensureSlot(for: pane.id)
+        prepareTerminalPaneSlot(pane)
 
         store.tabLayoutAtom.insertPane(
             pane.id,
@@ -84,6 +83,7 @@ extension PaneCoordinator {
             sizingMode: .halveTarget
         )
         store.tabLayoutAtom.setActivePane(pane.id, inTab: activeTabId)
+        traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
         postRecentTargetOpened(
             target: .forWorktree(
@@ -232,11 +232,12 @@ extension PaneCoordinator {
             provider: .zmx,
             facets: PaneContextFacets(cwd: launchDirectory)
         )
-        viewRegistry.ensureSlot(for: pane.id)
+        prepareTerminalPaneSlot(pane)
 
         let tab = Tab(paneId: pane.id, name: tabNameForPane(pane))
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
+        traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
         if let launchDirectory {
             postRecentTargetOpened(
@@ -256,6 +257,8 @@ extension PaneCoordinator {
     /// Execute a resolved PaneActionCommand.
     func execute(_ action: PaneActionCommand) {
         Self.logger.debug("Executing: \(String(describing: action))")
+        traceTerminalCommandReceived(for: action)
+        defer { clearUnclaimedTerminalStartupOperation() }
 
         switch action {
         case .openWorktree(let worktreeId):
@@ -536,6 +539,7 @@ extension PaneCoordinator {
                 store.repositoryTopologyAtom.worktree)?
                 .path
             if let drawerPane = store.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) {
+                prepareTerminalPaneSlot(drawerPane)
                 guard let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId else {
                     Self.logger.error("addDrawerPane: parent pane \(parentPaneId) has no drawer after pane creation")
                     store.paneAtom.removeDrawerPane(drawerPane.id, from: parentPaneId)
@@ -547,7 +551,7 @@ extension PaneCoordinator {
                     drawerPaneId: drawerPane.id,
                     inTab: tabId
                 )
-                viewRegistry.ensureSlot(for: drawerPane.id)
+                traceTerminalLayoutInsertedAndViewCreateStarted(drawerPane)
                 ensureTerminalPaneView(drawerPane)
                 focusVisiblePaneHost(drawerPane.id)
             }
@@ -700,7 +704,7 @@ extension PaneCoordinator {
             residency: .active,
             facets: paneFacets
         )
-        viewRegistry.ensureSlot(for: pane.id)
+        prepareTerminalPaneSlot(pane)
 
         let tab = Tab(
             paneId: pane.id,
@@ -708,6 +712,7 @@ extension PaneCoordinator {
         )
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
+        traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
         postRecentTargetOpened(
             target: .forWorktree(
@@ -950,12 +955,13 @@ extension PaneCoordinator {
                     provider: .zmx,
                     facets: targetPane?.metadata.facets ?? .empty
                 )
-                viewRegistry.ensureSlot(for: pane.id)
+                prepareTerminalPaneSlot(pane)
 
                 store.tabLayoutAtom.insertPane(
                     pane.id, inTab: targetTabId, at: targetPaneId,
                     direction: layoutDirection, position: position, sizingMode: sizingMode
                 )
+                traceTerminalLayoutInsertedAndViewCreateStarted(pane)
                 ensureTerminalPaneView(pane)
                 return
             }
@@ -968,12 +974,13 @@ extension PaneCoordinator {
                 provider: .zmx,
                 facets: targetPane?.metadata.facets ?? .empty
             )
-            viewRegistry.ensureSlot(for: pane.id)
+            prepareTerminalPaneSlot(pane)
 
             store.tabLayoutAtom.insertPane(
                 pane.id, inTab: targetTabId, at: targetPaneId,
                 direction: layoutDirection, position: position, sizingMode: sizingMode
             )
+            traceTerminalLayoutInsertedAndViewCreateStarted(pane)
             ensureTerminalPaneView(pane)
         }
     }

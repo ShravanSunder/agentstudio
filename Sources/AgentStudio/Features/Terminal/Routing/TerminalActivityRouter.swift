@@ -44,6 +44,7 @@ final class TerminalActivityRouter {
     private let activityAtom: TerminalActivityAtom
     private let attendedPane: AttendedPaneAtom?
     private let traceRuntime: AgentStudioTraceRuntime?
+    private let startupTraceRecorder: AgentStudioStartupTraceRecorder?
     private let unseenActivityDebounceDuration: Duration
     private let unseenActivityDebounceMilliseconds: Int
     private let unseenActivityDelay: AsyncDelay
@@ -62,6 +63,7 @@ final class TerminalActivityRouter {
         activityAtom: TerminalActivityAtom,
         attendedPane: AttendedPaneAtom? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
+        startupTraceRecorder: AgentStudioStartupTraceRecorder? = nil,
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
         unseenActivityClock: (any Clock<Duration> & Sendable)? = nil,
@@ -73,6 +75,7 @@ final class TerminalActivityRouter {
         self.activityAtom = activityAtom
         self.attendedPane = attendedPane
         self.traceRuntime = traceRuntime
+        self.startupTraceRecorder = startupTraceRecorder
         self.unseenActivityDebounceDuration = unseenActivityDebounceDuration
         self.unseenActivityDebounceMilliseconds = Self.milliseconds(from: unseenActivityDebounceDuration)
         unseenActivityDelay = unseenActivityClock.map(AsyncDelay.clock) ?? .taskSleep
@@ -135,6 +138,9 @@ final class TerminalActivityRouter {
     private func traceTerminalActivity(_ envelope: PaneEnvelope) async {
         guard case .terminal(let event) = envelope.event else { return }
         if case .scrollbarChanged(let state) = event {
+            if state.total > 0 {
+                startupTraceRecorder?.recordFirstOutput(paneID: envelope.paneId.uuid, surfaceID: nil)
+            }
             await traceUnseenActivityIfNeeded(envelope, scrollbarState: state)
             return
         }

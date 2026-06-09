@@ -79,6 +79,10 @@ extension AppDelegate {
 
     private func recordBootStep(_ step: WorkspaceBootStep) {
         RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
+        startupTraceRecorder.recordWorkspaceBootStep(
+            rawValue: step.rawValue,
+            purpose: step.purpose
+        )
     }
 
     private func executeBootStep(
@@ -116,7 +120,6 @@ extension AppDelegate {
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
-        traceRuntime = .fromEnvironment()
         workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
@@ -263,6 +266,7 @@ extension AppDelegate {
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: SurfaceManager.shared,
+            startupTraceRecorder: startupTraceRecorder,
             runtimeRegistry: .shared,
             paneEventBus: paneRuntimeBus,
             closeTransitionCoordinator: closeTransitionCoordinator,

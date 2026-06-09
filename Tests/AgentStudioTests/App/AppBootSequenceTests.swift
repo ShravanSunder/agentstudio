@@ -84,7 +84,7 @@ struct AppBootSequenceTests {
             encoding: .utf8
         )
 
-        #expect(appDelegateSource.contains("traceRuntime = .fromEnvironment()"))
+        #expect(!appDelegateSource.contains("traceRuntime = .fromEnvironment()"))
         #expect(appDelegateSource.contains("makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)"))
         #expect(appDelegateSource.contains("sqliteDatastore: workspaceSQLiteDatastore"))
         #expect(appDelegateSource.contains("await store.restoreAsync()"))
