@@ -10,7 +10,7 @@ protocol GhosttyActionRoutingLookup: AnyObject {
 
 extension SurfaceManager: GhosttyActionRoutingLookup {}
 
-typealias GhosttyActionRoutingLookupProvider = @MainActor () -> any GhosttyActionRoutingLookup
+typealias GhosttyActionRoutingLookupProvider = @MainActor @Sendable () -> any GhosttyActionRoutingLookup
 
 extension Ghostty {
     /// Owns Ghostty action-tag handling, host-side suppression, and trace emission.

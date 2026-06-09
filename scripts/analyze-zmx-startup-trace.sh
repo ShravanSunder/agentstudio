@@ -75,21 +75,19 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 run_jq() {
-    local filter="$1"
-    shift
-    local jq_error
-    jq_error="$(mktemp)"
-    set +e
-    jq -r "$@" "$filter" "$trace_file" 2>"$jq_error"
+  local filter="$1"
+  shift
+  set +e
+  jq -r "$@" "$filter" "$trace_file"
   local jq_status=$?
   set -e
+  if [[ "$jq_status" == "4" ]]; then
+    return 0
+  fi
   if [[ "$jq_status" != "0" ]]; then
     echo "jq failed while reading startup trace" >&2
-    cat "$jq_error" >&2
-    rm -f "$jq_error"
     exit 2
   fi
-  rm -f "$jq_error"
 }
 
 pane_rows="$(
@@ -253,8 +251,7 @@ zmx_events=""
 if [[ -n "$zmx_log_path" ]]; then
   if [[ -d "$zmx_log_path" ]]; then
     zmx_events="$(
-      find "$zmx_log_path" -type f -name '*.log' -print0 \
-        | xargs -0 awk -v session="$zmx_session" '
+      find "$zmx_log_path" -type f -name '*.log' -exec awk -v session="$zmx_session" '
           /^\[[0-9][0-9]*\] / {
             timestamp = $0
             sub(/^\[/, "", timestamp)
@@ -266,7 +263,7 @@ if [[ -n "$zmx_log_path" ]]; then
               print timestamp "\t" message "\t" FILENAME
             }
           }
-        ' 2>/dev/null | sort -n || true
+        ' {} + 2>/dev/null | sort -n || true
     )"
   elif [[ -f "$zmx_log_path" ]]; then
     zmx_events="$(

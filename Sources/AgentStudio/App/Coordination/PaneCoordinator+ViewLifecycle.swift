@@ -401,7 +401,7 @@ extension PaneCoordinator {
             if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane, store: store) {
                 traceZmxAttachPrepared(pane: pane, diagnostics: diagnostics)
                 // Prevent nested Agent Studio launches from inheriting an outer zmx session.
-                let environmentVariables = [
+                let environmentVariables: [String: String] = [
                     "ZMX_DIR": sessionConfig.zmxDir,
                     "ZMX_SESSION": "",
                 ]
