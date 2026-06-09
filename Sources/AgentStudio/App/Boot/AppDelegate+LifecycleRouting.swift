@@ -7,7 +7,7 @@ private let appDelegateLifecycleLogger = Logger(subsystem: "com.agentstudio", ca
 extension AppDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         guard let applicationLifecycleMonitor else {
-            appDelegateLifecycleLogger.warning("Skipping applicationDidBecomeActive before lifecycle monitor is ready")
+            appDelegateLifecycleLogger.info("Skipping applicationDidBecomeActive before lifecycle monitor is ready")
             RestoreTrace.log("applicationDidBecomeActive skipped monitor=nil")
             return
         }
@@ -16,7 +16,7 @@ extension AppDelegate {
 
     func applicationDidResignActive(_ notification: Notification) {
         guard let applicationLifecycleMonitor else {
-            appDelegateLifecycleLogger.warning("Skipping applicationDidResignActive before lifecycle monitor is ready")
+            appDelegateLifecycleLogger.info("Skipping applicationDidResignActive before lifecycle monitor is ready")
             RestoreTrace.log("applicationDidResignActive skipped monitor=nil")
             return
         }
