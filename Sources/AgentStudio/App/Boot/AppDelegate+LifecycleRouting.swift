@@ -6,21 +6,55 @@ private let appDelegateLifecycleLogger = Logger(subsystem: "com.agentstudio", ca
 @MainActor
 extension AppDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
+        guard let applicationLifecycleMonitor else {
+            appDelegateLifecycleLogger.warning("Skipping applicationDidBecomeActive before lifecycle monitor is ready")
+            RestoreTrace.log("applicationDidBecomeActive skipped monitor=nil")
+            return
+        }
         applicationLifecycleMonitor.handleApplicationDidBecomeActive()
     }
 
     func applicationDidResignActive(_ notification: Notification) {
+        guard let applicationLifecycleMonitor else {
+            appDelegateLifecycleLogger.warning("Skipping applicationDidResignActive before lifecycle monitor is ready")
+            RestoreTrace.log("applicationDidResignActive skipped monitor=nil")
+            return
+        }
         applicationLifecycleMonitor.handleApplicationDidResignActive()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         managementLayerMonitor?.stopMonitoring()
+        guard let applicationLifecycleMonitor else {
+            appDelegateLifecycleLogger.warning("Skipping applicationWillTerminate before lifecycle monitor is ready")
+            RestoreTrace.log("applicationWillTerminate skipped monitor=nil")
+            return
+        }
         applicationLifecycleMonitor.handleApplicationWillTerminate { [weak self] in
             guard
                 let splitViewController = self?.mainWindowController?.window?.contentViewController
                     as? MainSplitViewController
             else { return }
             splitViewController.savePersistentUIState()
+        }
+    }
+
+    func synchronizeApplicationLifecycleStateAfterWorkspaceBoot(isApplicationActive: Bool) {
+        guard let applicationLifecycleMonitor else {
+            appDelegateLifecycleLogger.warning(
+                "Skipping lifecycle state synchronization before lifecycle monitor is ready"
+            )
+            RestoreTrace.log("synchronizeApplicationLifecycleStateAfterWorkspaceBoot skipped monitor=nil")
+            return
+        }
+
+        RestoreTrace.log(
+            "synchronizeApplicationLifecycleStateAfterWorkspaceBoot isActive=\(isApplicationActive)"
+        )
+        if isApplicationActive {
+            applicationLifecycleMonitor.handleApplicationDidBecomeActive()
+        } else {
+            applicationLifecycleMonitor.handleApplicationDidResignActive()
         }
     }
 
