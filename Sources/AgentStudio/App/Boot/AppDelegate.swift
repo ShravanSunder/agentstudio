@@ -22,6 +22,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var canArchiveLegacyInboxFile = true
     var terminalActivityRouter: TerminalActivityRouter!
     var traceRuntime: AgentStudioTraceRuntime!
+    var startupTraceRecorder: AgentStudioStartupTraceRecorder!
     var repoCacheStore: RepoCacheStore!
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
@@ -51,8 +52,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var windowRestoreBridge: WindowRestoreBridge?
     let launchRestoreObservationState = AppDelegateLaunchRestoreObservationState()
 
+    override convenience init() {
+        let traceRuntime = AgentStudioTraceRuntime.fromEnvironment()
+        self.init(
+            traceRuntime: traceRuntime,
+            startupTraceRecorder: AgentStudioStartupTraceRecorder(traceRuntime: traceRuntime)
+        )
+    }
+
+    init(
+        traceRuntime: AgentStudioTraceRuntime,
+        startupTraceRecorder: AgentStudioStartupTraceRecorder
+    ) {
+        self.traceRuntime = traceRuntime
+        self.startupTraceRecorder = startupTraceRecorder
+        super.init()
+        Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
+        Ghostty.ActionRouter.bindStartupTraceRecorder(startupTraceRecorder)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         RestoreTrace.log("appDidFinishLaunching: begin")
+        startupTraceRecorder.recordAppStartup(
+            "app.did_finish_launching.started",
+            phase: "did_finish_launching"
+        )
         // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
         // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
         // The value must be a subdirectory (e.g. .../ghostty) whose parent contains
@@ -94,6 +118,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func finishLaunchingAfterWorkspaceBoot() {
+        startupTraceRecorder.recordAppStartup(
+            "app.did_finish_launching.succeeded",
+            phase: "did_finish_launching",
+            outcome: "succeeded"
+        )
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
@@ -123,6 +152,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         RestoreTrace.log("appDidFinishLaunching: end")
+        runStartupDiagnosticActionIfRequested()
     }
 
     isolated deinit {

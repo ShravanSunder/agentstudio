@@ -85,6 +85,10 @@ struct AgentStudioTraceRuntime: Sendable {
         configuration.isEnabled(tag)
     }
 
+    func timestampUnixNano() -> UInt64 {
+        timeUnixNano()
+    }
+
     func record(
         tag: AgentStudioTraceTag,
         body: String,
@@ -93,6 +97,7 @@ struct AgentStudioTraceRuntime: Sendable {
         traceID: String? = nil,
         spanID: String? = nil,
         parentSpanID: String? = nil,
+        eventTimeUnixNano: UInt64? = nil,
         attributes: @autoclosure @Sendable () -> [String: AgentStudioTraceValue] = [:]
     ) async {
         guard configuration.isEnabled(tag), let writer else { return }
@@ -105,7 +110,7 @@ struct AgentStudioTraceRuntime: Sendable {
 
         // Local JSONL is the export path here; real spans belong to a bootstrapped OTLP backend.
         let record = AgentStudioTraceRecord(
-            timeUnixNano: timeUnixNano(),
+            timeUnixNano: eventTimeUnixNano ?? timeUnixNano(),
             severityText: severity,
             body: body,
             // Dormant under jsonl-only backend; populated automatically when

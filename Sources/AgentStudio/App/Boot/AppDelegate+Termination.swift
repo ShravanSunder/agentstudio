@@ -57,6 +57,9 @@ extension AppDelegate {
         await runTerminationDrain("Ghostty action trace") {
             await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
         }
+        await runTerminationDrain("startup trace") { [weak self] in
+            try? await self?.startupTraceRecorder?.drain()
+        }
 
         // Always flush on quit — the pre-persist hook syncs runtime webview state
         // back to the pane model, so this must run even when isDirty == false.

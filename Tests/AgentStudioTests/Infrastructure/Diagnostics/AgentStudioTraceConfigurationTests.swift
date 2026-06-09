@@ -74,7 +74,36 @@ struct AgentStudioTraceConfigurationTests {
     func tagSelectionSupportsPrefixWildcards() {
         let selection = AgentStudioTraceTag.parseSelection("terminal.*")
 
-        #expect(selection.tags == [.terminalActivity])
+        #expect(selection.tags == [.terminalActivity, .terminalStartup])
+        #expect(selection.unknownSelectors.isEmpty)
+    }
+
+    @Test
+    func startupTraceTagsParseAsAppAndTerminalLanes() {
+        let appSelection = AgentStudioTraceTag.parseSelection("app.*")
+        let terminalSelection = AgentStudioTraceTag.parseSelection("terminal.*")
+
+        #expect(appSelection.tags.contains(.appStartup))
+        #expect(appSelection.tags.contains(.appFocus))
+        #expect(terminalSelection.tags.contains(.terminalStartup))
+        #expect(terminalSelection.tags.contains(.terminalActivity))
+        #expect(!terminalSelection.tags.contains(.persistenceOperation))
+        #expect(appSelection.unknownSelectors.isEmpty)
+        #expect(terminalSelection.unknownSelectors.isEmpty)
+    }
+
+    @Test
+    func startupTraceTagsParseFromExplicitSmokeSelector() {
+        let selection = AgentStudioTraceTag.parseSelection("app.startup,terminal.startup,persistence.*")
+
+        #expect(
+            selection.tags == [
+                .appStartup,
+                .terminalStartup,
+                .persistenceOperation,
+                .persistenceRecovery,
+                .persistenceSnapshot,
+            ])
         #expect(selection.unknownSelectors.isEmpty)
     }
 

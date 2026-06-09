@@ -95,6 +95,7 @@ extension AppDelegate {
             activityAtom: atomStore.terminalActivity,
             attendedPane: atomStore.attendedPane,
             traceRuntime: traceRuntime,
+            startupTraceRecorder: startupTraceRecorder,
             isPaneCurrentlyAttended: { [weak self] paneId in
                 self?.isPaneCurrentlyAttendedForNotifications(paneId) ?? false
             }

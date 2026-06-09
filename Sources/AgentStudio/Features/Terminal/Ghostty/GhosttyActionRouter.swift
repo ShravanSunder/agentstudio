@@ -16,6 +16,7 @@ extension Ghostty {
     /// Owns Ghostty action-tag handling, host-side suppression, and trace emission.
     enum ActionRouter {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
+        @MainActor static var startupTraceRecorder: AgentStudioStartupTraceRecorder?
         static let actionTraceQueueStore = GhosttyActionTraceQueueStore()
         static let explicitlyRoutedTags: Set<GhosttyActionTag> = [
             .newTab,
@@ -129,7 +130,12 @@ extension Ghostty {
             )
 
             if interceptedTags.contains(actionTag) {
-                return handleInterceptedAction(actionTag)
+                return handleInterceptedAction(
+                    actionTag,
+                    rawActionTag: rawActionTag,
+                    target: target,
+                    routingLookupProvider: routingLookupProvider
+                )
             }
             if let workspaceActionResult = handleWorkspaceAction(
                 actionTag,
@@ -152,28 +158,6 @@ extension Ghostty {
             }
 
             preconditionFailure("Ghostty action tag \(actionTag) missing routing decision")
-        }
-
-        private static func handleInterceptedAction(_ actionTag: GhosttyActionTag) -> Bool {
-            switch actionTag {
-            case .quit:
-                return true
-            case .newWindow:
-                ghosttyLogger.debug(
-                    "Ignoring Ghostty newWindow action because AgentStudio owns window lifecycle"
-                )
-                return true
-            case .closeAllWindows, .toggleMaximize, .toggleFullscreen, .toggleTabOverview,
-                .toggleWindowDecorations, .toggleQuickTerminal, .toggleCommandPalette, .toggleVisibility,
-                .toggleBackgroundOpacity, .gotoWindow, .presentTerminal, .resetWindowSize, .inspector, .render,
-                .showGtkInspector, .renderInspector, .openConfig, .quitTimer, .floatWindow, .closeWindow,
-                .checkForUpdates, .showChildExited, .showOnScreenKeyboard:
-                return true
-            default:
-                preconditionFailure(
-                    "Ghostty action tag \(actionTag) is in interceptedTags but not handled explicitly"
-                )
-            }
         }
 
         private static func handleWorkspaceAction(
@@ -573,6 +557,11 @@ extension Ghostty {
         }
 
         @MainActor
+        static func bindStartupTraceRecorder(_ recorder: AgentStudioStartupTraceRecorder?) {
+            startupTraceRecorder = recorder
+        }
+
+        @MainActor
         static func drainTraceRuntimeForActionRouting() async {
             do {
                 try await actionTraceQueueStore.drain()
@@ -740,20 +729,6 @@ extension Ghostty {
         static func routeActionToTerminalRuntimeOnMainActor(
             actionTag: UInt32,
             payload: GhosttyAdapter.ActionPayload,
-            surfaceViewObjectId: ObjectIdentifier
-        ) -> Bool {
-            routeActionToTerminalRuntimeOnMainActor(
-                actionTag: actionTag,
-                payload: payload,
-                surfaceViewObjectId: surfaceViewObjectId,
-                routingLookup: SurfaceManager.shared
-            )
-        }
-
-        @MainActor
-        static func routeActionToTerminalRuntimeOnMainActor(
-            actionTag: UInt32,
-            payload: GhosttyAdapter.ActionPayload,
             surfaceViewObjectId: ObjectIdentifier,
             routingLookup: any GhosttyActionRoutingLookup
         ) -> Bool {
@@ -836,6 +811,12 @@ extension Ghostty {
                 signalClass: signalClass(for: event, fallbackActionTag: actionTag),
                 routeResult: true,
                 reason: nil
+            )
+            traceTerminalStartupMilestones(
+                actionTag: actionTag,
+                event: event,
+                paneID: paneUUID,
+                surfaceID: surfaceId
             )
             GhosttyAdapter.shared.route(
                 actionTag: actionTag,
