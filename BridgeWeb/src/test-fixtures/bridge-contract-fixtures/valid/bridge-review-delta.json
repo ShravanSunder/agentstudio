@@ -1,0 +1,14 @@
+{
+	"packageId": "package-42",
+	"reviewGeneration": 42,
+	"revision": 2,
+	"operations": {
+		"addItems": [],
+		"updateItems": [],
+		"removeItems": ["item-file-generated-1"],
+		"moveItems": [],
+		"updateGroups": [],
+		"updateSummary": null,
+		"invalidateContent": ["handle-generated-head"]
+	}
+}

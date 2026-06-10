@@ -52,6 +52,7 @@ final class BridgePaneController {
     // MARK: - Domain State
 
     let revisionClock = RevisionClock()
+    let reviewContentStore = BridgeContentStore()
 
     // MARK: - Push Plans
 
@@ -141,7 +142,10 @@ final class BridgePaneController {
 
         // Register scheme handler for agentstudio:// URLs (bundled React app assets + resources).
         if let scheme = URLScheme("agentstudio") {
-            config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(paneId: paneId)
+            config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
+                paneId: paneId,
+                contentStore: reviewContentStore
+            )
         }
 
         // Create WebPage with bridge-specific navigation and dialog policies.

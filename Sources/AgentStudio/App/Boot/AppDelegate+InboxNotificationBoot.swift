@@ -10,7 +10,9 @@ extension AppDelegate {
             InboxNotificationSQLiteDatastoreAdapter(workspaceId: workspaceId, datastore: $0)
         }
         let sqliteBootDecision = await makeInboxNotificationSQLiteBootDecision(adapter: sqliteAdapter)
-        sqliteBootDecision.recoveryEvents.forEach { recordPersistenceRecovery($0) }
+        for recoveryEvent in sqliteBootDecision.recoveryEvents {
+            recordPersistenceRecovery(recoveryEvent)
+        }
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: atomStore.inboxNotification,
             prefsAtom: atomStore.inboxNotificationPrefs,

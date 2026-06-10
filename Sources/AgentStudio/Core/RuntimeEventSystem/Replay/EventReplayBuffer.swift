@@ -443,10 +443,6 @@ final class EventReplayBuffer {
         switch event {
         case .diffLoaded:
             return 40
-        case .hunkApproved(let hunkId):
-            return 24 + hunkId.utf8.count
-        case .allApproved:
-            return 24
         }
     }
 

@@ -5,12 +5,21 @@ import WebKit
 ///
 /// Routes:
 /// - `agentstudio://app/*` — bundled React app assets (HTML, JS, CSS)
-/// - `agentstudio://resource/file/<fileId>` — file contents on demand
-///
-/// Phase 1 implements the routing and MIME type logic. Actual asset resolution
-/// from the app bundle comes in Phase 4.
+/// - `agentstudio://resource/content/<handleId>?generation=<n>` — file contents on demand
 struct BridgeSchemeHandler: URLSchemeHandler {
     let paneId: UUID
+    let contentStore: BridgeContentStore
+    let appAssetStore: BridgeAppAssetStore
+
+    init(
+        paneId: UUID,
+        contentStore: BridgeContentStore = BridgeContentStore(),
+        appAssetStore: BridgeAppAssetStore = BridgeAppAssetStore()
+    ) {
+        self.paneId = paneId
+        self.contentStore = contentStore
+        self.appAssetStore = appAssetStore
+    }
 
     // MARK: - URLSchemeHandler
 
@@ -24,32 +33,45 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             let classification = Self.classifyPath(url.absoluteString)
             switch classification {
             case .app(let relativePath):
-                let html = "<html><head><title>Bridge</title></head><body>App: \(relativePath)</body></html>"
-                let data = Data(html.utf8)
-                let mime = Self.mimeType(for: relativePath)
-                continuation.yield(
-                    .response(
-                        URLResponse(
-                            url: url,
-                            mimeType: mime,
-                            expectedContentLength: data.count,
-                            textEncodingName: "utf-8"
-                        )))
-                continuation.yield(.data(data))
-                continuation.finish()
+                Task {
+                    do {
+                        let asset = try await appAssetStore.load(relativePath: relativePath)
+                        continuation.yield(
+                            .response(
+                                URLResponse(
+                                    url: url,
+                                    mimeType: asset.mimeType,
+                                    expectedContentLength: asset.data.count,
+                                    textEncodingName: Self.textEncodingName(for: asset.mimeType)
+                                )))
+                        continuation.yield(.data(asset.data))
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
 
-            case .resource(let fileId):
-                let placeholder = Data("resource:\(fileId)".utf8)
-                continuation.yield(
-                    .response(
-                        URLResponse(
-                            url: url,
-                            mimeType: "application/octet-stream",
-                            expectedContentLength: placeholder.count,
-                            textEncodingName: nil
-                        )))
-                continuation.yield(.data(placeholder))
-                continuation.finish()
+            case .content(let handleId, let generation):
+                Task {
+                    do {
+                        let result = try await contentStore.load(
+                            handleId: handleId,
+                            requestedGeneration: generation
+                        )
+                        continuation.yield(
+                            .response(
+                                URLResponse(
+                                    url: url,
+                                    mimeType: result.mimeType,
+                                    expectedContentLength: result.data.count,
+                                    textEncodingName: Self.textEncodingName(for: result.mimeType)
+                                )))
+                        continuation.yield(.data(result.data))
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
 
             case .invalid:
                 continuation.finish(throwing: BridgeSchemeError.invalidRoute(url.absoluteString))
@@ -63,8 +85,8 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     enum PathType: Equatable {
         /// Bundled React app asset at the given relative path (e.g. "index.html", "assets/main.js").
         case app(String)
-        /// File resource request with the given file identifier.
-        case resource(fileId: String)
+        /// Content resource request with a scoped handle and package generation guard.
+        case content(handleId: String, generation: BridgeReviewGeneration)
         /// Unrecognized or malicious route (e.g. path traversal, wrong host).
         case invalid
     }
@@ -106,19 +128,31 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             return .app(relativePath)
 
         case "resource":
-            // Expected: /file/<fileId>
+            // Expected: /content/<handleId>?generation=<n>
             let components = path.split(separator: "/")
             guard components.count == 2,
-                components[0] == "file",
-                !components[1].isEmpty
+                components[0] == "content",
+                !components[1].isEmpty,
+                let generation = generationValue(from: url)
             else {
                 return .invalid
             }
-            return .resource(fileId: String(components[1]))
+            return .content(handleId: String(components[1]), generation: BridgeReviewGeneration(generation))
 
         default:
             return .invalid
         }
+    }
+
+    private static func generationValue(from url: URL) -> Int? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let value = components.queryItems?.first(where: { $0.name == "generation" })?.value,
+            let generation = Int(value),
+            generation >= 0
+        else {
+            return nil
+        }
+        return generation
     }
 
     // MARK: - MIME Type Resolution
@@ -143,6 +177,13 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         default: return "application/octet-stream"
         }
     }
+
+    static func textEncodingName(for mimeType: String) -> String? {
+        if mimeType.hasPrefix("text/") || mimeType == "application/json" || mimeType == "application/javascript" {
+            return "utf-8"
+        }
+        return nil
+    }
 }
 
 // MARK: - Errors
@@ -153,4 +194,6 @@ enum BridgeSchemeError: Error, Sendable {
     case invalidRequest(String)
     /// The URL matched the `agentstudio` scheme but the route is unrecognized.
     case invalidRoute(String)
+    /// The URL requested a valid app route but no packaged app asset exists.
+    case assetNotFound(String)
 }

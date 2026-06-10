@@ -39,6 +39,7 @@ let package = Package(
                 .copy("Resources/AppIcon.iconset"),
                 .copy("Resources/terminfo"),
                 .copy("Resources/ghostty"),
+                .copy("Resources/BridgeWeb"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)

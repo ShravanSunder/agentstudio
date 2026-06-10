@@ -31,6 +31,7 @@ xcuserdata/
 
 # Node.js
 node_modules/
+BridgeWeb/dist/
 
 # Ghostty build artifacts and cache
 vendor/ghostty/.zig-cache/

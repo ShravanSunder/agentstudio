@@ -181,10 +181,6 @@ private final class BridgeRuntimeCommandHandlerSpy: BridgeRuntimeCommandHandling
         switch command {
         case .loadDiff:
             receivedCommandKinds.append("loadDiff")
-        case .approveHunk:
-            receivedCommandKinds.append("approveHunk")
-        case .rejectHunk:
-            receivedCommandKinds.append("rejectHunk")
         }
         receivedCommandIds.append(commandId)
         receivedCorrelationIds.append(correlationId)

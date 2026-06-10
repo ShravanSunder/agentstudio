@@ -19,15 +19,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 correlationId: correlationId
             )
             return .success(commandId: commandId)
-        case .approveHunk(let hunkId):
-            ingestRuntimeEvent(
-                .diff(.hunkApproved(hunkId: hunkId)),
-                commandId: commandId,
-                correlationId: correlationId
-            )
-            return .success(commandId: commandId)
-        case .rejectHunk:
-            return .success(commandId: commandId)
         }
     }
 

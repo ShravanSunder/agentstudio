@@ -43,6 +43,7 @@ struct PaneCoordinatorRuntimeDispatchNonTerminalTests {
         store.appendTab(Tab(paneId: bridgePane.id))
         store.appendTab(Tab(paneId: codePane.id))
 
+        let bridgeWorktreeId = UUID()
         let webviewRuntime = FakePaneRuntimeNonTerminal(
             paneId: PaneId(uuid: webviewPane.id),
             contentType: .browser,
@@ -53,6 +54,9 @@ struct PaneCoordinatorRuntimeDispatchNonTerminalTests {
             contentType: .diff,
             capabilities: [.diffReview]
         )
+        var bridgeRuntimeFacets = bridgeRuntime.metadata.facets
+        bridgeRuntimeFacets.worktreeId = bridgeWorktreeId
+        bridgeRuntime.metadata.updateFacets(bridgeRuntimeFacets)
         let codeViewerRuntime = FakePaneRuntimeNonTerminal(
             paneId: PaneId(uuid: codePane.id),
             contentType: .codeViewer,
@@ -66,8 +70,13 @@ struct PaneCoordinatorRuntimeDispatchNonTerminalTests {
             .browser(.reload(hard: false)),
             target: .pane(PaneId(uuid: webviewPane.id))
         )
+        let artifact = DiffArtifact(
+            diffId: UUID(),
+            worktreeId: bridgeWorktreeId,
+            patchData: Data("diff --git a/file b/file\n+line\n-line\n".utf8)
+        )
         let bridgeResult = await coordinator.dispatchRuntimeCommand(
-            .diff(.approveHunk(hunkId: "h1")),
+            .diff(.loadDiff(artifact)),
             target: .pane(PaneId(uuid: bridgePane.id))
         )
         let codeViewerResult = await coordinator.dispatchRuntimeCommand(

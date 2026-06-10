@@ -1,0 +1,85 @@
+{
+	"packageId": "package-missing-generation",
+	"schemaVersion": 1,
+	"query": {
+		"queryId": "query-missing-generation",
+		"queryKind": "compare",
+		"repoId": "11111111-1111-1111-1111-111111111111",
+		"worktreeId": "22222222-2222-2222-2222-222222222222",
+		"baseEndpointId": "endpoint-base-main",
+		"headEndpointId": "endpoint-working-tree",
+		"comparisonSemantics": "workingTreeDelta",
+		"pathScope": [],
+		"fileTarget": null,
+		"viewFilter": {
+			"includedPathGlobs": [],
+			"excludedPathGlobs": [],
+			"includedFileClasses": [],
+			"excludedFileClasses": [],
+			"includedExtensions": [],
+			"excludedExtensions": [],
+			"changeKinds": [],
+			"reviewStates": [],
+			"showHiddenFiles": false,
+			"showBinaryFiles": false,
+			"showLargeFiles": false
+		},
+		"grouping": {
+			"kind": "flat",
+			"label": null
+		},
+		"provenanceFilter": {
+			"paneIds": [],
+			"agentSessionIds": [],
+			"promptIds": [],
+			"operationIds": [],
+			"createdAfterUnixMilliseconds": null,
+			"createdBeforeUnixMilliseconds": null,
+			"sourceKinds": []
+		}
+	},
+	"baseEndpoint": {
+		"endpointId": "endpoint-base-main",
+		"kind": "gitRef",
+		"repoId": "11111111-1111-1111-1111-111111111111",
+		"worktreeId": "22222222-2222-2222-2222-222222222222",
+		"label": "main",
+		"createdAtUnixMilliseconds": 1780000000000,
+		"contentSetHash": "sha256:base",
+		"providerIdentity": "refs/heads/main"
+	},
+	"headEndpoint": {
+		"endpointId": "endpoint-working-tree",
+		"kind": "workingTree",
+		"repoId": "11111111-1111-1111-1111-111111111111",
+		"worktreeId": "22222222-2222-2222-2222-222222222222",
+		"label": "Working tree",
+		"createdAtUnixMilliseconds": 1780001800000,
+		"contentSetHash": null,
+		"providerIdentity": "working-tree"
+	},
+	"orderedItemIds": [],
+	"itemsById": {},
+	"groups": [],
+	"summary": {
+		"filesChanged": 0,
+		"additions": 0,
+		"deletions": 0,
+		"visibleFileCount": 0,
+		"hiddenFileCount": 0
+	},
+	"filterState": {
+		"includedPathGlobs": [],
+		"excludedPathGlobs": [],
+		"includedFileClasses": [],
+		"excludedFileClasses": [],
+		"includedExtensions": [],
+		"excludedExtensions": [],
+		"changeKinds": [],
+		"reviewStates": [],
+		"showHiddenFiles": false,
+		"showBinaryFiles": false,
+		"showLargeFiles": false
+	},
+	"generatedAtUnixMilliseconds": 1780001802000
+}

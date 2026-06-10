@@ -113,6 +113,21 @@ echo "--- release script checks ---"
 bash scripts/verify-release-scripts.sh
 """
 
+[tasks.bridge-web-check]
+description = "Run BridgeWeb lint, format check, and TypeScript check"
+dir = "BridgeWeb"
+run = "pnpm run check"
+
+[tasks.bridge-web-test]
+description = "Run BridgeWeb Vitest suites"
+dir = "BridgeWeb"
+run = "pnpm run test"
+
+[tasks.bridge-web-build]
+description = "Build BridgeWeb into the SwiftPM resource bundle"
+dir = "BridgeWeb"
+run = "pnpm run build"
+
 [tasks.doctor-mac]
 description = "Check local macOS prerequisites and known build hazards"
 run = """

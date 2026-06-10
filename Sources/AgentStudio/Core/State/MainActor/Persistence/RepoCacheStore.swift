@@ -339,6 +339,8 @@ final class RepoCacheStore {
     }
 
     private func reportRecoveryEvents(_ recoveryEvents: [PersistenceRecoveryEvent]) {
-        recoveryEvents.forEach { recoveryReporter?($0) }
+        for recoveryEvent in recoveryEvents {
+            recoveryReporter?(recoveryEvent)
+        }
     }
 }
