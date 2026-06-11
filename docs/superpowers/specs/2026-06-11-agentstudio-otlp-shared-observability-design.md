@@ -22,6 +22,35 @@ The design keeps app launch fast and safe:
 - Missing or unhealthy collector endpoints never crash or block the app.
 - Local JSONL remains the agent-readable forensic artifact.
 
+## Scope Boundary
+
+This is the AgentStudio producer spec. It defines how AgentStudio emits safe OTLP
+to a shared local collector.
+
+AgentStudio owns:
+
+- local backend selection
+- debug/beta/stable enablement policy
+- non-blocking collector absence behavior
+- JSONL plus OTLP sink fanout
+- source-side OTLP projection and payload reduction
+- process-static resource attributes
+- late-bound workspace/repo identity on records once available
+- a thin docs pointer to the shared host tooling
+
+AgentStudio does not permanently own:
+
+- Docker Compose lifecycle
+- Victoria service topology
+- collector config rendering
+- shared retention or storage defaults
+- shared host service names beyond the producer endpoint contract
+- shared Victoria smoke/e2e tests
+
+The shared observability host should live in `devfiles` or another shared local
+tooling package. If any compose/config assets temporarily land in this repo, they
+must be marked temporary, generic, and external to AgentStudio product runtime.
+
 ## Current State
 
 AgentStudio already has an app-scoped diagnostics runtime:
@@ -42,7 +71,7 @@ The earlier LUNA-368 design intentionally left OTLP as future backend work. It
 also set the invariant that JSONL-only mode must not create fake no-op spans just
 to look like OpenTelemetry.
 
-## Shared Observability Host
+## External Shared Observability Host Contract
 
 The shared host is the local machine service plane. It is owned outside
 AgentStudio product runtime. The likely long-term home is `devfiles` or another
@@ -66,14 +95,22 @@ services
 docker network
   shravan-observability
 
-host bindings
+default host bindings
   127.0.0.1:4317  -> collector OTLP gRPC
   127.0.0.1:4318  -> collector OTLP HTTP
   127.0.0.1:13133 -> collector health
+
+optional debug host bindings
   127.0.0.1:8428  -> VictoriaMetrics
   127.0.0.1:9428  -> VictoriaLogs
   127.0.0.1:10428 -> VictoriaTraces
 ```
+
+The default shared stack should publish only collector ingest and collector
+health on the host. VictoriaMetrics, VictoriaLogs, and VictoriaTraces remain
+inside the compose network by default. Publishing their query/write ports is an
+explicit debug profile choice, not the safe default, because any local process
+can talk to loopback ports.
 
 Durable storage should live under a shared machine-local root, not under a repo
 checkout and not under an app data directory:
@@ -242,15 +279,12 @@ Segregation across apps, worktrees, beta/debug builds, and unrelated projects
 comes from resource attributes and stable fields, not from separate Victoria
 backends or prefixed metric names.
 
-Shared local resource attributes:
+Process-static resource attributes are available when `AgentStudioTraceRuntime`
+is created:
 
 ```text
 service.name
 service.version
-dev.repo.name
-dev.worktree.hash
-git.branch
-git.commit
 dev.runtime.flavor        debug | beta | stable | custom
 dev.build.config          DEBUG | RELEASE when meaningful
 dev.release.channel       stable | beta when meaningful
@@ -264,9 +298,26 @@ agentstudio.release_channel
 agentstudio.runtime_flavor
 ```
 
+Workspace and git identity are late-bound. They are not reliably available when
+the process-level diagnostics runtime is created before workspace boot. Once the
+workspace/repo context is known, the runtime should enrich new records with:
+
+```text
+dev.repo.name
+dev.worktree.hash
+git.branch
+git.commit
+```
+
+The implementation should use a runtime-owned enrichment provider updated after
+workspace boot, not block process startup while trying to discover repository
+state.
+
 `dev.worktree.hash` is a stable hash of the canonical worktree path. The raw
 worktree path must not be sent over OTLP by default. Branch name is allowed and
-useful for grouping. Commit is useful when cheap to discover.
+useful for grouping. This accepts that local branch names may reveal local issue
+or project labels inside the loopback-only observability host. Commit is useful
+when cheap to discover.
 
 High-cardinality values such as process id, session id, pane id, tab id, and
 request/correlation ids must not become VictoriaMetrics labels. They may appear
@@ -310,6 +361,68 @@ AgentStudio must not emit:
 JSONL may remain richer for local forensic debugging. OTLP should use a reduced
 payload set in v1.
 
+### 1a. AgentStudio OTLP Projection Allowlist
+
+The OTLP sink is a source-side trust boundary. It must project from
+`AgentStudioTraceRecord` into a reduced OTLP-safe representation instead of
+exporting the JSONL record wholesale.
+
+Default projection rules:
+
+```text
+Always allowed when present
+  time
+  severity
+  trace tag
+  stable event name/body string
+  process-static resource identity
+  late-bound repo/worktree hash/branch/commit identity
+  numeric durations and counts
+  controlled enum/status values
+
+Always local-only unless separately approved
+  raw filesystem paths
+  normalized sqlite database paths
+  raw error descriptions
+  process id
+  session id
+  pane id
+  tab id
+  surface id
+  window id
+  command id
+  correlation id
+  causation id
+  runtime envelope id
+  zmx session id
+  terminal output
+  prompt/model/tool payload text
+```
+
+Initial emitter policy:
+
+```text
+AgentStudioStartupTraceRecorder
+  OTLP: event names, phases, controlled status, durations/counts
+  JSONL only: pane/surface/zmx/session identifiers
+
+WorkspaceSQLiteTraceRecorder
+  OTLP: operation type, controlled result, recovery class, duration/counts
+  JSONL only: workspace id, database path, raw error description
+
+TerminalActivityRouter
+  OTLP: controlled event class and aggregate counts when enabled
+  JSONL only: pane ids, command ids, correlation/causation/event ids
+
+GhosttyActionRouter+Tracing
+  OTLP: action name and controlled route outcome
+  JSONL only: pane/surface ids and any freeform route reason
+```
+
+If a future investigation needs a local-only field in OTLP, the change must add
+an explicit allowlist entry and test coverage proving it does not become a metric
+label.
+
 ### 2. Collector Scrubbing
 
 The shared collector is the main backend-neutral scrubber.
@@ -343,7 +456,7 @@ The collector config should be generated from a base profile plus producer
 profiles. AgentStudio gets an AgentStudio profile. Other projects can add their
 own profile without editing AgentStudio code.
 
-Recommended extension shape:
+Recommended shared-host extension shape:
 
 ```text
 base.yaml
@@ -358,6 +471,9 @@ profiles/<project>.yaml
 render command
   validates and renders one collector config for docker compose
 ```
+
+This extension shape belongs to the shared host package, not to AgentStudio
+product code.
 
 Do not depend on Victoria backends as the first scrub layer. Victoria can ignore
 or enrich fields at ingestion, but the collector is where cross-signal policy
@@ -497,10 +613,11 @@ Unit tests:
 - backend selector parses `jsonl`, `otlp`, `both`, and auto defaults
 - debug/beta/stable runtime flavor derivation
 - resource attribute construction uses hash plus branch and never raw path
-- reduced OTLP payload drops known path/error/session fields
+- process-static and late-bound resource identity stay separate
+- reduced OTLP projection drops known path/error/session/id fields
 - collector absence does not disable JSONL or throw
 
-Snapshot/config tests:
+Shared host package snapshot/config tests:
 
 - shared collector config routes metrics/logs/traces to the correct Victoria
   endpoints
@@ -509,24 +626,52 @@ Snapshot/config tests:
   metric label allowlist
 - sensitive field list is present in resource/attribute processors
 
-Host smoke/e2e:
+AgentStudio integration smoke:
+
+- given a reachable loopback collector endpoint, AgentStudio exports a reduced
+  OTLP-safe event without blocking startup
+- given no reachable collector endpoint, AgentStudio keeps JSONL behavior and
+  records a startup diagnostic
+- tests may use a local fake collector or an env-gated real collector endpoint
+
+Shared host smoke/e2e:
 
 - optional and env-gated when Docker is available
-- starts isolated compose project or targets an explicitly selected existing
-  shared stack
+- starts an isolated compose project by default
+- targets an existing shared stack only with explicit opt-in
 - sends safe OTLP log, metric, and trace canaries through the collector
 - queries VictoriaLogs, VictoriaMetrics, and VictoriaTraces
 - proves safe markers are queryable
 - proves sensitive canaries are absent after collector/Victoria ingestion
 
+Canary schema:
+
+```text
+positive safe field
+  shravan.observability.canary.safe_marker
+
+positive safe body marker
+  only when log body retention is enabled for the profile under test
+
+negative sensitive attribute
+  shravan.observability.canary.secret
+
+negative sensitive body marker
+  a sentinel body string that must not survive when body scrubbing is enabled
+```
+
 Proof must include a field-based VictoriaLogs query after body scrubbing; a safe
 marker that exists only in free-text body is not enough.
+
+Tests may require collector readiness and fail closed. Normal app launch remains
+fail-open when the collector is absent or misconfigured.
 
 ## Non-Goals
 
 - Do not build dashboards in v1.
 - Do not add remote telemetry defaults.
 - Do not auto-start Docker from AgentStudio.
+- Do not publish Victoria backend ports on the host by default.
 - Do not rewrite all instrumentation call sites.
 - Do not fake every diagnostic event as a span.
 - Do not export raw worktree paths by default.
