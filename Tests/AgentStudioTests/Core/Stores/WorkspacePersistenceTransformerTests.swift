@@ -307,15 +307,21 @@ struct WorkspacePersistenceTransformerTests {
             windowFrame: nil
         )
 
-        let parentPane = makePane(title: "Parent")
+        let drawerId = UUID()
+        var parentPane = makePane(title: "Parent")
         let persistentDrawerPane = makePane(title: "Persistent Drawer")
         let temporaryDrawerPane = makePane(title: "Temporary Drawer", lifetime: .temporary)
+        parentPane.kind = .layout(
+            drawer: Drawer(
+                drawerId: drawerId,
+                parentPaneId: parentPane.id,
+                paneIds: [persistentDrawerPane.id, temporaryDrawerPane.id]
+            ))
         paneAtom.addPane(parentPane)
         paneAtom.addPane(persistentDrawerPane)
         paneAtom.addPane(temporaryDrawerPane)
 
         var tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
-        let drawerId = UUID()
         let drawerLayout = DrawerGridLayout(
             topRow: Layout(paneId: persistentDrawerPane.id)
                 .inserting(
