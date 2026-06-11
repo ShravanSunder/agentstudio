@@ -134,6 +134,72 @@ struct TerminalRestoreRuntimeTests {
     }
 
     @Test
+    func zmxSessionId_followsLiveFacets_whenPaneRoamsToAnotherWorktree() throws {
+        // Characterization of CURRENT behavior (zmx-session-anchor plan T0):
+        // session identity is re-derived from LIVE facets at attach time, so a
+        // pane that roamed (cwd into another worktree) resolves to a session id
+        // under the NEW worktree — abandoning the shell it actually spawned in.
+        // T3 flips this test: a stored spawn-time id must win over derivation.
+        let tempDirA = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-restore-roam-a-\(UUID().uuidString)")
+        let tempDirB = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-restore-roam-b-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: tempDirA)
+            try? FileManager.default.removeItem(at: tempDirB)
+        }
+
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDirA))
+        let repoA = store.addRepo(at: tempDirA)
+        let worktreeA = try #require(repoA.worktrees.first)
+        let repoB = store.addRepo(at: tempDirB)
+        let worktreeB = try #require(repoB.worktrees.first)
+        let bornPane = store.createPane(
+            source: .worktree(worktreeId: worktreeA.id, repoId: repoA.id, launchDirectory: worktreeA.path),
+            provider: .zmx
+        )
+
+        // Roam: the live facet rewrite that PaneCoordinator performs on cwd change.
+        _ = store.paneAtom.updatePaneCWDAndResolvedContext(
+            bornPane.id,
+            cwd: worktreeB.path,
+            resolvedContext: (repo: repoB, worktree: worktreeB)
+        )
+        let roamedPane = try #require(store.paneAtom.pane(bornPane.id))
+
+        let runtime = TerminalRestoreRuntime(
+            sessionConfiguration: SessionConfiguration(
+                isEnabled: true,
+                zmxPath: "/tmp/fake-zmx",
+                zmxDir: "/tmp/fake-zmx-dir",
+                healthCheckInterval: 30,
+                maxCheckpointAge: 60
+            )
+        )
+
+        let sessionId = runtime.zmxSessionId(for: roamedPane, store: store)
+
+        // CURRENT (pre-anchor) behavior: derivation follows worktree B.
+        #expect(
+            sessionId
+                == ZmxBackend.sessionId(
+                    repoStableKey: repoB.stableKey,
+                    worktreeStableKey: worktreeB.stableKey,
+                    paneId: bornPane.id
+                )
+        )
+        // The session the shell actually lives in is keyed under worktree A.
+        #expect(
+            sessionId
+                != ZmxBackend.sessionId(
+                    repoStableKey: repoA.stableKey,
+                    worktreeStableKey: worktreeA.stableKey,
+                    paneId: bornPane.id
+                )
+        )
+    }
+
+    @Test
     func zmxAttachCommand_isNil_whenSessionRestoreIsDisabled() {
         let store = WorkspaceStore()
         let pane = store.createPane(

@@ -189,7 +189,7 @@ private func decodeTerminalContent(
         let row = try Row.fetchOne(
             database,
             sql: """
-                SELECT provider, lifetime
+                SELECT provider, lifetime, zmx_session_id
                 FROM pane_content_terminal
                 WHERE pane_id = ?
                 """,
@@ -206,7 +206,8 @@ private func decodeTerminalContent(
     guard let lifetime = SessionLifetime(rawValue: lifetimeString) else {
         throw WorkspaceCoreRepositoryError.malformedPaneContent("unknown terminal lifetime \(lifetimeString)")
     }
-    return .terminal(provider: provider, lifetime: lifetime)
+    let zmxSessionId: String? = row["zmx_session_id"]
+    return .terminal(provider: provider, lifetime: lifetime, zmxSessionId: zmxSessionId)
 }
 
 private func decodeWebviewContent(

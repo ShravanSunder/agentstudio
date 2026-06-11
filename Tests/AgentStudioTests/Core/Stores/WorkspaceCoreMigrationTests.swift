@@ -76,6 +76,7 @@ struct WorkspaceCoreMigrationTests {
                 "005_repair_tab_graph_layout_storage",
                 "006_create_workspace_sqlite_snapshot_status",
                 "007_stage_workspace_sqlite_snapshot_status",
+                "008_add_zmx_session_id",
             ]
         )
     }

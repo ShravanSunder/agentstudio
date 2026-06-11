@@ -23,6 +23,7 @@ enum WorkspaceCoreMigrations {
         ("005_repair_tab_graph_layout_storage", repairTabGraphLayoutStorageStatements),
         ("006_create_workspace_sqlite_snapshot_status", createWorkspaceSQLiteSnapshotStatusStatements),
         ("007_stage_workspace_sqlite_snapshot_status", stageWorkspaceSQLiteSnapshotStatusStatements),
+        ("008_add_zmx_session_id", addZmxSessionIdStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -30,6 +31,15 @@ enum WorkspaceCoreMigrations {
             try database.execute(sql: statement)
         }
     }
+
+    /// Spawn-time zmx session anchor: stored at session creation and read back
+    /// verbatim for attach/restore/orphan cleanup. Nullable — rows written
+    /// before this migration backfill lazily on first restore touch.
+    private static let addZmxSessionIdStatements = [
+        """
+        ALTER TABLE pane_content_terminal ADD COLUMN zmx_session_id TEXT
+        """
+    ]
 
     private static let createWorkspaceStatements = [
         """

@@ -251,6 +251,13 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
             )
             """,
             """
+            CREATE TABLE pane_content_terminal (
+                pane_id TEXT PRIMARY KEY REFERENCES pane(id) ON DELETE CASCADE,
+                provider TEXT NOT NULL,
+                lifetime TEXT NOT NULL
+            )
+            """,
+            """
             CREATE TABLE tab_shell (
                 id TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
