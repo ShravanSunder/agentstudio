@@ -420,7 +420,6 @@ final class WorkspaceTabArrangementAtom {
     ) {
         guard !drawerPaneIds.isEmpty, let tabIndex = findTabIndex(tabId) else { return }
         let fallbackDrawerView = Self.drawerViewSeed(drawerId: drawerId, drawerPaneIds: drawerPaneIds)
-        let drawerViewRepairKey = UUID(uuidString: "00000000-0000-0000-0000-000000000000") ?? drawerId
         let validDrawerPaneIds = Set(drawerPaneIds)
         var didRestoreDrawerView = false
         var updatedState = arrangementStates[tabIndex]
@@ -432,10 +431,10 @@ final class WorkspaceTabArrangementAtom {
             }
             let repairedDrawerViews = TabArrangementRepairRules.pruningInvalidDrawerViewPaneIds(
                 validPaneIds: validDrawerPaneIds,
-                from: [drawerViewRepairKey: sourceDrawerView]
+                from: [drawerId: sourceDrawerView]
             )
             guard
-                let drawerView = repairedDrawerViews[drawerViewRepairKey]
+                let drawerView = repairedDrawerViews[drawerId]
             else { continue }
 
             updatedState.arrangements[arrangementIndex].drawerViews[drawerId] = drawerView

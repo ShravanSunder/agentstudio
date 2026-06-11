@@ -233,12 +233,15 @@ enum WorkspacePersistenceTransformer {
         let referencedPaneIds = orderedReferencedPaneIds(in: tab, validPaneIds: validPaneIds)
         let referencedPaneIdSet = Set(referencedPaneIds)
         var normalizedPaneIds: [UUID] = []
+        var seenPaneIds = Set<UUID>()
 
         for paneId in tab.allPaneIds where validPaneIds.contains(paneId) && referencedPaneIdSet.contains(paneId) {
-            appendPaneId(paneId, to: &normalizedPaneIds)
+            guard seenPaneIds.insert(paneId).inserted else { continue }
+            normalizedPaneIds.append(paneId)
         }
         for paneId in referencedPaneIds {
-            appendPaneId(paneId, to: &normalizedPaneIds)
+            guard seenPaneIds.insert(paneId).inserted else { continue }
+            normalizedPaneIds.append(paneId)
         }
 
         return normalizedPaneIds
@@ -246,23 +249,21 @@ enum WorkspacePersistenceTransformer {
 
     private static func orderedReferencedPaneIds(in tab: Tab, validPaneIds: Set<UUID>) -> [UUID] {
         var paneIds: [UUID] = []
+        var seenPaneIds = Set<UUID>()
         for arrangement in tab.arrangements {
             for paneId in arrangement.layout.paneIds where validPaneIds.contains(paneId) {
-                appendPaneId(paneId, to: &paneIds)
+                guard seenPaneIds.insert(paneId).inserted else { continue }
+                paneIds.append(paneId)
             }
             for drawerId in arrangement.drawerViews.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
                 guard let drawerView = arrangement.drawerViews[drawerId] else { continue }
                 for paneId in drawerView.layout.paneIds where validPaneIds.contains(paneId) {
-                    appendPaneId(paneId, to: &paneIds)
+                    guard seenPaneIds.insert(paneId).inserted else { continue }
+                    paneIds.append(paneId)
                 }
             }
         }
         return paneIds
-    }
-
-    private static func appendPaneId(_ paneId: UUID, to paneIds: inout [UUID]) {
-        guard !paneIds.contains(paneId) else { return }
-        paneIds.append(paneId)
     }
 
     nonisolated static func sqliteSnapshot(
