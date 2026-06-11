@@ -53,7 +53,11 @@ final class WorkspaceTabArrangementAtom {
         }
     }
 
-    func hydrate(persistedTabs: [Tab], validPaneIds: Set<UUID>) {
+    func hydrate(
+        persistedTabs: [Tab],
+        validPaneIds: Set<UUID>,
+        drawerParentPaneIdByDrawerId: [UUID: UUID]? = nil
+    ) {
         let hydratedStates = persistedTabs.map { tab in
             TabArrangementState(
                 tabId: tab.id,
@@ -65,7 +69,12 @@ final class WorkspaceTabArrangementAtom {
         }
         replaceArrangementStates(
             TabArrangementValidation.validating(
-                TabArrangementValidation.pruningInvalidPaneIds(validPaneIds: validPaneIds, from: hydratedStates)
+                TabArrangementValidation.pruningInvalidPaneIds(
+                    validPaneIds: validPaneIds,
+                    from: hydratedStates,
+                    drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId
+                ),
+                drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId
             ))
     }
 
@@ -174,10 +183,6 @@ final class WorkspaceTabArrangementAtom {
         }
 
         arrangementStates[tabIndex].allPaneIds.removeAll { $0 == paneId }
-    }
-
-    func removePaneReferences(_ paneId: UUID, removingDrawerIds drawerIds: Set<UUID> = []) {
-        removePaneReferences(Set([paneId]), removingDrawerIds: drawerIds)
     }
 
     func removePaneReferences(_ paneIds: Set<UUID>, removingDrawerIds drawerIds: Set<UUID> = []) {

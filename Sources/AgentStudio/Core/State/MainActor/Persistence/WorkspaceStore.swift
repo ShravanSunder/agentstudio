@@ -312,7 +312,7 @@ final class WorkspaceStore {
         do {
             if let sqliteDatastore {
                 prePersistHook?()
-                let snapshot = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshot(
+                let snapshotResult = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshotResult(
                     identityAtom: identityAtom,
                     windowMemoryAtom: windowMemoryAtom,
                     repositoryTopologyAtom: repositoryTopologyAtom,
@@ -320,7 +320,9 @@ final class WorkspaceStore {
                     workspaceTabLayoutAtom: tabLayoutAtom,
                     persistedAt: persistedAt
                 )
-                try await sqliteDatastore.saveWorkspaceSnapshot(snapshot)
+                try await sqliteDatastore.saveWorkspaceSnapshot(snapshotResult.snapshot)
+                applyLiveSQLiteTabRepairIfNeeded(snapshotResult)
+                reportTabMembershipRepairIfNeeded(snapshotResult.repairReport)
             } else {
                 return persistLegacyJSONSnapshot(persistedAt: persistedAt)
             }
@@ -346,11 +348,11 @@ final class WorkspaceStore {
         switch await sqliteDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: identityAtom.workspaceId) {
         case .loaded(let snapshot, let recoveryEvents):
             let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-            hydrateWorkspaceState(state)
+            let repairReport = hydrateWorkspaceState(state)
             workspaceStoreLogger.info(
                 "Restored SQLite workspace '\(state.name)' with \(self.paneAtom.panes.count) pane(s), \(self.tabLayoutAtom.tabs.count) tab(s)"
             )
-            return .restored(recoveryEvents: recoveryEvents)
+            return .restored(recoveryEvents: recoveryEvents + recoveryEventsForTabMembershipRepair(repairReport))
         case .uninitialized(let recoveryEvents):
             return .uninitialized(recoveryEvents: recoveryEvents)
         case .unavailable(let failure, let recoveryEvents):
@@ -361,9 +363,10 @@ final class WorkspaceStore {
         }
     }
 
-    func hydrateWorkspaceState(_ state: WorkspacePersistor.PersistableState) {
+    @discardableResult
+    func hydrateWorkspaceState(_ state: WorkspacePersistor.PersistableState) -> WorkspaceTabMembershipRepairReport {
         isRestoringState = true
-        WorkspacePersistenceTransformer.hydrate(
+        let repairReport = WorkspacePersistenceTransformer.hydrate(
             state,
             identityAtom: identityAtom,
             windowMemoryAtom: windowMemoryAtom,
@@ -372,6 +375,7 @@ final class WorkspaceStore {
             workspaceTabLayoutAtom: tabLayoutAtom
         )
         isRestoringState = false
+        return repairReport
     }
 
     func reportSaveFailed() {
@@ -382,6 +386,43 @@ final class WorkspaceStore {
                 recovery: .saveFailed
             )
         )
+    }
+
+    private func reportTabMembershipRepairIfNeeded(_ repairReport: WorkspaceTabMembershipRepairReport) {
+        guard repairReport.hasRepairs else { return }
+        recoveryReporter?(
+            .init(
+                store: .workspace,
+                workspaceId: identityAtom.workspaceId,
+                recovery: .tabMembershipRepaired
+            )
+        )
+    }
+
+    private func recoveryEventsForTabMembershipRepair(
+        _ repairReport: WorkspaceTabMembershipRepairReport
+    ) -> [PersistenceRecoveryEvent] {
+        guard repairReport.hasRepairs else { return [] }
+        return [
+            .init(
+                store: .workspace,
+                workspaceId: identityAtom.workspaceId,
+                recovery: .tabMembershipRepaired
+            )
+        ]
+    }
+
+    private func applyLiveSQLiteTabRepairIfNeeded(_ snapshotResult: WorkspaceLiveSQLiteSnapshotResult) {
+        guard snapshotResult.repairReport.hasRepairs else { return }
+        isRestoringState = true
+        tabLayoutAtom.hydrate(
+            persistedTabs: snapshotResult.snapshot.tabs,
+            activeTabId: snapshotResult.snapshot.activeTabId,
+            validPaneIds: paneAtom.graphAtom.paneIds,
+            drawerParentPaneIdByDrawerId: WorkspacePersistenceTransformer.drawerParentPaneIdsByDrawerId(
+                from: paneAtom.liveSQLitePanes.values)
+        )
+        isRestoringState = false
     }
 
     private func reportRecoveryEvents(_ events: [PersistenceRecoveryEvent]) {

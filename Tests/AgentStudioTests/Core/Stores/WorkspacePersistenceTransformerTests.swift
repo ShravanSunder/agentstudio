@@ -65,6 +65,55 @@ struct WorkspacePersistenceTransformerTests {
     }
 
     @Test
+    func hydrate_reportsTabMembershipRepair() {
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
+        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+        let customPane = makePane(title: "Custom")
+        let invalidPaneId = UUID()
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: invalidPaneId),
+            activePaneId: invalidPaneId
+        )
+        let customArrangement = PaneArrangement(
+            name: "Custom",
+            isDefault: false,
+            layout: Layout(paneId: customPane.id),
+            activePaneId: customPane.id
+        )
+        let tab = Tab(
+            name: "Broken",
+            allPaneIds: [invalidPaneId, customPane.id],
+            arrangements: [defaultArrangement, customArrangement],
+            activeArrangementId: customArrangement.id
+        )
+        let state = WorkspacePersistor.PersistableState(
+            id: UUID(),
+            panes: [customPane],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        let repairReport = WorkspacePersistenceTransformer.hydrate(
+            state,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: topologyAtom,
+            workspacePaneAtom: paneAtom,
+            workspaceTabLayoutAtom: tabLayoutAtom
+        )
+
+        #expect(repairReport.repairedTabIds == [tab.id])
+        #expect(!repairReport.activeTabIdChanged)
+        #expect(tabLayoutAtom.tab(tab.id)?.allPaneIds == [customPane.id])
+        #expect(tabLayoutAtom.tab(tab.id)?.defaultArrangement.id == customArrangement.id)
+    }
+
+    @Test
     func makePersistableState_prunesTemporaryPanesFromTabs() {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
@@ -258,15 +307,21 @@ struct WorkspacePersistenceTransformerTests {
             windowFrame: nil
         )
 
-        let parentPane = makePane(title: "Parent")
+        let drawerId = UUID()
+        var parentPane = makePane(title: "Parent")
         let persistentDrawerPane = makePane(title: "Persistent Drawer")
         let temporaryDrawerPane = makePane(title: "Temporary Drawer", lifetime: .temporary)
+        parentPane.kind = .layout(
+            drawer: Drawer(
+                drawerId: drawerId,
+                parentPaneId: parentPane.id,
+                paneIds: [persistentDrawerPane.id, temporaryDrawerPane.id]
+            ))
         paneAtom.addPane(parentPane)
         paneAtom.addPane(persistentDrawerPane)
         paneAtom.addPane(temporaryDrawerPane)
 
         var tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
-        let drawerId = UUID()
         let drawerLayout = DrawerGridLayout(
             topRow: Layout(paneId: persistentDrawerPane.id)
                 .inserting(
@@ -570,7 +625,7 @@ struct WorkspacePersistenceTransformerTests {
     }
 
     @Test
-    func normalizeLiveSQLiteTabs_dropsTabWhoseDefaultArrangementPrunesEmpty() {
+    func normalizeLiveSQLiteTabs_promotesCustomArrangementWhenDefaultPrunesEmpty() throws {
         let customPane = makePane(title: "Custom")
         let fallbackPane = makePane(title: "Fallback")
         let invalidPaneId = UUID()
@@ -598,6 +653,55 @@ struct WorkspacePersistenceTransformerTests {
             tabs: [brokenTab, fallbackTab],
             validPaneIds: [customPane.id, fallbackPane.id],
             activeTabId: brokenTab.id
+        )
+
+        let normalizedBrokenTab = try #require(result.tabs.first { $0.id == brokenTab.id })
+        #expect(result.tabs.map(\.id) == [brokenTab.id, fallbackTab.id])
+        #expect(result.activeTabId == brokenTab.id)
+        #expect(normalizedBrokenTab.allPaneIds == [customPane.id])
+        #expect(normalizedBrokenTab.defaultArrangement.id == customArrangement.id)
+        #expect(normalizedBrokenTab.defaultArrangement.layout.paneIds == [customPane.id])
+        #expect(normalizedBrokenTab.activeArrangementId == customArrangement.id)
+        #expect(result.repairReport.repairedTabIds == [brokenTab.id])
+        #expect(!result.repairReport.activeTabIdChanged)
+    }
+
+    @Test
+    func normalizeLiveSQLiteTabs_dropsDrawerOnlyTabAfterParentPrunesEmpty() throws {
+        let parentPane = makePane(title: "Parent")
+        let drawerId = try #require(parentPane.drawer?.drawerId)
+        let drawerPane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Drawer"),
+            kind: .drawerChild(parentPaneId: parentPane.id)
+        )
+        let fallbackPane = makePane(title: "Fallback")
+        let invalidParentPaneId = UUID()
+        let drawerOnlyArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: invalidParentPaneId),
+            activePaneId: invalidParentPaneId,
+            drawerViews: [
+                drawerId: DrawerView(
+                    layout: DrawerGridLayout(topRow: Layout(paneId: drawerPane.id)),
+                    activeChildId: drawerPane.id
+                )
+            ]
+        )
+        let brokenTab = Tab(
+            name: "Drawer Only",
+            allPaneIds: [invalidParentPaneId, drawerPane.id],
+            arrangements: [drawerOnlyArrangement],
+            activeArrangementId: drawerOnlyArrangement.id
+        )
+        let fallbackTab = Tab(paneId: fallbackPane.id, name: "Fallback")
+
+        let result = WorkspacePersistenceTransformer.normalizeLiveSQLiteTabs(
+            tabs: [brokenTab, fallbackTab],
+            validPaneIds: [drawerPane.id, fallbackPane.id],
+            activeTabId: brokenTab.id,
+            drawerParentPaneIdByDrawerId: [drawerId: parentPane.id]
         )
 
         #expect(result.tabs.map(\.id) == [fallbackTab.id])

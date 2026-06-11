@@ -45,10 +45,15 @@ final class WorkspaceMutationCoordinator {
         }
     }
 
+    private struct BackgroundedDrawerPayload {
+        let drawerViewsByArrangementId: [UUID: DrawerView]
+    }
+
     private let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
     private let workspacePaneAtom: WorkspacePaneAtom
     private let workspaceTabShellAtom: WorkspaceTabShellAtom
     private let workspaceTabArrangementAtom: WorkspaceTabArrangementAtom
+    private var backgroundedDrawerPayloadsByPaneId: [UUID: BackgroundedDrawerPayload] = [:]
 
     private var workspaceTab: WorkspaceTabLayoutDerived {
         WorkspaceTabLayoutDerived(
@@ -86,14 +91,29 @@ final class WorkspaceMutationCoordinator {
 
     @discardableResult
     func backgroundPane(_ paneId: UUID) -> Bool {
-        guard workspacePaneAtom.pane(paneId) != nil else {
+        guard let backgroundedPane = workspacePaneAtom.pane(paneId) else {
             Logger(subsystem: "com.agentstudio", category: "WorkspaceMutationCoordinator")
                 .warning("backgroundPane: pane \(paneId) not found")
             return false
         }
-        workspaceTabArrangementAtom.removePaneReferences(paneId)
+        let removedDrawerIds = Set([backgroundedPane.drawer?.drawerId].compactMap(\.self))
+        let removedPaneIds = Set([paneId] + (backgroundedPane.drawer?.paneIds ?? []))
+        if let drawer = backgroundedPane.drawer, !drawer.paneIds.isEmpty {
+            backgroundedDrawerPayloadsByPaneId[paneId] = BackgroundedDrawerPayload(
+                drawerViewsByArrangementId: drawerViewsByArrangementId(
+                    drawerId: drawer.drawerId,
+                    parentPaneId: paneId
+                )
+            )
+        } else {
+            backgroundedDrawerPayloadsByPaneId.removeValue(forKey: paneId)
+        }
+        workspaceTabArrangementAtom.removePaneReferences(removedPaneIds, removingDrawerIds: removedDrawerIds)
         removeEmptyTabs()
         workspacePaneAtom.setResidency(.backgrounded, for: paneId)
+        for drawerPaneId in backgroundedPane.drawer?.paneIds ?? [] {
+            workspacePaneAtom.setResidency(.backgrounded, for: drawerPaneId)
+        }
         return true
     }
 
@@ -130,6 +150,21 @@ final class WorkspaceMutationCoordinator {
             return false
         }
         workspacePaneAtom.setResidency(.active, for: paneId)
+        if let drawer = pane.drawer, !drawer.paneIds.isEmpty {
+            for drawerPaneId in drawer.paneIds {
+                workspacePaneAtom.setResidency(.active, for: drawerPaneId)
+            }
+            let payload = backgroundedDrawerPayloadsByPaneId.removeValue(forKey: paneId)
+            workspaceTabArrangementAtom.restoreDrawerPaneViews(
+                drawerId: drawer.drawerId,
+                parentPaneId: paneId,
+                drawerPaneIds: drawer.paneIds,
+                drawerViewsByArrangementId: payload?.drawerViewsByArrangementId ?? [:],
+                inTab: tabId
+            )
+        } else {
+            backgroundedDrawerPayloadsByPaneId.removeValue(forKey: paneId)
+        }
         return true
     }
 
@@ -202,6 +237,15 @@ final class WorkspaceMutationCoordinator {
             tabId: tabId,
             anchorPaneId: anchorPaneId,
             direction: direction
+        )
+    }
+
+    private func drawerViewsByArrangementId(drawerId: UUID, parentPaneId: UUID) -> [UUID: DrawerView] {
+        guard let tab = workspaceTab.tabContaining(paneId: parentPaneId) else { return [:] }
+        return Dictionary(
+            uniqueKeysWithValues: tab.arrangements.compactMap { arrangement in
+                arrangement.drawerViews[drawerId].map { (arrangement.id, $0) }
+            }
         )
     }
 
@@ -279,11 +323,7 @@ final class WorkspaceMutationCoordinator {
 
     private func removeEmptyTabs() {
         let emptyTabIds = workspaceTabArrangementAtom.arrangementStates.compactMap { state -> UUID? in
-            let defaultLayoutIsEmpty =
-                state.arrangements.first(where: \.isDefault)?.layout.isEmpty
-                ?? state.arrangements.first?.layout.isEmpty
-                ?? true
-            return (state.allPaneIds.isEmpty || defaultLayoutIsEmpty) ? state.tabId : nil
+            !TabArrangementRepairRules.hasLivePaneReferences(in: state.arrangements) ? state.tabId : nil
         }
 
         for tabId in emptyTabIds {

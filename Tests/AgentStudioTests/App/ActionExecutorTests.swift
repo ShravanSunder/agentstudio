@@ -414,6 +414,27 @@ final class ActionExecutorTests {
     }
 
     @Test
+    func test_executeInsertPane_existingPane_rollsBackSourceTabOnInsertFailure() throws {
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: p1.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        let tabBeforeMove = try #require(store.tab(tab.id))
+
+        coordinator.executeInsertPane(
+            source: .existingPane(paneId: p1.id, sourceTabId: tab.id),
+            targetTabId: tab.id,
+            targetPaneId: p1.id,
+            direction: .left,
+            sizingMode: .halveTarget
+        )
+
+        #expect(store.tab(tab.id) == tabBeforeMove)
+        #expect(store.activeTabId == tab.id)
+        #expect(store.tabContaining(paneId: p1.id)?.id == tab.id)
+    }
+
+    @Test
     func test_execute_insertPane_existingPane_crossTabRequest_isRejected() {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
