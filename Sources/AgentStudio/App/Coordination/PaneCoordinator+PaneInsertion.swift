@@ -18,10 +18,14 @@ extension PaneCoordinator {
                 Self.logger.warning("insertPane existingPane: pane \(paneId) not found")
                 return
             }
-            guard store.tabLayoutAtom.tab(sourceTabId) != nil else {
+            guard let sourceTabBeforeMove = store.tabLayoutAtom.tab(sourceTabId) else {
                 Self.logger.warning("insertPane existingPane: source tab \(sourceTabId) not found")
                 return
             }
+            let sourceTabIndexBeforeMove =
+                store.tabLayoutAtom.tabs.firstIndex { $0.id == sourceTabId }
+                ?? store.tabLayoutAtom.tabs.count
+            let sourceTabWasActiveBeforeMove = store.tabLayoutAtom.activeTabId == sourceTabId
             guard store.tabLayoutAtom.tab(targetTabId) != nil else {
                 Self.logger.warning("insertPane existingPane: target tab \(targetTabId) not found")
                 return
@@ -42,6 +46,10 @@ extension PaneCoordinator {
                 Self.logger.error(
                     "insertPane existingPane: failed inserting pane \(paneId) into tab \(targetTabId)"
                 )
+                store.tabLayoutAtom.restoreTab(sourceTabBeforeMove, at: sourceTabIndexBeforeMove)
+                if sourceTabWasActiveBeforeMove {
+                    store.tabLayoutAtom.setActiveTab(sourceTabId)
+                }
             }
 
         case .newTerminal:
