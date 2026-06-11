@@ -101,4 +101,51 @@ struct WorkspaceMutationCoordinatorTests {
         #expect(result == .failedMissingDrawerParent(parentPaneId))
         #expect(paneAtom.pane(drawerPane.id) == nil)
     }
+
+    @Test
+    func restoreFromPaneSnapshot_parentPaneRestoresDrawerViewsAndTabMembership() throws {
+        let store = WorkspaceStore()
+        let anchorPane = makePane(title: "Anchor")
+        let parentPane = makePane(title: "Parent")
+        store.paneAtom.addPane(anchorPane)
+        store.paneAtom.addPane(parentPane)
+
+        let tab = Tab(paneId: anchorPane.id)
+        store.appendTab(tab)
+        #expect(
+            store.insertPane(
+                parentPane.id,
+                inTab: tab.id,
+                at: anchorPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+        let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let drawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
+        store.setActiveDrawerPane(secondDrawerPane.id, in: parentPane.id)
+        let focusArrangementId = try #require(store.createArrangement(name: "Drawer focus", inTab: tab.id))
+        store.switchArrangement(to: focusArrangementId, inTab: tab.id)
+
+        let snapshot = try #require(store.snapshotForPaneClose(paneId: parentPane.id, inTab: tab.id))
+        let tabBeforeClose = try #require(store.tab(tab.id))
+        let drawerViewsBeforeClose = tabBeforeClose.arrangements.compactMap {
+            $0.drawerViews[drawerId]
+        }
+
+        #expect(store.mutationCoordinator.removePane(parentPane.id))
+        let restoreResult = store.mutationCoordinator.restoreFromPaneSnapshot(snapshot)
+
+        let restoredTab = try #require(store.tab(tab.id))
+        #expect(restoreResult == .restored)
+        #expect(restoredTab.allPaneIds.contains(parentPane.id))
+        #expect(restoredTab.allPaneIds.contains(firstDrawerPane.id))
+        #expect(restoredTab.allPaneIds.contains(secondDrawerPane.id))
+        #expect(
+            restoredTab.arrangements.compactMap { $0.drawerViews[drawerId] }
+                == drawerViewsBeforeClose
+        )
+    }
 }
