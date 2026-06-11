@@ -388,7 +388,7 @@ enum WorkspacePersistenceTransformer {
         }
     }
 
-    private static func drawerParentPaneIdsByDrawerId<Panes: Collection>(from panes: Panes) -> [UUID: UUID]
+    static func drawerParentPaneIdsByDrawerId<Panes: Collection>(from panes: Panes) -> [UUID: UUID]
     where Panes.Element == Pane {
         Dictionary(
             panes.compactMap { pane in

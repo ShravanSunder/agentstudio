@@ -419,18 +419,10 @@ final class WorkspaceStore {
             persistedTabs: snapshotResult.snapshot.tabs,
             activeTabId: snapshotResult.snapshot.activeTabId,
             validPaneIds: paneAtom.graphAtom.paneIds,
-            drawerParentPaneIdByDrawerId: drawerParentPaneIdsByDrawerId()
+            drawerParentPaneIdByDrawerId: WorkspacePersistenceTransformer.drawerParentPaneIdsByDrawerId(
+                from: paneAtom.liveSQLitePanes.values)
         )
         isRestoringState = false
-    }
-
-    private func drawerParentPaneIdsByDrawerId() -> [UUID: UUID] {
-        Dictionary(
-            paneAtom.liveSQLitePanes.values.compactMap { pane in
-                pane.drawer.map { drawer in (drawer.drawerId, pane.id) }
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
     }
 
     private func reportRecoveryEvents(_ events: [PersistenceRecoveryEvent]) {
