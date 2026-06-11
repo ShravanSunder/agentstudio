@@ -6,8 +6,8 @@ import Testing
 
 /// Characterizes the workspace save latch (2026-06-11 debug investigation):
 /// save-time pane-graph validation rejects pane states the live runtime model
-/// legally produces. Each test documents CURRENT behavior; T5 of the
-/// zmx-session-anchor plan flips these to assert the save succeeds.
+/// legally produces. T4 fixes that by making live facets nullable references
+/// at the persistence boundary rather than fatal source-binding validators.
 @Suite("WorkspaceCoreRepositoryPaneSourceLatchTests")
 struct WorkspaceCoreRepositoryPaneSourceLatchTests {
     private let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-00000000A001")!
@@ -85,8 +85,8 @@ struct WorkspaceCoreRepositoryPaneSourceLatchTests {
         )
     }
 
-    @Test("orphaned pane whose source worktree left the topology poisons the save")
-    func orphanedPaneWithRemovedSourceWorktreePoisonsSave() throws {
+    @Test("orphaned pane whose source worktree left the topology saves with null refs")
+    func orphanedPaneWithRemovedSourceWorktreeSavesWithNullRefs() throws {
         // Arrange — topology only contains worktree A; pane was born in
         // worktree B (since removed) and was correctly orphaned by the
         // runtime, which keeps `source` for later restoration.
@@ -101,16 +101,19 @@ struct WorkspaceCoreRepositoryPaneSourceLatchTests {
             ]
         )
 
-        // Act & Assert — CURRENT behavior: every save attempt throws, and
-        // because the in-memory state never changes, the workspace can never
-        // be saved again until app restart ("Workspace save failed" storm).
-        #expect(throws: WorkspaceCoreRepositoryError.worktreeNotFoundInWorkspace(worktreeBId, workspaceId)) {
-            try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
-        }
+        // Act
+        try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
+
+        // Assert — the dangling worktree binding is tolerated and serialized
+        // as NULL refs, matching the schema's ON DELETE SET NULL intent.
+        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
+        let requiredSource = try #require(storedSource)
+        #expect(requiredSource.repoId == nil)
+        #expect(requiredSource.worktreeId == nil)
     }
 
-    @Test("roamed pane with live facet pointing at another worktree poisons the save")
-    func roamedPaneWithFacetWorktreeMismatchPoisonsSave() throws {
+    @Test("roamed pane with live facet pointing at another worktree saves with live refs")
+    func roamedPaneWithFacetWorktreeMismatchSavesWithLiveRefs() throws {
         // Arrange — both worktrees exist. Pane was born in A; the user cd'd
         // its terminal into B, so the live facet rewrite
         // (WorkspacePaneGraphAtom.updatePaneCWDAndResolvedContext) moved
@@ -126,21 +129,19 @@ struct WorkspaceCoreRepositoryPaneSourceLatchTests {
             ]
         )
 
-        // Act & Assert — CURRENT behavior: deterministic validation throw on
-        // every save attempt for legal roaming state.
-        #expect(
-            throws: WorkspaceCoreRepositoryError.paneSourceFacetWorktreeMismatch(
-                paneId: paneId,
-                sourceWorktreeId: worktreeAId,
-                facetWorktreeId: worktreeBId
-            )
-        ) {
-            try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
-        }
+        // Act
+        try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
+
+        // Assert — live facets are the persistence truth; birth source no
+        // longer vetoes the save.
+        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
+        let requiredSource = try #require(storedSource)
+        #expect(requiredSource.repoId == repoId)
+        #expect(requiredSource.worktreeId == worktreeBId)
     }
 
-    @Test("active pane sourced from a worktree missing from topology poisons the save")
-    func activePaneWithDanglingSourceWorktreePoisonsSave() throws {
+    @Test("active pane sourced from a worktree missing from topology saves with null refs")
+    func activePaneWithDanglingSourceWorktreeSavesWithNullRefs() throws {
         // Arrange — orphaning can be skipped entirely (no effect handler
         // registered: WorkspaceCacheCoordinator "pane orphaning skipped").
         // The pane stays active while its source worktree is gone.
@@ -155,9 +156,13 @@ struct WorkspaceCoreRepositoryPaneSourceLatchTests {
             ]
         )
 
-        // Act & Assert
-        #expect(throws: WorkspaceCoreRepositoryError.self) {
-            try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
-        }
+        // Act
+        try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
+
+        // Assert
+        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
+        let requiredSource = try #require(storedSource)
+        #expect(requiredSource.repoId == nil)
+        #expect(requiredSource.worktreeId == nil)
     }
 }

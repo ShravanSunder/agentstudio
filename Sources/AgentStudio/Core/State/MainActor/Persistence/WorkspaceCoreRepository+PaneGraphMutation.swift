@@ -124,7 +124,7 @@ private func upsertPane(_ database: Database, workspaceId: UUID, pane: Workspace
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at
             """,
-        arguments: try paneStatementArguments(workspaceId: workspaceId, pane: pane)
+        arguments: try paneStatementArguments(database, workspaceId: workspaceId, pane: pane)
     )
 }
 
@@ -254,10 +254,11 @@ private func insertDrawerMembershipRows(_ database: Database, drawer: WorkspaceC
 }
 
 private func paneStatementArguments(
+    _ database: Database,
     workspaceId: UUID,
     pane: WorkspaceCoreRepository.PaneRecord
 ) throws -> StatementArguments {
-    let sourceIds = SQLitePaneGraphStorage.sourceIds(pane: pane)
+    let sourceIds = try resolvedPaneReferenceIds(database, workspaceId: workspaceId, pane: pane)
     let residency = SQLitePaneGraphStorage.residency(pane.residency)
     let placement = SQLitePaneGraphStorage.placement(pane.placement)
     let values: [(any DatabaseValueConvertible)?] = [
@@ -283,6 +284,74 @@ private func paneStatementArguments(
         pane.updatedAt.timeIntervalSince1970,
     ]
     return StatementArguments(values)
+}
+
+private func resolvedPaneReferenceIds(
+    _ database: Database,
+    workspaceId: UUID,
+    pane: WorkspaceCoreRepository.PaneRecord
+) throws -> (repoId: UUID?, worktreeId: UUID?) {
+    let facets = pane.metadata.durableFacets
+    if let worktreeId = facets.worktreeId {
+        guard
+            let repoId = try fetchPaneReferenceWorktreeRepoId(
+                database,
+                workspaceId: workspaceId,
+                worktreeId: worktreeId
+            )
+        else {
+            return (nil, nil)
+        }
+        return (repoId, worktreeId)
+    }
+
+    if let repoId = facets.repoId, try paneReferenceRepoExists(database, workspaceId: workspaceId, repoId: repoId) {
+        return (repoId, nil)
+    }
+    return (nil, nil)
+}
+
+private func fetchPaneReferenceWorktreeRepoId(
+    _ database: Database,
+    workspaceId: UUID,
+    worktreeId: UUID
+) throws -> UUID? {
+    guard
+        let repoIdString = try String.fetchOne(
+            database,
+            sql: """
+                SELECT repo_id
+                FROM worktree
+                WHERE id = ?
+                AND workspace_id = ?
+                """,
+            arguments: [worktreeId.uuidString, workspaceId.uuidString]
+        )
+    else {
+        return nil
+    }
+    guard let repoId = UUID(uuidString: repoIdString) else {
+        throw WorkspaceCoreRepositoryError.malformedRepoId(repoIdString)
+    }
+    return repoId
+}
+
+private func paneReferenceRepoExists(
+    _ database: Database,
+    workspaceId: UUID,
+    repoId: UUID
+) throws -> Bool {
+    let matchingCount = try Int.fetchOne(
+        database,
+        sql: """
+            SELECT count(*)
+            FROM repo
+            WHERE id = ?
+            AND workspace_id = ?
+            """,
+        arguments: [repoId.uuidString, workspaceId.uuidString]
+    )
+    return matchingCount == 1
 }
 
 private func paneGraphPlaceholders(count: Int) -> String {

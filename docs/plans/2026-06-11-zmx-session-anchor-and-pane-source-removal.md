@@ -2,14 +2,14 @@
 
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2 committed, T3 implemented with scoped proof gates green. Next implementation step starts at T4.
+Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3 committed, T4 implemented with proof gates green. Next implementation step starts at T5.
 
 ## Execution State (handoff, 2026-06-11)
 
-T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 is implemented in this worktree and should be committed before continuing to T4.
+T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 is implemented in this worktree and should be committed before continuing to T5.
 
 Done — T0 (all green, characterization evidence captured):
-- `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These are the red→green pivots for T5.
+- `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These were the red→green pivots for T4.
 - `Tests/AgentStudioTests/Features/Terminal/Restore/TerminalRestoreRuntimeTests.swift` — added `zmxSessionId_followsLiveFacets_whenPaneRoamsToAnotherWorktree` pinning facet-following derivation (pivot for T3).
 - Verified: `mise run test -- --filter "PaneSourceLatch|TerminalRestoreRuntime"` → all pass against pre-change code.
 
@@ -48,6 +48,19 @@ Done — T3 implementation (verified red first: a roamed pane still returned the
 2. Green scoped proof: same command after implementation — build complete; 1 test in 1 suite passed after 0.005s.
 3. Broader scoped proof: `swift build --build-tests --build-path .build-agent-t3 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t3 --filter "TerminalRestoreRuntimeTests|PaneCoordinatorTerminalRestoreIntegrationTests|WorkspaceSQLiteStoreBridgeTests"` — build complete; 39 tests in 3 suites passed after 0.818s.
 4. Lint proof: `mise run lint` — swift-format OK; swiftlint 0 violations in 1014 files; Core boundary import check passed; release script verification passed.
+
+Done — T4 implementation (verified red first: source-binding validators rejected legal live-facet states before the tolerance write-path landed):
+- `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository+PaneGraphValidation.swift` — removes the save-time `source`/facet/worktree-existence veto while preserving structural pane graph validation: existing pane/drawer ownership, content route/type immutability, placement, drawer membership, and duplicate checks.
+- `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository+PaneGraphMutation.swift` — writes topology-verified live durable-facet refs into the existing source columns until migration 009 renames/removes the source concept: existing worktree refs normalize to the worktree's actual repo, missing worktree refs write `(NULL, NULL)`, existing repo-only refs write `(repo_id, NULL)`, missing repo refs write `(NULL, NULL)`.
+- `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` — flips the three latch repros to assert saves succeed and persist NULL/live refs.
+- `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneGraphValidationTests.swift` — flips five old source-binding rejection cases to assert tolerated NULL/normalized refs while keeping structural validation tests intact.
+
+**T4 proof gates complete:**
+1. Red proof: `swift build --build-tests --build-path .build-agent-t4 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t4 --filter "WorkspaceCoreRepositoryPaneSourceLatchTests|WorkspaceCoreRepositoryPaneGraphValidationTests"` — failed as expected before implementation with 8 issues across `worktreeNotFoundInWorkspace`, `paneSourceFacetRepoMismatch`, `paneSourceFacetWorktreeMismatch`, `repoNotFoundInWorkspace`, and `worktreeRepoMismatch`.
+2. Green scoped proof: same command after implementation — build complete; 21 tests in 2 suites passed after 0.037s.
+3. Broader scoped proof: `swift build --build-tests --build-path .build-agent-t4 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t4 --filter "WorkspaceCoreRepository|WorkspaceSQLiteStoreBridgeTests|WorkspaceCoreMigrationTests"` — build complete; 130 tests in 15 suites passed after 1.930s.
+4. Full default test proof: `mise run test` first hit the runner's 60s wrapper timeout (exit 124) while tests were still passing; rerun as `SWIFT_TEST_TIMEOUT_SECONDS=180 mise run test` — exit 0; default E2E and Zmx E2E lanes skipped by `SWIFT_TEST_INCLUDE_E2E=0` and `SWIFT_TEST_INCLUDE_ZMX_E2E=0`.
+5. Lint proof: after `mise run format`, `mise run lint` — swift-format OK; swiftlint 0 violations in 1014 files; Core boundary import check passed; release script verification passed.
 
 Execution discoveries the remaining tasks must respect:
 - **Source columns double as facet storage.** `decodePaneRecord` (WorkspaceCoreRepository+PaneGraph.swift:202-213) reads `durableFacets.repoId/worktreeId` FROM `source_repo_id`/`source_worktree_id`. On write, `SQLitePaneGraphStorage.sourceIds` stores source ids for worktree panes and facet ids for floating panes. Consequence for T6/migration 009: those columns are not "dropped" — they are RENAMED/refit as facet columns (`facet_repo_id`, `facet_worktree_id`) written from `durableFacets` for all panes, and `source_kind` is dropped. A facet/source mismatch can never round-trip through the DB (single column) — it exists only in memory, which is consistent with the latch evidence.
