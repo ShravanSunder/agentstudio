@@ -134,12 +134,10 @@ struct TerminalRestoreRuntimeTests {
     }
 
     @Test
-    func zmxSessionId_followsLiveFacets_whenPaneRoamsToAnotherWorktree() throws {
-        // Characterization of CURRENT behavior (zmx-session-anchor plan T0):
-        // session identity is re-derived from LIVE facets at attach time, so a
-        // pane that roamed (cwd into another worktree) resolves to a session id
-        // under the NEW worktree — abandoning the shell it actually spawned in.
-        // T3 flips this test: a stored spawn-time id must win over derivation.
+    func zmxSessionId_usesStoredSpawnAnchor_whenPaneRoamsToAnotherWorktree() throws {
+        // zmx-session-anchor plan T3: session identity is a spawn-time anchor.
+        // A pane can roam through live facets, but attach/diagnostics must keep
+        // using the stored id for the shell that already exists.
         let tempDirA = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-restore-roam-a-\(UUID().uuidString)")
         let tempDirB = FileManager.default.temporaryDirectory
@@ -179,24 +177,30 @@ struct TerminalRestoreRuntimeTests {
 
         let sessionId = runtime.zmxSessionId(for: roamedPane, store: store)
 
-        // CURRENT (pre-anchor) behavior: derivation follows worktree B.
-        #expect(
-            sessionId
-                == ZmxBackend.sessionId(
-                    repoStableKey: repoB.stableKey,
-                    worktreeStableKey: worktreeB.stableKey,
-                    paneId: bornPane.id
-                )
+        let expectedSpawnSessionId = ZmxBackend.sessionId(
+            repoStableKey: repoA.stableKey,
+            worktreeStableKey: worktreeA.stableKey,
+            paneId: bornPane.id
         )
-        // The session the shell actually lives in is keyed under worktree A.
-        #expect(
-            sessionId
-                != ZmxBackend.sessionId(
-                    repoStableKey: repoA.stableKey,
-                    worktreeStableKey: worktreeA.stableKey,
-                    paneId: bornPane.id
-                )
+        let roamedFacetDerivedSessionId = ZmxBackend.sessionId(
+            repoStableKey: repoB.stableKey,
+            worktreeStableKey: worktreeB.stableKey,
+            paneId: bornPane.id
         )
+
+        #expect(
+            sessionId == expectedSpawnSessionId
+        )
+        #expect(
+            sessionId != roamedFacetDerivedSessionId
+        )
+
+        let attachCommand = try #require(runtime.zmxAttachCommand(for: roamedPane, store: store))
+        let diagnostics = try #require(runtime.zmxAttachDiagnostics(for: roamedPane, store: store))
+
+        #expect(attachCommand.contains(expectedSpawnSessionId))
+        #expect(!attachCommand.contains(roamedFacetDerivedSessionId))
+        #expect(diagnostics.sessionId == expectedSpawnSessionId)
     }
 
     @Test

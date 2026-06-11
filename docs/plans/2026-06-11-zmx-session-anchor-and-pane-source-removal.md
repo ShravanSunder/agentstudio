@@ -2,11 +2,11 @@
 
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1 committed, T2 implemented with scoped proof gates green. Next implementation step starts at T3.
+Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2 committed, T3 implemented with scoped proof gates green. Next implementation step starts at T4.
 
 ## Execution State (handoff, 2026-06-11)
 
-T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 is implemented in this worktree and should be committed before continuing to T3.
+T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 is implemented in this worktree and should be committed before continuing to T4.
 
 Done — T0 (all green, characterization evidence captured):
 - `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These are the red→green pivots for T5.
@@ -37,6 +37,16 @@ Done — T2 implementation (verified red first: new zmx panes did not store anch
 1. Red proof: `swift build --build-tests --build-path .build-agent-t2 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t2 --filter "WorkspaceSQLiteStoreBridgeTests/newZmxPanesStoreDeterministicSessionAnchorsAtCreationAndSQLiteFlush"` — failed as expected before implementation with 6 issues: all immediate and stored `zmxSessionId` values were `nil`.
 2. Green scoped proof: same command after implementation — build complete; 1 test in 1 suite passed after 0.026s.
 3. Broader scoped proof: `swift build --build-tests --build-path .build-agent-t2 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t2 --filter "WorkspaceSQLiteStoreBridgeTests|TerminalRestoreRuntimeTests|PaneCoordinatorTerminalRestoreIntegrationTests|PaneCoordinatorSlotLifecycleTests|WorkspaceStoreDrawer"` — build complete; 87 tests in 5 suites passed after 1.875s.
+4. Lint proof: `mise run lint` — swift-format OK; swiftlint 0 violations in 1014 files; Core boundary import check passed; release script verification passed.
+
+Done — T3 implementation (verified red first: a roamed pane still returned the live worktree-B derived id instead of the stored worktree-A spawn anchor):
+- `Sources/AgentStudio/Features/Terminal/Restore/TerminalRestoreRuntime.swift` — `zmxSessionId(for:store:)` is stored-first and keeps legacy derivation as a non-persisting fallback for unhydrated rows.
+- `Tests/AgentStudioTests/Features/Terminal/Restore/TerminalRestoreRuntimeTests.swift` — flips the roamed-pane characterization to assert stored id wins for `zmxSessionId`, `zmxAttachCommand`, and attach diagnostics.
+
+**T3 proof gates complete:**
+1. Red proof: `swift build --build-tests --build-path .build-agent-t3 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t3 --filter "TerminalRestoreRuntimeTests/zmxSessionId_usesStoredSpawnAnchor_whenPaneRoamsToAnotherWorktree"` — failed as expected before implementation with 2 issues: returned session id equaled the roamed facet-derived id.
+2. Green scoped proof: same command after implementation — build complete; 1 test in 1 suite passed after 0.005s.
+3. Broader scoped proof: `swift build --build-tests --build-path .build-agent-t3 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t3 --filter "TerminalRestoreRuntimeTests|PaneCoordinatorTerminalRestoreIntegrationTests|WorkspaceSQLiteStoreBridgeTests"` — build complete; 39 tests in 3 suites passed after 0.818s.
 4. Lint proof: `mise run lint` — swift-format OK; swiftlint 0 violations in 1014 files; Core boundary import check passed; release script verification passed.
 
 Execution discoveries the remaining tasks must respect:
