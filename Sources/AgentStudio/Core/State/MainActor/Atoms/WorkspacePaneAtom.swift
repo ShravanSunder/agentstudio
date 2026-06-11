@@ -121,6 +121,9 @@ final class WorkspacePaneAtom {
             residency: residency,
             facets: facets
         )
+        if provider == .zmx, let sessionId = zmxSessionId(for: source, paneId: state.id) {
+            graphAtom.setTerminalZmxSessionId(state.id, sessionId: sessionId)
+        }
         return pane(state.id)!
     }
 
@@ -215,6 +218,7 @@ final class WorkspacePaneAtom {
         guard let drawerPane = graphAtom.addDrawerPane(to: parentPaneId, content: content, metadata: metadata) else {
             return nil
         }
+        anchorDrawerZmxSessionIfNeeded(parentPaneId: parentPaneId, drawerPaneId: drawerPane.id)
         if let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
             drawerCursorAtom.expandDrawer(drawerId: drawerId)
         }
@@ -260,6 +264,7 @@ final class WorkspacePaneAtom {
                 metadata: metadata
             )
         else { return nil }
+        anchorDrawerZmxSessionIfNeeded(parentPaneId: parentPaneId, drawerPaneId: drawerPane.id)
         if let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
             drawerCursorAtom.expandDrawer(drawerId: drawerId)
         }
@@ -349,5 +354,31 @@ final class WorkspacePaneAtom {
             title: "Drawer",
             facets: inheritedFacets
         )
+    }
+
+    private func zmxSessionId(for source: TerminalSource, paneId: UUID) -> String? {
+        switch source {
+        case .worktree(let worktreeId, let repoId, _):
+            guard
+                let repositoryTopologyAtom,
+                let repo = repositoryTopologyAtom.repo(repoId),
+                let worktree = repositoryTopologyAtom.worktree(worktreeId)
+            else { return nil }
+            return ZmxBackend.sessionId(
+                repoStableKey: repo.stableKey,
+                worktreeStableKey: worktree.stableKey,
+                paneId: paneId
+            )
+        case .floating(let launchDirectory, _):
+            return ZmxBackend.floatingSessionId(
+                launchDirectory: launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser,
+                paneId: paneId
+            )
+        }
+    }
+
+    private func anchorDrawerZmxSessionIfNeeded(parentPaneId: UUID, drawerPaneId: UUID) {
+        let sessionId = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
+        graphAtom.setTerminalZmxSessionId(drawerPaneId, sessionId: sessionId)
     }
 }

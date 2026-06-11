@@ -128,6 +128,87 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(tabGraph.tabs.single?.allPaneIds == [temporaryPane.id])
     }
 
+    @Test("new zmx panes store deterministic session anchors at creation and SQLite flush")
+    func newZmxPanesStoreDeterministicSessionAnchorsAtCreationAndSQLiteFlush() async throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Anchored zmx Workspace",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_075)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+        )
+        let repoPath = URL(filePath: "/tmp/agent-studio-zmx-anchor-repo")
+        let repo = store.addRepo(at: repoPath)
+        let worktree = try #require(repo.worktrees.first)
+        let floatingDirectory = URL(filePath: "/tmp/agent-studio-zmx-anchor-floating")
+
+        let worktreePane = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Worktree Anchor",
+            provider: .zmx
+        )
+        let floatingPane = store.createPane(
+            source: .floating(launchDirectory: floatingDirectory, title: "Floating Anchor"),
+            title: "Floating Anchor",
+            provider: .zmx
+        )
+        let parentPane = store.createPane(
+            source: .floating(launchDirectory: floatingDirectory, title: "Parent Anchor"),
+            title: "Parent Anchor",
+            provider: .zmx
+        )
+        store.appendTab(Tab(paneId: worktreePane.id, name: "Worktree"))
+        store.appendTab(Tab(paneId: floatingPane.id, name: "Floating"))
+        store.appendTab(Tab(paneId: parentPane.id, name: "Parent"))
+        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+
+        let expectedWorktreeSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: worktreePane.id
+        )
+        let expectedFloatingSessionId = ZmxBackend.floatingSessionId(
+            launchDirectory: floatingDirectory,
+            paneId: floatingPane.id
+        )
+        let expectedDrawerSessionId = ZmxBackend.drawerSessionId(
+            parentPaneId: parentPane.id,
+            drawerPaneId: drawerPane.id
+        )
+
+        #expect(store.pane(worktreePane.id)?.terminalState?.zmxSessionId == expectedWorktreeSessionId)
+        #expect(store.pane(floatingPane.id)?.terminalState?.zmxSessionId == expectedFloatingSessionId)
+        #expect(store.pane(drawerPane.id)?.terminalState?.zmxSessionId == expectedDrawerSessionId)
+
+        #expect((await store.flushAsync()).succeeded)
+
+        let storedPanes = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceId).panes
+        let storedContentByPaneId = Dictionary(uniqueKeysWithValues: storedPanes.map { ($0.id, $0.content) })
+        guard case .terminal(_, _, let storedWorktreeSessionId) = storedContentByPaneId[worktreePane.id] else {
+            Issue.record("Expected worktree terminal content record")
+            return
+        }
+        guard case .terminal(_, _, let storedFloatingSessionId) = storedContentByPaneId[floatingPane.id] else {
+            Issue.record("Expected floating terminal content record")
+            return
+        }
+        guard case .terminal(_, _, let storedDrawerSessionId) = storedContentByPaneId[drawerPane.id] else {
+            Issue.record("Expected drawer terminal content record")
+            return
+        }
+        #expect(storedWorktreeSessionId == expectedWorktreeSessionId)
+        #expect(storedFloatingSessionId == expectedFloatingSessionId)
+        #expect(storedDrawerSessionId == expectedDrawerSessionId)
+    }
+
     @Test("restore hydrates workspace atoms from active SQLite workspace")
     func restoreHydratesAtomsFromSQLite() async throws {
         let workspaceId = UUID()

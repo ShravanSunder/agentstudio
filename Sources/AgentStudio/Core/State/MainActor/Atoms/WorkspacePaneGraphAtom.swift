@@ -350,6 +350,27 @@ final class WorkspacePaneGraphAtom {
         paneStates[paneId]?.content = .webview(state)
     }
 
+    @discardableResult
+    func setTerminalZmxSessionId(_ paneId: UUID, sessionId: String) -> Bool {
+        guard var paneState = paneStates[paneId] else {
+            workspacePaneLogger.warning("setTerminalZmxSessionId: pane \(paneId) not found")
+            return false
+        }
+        guard case .terminal(var terminalState) = paneState.content else {
+            return false
+        }
+        guard terminalState.provider == .zmx else {
+            return false
+        }
+        guard terminalState.zmxSessionId != sessionId else {
+            return true
+        }
+        terminalState.zmxSessionId = sessionId
+        paneState.content = .terminal(terminalState)
+        paneStates[paneId] = paneState
+        return true
+    }
+
     func setResidency(_ residency: SessionResidency, for paneId: UUID) {
         guard paneStates[paneId] != nil else {
             workspacePaneLogger.warning("setResidency: pane \(paneId) not found")

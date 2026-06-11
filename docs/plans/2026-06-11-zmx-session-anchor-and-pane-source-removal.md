@@ -2,11 +2,11 @@
 
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1 complete with proof gates green. Next implementation step starts at T2.
+Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1 committed, T2 implemented with scoped proof gates green. Next implementation step starts at T3.
 
 ## Execution State (handoff, 2026-06-11)
 
-**The worktree contains uncommitted, verified T0/T1 changes.** Do not discard them; continue from this state until the T0/T1 commit lands.
+T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 is implemented in this worktree and should be committed before continuing to T3.
 
 Done — T0 (all green, characterization evidence captured):
 - `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These are the red→green pivots for T5.
@@ -27,6 +27,17 @@ Done — T1 implementation (verified red first: `table pane_content_terminal has
 1. Scoped Swift proof: `swift build --build-tests --build-path .build-agent-t1 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t1 --filter "WorkspaceCoreZmxSessionAnchorMigrationTests|WorkspaceCoreMigrationTests|WorkspaceCoreTabGraphLayoutRepairMigrationTests"` — build complete; 24 tests in 3 suites passed after 0.031s.
 2. Lint proof: `mise run lint` — swift-format OK; swiftlint 0 violations in 1014 files; Core boundary import check passed; release script verification passed.
 3. Full default test proof: `mise run test` — exit 0; default E2E and Zmx E2E lanes skipped by `SWIFT_TEST_INCLUDE_E2E=0` and `SWIFT_TEST_INCLUDE_ZMX_E2E=0`.
+
+Done — T2 implementation (verified red first: new zmx panes did not store anchors at creation; immediate and SQLite roundtrip assertions all saw `nil`):
+- `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` — computes deterministic spawn-time anchors at the creation/action boundary for worktree, floating, and drawer zmx panes.
+- `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` — adds `setTerminalZmxSessionId(_:sessionId:)`, scoped to zmx terminal content.
+- `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteStoreBridgeTests.swift` — asserts worktree, floating, and drawer panes store the expected `zmx_session_id` immediately and preserve it through SQLite flush.
+
+**T2 proof gates complete:**
+1. Red proof: `swift build --build-tests --build-path .build-agent-t2 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t2 --filter "WorkspaceSQLiteStoreBridgeTests/newZmxPanesStoreDeterministicSessionAnchorsAtCreationAndSQLiteFlush"` — failed as expected before implementation with 6 issues: all immediate and stored `zmxSessionId` values were `nil`.
+2. Green scoped proof: same command after implementation — build complete; 1 test in 1 suite passed after 0.026s.
+3. Broader scoped proof: `swift build --build-tests --build-path .build-agent-t2 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t2 --filter "WorkspaceSQLiteStoreBridgeTests|TerminalRestoreRuntimeTests|PaneCoordinatorTerminalRestoreIntegrationTests|PaneCoordinatorSlotLifecycleTests|WorkspaceStoreDrawer"` — build complete; 87 tests in 5 suites passed after 1.875s.
+4. Lint proof: `mise run lint` — swift-format OK; swiftlint 0 violations in 1014 files; Core boundary import check passed; release script verification passed.
 
 Execution discoveries the remaining tasks must respect:
 - **Source columns double as facet storage.** `decodePaneRecord` (WorkspaceCoreRepository+PaneGraph.swift:202-213) reads `durableFacets.repoId/worktreeId` FROM `source_repo_id`/`source_worktree_id`. On write, `SQLitePaneGraphStorage.sourceIds` stores source ids for worktree panes and facet ids for floating panes. Consequence for T6/migration 009: those columns are not "dropped" — they are RENAMED/refit as facet columns (`facet_repo_id`, `facet_worktree_id`) written from `durableFacets` for all panes, and `source_kind` is dropped. A facet/source mismatch can never round-trip through the DB (single column) — it exists only in memory, which is consistent with the latch evidence.
