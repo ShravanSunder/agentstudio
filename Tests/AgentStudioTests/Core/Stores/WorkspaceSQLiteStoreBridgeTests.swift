@@ -128,6 +128,170 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(tabGraph.tabs.single?.allPaneIds == [temporaryPane.id])
     }
 
+    @Test("SQLite flush normalizes a live tab graph whose arrangement references a missing membership pane")
+    func sqliteFlushNormalizesArrangementPaneMissingFromTabMembership() async throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Wedged SQLite Workspace",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_075)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+        )
+        let firstPane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "First"),
+            title: "First"
+        )
+        let arrangementOnlyPane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "Arrangement Only"),
+            title: "Arrangement Only"
+        )
+        let layout = Layout(paneId: firstPane.id)
+            .inserting(
+                paneId: arrangementOnlyPane.id,
+                at: firstPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )!
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            activePaneId: arrangementOnlyPane.id
+        )
+        let tab = Tab(
+            name: "Broken Tab",
+            allPaneIds: [firstPane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let outcome = await store.flushAsync()
+
+        guard outcome.succeeded else {
+            Issue.record("Expected normalized SQLite flush to succeed")
+            return
+        }
+        let tabGraph = try fixture.coreRepository.fetchTabGraph(workspaceId: workspaceId)
+        #expect(tabGraph.tabs.single?.allPaneIds == [firstPane.id, arrangementOnlyPane.id])
+
+        let restoredStore = WorkspaceStore(
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+        )
+        await restoredStore.restoreAsync()
+
+        let restoredTab = try #require(restoredStore.tabLayoutAtom.tabs.single)
+        #expect(Set(restoredTab.allPaneIds) == Set([firstPane.id, arrangementOnlyPane.id]))
+        #expect(restoredTab.activePaneIds == [firstPane.id, arrangementOnlyPane.id])
+    }
+
+    @Test("SQLite flush drops a live tab whose default arrangement normalizes empty")
+    func sqliteFlushDropsTabWhoseDefaultArrangementNormalizesEmpty() async throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Default Empty Repair Workspace",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_085)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+        )
+        let customOnlyPane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "Custom Only"),
+            title: "Custom Only"
+        )
+        let fallbackPane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "Fallback"),
+            title: "Fallback"
+        )
+        let invalidPaneId = UUID()
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: invalidPaneId),
+            activePaneId: invalidPaneId
+        )
+        let customArrangement = PaneArrangement(
+            name: "Custom",
+            isDefault: false,
+            layout: Layout(paneId: customOnlyPane.id),
+            activePaneId: customOnlyPane.id
+        )
+        let brokenTab = Tab(
+            name: "Broken",
+            allPaneIds: [invalidPaneId, customOnlyPane.id],
+            arrangements: [defaultArrangement, customArrangement],
+            activeArrangementId: customArrangement.id
+        )
+        let fallbackTab = Tab(paneId: fallbackPane.id, name: "Fallback")
+        store.appendTab(brokenTab)
+        store.appendTab(fallbackTab)
+        store.setActiveTab(brokenTab.id)
+
+        let outcome = await store.flushAsync()
+
+        guard outcome.succeeded else {
+            Issue.record("Expected normalized SQLite flush to succeed")
+            return
+        }
+        let shells = try fixture.coreRepository.fetchTabShells(workspaceId: workspaceId)
+        #expect(shells.map(\.id) == [fallbackTab.id])
+        let cursorState = try fixture.localRepository.fetchCursorState()
+        #expect(cursorState.activeTabId == fallbackTab.id)
+    }
+
+    @Test("SQLite flush keeps duplicate pane ownership invalid after live normalization")
+    func sqliteFlushRejectsDuplicatePaneOwnershipAfterLiveNormalization() async throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Duplicate Ownership Workspace",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_090)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+        )
+        let sharedPane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "Shared"),
+            title: "Shared"
+        )
+        let firstTab = Tab(paneId: sharedPane.id, name: "First")
+        let secondTab = Tab(paneId: sharedPane.id, name: "Second")
+        store.appendTab(firstTab)
+        store.appendTab(secondTab)
+        store.setActiveTab(firstTab.id)
+
+        let outcome = await store.flushAsync()
+
+        #expect(!outcome.succeeded)
+        #expect(try fixture.coreRepository.fetchWorkspace(id: workspaceId) == nil)
+    }
+
     @Test("restore hydrates workspace atoms from active SQLite workspace")
     func restoreHydratesAtomsFromSQLite() async throws {
         let workspaceId = UUID()

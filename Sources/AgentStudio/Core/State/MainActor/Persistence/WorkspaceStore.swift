@@ -330,7 +330,7 @@ final class WorkspaceStore {
             }
             return .persisted
         } catch {
-            workspaceStoreLogger.error("Failed to persist workspace: \(error.localizedDescription)")
+            workspaceStoreLogger.error("Failed to persist workspace: \(String(reflecting: error))")
             reportSaveFailed()
             return .failed(String(describing: error))
         }
@@ -415,7 +415,7 @@ final class WorkspaceStore {
             }
             return .persisted
         } catch {
-            workspaceStoreLogger.error("Failed to persist workspace: \(error.localizedDescription)")
+            workspaceStoreLogger.error("Failed to persist workspace: \(String(reflecting: error))")
             reportSaveFailed()
             return .failed(String(describing: error))
         }

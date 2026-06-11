@@ -1,4 +1,25 @@
 import Foundation
+import os.log
+
+private let workspacePersistenceTransformerLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "WorkspacePersistenceTransformer"
+)
+
+struct WorkspaceTabMembershipRepairReport: Equatable {
+    let repairedTabIds: [UUID]
+    let activeTabIdChanged: Bool
+
+    var hasRepairs: Bool {
+        !repairedTabIds.isEmpty || activeTabIdChanged
+    }
+}
+
+struct WorkspaceTabMembershipNormalizationResult: Equatable {
+    let tabs: [Tab]
+    let activeTabId: UUID?
+    let repairReport: WorkspaceTabMembershipRepairReport
+}
 
 @MainActor
 enum WorkspacePersistenceTransformer {
@@ -108,21 +129,141 @@ enum WorkspacePersistenceTransformer {
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date
     ) -> WorkspaceSQLiteSnapshot {
-        WorkspaceSQLiteSnapshot(
+        let livePanes = Array(workspacePaneAtom.liveSQLitePanes.values)
+        let normalizedTabs = normalizeLiveSQLiteTabs(
+            tabs: workspaceTabLayoutAtom.tabs,
+            validPaneIds: Set(livePanes.map(\.id)),
+            activeTabId: workspaceTabLayoutAtom.activeTabId
+        )
+        if normalizedTabs.repairReport.hasRepairs {
+            let repairedTabIds = normalizedTabs.repairReport.repairedTabIds
+                .map(\.uuidString)
+                .joined(separator: ",")
+            workspacePersistenceTransformerLogger.warning(
+                "Repaired live SQLite tab membership for \(normalizedTabs.repairReport.repairedTabIds.count) tab(s); activeTabIdChanged=\(normalizedTabs.repairReport.activeTabIdChanged); tabIds=\(repairedTabIds)"
+            )
+        }
+
+        return WorkspaceSQLiteSnapshot(
             id: identityAtom.workspaceId,
             name: identityAtom.workspaceName,
             repos: canonicalRepos(from: repositoryTopologyAtom.repos),
             worktrees: canonicalWorktrees(from: repositoryTopologyAtom.repos),
             unavailableRepoIds: repositoryTopologyAtom.unavailableRepoIds,
-            panes: Array(workspacePaneAtom.liveSQLitePanes.values),
-            tabs: workspaceTabLayoutAtom.tabs,
-            activeTabId: workspaceTabLayoutAtom.activeTabId,
+            panes: livePanes,
+            tabs: normalizedTabs.tabs,
+            activeTabId: normalizedTabs.activeTabId,
             sidebarWidth: windowMemoryAtom.sidebarWidth,
             windowFrame: windowMemoryAtom.windowFrame,
             watchedPaths: repositoryTopologyAtom.watchedPaths,
             createdAt: identityAtom.createdAt,
             updatedAt: persistedAt
         )
+    }
+
+    static func normalizeLiveSQLiteTabs(
+        tabs: [Tab],
+        validPaneIds: Set<UUID>,
+        activeTabId: UUID?
+    ) -> WorkspaceTabMembershipNormalizationResult {
+        var normalizedTabs = tabs
+        var repairedTabIds: [UUID] = []
+
+        for tabIndex in normalizedTabs.indices {
+            let originalTab = normalizedTabs[tabIndex]
+            normalizedTabs[tabIndex].arrangements = TabArrangementRepairRules.pruningInvalidPaneIds(
+                validPaneIds: validPaneIds,
+                from: normalizedTabs[tabIndex].arrangements
+            )
+
+            if normalizedTabs[tabIndex].activeArrangement.layout.isEmpty
+                && !normalizedTabs[tabIndex].defaultArrangement.layout.isEmpty
+            {
+                normalizedTabs[tabIndex].activeArrangementId = normalizedTabs[tabIndex].defaultArrangement.id
+            }
+
+            let activeArrangementIndex = normalizedTabs[tabIndex].activeArrangementIndex
+            if let activePaneId = normalizedTabs[tabIndex].arrangements[activeArrangementIndex].activePaneId,
+                !validPaneIds.contains(activePaneId)
+                    || !normalizedTabs[tabIndex].arrangements[activeArrangementIndex].layout.contains(activePaneId)
+                    || normalizedTabs[tabIndex].arrangements[activeArrangementIndex].minimizedPaneIds.contains(
+                        activePaneId)
+            {
+                normalizedTabs[tabIndex].arrangements[activeArrangementIndex].activePaneId =
+                    TabArrangementSelectionRules.firstUnminimizedPaneId(
+                        in: normalizedTabs[tabIndex].arrangements[activeArrangementIndex]
+                    )
+            }
+
+            normalizedTabs[tabIndex].allPaneIds = normalizedMembershipPaneIds(
+                for: normalizedTabs[tabIndex],
+                validPaneIds: validPaneIds
+            )
+
+            if normalizedTabs[tabIndex] != originalTab {
+                repairedTabIds.append(originalTab.id)
+            }
+        }
+
+        let tabIdsBeforeDroppingEmptyTabs = Set(normalizedTabs.map(\.id))
+        normalizedTabs.removeAll { tab in
+            tab.arrangements.first(where: \.isDefault)?.layout.isEmpty ?? true
+        }
+        let droppedTabIds = tabIdsBeforeDroppingEmptyTabs.subtracting(normalizedTabs.map(\.id))
+        for tabId in droppedTabIds where !repairedTabIds.contains(tabId) {
+            repairedTabIds.append(tabId)
+        }
+
+        var normalizedActiveTabId = activeTabId
+        if let currentActiveTabId = activeTabId, !normalizedTabs.contains(where: { $0.id == currentActiveTabId }) {
+            normalizedActiveTabId = normalizedTabs.last?.id
+        }
+
+        return WorkspaceTabMembershipNormalizationResult(
+            tabs: normalizedTabs,
+            activeTabId: normalizedActiveTabId,
+            repairReport: WorkspaceTabMembershipRepairReport(
+                repairedTabIds: repairedTabIds,
+                activeTabIdChanged: normalizedActiveTabId != activeTabId
+            )
+        )
+    }
+
+    private static func normalizedMembershipPaneIds(for tab: Tab, validPaneIds: Set<UUID>) -> [UUID] {
+        let referencedPaneIds = orderedReferencedPaneIds(in: tab, validPaneIds: validPaneIds)
+        let referencedPaneIdSet = Set(referencedPaneIds)
+        var normalizedPaneIds: [UUID] = []
+        var seenPaneIds = Set<UUID>()
+
+        for paneId in tab.allPaneIds where validPaneIds.contains(paneId) && referencedPaneIdSet.contains(paneId) {
+            guard seenPaneIds.insert(paneId).inserted else { continue }
+            normalizedPaneIds.append(paneId)
+        }
+        for paneId in referencedPaneIds {
+            guard seenPaneIds.insert(paneId).inserted else { continue }
+            normalizedPaneIds.append(paneId)
+        }
+
+        return normalizedPaneIds
+    }
+
+    private static func orderedReferencedPaneIds(in tab: Tab, validPaneIds: Set<UUID>) -> [UUID] {
+        var paneIds: [UUID] = []
+        var seenPaneIds = Set<UUID>()
+        for arrangement in tab.arrangements {
+            for paneId in arrangement.layout.paneIds where validPaneIds.contains(paneId) {
+                guard seenPaneIds.insert(paneId).inserted else { continue }
+                paneIds.append(paneId)
+            }
+            for drawerId in arrangement.drawerViews.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+                guard let drawerView = arrangement.drawerViews[drawerId] else { continue }
+                for paneId in drawerView.layout.paneIds where validPaneIds.contains(paneId) {
+                    guard seenPaneIds.insert(paneId).inserted else { continue }
+                    paneIds.append(paneId)
+                }
+            }
+        }
+        return paneIds
     }
 
     nonisolated static func sqliteSnapshot(

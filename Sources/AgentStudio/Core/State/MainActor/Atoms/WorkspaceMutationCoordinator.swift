@@ -23,9 +23,26 @@ final class WorkspaceMutationCoordinator {
     struct PaneCloseSnapshot {
         let pane: Pane
         let drawerChildPanes: [Pane]
+        let drawerViewsByArrangementId: [UUID: DrawerView]
         let tabId: UUID
         let anchorPaneId: UUID?
         let direction: Layout.SplitDirection
+
+        init(
+            pane: Pane,
+            drawerChildPanes: [Pane],
+            drawerViewsByArrangementId: [UUID: DrawerView] = [:],
+            tabId: UUID,
+            anchorPaneId: UUID?,
+            direction: Layout.SplitDirection
+        ) {
+            self.pane = pane
+            self.drawerChildPanes = drawerChildPanes
+            self.drawerViewsByArrangementId = drawerViewsByArrangementId
+            self.tabId = tabId
+            self.anchorPaneId = anchorPaneId
+            self.direction = direction
+        }
     }
 
     private let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
@@ -157,6 +174,16 @@ final class WorkspaceMutationCoordinator {
         }
 
         let drawerChildPanes = closedPane.drawer.map { workspacePaneAtom.snapshotPanes(with: $0.paneIds) } ?? []
+        let drawerViewsByArrangementId: [UUID: DrawerView]
+        if let drawerId = closedPane.drawer?.drawerId {
+            drawerViewsByArrangementId = Dictionary(
+                uniqueKeysWithValues: tab.arrangements.compactMap { arrangement in
+                    arrangement.drawerViews[drawerId].map { (arrangement.id, $0) }
+                }
+            )
+        } else {
+            drawerViewsByArrangementId = [:]
+        }
         let anchorPaneId: UUID?
         let direction: Layout.SplitDirection
 
@@ -171,6 +198,7 @@ final class WorkspaceMutationCoordinator {
         return PaneCloseSnapshot(
             pane: closedPane,
             drawerChildPanes: drawerChildPanes,
+            drawerViewsByArrangementId: drawerViewsByArrangementId,
             tabId: tabId,
             anchorPaneId: anchorPaneId,
             direction: direction
@@ -224,6 +252,15 @@ final class WorkspaceMutationCoordinator {
                 return .failedLayoutInsertion(tabId: snapshot.tabId, anchorPaneId: anchor)
             }
             workspaceTabArrangementAtom.setActivePane(snapshot.pane.id, inTab: snapshot.tabId)
+            if let drawerId = snapshot.pane.drawer?.drawerId, !snapshot.drawerChildPanes.isEmpty {
+                workspaceTabArrangementAtom.restoreDrawerPaneViews(
+                    drawerId: drawerId,
+                    parentPaneId: snapshot.pane.id,
+                    drawerPaneIds: snapshot.drawerChildPanes.map(\.id),
+                    drawerViewsByArrangementId: snapshot.drawerViewsByArrangementId,
+                    inTab: snapshot.tabId
+                )
+            }
             return .restored
         }
         _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(snapshot.pane.id)
