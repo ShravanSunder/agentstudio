@@ -20,7 +20,7 @@ final class WorkspaceStoreDrawerTests {
     }
 
     private func createTabbedPane() -> Pane {
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         store.appendTab(Tab(paneId: pane.id))
         return pane
     }
@@ -171,7 +171,7 @@ final class WorkspaceStoreDrawerTests {
 
         let inheritedCWD = worktreePath.appending(path: "Sources")
         let parent = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             facets: PaneContextFacets(
                 repoId: repo.id,
                 repoName: repo.name,
@@ -188,7 +188,7 @@ final class WorkspaceStoreDrawerTests {
         #expect(drawerPane.repoId == repo.id)
         #expect(drawerPane.worktreeId == worktree.id)
         #expect(drawerPane.metadata.cwd == inheritedCWD)
-        #expect(drawerPane.source == .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: inheritedCWD))
+        #expect(drawerPane.metadata.launchDirectory == inheritedCWD)
     }
 
     @Test
@@ -201,7 +201,7 @@ final class WorkspaceStoreDrawerTests {
 
         let inheritedCWD = worktreePath.appending(path: "Sources")
         let parent = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             facets: PaneContextFacets(
                 repoId: repo.id,
                 repoName: repo.name,
@@ -226,9 +226,7 @@ final class WorkspaceStoreDrawerTests {
         #expect(insertedDrawerPane.repoId == repo.id)
         #expect(insertedDrawerPane.worktreeId == worktree.id)
         #expect(insertedDrawerPane.metadata.cwd == inheritedCWD)
-        #expect(
-            insertedDrawerPane.source
-                == .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: inheritedCWD))
+        #expect(insertedDrawerPane.metadata.launchDirectory == inheritedCWD)
     }
 
     @Test
@@ -660,7 +658,7 @@ final class WorkspaceStoreDrawerTests {
     @Test
     func test_removePane_cascadeDeletesDrawerChildrenFromTabMembershipAndSaves() async throws {
         let pane = createTabbedPane()
-        let sibling = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let sibling = store.createPane()
         let tab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
         #expect(
             store.insertPane(
@@ -700,7 +698,7 @@ final class WorkspaceStoreDrawerTests {
     @Test
     func test_extractDrawerOwningPane_movesDrawerChildMembershipAndSaves() async throws {
         let pane = createTabbedPane()
-        let sibling = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let sibling = store.createPane()
         let sourceTab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
         #expect(
             store.insertPane(
@@ -730,7 +728,7 @@ final class WorkspaceStoreDrawerTests {
     @Test
     func test_breakUpTab_movesDrawerChildrenWithParentPanesAndSaves() async throws {
         let pane = createTabbedPane()
-        let sibling = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let sibling = store.createPane()
         let originalTab = try #require(store.tabLayoutAtom.tabContaining(paneId: pane.id))
         #expect(
             store.insertPane(
@@ -863,7 +861,7 @@ final class WorkspaceStoreDrawerTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store1 = WorkspaceStore(persistor: persistor)
 
-        let pane = store1.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store1.createPane()
         let tab = Tab(paneId: pane.id)
         store1.appendTab(tab)
 

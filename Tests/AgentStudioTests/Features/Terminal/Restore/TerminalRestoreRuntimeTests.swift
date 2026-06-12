@@ -16,8 +16,9 @@ struct TerminalRestoreRuntimeTests {
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let runtime = TerminalRestoreRuntime(
             sessionConfiguration: SessionConfiguration(
@@ -51,8 +52,9 @@ struct TerminalRestoreRuntimeTests {
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let parentPane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
         let runtime = TerminalRestoreRuntime(
@@ -81,7 +83,7 @@ struct TerminalRestoreRuntimeTests {
         let store = WorkspaceStore()
         let launchDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: "tmp")
         let pane = store.createPane(
-            source: .floating(launchDirectory: launchDirectory, title: nil),
+            launchDirectory: launchDirectory,
             provider: .zmx
         )
         let runtime = TerminalRestoreRuntime(
@@ -109,7 +111,6 @@ struct TerminalRestoreRuntimeTests {
     func zmxSessionId_fallsBackToHomeDirectory_forFloatingPaneWithoutCwd() {
         let store = WorkspaceStore()
         let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil),
             provider: .zmx
         )
         let runtime = TerminalRestoreRuntime(
@@ -153,8 +154,9 @@ struct TerminalRestoreRuntimeTests {
         let repoB = store.addRepo(at: tempDirB)
         let worktreeB = try #require(repoB.worktrees.first)
         let bornPane = store.createPane(
-            source: .worktree(worktreeId: worktreeA.id, repoId: repoA.id, launchDirectory: worktreeA.path),
-            provider: .zmx
+            launchDirectory: worktreeA.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repoA.id, worktreeId: worktreeA.id, cwd: worktreeA.path)
         )
 
         // Roam: the live facet rewrite that PaneCoordinator performs on cwd change.
@@ -207,7 +209,7 @@ struct TerminalRestoreRuntimeTests {
     func zmxAttachCommand_isNil_whenSessionRestoreIsDisabled() {
         let store = WorkspaceStore()
         let pane = store.createPane(
-            source: .floating(launchDirectory: FileManager.default.homeDirectoryForCurrentUser, title: nil),
+            launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
             provider: .zmx
         )
         let runtime = TerminalRestoreRuntime(

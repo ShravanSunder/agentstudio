@@ -31,12 +31,13 @@ struct WorkspacePersistenceTransformerTests {
         let pane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .worktree(
-                    worktreeId: worktreeId,
+                launchDirectory: URL(fileURLWithPath: "/tmp/agent-studio"),
+                title: "Restored",
+                facets: PaneContextFacets(
                     repoId: repoId,
-                    launchDirectory: URL(fileURLWithPath: "/tmp/agent-studio")
-                ),
-                title: "Restored"
+                    worktreeId: worktreeId,
+                    cwd: URL(fileURLWithPath: "/tmp/agent-studio")
+                )
             )
         )
         let tab = Tab(paneId: pane.id)
@@ -205,7 +206,7 @@ struct WorkspacePersistenceTransformerTests {
         windowMemoryAtom.hydrate(sidebarWidth: 250, windowFrame: nil)
 
         let pane = paneAtom.createPane(
-            source: .worktree(worktreeId: worktreeId, repoId: repoId, launchDirectory: worktreePath),
+            launchDirectory: worktreePath,
             facets: PaneContextFacets(
                 repoId: repoId,
                 repoName: "stale repo",
@@ -672,7 +673,7 @@ struct WorkspacePersistenceTransformerTests {
         let drawerId = try #require(parentPane.drawer?.drawerId)
         let drawerPane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Drawer"),
+            metadata: PaneMetadata(title: "Drawer"),
             kind: .drawerChild(parentPaneId: parentPane.id)
         )
         let fallbackPane = makePane(title: "Fallback")

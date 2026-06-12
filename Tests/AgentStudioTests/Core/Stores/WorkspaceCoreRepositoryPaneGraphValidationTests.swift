@@ -629,7 +629,6 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
             id: id,
             content: content,
             metadata: .init(
-                source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/floating")),
                 executionBackend: .local,
                 createdAt: Date(timeIntervalSince1970: 300),
                 title: title,
@@ -659,11 +658,7 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
             id: id,
             content: .terminal(provider: .zmx, lifetime: .persistent),
             metadata: .init(
-                source: .worktree(
-                    repoId: repoId,
-                    worktreeId: worktreeId,
-                    launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/worktree")
-                ),
+                launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/worktree"),
                 executionBackend: .local,
                 createdAt: Date(timeIntervalSince1970: 300),
                 title: "Worktree",

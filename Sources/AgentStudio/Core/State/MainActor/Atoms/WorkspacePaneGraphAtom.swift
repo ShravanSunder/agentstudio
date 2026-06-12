@@ -77,7 +77,7 @@ struct PaneGraphFacets: Hashable, Sendable {
 struct PaneGraphMetadata: Hashable, Sendable {
     let paneId: PaneId
     let contentType: PaneContentType
-    let source: PaneMetadata.PaneMetadataSource
+    let launchDirectory: URL?
     let executionBackend: ExecutionBackend
     let createdAt: Date
     var title: String
@@ -88,7 +88,7 @@ struct PaneGraphMetadata: Hashable, Sendable {
     init(metadata: PaneMetadata) {
         self.paneId = metadata.paneId
         self.contentType = metadata.contentType
-        self.source = metadata.source
+        self.launchDirectory = metadata.launchDirectory
         self.executionBackend = metadata.executionBackend
         self.createdAt = metadata.createdAt
         self.title = metadata.title
@@ -106,14 +106,14 @@ struct PaneGraphMetadata: Hashable, Sendable {
         PaneMetadata(
             paneId: paneId,
             contentType: contentType,
-            source: source,
+            launchDirectory: launchDirectory,
             executionBackend: executionBackend,
             createdAt: createdAt,
             title: title,
             facets: facets.paneContextFacets,
             checkoutRef: checkoutRef,
             note: note,
-            fillNilSourceFacets: false
+            fillNilLaunchDirectoryFacet: false
         )
     }
 }
@@ -236,7 +236,7 @@ final class WorkspacePaneGraphAtom {
 
     @discardableResult
     func createPane(
-        source: TerminalSource,
+        launchDirectory: URL? = nil,
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
@@ -245,7 +245,7 @@ final class WorkspacePaneGraphAtom {
     ) -> PaneGraphState {
         createPane(
             content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
-            metadata: PaneMetadata(source: .init(source), title: title, facets: facets),
+            metadata: PaneMetadata(launchDirectory: launchDirectory, title: title, facets: facets),
             residency: residency
         )
     }

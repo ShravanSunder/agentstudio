@@ -48,7 +48,7 @@ struct PaneCoordinatorViewFactoryTests {
         let pane = Pane(
             id: UUIDv7.generate(),
             content: .webview(WebviewState(url: URL(string: "https://example.com")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Web"))
+            metadata: PaneMetadata()
         )
 
         let maybeView = coordinator.createViewForContent(pane: pane)
@@ -75,7 +75,7 @@ struct PaneCoordinatorViewFactoryTests {
             content: .codeViewer(
                 CodeViewerState(filePath: URL(fileURLWithPath: "/tmp/example.swift"), scrollToLine: 42)
             ),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Code"))
+            metadata: PaneMetadata()
         )
 
         let maybeView = coordinator.createViewForContent(pane: pane)
@@ -99,7 +99,7 @@ struct PaneCoordinatorViewFactoryTests {
         let pane = Pane(
             id: UUIDv7.generate(),
             content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Diff"))
+            metadata: PaneMetadata()
         )
 
         let maybeView = coordinator.createViewForContent(pane: pane)
@@ -133,12 +133,12 @@ struct PaneCoordinatorViewFactoryTests {
         let webviewPane = Pane(
             id: UUIDv7.generate(),
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-web")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Web"))
+            metadata: PaneMetadata()
         )
         let bridgePane = Pane(
             id: UUIDv7.generate(),
             content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "def456"))),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Diff"))
+            metadata: PaneMetadata()
         )
         let fileURL = FileManager.default.temporaryDirectory
             .appending(path: "code-view-runtime-\(UUID().uuidString).swift")
@@ -148,7 +148,10 @@ struct PaneCoordinatorViewFactoryTests {
             id: UUIDv7.generate(),
             content: .codeViewer(CodeViewerState(filePath: fileURL, scrollToLine: 1)),
             metadata: PaneMetadata(
-                source: .floating(launchDirectory: fileURL.deletingLastPathComponent(), title: "Code"))
+                contentType: .codeViewer,
+                launchDirectory: fileURL.deletingLastPathComponent(),
+                title: "Code"
+            )
         )
 
         _ = coordinator.createViewForContent(pane: webviewPane)
@@ -171,7 +174,7 @@ struct PaneCoordinatorViewFactoryTests {
         let pane = Pane(
             id: UUIDv7.generate(),
             content: .unsupported(UnsupportedContent(type: "legacy", version: 1, rawState: nil)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Legacy"))
+            metadata: PaneMetadata()
         )
 
         let maybeView = coordinator.createViewForContent(pane: pane)
@@ -189,7 +192,7 @@ struct PaneCoordinatorViewFactoryTests {
             id: drawerPaneId,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .floating(launchDirectory: URL(fileURLWithPath: "/Users/test"), title: "Drawer"),
+                launchDirectory: URL(fileURLWithPath: "/Users/test"),
                 title: "Drawer"
             ),
             kind: .drawerChild(parentPaneId: parentPaneId)
@@ -211,7 +214,7 @@ struct PaneCoordinatorViewFactoryTests {
             id: paneId,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .floating(launchDirectory: launchDirectory, title: "Floating"),
+                launchDirectory: launchDirectory,
                 title: "Floating"
             )
         )

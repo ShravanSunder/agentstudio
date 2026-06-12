@@ -138,7 +138,7 @@ final class DrawerDropDispatchTests {
     }
 
     private func addDrawerParent(to store: WorkspaceStore) throws -> DrawerParentFixture {
-        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let parentPane = store.createPane()
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)
         let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
@@ -157,7 +157,7 @@ final class DrawerDropDispatchTests {
         let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
 
-        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let parentPane = store.createPane()
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)
         let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))

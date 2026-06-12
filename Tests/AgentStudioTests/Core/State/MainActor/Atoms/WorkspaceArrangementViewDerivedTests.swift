@@ -191,7 +191,7 @@ struct WorkspaceArrangementViewDerivedTests {
         Pane(
             id: id,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil))
+            metadata: PaneMetadata()
         )
     }
 
@@ -199,7 +199,7 @@ struct WorkspaceArrangementViewDerivedTests {
         Pane(
             id: id,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil)),
+            metadata: PaneMetadata(),
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
     }

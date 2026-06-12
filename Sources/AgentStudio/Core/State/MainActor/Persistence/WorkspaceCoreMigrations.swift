@@ -24,6 +24,7 @@ enum WorkspaceCoreMigrations {
         ("006_create_workspace_sqlite_snapshot_status", createWorkspaceSQLiteSnapshotStatusStatements),
         ("007_stage_workspace_sqlite_snapshot_status", stageWorkspaceSQLiteSnapshotStatusStatements),
         ("008_add_zmx_session_id", addZmxSessionIdStatements),
+        ("009_drop_pane_source_binding", dropPaneSourceBindingStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -39,6 +40,66 @@ enum WorkspaceCoreMigrations {
         """
         ALTER TABLE pane_content_terminal ADD COLUMN zmx_session_id TEXT
         """
+    ]
+
+    private static let dropPaneSourceBindingStatements = [
+        """
+        DROP TRIGGER pane_source_repo_matches_workspace
+        """,
+        """
+        DROP TRIGGER pane_source_repo_update_matches_workspace
+        """,
+        """
+        DROP TRIGGER pane_source_worktree_matches_workspace
+        """,
+        """
+        DROP TRIGGER pane_source_worktree_update_matches_workspace
+        """,
+        """
+        ALTER TABLE pane RENAME COLUMN source_repo_id TO facet_repo_id
+        """,
+        """
+        ALTER TABLE pane RENAME COLUMN source_worktree_id TO facet_worktree_id
+        """,
+        """
+        ALTER TABLE pane DROP COLUMN source_kind
+        """,
+        """
+        CREATE TRIGGER pane_facet_repo_matches_workspace
+        BEFORE INSERT ON pane
+        WHEN NEW.facet_repo_id IS NOT NULL
+        AND (SELECT workspace_id FROM repo WHERE id = NEW.facet_repo_id) != NEW.workspace_id
+        BEGIN
+            SELECT RAISE(ABORT, 'pane facet_repo_id must belong to pane workspace');
+        END
+        """,
+        """
+        CREATE TRIGGER pane_facet_repo_update_matches_workspace
+        BEFORE UPDATE OF facet_repo_id, workspace_id ON pane
+        WHEN NEW.facet_repo_id IS NOT NULL
+        AND (SELECT workspace_id FROM repo WHERE id = NEW.facet_repo_id) != NEW.workspace_id
+        BEGIN
+            SELECT RAISE(ABORT, 'pane facet_repo_id must belong to pane workspace');
+        END
+        """,
+        """
+        CREATE TRIGGER pane_facet_worktree_matches_workspace
+        BEFORE INSERT ON pane
+        WHEN NEW.facet_worktree_id IS NOT NULL
+        AND (SELECT workspace_id FROM worktree WHERE id = NEW.facet_worktree_id) != NEW.workspace_id
+        BEGIN
+            SELECT RAISE(ABORT, 'pane facet_worktree_id must belong to pane workspace');
+        END
+        """,
+        """
+        CREATE TRIGGER pane_facet_worktree_update_matches_workspace
+        BEFORE UPDATE OF facet_worktree_id, workspace_id ON pane
+        WHEN NEW.facet_worktree_id IS NOT NULL
+        AND (SELECT workspace_id FROM worktree WHERE id = NEW.facet_worktree_id) != NEW.workspace_id
+        BEGIN
+            SELECT RAISE(ABORT, 'pane facet_worktree_id must belong to pane workspace');
+        END
+        """,
     ]
 
     private static let createWorkspaceStatements = [

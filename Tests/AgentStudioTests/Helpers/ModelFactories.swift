@@ -42,16 +42,17 @@ func makeRepo(
 
 func makePane(
     id: UUID = UUIDv7.generate(),
-    source: TerminalSource = .floating(launchDirectory: nil, title: nil),
+    launchDirectory: URL? = nil,
     title: String = "Terminal",
     provider: SessionProvider = .zmx,
     lifetime: SessionLifetime = .persistent,
-    residency: SessionResidency = .active
+    residency: SessionResidency = .active,
+    facets: PaneContextFacets = .empty
 ) -> Pane {
     Pane(
         id: id,
         content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
-        metadata: PaneMetadata(source: .init(source), title: title),
+        metadata: PaneMetadata(launchDirectory: launchDirectory, title: title, facets: facets),
         residency: residency
     )
 }

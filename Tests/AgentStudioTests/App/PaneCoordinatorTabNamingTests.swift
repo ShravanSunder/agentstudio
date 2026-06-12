@@ -25,8 +25,9 @@ struct PaneCoordinatorTabNamingTests {
         )
 
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
-            title: "Ignored"
+            launchDirectory: storedWorktree.path,
+            title: "Ignored",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
 
         #expect(harness.coordinator.tabNameForPane(pane) == "feature · feature/login")
@@ -46,8 +47,9 @@ struct PaneCoordinatorTabNamingTests {
         )
 
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
-            title: "Ignored"
+            launchDirectory: storedWorktree.path,
+            title: "Ignored",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
 
         #expect(harness.coordinator.tabNameForPane(pane) == "feature")
@@ -67,8 +69,9 @@ struct PaneCoordinatorTabNamingTests {
         )
 
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
-            title: "Ignored"
+            launchDirectory: storedWorktree.path,
+            title: "Ignored",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
 
         #expect(harness.coordinator.tabNameForPane(pane) == "feature")
@@ -88,8 +91,9 @@ struct PaneCoordinatorTabNamingTests {
         )
 
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
-            title: "Ignored"
+            launchDirectory: storedWorktree.path,
+            title: "Ignored",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
 
         #expect(harness.coordinator.tabNameForPane(pane) == "feature")
@@ -101,7 +105,6 @@ struct PaneCoordinatorTabNamingTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: nil),
             title: "   "
         )
 

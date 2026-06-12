@@ -32,7 +32,7 @@ struct CommandBarTabDisplayTitleTests {
         )
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
+            launchDirectory: storedWorktree.path,
             title: "Ignored",
             facets: PaneContextFacets(
                 repoId: repo.id,

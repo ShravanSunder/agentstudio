@@ -101,9 +101,10 @@ struct PaneCoordinatorArrangementSwitchHostTests {
         title: String
     ) -> Pane {
         store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: title,
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
     }
 }

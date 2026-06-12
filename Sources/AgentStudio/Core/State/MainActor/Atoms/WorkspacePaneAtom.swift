@@ -107,7 +107,7 @@ final class WorkspacePaneAtom {
 
     @discardableResult
     func createPane(
-        source: TerminalSource,
+        launchDirectory: URL? = nil,
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
@@ -115,14 +115,20 @@ final class WorkspacePaneAtom {
         facets: PaneContextFacets = .empty
     ) -> Pane {
         let state = graphAtom.createPane(
-            source: source,
+            launchDirectory: launchDirectory,
             title: title,
             provider: provider,
             lifetime: lifetime,
             residency: residency,
             facets: facets
         )
-        if provider == .zmx, let sessionId = zmxSessionId(for: source, paneId: state.id) {
+        if provider == .zmx,
+            let sessionId = zmxSessionId(
+                launchDirectory: launchDirectory,
+                facets: facets,
+                paneId: state.id
+            )
+        {
             graphAtom.setTerminalZmxSessionId(state.id, sessionId: sessionId)
         }
         return pane(state.id)!
@@ -351,47 +357,40 @@ final class WorkspacePaneAtom {
             ?? parentPane.metadata.launchDirectory
             ?? parentFallbackCWD
 
-        let inheritedSource: PaneMetadata.PaneMetadataSource
-        if let worktreeId = parentPane.worktreeId, let repoId = parentPane.repoId, let inheritedCWD {
-            inheritedSource = .worktree(
-                worktreeId: worktreeId,
-                repoId: repoId,
-                launchDirectory: inheritedCWD
-            )
-        } else {
-            inheritedSource = .floating(launchDirectory: inheritedCWD, title: nil)
-        }
-
         let inheritedFacets = parentPane.metadata.facets.fillingNilFields(
             from: PaneContextFacets(cwd: inheritedCWD)
         )
 
         return PaneMetadata(
-            source: inheritedSource,
+            launchDirectory: inheritedCWD,
             title: "Drawer",
             facets: inheritedFacets
         )
     }
 
-    private func zmxSessionId(for source: TerminalSource, paneId: UUID) -> String? {
-        switch source {
-        case .worktree(let worktreeId, let repoId, _):
-            guard
-                let repositoryTopologyAtom,
-                let repo = repositoryTopologyAtom.repo(repoId),
-                let worktree = repositoryTopologyAtom.worktree(worktreeId)
-            else { return nil }
+    private func zmxSessionId(
+        launchDirectory: URL?,
+        facets: PaneContextFacets,
+        paneId: UUID
+    ) -> String? {
+        if let worktreeId = facets.worktreeId {
+            guard let repositoryTopologyAtom,
+                let worktree = repositoryTopologyAtom.worktree(worktreeId),
+                let repo = facets.repoId.flatMap({ repositoryTopologyAtom.repo($0) })
+                    ?? repositoryTopologyAtom.repo(containing: worktreeId)
+            else {
+                return nil
+            }
             return ZmxBackend.sessionId(
                 repoStableKey: repo.stableKey,
                 worktreeStableKey: worktree.stableKey,
                 paneId: paneId
             )
-        case .floating(let launchDirectory, _):
-            return ZmxBackend.floatingSessionId(
-                launchDirectory: launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser,
-                paneId: paneId
-            )
         }
+        return ZmxBackend.floatingSessionId(
+            launchDirectory: launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser,
+            paneId: paneId
+        )
     }
 
     private func anchorDrawerZmxSessionIfNeeded(parentPaneId: UUID, drawerPaneId: UUID) {

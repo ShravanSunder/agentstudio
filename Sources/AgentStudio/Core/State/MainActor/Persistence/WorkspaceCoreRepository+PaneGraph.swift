@@ -48,7 +48,7 @@ extension WorkspaceCoreRepository {
     }
 
     struct PaneMetadataRecord: Equatable, Sendable {
-        var source: PaneSourceRecord
+        var launchDirectory: URL?
         var executionBackend: ExecutionBackend
         var createdAt: Date
         var title: String
@@ -57,7 +57,7 @@ extension WorkspaceCoreRepository {
         var durableFacets: DurableFacetsRecord
 
         init(
-            source: PaneSourceRecord,
+            launchDirectory: URL? = nil,
             executionBackend: ExecutionBackend,
             createdAt: Date,
             title: String,
@@ -65,7 +65,7 @@ extension WorkspaceCoreRepository {
             checkoutRef: String? = nil,
             durableFacets: DurableFacetsRecord = .init()
         ) {
-            self.source = source
+            self.launchDirectory = launchDirectory
             self.executionBackend = executionBackend
             self.createdAt = createdAt
             self.title = title
@@ -73,43 +73,9 @@ extension WorkspaceCoreRepository {
             self.checkoutRef = normalizedOptionalString(checkoutRef)
             self.durableFacets = durableFacets.fillingNilFields(
                 from: .init(
-                    repoId: source.repoId,
-                    worktreeId: source.worktreeId,
-                    cwd: source.launchDirectory
+                    cwd: launchDirectory
                 )
             )
-        }
-    }
-
-    enum PaneSourceRecord: Equatable, Sendable {
-        case worktree(repoId: UUID, worktreeId: UUID, launchDirectory: URL)
-        case floating(launchDirectory: URL?)
-
-        var repoId: UUID? {
-            switch self {
-            case .worktree(let repoId, _, _):
-                repoId
-            case .floating:
-                nil
-            }
-        }
-
-        var worktreeId: UUID? {
-            switch self {
-            case .worktree(_, let worktreeId, _):
-                worktreeId
-            case .floating:
-                nil
-            }
-        }
-
-        var launchDirectory: URL? {
-            switch self {
-            case .worktree(_, _, let launchDirectory):
-                launchDirectory
-            case .floating(let launchDirectory):
-                launchDirectory
-            }
         }
     }
 
@@ -201,15 +167,15 @@ private func decodePaneRecord(_ database: Database, row: Row) throws -> Workspac
     let contentTypeString: String = row["content_type"]
     let contentType = try decodePaneContentType(contentTypeString)
     let content = try decodePaneContentRecord(database, paneId: id, contentType: contentType)
-    let source = try decodePaneSourceRecord(row)
+    let launchDirectoryPath: String? = row["launch_directory"]
     let executionBackendString: String = row["execution_backend"]
     let executionBackend = try decodeExecutionBackend(executionBackendString)
     let createdAt: Double = row["created_at"]
     let title: String = row["title"]
     let note: String? = row["note"]
     let checkoutRef: String? = row["checkout_ref"]
-    let sourceRepoIdString: String? = row["source_repo_id"]
-    let sourceWorktreeIdString: String? = row["source_worktree_id"]
+    let sourceRepoIdString: String? = row["facet_repo_id"]
+    let sourceWorktreeIdString: String? = row["facet_worktree_id"]
     let cwdPath: String? = row["cwd"]
     let tags = try fetchPaneTags(database, paneId: id)
     let durableRepoId = try decodeOptionalUUID(
@@ -221,7 +187,7 @@ private func decodePaneRecord(_ database: Database, row: Row) throws -> Workspac
         malformedError: WorkspaceCoreRepositoryError.malformedWorktreeId
     )
     let metadata = WorkspaceCoreRepository.PaneMetadataRecord(
-        source: source,
+        launchDirectory: launchDirectoryPath.map { URL(fileURLWithPath: $0) },
         executionBackend: executionBackend,
         createdAt: Date(timeIntervalSince1970: createdAt),
         title: title,

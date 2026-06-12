@@ -2,11 +2,11 @@
 
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5 committed, T5b implemented with proof gates green in the current changeset. Next implementation step starts at T6.
+Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5/T5b committed, T6 implemented with scoped proof gates green in the current changeset. Next implementation step starts at T7.
 
 ## Execution State (handoff, 2026-06-11)
 
-T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b is implemented in the current changeset (`Add phase A zmx smoke gate`). Next implementation step starts at T6.
+T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b landed in commit `07863bb7` (`Add phase A zmx smoke gate`). `origin/main` was merged after PR #164 (`52c5e67725c3a0dfac4fed2a5f22f2386be00579`) in local merge commit `2b49210`. T6 is implemented in the current changeset. Next implementation step starts at T7.
 
 Done — T0 (all green, characterization evidence captured):
 - `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These were the red→green pivots for T4.
@@ -83,6 +83,21 @@ Done — T5b implementation (Phase-A smoke before source deletion):
 1. Focused smoke: `swift build --build-tests --build-path .build-agent-t5b && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t5b --filter "ZmxE2ETests/test_phaseASmoke_hydratesLegacyRoamedPaneBeforeCleanup"` — build complete; 1 test in 2 suites passed after 1.566s.
 2. Full opt-in zmx E2E lane: `SWIFT_BUILD_DIR=.build-agent-t5b mise run test-zmx-e2e` — build complete; 6 tests in 2 suites passed after 5.244s.
 3. Lint/diff gate: `mise run format && mise run lint && git diff --check` — swift-format OK; swiftlint 0 violations in 1014 files; Core boundary import check passed; release script verification passed; whitespace diff check clean.
+
+Done — T6 implementation (source union deletion + migration 009):
+- `Sources/AgentStudio/Core/Models/TerminalSource.swift` and `TerminalSourceTests.swift` deleted; `PaneMetadataSource` removed from `PaneMetadata`.
+- `PaneMetadata` now owns `launchDirectory` directly; live identity/classification comes from `PaneContextFacets`.
+- `WorkspacePaneAtom` / `WorkspacePaneGraphAtom` creation flows take launch directory, title, content, residency, and facets directly; zmx spawn anchors remain stored/frozen.
+- Persistence records/codecs/backend bridge write and read `facet_repo_id` / `facet_worktree_id`; migration `009_drop_pane_source_binding` renames source columns to facet columns and drops `source_kind`.
+- `CommandBarDataSource` and `RuntimeRegistry` derive pane/worktree classification from live facets; new tests prove roamed panes follow live facets.
+- Test factories and call sites were mechanically cut over from `source:` to explicit `launchDirectory` / `facets`.
+
+**T6 proof gates so far:**
+1. Compile proof: `swift build --build-tests --jobs 2 --build-path .build-agent-t6` — build complete in 260.40s before the CommandBar file split.
+2. Scoped regression proof after the PR #164/main merge and file split: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t6 --filter "WorkspaceCoreMigrationTests|WorkspaceCoreRepositoryPaneSourceLatchTests|WorkspaceCoreRepositoryPaneGraphTests|WorkspaceCoreRepositoryPaneGraphValidationTests|WorkspaceSQLiteStoreBridgeTests|PaneCoordinatorCWDIdentityTests|TerminalRestoreRuntimeTests|ZmxOrphanCleanupPlannerTests|CommandBarDataSourceTests|CommandBarDataSourceSourceRemovalTests|RuntimeRegistryTests"` — build complete in 82.40s; 133 tests in 11 suites passed after 1.227s.
+3. Source lint subset: `swift-format lint --recursive Sources/ Tests/ && swiftlint lint --strict && bash scripts/check-core-boundary-imports.sh` — swiftlint 0 violations in 1026 files; Core boundary import check passed.
+4. Formatting: `mise run format` — formatted all Swift sources.
+5. Full `mise run lint` caveat: after PR #164/main merge, the release-script subcheck hangs in `scripts/verify-release-scripts.sh` while waiting on `scripts/render-homebrew-cask.sh stable 0.0.54 ...`. The Swift/source lint layers passed; release tooling was not changed in this plan slice.
 
 Execution discoveries the remaining tasks must respect:
 - **Source columns double as facet storage.** `decodePaneRecord` (WorkspaceCoreRepository+PaneGraph.swift:202-213) reads `durableFacets.repoId/worktreeId` FROM `source_repo_id`/`source_worktree_id`. On write, `SQLitePaneGraphStorage.sourceIds` stores source ids for worktree panes and facet ids for floating panes. Consequence for T6/migration 009: those columns are not "dropped" — they are RENAMED/refit as facet columns (`facet_repo_id`, `facet_worktree_id`) written from `durableFacets` for all panes, and `source_kind` is dropped. A facet/source mismatch can never round-trip through the DB (single column) — it exists only in memory, which is consistent with the latch evidence.

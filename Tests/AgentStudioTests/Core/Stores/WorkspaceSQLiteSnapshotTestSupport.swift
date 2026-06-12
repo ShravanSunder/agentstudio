@@ -116,10 +116,11 @@ extension WorkspaceSQLiteSnapshot {
         let facetRepoId = UUID()
         let worktreeId = UUID()
         var pane = makePane(
-            source: .worktree(
-                worktreeId: worktreeId,
+            launchDirectory: URL(fileURLWithPath: "/tmp/repo"),
+            facets: PaneContextFacets(
                 repoId: sourceRepoId,
-                launchDirectory: URL(fileURLWithPath: "/tmp/repo")
+                worktreeId: worktreeId,
+                cwd: URL(fileURLWithPath: "/tmp/repo")
             )
         )
         pane.metadata.updateFacets(

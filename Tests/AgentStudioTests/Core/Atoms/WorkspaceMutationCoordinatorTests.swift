@@ -85,7 +85,7 @@ struct WorkspaceMutationCoordinatorTests {
         let parentPaneId = UUID()
         let drawerPane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Drawer"),
+            metadata: PaneMetadata(title: "Drawer"),
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
         let snapshot = WorkspaceMutationCoordinator.PaneCloseSnapshot(

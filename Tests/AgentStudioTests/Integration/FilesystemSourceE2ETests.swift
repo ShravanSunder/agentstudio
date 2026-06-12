@@ -30,9 +30,10 @@ extension E2ESerializedTests {
             let reconciledWorktree = try #require(store.repo(repo.id)?.worktrees.first)
 
             let pane = store.createPane(
-                source: .worktree(
-                    worktreeId: reconciledWorktree.id, repoId: repo.id, launchDirectory: reconciledWorktree.path),
-                title: "Filesystem E2E Pane"
+                launchDirectory: reconciledWorktree.path,
+                title: "Filesystem E2E Pane",
+                facets: PaneContextFacets(
+                    repoId: repo.id, worktreeId: reconciledWorktree.id, cwd: reconciledWorktree.path),
             )
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)

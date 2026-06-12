@@ -97,19 +97,18 @@ private func upsertPane(_ database: Database, workspaceId: UUID, pane: Workspace
     try database.execute(
         sql: """
             INSERT INTO pane(
-                id, workspace_id, content_type, execution_backend, source_kind,
-                source_repo_id, source_worktree_id, launch_directory, title, note,
+                id, workspace_id, content_type, execution_backend,
+                facet_repo_id, facet_worktree_id, launch_directory, title, note,
                 cwd, checkout_ref, residency_kind, pending_undo_expires_at,
                 orphan_reason_kind, orphan_worktree_path, kind, parent_pane_id,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 content_type = excluded.content_type,
                 execution_backend = excluded.execution_backend,
-                source_kind = excluded.source_kind,
-                source_repo_id = excluded.source_repo_id,
-                source_worktree_id = excluded.source_worktree_id,
+                facet_repo_id = excluded.facet_repo_id,
+                facet_worktree_id = excluded.facet_worktree_id,
                 launch_directory = excluded.launch_directory,
                 title = excluded.title,
                 note = excluded.note,
@@ -258,7 +257,7 @@ private func paneStatementArguments(
     workspaceId: UUID,
     pane: WorkspaceCoreRepository.PaneRecord
 ) throws -> StatementArguments {
-    let sourceIds = try resolvedPaneReferenceIds(database, workspaceId: workspaceId, pane: pane)
+    let facetIds = try resolvedPaneReferenceIds(database, workspaceId: workspaceId, pane: pane)
     let residency = SQLitePaneGraphStorage.residency(pane.residency)
     let placement = SQLitePaneGraphStorage.placement(pane.placement)
     let values: [(any DatabaseValueConvertible)?] = [
@@ -266,10 +265,9 @@ private func paneStatementArguments(
         workspaceId.uuidString,
         SQLitePaneContentTypeStorage.storageValue(for: pane.content.contentType),
         try encodeExecutionBackend(pane.metadata.executionBackend),
-        SQLitePaneGraphStorage.sourceKind(pane.metadata.source),
-        sourceIds.repoId?.uuidString,
-        sourceIds.worktreeId?.uuidString,
-        pane.metadata.source.launchDirectory?.path,
+        facetIds.repoId?.uuidString,
+        facetIds.worktreeId?.uuidString,
+        pane.metadata.launchDirectory?.path,
         pane.metadata.title,
         pane.metadata.note,
         pane.metadata.durableFacets.cwd?.path,

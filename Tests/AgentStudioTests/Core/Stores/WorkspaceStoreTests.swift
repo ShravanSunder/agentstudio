@@ -48,7 +48,6 @@ final class WorkspaceStoreTests {
         let pane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .floating(launchDirectory: nil, title: nil),
                 title: "Restored"
             )
         )
@@ -231,7 +230,6 @@ final class WorkspaceStoreTests {
         let pane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .floating(launchDirectory: nil, title: nil),
                 title: "Scoped"
             )
         )
@@ -283,9 +281,7 @@ final class WorkspaceStoreTests {
 
     func test_createPane_addsToPanes() {
         // Act
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Test")
-        )
+        let pane = store.createPane()
 
         // Assert
         #expect(store.panes.count == 1)
@@ -299,12 +295,13 @@ final class WorkspaceStoreTests {
         // Arrange
         let worktreeId = UUID()
         let repoId = UUID()
+        let launchDirectory = URL(fileURLWithPath: "/tmp/worktree")
 
         // Act
         let pane = store.createPane(
-            source: .worktree(
-                worktreeId: worktreeId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")),
-            title: "Feature"
+            launchDirectory: launchDirectory,
+            title: "Feature",
+            facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: launchDirectory)
         )
 
         // Assert
@@ -330,8 +327,9 @@ final class WorkspaceStoreTests {
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main, feature])
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: main.id, repoId: repo.id, launchDirectory: main.path),
-            title: "Terminal"
+            launchDirectory: main.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: main.id, cwd: main.path)
         )
 
         let cwd = feature.path.appending(path: "Sources")
@@ -349,14 +347,7 @@ final class WorkspaceStoreTests {
         #expect(updated?.metadata.repoName == repo.name)
         #expect(updated?.metadata.worktreeName == "feature")
 
-        guard case .worktree(let launchWorktreeId, let launchRepoId, let launchDirectory) = updated?.metadata.source
-        else {
-            Issue.record("Expected launch source to remain worktree provenance")
-            return
-        }
-        #expect(launchWorktreeId == main.id)
-        #expect(launchRepoId == repo.id)
-        #expect(launchDirectory == main.path)
+        #expect(updated?.metadata.launchDirectory == main.path)
     }
 
     @Test
@@ -371,8 +362,9 @@ final class WorkspaceStoreTests {
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main])
         let storedWorktree = try #require(store.repos.first { $0.id == repo.id }?.worktrees.first)
         let pane = store.createPane(
-            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
-            title: "Terminal"
+            launchDirectory: storedWorktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path)
         )
         store.appendTab(Tab(paneId: pane.id))
 
@@ -399,18 +391,11 @@ final class WorkspaceStoreTests {
         #expect(restoredPane.repoId == nil)
         #expect(restoredPane.worktreeId == nil)
 
-        guard case .worktree(let launchWorktreeId, let launchRepoId, let launchDirectory) = updated?.metadata.source
-        else {
-            Issue.record("Expected launch source to remain worktree provenance")
-            return
-        }
-        #expect(launchWorktreeId == storedWorktree.id)
-        #expect(launchRepoId == repo.id)
-        #expect(launchDirectory == storedWorktree.path)
+        #expect(updated?.metadata.launchDirectory == storedWorktree.path)
     }
 
     @Test
-    func updatePaneLiveLocation_preservesFloatingSourceWhileLiveFacetsFollowKnownCwd() {
+    func updatePaneLiveLocation_preservesLaunchDirectoryWhileLiveFacetsFollowKnownCwd() {
         let repo = store.addRepo(at: URL(filePath: "/tmp/live-floating-repo"))
         let worktree = Worktree(
             repoId: repo.id,
@@ -419,7 +404,7 @@ final class WorkspaceStoreTests {
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         let pane = store.createPane(
-            source: .floating(launchDirectory: URL(filePath: "/tmp/scratch"), title: "scratch"),
+            launchDirectory: URL(filePath: "/tmp/scratch"),
             title: "Scratch Terminal"
         )
 
@@ -433,12 +418,7 @@ final class WorkspaceStoreTests {
         #expect(changed == .applied)
         #expect(updated?.repoId == repo.id)
         #expect(updated?.worktreeId == worktree.id)
-        guard case .floating(let launchDirectory, let title) = updated?.metadata.source else {
-            Issue.record("Expected launch source to remain floating provenance")
-            return
-        }
-        #expect(launchDirectory == URL(filePath: "/tmp/scratch"))
-        #expect(title == "scratch")
+        #expect(updated?.metadata.launchDirectory == URL(filePath: "/tmp/scratch"))
     }
 
     @Test
@@ -452,8 +432,9 @@ final class WorkspaceStoreTests {
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            title: "Terminal"
+            launchDirectory: worktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
         )
         let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: worktree.path)
 
@@ -489,7 +470,7 @@ final class WorkspaceStoreTests {
         let pane = Pane(
             id: PaneId().uuid,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "scratch"))
+            metadata: PaneMetadata()
         )
         #expect(atom.insertRestoredPane(pane))
 
@@ -502,9 +483,7 @@ final class WorkspaceStoreTests {
 
     func test_removePane_removesFromPanes() {
         // Arrange
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
 
         // Act
         store.removePane(pane.id)
@@ -517,12 +496,8 @@ final class WorkspaceStoreTests {
 
     func test_removePane_removesFromLayouts() {
         // Arrange
-        let p1 = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
-        let p2 = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
 
@@ -539,9 +514,7 @@ final class WorkspaceStoreTests {
 
     func test_removePane_lastInTab_closesTab() {
         // Arrange
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         #expect(store.tabs.count == 1)
@@ -557,9 +530,7 @@ final class WorkspaceStoreTests {
 
     func test_updatePaneTitle() {
         // Arrange
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
 
         // Act
         store.updatePaneTitle(pane.id, title: "New Title")
@@ -572,9 +543,7 @@ final class WorkspaceStoreTests {
 
     func test_updatePaneCWD_updatesValue() {
         // Arrange
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
         let cwd = URL(fileURLWithPath: "/tmp/workspace")
 
         // Act
@@ -588,9 +557,7 @@ final class WorkspaceStoreTests {
 
     func test_updatePaneCWD_nilClearsValue() {
         // Arrange
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
         store.updatePaneCWD(pane.id, cwd: URL(fileURLWithPath: "/tmp"))
 
         // Act
@@ -604,9 +571,7 @@ final class WorkspaceStoreTests {
 
     func test_updatePaneCWD_sameCWD_noOpDoesNotMarkDirty() {
         // Arrange
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
         let cwd = URL(fileURLWithPath: "/tmp")
         store.updatePaneCWD(pane.id, cwd: cwd)
         store.flush()
@@ -632,9 +597,7 @@ final class WorkspaceStoreTests {
 
     func test_setResidency() {
         // Arrange
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
         #expect(pane.residency == .active)
 
         // Act
@@ -649,9 +612,7 @@ final class WorkspaceStoreTests {
 
     func test_setResidency_backgrounded() {
         // Arrange
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
 
         // Act
         store.setResidency(.backgrounded, for: pane.id)
@@ -665,7 +626,6 @@ final class WorkspaceStoreTests {
     func test_createPane_withLifetimeAndResidency() {
         // Act
         let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil),
             lifetime: .temporary,
             residency: .backgrounded
         )
@@ -689,10 +649,11 @@ final class WorkspaceStoreTests {
         // Arrange
         let worktreeId = UUID()
         store.createPane(
-            source: .worktree(
-                worktreeId: worktreeId,
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            facets: PaneContextFacets(
                 repoId: UUID(),
-                launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+                worktreeId: worktreeId,
+                cwd: URL(fileURLWithPath: "/tmp/worktree")
             )
         )
 
@@ -707,16 +668,21 @@ final class WorkspaceStoreTests {
         let worktreeId = UUID()
         let repoId = UUID()
         store.createPane(
-            source: .worktree(
-                worktreeId: worktreeId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")))
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            facets: PaneContextFacets(
+                repoId: repoId, worktreeId: worktreeId, cwd: URL(fileURLWithPath: "/tmp/worktree"))
+        )
         store.createPane(
-            source: .worktree(
-                worktreeId: worktreeId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")))
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            facets: PaneContextFacets(
+                repoId: repoId, worktreeId: worktreeId, cwd: URL(fileURLWithPath: "/tmp/worktree"))
+        )
         store.createPane(
-            source: .worktree(
-                worktreeId: UUID(),
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            facets: PaneContextFacets(
                 repoId: UUID(),
-                launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+                worktreeId: UUID(),
+                cwd: URL(fileURLWithPath: "/tmp/worktree")
             )
         )
 
@@ -730,9 +696,7 @@ final class WorkspaceStoreTests {
 
     func test_appendTab_addsToTabs() {
         // Arrange
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
 
         // Act
@@ -747,8 +711,8 @@ final class WorkspaceStoreTests {
 
     func test_removeTab_removesAndUpdatesActiveTabId() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
         let tab1 = Tab(paneId: s1.id)
         let tab2 = Tab(paneId: s2.id)
         store.appendTab(tab1)
@@ -767,9 +731,9 @@ final class WorkspaceStoreTests {
 
     func test_insertTab_atIndex() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s3 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
+        let s3 = store.createPane()
         let tab1 = Tab(paneId: s1.id)
         let tab2 = Tab(paneId: s2.id)
         let tab3 = Tab(paneId: s3.id)
@@ -788,9 +752,9 @@ final class WorkspaceStoreTests {
 
     func test_moveTab() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s3 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
+        let s3 = store.createPane()
         let tab1 = Tab(paneId: s1.id)
         let tab2 = Tab(paneId: s2.id)
         let tab3 = Tab(paneId: s3.id)
@@ -813,8 +777,8 @@ final class WorkspaceStoreTests {
 
     func test_insertPane_splitsLayout() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
         let tab = Tab(paneId: s1.id)
         store.appendTab(tab)
 
@@ -834,8 +798,8 @@ final class WorkspaceStoreTests {
 
     func test_removePaneFromLayout_collapsesToSingle() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
         let tab = makeTab(paneIds: [s1.id, s2.id])
         store.appendTab(tab)
 
@@ -853,7 +817,7 @@ final class WorkspaceStoreTests {
 
     func test_removePaneFromLayout_lastPane_removesTab() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
         let tab = Tab(paneId: s1.id)
         store.appendTab(tab)
 
@@ -868,8 +832,8 @@ final class WorkspaceStoreTests {
 
     func test_equalizePanes() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
         let tab = Tab(paneId: s1.id)
         store.appendTab(tab)
         store.insertPane(
@@ -894,9 +858,9 @@ final class WorkspaceStoreTests {
 
     func test_breakUpTab_splitIntoIndividual() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s3 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
+        let s3 = store.createPane()
         let tab = makeTab(paneIds: [s1.id, s2.id, s3.id])
         store.appendTab(tab)
 
@@ -915,7 +879,7 @@ final class WorkspaceStoreTests {
 
     func test_breakUpTab_singlePane_noOp() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
         let tab = Tab(paneId: s1.id)
         store.appendTab(tab)
 
@@ -931,8 +895,8 @@ final class WorkspaceStoreTests {
 
     func test_extractPane() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
         let tab = makeTab(paneIds: [s1.id, s2.id])
         store.appendTab(tab)
 
@@ -949,8 +913,8 @@ final class WorkspaceStoreTests {
 
     @Test
     func test_extractPane_removesPaneFromSourceArrangementMinimizedSet() {
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
         let tab = makeTab(paneIds: [s1.id, s2.id])
         store.appendTab(tab)
         _ = store.minimizePane(s2.id, inTab: tab.id)
@@ -964,7 +928,7 @@ final class WorkspaceStoreTests {
 
     func test_extractPane_singlePane_noOp() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
         let tab = Tab(paneId: s1.id)
         store.appendTab(tab)
 
@@ -980,8 +944,8 @@ final class WorkspaceStoreTests {
 
     func test_mergeTab() {
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
         let tab1 = Tab(paneId: s1.id)
         let tab2 = Tab(paneId: s2.id)
         store.appendTab(tab1)
@@ -1002,7 +966,7 @@ final class WorkspaceStoreTests {
 
     @Test
     func test_mergeTab_sameSourceAndTarget_noOp() {
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -1025,7 +989,7 @@ final class WorkspaceStoreTests {
 
     func test_pane_byId() {
         // Arrange
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
 
         // Assert
         #expect(store.pane(pane.id)?.id == pane.id)
@@ -1036,7 +1000,7 @@ final class WorkspaceStoreTests {
 
     func test_tabContaining_paneId() {
         // Arrange
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -1052,16 +1016,21 @@ final class WorkspaceStoreTests {
         let worktreeId = UUID()
         let repoId = UUID()
         store.createPane(
-            source: .worktree(
-                worktreeId: worktreeId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")))
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            facets: PaneContextFacets(
+                repoId: repoId, worktreeId: worktreeId, cwd: URL(fileURLWithPath: "/tmp/worktree"))
+        )
         store.createPane(
-            source: .worktree(
-                worktreeId: worktreeId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")))
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            facets: PaneContextFacets(
+                repoId: repoId, worktreeId: worktreeId, cwd: URL(fileURLWithPath: "/tmp/worktree"))
+        )
         store.createPane(
-            source: .worktree(
-                worktreeId: UUID(),
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            facets: PaneContextFacets(
                 repoId: UUID(),
-                launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+                worktreeId: UUID(),
+                cwd: URL(fileURLWithPath: "/tmp/worktree")
             )
         )
 
@@ -1076,7 +1045,6 @@ final class WorkspaceStoreTests {
     func test_persistence_saveAndRestore() {
         // Arrange
         let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Persistent"),
             title: "Persistent"
         )
         let tab = Tab(paneId: pane.id)
@@ -1101,12 +1069,10 @@ final class WorkspaceStoreTests {
     func test_persistence_temporaryPanesExcluded() {
         // Arrange
         let persistent = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Persistent"),
             title: "Persistent",
             lifetime: .persistent
         )
         store.createPane(
-            source: .floating(launchDirectory: nil, title: "Temporary"),
             title: "Temporary",
             lifetime: .temporary
         )
@@ -1132,12 +1098,10 @@ final class WorkspaceStoreTests {
     func test_persistence_temporaryPanesPrunedFromLayouts() {
         // Arrange — create a tab with both persistent and temporary panes in a split layout
         let persistent = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Persistent"),
             title: "Persistent",
             lifetime: .persistent
         )
         let temporary = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Temporary"),
             title: "Temporary",
             lifetime: .temporary
         )
@@ -1163,7 +1127,6 @@ final class WorkspaceStoreTests {
     func test_persistence_allTemporary_tabPruned() {
         // Arrange — tab with only temporary panes
         let temp1 = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil),
             lifetime: .temporary
         )
         let tab = Tab(paneId: temp1.id)
@@ -1185,11 +1148,9 @@ final class WorkspaceStoreTests {
     func test_persistence_activeTabIdFixupAfterPrune() {
         // Arrange — two tabs: one all-temporary (active), one persistent
         let persistent = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Persistent"),
             lifetime: .persistent
         )
         let temporary = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Temporary"),
             lifetime: .temporary
         )
         let tab1 = Tab(paneId: persistent.id)
@@ -1223,8 +1184,9 @@ final class WorkspaceStoreTests {
 
         let worktree = store.repos.first!.worktrees.first!
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            title: "Will become orphaned"
+            launchDirectory: worktree.path,
+            title: "Will become orphaned",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -1235,12 +1197,13 @@ final class WorkspaceStoreTests {
         // Simulate by restoring, then creating a pane with a fabricated worktreeId
         // that doesn't exist in any repo.
         let orphanPane = store.createPane(
-            source: .worktree(
-                worktreeId: UUID(),
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            title: "Orphaned",
+            facets: PaneContextFacets(
                 repoId: repo.id,
-                launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
-            ),
-            title: "Orphaned"
+                worktreeId: UUID(),
+                cwd: URL(fileURLWithPath: "/tmp/worktree")
+            )
         )
         let orphanTab = Tab(paneId: orphanPane.id)
         store.appendTab(orphanTab)
@@ -1266,7 +1229,7 @@ final class WorkspaceStoreTests {
         #expect(!(store.isDirty))
 
         // Act — mutation marks dirty
-        _ = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        _ = store.createPane()
         #expect(store.isDirty)
 
         // Act — flush clears dirty
@@ -1284,7 +1247,7 @@ final class WorkspaceStoreTests {
             persistDebounceDuration: .zero
         )
         fastStore.restore()
-        _ = fastStore.createPane(source: .floating(launchDirectory: nil, title: nil))
+        _ = fastStore.createPane()
         #expect(fastStore.isDirty)
 
         // Act — allow scheduled debounce task to run
@@ -1300,7 +1263,7 @@ final class WorkspaceStoreTests {
     func test_isDirty_setOnDirectPaneAtomMutation() async {
         #expect(!(store.isDirty))
 
-        _ = store.paneAtom.createPane(source: .floating(launchDirectory: nil, title: nil))
+        _ = store.paneAtom.createPane()
 
         for _ in 0..<10 where !store.isDirty {
             await Task.yield()
@@ -1324,7 +1287,7 @@ final class WorkspaceStoreTests {
 
     @Test
     func test_zoomPresentationChangeDoesNotDirtyWorkspacePersistence() async {
-        let pane = store.paneAtom.createPane(source: .floating(launchDirectory: nil, title: "Zoom"))
+        let pane = store.paneAtom.createPane()
         let tab = Tab(paneId: pane.id)
         store.tabLayoutAtom.appendTab(tab)
         #expect(store.flush())
@@ -1341,7 +1304,7 @@ final class WorkspaceStoreTests {
 
     @Test
     func test_isDirty_setOnDirectTabWriteOwnerMutation() async {
-        let pane = store.paneAtom.createPane(source: .floating(launchDirectory: nil, title: "Graph"))
+        let pane = store.paneAtom.createPane()
         let tab = Tab(paneId: pane.id)
         store.tabLayoutAtom.appendTab(tab)
         #expect(store.flush())
@@ -1358,10 +1321,10 @@ final class WorkspaceStoreTests {
 
     @Test
     func test_isDirty_setOnActiveTabCursorMutation() async {
-        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let firstPane = store.createPane()
         let firstTab = Tab(paneId: firstPane.id)
         store.appendTab(firstTab)
-        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let secondPane = store.createPane()
         let secondTab = Tab(paneId: secondPane.id)
         store.appendTab(secondTab)
         #expect(store.activeTabId == secondTab.id)
@@ -1379,10 +1342,10 @@ final class WorkspaceStoreTests {
 
     @Test
     func test_isDirty_setOnActiveArrangementCursorMutation() async throws {
-        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let firstPane = store.createPane()
         let tab = Tab(paneId: firstPane.id)
         store.appendTab(tab)
-        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let secondPane = store.createPane()
         #expect(
             store.insertPane(
                 secondPane.id,
@@ -1407,10 +1370,10 @@ final class WorkspaceStoreTests {
 
     @Test
     func test_isDirty_setOnActivePaneCursorMutation() async {
-        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let firstPane = store.createPane()
         let tab = Tab(paneId: firstPane.id)
         store.appendTab(tab)
-        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let secondPane = store.createPane()
         #expect(
             store.insertPane(
                 secondPane.id,
@@ -1435,7 +1398,7 @@ final class WorkspaceStoreTests {
 
     @Test
     func test_isDirty_setOnActiveDrawerChildCursorMutation() async throws {
-        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentPane = store.createPane()
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)
         let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
@@ -1465,7 +1428,7 @@ final class WorkspaceStoreTests {
         let pane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .worktree(worktreeId: worktreeId, repoId: repoId, launchDirectory: worktreePath),
+                launchDirectory: worktreePath,
                 title: "Terminal",
                 facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: worktreePath)
             )
@@ -1549,7 +1512,7 @@ final class WorkspaceStoreTests {
 
     func test_snapshotForClose_capturesState() {
         // Arrange
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -1567,7 +1530,7 @@ final class WorkspaceStoreTests {
 
     func test_restoreFromSnapshot_reinsertTab() {
         // Arrange
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         let snapshot = store.snapshotForClose(tabId: tab.id)!
@@ -1603,11 +1566,9 @@ final class WorkspaceStoreTests {
 
         // Create a pane referencing wt1's ID
         let pane = store.createPane(
-            source: .worktree(
-                worktreeId: storedWt1Id,
-                repoId: repo.id,
-                launchDirectory: store.repos.first!.worktrees.first!.path
-            )
+            launchDirectory: store.repos.first!.worktrees.first!.path,
+            facets: PaneContextFacets(
+                repoId: repo.id, worktreeId: storedWt1Id, cwd: store.repos.first!.worktrees.first!.path)
         )
 
         // Act — simulate refresh with fresh Worktree instances (new UUIDs, same paths)
@@ -1886,11 +1847,10 @@ final class WorkspaceStoreTests {
     func test_persistence_activeTabIdNotMutatedDuringSave() {
         // Arrange — create tabs: tab1 has temporary pane (pruned on save), tab2 is persistent
         let p1 = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil),
             lifetime: .temporary)
         let tab1 = Tab(paneId: p1.id)
         store.appendTab(tab1)
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane()
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab2)
         store.setActiveTab(tab1.id)  // select the temporary tab
@@ -1909,9 +1869,9 @@ final class WorkspaceStoreTests {
 
     func test_moveTabByDelta_movesForward() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p3 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
+        let p3 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         let tab3 = Tab(paneId: p3.id)
@@ -1932,9 +1892,9 @@ final class WorkspaceStoreTests {
 
     func test_moveTabByDelta_movesBackward() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p3 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
+        let p3 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         let tab3 = Tab(paneId: p3.id)
@@ -1955,8 +1915,8 @@ final class WorkspaceStoreTests {
 
     func test_moveTabByDelta_clampsAtEnd() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -1974,8 +1934,8 @@ final class WorkspaceStoreTests {
 
     func test_moveTabByDelta_clampsAtStart() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -1993,7 +1953,7 @@ final class WorkspaceStoreTests {
 
     func test_moveTabByDelta_singleTab_noOp() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         store.appendTab(tab1)
 
@@ -2011,8 +1971,8 @@ final class WorkspaceStoreTests {
 
     func test_setActiveTab_setsTabId() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -2029,7 +1989,7 @@ final class WorkspaceStoreTests {
 
     func test_setActiveTab_nil_clearsActiveTab() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         store.appendTab(tab1)
         store.setActiveTab(tab1.id)
@@ -2047,8 +2007,8 @@ final class WorkspaceStoreTests {
 
     func test_setActivePane_validPane() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = makeTab(paneIds: [p1.id, p2.id], activePaneId: p1.id)
         store.appendTab(tab)
 
@@ -2063,7 +2023,7 @@ final class WorkspaceStoreTests {
 
     func test_setActivePane_invalidPane_rejected() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
 
@@ -2079,7 +2039,7 @@ final class WorkspaceStoreTests {
 
     func test_setActivePane_nil_clearsActivePane() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
 
@@ -2096,8 +2056,8 @@ final class WorkspaceStoreTests {
 
     func test_toggleZoom_setsZoomedPaneId() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
 
@@ -2112,8 +2072,8 @@ final class WorkspaceStoreTests {
 
     func test_toggleZoom_togglesOff() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
@@ -2129,7 +2089,7 @@ final class WorkspaceStoreTests {
 
     func test_toggleZoom_invalidPane_noOp() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
 
@@ -2147,8 +2107,8 @@ final class WorkspaceStoreTests {
 
     func test_insertPane_clearsZoom() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
@@ -2168,8 +2128,8 @@ final class WorkspaceStoreTests {
 
     func test_removePaneFromLayout_clearsZoomOnRemovedPane() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
@@ -2188,8 +2148,8 @@ final class WorkspaceStoreTests {
 
     func test_resizePane_changesRatio() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         guard let dividerId = store.tabs[0].layout.dividerIds.first else {
@@ -2210,8 +2170,8 @@ final class WorkspaceStoreTests {
 
     func test_resizePaneByDelta_adjustsRatio() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         guard let dividerId = store.tabs[0].layout.dividerIds.first else {
@@ -2231,8 +2191,8 @@ final class WorkspaceStoreTests {
 
     func test_resizePaneByDelta_whileZoomed_noOp() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
@@ -2340,8 +2300,8 @@ final class WorkspaceStoreTests {
 
     func test_extractPane_clearsZoomOnExtractedPane() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
         store.toggleZoom(paneId: p1.id, inTab: tab.id)
@@ -2361,8 +2321,8 @@ final class WorkspaceStoreTests {
 
     func test_removePaneFromLayout_updatesActivePaneIdWhenActiveRemoved() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = makeTab(paneIds: [p1.id, p2.id], activePaneId: p1.id)
         store.appendTab(tab)
         #expect(store.tabs[0].activePaneId == p1.id)

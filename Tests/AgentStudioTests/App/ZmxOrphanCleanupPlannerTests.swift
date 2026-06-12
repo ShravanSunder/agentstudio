@@ -268,11 +268,7 @@ struct ZmxOrphanCleanupPlannerTests {
         let legacyPaneState = store.paneAtom.createPane(
             content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionId: nil)),
             metadata: PaneMetadata(
-                source: .worktree(
-                    worktreeId: birthWorktree.id,
-                    repoId: birthRepo.id,
-                    launchDirectory: birthWorktree.path
-                ),
+                launchDirectory: birthWorktree.path,
                 title: "Legacy Roamed",
                 facets: PaneContextFacets(
                     repoId: roamedRepo.id,

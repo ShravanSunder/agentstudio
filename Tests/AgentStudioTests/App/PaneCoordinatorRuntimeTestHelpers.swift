@@ -23,7 +23,6 @@ final class FakePaneRuntime: PaneRuntime {
         self.metadata = PaneMetadata(
             paneId: paneId,
             contentType: contentType,
-            source: .floating(launchDirectory: nil, title: "Fake"),
             title: "Fake"
         )
         self.capabilities = capabilities

@@ -18,7 +18,7 @@ struct WorkspaceLookupDerivedTests {
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+            let pane = store.createPane()
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
 
@@ -70,12 +70,14 @@ struct WorkspaceLookupDerivedTests {
             store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
 
             let paneA = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-                title: "Pane A"
+                launchDirectory: worktree.path,
+                title: "Pane A",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
             )
             let paneB = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-                title: "Pane B"
+                launchDirectory: worktree.path,
+                title: "Pane B",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
             )
             let tab = Tab(paneId: paneA.id)
             store.appendTab(tab)
@@ -128,13 +130,15 @@ struct WorkspaceLookupDerivedTests {
             store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
 
             let activePane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-                title: "Active Pane"
+                launchDirectory: worktree.path,
+                title: "Active Pane",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
             )
             let backgroundedPane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+                launchDirectory: worktree.path,
                 title: "Backgrounded Pane",
-                residency: .backgrounded
+                residency: .backgrounded,
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
             )
             let tab = Tab(paneId: activePane.id)
             store.appendTab(tab)

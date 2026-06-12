@@ -51,7 +51,6 @@ struct WorkspaceCoreZmxSessionAnchorMigrationTests {
                         zmxSessionId: anchoredSessionId
                     ),
                     metadata: .init(
-                        source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/anchor")),
                         executionBackend: .local,
                         createdAt: Date(timeIntervalSince1970: 300),
                         title: "Anchored Terminal"
@@ -97,7 +96,6 @@ struct WorkspaceCoreZmxSessionAnchorMigrationTests {
                     id: paneId,
                     content: .terminal(provider: .zmx, lifetime: .persistent),
                     metadata: .init(
-                        source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/anchorless")),
                         executionBackend: .local,
                         createdAt: Date(timeIntervalSince1970: 300),
                         title: "Anchorless Terminal"

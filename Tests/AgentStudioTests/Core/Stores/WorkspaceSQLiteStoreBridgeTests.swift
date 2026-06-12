@@ -39,10 +39,12 @@ struct WorkspaceSQLiteStoreBridgeTests {
         store.windowMemoryAtom.setSidebarWidth(321)
         store.windowMemoryAtom.setWindowFrame(CGRect(x: 10, y: 20, width: 900, height: 700))
         let pane = store.createPane(
-            source: TerminalSource.worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "SQLite Pane",
             facets: PaneContextFacets(
+                repoId: repo.id,
                 repoName: "Derived Repo Name",
+                worktreeId: worktree.id,
                 worktreeName: "Derived Worktree Name",
                 cwd: worktree.path.appending(path: "Sources"),
                 tags: ["swift", "sqlite"]
@@ -111,7 +113,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
         let temporaryPane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Ephemeral"),
             title: "Ephemeral",
             lifetime: .temporary
         )
@@ -151,17 +152,18 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let floatingDirectory = URL(filePath: "/tmp/agent-studio-zmx-anchor-floating")
 
         let worktreePane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Worktree Anchor",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let floatingPane = store.createPane(
-            source: .floating(launchDirectory: floatingDirectory, title: "Floating Anchor"),
+            launchDirectory: floatingDirectory,
             title: "Floating Anchor",
             provider: .zmx
         )
         let parentPane = store.createPane(
-            source: .floating(launchDirectory: floatingDirectory, title: "Parent Anchor"),
+            launchDirectory: floatingDirectory,
             title: "Parent Anchor",
             provider: .zmx
         )
@@ -227,11 +229,9 @@ struct WorkspaceSQLiteStoreBridgeTests {
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
         let firstPane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "First"),
             title: "First"
         )
         let arrangementOnlyPane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Arrangement Only"),
             title: "Arrangement Only"
         )
         let layout = Layout(paneId: firstPane.id)
@@ -297,7 +297,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
         let sharedPane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Shared"),
             title: "Shared"
         )
         let firstTab = Tab(paneId: sharedPane.id, name: "First")
@@ -328,10 +327,15 @@ struct WorkspaceSQLiteStoreBridgeTests {
             content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
                 paneId: PaneId(uuid: paneId),
-                source: .worktree(worktreeId: worktreeId, repoId: repoId, launchDirectory: repoPath),
+                launchDirectory: repoPath,
                 createdAt: createdAt,
                 title: "Restored SQLite Pane",
-                facets: PaneContextFacets(cwd: repoPath.appending(path: "Sources"), tags: ["restore"])
+                facets: PaneContextFacets(
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    cwd: repoPath.appending(path: "Sources"),
+                    tags: ["restore"]
+                )
             )
         )
         let arrangement = PaneArrangement(
@@ -479,7 +483,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let pane = Pane(
             content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
             metadata: .init(
-                source: .floating(launchDirectory: nil, title: nil),
                 createdAt: createdAt,
                 title: "Legacy Pane"
             )

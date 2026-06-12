@@ -62,15 +62,18 @@ extension PaneCoordinator {
         }
 
         let pane = store.paneAtom.createPane(
-            source: .worktree(
-                worktreeId: worktree.id,
-                repoId: repo.id,
-                launchDirectory: worktree.path
-            ),
+            launchDirectory: worktree.path,
             title: worktree.name,
             provider: .zmx,
             lifetime: .persistent,
-            residency: .active
+            residency: .active,
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: worktree.path
+            ),
         )
         prepareTerminalPaneSlot(pane)
 
@@ -111,7 +114,7 @@ extension PaneCoordinator {
         let host = url.host() ?? "New Tab"
         let pane = store.paneAtom.createPane(
             content: .webview(state),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: host), title: host)
+            metadata: PaneMetadata(title: host)
         )
         viewRegistry.ensureSlot(for: pane.id)
 
@@ -242,7 +245,7 @@ extension PaneCoordinator {
     func openFloatingTerminal(launchDirectory: URL?, title: String?) -> Pane? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let pane = store.paneAtom.createPane(
-            source: .floating(launchDirectory: launchDirectory, title: resolvedTitle),
+            launchDirectory: launchDirectory,
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : "Terminal",
             provider: .zmx,
             facets: PaneContextFacets(cwd: launchDirectory)
@@ -729,11 +732,7 @@ extension PaneCoordinator {
             parentFolder: repo.repoPath.deletingLastPathComponent().path
         )
         let pane = store.paneAtom.createPane(
-            source: .worktree(
-                worktreeId: worktree.id,
-                repoId: repo.id,
-                launchDirectory: resolvedCwd
-            ),
+            launchDirectory: resolvedCwd,
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : worktree.name,
             provider: .zmx,
             lifetime: .persistent,

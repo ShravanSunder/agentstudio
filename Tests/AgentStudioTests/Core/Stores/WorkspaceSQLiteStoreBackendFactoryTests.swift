@@ -23,7 +23,6 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
         let pane = Pane(
             content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
             metadata: .init(
-                source: .floating(launchDirectory: nil, title: nil),
                 createdAt: createdAt,
                 title: "Legacy After Corruption"
             )

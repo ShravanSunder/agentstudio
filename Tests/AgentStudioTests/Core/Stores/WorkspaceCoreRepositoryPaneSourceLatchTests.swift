@@ -64,11 +64,7 @@ struct WorkspaceCoreRepositoryPaneSourceLatchTests {
             id: paneId,
             content: .terminal(provider: .zmx, lifetime: .persistent),
             metadata: .init(
-                source: .worktree(
-                    repoId: repoId,
-                    worktreeId: sourceWorktreeId,
-                    launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/latch-repo-0")
-                ),
+                launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/latch-repo-0"),
                 executionBackend: .local,
                 createdAt: Date(timeIntervalSince1970: 300),
                 title: "Terminal",

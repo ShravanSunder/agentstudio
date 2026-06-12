@@ -28,7 +28,7 @@ final class CollapsedBarLabelPartsTests {
     func floatingPaneWithCwd_returnsFolderPart() {
         AtomScope.$override.withValue(registry) {
             let cwdURL = URL(fileURLWithPath: "/Users/dev/my-project")
-            let pane = store.createPane(source: .floating(launchDirectory: cwdURL, title: nil))
+            let pane = store.createPane(launchDirectory: cwdURL)
 
             let derived = PaneDisplayDerived()
             let parts = derived.collapsedBarLabelParts(for: pane.id)
@@ -42,7 +42,7 @@ final class CollapsedBarLabelPartsTests {
     @Test
     func notePartUsesLooseIconTextSpacing() {
         AtomScope.$override.withValue(registry) {
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Terminal"))
+            let pane = store.createPane()
             store.paneAtom.updatePaneNote(pane.id, note: "hiii")
 
             let parts = PaneDisplayDerived().collapsedBarLabelParts(for: pane.id)
@@ -56,7 +56,7 @@ final class CollapsedBarLabelPartsTests {
     @Test
     func floatingPaneWithoutCwd_returnsTerminalFallback() {
         AtomScope.$override.withValue(registry) {
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let pane = store.createPane()
 
             let derived = PaneDisplayDerived()
             let parts = derived.collapsedBarLabelParts(for: pane.id)
@@ -81,7 +81,7 @@ final class CollapsedBarLabelPartsTests {
             )
 
             let pane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+                launchDirectory: worktree.path,
                 title: "Ignored",
                 facets: PaneContextFacets(
                     repoId: repo.id,
@@ -134,7 +134,7 @@ final class CollapsedBarLabelPartsTests {
                 content: .webview(WebviewState(url: URL(string: "https://example.com/pr/123")!)),
                 metadata: PaneMetadata(
                     contentType: .browser,
-                    source: .floating(launchDirectory: worktree.path, title: "Review"),
+                    launchDirectory: worktree.path,
                     title: "Review",
                     facets: PaneContextFacets(
                         repoId: repo.id,
@@ -170,10 +170,7 @@ final class CollapsedBarLabelPartsTests {
             )
 
             let pane = store.createPane(
-                source: .floating(
-                    launchDirectory: worktree.path.appending(path: "Sources"),
-                    title: "Lookup"
-                ),
+                launchDirectory: worktree.path.appending(path: "Sources"),
                 title: "Lookup",
                 facets: PaneContextFacets(cwd: worktree.path.appending(path: "Sources"))
             )

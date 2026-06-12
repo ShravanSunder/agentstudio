@@ -55,15 +55,22 @@ extension PaneCoordinator {
         case .newTerminal:
             let targetPane = store.paneAtom.pane(targetPaneId)
             if let resolved = resolvedWorktreeContext(for: targetPane) {
+                let launchDirectory =
+                    targetPane?.metadata.cwd
+                    ?? targetPane?.metadata.launchDirectory
+                    ?? resolved.worktree.path
                 let pane = store.paneAtom.createPane(
-                    source: .worktree(
-                        worktreeId: resolved.worktree.id,
-                        repoId: resolved.repo.id,
-                        launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory
-                            ?? resolved.worktree.path
-                    ),
+                    launchDirectory: launchDirectory,
                     provider: .zmx,
-                    facets: targetPane?.metadata.facets ?? .empty
+                    facets: (targetPane?.metadata.facets ?? .empty).fillingNilFields(
+                        from: PaneContextFacets(
+                            repoId: resolved.repo.id,
+                            repoName: resolved.repo.name,
+                            worktreeId: resolved.worktree.id,
+                            worktreeName: resolved.worktree.name,
+                            cwd: launchDirectory
+                        )
+                    )
                 )
                 prepareTerminalPaneSlot(pane)
 
@@ -85,10 +92,7 @@ extension PaneCoordinator {
             }
 
             let pane = store.paneAtom.createPane(
-                source: .floating(
-                    launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory,
-                    title: nil
-                ),
+                launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory,
                 provider: .zmx,
                 facets: targetPane?.metadata.facets ?? .empty
             )
