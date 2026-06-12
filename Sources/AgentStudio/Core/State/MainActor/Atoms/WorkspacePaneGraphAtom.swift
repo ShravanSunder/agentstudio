@@ -363,7 +363,7 @@ final class WorkspacePaneGraphAtom {
             return false
         }
         guard terminalState.zmxSessionId != sessionId else {
-            return true
+            return false
         }
         terminalState.zmxSessionId = sessionId
         paneState.content = .terminal(terminalState)

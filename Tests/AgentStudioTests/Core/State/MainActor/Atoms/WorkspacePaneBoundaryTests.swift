@@ -77,6 +77,29 @@ struct WorkspacePaneBoundaryTests {
         #expect(projectedPane.worktreeId == nil)
     }
 
+    @Test("Setting identical zmx session anchor is a no-op")
+    func settingIdenticalZmxSessionAnchorIsNoOp() throws {
+        let graphAtom = WorkspacePaneGraphAtom()
+        let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom)
+        let pane = paneAtom.createPane()
+        let sessionId = ZmxBackend.sessionId(
+            repoStableKey: "1111111111111111",
+            worktreeStableKey: "2222222222222222",
+            paneId: pane.id
+        )
+
+        let firstUpdateChangedState = paneAtom.setTerminalZmxSessionId(pane.id, sessionId: sessionId)
+        let secondUpdateChangedState = paneAtom.setTerminalZmxSessionId(pane.id, sessionId: sessionId)
+
+        #expect(firstUpdateChangedState)
+        #expect(!secondUpdateChangedState)
+        guard case .terminal(let terminalState) = graphAtom.paneState(pane.id)?.content else {
+            Issue.record("Expected pane content to remain terminal")
+            return
+        }
+        #expect(terminalState.zmxSessionId == sessionId)
+    }
+
     @Test("Drawer cursor owns expansion and derived panes reflect it atomically")
     func drawerCursorOwnsExpansionAndDerivedPaneReflectsIt() throws {
         let graphAtom = WorkspacePaneGraphAtom()

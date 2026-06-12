@@ -299,6 +299,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 reconciliationTask.cancel()
             } catch {}
         }
+        defer {
+            timeoutTask.cancel()
+        }
 
         do {
             switch await reconciliationTask.value {
@@ -307,7 +310,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             case .failure(let reconciliationError):
                 throw reconciliationError
             }
-            timeoutTask.cancel()
         } catch is CancellationError {
             appLogger.warning("Startup zmx session reconciliation timed out after 30s")
         } catch {
