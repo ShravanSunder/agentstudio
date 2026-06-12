@@ -8,9 +8,11 @@ A pane's identity (`PaneId`) is stable across its entire lifecycle — creation,
 
 ## Identity Contract (Canonical)
 
-`PaneId` is the only primary identity. Backend session names are derived keys.
-This section is the source of truth for identity, restore lookups, and zmx key
-derivation.
+`PaneId` is the only primary identity. zmx session names are spawn-time
+anchors: minted deterministically when the pane is created, stored on terminal
+content, and read back verbatim for attach, restore, and orphan cleanup. The
+deterministic `ZmxBackend` helpers are ID mints and legacy hydration fallbacks,
+not restore-time source of truth.
 
 ### Identifier Types
 
@@ -19,8 +21,9 @@ derivation.
 | `PaneId` | `PaneId` (`struct` wrapping `UUID`) | `WorkspaceStore` | Yes | `Pane.init(id: UUID = UUIDv7.generate(), ...)` with `PaneMetadata.paneId = PaneId(uuid: id)` | Universal pane identity across store/layout/view/runtime/surface |
 | `RepoStableKey` | `String` (16 hex) | `Repo` | Derived | `StableKey.fromPath(repoPath)` | Deterministic zmx key segment |
 | `WorktreeStableKey` | `String` (16 hex) | `Worktree` | Derived | `StableKey.fromPath(worktree.path)` | Deterministic zmx key segment |
-| `MainZmxSessionId` | `String` (53 chars) | `ZmxBackend` | Derived | `as-<repo16>-<worktree16>-<pane16>` | zmx daemon/socket identity for layout panes |
-| `DrawerZmxSessionId` | `String` (38 chars) | `ZmxBackend` | Derived | `as-d--<parentPane16>--<drawerPane16>` | zmx daemon/socket identity for drawer panes |
+| `MainZmxSessionId` | `String` (53 chars) | `TerminalState.zmxSessionId` | Yes (`pane_content_terminal.zmx_session_id`) | Minted at pane creation from birth repo/worktree stable keys: `as-<repo16>-<worktree16>-<pane16>` | zmx daemon/socket identity for worktree layout panes |
+| `FloatingZmxSessionId` | `String` (53 chars) | `TerminalState.zmxSessionId` | Yes (`pane_content_terminal.zmx_session_id`) | Minted at pane creation from launch-directory stable key used in both repo/worktree segments | zmx daemon/socket identity for floating layout panes |
+| `DrawerZmxSessionId` | `String` (38 chars) | `TerminalState.zmxSessionId` | Yes (`pane_content_terminal.zmx_session_id`) | Minted at drawer-child creation: `as-d--<parentPane16>--<drawerPane16>` | zmx daemon/socket identity for drawer panes |
 
 ### Session Name Calculation Rules
 
@@ -28,8 +31,10 @@ derivation.
 2. `pane16 = (uuidVersion(paneId) == 7) ? last16hex(paneHex) : first16hex(paneHex)`
 3. UUIDv7 puts timestamp bits at the front; using trailing bits preserves per-pane entropy.
 4. `mainSessionId = "as-" + repoStableKey + "-" + worktreeStableKey + "-" + pane16`
-5. `drawerSessionId = "as-d--" + parentPane16 + "--" + drawerPane16`
-6. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
+5. `floatingSessionId` uses `StableKey.fromPath(launchDirectory)` for both stable-key segments.
+6. `drawerSessionId = "as-d--" + parentPane16 + "--" + drawerPane16`
+7. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
+8. After minting, the session id is stored. Later cwd/facet changes must not change it.
 
 ### PaneId Lifecycle (ASCII)
 
@@ -50,7 +55,7 @@ Tab/Layout references created
     -> Layout.leaf(paneId)
     |
     v
-Persist (WorkspacePersistor JSON)
+Persist (core.sqlite)
     -> Pane.id stored
     -> Tab/Layout paneId references stored
     |
@@ -69,22 +74,24 @@ PaneCoordinator.restoreAllViews()
 ### zmx Interplay and Lookups (ASCII)
 
 ```text
-PaneId + RepoStableKey + WorktreeStableKey
+Pane creation
+  - worktree/floating/drawer context mints a deterministic zmx id
                   |
                   v
-      ZmxBackend.sessionId(...)
+TerminalState.zmxSessionId
+  - persisted in pane_content_terminal.zmx_session_id
                   |
                   v
-  "as-repo16-wt16-pane16"
-                  |
-                  v
-      zmx attach/list/kill (scoped by ZMX_DIR)
+TerminalRestoreRuntime / attach / diagnostics
+  - read stored id first
+  - derive only as legacy fallback for rows missing the anchor
                   |
                   v
 AppDelegate.cleanupOrphanZmxSessions()
-  - derive known IDs from persisted panes
-  - compare with one zmx list snapshot
-  - classify runtime-only sessions as orphan candidates
+  - hydrate/adopt missing legacy anchors before cleanup
+  - compare stored IDs with one zmx list snapshot
+  - protect same-kind pane-session matches from destruction
+  - classify only unprotected runtime-only sessions as orphan candidates
   - apply grace TTL (60s), re-check liveness, then kill if still orphaned
 ```
 
@@ -96,7 +103,7 @@ AppDelegate.cleanupOrphanZmxSessions()
 | `paneId -> View` | `ViewRegistry` | `viewRegistry.view(for: paneId)` |
 | `paneId -> RuntimeStatus` | `SessionRuntime.statuses` | `runtime.status(for: paneId)` |
 | `paneId -> Surface` | `SurfaceManager` metadata/state | `SurfaceMetadata.paneId`, attach/detach paths |
-| `paneId + repo/worktree -> zmx session name` | `ZmxBackend` deterministic function | `ZmxBackend.sessionId(...)` |
+| `paneId -> zmx session name` | `TerminalState.zmxSessionId` | `TerminalRestoreRuntime.zmxSessionId(for:store:)`; legacy fallback uses `ZmxBackend.sessionId(...)` / `floatingSessionId(...)` / `drawerSessionId(...)` only when the stored anchor is missing |
 | `zmx session name -> live daemon` | zmx process state in `ZMX_DIR` | `zmx list` parse |
 
 ### Socket Path Budget (Darwin)
@@ -118,7 +125,7 @@ Every pane carries metadata that determines its behavior:
 Pane
 ├── id: UUID                    ← immutable primary key
 ├── content: PaneContent        ← .terminal/.webview/.codeViewer/.bridgePanel
-├── metadata: PaneMetadata      ← title/source/cwd/tags
+├── metadata: PaneMetadata      ← title/launchDirectory/live facets/tags
 ├── kind: PaneKind              ← .layout or .drawerChild
 └── residency: SessionResidency ← .active/.pendingUndo/.backgrounded
 ```
@@ -181,7 +188,7 @@ sequenceDiagram
     alt Already open
         PC->>Store: setActiveTab(existingTab.id)
     else New session needed
-        PC->>Store: createPane(source: .worktree, content: .terminal(.zmx))
+        PC->>Store: createPane(launchDirectory, facets, content: .terminal(zmxSessionId))
         Store-->>PC: Pane (new UUID)
         PC->>SM: createSurface(config, metadata)
         SM-->>PC: ManagedSurface
@@ -242,15 +249,15 @@ sequenceDiagram
 sequenceDiagram
     participant AD as AppDelegate
     participant Store as WorkspaceStore
-    participant P as WorkspacePersistor
+    participant DB as WorkspaceSQLiteDatastore
     participant Coord as PaneCoordinator
 
     AD->>Store: restore()
-    Store->>P: load()
-    P-->>Store: PersistableState (JSON)
+    Store->>DB: load()
+    DB-->>Store: WorkspaceSQLiteSnapshot (core.sqlite)
 
     Note over Store: Filter out temporary panes
-    Note over Store: Remove panes with deleted worktrees
+    Note over Store: Preserve panes; missing worktree facets become nil/orphaned
     Note over Store: Prune dangling pane IDs from layouts
     Note over Store: Remove empty tabs, fix activeTabId
 
@@ -264,7 +271,7 @@ sequenceDiagram
 
 **Restore filtering details:**
 - **Temporary filtering**: Panes with `lifetime == .temporary` are removed
-- **Worktree validation**: Panes referencing a `worktreeId` not in any repo's worktrees are removed (worktree was deleted between launches)
+- **Worktree validation**: Panes survive missing worktrees. Dangling facet refs are written as NULL during SQLite persistence, and topology changes can mark panes `.orphaned` for UI/restore behavior.
 - **Layout pruning**: Pane IDs not in the valid pane set are removed from all layout nodes; single-child splits collapse; empty tabs removed
 - **Main view guarantee**: If no `.main` view exists, one is created
 
@@ -278,14 +285,17 @@ AppDelegate.applicationWillTerminate / applicationShouldTerminate
         ├── Cancel pending debounced save
         ├── Filter temporary sessions from output
         ├── Prune layouts in the serialized copy
-        └── Write JSON to disk immediately
+        └── Commit SQLite snapshot immediately
 ```
 
 ---
 
 ## Persistence
 
-State is persisted via `WorkspacePersistor` as JSON. See [Component Architecture — Persistence](component_architecture.md#5-persistence) for the full write strategy, filtering, and schema details.
+State is persisted through `WorkspaceSQLiteDatastore` into `core.sqlite` plus
+per-workspace `local.sqlite`. Legacy JSON is import/fallback input only. See
+[Component Architecture — Persistence](component_architecture.md#5-persistence)
+for the full write strategy, filtering, and schema details.
 
 Key points:
 - All mutations debounced at 500ms via `markDirty()`
@@ -402,19 +412,22 @@ The zmx binary is resolved via a fallback chain:
 3. **`which zmx`** fallback
 4. If none found: fall back to ephemeral `.ghostty` provider (no persistence)
 
-### Session Name Derivation
+### Session Name Anchors
 
 See **Identity Contract (Canonical)** above for the complete source of truth.
 
-- Main panes: `ZmxBackend.sessionId(repoStableKey:worktreeStableKey:paneId:)`
-- Drawer panes: `ZmxBackend.drawerSessionId(parentPaneId:drawerPaneId:)`
-- Both are deterministic for a given input tuple and depend on stable path keys.
+- New worktree panes mint `ZmxBackend.sessionId(repoStableKey:worktreeStableKey:paneId:)` at creation.
+- New floating panes mint `ZmxBackend.floatingSessionId(launchDirectory:paneId:)` at creation.
+- New drawer panes mint `ZmxBackend.drawerSessionId(parentPaneId:drawerPaneId:)` at creation.
+- All three are stored on `TerminalState.zmxSessionId`; restore and cleanup read that stored value instead of re-deriving from live facets.
 
 ### Orphan Cleanup
 
 On app launch, `AppDelegate.cleanupOrphanZmxSessions()` discovers zmx daemons
-with Agent Studio prefixes that are not tracked by persisted panes and marks
-them as orphan candidates.
+with Agent Studio prefixes, hydrates/adopts any missing legacy stored anchors,
+and then marks only sessions not tracked or protected by persisted panes as
+orphan candidates. Cleanup never destroys a live session whose kind-aware pane
+segment matches a persisted pane.
 
 Policy is TTL-based and never immediate:
 
@@ -464,7 +477,7 @@ stateDiagram-v2
 | File | Role |
 |------|------|
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper over the canonical workspace atoms |
-| `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON serialization/deserialization |
+| `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | Legacy JSON persistence/import I/O |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime health monitoring and status tracking |
 | `App/Coordination/PaneCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
 | `Core/Models/Pane.swift` | Pane identity and content metadata |

@@ -6,9 +6,10 @@ Keep session restore reliable while ensuring restored panes get correct terminal
 
 ## Identity Source of Truth
 
-`PaneId` is the primary identity. zmx session names are deterministic derived keys.
-For UUIDv7 pane IDs, zmx uses the UUID tail segment for `pane16` to preserve entropy and avoid same-millisecond prefix collisions.
-Canonical derivation and lookup ownership live in:
+`PaneId` is the primary identity. zmx session names are deterministic
+spawn-time anchors stored on `TerminalState.zmxSessionId`. For UUIDv7 pane IDs,
+zmx uses the UUID tail segment for `pane16` to preserve entropy and avoid
+same-millisecond prefix collisions. Canonical minting and lookup ownership live in:
 [Session Lifecycle — Identity Contract (Canonical)](session_lifecycle.md#identity-contract-canonical).
 
 ## Lifecycle Facts (Ghostty + zmx)
@@ -153,7 +154,7 @@ pane identity.
    - protects sizing gate semantics (window + non-zero dimensions required).
 
 2. `ZmxBackendTests`
-   - validates zmx session name format, attach command shape, env handling, and kill/discover logic.
+   - validates zmx session name format, kind-aware pane matching, attach command shape, env handling, and kill/discover logic.
 
 ### Integration
 
@@ -163,6 +164,7 @@ pane identity.
 ### End-to-End
 
 1. `ZmxE2ETests`
+   - validates real-zmx anchor hydration/adoption, orphan-cleanup protection, and scrollback preservation for roamed legacy panes.
    - full lifecycle: create, health check, orphan discovery, kill.
    - restore semantics: backend recreation can rediscover and kill existing live sessions.
 

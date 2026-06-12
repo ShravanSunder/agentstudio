@@ -180,7 +180,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceIdentityAtom` | workspace id, name, and creation timestamp | `Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift` |
 | `WorkspaceWindowMemoryAtom` | local sidebar width and window frame memory | `Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift` |
 | `WorkspaceRepositoryTopologyAtom` | repos, worktrees, watched paths, availability | `Core/State/MainActor/Atoms/WorkspaceRepositoryTopologyAtom.swift` |
-| `WorkspacePaneGraphAtom` | core pane graph: pane identity, content, residency, durable metadata, drawer identity, drawer membership | `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` |
+| `WorkspacePaneGraphAtom` | core pane graph: pane identity, content (including stored terminal zmx anchors), residency, durable metadata with live facets, drawer identity, drawer membership | `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` |
 | `WorkspaceDrawerCursorAtom` | local drawer expansion cursor keyed by drawer id | `Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift` |
 | `WorkspacePaneAtom` | compatibility mutation facade over pane graph + drawer cursor | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` |
 | `WorkspacePaneDerived` | UI read model composing rich `Pane` values from pane graph, drawer cursor, topology, and cache facts | `Core/State/MainActor/Atoms/WorkspacePaneDerived.swift` |
@@ -229,7 +229,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
 | `PaneFilesystemProjectionAtom` | pane-scoped filesystem projection state derived from runtime envelopes | `Core/State/MainActor/Atoms/PaneFilesystemProjectionAtom.swift` |
 | `SurfaceManager` | Ghostty surface lifecycle, health, undo | `Features/Terminal/` |
-| `SessionRuntime` | backend coordination, health checks, zmx/runtime orchestration over `SessionRuntimeAtom` | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` |
+| `SessionRuntime` | backend coordination, health checks, zmx/runtime orchestration over `SessionRuntimeAtom`; zmx attach identity comes from stored `TerminalState.zmxSessionId` anchors | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` |
 
 **Worktree model is structure-only:** `id`, `repoId` (FK), `name`, `path`, `isMainWorktree`. No branch, no status. All enrichment lives in `RepoEnrichmentCacheAtom`, populated by the event bus and exposed to existing UI readers through `RepoCacheAtom`.
 
@@ -495,7 +495,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceIdentityAtom` | `Core/State/MainActor/Atoms/` | Workspace id, name, and creation timestamp |
 | `WorkspaceWindowMemoryAtom` | `Core/State/MainActor/Atoms/` | Local sidebar width and window frame memory |
 | `WorkspaceRepositoryTopologyAtom` | `Core/State/MainActor/Atoms/` | Repos, worktrees, watched paths, availability |
-| `WorkspacePaneGraphAtom` | `Core/State/MainActor/Atoms/` | Core pane graph: identity, content, residency, durable metadata, drawer membership |
+| `WorkspacePaneGraphAtom` | `Core/State/MainActor/Atoms/` | Core pane graph: identity, content (including stored terminal zmx anchors), residency, durable metadata with live facets, drawer membership |
 | `WorkspaceDrawerCursorAtom` | `Core/State/MainActor/Atoms/` | Local drawer expansion cursor |
 | `WorkspacePaneAtom` | `Core/State/MainActor/Atoms/` | Compatibility mutation facade over pane graph + drawer cursor |
 | `WorkspacePaneDerived` | `Core/State/MainActor/Atoms/` | Rich pane read model composed from graph, cursor, topology, and cache facts |
@@ -519,7 +519,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `RepoCacheStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for repo enrichment cache + recent workspace targets |
 | `UIStateStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for workspace sidebar shell memory only |
 | `WorkspaceSettingsStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for editor bookmark, checkout colors, and inbox notification preferences until feature-specific settings stores split |
-| `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx |
+| `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx attach orchestration using stored pane anchors |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo |
 | `WorkspaceCommandResolver` | `Core/Actions/` | Resolves AppCommand into PaneActionCommand, builds ActionStateSnapshot |
 | `WorkspaceCommandValidator` | `Core/Actions/` | Validates PaneActionCommand against ActionStateSnapshot |

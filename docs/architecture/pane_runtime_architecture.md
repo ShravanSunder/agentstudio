@@ -825,7 +825,7 @@ struct PaneMetadata: Sendable {
     // ── Fixed-at-creation identity ──
     let paneId: PaneId
     let contentType: PaneContentType
-    let source: PaneMetadataSource
+    let launchDirectory: URL?
     let executionBackend: ExecutionBackend
     let createdAt: Date
 
@@ -859,11 +859,6 @@ enum PaneContentType: Hashable, Sendable {
     case agent
     case codeViewer
     case plugin(String)
-}
-
-enum PaneMetadataSource: Sendable {
-    case worktree(worktreeId: UUID, repoId: UUID)
-    case floating(workingDirectory: URL?, title: String?)
 }
 
 /// Capabilities are a closed built-in set with a plugin extension case.
@@ -1673,8 +1668,8 @@ struct OrphanCleanupPolicy: Sendable {
 /// in the payload is DOMAIN DATA ("which worktree this changeset covers"),
 /// while envelope source + facets carry ROUTING IDENTITY.
 ///
-/// In practice, FileChangeset.worktreeId == envelope.source.worktreeId
-/// always. If they ever diverge, envelope.source is authoritative.
+/// In practice, FileChangeset.worktreeId == envelope.sourceFacets.worktreeId
+/// always. If they ever diverge, envelope.sourceFacets is authoritative.
 struct FileChangeset: Sendable {
     let worktreeId: WorktreeId       // denormalized from envelope.source (domain data)
     let rootPath: URL

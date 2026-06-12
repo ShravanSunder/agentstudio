@@ -128,8 +128,8 @@ struct WorkspaceCoreRepositoryPaneSourceLatchTests {
         // Act
         try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
 
-        // Assert — live facets are the persistence truth; birth source no
-        // longer vetoes the save.
+        // Assert — live facets are the persistence truth; creation-time
+        // binding no longer vetoes the save.
         let storedSource = try fixture.fetchPaneSource(paneId: paneId)
         let requiredSource = try #require(storedSource)
         #expect(requiredSource.repoId == repoId)
