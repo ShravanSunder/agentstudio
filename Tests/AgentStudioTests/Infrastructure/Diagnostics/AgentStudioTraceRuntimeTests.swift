@@ -1,6 +1,4 @@
 import Foundation
-@_spi(Testing) import InMemoryTracing
-import Instrumentation
 import Testing
 import Tracing
 
@@ -249,6 +247,38 @@ struct AgentStudioTraceRuntimeTests {
     }
 
     @Test
+    func jsonlBackendDoesNotConstructOTLPSink() async throws {
+        let traceSinkConstructionRecorder = TraceSinkConstructionRecorder()
+        let jsonlSink = RecordingTraceSink()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 852,
+            sinkFactory: AgentStudioTraceSinkFactory(
+                makeJSONLSink: { _ in
+                    traceSinkConstructionRecorder.recordJSONLSink()
+                    return jsonlSink
+                },
+                makeOTLPSink: { _ in
+                    traceSinkConstructionRecorder.recordOTLPSink()
+                    return RecordingTraceSink()
+                }
+            ),
+            timeUnixNano: { 404 }
+        )
+
+        await runtime.record(tag: .runtime, body: "runtime.local-jsonl")
+        try await runtime.flush()
+
+        #expect(traceSinkConstructionRecorder.jsonlSinkCount() == 1)
+        #expect(traceSinkConstructionRecorder.otlpSinkCount() == 0)
+        #expect(await jsonlSink.bodies() == ["runtime.local-jsonl"])
+    }
+
+    @Test
     func otlpBackendRecordsOnlyOTLPSinkAndHasNoOutputFile() async throws {
         let recordingSinks = RecordingTraceSinks()
         let runtime = AgentStudioTraceRuntime(
@@ -456,6 +486,36 @@ struct AgentStudioTraceRuntimeTests {
         }
     }
 
+    private final class TraceSinkConstructionRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var jsonlCount = 0
+        private var otlpCount = 0
+
+        func recordJSONLSink() {
+            lock.lock()
+            defer { lock.unlock() }
+            jsonlCount += 1
+        }
+
+        func recordOTLPSink() {
+            lock.lock()
+            defer { lock.unlock() }
+            otlpCount += 1
+        }
+
+        func jsonlSinkCount() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return jsonlCount
+        }
+
+        func otlpSinkCount() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return otlpCount
+        }
+    }
+
     private struct RecordingTraceSinks: Sendable {
         let jsonl = RecordingTraceSink()
         let otlp = RecordingTraceSink()
@@ -557,36 +617,5 @@ struct AgentStudioTraceRuntimeTests {
 
     private enum RecordingTraceSinkError: Error {
         case recordFailed
-    }
-}
-
-@Suite(.serialized)
-struct AgentStudioTraceRuntimeInstrumentationTests {
-    @Test
-    func jsonlOnlyBackendDoesNotCreateTracingSpans() async throws {
-        let tracer = InMemoryTracer()
-        InstrumentationSystem.bootstrap(tracer)
-
-        let runtime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
-                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
-                "AGENTSTUDIO_TRACE_TAGS": "runtime",
-            ]),
-            processIdentifier: 852,
-            timeUnixNano: { 404 }
-        )
-
-        await runtime.record(tag: .runtime, body: "runtime.local-jsonl")
-        await runtime.record(tag: .runtime, body: "runtime.local-jsonl-again")
-        try await runtime.flush()
-
-        #expect(tracer.finishedSpans.isEmpty)
-    }
-
-    private func temporaryTraceDirectoryURL() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("agentstudio-trace-runtime-instrumentation-tests", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 }
