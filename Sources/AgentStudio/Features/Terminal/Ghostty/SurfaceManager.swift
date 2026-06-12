@@ -741,6 +741,8 @@ extension SurfaceManager {
 
     private func updateHealth(_ id: UUID, _ health: SurfaceHealth) {
         let previousHealth = surfaceHealth[id]
+        guard previousHealth != health else { return }
+
         surfaceHealth[id] = health
 
         // Update managed surface
@@ -752,15 +754,12 @@ extension SurfaceManager {
             hiddenSurfaces[id] = managed
         }
 
-        // Only notify on change
-        if previousHealth != health {
-            notifyHealthDelegates(id, healthChanged: health)
-            logger.info("Surface \(id) health changed: \(String(describing: health))")
+        notifyHealthDelegates(id, healthChanged: health)
+        logger.info("Surface \(id) health changed: \(String(describing: health))")
 
-            // Handle dead surfaces
-            if case .dead = health {
-                handleDeadSurface(id)
-            }
+        // Handle dead surfaces
+        if case .dead = health {
+            handleDeadSurface(id)
         }
     }
 

@@ -48,6 +48,7 @@ final class PaneCoordinator {
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
     let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
     let windowLifecycleStore: WindowLifecycleAtom
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
@@ -62,6 +63,7 @@ final class PaneCoordinator {
     var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
     var filesystemLastActivePaneWorktreeId: UUID?
+    var filesystemTopologyAssertionGeneration: UInt64 = 0
     var derivedFilesystemPublishTasks: [UUID: Task<Void, Never>] = [:]
     var pendingTerminalStartupOperationID: String?
     var terminalStartupOperationIDsByPaneID: [UUID: String] = [:]
@@ -113,13 +115,15 @@ final class PaneCoordinator {
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
         filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
-        windowLifecycleStore: WindowLifecycleAtom
+        windowLifecycleStore: WindowLifecycleAtom,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         let resolvedFilesystemSource =
             filesystemSource
             ?? FilesystemGitPipeline(
                 bus: paneEventBus,
-                gitCoalescingWindow: .milliseconds(200)
+                gitCoalescingWindow: .milliseconds(200),
+                performanceTraceRecorder: performanceTraceRecorder
             )
         let visibilityTierResolver = StoreVisibilityTierResolver(store: store)
         self.store = store
@@ -137,6 +141,7 @@ final class PaneCoordinator {
         self.filesystemSource = resolvedFilesystemSource
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
         self.windowLifecycleStore = windowLifecycleStore
+        self.performanceTraceRecorder = performanceTraceRecorder
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()

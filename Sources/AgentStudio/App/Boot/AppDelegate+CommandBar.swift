@@ -7,7 +7,7 @@ extension AppDelegate {
             appLogger.warning("No window available for \(context, privacy: .public)")
             return
         }
-        guard let workspaceWindowId = windowLifecycleStore.focusedWindowId ?? windowLifecycleStore.keyWindowId else {
+        guard let workspaceWindowId = windowLifecycleStore.preferredWorkspaceWindowId else {
             appLogger.warning("No workspace window available for \(context, privacy: .public)")
             return
         }

@@ -60,6 +60,9 @@ extension AppDelegate {
         await runTerminationDrain("startup trace") { [weak self] in
             try? await self?.startupTraceRecorder?.drain()
         }
+        await runTerminationDrain("performance trace") { [weak self] in
+            try? await self?.performanceTraceRecorder?.drain()
+        }
 
         // Always flush on quit — the pre-persist hook syncs runtime webview state
         // back to the pane model, so this must run even when isDirty == false.

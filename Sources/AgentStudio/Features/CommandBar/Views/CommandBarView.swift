@@ -10,6 +10,7 @@ struct CommandBarView: View {
     let repoCache: RepoCacheAtom
     let dispatcher: CommandDispatcher
     let notificationInboxCommands: InboxNotificationCommands?
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onExecuteItem: (CommandBarItem, EnterModifier) -> Void
 
@@ -93,7 +94,8 @@ struct CommandBarView: View {
             repoCache: repoCache,
             dispatcher: dispatcher,
             focus: currentContext,
-            notificationInboxCommands: notificationInboxCommands
+            notificationInboxCommands: notificationInboxCommands,
+            performanceTraceRecorder: performanceTraceRecorder
         )
     }
 
@@ -101,7 +103,8 @@ struct CommandBarView: View {
         CommandBarSearch.filter(
             items: allItems,
             query: state.searchQuery,
-            recentIds: state.recentItemIds
+            recentIds: state.recentItemIds,
+            performanceTraceRecorder: performanceTraceRecorder
         )
     }
 

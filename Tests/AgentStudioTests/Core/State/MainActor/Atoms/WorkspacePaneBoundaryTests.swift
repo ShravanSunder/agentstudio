@@ -207,4 +207,43 @@ struct WorkspacePaneBoundaryTests {
         #expect(worktreePanes.first?.repoId == repoId)
         #expect(worktreePanes.first?.worktreeId == worktreeId)
     }
+
+    @Test("Pane count uses durable graph worktree membership without topology derivation")
+    func paneCountUsesDurableGraphWorktreeMembershipWithoutTopologyDerivation() {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
+        let worktreePath = repoPath.appending(path: "performance")
+        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        topologyAtom.hydrate(
+            runtimeRepos: [
+                Repo(
+                    id: repoId,
+                    name: "agent-studio",
+                    repoPath: repoPath,
+                    worktrees: [
+                        Worktree(
+                            id: worktreeId,
+                            repoId: repoId,
+                            name: "performance",
+                            path: worktreePath,
+                            isMainWorktree: false
+                        )
+                    ]
+                )
+            ],
+            watchedPaths: [],
+            unavailableRepoIds: []
+        )
+        let paneAtom = WorkspacePaneAtom(
+            graphAtom: WorkspacePaneGraphAtom(),
+            repositoryTopologyAtom: topologyAtom
+        )
+        _ = paneAtom.createPane(
+            launchDirectory: worktreePath,
+            facets: PaneContextFacets(cwd: worktreePath.appending(path: "Sources"))
+        )
+
+        #expect(paneAtom.paneCount(for: worktreeId) == 0)
+    }
 }

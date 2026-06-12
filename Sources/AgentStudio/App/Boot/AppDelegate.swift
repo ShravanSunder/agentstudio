@@ -22,6 +22,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var canArchiveLegacyInboxFile = true
     var terminalActivityRouter: TerminalActivityRouter!
     var traceRuntime: AgentStudioTraceRuntime!
+    var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!
     var repoCacheStore: RepoCacheStore!
     var sidebarCacheStore: SidebarCacheStore!
@@ -66,6 +67,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         startupTraceRecorder: AgentStudioStartupTraceRecorder
     ) {
         self.traceRuntime = traceRuntime
+        self.performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         self.startupTraceRecorder = startupTraceRecorder
         super.init()
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)

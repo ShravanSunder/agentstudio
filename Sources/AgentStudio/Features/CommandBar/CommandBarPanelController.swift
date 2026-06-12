@@ -23,6 +23,7 @@ final class CommandBarPanelController {
     private let dispatcher: CommandDispatcher
     private let notificationInboxCommands: InboxNotificationCommands?
     private let commandBarSurface: CommandBarSurfaceAtom
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
 
     // MARK: - Panel
 
@@ -44,13 +45,15 @@ final class CommandBarPanelController {
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
         notificationInboxCommands: InboxNotificationCommands? = nil,
-        commandBarSurface: CommandBarSurfaceAtom
+        commandBarSurface: CommandBarSurfaceAtom,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.store = store
         self.repoCache = repoCache
         self.dispatcher = dispatcher
         self.notificationInboxCommands = notificationInboxCommands
         self.commandBarSurface = commandBarSurface
+        self.performanceTraceRecorder = performanceTraceRecorder
         state.loadRecents()
     }
 
@@ -162,6 +165,7 @@ final class CommandBarPanelController {
             repoCache: repoCache,
             dispatcher: dispatcher,
             notificationInboxCommands: notificationInboxCommands,
+            performanceTraceRecorder: performanceTraceRecorder,
             onShortcutTrigger: { [weak self] trigger in
                 self?.handleShortcutTrigger(trigger) ?? false
             },
@@ -234,7 +238,8 @@ final class CommandBarPanelController {
             repoCache: repoCache,
             dispatcher: dispatcher,
             focus: currentContext,
-            notificationInboxCommands: notificationInboxCommands
+            notificationInboxCommands: notificationInboxCommands,
+            performanceTraceRecorder: performanceTraceRecorder
         )
     }
 
@@ -242,7 +247,8 @@ final class CommandBarPanelController {
         CommandBarSearch.filter(
             items: allItems,
             query: state.searchQuery,
-            recentIds: state.recentItemIds
+            recentIds: state.recentItemIds,
+            performanceTraceRecorder: performanceTraceRecorder
         )
     }
 

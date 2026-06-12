@@ -90,7 +90,7 @@ final class WorkspacePaneAtom {
     }
 
     func paneCount(for worktreeId: UUID) -> Int {
-        panes.values.filter { $0.worktreeId == worktreeId }.count
+        graphAtom.paneStates(for: worktreeId).count
     }
 
     func isWorktreeActive(_ worktreeId: UUID) -> Bool {

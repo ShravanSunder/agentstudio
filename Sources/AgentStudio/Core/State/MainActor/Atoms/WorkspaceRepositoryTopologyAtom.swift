@@ -7,9 +7,27 @@ final class WorkspaceRepositoryTopologyAtom {
     private(set) var repos: [Repo] = []
     private(set) var watchedPaths: [WatchedPath] = []
     private(set) var unavailableRepoIds: Set<UUID> = []
+    private(set) var worktreePathIndexGeneration: UInt64 = 0
+
+    @ObservationIgnored private var worktreePathIndex: [WorktreePathIndexEntry] = []
+    @ObservationIgnored private var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+
+    private struct WorktreePathIndexEntry {
+        let repo: Repo
+        let worktree: Worktree
+        let normalizedWorktreePath: String
+        let repoWorktreeCount: Int
+        let repoPathMatchesWorktree: Bool
+        let isMainWorktree: Bool
+        let stableTieBreaker: String
+    }
 
     var allWorktreeIds: Set<UUID> {
         Set(repos.flatMap(\.worktrees).map(\.id))
+    }
+
+    func setPerformanceTraceRecorder(_ recorder: AgentStudioPerformanceTraceRecorder?) {
+        performanceTraceRecorder = recorder
     }
 
     func hydrate(
@@ -20,6 +38,7 @@ final class WorkspaceRepositoryTopologyAtom {
         repos = runtimeRepos
         self.watchedPaths = watchedPaths
         self.unavailableRepoIds = unavailableRepoIds
+        rebuildWorktreePathIndexAndBumpGeneration()
     }
 
     func repo(_ id: UUID) -> Repo? {
@@ -38,63 +57,27 @@ final class WorkspaceRepositoryTopologyAtom {
 
     func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
         guard let cwd else { return nil }
-
-        struct MatchCandidate {
-            let repo: Repo
-            let worktree: Worktree
-            let normalizedWorktreePath: String
-            let repoWorktreeCount: Int
-            let repoPathMatchesWorktree: Bool
-            let isMainWorktree: Bool
-            let stableTieBreaker: String
-        }
+        let clock = ContinuousClock()
+        let start = clock.now
+        _ = worktreePathIndexGeneration
 
         let normalizedCWD = cwd.standardizedFileURL.path
-        let candidates = repos.flatMap { repo -> [MatchCandidate] in
-            let repoPathMatchesAnyWorktree = repo.worktrees.contains {
-                $0.path.standardizedFileURL == repo.repoPath.standardizedFileURL
-            }
-            return repo.worktrees.compactMap { worktree in
-                let normalizedWorktreePath = worktree.path.standardizedFileURL.path
-                guard
-                    normalizedCWD == normalizedWorktreePath
-                        || normalizedCWD.hasPrefix(normalizedWorktreePath + "/")
-                else { return nil }
+        let match = worktreePathIndex.first(where: {
+            normalizedCWD == $0.normalizedWorktreePath
+                || normalizedCWD.hasPrefix($0.normalizedWorktreePath + "/")
+        })
 
-                return MatchCandidate(
-                    repo: repo,
-                    worktree: worktree,
-                    normalizedWorktreePath: normalizedWorktreePath,
-                    repoWorktreeCount: repo.worktrees.count,
-                    repoPathMatchesWorktree: repoPathMatchesAnyWorktree
-                        && repo.repoPath.standardizedFileURL == worktree.path.standardizedFileURL,
-                    isMainWorktree: worktree.isMainWorktree,
-                    stableTieBreaker: "\(repo.id.uuidString)|\(worktree.id.uuidString)"
-                )
-            }
-        }
+        performanceTraceRecorder?.recordDuration(
+            .repoAndWorktreeLookup,
+            duration: start.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.topology.index.count": .int(worktreePathIndex.count),
+                "agentstudio.performance.topology.has_match": .bool(match != nil),
+            ]
+        )
 
-        guard
-            let best = candidates.max(by: { lhs, rhs in
-                if lhs.normalizedWorktreePath.count != rhs.normalizedWorktreePath.count {
-                    return lhs.normalizedWorktreePath.count < rhs.normalizedWorktreePath.count
-                }
-                if lhs.repoWorktreeCount != rhs.repoWorktreeCount {
-                    return lhs.repoWorktreeCount > rhs.repoWorktreeCount
-                }
-                if lhs.repoPathMatchesWorktree != rhs.repoPathMatchesWorktree {
-                    return !lhs.repoPathMatchesWorktree && rhs.repoPathMatchesWorktree
-                }
-                if lhs.isMainWorktree != rhs.isMainWorktree {
-                    return lhs.isMainWorktree && !rhs.isMainWorktree
-                }
-                return lhs.stableTieBreaker > rhs.stableTieBreaker
-            })
-        else {
-            return nil
-        }
-
-        return (best.repo, best.worktree)
+        guard let match else { return nil }
+        return (match.repo, match.worktree)
     }
 
     @discardableResult
@@ -123,12 +106,15 @@ final class WorkspaceRepositoryTopologyAtom {
         )
         repos.append(repo)
         unavailableRepoIds.remove(repo.id)
+        rebuildWorktreePathIndexAndBumpGeneration()
         return repo
     }
 
     func removeRepo(_ repoId: UUID) {
+        guard repos.contains(where: { $0.id == repoId }) else { return }
         repos.removeAll { $0.id == repoId }
         unavailableRepoIds.remove(repoId)
+        rebuildWorktreePathIndexAndBumpGeneration()
     }
 
     func markRepoUnavailable(_ repoId: UUID) {
@@ -166,12 +152,19 @@ final class WorkspaceRepositoryTopologyAtom {
         repos[repoIndex].name = newPath.lastPathComponent
         repos[repoIndex].repoPath = newPath
         unavailableRepoIds.remove(repoId)
-        reconcileDiscoveredWorktrees(repoId, worktrees: discoveredWorktrees)
+        _ = mergeDiscoveredWorktrees(repoId, worktrees: discoveredWorktrees)
+        rebuildWorktreePathIndexAndBumpGeneration()
         return Set(repos[repoIndex].worktrees.map(\.id))
     }
 
     func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
-        guard let index = repos.firstIndex(where: { $0.id == repoId }) else { return }
+        guard mergeDiscoveredWorktrees(repoId, worktrees: worktrees) else { return }
+        rebuildWorktreePathIndexAndBumpGeneration()
+    }
+
+    @discardableResult
+    private func mergeDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) -> Bool {
+        guard let index = repos.firstIndex(where: { $0.id == repoId }) else { return false }
         let existing = repos[index].worktrees
 
         let existingByPath = Dictionary(existing.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
@@ -205,7 +198,55 @@ final class WorkspaceRepositoryTopologyAtom {
             return discovered
         }
 
-        guard merged != existing else { return }
+        guard merged != existing else { return false }
         repos[index].worktrees = merged
+        return true
+    }
+
+    private func rebuildWorktreePathIndexAndBumpGeneration() {
+        worktreePathIndex = repos.flatMap { repo -> [WorktreePathIndexEntry] in
+            let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
+            let normalizedWorktrees = repo.worktrees.map { worktree in
+                (worktree: worktree, normalizedPath: worktree.path.standardizedFileURL.path)
+            }
+            let repoPathMatchesAnyWorktree = normalizedWorktrees.contains {
+                $0.normalizedPath == normalizedRepoPath
+            }
+
+            return normalizedWorktrees.map { item in
+                WorktreePathIndexEntry(
+                    repo: repo,
+                    worktree: item.worktree,
+                    normalizedWorktreePath: item.normalizedPath,
+                    repoWorktreeCount: repo.worktrees.count,
+                    repoPathMatchesWorktree: repoPathMatchesAnyWorktree
+                        && normalizedRepoPath == item.normalizedPath,
+                    isMainWorktree: item.worktree.isMainWorktree,
+                    stableTieBreaker: "\(repo.id.uuidString)|\(item.worktree.id.uuidString)"
+                )
+            }
+        }
+        .sorted(by: Self.worktreePathIndexEntryPrecedes)
+
+        worktreePathIndexGeneration &+= 1
+    }
+
+    private static func worktreePathIndexEntryPrecedes(
+        lhs: WorktreePathIndexEntry,
+        rhs: WorktreePathIndexEntry
+    ) -> Bool {
+        if lhs.normalizedWorktreePath.count != rhs.normalizedWorktreePath.count {
+            return lhs.normalizedWorktreePath.count > rhs.normalizedWorktreePath.count
+        }
+        if lhs.repoWorktreeCount != rhs.repoWorktreeCount {
+            return lhs.repoWorktreeCount < rhs.repoWorktreeCount
+        }
+        if lhs.repoPathMatchesWorktree != rhs.repoPathMatchesWorktree {
+            return lhs.repoPathMatchesWorktree && !rhs.repoPathMatchesWorktree
+        }
+        if lhs.isMainWorktree != rhs.isMainWorktree {
+            return !lhs.isMainWorktree && rhs.isMainWorktree
+        }
+        return lhs.stableTieBreaker < rhs.stableTieBreaker
     }
 }

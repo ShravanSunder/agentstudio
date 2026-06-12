@@ -231,6 +231,50 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["service.version"] == .string("0.0.54-beta.15"))
         #expect(projection.attributes["service.name"] == nil)
     }
+
+    @Test
+    func performanceProjectionKeepsSafeNumericFieldsAndDropsUnsafeContext() {
+        let worktreeID = UUID(uuidString: "6DE2BC87-AD1F-4271-96DD-7922D58612D5")!
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 600,
+            severityText: .info,
+            body: "performance.git.status",
+            traceID: "trace-should-not-export",
+            spanID: "span-should-not-export",
+            parentSpanID: nil,
+            resource: [
+                "agentstudio.trace.name": "perf-proof",
+                "process.pid": "12345",
+                "service.name": "AgentStudio",
+            ],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.git.running.count": .int(4),
+                "agentstudio.performance.git.status.duration_ms": .double(2.5),
+                "agentstudio.performance.git.status.elapsed_ms": .double(2.7),
+                "agentstudio.performance.git.root_path": .string("/Users/shravan/private/repo"),
+                "agentstudio.performance.note_text": .string("raw payload should stay local"),
+                "agentstudio.trace.tag": .string("performance"),
+                "agentstudio.worktree.id": .string(worktreeID.uuidString),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.body == "performance.git.status")
+        #expect(projection.attributes["agentstudio.trace.name"] == .string("perf-proof"))
+        #expect(projection.attributes["agentstudio.trace.tag"] == .string("performance"))
+        #expect(projection.attributes["agentstudio.performance.git.running.count"] == .int(4))
+        #expect(projection.attributes["agentstudio.performance.git.status.duration_ms"] == .double(2.5))
+        #expect(projection.attributes["agentstudio.performance.git.status.elapsed_ms"] == .double(2.7))
+        #expect(projection.attributes["agentstudio.performance.git.root_path"] == nil)
+        #expect(projection.attributes["agentstudio.performance.note_text"] == nil)
+        #expect(projection.attributes["agentstudio.worktree.id"] == nil)
+        #expect(projection.resource["process.pid"] == nil)
+        #expect(!renderedProjection.contains("/Users/shravan"))
+        #expect(!renderedProjection.contains(worktreeID.uuidString))
+    }
 }
 
 extension AgentStudioOTLPProjectedLogRecord {

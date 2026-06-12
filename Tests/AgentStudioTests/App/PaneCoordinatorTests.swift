@@ -284,6 +284,34 @@ struct PaneCoordinatorTests {
         #expect(paneFilesystemProjectionStore.context(for: pane.id) == nil)
     }
 
+    @Test("filesystem projection ignores non-projectable worktree events before deriving topology maps")
+    func filesystemProjectionIgnoresNonProjectableWorktreeEvents() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-filesystem-ignore-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        store.restore()
+        let coordinator = makeFilesystemSyncCoordinator(
+            store: store,
+            filesystemSource: RecordingFilesystemSourceHarness(),
+            paneEventBus: EventBus<RuntimeEnvelope>()
+        )
+
+        let envelope = RuntimeEnvelope.worktree(
+            WorktreeEnvelope(
+                source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                seq: 1,
+                timestamp: ContinuousClock().now,
+                repoId: UUID(),
+                worktreeId: UUID(),
+                event: .gitWorkingDirectory(.originChanged(repoId: UUID(), from: "", to: "origin"))
+            )
+        )
+
+        #expect(coordinator.handleFilesystemEnvelopeIfNeeded(envelope) == false)
+    }
+
     @Test("closing tab with drawer children snapshots all panes for undo")
     func closeTab_withDrawerChildren_snapshotsUndo() {
         let harness = makeHarnessCoordinator()
@@ -782,6 +810,7 @@ private actor RecordingFilesystemSource: PaneCoordinatorFilesystemSourceManaging
     private(set) var registeredRoots: [UUID: URL] = [:]
     private(set) var activityByWorktreeId: [UUID: Bool] = [:]
     private(set) var activePaneWorktreeId: UUID?
+    private(set) var topologyAssertionGeneration: UInt64?
 
     func start() async {}
 
@@ -796,6 +825,17 @@ private actor RecordingFilesystemSource: PaneCoordinatorFilesystemSourceManaging
         activityByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
+        }
+    }
+
+    func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
+        guard topologyAssertionGeneration.map({ assertion.generation >= $0 }) ?? true else { return }
+        topologyAssertionGeneration = assertion.generation
+        let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
+        registeredRoots = assertion.contextsByWorktreeId.mapValues(\.rootPath)
+        activityByWorktreeId = activityByWorktreeId.filter { desiredWorktreeIds.contains($0.key) }
+        if let activePaneWorktreeId, !desiredWorktreeIds.contains(activePaneWorktreeId) {
+            self.activePaneWorktreeId = nil
         }
     }
 
@@ -821,6 +861,7 @@ private actor DelayingRecordingFilesystemSource: PaneCoordinatorFilesystemSource
     private(set) var registeredRoots: [UUID: URL] = [:]
     private(set) var activityByWorktreeId: [UUID: Bool] = [:]
     private(set) var activePaneWorktreeId: UUID?
+    private(set) var topologyAssertionGeneration: UInt64?
 
     init(operationDelayTurns: Int) {
         self.operationDelayTurns = operationDelayTurns
@@ -841,6 +882,18 @@ private actor DelayingRecordingFilesystemSource: PaneCoordinatorFilesystemSource
         activityByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
+        }
+    }
+
+    func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
+        await settleDelay()
+        guard topologyAssertionGeneration.map({ assertion.generation >= $0 }) ?? true else { return }
+        topologyAssertionGeneration = assertion.generation
+        let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
+        registeredRoots = assertion.contextsByWorktreeId.mapValues(\.rootPath)
+        activityByWorktreeId = activityByWorktreeId.filter { desiredWorktreeIds.contains($0.key) }
+        if let activePaneWorktreeId, !desiredWorktreeIds.contains(activePaneWorktreeId) {
+            self.activePaneWorktreeId = nil
         }
     }
 

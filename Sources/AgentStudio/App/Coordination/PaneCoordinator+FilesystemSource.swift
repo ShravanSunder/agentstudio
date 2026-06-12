@@ -1,16 +1,12 @@
 import Foundation
 import os
 
-struct WorktreeFilesystemContext: Sendable, Equatable {
-    let repoId: UUID
-    let rootPath: URL
-}
-
 protocol PaneCoordinatorFilesystemSourceManaging: AnyObject, Sendable {
     func start() async
     func shutdown() async
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async
     func unregister(worktreeId: UUID) async
+    func assertTopology(_ assertion: FilesystemTopologyAssertion) async
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) async
     func setActivePaneWorktree(worktreeId: UUID?) async
 }
@@ -24,19 +20,29 @@ extension PaneCoordinator {
     }
 
     func handleFilesystemEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) -> Bool {
-        switch envelope {
-        case .system:
-            return false
-        case .worktree:
-            break
-        case .pane:
+        guard Self.shouldProjectPaneFilesystemEnvelope(envelope) else {
             return false
         }
 
+        let clock = ContinuousClock()
+        let start = clock.now
+        let worktreeRootsByWorktreeId =
+            Self.requiresWorktreeRootLookup(envelope)
+            ? workspaceWorktreeContextsById().mapValues(\.rootPath)
+            : [:]
         let derivedEnvelopes = paneFilesystemProjectionStore.consume(
             envelope,
             panesById: store.paneAtom.panes,
-            worktreeRootsByWorktreeId: workspaceWorktreeContextsById().mapValues(\.rootPath)
+            worktreeRootsByWorktreeId: worktreeRootsByWorktreeId
+        )
+        performanceTraceRecorder?.recordDuration(
+            .coordinatorWrite,
+            duration: start.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.coordinator.derived_envelope.count": .int(derivedEnvelopes.count),
+                "agentstudio.performance.coordinator.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.coordinator.worktree.count": .int(worktreeRootsByWorktreeId.count),
+            ]
         )
         if !derivedEnvelopes.isEmpty {
             let taskId = UUID()
@@ -52,6 +58,24 @@ extension PaneCoordinator {
             derivedFilesystemPublishTasks[taskId] = publishTask
         }
         return true
+    }
+
+    nonisolated private static func shouldProjectPaneFilesystemEnvelope(_ envelope: RuntimeEnvelope) -> Bool {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return false }
+        switch worktreeEnvelope.event {
+        case .filesystem(.filesChanged), .gitWorkingDirectory(.snapshotChanged):
+            return true
+        case .filesystem, .gitWorkingDirectory, .forge, .security:
+            return false
+        }
+    }
+
+    nonisolated private static func requiresWorktreeRootLookup(_ envelope: RuntimeEnvelope) -> Bool {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return false }
+        if case .filesystem(.filesChanged) = worktreeEnvelope.event {
+            return true
+        }
+        return false
     }
 
     func setupFilesystemSourceSync() {
@@ -76,6 +100,8 @@ extension PaneCoordinator {
     private func performFilesystemRootAndActivitySyncPass() async {
         guard !Task.isCancelled else { return }
 
+        let clock = ContinuousClock()
+        let start = clock.now
         let desiredContextsByWorktreeId = workspaceWorktreeContextsById()
         let activityByWorktreeId = desiredContextsByWorktreeId.keys.reduce(into: [UUID: Bool]()) { result, worktreeId in
             result[worktreeId] = store.paneAtom.paneCount(for: worktreeId) > 0
@@ -86,10 +112,15 @@ extension PaneCoordinator {
         let existingWorktreeIds = Set(existingContextsByWorktreeId.keys)
         let desiredWorktreeIds = Set(desiredContextsByWorktreeId.keys)
         let removedWorktreeIds = existingWorktreeIds.subtracting(desiredWorktreeIds)
+        var unregisteredCount = 0
+        var registeredCount = 0
+        var activityWriteCount = 0
+        var activePaneWriteCount = 0
 
         for worktreeId in removedWorktreeIds.sorted(by: Self.sortWorktreeIds) {
             guard !Task.isCancelled else { return }
             await filesystemSource.unregister(worktreeId: worktreeId)
+            unregisteredCount += 1
             guard !Task.isCancelled else { return }
             filesystemActivityByWorktreeId.removeValue(forKey: worktreeId)
             if filesystemLastActivePaneWorktreeId == worktreeId {
@@ -113,6 +144,7 @@ extension PaneCoordinator {
                 repoId: desiredContext.repoId,
                 rootPath: desiredContext.rootPath
             )
+            registeredCount += 1
             guard !Task.isCancelled else { return }
         }
 
@@ -124,6 +156,7 @@ extension PaneCoordinator {
             guard previousActivity != isActiveInApp else { continue }
             guard !Task.isCancelled else { return }
             await filesystemSource.setActivity(worktreeId: worktreeId, isActiveInApp: isActiveInApp)
+            activityWriteCount += 1
             guard !Task.isCancelled else { return }
             filesystemActivityByWorktreeId[worktreeId] = isActiveInApp
         }
@@ -131,10 +164,19 @@ extension PaneCoordinator {
         if filesystemLastActivePaneWorktreeId != activePaneWorktreeId {
             guard !Task.isCancelled else { return }
             await filesystemSource.setActivePaneWorktree(worktreeId: activePaneWorktreeId)
+            activePaneWriteCount = 1
             guard !Task.isCancelled else { return }
             filesystemLastActivePaneWorktreeId = activePaneWorktreeId
         }
 
+        guard !Task.isCancelled else { return }
+        filesystemTopologyAssertionGeneration &+= 1
+        await filesystemSource.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: filesystemTopologyAssertionGeneration,
+                contextsByWorktreeId: desiredContextsByWorktreeId
+            )
+        )
         guard !Task.isCancelled else { return }
         filesystemRegisteredContextsByWorktreeId = desiredContextsByWorktreeId
         filesystemActivityByWorktreeId = activityByWorktreeId
@@ -143,6 +185,17 @@ extension PaneCoordinator {
         paneFilesystemProjectionStore.prune(
             validPaneIds: Set(store.paneAtom.panes.keys),
             validWorktreeIds: validWorktreeIds
+        )
+        performanceTraceRecorder?.recordDuration(
+            .coordinatorWrite,
+            duration: start.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.coordinator.registered.count": .int(registeredCount),
+                "agentstudio.performance.coordinator.unregistered.count": .int(unregisteredCount),
+                "agentstudio.performance.coordinator.activity_write.count": .int(activityWriteCount),
+                "agentstudio.performance.coordinator.active_pane_write.count": .int(activePaneWriteCount),
+                "agentstudio.performance.coordinator.worktree.count": .int(desiredContextsByWorktreeId.count),
+            ]
         )
     }
 
