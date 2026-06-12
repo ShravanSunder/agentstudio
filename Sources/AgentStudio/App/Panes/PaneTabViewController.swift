@@ -389,10 +389,22 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     override func viewWillLayout() {
+        let clock = ContinuousClock()
+        let layoutStart = clock.now
         super.viewWillLayout()
         syncTabContentHosts()
         updateVisibleTabHost()
         updateEmptyState()
+        performanceTraceRecorder?.recordDuration(
+            .paneTabLayout,
+            duration: layoutStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.pane_tab_layout.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_tab_layout.tab.count": .int(store.tabLayoutAtom.tabs.count),
+                "agentstudio.performance.pane_tab_layout.subview.count": .int(view.subviews.count),
+                "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
+            ]
+        )
     }
 
     private func setupNotificationObservers() {
@@ -2352,6 +2364,23 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func handleManagementCommand(_ command: AppCommand) -> Bool {
+        guard isManagementCommand(command) else { return false }
+
+        let clock = ContinuousClock()
+        let commandStart = clock.now
+        defer {
+            performanceTraceRecorder?.recordDuration(
+                .managementLayerCommand,
+                duration: commandStart.duration(to: clock.now),
+                attributes: [
+                    "agentstudio.performance.management_layer.command": .string(command.rawValue),
+                    "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
+                    "agentstudio.performance.management_layer.pane.count": .int(store.paneAtom.panes.count),
+                    "agentstudio.performance.management_layer.tab.count": .int(store.tabLayoutAtom.tabs.count),
+                ]
+            )
+        }
+
         switch command {
         case .toggleManagementLayer:
             let wasManagementLayerActive = atom(\.managementLayer).isActive
@@ -2393,6 +2422,23 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             atom(\.managementLayer).deactivate()
             return true
 
+        default:
+            return false
+        }
+    }
+
+    private func isManagementCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .toggleManagementLayer,
+            .managementLayerFocusLeft,
+            .managementLayerFocusRight,
+            .managementLayerEnterDrawer,
+            .managementLayerExitDrawer,
+            .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser,
+            .managementLayerExit:
+            return true
         default:
             return false
         }

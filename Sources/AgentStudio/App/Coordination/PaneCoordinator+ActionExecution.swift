@@ -275,7 +275,20 @@ extension PaneCoordinator {
     /// Execute a resolved PaneActionCommand.
     func execute(_ action: PaneActionCommand) {
         Self.logger.debug("Executing: \(String(describing: action))")
+        let clock = ContinuousClock()
+        let actionStart = clock.now
         traceTerminalCommandReceived(for: action)
+        defer {
+            performanceTraceRecorder?.recordDuration(
+                .paneActionExecution,
+                duration: actionStart.duration(to: clock.now),
+                attributes: [
+                    "agentstudio.performance.pane_action.name": .string(action.performanceTraceName),
+                    "agentstudio.performance.pane_action.pane.count": .int(store.paneAtom.panes.count),
+                    "agentstudio.performance.pane_action.tab.count": .int(store.tabLayoutAtom.tabs.count),
+                ]
+            )
+        }
         defer { clearUnclaimedTerminalStartupOperation() }
 
         switch action {

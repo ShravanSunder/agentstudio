@@ -27,14 +27,31 @@ struct AgentStudioPerformanceTraceRecorderTests {
                 "agentstudio.performance.git.status.duration_ms": .double(1.5),
             ]
         )
+        recorder.recordDuration(
+            .managementLayerCommand,
+            duration: .milliseconds(2),
+            attributes: [
+                "agentstudio.performance.management_layer.command": .string("toggleManagementLayer")
+            ]
+        )
+        recorder.record(.paneActionExecution)
+        recorder.record(.paneTabLayout)
+        recorder.record(.paneViewRestore)
+        recorder.record(.paneViewRestoreVisible)
         try await recorder.drain()
 
         let outputFileURL = try #require(runtime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"body\":\"performance.git.status\""))
+        #expect(contents.contains("\"body\":\"performance.management_layer.command\""))
+        #expect(contents.contains("\"body\":\"performance.pane_action.execution\""))
+        #expect(contents.contains("\"body\":\"performance.pane_tab.layout\""))
+        #expect(contents.contains("\"body\":\"performance.pane_view.restore\""))
+        #expect(contents.contains("\"body\":\"performance.pane_view.restore_visible\""))
         #expect(contents.contains("\"agentstudio.trace.tag\":\"performance\""))
         #expect(contents.contains("\"agentstudio.performance.git.running.count\":3"))
         #expect(contents.contains("\"agentstudio.performance.git.status.duration_ms\":1.5"))
+        #expect(contents.contains("\"agentstudio.performance.management_layer.command\":\"toggleManagementLayer\""))
     }
 
     @Test
