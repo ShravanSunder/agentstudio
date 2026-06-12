@@ -2,11 +2,11 @@
 
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5/T5b/T6/T7/T8 committed, T9 implemented with scoped proof gates green in the current changeset. Next implementation step starts at T10.
+Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5/T5b/T6/T7/T8/T9 committed, T10 implemented with scoped proof gates green in the current changeset. Next implementation step starts at T11.
 
 ## Execution State (handoff, 2026-06-11)
 
-T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b landed in commit `07863bb7` (`Add phase A zmx smoke gate`). `origin/main` was merged after PR #164 (`52c5e67725c3a0dfac4fed2a5f22f2386be00579`) in local merge commit `2b49210`. T6 landed in commit `e95ffe66` (`Remove pane source union`). T7 landed in commit `7248550` (`Map legacy pane source payloads on import`). T8 landed in commit `035a44a` (`Damp repeated workspace autosave failures`). T9 is implemented in the current changeset. Next implementation step starts at T10.
+T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b landed in commit `07863bb7` (`Add phase A zmx smoke gate`). `origin/main` was merged after PR #164 (`52c5e67725c3a0dfac4fed2a5f22f2386be00579`) in local merge commit `2b49210`. T6 landed in commit `e95ffe66` (`Remove pane source union`). T7 landed in commit `7248550` (`Map legacy pane source payloads on import`). T8 landed in commit `035a44a` (`Damp repeated workspace autosave failures`). T9 landed in commit `8aef5ce` (`Remove stale zmx session handle metadata`). T10 is implemented in the current changeset. Next implementation step starts at T11.
 
 Done — T0 (all green, characterization evidence captured):
 - `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These were the red→green pivots for T4.
@@ -148,6 +148,17 @@ Done — T9 implementation (validated cruft sweep, deadness-proven):
 3. Integration green proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t9 --filter "ZmxBackendIntegrationTests"` — 5 tests in 2 suites passed after 0.080s.
 4. Broader scoped proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t9 --filter "ZmxBackendTests|ZmxBackendIntegrationTests|ZmxOrphanCleanupPlannerTests"` — build complete; 56 tests in 4 suites passed after 0.090s.
 5. Lint proof: `mise run format`; `git diff --check`; `swift-format lint --recursive Sources/ Tests/ && swiftlint lint --strict && bash scripts/check-core-boundary-imports.sh` — swiftlint 0 violations in 1027 files; Core boundary import check passed.
+
+Done — T10 implementation/proof (final smoke):
+- `Tests/AgentStudioTests/Integration/ZmxE2ETests.swift` — strengthens the real-zmx roamed-pane smoke by making the protected birth session emit a unique scrollback marker, then asserting `zmx history <session>` still contains the marker after boot orphan cleanup hydrates/adopts the anchor and destroys only the unrelated session.
+- `Tests/AgentStudioTests/Helpers/ZmxTestHarness.swift` — adds a `sessionHistory(sessionId:)` helper around the real `zmx history` command.
+
+**T10 proof gates complete:**
+1. Red proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t10 --filter "ZmxE2ETests/test_phaseASmoke_hydratesLegacyRoamedPaneBeforeCleanup"` — failed before the marker command was wired: `birthHistory` was empty and did not contain `agentstudio-zmx-scrollback-...`.
+2. Focused green proof: same command after wiring marker output — build complete; 1 test in 2 suites passed after 0.816s.
+3. Full opt-in zmx E2E proof: `SWIFT_BUILD_DIR=.build-agent-t10 mise run test-zmx-e2e` — build complete; 6 tests in 2 suites passed after 3.825s.
+4. Isolated app boot/window proof: temporary signed LaunchServices bundle under `/tmp/agentstudio-t10-open-smoke-...`, launched with isolated `AGENTSTUDIO_DATA_DIR` and PID-targeted only (`81085`); `peekaboo window list --pid 81085 --json` found on-screen window `AgentStudio`, window id `200533`, bounds `3008x1239`, bundle id `com.agentstudio.t10-smoke...`. The app initialized a fresh `core.sqlite` migrated through `009_drop_pane_source_binding` and created one workspace / zero panes in the isolated data root.
+5. Visual capture caveat: both `peekaboo see --pid 81085` and `screencapture -l 200533` failed to create an image from the on-screen window (`ScreenCaptureKit` / `No displays available for window 200533 capture`). This is recorded as a local capture-tool limitation, not a product boot failure; the window enumeration succeeded and no user-running Agent Studio PID was targeted.
 
 ## Source Coverage
 

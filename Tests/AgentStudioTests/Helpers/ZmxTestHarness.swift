@@ -178,6 +178,17 @@ final class ZmxTestHarness: @unchecked Sendable {
         return process
     }
 
+    func sessionHistory(sessionId: String) async throws -> String {
+        guard let zmxPath else { return "" }
+        let result = try await executor.execute(
+            command: zmxPath,
+            args: ["history", sessionId],
+            cwd: nil,
+            environment: ["ZMX_DIR": zmxDir]
+        )
+        return result.stdout
+    }
+
     private func awaitSessionSocketEvent(
         fileDescriptor: Int32,
         sessionSocketPath: String,

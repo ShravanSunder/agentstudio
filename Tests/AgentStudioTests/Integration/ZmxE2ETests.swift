@@ -305,6 +305,8 @@ extension E2ESerializedTests {
             #expect(store.pane(legacyPane.id)?.terminalState?.zmxSessionId == sessions.birthHandle.id)
             #expect(store.pane(legacyPane.id)?.terminalState?.zmxSessionId != sessions.roamedDerivedSessionId)
             #expect(await backend.healthCheck(sessions.birthHandle))
+            let birthHistory = try await harness.sessionHistory(sessionId: sessions.birthHandle.id)
+            #expect(birthHistory.contains(sessions.scrollbackMarker))
             #expect(
                 await harness.waitForSessionSocket(
                     sessionId: sessions.unrelatedSessionId,
@@ -342,12 +344,13 @@ extension E2ESerializedTests {
                 worktreeStableKey: "2222222222222222",
                 paneId: UUID(uuidString: "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD")!
             )
+            let scrollbackMarker = "agentstudio-zmx-scrollback-\(paneContext.legacyPane.id.uuidString)"
 
             let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
             _ = try harness.spawnZmxSession(
                 zmxPath: zmxPath,
                 sessionId: birthHandle.id,
-                commandArgs: ["/bin/sleep", "300"]
+                commandArgs: ["/bin/sh", "-lc", "printf '%s\\n' '\(scrollbackMarker)'; sleep 300"]
             )
             _ = try harness.spawnZmxSession(
                 zmxPath: zmxPath,
@@ -360,6 +363,7 @@ extension E2ESerializedTests {
                 birthHandle: birthHandle,
                 roamedDerivedSessionId: roamedDerivedSessionId,
                 unrelatedSessionId: unrelatedSessionId,
+                scrollbackMarker: scrollbackMarker,
                 zmxPath: zmxPath
             )
         }
@@ -459,6 +463,7 @@ private struct ZmxPhaseASmokeSessions {
     let birthHandle: PaneSessionHandle
     let roamedDerivedSessionId: String
     let unrelatedSessionId: String
+    let scrollbackMarker: String
     let zmxPath: String
 }
 
