@@ -89,7 +89,7 @@ running_beta_app_pids() {
         echo "unable to inspect running AgentStudio PID $pid with $LSOF_BIN" >&2
         return 2
       fi
-      txt_path="$(printf '%s\n' "$txt_output" | sed -n 's/^n//p' | head -1)"
+      txt_path="$(awk '/^n/ { print substr($0, 2); exit }' <<<"$txt_output")"
       if [ -z "$txt_path" ]; then
         echo "unable to resolve executable for running AgentStudio PID $pid" >&2
         return 2

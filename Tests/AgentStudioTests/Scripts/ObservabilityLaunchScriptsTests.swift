@@ -238,6 +238,8 @@ struct ObservabilityLaunchScriptsTests {
                     """
                     #!/bin/bash
                     echo "n\(betaApp.path)/Contents/MacOS/AgentStudio"
+                    echo "n/Library/Preferences/Logging/.plist-cache.test"
+                    echo "n/usr/lib/dyld"
                     """
                 ).path,
             ]
@@ -408,6 +410,8 @@ struct ObservabilityLaunchScriptsTests {
                     """
                     #!/bin/bash
                     echo "n\(debugApp.path)/Contents/MacOS/AgentStudio"
+                    echo "n/Library/Preferences/Logging/.plist-cache.test"
+                    echo "n/usr/lib/dyld"
                     """
                 ).path,
             ]

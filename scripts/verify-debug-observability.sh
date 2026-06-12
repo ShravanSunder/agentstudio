@@ -102,7 +102,7 @@ process_executable_path() {
     echo "unable to inspect AgentStudio debug PID $pid with $LSOF_BIN" >&2
     return 1
   fi
-  printf '%s\n' "$txt_output" | sed -n 's/^n//p' | head -1
+  awk '/^n/ { print substr($0, 2); exit }' <<<"$txt_output"
 }
 
 realpath_or_empty() {
