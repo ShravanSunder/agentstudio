@@ -6,7 +6,12 @@ export interface BridgeContentResourceUrl {
 export function parseBridgeContentResourceUrl(
 	resourceUrl: string,
 ): BridgeContentResourceUrl | null {
-	const parsedUrl = new URL(resourceUrl);
+	let parsedUrl: URL;
+	try {
+		parsedUrl = new URL(resourceUrl);
+	} catch {
+		return null;
+	}
 	if (parsedUrl.protocol !== 'agentstudio:' || parsedUrl.hostname !== 'resource') {
 		return null;
 	}

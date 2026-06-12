@@ -10,4 +10,10 @@ describe('bridge resource URL', () => {
 
 		expect(parsed).toEqual({ handleId: 'handle-1', generation: 7 });
 	});
+
+	test('returns null for malformed resource URL text', () => {
+		const parsed = parseBridgeContentResourceUrl('not a valid URL');
+
+		expect(parsed).toBeNull();
+	});
 });

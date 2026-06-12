@@ -87,6 +87,46 @@ describe('BridgeApp', () => {
 			},
 		]);
 	});
+
+	test('ignores array-shaped review package internals', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+
+		await act(async (): Promise<void> => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+			);
+			document.dispatchEvent(
+				new CustomEvent('__bridge_push', {
+					detail: {
+						__v: 1,
+						__pushId: 'push-1',
+						__revision: 1,
+						__epoch: 1,
+						store: 'diff',
+						op: 'replace',
+						level: 'cold',
+						nonce: 'push-nonce',
+						data: {
+							package: {
+								...makeBridgeReviewPackage(),
+								itemsById: [],
+							},
+						},
+					},
+				}),
+			);
+			await Promise.resolve();
+		});
+
+		expect(document.querySelector('[data-testid="review-viewer-shell"]')).toBeNull();
+	});
 });
 
 function extractEventDetail(event: Event): unknown {

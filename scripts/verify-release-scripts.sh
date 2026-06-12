@@ -7,13 +7,17 @@ SHA="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 assert_contains() {
   local needle="${1:?missing expected content}"
   local content="${2:?missing content}"
-  [[ "$content" == *"$needle"* ]]
+  if [[ "$content" != *"$needle"* ]]; then
+    echo "expected content missing: $needle" >&2
+    return 1
+  fi
 }
 
 assert_not_contains() {
   local needle="${1:?missing rejected content}"
   local content="${2:?missing content}"
   if [[ "$content" == *"$needle"* ]]; then
+    echo "rejected content present: $needle" >&2
     return 1
   fi
 }

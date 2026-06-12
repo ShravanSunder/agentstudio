@@ -67,6 +67,34 @@ describe('bridge review delta', () => {
 		expect(nextPackage.orderedItemIds).toEqual(['item-test', 'item-source']);
 	});
 
+	test('does not use linear ordered item membership when appending added items', () => {
+		const reviewPackage = {
+			...makeBridgeReviewPackage(),
+			orderedItemIds: new LinearMembershipGuardedArray('item-source'),
+		};
+		const addedItem = makeBridgeReviewItem({
+			itemId: 'item-added',
+			path: 'Sources/App/New.swift',
+		});
+
+		const nextPackage = applyBridgeReviewDelta(reviewPackage, {
+			packageId: reviewPackage.packageId,
+			reviewGeneration: reviewPackage.reviewGeneration,
+			revision: reviewPackage.revision + 1,
+			operations: {
+				addItems: [addedItem],
+				updateItems: [],
+				removeItems: [],
+				moveItems: [],
+				updateGroups: null,
+				updateSummary: null,
+				invalidateContent: [],
+			},
+		});
+
+		expect(nextPackage.orderedItemIds).toEqual(['item-source', 'item-added']);
+	});
+
 	test('distinguishes unchanged groups from an intentional empty group update', () => {
 		const reviewPackage = {
 			...makeBridgeReviewPackage(),
@@ -105,3 +133,11 @@ describe('bridge review delta', () => {
 		expect(nextPackage.groups).toEqual([]);
 	});
 });
+
+class LinearMembershipGuardedArray extends Array<string> {
+	override includes(searchElement: string, fromIndex?: number): boolean {
+		void searchElement;
+		void fromIndex;
+		throw new Error('delta add path must use indexed membership');
+	}
+}

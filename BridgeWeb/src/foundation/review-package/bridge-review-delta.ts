@@ -48,9 +48,11 @@ export function applyBridgeReviewDelta(
 	const orderedItemIds = reviewPackage.orderedItemIds.filter(
 		(itemId: string): boolean => !removedItemIds.has(itemId),
 	);
+	const orderedItemIdSet = new Set(orderedItemIds);
 	for (const item of delta.operations.addItems) {
-		if (!orderedItemIds.includes(item.itemId)) {
+		if (!orderedItemIdSet.has(item.itemId)) {
 			orderedItemIds.push(item.itemId);
+			orderedItemIdSet.add(item.itemId);
 		}
 	}
 	const movedItemIds =

@@ -163,7 +163,7 @@ function firstVisibleItemId(reviewPackage: BridgeReviewPackage): string | null {
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-	return typeof value === 'object' && value !== null;
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isBridgeReviewPackage(value: unknown): value is BridgeReviewPackage {
