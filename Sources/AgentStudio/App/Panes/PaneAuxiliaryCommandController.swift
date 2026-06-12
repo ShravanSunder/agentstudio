@@ -303,8 +303,26 @@ final class PaneAuxiliaryCommandController {
         )
         paneNotePopover = popover
 
-        let anchorView = viewRegistry.view(for: paneId) ?? fallbackAnchorView
+        let anchorView = Self.resolvedPaneNoteAnchorView(
+            for: paneId,
+            viewRegistry: viewRegistry,
+            fallbackAnchorView: fallbackAnchorView
+        )
         popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+    }
+
+    static func resolvedPaneNoteAnchorView(
+        for paneId: UUID,
+        viewRegistry: ViewRegistry,
+        fallbackAnchorView: NSView
+    ) -> NSView {
+        guard let paneAnchorView = viewRegistry.view(for: paneId),
+            paneAnchorView.window != nil
+        else {
+            return fallbackAnchorView
+        }
+
+        return paneAnchorView
     }
 
     private func closePaneNotePopover() {

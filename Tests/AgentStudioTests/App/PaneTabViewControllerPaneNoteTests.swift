@@ -43,6 +43,43 @@ struct PaneTabViewControllerPaneNoteTests {
         #expect(paneNotePopover(from: auxiliaryController) == nil)
     }
 
+    @Test("pane note popover uses fallback anchor when registered host is detached")
+    func paneNoteAnchor_fallsBackWhenRegisteredHostIsDetached() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = makeMainPane(in: harness)
+        let detachedHost = PaneHostView(paneId: pane.id)
+        let fallbackAnchorView = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        harness.viewRegistry.register(detachedHost, for: pane.id)
+
+        let anchorView = PaneAuxiliaryCommandController.resolvedPaneNoteAnchorView(
+            for: pane.id,
+            viewRegistry: harness.viewRegistry,
+            fallbackAnchorView: fallbackAnchorView
+        )
+
+        #expect(anchorView === fallbackAnchorView)
+    }
+
+    @Test("pane note popover prefers attached registered pane host")
+    func paneNoteAnchor_prefersAttachedRegisteredHost() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        defer { window.orderOut(nil) }
+        let pane = makeMainPane(in: harness)
+        let fallbackAnchorView = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        let attachedHost = try attachPaneHost(paneId: pane.id, in: harness, to: window)
+
+        let anchorView = PaneAuxiliaryCommandController.resolvedPaneNoteAnchorView(
+            for: pane.id,
+            viewRegistry: harness.viewRegistry,
+            fallbackAnchorView: fallbackAnchorView
+        )
+
+        #expect(anchorView === attachedHost)
+    }
+
     @Test("tab bar popover close does not initialize pane auxiliary controller")
     func tabBarPopoverClose_doesNotInitializePaneAuxiliaryController() {
         let harness = makeHarness()

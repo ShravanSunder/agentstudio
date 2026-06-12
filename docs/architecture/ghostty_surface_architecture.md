@@ -156,7 +156,7 @@ User presses Cmd+Shift+T
 
 The boundary is intentionally split by isolation contract: callback trampolines stay nonisolated and capture stable identity synchronously; surface updates and runtime routing hop to `@MainActor`.
 
-Action routing must never crash the app from inside a Ghostty C callback. Known tags are pinned by tests so each explicitly routed tag produces one decision through the intercepted, workspace, or observed handler chains. Unknown tags and known tags that somehow miss a routing decision are logged, traced, and returned to Ghostty as unhandled (`false`) so Ghostty can apply its default behavior.
+Action routing must never crash the app from inside a Ghostty C callback. Known tags are pinned by tests so each explicitly routed tag produces one decision through the intercepted, workspace, or observed handler chains. Unknown tags are logged and returned to Ghostty as unhandled (`false`) so Ghostty can apply its default behavior. A known tag that somehow misses every routing decision is treated as a host contract violation: it is logged, traced, and swallowed (`true`) fail-closed so an unmapped known action cannot fall through to an unintended Ghostty default.
 
 ---
 
