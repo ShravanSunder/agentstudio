@@ -47,6 +47,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var filesystemPipelineBootTask: Task<Void, Never>?
     var initialTopologySyncTask: Task<Void, Never>?
     var persistenceObservationBootTask: Task<Void, Never>?
+    var isObservingTraceIdentityInputs = false
     private var terminationDrainTask: Task<Void, Never>?
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?

@@ -12,7 +12,9 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.2.0"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.12.0"),
         .package(url: "https://github.com/swift-otel/swift-otel.git", from: "1.0.0"),
+        .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.10.0"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.10.0"),
     ],
     targets: [
@@ -22,8 +24,10 @@ let package = Package(
                 "GhosttyKit",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "GRDB", package: "GRDB.swift"),
+                .product(name: "Logging", package: "swift-log"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
                 .product(name: "OTel", package: "swift-otel"),
+                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
             ],
             path: "Sources/AgentStudio",
             exclude: [

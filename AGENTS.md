@@ -22,6 +22,69 @@ First-time setup: `mise install && mise run doctor-mac && mise run setup && mise
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
+## Local Observability
+
+AgentStudio is an observability producer only. Do not add Docker Compose,
+VictoriaMetrics, VictoriaLogs, VictoriaTraces, or collector ownership to this
+repo. The shared local observability host is intended to live in shared tooling
+such as `~/dev/devfiles`, with generic service names and data directories so
+unrelated projects can use the same stack.
+
+Shared-host commands:
+
+```bash
+mise run observability:up
+mise run observability:status
+mise run observability:smoke
+mise run observability:down
+```
+
+The underlying source of truth is
+`~/dev/devfiles/shared/observability/observability-stack`.
+
+To create and launch a local beta bundle from the current branch with full OTLP
+tags when the collector is healthy:
+
+```bash
+mise run create-beta-app-bundle
+mise run run-beta-observability
+```
+
+`run-beta-observability` stays attached to the beta process so task runners do
+not clean it up early. Leave it running, then verify from another shell:
+
+```bash
+mise run verify-beta-observability
+```
+
+`run-beta-observability` does not install over `/Applications/AgentStudio
+Beta.app`. It prefers the newest local bundle under `tmp/beta-observability/`.
+If the shared collector health endpoint is not reachable, it forces JSONL-only
+tracing and clears inherited OTLP env. The launcher writes a per-run marker to
+`tmp/beta-observability/latest-observability.env`; `verify-beta-observability`
+queries that marker so stale beta logs cannot satisfy the gate.
+
+Debug and beta builds use a safe baseline when `AGENTSTUDIO_TRACE_TAGS` is
+unset: JSONL plus OTLP logs to `http://127.0.0.1:4318`. Stable builds stay
+disabled unless trace tags are explicit, and explicit stable tracing defaults to
+JSONL. `AGENTSTUDIO_TRACE_TAGS=off` disables the debug/beta baseline.
+
+Use `AGENTSTUDIO_TRACE_BACKEND=jsonl|otlp|both` for explicit selection.
+`OTEL_EXPORTER_OTLP_ENDPOINT` is accepted only for loopback HTTP endpoints and
+is treated as a collector base URL; AgentStudio sends logs to `/v1/logs`.
+Collector absence or exporter failure must be fail-open for normal app startup
+and must not prevent JSONL writes.
+
+AgentStudio currently exports OTLP logs. The shared stack also runs
+VictoriaMetrics and VictoriaTraces for other local producers, and its smoke gate
+exercises all three ingestion lanes.
+
+OTLP output is source-scrubbed. Allowed resource identity is limited to safe
+runtime labels plus deterministic repo/worktree hashes and branch, for example
+`dev.repo.hash`, `dev.worktree.hash`, `git.branch`,
+`dev.runtime.flavor`, and `dev.release.channel`. Raw paths, raw UUIDs, prompts,
+payload text, errors, and tool output must not be exported over OTLP.
+
 ## Release Process
 
 Releases are tag-driven from `main` via `.github/workflows/release.yml`; tag parsing lives in `scripts/release-tag-metadata.sh`.
