@@ -189,8 +189,73 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     // MARK: - Surface Display
 
+    struct SurfaceDisplayPlan: Equatable {
+        let reusesMountedWrapper: Bool
+        let resetsGeometryReportDedup: Bool
+        let resetsTerminationFlags: Bool
+        let observesRuntime: Bool
+        let appliesRuntimeSnapshot: Bool
+        let bindsRuntimeToSurface: Bool
+        let installsCloseCallback: Bool
+    }
+
+    nonisolated static func shouldReuseMountedSurfaceWrapper(
+        currentSurfaceMatchesIncoming: Bool,
+        currentWrapperExists: Bool,
+        currentWrapperIsMounted: Bool
+    ) -> Bool {
+        currentSurfaceMatchesIncoming && currentWrapperExists && currentWrapperIsMounted
+    }
+
+    nonisolated static func surfaceDisplayPlan(
+        currentSurfaceMatchesIncoming: Bool,
+        currentWrapperExists: Bool,
+        currentWrapperIsMounted: Bool,
+        hasBoundRuntime: Bool,
+        observedRuntimeMatchesBoundRuntime: Bool,
+        runtimeBoundToDisplayedSurfaceMatchesBoundRuntime: Bool
+    ) -> SurfaceDisplayPlan {
+        let reusesMountedWrapper = shouldReuseMountedSurfaceWrapper(
+            currentSurfaceMatchesIncoming: currentSurfaceMatchesIncoming,
+            currentWrapperExists: currentWrapperExists,
+            currentWrapperIsMounted: currentWrapperIsMounted
+        )
+        return SurfaceDisplayPlan(
+            reusesMountedWrapper: reusesMountedWrapper,
+            resetsGeometryReportDedup: true,
+            resetsTerminationFlags: !reusesMountedWrapper,
+            observesRuntime: hasBoundRuntime && !observedRuntimeMatchesBoundRuntime,
+            appliesRuntimeSnapshot: hasBoundRuntime,
+            bindsRuntimeToSurface: hasBoundRuntime
+                && (!runtimeBoundToDisplayedSurfaceMatchesBoundRuntime || !currentSurfaceMatchesIncoming),
+            installsCloseCallback: true
+        )
+    }
+
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
         let previouslyDisplayedSurface = ghosttySurface
+        let currentWrapper = surfaceScrollView
+        let displayPlan = Self.surfaceDisplayPlan(
+            currentSurfaceMatchesIncoming: previouslyDisplayedSurface === surfaceView,
+            currentWrapperExists: currentWrapper != nil,
+            currentWrapperIsMounted: currentWrapper.map { ghosttyMountView.mountedView === $0 } ?? false,
+            hasBoundRuntime: boundRuntime != nil,
+            observedRuntimeMatchesBoundRuntime: observedRuntime === boundRuntime,
+            runtimeBoundToDisplayedSurfaceMatchesBoundRuntime: runtimeBoundToDisplayedSurface === boundRuntime
+        )
+        if displayPlan.reusesMountedWrapper {
+            if displayPlan.resetsGeometryReportDedup {
+                self.lastReportedSurfaceSize = .zero
+            }
+            clearPlaceholder()
+            self.ghosttySurface = surfaceView
+            RestoreTrace.log(
+                "TerminalPaneMountView.displaySurface reusedMountedWrapper pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame)) incomingSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
+            )
+            finishSurfaceDisplay(surfaceView, displayPlan: displayPlan)
+            return
+        }
+
         // Remove existing surface if any
         ghosttySurface?.onCloseRequested = nil
         ghosttyMountView.unmountCurrentView()
@@ -205,13 +270,24 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
         self.ghosttySurface = surfaceView
         self.surfaceScrollView = wrappedScrollView
-        self.lastReportedSurfaceSize = .zero
-        self.shouldSuppressProcessExitedOverlayAfterTermination = false
-        self.hasObservedEffectiveTerminationDelivery = false
+        if displayPlan.resetsGeometryReportDedup {
+            self.lastReportedSurfaceSize = .zero
+        }
+        if displayPlan.resetsTerminationFlags {
+            self.shouldSuppressProcessExitedOverlayAfterTermination = false
+            self.hasObservedEffectiveTerminationDelivery = false
+        }
         RestoreTrace.log(
             "TerminalPaneMountView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") mountedSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
 
+        finishSurfaceDisplay(surfaceView, displayPlan: displayPlan)
+    }
+
+    private func finishSurfaceDisplay(
+        _ surfaceView: Ghostty.SurfaceView,
+        displayPlan: SurfaceDisplayPlan
+    ) {
         // Make this view layer-backed AFTER the surface is created
         self.wantsLayer = true
         self.layer?.backgroundColor = NSColor.clear.cgColor
@@ -219,18 +295,22 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         beginRestorePresentationIfNeeded()
         ensureScrollToBottomIndicator()
         if let boundRuntime {
-            if observedRuntime !== boundRuntime {
+            if displayPlan.observesRuntime {
                 observedRuntime = boundRuntime
                 observeRuntimeState(runtime: boundRuntime)
             }
-            applyRuntimeStateSnapshot(boundRuntime)
-            if runtimeBoundToDisplayedSurface !== boundRuntime || previouslyDisplayedSurface !== surfaceView {
+            if displayPlan.appliesRuntimeSnapshot {
+                applyRuntimeStateSnapshot(boundRuntime)
+            }
+            if displayPlan.bindsRuntimeToSurface {
                 surfaceView.bindRuntime(boundRuntime)
                 runtimeBoundToDisplayedSurface = boundRuntime
             }
         }
-        surfaceView.onCloseRequested = { [weak self] processAlive in
-            self?.handleSurfaceClose(processAlive: processAlive)
+        if displayPlan.installsCloseCallback {
+            surfaceView.onCloseRequested = { [weak self] processAlive in
+                self?.handleSurfaceClose(processAlive: processAlive)
+            }
         }
     }
 

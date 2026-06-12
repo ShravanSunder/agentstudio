@@ -69,6 +69,35 @@ extension Ghostty {
 
     /// NSView subclass that renders a Ghostty terminal surface
     final class SurfaceView: NSView {
+        nonisolated static func backingContentScale(
+            frame: NSRect,
+            backingFrame: NSRect
+        ) -> (x: Double, y: Double)? {
+            let logicalWidth = frame.size.width
+            let logicalHeight = frame.size.height
+            let backingWidth = backingFrame.size.width
+            let backingHeight = backingFrame.size.height
+            guard
+                logicalWidth.isFinite,
+                logicalHeight.isFinite,
+                backingWidth.isFinite,
+                backingHeight.isFinite,
+                logicalWidth > 0,
+                logicalHeight > 0,
+                backingWidth > 0,
+                backingHeight > 0
+            else {
+                return nil
+            }
+
+            let xScale = Double(backingWidth / logicalWidth)
+            let yScale = Double(backingHeight / logicalHeight)
+            guard xScale.isFinite, yScale.isFinite, xScale > 0, yScale > 0 else {
+                return nil
+            }
+            return (x: xScale, y: yScale)
+        }
+
         var onWorkingDirectoryChanged: (@MainActor @Sendable (ObjectIdentifier, String?) -> Void)?
         var onRendererHealthChanged: (@MainActor @Sendable (ObjectIdentifier, Bool) -> Void)?
         var onCloseRequested: (@MainActor @Sendable (Bool) -> Void)?
@@ -440,9 +469,24 @@ extension Ghostty {
 
             // Calculate x and y scale factors separately (official pattern)
             let fbFrame = convertToBacking(frame)
-            let xScale = fbFrame.size.width / frame.size.width
-            let yScale = fbFrame.size.height / frame.size.height
-            ghostty_surface_set_content_scale(surface, xScale, yScale)
+            if let contentScale = Self.backingContentScale(frame: frame, backingFrame: fbFrame) {
+                traceContentScale(
+                    source: "viewDidChangeBackingProperties",
+                    frame: frame,
+                    backingFrame: fbFrame,
+                    contentScale: contentScale,
+                    skipped: false
+                )
+                ghostty_surface_set_content_scale(surface, contentScale.x, contentScale.y)
+            } else {
+                traceContentScale(
+                    source: "viewDidChangeBackingProperties",
+                    frame: frame,
+                    backingFrame: fbFrame,
+                    contentScale: nil,
+                    skipped: true
+                )
+            }
 
             // Refresh size using contentSize (official pattern)
             if contentSize.width > 0 && contentSize.height > 0 {
@@ -468,6 +512,22 @@ extension Ghostty {
             CATransaction.commit()
 
             ghostty_surface_set_content_scale(surface, Double(scaleFactor), Double(scaleFactor))
+            RestoreTrace.log(
+                "Ghostty.SurfaceView.contentScale source=updateScaleFactor view=\(ObjectIdentifier(self)) frame=\(NSStringFromRect(frame)) backingFrame=nil x=\(Double(scaleFactor)) y=\(Double(scaleFactor)) skipped=false"
+            )
+        }
+
+        private func traceContentScale(
+            source: StaticString,
+            frame: NSRect,
+            backingFrame: NSRect,
+            contentScale: (x: Double, y: Double)?,
+            skipped: Bool
+        ) {
+            let scaleDescription = contentScale.map { "x=\($0.x) y=\($0.y)" } ?? "x=nil y=nil"
+            RestoreTrace.log(
+                "Ghostty.SurfaceView.contentScale source=\(source) view=\(ObjectIdentifier(self)) frame=\(NSStringFromRect(frame)) backingFrame=\(NSStringFromRect(backingFrame)) \(scaleDescription) skipped=\(skipped)"
+            )
         }
 
         private func viewHierarchyDescription() -> String {
