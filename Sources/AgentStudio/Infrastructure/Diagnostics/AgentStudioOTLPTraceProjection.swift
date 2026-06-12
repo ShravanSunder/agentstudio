@@ -57,6 +57,9 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.eventbus.consumer",
         "agentstudio.eventbus.name",
         "agentstudio.pane.kind",
+        "agentstudio.performance.management_layer.command",
+        "agentstudio.performance.pane_action.name",
+        "agentstudio.performance.sidebar.toggle.intent",
         "agentstudio.persistence.backend",
         "agentstudio.persistence.lane",
         "agentstudio.persistence.operation",
@@ -79,11 +82,15 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.envelope.schema_version",
         "agentstudio.envelope.seq",
         "agentstudio.ghostty.status",
+        "agentstudio.performance.sidebar.split_width",
+        "agentstudio.performance.sidebar.width",
         "agentstudio.zmx.socket_path_headroom",
     ]
 
     private static let allowedBooleanAttributeKeys: Set<String> = [
-        "agentstudio.app.is_active"
+        "agentstudio.app.is_active",
+        "agentstudio.performance.sidebar.is_collapsed",
+        "agentstudio.performance.sidebar.was_collapsed",
     ]
 
     private static let resourceKeysProjectedAsLogAttributes: Set<String> = [

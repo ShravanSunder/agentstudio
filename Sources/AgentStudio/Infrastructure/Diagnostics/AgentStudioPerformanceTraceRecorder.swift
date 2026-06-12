@@ -22,6 +22,8 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case sidebarFilterInput = "performance.sidebar.filter_input"
         case sidebarProjection = "performance.sidebar.projection"
         case sidebarRowIndex = "performance.sidebar.row_index"
+        case sidebarResize = "performance.sidebar.resize"
+        case sidebarToggle = "performance.sidebar.toggle"
         case tabBarRefresh = "performance.tabbar.refresh"
     }
 

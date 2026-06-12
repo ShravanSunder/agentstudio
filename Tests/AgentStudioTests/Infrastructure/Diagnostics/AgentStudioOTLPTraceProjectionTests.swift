@@ -253,7 +253,14 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.performance.git.status.duration_ms": .double(2.5),
                 "agentstudio.performance.git.status.elapsed_ms": .double(2.7),
                 "agentstudio.performance.git.root_path": .string("/Users/shravan/private/repo"),
+                "agentstudio.performance.management_layer.command": .string("toggleManagementLayer"),
                 "agentstudio.performance.note_text": .string("raw payload should stay local"),
+                "agentstudio.performance.pane_action.name": .string("minimizePane"),
+                "agentstudio.performance.sidebar.is_collapsed": .bool(true),
+                "agentstudio.performance.sidebar.split_width": .double(1200),
+                "agentstudio.performance.sidebar.toggle.intent": .string("collapse"),
+                "agentstudio.performance.sidebar.was_collapsed": .bool(false),
+                "agentstudio.performance.sidebar.width": .double(320),
                 "agentstudio.trace.tag": .string("performance"),
                 "agentstudio.worktree.id": .string(worktreeID.uuidString),
             ]
@@ -269,7 +276,16 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.git.status.duration_ms"] == .double(2.5))
         #expect(projection.attributes["agentstudio.performance.git.status.elapsed_ms"] == .double(2.7))
         #expect(projection.attributes["agentstudio.performance.git.root_path"] == nil)
+        #expect(
+            projection.attributes["agentstudio.performance.management_layer.command"]
+                == .string("toggleManagementLayer"))
         #expect(projection.attributes["agentstudio.performance.note_text"] == nil)
+        #expect(projection.attributes["agentstudio.performance.pane_action.name"] == .string("minimizePane"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.is_collapsed"] == .bool(true))
+        #expect(projection.attributes["agentstudio.performance.sidebar.split_width"] == .double(1200))
+        #expect(projection.attributes["agentstudio.performance.sidebar.toggle.intent"] == .string("collapse"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.was_collapsed"] == .bool(false))
+        #expect(projection.attributes["agentstudio.performance.sidebar.width"] == .double(320))
         #expect(projection.attributes["agentstudio.worktree.id"] == nil)
         #expect(projection.resource["process.pid"] == nil)
         #expect(!renderedProjection.contains("/Users/shravan"))

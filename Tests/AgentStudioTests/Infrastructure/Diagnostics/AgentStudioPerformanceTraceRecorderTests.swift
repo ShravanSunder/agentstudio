@@ -38,6 +38,8 @@ struct AgentStudioPerformanceTraceRecorderTests {
         recorder.record(.paneTabLayout)
         recorder.record(.paneViewRestore)
         recorder.record(.paneViewRestoreVisible)
+        recorder.record(.sidebarResize)
+        recorder.record(.sidebarToggle)
         try await recorder.drain()
 
         let outputFileURL = try #require(runtime.outputFileURL)
@@ -48,6 +50,8 @@ struct AgentStudioPerformanceTraceRecorderTests {
         #expect(contents.contains("\"body\":\"performance.pane_tab.layout\""))
         #expect(contents.contains("\"body\":\"performance.pane_view.restore\""))
         #expect(contents.contains("\"body\":\"performance.pane_view.restore_visible\""))
+        #expect(contents.contains("\"body\":\"performance.sidebar.resize\""))
+        #expect(contents.contains("\"body\":\"performance.sidebar.toggle\""))
         #expect(contents.contains("\"agentstudio.trace.tag\":\"performance\""))
         #expect(contents.contains("\"agentstudio.performance.git.running.count\":3"))
         #expect(contents.contains("\"agentstudio.performance.git.status.duration_ms\":1.5"))

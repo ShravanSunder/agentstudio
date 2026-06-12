@@ -321,11 +321,23 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     private func handleToggleSidebar() {
+        let clock = ContinuousClock()
+        let toggleStart = clock.now
+        let wasCollapsed = isSidebarCollapsed
         toggleSidebar(nil)
         // Contract: AppKit flips the split item collapsed flag asynchronously while
         // processing toggleSidebar(_:). Save on the next turn so UIState observes
         // the post-toggle truth instead of the stale pre-toggle value.
         scheduleSaveSidebarState()
+        performanceTraceRecorder?.recordDuration(
+            .sidebarToggle,
+            duration: toggleStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.sidebar.toggle.intent": .string(wasCollapsed ? "expand" : "collapse"),
+                "agentstudio.performance.sidebar.was_collapsed": .bool(wasCollapsed),
+                "agentstudio.performance.sidebar.is_collapsed": .bool(isSidebarCollapsed),
+            ]
+        )
     }
 
     private func handleFilterSidebar() {
@@ -487,12 +499,23 @@ class MainSplitViewController: NSSplitViewController {
         return rect
     }
     override func splitViewDidResizeSubviews(_ notification: Notification) {
+        let clock = ContinuousClock()
+        let resizeStart = clock.now
         super.splitViewDidResizeSubviews(notification)
         RestoreTrace.log(
             "MainSplitViewController.splitViewDidResizeSubviews splitBounds=\(NSStringFromRect(splitView.bounds)) sidebarCollapsed=\(isSidebarCollapsed)"
         )
         saveSidebarState()
         paneTabViewController?.syncVisibleTerminalGeometry(reason: "splitViewDidResizeSubviews")
+        performanceTraceRecorder?.recordDuration(
+            .sidebarResize,
+            duration: resizeStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.sidebar.is_collapsed": .bool(isSidebarCollapsed),
+                "agentstudio.performance.sidebar.width": .double(Double(currentSidebarWidth() ?? 0)),
+                "agentstudio.performance.sidebar.split_width": .double(Double(splitView.bounds.width)),
+            ]
+        )
     }
 }
 
