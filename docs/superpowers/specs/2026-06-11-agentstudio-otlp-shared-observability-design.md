@@ -303,7 +303,7 @@ the process-level diagnostics runtime is created before workspace boot. Once the
 workspace/repo context is known, the runtime should enrich new records with:
 
 ```text
-dev.repo.name
+dev.repo.hash
 dev.worktree.hash
 git.branch
 git.commit
@@ -490,7 +490,7 @@ VictoriaLogs:
 Recommended stream fields:
 
 ```text
-service.name,dev.repo.name,dev.worktree.hash,git.branch,dev.runtime.flavor
+service.name,dev.repo.hash,dev.worktree.hash,git.branch,dev.runtime.flavor
 ```
 
 VictoriaMetrics:
@@ -507,7 +507,7 @@ Recommended promoted labels:
 ```text
 service.name
 service.version
-dev.repo.name
+dev.repo.hash
 dev.worktree.hash
 git.branch
 dev.runtime.flavor

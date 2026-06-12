@@ -184,13 +184,14 @@ Implementation shape:
      flags;
    - accept only loopback hosts: `127.0.0.1`, `localhost`, and `::1`;
    - reject remote endpoints with a diagnostic and disable OTLP.
-7. Add `AGENTSTUDIO_OTLP_REQUIRE_READY=1` only for explicit tests/developer
-   sessions; default app behavior remains fail-open.
+7. Keep collector readiness outside the app startup contract. Developer helpers
+   may health-check the shared collector before enabling OTLP, but app runtime
+   behavior remains fail-open.
 
 Proof:
 
 - Add failing tests first for safe defaults, off override, backend parsing,
-  endpoint defaulting, loopback rejection, and require-ready config.
+  endpoint defaulting, and loopback rejection.
 - Then implement until focused config tests pass.
 
 ### T2. Sink Fanout While Preserving JSONL
@@ -307,9 +308,8 @@ Implementation shape:
    - JSONL stays active;
    - OTLP reports one startup diagnostic;
    - no modal, crash, or blocking retry loop.
-7. If `AGENTSTUDIO_OTLP_REQUIRE_READY=1` is set:
-   - fail the explicit smoke/test path when the fake or real collector is
-     unreachable.
+7. Helper-driven beta launches health-check the shared collector before setting
+   OTLP env and force JSONL-only env when the collector is unreachable.
 
 Proof:
 
@@ -355,7 +355,6 @@ Implementation shape:
    - `agentstudio.build.config`;
    - `agentstudio.release_channel`;
    - `agentstudio.runtime_flavor`;
-   - `dev.repo.name`;
    - `dev.repo.hash` from `Repo.stableKey`;
    - `dev.worktree.hash` from `Worktree.stableKey`;
    - `git.branch` from `WorktreeEnrichment.branch` when known.
