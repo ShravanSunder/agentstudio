@@ -11,6 +11,8 @@ final class WorkspaceRepositoryTopologyAtom {
 
     @ObservationIgnored private var worktreePathIndex: [WorktreePathIndexEntry] = []
     @ObservationIgnored private var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    @ObservationIgnored private var deferredWorktreePathIndexRebuildDepth = 0
+    @ObservationIgnored private var deferredWorktreePathIndexRebuildNeeded = false
 
     private struct WorktreePathIndexEntry {
         let repo: Repo
@@ -30,6 +32,15 @@ final class WorkspaceRepositoryTopologyAtom {
         performanceTraceRecorder = recorder
     }
 
+    func performBatchedTopologyMutation(_ mutation: () -> Void) {
+        deferredWorktreePathIndexRebuildDepth += 1
+        mutation()
+        deferredWorktreePathIndexRebuildDepth -= 1
+        guard deferredWorktreePathIndexRebuildDepth == 0, deferredWorktreePathIndexRebuildNeeded else { return }
+        deferredWorktreePathIndexRebuildNeeded = false
+        rebuildWorktreePathIndexAndBumpGeneration()
+    }
+
     func hydrate(
         runtimeRepos: [Repo],
         watchedPaths: [WatchedPath],
@@ -38,7 +49,7 @@ final class WorkspaceRepositoryTopologyAtom {
         repos = runtimeRepos
         self.watchedPaths = watchedPaths
         self.unavailableRepoIds = unavailableRepoIds
-        rebuildWorktreePathIndexAndBumpGeneration()
+        scheduleWorktreePathIndexRebuild()
     }
 
     func repo(_ id: UUID) -> Repo? {
@@ -106,7 +117,7 @@ final class WorkspaceRepositoryTopologyAtom {
         )
         repos.append(repo)
         unavailableRepoIds.remove(repo.id)
-        rebuildWorktreePathIndexAndBumpGeneration()
+        scheduleWorktreePathIndexRebuild()
         return repo
     }
 
@@ -114,7 +125,7 @@ final class WorkspaceRepositoryTopologyAtom {
         guard repos.contains(where: { $0.id == repoId }) else { return }
         repos.removeAll { $0.id == repoId }
         unavailableRepoIds.remove(repoId)
-        rebuildWorktreePathIndexAndBumpGeneration()
+        scheduleWorktreePathIndexRebuild()
     }
 
     func markRepoUnavailable(_ repoId: UUID) {
@@ -153,13 +164,13 @@ final class WorkspaceRepositoryTopologyAtom {
         repos[repoIndex].repoPath = newPath
         unavailableRepoIds.remove(repoId)
         _ = mergeDiscoveredWorktrees(repoId, worktrees: discoveredWorktrees)
-        rebuildWorktreePathIndexAndBumpGeneration()
+        scheduleWorktreePathIndexRebuild()
         return Set(repos[repoIndex].worktrees.map(\.id))
     }
 
     func reconcileDiscoveredWorktrees(_ repoId: UUID, worktrees: [Worktree]) {
         guard mergeDiscoveredWorktrees(repoId, worktrees: worktrees) else { return }
-        rebuildWorktreePathIndexAndBumpGeneration()
+        scheduleWorktreePathIndexRebuild()
     }
 
     @discardableResult
@@ -201,6 +212,14 @@ final class WorkspaceRepositoryTopologyAtom {
         guard merged != existing else { return false }
         repos[index].worktrees = merged
         return true
+    }
+
+    private func scheduleWorktreePathIndexRebuild() {
+        guard deferredWorktreePathIndexRebuildDepth == 0 else {
+            deferredWorktreePathIndexRebuildNeeded = true
+            return
+        }
+        rebuildWorktreePathIndexAndBumpGeneration()
     }
 
     private func rebuildWorktreePathIndexAndBumpGeneration() {

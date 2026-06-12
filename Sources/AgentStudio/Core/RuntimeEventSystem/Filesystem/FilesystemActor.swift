@@ -716,12 +716,14 @@ actor FilesystemActor {
 
         watchedFolderRepoGroupsByRoot[folderPath] = currentRepoGroups
 
+        var discoveredRepositories: [DiscoveredRepoTopologyInfo] = []
         for repoPath in addedRepoPaths {
             guard let group = currentRepoGroupsByClonePath[repoPath] else { continue }
-            await emitRepoDiscovered(
-                repoPath: repoPath,
-                parentPath: folderPath,
-                linkedWorktrees: .scanned(group.linkedWorktreePaths)
+            discoveredRepositories.append(
+                DiscoveredRepoTopologyInfo(
+                    repoPath: repoPath,
+                    linkedWorktrees: .scanned(group.linkedWorktreePaths)
+                )
             )
         }
 
@@ -732,12 +734,14 @@ actor FilesystemActor {
                 continue
             }
             guard currentGroup.linkedWorktreePaths != previousGroup.linkedWorktreePaths else { continue }
-            await emitRepoDiscovered(
-                repoPath: repoPath,
-                parentPath: folderPath,
-                linkedWorktrees: .scanned(currentGroup.linkedWorktreePaths)
+            discoveredRepositories.append(
+                DiscoveredRepoTopologyInfo(
+                    repoPath: repoPath,
+                    linkedWorktrees: .scanned(currentGroup.linkedWorktreePaths)
+                )
             )
         }
+        await emitReposDiscovered(parentPath: folderPath, repositories: discoveredRepositories)
 
         return WatchedFolderRefreshResult(
             repoPaths: currentRepoGroups.map(\.clonePath).sorted(by: Self.sortByPath),
@@ -769,6 +773,33 @@ actor FilesystemActor {
         if droppedCount > 0 {
             Self.logger.warning(
                 "Repo discovered event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); repoPath=\(repoPath.path, privacy: .public)"
+            )
+        }
+    }
+
+    private func emitReposDiscovered(
+        parentPath: URL,
+        repositories: [DiscoveredRepoTopologyInfo]
+    ) async {
+        guard !repositories.isEmpty else { return }
+        nextEnvelopeSequence += 1
+        let envelope = RuntimeEnvelope.system(
+            SystemEnvelope(
+                source: .builtin(.filesystemWatcher),
+                seq: nextEnvelopeSequence,
+                timestamp: envelopeClock.now,
+                event: .topology(
+                    .reposDiscovered(
+                        parentPath: parentPath,
+                        repositories: repositories
+                    )
+                )
+            )
+        )
+        let droppedCount = (await runtimeBus.post(envelope)).droppedCount
+        if droppedCount > 0 {
+            Self.logger.warning(
+                "Repos discovered event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); parentPath=\(parentPath.path, privacy: .public)"
             )
         }
     }

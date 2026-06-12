@@ -23,11 +23,20 @@ enum LinkedWorktreeInfo: Sendable, Equatable {
     case notScanned
 }
 
+struct DiscoveredRepoTopologyInfo: Sendable, Equatable {
+    let repoPath: URL
+    let linkedWorktrees: LinkedWorktreeInfo
+}
+
 enum TopologyEvent: Sendable {
     case repoDiscovered(
         repoPath: URL,
         parentPath: URL,
         linkedWorktrees: LinkedWorktreeInfo = .notScanned
+    )
+    case reposDiscovered(
+        parentPath: URL,
+        repositories: [DiscoveredRepoTopologyInfo]
     )
     case repoRemoved(repoPath: URL)
     case worktreeRegistered(worktreeId: UUID, repoId: UUID, rootPath: URL)

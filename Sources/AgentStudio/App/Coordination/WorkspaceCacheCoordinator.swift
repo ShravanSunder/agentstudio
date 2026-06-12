@@ -4,6 +4,15 @@ import os
 @MainActor
 protocol TopologyEffectHandler: AnyObject {
     func topologyDidChange(_ delta: WorktreeTopologyDelta)
+    func topologyDidChange(_ deltas: [WorktreeTopologyDelta])
+}
+
+extension TopologyEffectHandler {
+    func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
+        for delta in deltas {
+            topologyDidChange(delta)
+        }
+    }
 }
 
 @MainActor
@@ -98,6 +107,11 @@ final class WorkspaceCacheCoordinator {
                 linkedWorktrees: linkedWorktrees,
                 eventId: envelope.eventId
             )
+        case .reposDiscovered(_, let repositories):
+            handleReposDiscovered(
+                repositories: repositories,
+                eventId: envelope.eventId
+            )
         case .repoRemoved(let repoPath):
             handleRepoRemoved(repoPath: repoPath)
         case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
@@ -107,11 +121,14 @@ final class WorkspaceCacheCoordinator {
         }
     }
 
+    @discardableResult
     private func handleRepoDiscovered(
         repoPath: URL,
         linkedWorktrees: LinkedWorktreeInfo,
-        eventId: UUID
-    ) {
+        eventId: UUID,
+        shouldRefreshTraceIdentity: Bool = true,
+        shouldApplyTopologyEffects: Bool = true
+    ) -> WorktreeTopologyDelta? {
         let repositoryTopology = workspaceStore.repositoryTopologyAtom
         let normalizedRepoPath = repoPath.standardizedFileURL
         let incomingStableKey = StableKey.fromPath(normalizedRepoPath)
@@ -122,7 +139,9 @@ final class WorkspaceCacheCoordinator {
         if let repo = existingRepo {
             if repoCache.repoEnrichmentByRepoId[repo.id] == nil {
                 repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
-                refreshTraceIdentity()
+                if shouldRefreshTraceIdentity {
+                    refreshTraceIdentity()
+                }
             }
             if repositoryTopology.isRepoUnavailable(repo.id) {
                 _ = workspaceStore.mutationCoordinator.reassociateRepo(
@@ -136,18 +155,22 @@ final class WorkspaceCacheCoordinator {
             let repo = repositoryTopology.addRepo(at: normalizedRepoPath)
             repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
             repoId = repo.id
-            refreshTraceIdentity()
+            if shouldRefreshTraceIdentity {
+                refreshTraceIdentity()
+            }
         }
 
         guard case .scanned(let linkedPaths) = linkedWorktrees else {
-            refreshTraceIdentity()
-            return
+            if shouldRefreshTraceIdentity {
+                refreshTraceIdentity()
+            }
+            return nil
         }
         guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else {
             Self.logger.error(
                 "Repo id=\(repoId.uuidString, privacy: .public) not found after creation — store state inconsistency"
             )
-            return
+            return nil
         }
 
         let discoveredWorktrees = Self.buildDiscoveredWorktreeList(
@@ -162,8 +185,10 @@ final class WorkspaceCacheCoordinator {
             traceId: eventId
         )
         guard delta.didChange else {
-            refreshTraceIdentity()
-            return
+            if shouldRefreshTraceIdentity {
+                refreshTraceIdentity()
+            }
+            return nil
         }
 
         repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: mergedWorktrees)
@@ -175,7 +200,38 @@ final class WorkspaceCacheCoordinator {
                 "Topology delta has \(delta.removedWorktrees.count, privacy: .public) removed worktree(s) but no effect handler — pane orphaning skipped"
             )
         }
-        topologyEffectHandler?.topologyDidChange(delta)
+        if shouldApplyTopologyEffects {
+            topologyEffectHandler?.topologyDidChange(delta)
+        }
+        if shouldRefreshTraceIdentity {
+            refreshTraceIdentity()
+        }
+        return delta
+    }
+
+    private func handleReposDiscovered(
+        repositories: [DiscoveredRepoTopologyInfo],
+        eventId: UUID
+    ) {
+        guard !repositories.isEmpty else { return }
+        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        var topologyDeltas: [WorktreeTopologyDelta] = []
+        repositoryTopology.performBatchedTopologyMutation {
+            for repository in repositories {
+                if let delta = handleRepoDiscovered(
+                    repoPath: repository.repoPath,
+                    linkedWorktrees: repository.linkedWorktrees,
+                    eventId: eventId,
+                    shouldRefreshTraceIdentity: false,
+                    shouldApplyTopologyEffects: false
+                ) {
+                    topologyDeltas.append(delta)
+                }
+            }
+        }
+        if !topologyDeltas.isEmpty {
+            topologyEffectHandler?.topologyDidChange(topologyDeltas)
+        }
         refreshTraceIdentity()
     }
 

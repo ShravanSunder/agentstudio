@@ -643,11 +643,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let normalizedRoot = rootURL.standardizedFileURL.path
             await PaneRuntimeEventBus.shared.waitForFirst { envelope -> Void? in
                 guard case .system(let sys) = envelope,
-                    case .topology(.repoDiscovered(let repoPath, let parentPath, _)) = sys.event,
-                    parentPath.standardizedFileURL.path == normalizedRoot
-                        || repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
-                else { return nil }
-                return ()
+                    case .topology(let topologyEvent) = sys.event
+                else {
+                    return nil
+                }
+                switch topologyEvent {
+                case .repoDiscovered(let repoPath, let parentPath, _):
+                    guard
+                        parentPath.standardizedFileURL.path == normalizedRoot
+                            || repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
+                    else { return nil }
+                    return ()
+                case .reposDiscovered(let parentPath, let repositories):
+                    guard
+                        parentPath.standardizedFileURL.path == normalizedRoot
+                            || repositories.contains(where: {
+                                $0.repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
+                            })
+                    else { return nil }
+                    return ()
+                case .repoRemoved, .worktreeRegistered, .worktreeUnregistered:
+                    return nil
+                }
             }
             self.mainWindowController?.expandSidebar()
         }
