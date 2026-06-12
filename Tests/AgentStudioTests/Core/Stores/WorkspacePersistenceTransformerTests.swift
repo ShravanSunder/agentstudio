@@ -572,14 +572,18 @@ struct WorkspacePersistenceTransformerTests {
     }
 
     @Test
-    func makeLiveSQLiteSnapshot_addsDrawerViewPanesMissingFromTabMembership() {
+    func makeLiveSQLiteSnapshot_addsDrawerViewPanesMissingFromTabMembership() throws {
         let fixture = makeSQLiteSnapshotFixture()
         let parentPane = makePane(title: "Parent")
-        let drawerPane = makePane(title: "Drawer")
+        let drawerId = try #require(parentPane.drawer?.drawerId)
+        let drawerPane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Drawer"),
+            kind: .drawerChild(parentPaneId: parentPane.id)
+        )
         fixture.paneAtom.addPane(parentPane)
         fixture.paneAtom.addPane(drawerPane)
 
-        let drawerId = UUID()
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,

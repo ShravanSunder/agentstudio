@@ -34,7 +34,7 @@ struct BridgeReviewPackageBuilderTests {
             )
         )
 
-        #expect(package.orderedItemIds == ["item-source"])
+        #expect(package.orderedItemIds == ["item-source", "item-generated"])
         #expect(package.itemsById["item-source"]?.contentRoles.base?.reviewGeneration == 3)
         #expect(package.itemsById["item-source"]?.contentRoles.head?.reviewGeneration == 3)
         #expect(package.itemsById["item-generated"]?.isHiddenByDefault == true)
