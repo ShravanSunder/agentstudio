@@ -52,7 +52,11 @@ final class BridgePaneController {
     // MARK: - Domain State
 
     let revisionClock = RevisionClock()
-    let reviewContentStore = BridgeContentStore()
+    let reviewContentStore: BridgeContentStore
+    let reviewPipeline: BridgeReviewPipeline
+    let reviewChangeIndex = BridgeChangeIndex()
+    let bridgePaneState: BridgePaneState
+    var nextReviewGeneration: BridgeReviewGeneration = 0
 
     // MARK: - Push Plans
 
@@ -90,9 +94,14 @@ final class BridgePaneController {
     init(
         paneId: UUID,
         state: BridgePaneState,
-        metadata: PaneMetadata? = nil
+        metadata: PaneMetadata? = nil,
+        reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil
     ) {
         self.paneId = paneId
+        self.bridgePaneState = state
+        let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
+        self.reviewContentStore = BridgeContentStore(provider: resolvedReviewSourceProvider)
+        self.reviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
         let runtimePaneId = PaneId(uuid: paneId)
         let defaultMetadata = Self.makeDefaultRuntimeMetadata(paneId: runtimePaneId, state: state)
         let resolvedMetadata = (metadata ?? defaultMetadata).canonicalizedIdentity(
@@ -265,8 +274,10 @@ final class BridgePaneController {
     /// are observable (prevents silent false-positive acks from hiding wiring gaps).
     private func registerNamespaceHandlers() {
         // diff namespace
-        registerStub(DiffMethods.RequestFileContentsMethod.self)
-        registerStub(DiffMethods.LoadDiffMethod.self)
+        router.register(method: DiffMethods.LoadDiffMethod.self) { @MainActor [weak self] params in
+            try await self?.handleLoadDiffRPC(params)
+            return nil
+        }
 
         // review namespace
         registerStub(ReviewMethods.AddCommentMethod.self)
@@ -310,6 +321,43 @@ final class BridgePaneController {
         router.register(method: method) { _ in
             bridgeControllerLogger.info("[BridgePaneController] stub: \(M.method) called (not yet wired)")
             throw BridgeMethodUnimplementedError(method: M.method)
+        }
+    }
+
+    private func handleLoadDiffRPC(_ params: DiffMethods.LoadDiffMethod.Params) async throws {
+        let commandId = UUID()
+        let result = await handleDiffCommand(
+            .loadDiff(
+                DiffArtifact(
+                    diffId: params.diffId ?? UUIDv7.generate(),
+                    worktreeId: params.worktreeId,
+                    patchData: Data()
+                )
+            ),
+            commandId: commandId,
+            correlationId: nil
+        )
+
+        switch result {
+        case .success, .queued:
+            return
+        case .failure(let error):
+            throw rpcDispatchError(from: error)
+        }
+    }
+
+    private func rpcDispatchError(from error: ActionError) -> RPCMethodDispatchError {
+        switch error {
+        case .invalidPayload(let description):
+            return .invalidParams(description)
+        case .backendUnavailable(let backend):
+            return .handlerFailure("Backend unavailable: \(backend)")
+        case .runtimeNotReady(let lifecycle):
+            return .handlerFailure("Runtime not ready: \(lifecycle)")
+        case .unsupportedCommand(let command, let required):
+            return .handlerFailure("Unsupported command \(command); requires \(required)")
+        case .timeout(let commandId):
+            return .handlerFailure("Command timed out: \(commandId.uuidString)")
         }
     }
 
@@ -439,6 +487,12 @@ final class BridgePaneController {
             slices: {
                 Slice("diffStatus", store: .diff, level: .hot) { state in
                     DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
+                }
+                Slice("diffPackageMetadata", store: .diff, level: .cold, op: .replace) { state in
+                    DiffPackageMetadataSlice(package: state.packageMetadata)
+                }
+                Slice("diffPackageDelta", store: .diff, level: .warm, op: .merge) { state in
+                    DiffPackageDeltaSlice(delta: state.packageDelta)
                 }
                 EntitySlice(
                     "diffFiles", store: .diff, level: .cold,

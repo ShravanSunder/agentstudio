@@ -2,49 +2,81 @@ import Foundation
 
 actor BridgeReviewPipeline {
     private let provider: any BridgeReviewSourceProvider
-    private let contentStore: BridgeContentStore
 
-    init(
-        provider: any BridgeReviewSourceProvider,
-        contentStore: BridgeContentStore = BridgeContentStore()
-    ) {
+    init(provider: any BridgeReviewSourceProvider) {
         self.provider = provider
-        self.contentStore = contentStore
     }
 
     func loadPackage(_ request: BridgeReviewPipelineRequest) async throws -> BridgeReviewPipelineResult {
-        let comparison = try await provider.compareEndpoints(
-            BridgeEndpointComparisonRequest(
-                query: request.query,
-                baseEndpoint: request.baseEndpoint,
-                headEndpoint: request.headEndpoint,
-                reviewGeneration: request.reviewGeneration
-            )
-        )
-        let package = try BridgeReviewPackageBuilder.build(
-            request: BridgeReviewPackageBuildRequest(
-                packageId: request.packageId,
-                query: request.query,
-                comparison: comparison,
-                checkpointIds: request.checkpointIds,
-                reviewGeneration: request.reviewGeneration,
-                generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
-            )
-        )
-
-        var registeredContentHandles: [BridgeContentHandle] = []
-        for descriptor in package.itemsById.values {
-            for handle in descriptor.contentRoles.allHandles {
-                let result = try await provider.loadContent(
-                    BridgeContentLoadRequest(
-                        handle: handle,
-                        requestedGeneration: request.reviewGeneration
-                    )
+        let package: BridgeReviewPackage
+        switch request.query.queryKind {
+        case .compare, .filterPackage, .groupPackage:
+            let comparison = try await provider.compareEndpoints(
+                BridgeEndpointComparisonRequest(
+                    query: request.query,
+                    baseEndpoint: request.baseEndpoint,
+                    headEndpoint: request.headEndpoint,
+                    reviewGeneration: request.reviewGeneration
                 )
-                await contentStore.register(result)
-                registeredContentHandles.append(handle)
+            )
+            package = try BridgeReviewPackageBuilder.build(
+                request: BridgeReviewPackageBuildRequest(
+                    packageId: request.packageId,
+                    query: request.query,
+                    comparison: comparison,
+                    checkpointIds: request.checkpointIds,
+                    reviewGeneration: request.reviewGeneration,
+                    generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
+                )
+            )
+        case .browseTree:
+            let tree = try await provider.readTree(
+                BridgeTreeReadRequest(
+                    endpoint: request.headEndpoint,
+                    pathScope: request.query.pathScope,
+                    reviewGeneration: request.reviewGeneration
+                )
+            )
+            package = try BridgeReviewPackageBuilder.buildFromDescriptors(
+                request: BridgeReviewDescriptorPackageBuildRequest(
+                    packageId: request.packageId,
+                    query: request.query,
+                    baseEndpoint: request.baseEndpoint,
+                    headEndpoint: tree.endpoint,
+                    descriptors: tree.descriptors,
+                    checkpointIds: request.checkpointIds,
+                    reviewGeneration: request.reviewGeneration,
+                    generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
+                )
+            )
+        case .openFile:
+            guard let fileTarget = request.query.fileTarget else {
+                throw BridgeProviderFailure.providerFailed(message: "openFile query requires fileTarget")
             }
+            let descriptor = try await provider.readReviewItemDescriptor(
+                BridgeReviewItemDescriptorRequest(
+                    endpoint: request.headEndpoint,
+                    path: fileTarget,
+                    reviewGeneration: request.reviewGeneration
+                )
+            )
+            package = try BridgeReviewPackageBuilder.buildFromDescriptors(
+                request: BridgeReviewDescriptorPackageBuildRequest(
+                    packageId: request.packageId,
+                    query: request.query,
+                    baseEndpoint: request.baseEndpoint,
+                    headEndpoint: request.headEndpoint,
+                    descriptors: [descriptor],
+                    checkpointIds: request.checkpointIds,
+                    reviewGeneration: request.reviewGeneration,
+                    generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
+                )
+            )
         }
+
+        let registeredContentHandles = package.itemsById.values
+            .sorted { $0.itemId < $1.itemId }
+            .flatMap { $0.contentRoles.allHandles }
 
         return BridgeReviewPipelineResult(
             package: package,

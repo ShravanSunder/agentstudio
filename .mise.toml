@@ -115,8 +115,13 @@ bash scripts/verify-release-scripts.sh
 
 [tasks.bridge-web-check]
 description = "Run BridgeWeb lint, format check, and TypeScript check"
+depends = ["bridge-web-sync-fixtures"]
 dir = "BridgeWeb"
 run = "pnpm run check"
+
+[tasks.bridge-web-sync-fixtures]
+description = "Verify BridgeWeb JSON contract fixtures match Swift source fixtures"
+run = "bash scripts/bridge-web-sync-fixtures.sh"
 
 [tasks.bridge-web-test]
 description = "Run BridgeWeb Vitest suites"

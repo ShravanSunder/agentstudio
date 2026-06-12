@@ -1,17 +1,20 @@
+import CryptoKit
 import Foundation
 import Testing
 
 @testable import AgentStudio
 
 struct BridgeReviewPipelineTests {
-    @Test("pipeline builds package off main actor and registers provider content")
-    func pipelineBuildsPackageOffMainActorAndRegistersProviderContent() async throws {
+    @Test("pipeline builds package off main actor and returns handles without loading content")
+    func pipelineBuildsPackageOffMainActorAndReturnsHandlesWithoutLoadingContent() async throws {
         let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
         let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .promptCheckpoint)
         let changedFile = makeBridgeEndpointChangedFile(
             fileId: "source",
             path: "Sources/App/View.swift",
-            sizeBytes: 100
+            sizeBytes: 100,
+            oldContentHash: bridgeSHA256ContentHash("old"),
+            newContentHash: bridgeSHA256ContentHash("new")
         )
         let headHandle = BridgeReviewPackageBuilder.contentHandle(
             for: changedFile,
@@ -36,8 +39,8 @@ struct BridgeReviewPipelineTests {
                 headHandle.handleId: makeContentResult(handle: headHandle, data: "new"),
             ]
         )
-        let contentStore = BridgeContentStore()
-        let pipeline = BridgeReviewPipeline(provider: provider, contentStore: contentStore)
+        let contentStore = BridgeContentStore(provider: provider)
+        let pipeline = BridgeReviewPipeline(provider: provider)
 
         let result = try await pipeline.loadPackage(
             BridgeReviewPipelineRequest(
@@ -56,6 +59,8 @@ struct BridgeReviewPipelineTests {
 
         #expect(result.package.packageId == "package")
         #expect(result.package.orderedItemIds == ["item-source"])
+        #expect(await provider.recordedContentRequestsCount() == 0)
+        await contentStore.activate(handles: result.registeredContentHandles, reviewGeneration: 5)
         let loaded = try await contentStore.load(handleId: headHandle.handleId, requestedGeneration: 5)
         #expect(loaded.data == Data("new".utf8))
     }
@@ -67,12 +72,16 @@ struct BridgeReviewPipelineTests {
         let visibleFile = makeBridgeEndpointChangedFile(
             fileId: "source",
             path: "Sources/App/View.swift",
-            sizeBytes: 100
+            sizeBytes: 100,
+            oldContentHash: bridgeSHA256ContentHash("old"),
+            newContentHash: bridgeSHA256ContentHash("new")
         )
         let hiddenFile = makeBridgeEndpointChangedFile(
             fileId: "generated",
             path: "Sources/Generated/API.swift",
-            sizeBytes: 100
+            sizeBytes: 100,
+            oldContentHash: bridgeSHA256ContentHash("old-hidden"),
+            newContentHash: bridgeSHA256ContentHash("new-hidden")
         )
         let visibleHeadHandle = BridgeReviewPackageBuilder.contentHandle(
             for: visibleFile,
@@ -111,8 +120,8 @@ struct BridgeReviewPipelineTests {
                 hiddenHeadHandle.handleId: makeContentResult(handle: hiddenHeadHandle, data: "new-hidden"),
             ]
         )
-        let contentStore = BridgeContentStore()
-        let pipeline = BridgeReviewPipeline(provider: provider, contentStore: contentStore)
+        let contentStore = BridgeContentStore(provider: provider)
+        let pipeline = BridgeReviewPipeline(provider: provider)
 
         let result = try await pipeline.loadPackage(
             BridgeReviewPipelineRequest(
@@ -130,10 +139,136 @@ struct BridgeReviewPipelineTests {
             )
         )
 
-        #expect(result.package.orderedItemIds == ["item-source"])
+        #expect(result.package.orderedItemIds == ["item-source", "item-generated"])
         #expect(result.registeredContentHandles.contains(hiddenHeadHandle))
+        await contentStore.activate(handles: result.registeredContentHandles, reviewGeneration: 5)
         let loaded = try await contentStore.load(handleId: hiddenHeadHandle.handleId, requestedGeneration: 5)
         #expect(loaded.data == Data("new-hidden".utf8))
+    }
+
+    @Test("pipeline does not perform content IO for large metadata packages")
+    func pipelineDoesNotPerformContentIOForLargeMetadataPackages() async throws {
+        let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
+        let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .promptCheckpoint)
+        let changedFiles = (0..<1000).map { index in
+            makeBridgeEndpointChangedFile(
+                fileId: "source-\(index)",
+                path: "Sources/App/View\(index).swift",
+                sizeBytes: 100
+            )
+        }
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                changedFiles: changedFiles
+            ),
+            contentByHandleId: [:]
+        )
+        let pipeline = BridgeReviewPipeline(provider: provider)
+
+        let result = try await pipeline.loadPackage(
+            BridgeReviewPipelineRequest(
+                packageId: "package",
+                query: makeBridgeReviewQuery(
+                    baseEndpointId: baseEndpoint.endpointId,
+                    headEndpointId: headEndpoint.endpointId
+                ),
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                checkpointIds: ["checkpoint"],
+                reviewGeneration: 5,
+                generatedAtUnixMilliseconds: 6
+            )
+        )
+
+        #expect(result.package.itemsById.count == 1000)
+        #expect(await provider.recordedContentRequestsCount() == 0)
+    }
+
+    @Test("pipeline uses tree reader for browse tree queries")
+    func pipelineUsesTreeReaderForBrowseTreeQueries() async throws {
+        let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
+        let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
+        let treeDescriptor = makeBridgeReviewItemDescriptor(
+            itemId: "item-tree",
+            path: "Sources/App/Tree.swift",
+            fileClass: .source
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                changedFiles: []
+            ),
+            contentByHandleId: [:],
+            treeDescriptors: [treeDescriptor]
+        )
+        let pipeline = BridgeReviewPipeline(provider: provider)
+
+        let result = try await pipeline.loadPackage(
+            BridgeReviewPipelineRequest(
+                packageId: "package",
+                query: makeBridgeReviewQuery(
+                    baseEndpointId: baseEndpoint.endpointId,
+                    headEndpointId: headEndpoint.endpointId,
+                    options: BridgeReviewQueryTestOptions(queryKind: .browseTree)
+                ),
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                checkpointIds: [],
+                reviewGeneration: 5,
+                generatedAtUnixMilliseconds: 6
+            )
+        )
+
+        #expect(result.package.orderedItemIds == ["item-tree"])
+        #expect(await provider.recordedComparisonRequestsCount() == 0)
+        #expect(await provider.recordedTreeReadRequestsCount() == 1)
+    }
+
+    @Test("pipeline uses item descriptor reader for open file queries")
+    func pipelineUsesItemDescriptorReaderForOpenFileQueries() async throws {
+        let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
+        let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
+        let itemDescriptor = makeBridgeReviewItemDescriptor(
+            itemId: "item-open",
+            path: "Sources/App/Open.swift",
+            fileClass: .source
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                changedFiles: []
+            ),
+            contentByHandleId: [:],
+            itemDescriptorByPath: ["Sources/App/Open.swift": itemDescriptor]
+        )
+        let pipeline = BridgeReviewPipeline(provider: provider)
+
+        let result = try await pipeline.loadPackage(
+            BridgeReviewPipelineRequest(
+                packageId: "package",
+                query: makeBridgeReviewQuery(
+                    baseEndpointId: baseEndpoint.endpointId,
+                    headEndpointId: headEndpoint.endpointId,
+                    options: BridgeReviewQueryTestOptions(
+                        queryKind: .openFile,
+                        fileTarget: "Sources/App/Open.swift"
+                    )
+                ),
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                checkpointIds: [],
+                reviewGeneration: 5,
+                generatedAtUnixMilliseconds: 6
+            )
+        )
+
+        #expect(result.package.orderedItemIds == ["item-open"])
+        #expect(await provider.recordedComparisonRequestsCount() == 0)
+        #expect(await provider.recordedItemDescriptorRequestsCount() == 1)
     }
 }
 
@@ -157,29 +292,49 @@ func makeBridgeReviewQuery(
     baseEndpointId: String = "base",
     headEndpointId: String = "head",
     filter: BridgeViewFilter = BridgeViewFilter(),
-    grouping: BridgeChangeGrouping = BridgeChangeGrouping(kind: .flat)
+    grouping: BridgeChangeGrouping = BridgeChangeGrouping(kind: .flat),
+    options: BridgeReviewQueryTestOptions = BridgeReviewQueryTestOptions()
 ) -> BridgeReviewQuery {
     BridgeReviewQuery(
         queryId: "query",
-        queryKind: .compare,
+        queryKind: options.queryKind,
         repoId: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
         worktreeId: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
         baseEndpointId: baseEndpointId,
         headEndpointId: headEndpointId,
         comparisonSemantics: .checkpointDelta,
-        pathScope: [],
-        fileTarget: nil,
+        pathScope: options.pathScope,
+        fileTarget: options.fileTarget,
         viewFilter: filter,
         grouping: grouping,
         provenanceFilter: BridgeProvenanceFilter()
     )
 }
 
+struct BridgeReviewQueryTestOptions {
+    let queryKind: BridgeReviewQuery.Kind
+    let fileTarget: String?
+    let pathScope: [String]
+
+    init(
+        queryKind: BridgeReviewQuery.Kind = .compare,
+        fileTarget: String? = nil,
+        pathScope: [String] = []
+    ) {
+        self.queryKind = queryKind
+        self.fileTarget = fileTarget
+        self.pathScope = pathScope
+    }
+}
+
 func makeBridgeContentHandle(
     itemId: String,
     role: BridgeContentHandle.Role,
     endpointId: String = "endpoint",
-    reviewGeneration: BridgeReviewGeneration = 7
+    reviewGeneration: BridgeReviewGeneration = 7,
+    contentHash: String = bridgeSHA256ContentHash("content"),
+    sizeBytes: Int = 100,
+    isBinary: Bool = false
 ) -> BridgeContentHandle {
     let handleId = "handle-\(endpointId)-\(itemId)-\(role.rawValue)"
     return BridgeContentHandle(
@@ -189,13 +344,13 @@ func makeBridgeContentHandle(
         endpointId: endpointId,
         reviewGeneration: reviewGeneration,
         resourceUrl: "agentstudio://resource/content/\(handleId)?generation=\(reviewGeneration.rawValue)",
-        contentHash: "sha256:\(itemId):\(role.rawValue)",
+        contentHash: contentHash,
         contentHashAlgorithm: "sha256",
         cacheKey: "\(endpointId):\(itemId):\(role.rawValue)",
         mimeType: "text/plain",
         language: nil,
-        sizeBytes: 5,
-        isBinary: false
+        sizeBytes: sizeBytes,
+        isBinary: isBinary
     )
 }
 
@@ -252,7 +407,9 @@ func makeBridgeEndpointChangedFile(
     fileId: String,
     path: String,
     sizeBytes: Int,
-    changeKind: BridgeFileChangeKind = .modified
+    changeKind: BridgeFileChangeKind = .modified,
+    oldContentHash: String? = nil,
+    newContentHash: String? = nil
 ) -> BridgeEndpointChangedFile {
     BridgeEndpointChangedFile(
         fileId: fileId,
@@ -262,12 +419,18 @@ func makeBridgeEndpointChangedFile(
         language: "swift",
         fileExtension: "swift",
         sizeBytes: sizeBytes,
-        oldContentHash: changeKind == .added ? nil : "sha256:old-\(fileId)",
-        newContentHash: changeKind == .deleted ? nil : "sha256:new-\(fileId)",
+        oldContentHash: changeKind == .added ? nil : (oldContentHash ?? "sha256:old-\(fileId)"),
+        newContentHash: changeKind == .deleted ? nil : (newContentHash ?? "sha256:new-\(fileId)"),
         contentHashAlgorithm: "sha256",
         additions: changeKind == .deleted ? 0 : 1,
         deletions: changeKind == .added ? 0 : 1,
         isBinary: false,
         mimeType: "text/x-swift"
     )
+}
+
+func bridgeSHA256ContentHash(_ content: String) -> String {
+    let digest = SHA256.hash(data: Data(content.utf8))
+    let hex = digest.map { String(format: "%02x", $0) }.joined()
+    return "sha256:\(hex)"
 }

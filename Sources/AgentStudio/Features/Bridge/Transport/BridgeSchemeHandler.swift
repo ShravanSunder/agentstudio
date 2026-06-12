@@ -33,9 +33,10 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             let classification = Self.classifyPath(url.absoluteString)
             switch classification {
             case .app(let relativePath):
-                Task {
+                let task = Task {
                     do {
                         let asset = try await appAssetStore.load(relativePath: relativePath)
+                        try Task.checkCancellation()
                         continuation.yield(
                             .response(
                                 URLResponse(
@@ -44,20 +45,25 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                                     expectedContentLength: asset.data.count,
                                     textEncodingName: Self.textEncodingName(for: asset.mimeType)
                                 )))
+                        try Task.checkCancellation()
                         continuation.yield(.data(asset.data))
                         continuation.finish()
                     } catch {
                         continuation.finish(throwing: error)
                     }
                 }
+                continuation.onTermination = { _ in
+                    task.cancel()
+                }
 
             case .content(let handleId, let generation):
-                Task {
+                let task = Task {
                     do {
                         let result = try await contentStore.load(
                             handleId: handleId,
                             requestedGeneration: generation
                         )
+                        try Task.checkCancellation()
                         continuation.yield(
                             .response(
                                 URLResponse(
@@ -66,11 +72,15 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                                     expectedContentLength: result.data.count,
                                     textEncodingName: Self.textEncodingName(for: result.mimeType)
                                 )))
+                        try Task.checkCancellation()
                         continuation.yield(.data(result.data))
                         continuation.finish()
                     } catch {
                         continuation.finish(throwing: error)
                     }
+                }
+                continuation.onTermination = { _ in
+                    task.cancel()
                 }
 
             case .invalid:

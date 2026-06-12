@@ -158,6 +158,19 @@ final class BridgeSchemeHandlerTests {
         #expect(result == .invalid)
     }
 
+    @Test
+    func test_pathType_resourceNegativeGeneration_invalid() {
+        let result = BridgeSchemeHandler.classifyPath("agentstudio://resource/content/handle-abc?generation=-1")
+        #expect(result == .invalid)
+    }
+
+    @Test
+    func test_pathType_resourceOverflowGeneration_invalid() {
+        let result = BridgeSchemeHandler.classifyPath(
+            "agentstudio://resource/content/handle-abc?generation=99999999999999999999")
+        #expect(result == .invalid)
+    }
+
     // MARK: - Path traversal rejection (security)
 
     @Test
@@ -203,20 +216,172 @@ final class BridgeSchemeHandlerTests {
     }
 
     @Test
-    func test_contentRoute_loadsRegisteredContentFromStore() async throws {
-        let contentStore = BridgeContentStore()
-        let handle = makeBridgeContentHandle(itemId: "item-1", role: .head, reviewGeneration: 7)
-        await contentStore.register(makeContentResult(handle: handle, data: "hello bridge"))
+    func test_appAssetStoreRejectsSymlinkEscapeOutsideAppRoot() async throws {
+        let fileManager = FileManager.default
+        let tempRoot = fileManager.temporaryDirectory.appending(path: "agentstudio-bridge-assets-\(UUID().uuidString)")
+        let appRoot = tempRoot.appending(path: "app")
+        let outsideRoot = tempRoot.appending(path: "outside")
+        try fileManager.createDirectory(at: appRoot, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: tempRoot)
+        }
+        let outsideAsset = outsideRoot.appending(path: "secret.txt")
+        try Data("secret".utf8).write(to: outsideAsset)
+        let symlinkURL = appRoot.appending(path: "secret-link.txt")
+        do {
+            try fileManager.createSymbolicLink(at: symlinkURL, withDestinationURL: outsideAsset)
+        } catch {
+            Issue.record("Could not create symlink fixture: \(error)")
+            return
+        }
+        let store = BridgeAppAssetStore(appRootURL: appRoot)
+
+        do {
+            _ = try await store.load(relativePath: "secret-link.txt")
+            Issue.record("Expected symlink escape to be rejected")
+        } catch BridgeSchemeError.invalidRoute {
+        } catch {
+            Issue.record("Expected invalidRoute, got \(error)")
+        }
+    }
+
+    @Test
+    func test_contentRoute_lazilyLoadsKnownContentFromStore() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("hello bridge")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "hello bridge")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
         let handler = BridgeSchemeHandler(paneId: UUID(), contentStore: contentStore)
         let request = URLRequest(url: URL(string: handle.resourceUrl)!)
 
+        var response: URLResponse?
         var data = Data()
+        var eventOrder: [String] = []
         for try await result in handler.reply(for: request) {
-            if case .data(let chunk) = result {
+            switch result {
+            case .response(let emittedResponse):
+                response = emittedResponse
+                eventOrder.append("response")
+            case .data(let chunk):
                 data.append(chunk)
+                eventOrder.append("data")
+            @unknown default:
+                Issue.record("Unexpected URL scheme task result")
             }
         }
 
+        #expect(eventOrder == ["response", "data"])
+        #expect(response?.mimeType == "text/plain")
+        #expect(response?.expectedContentLength == Int64(Data("hello bridge".utf8).count))
         #expect(data == Data("hello bridge".utf8))
+        #expect(await provider.recordedContentRequestsCount() == 1)
+    }
+
+    @Test
+    func test_contentRouteUnknownHandleFailsThroughSchemeHandler() async throws {
+        let contentStore = BridgeContentStore()
+        let handler = BridgeSchemeHandler(paneId: UUID(), contentStore: contentStore)
+        let request = URLRequest(url: URL(string: "agentstudio://resource/content/missing?generation=7")!)
+
+        do {
+            for try await _ in handler.reply(for: request) {}
+            Issue.record("Expected missing content failure")
+        } catch let failure as BridgeProviderFailure {
+            #expect(failure == .missingContent(handleId: "missing"))
+        } catch {
+            Issue.record("Expected BridgeProviderFailure, got \(error)")
+        }
+    }
+
+    @Test
+    func test_contentRouteCancellationCancelsProviderBackedLoad() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("slow")
+        )
+        let gate = BridgeContentLoadGate()
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "slow")
+            ],
+            contentLoadGate: gate,
+            checksCancellationAfterGate: true
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let handler = BridgeSchemeHandler(paneId: UUID(), contentStore: contentStore)
+        let request = URLRequest(url: URL(string: handle.resourceUrl)!)
+        let eventRecorder = BridgeSchemeHandlerEventRecorder()
+        let stream = handler.reply(for: request)
+
+        let consumerTask = Task {
+            do {
+                for try await result in stream {
+                    switch result {
+                    case .response:
+                        await eventRecorder.recordEvent()
+                    case .data:
+                        await eventRecorder.recordEvent()
+                    @unknown default:
+                        await eventRecorder.recordEvent()
+                    }
+                }
+            } catch is CancellationError {
+            } catch {
+                await eventRecorder.recordError()
+            }
+        }
+        await gate.waitForStartedLoadCount(1)
+        consumerTask.cancel()
+        await gate.releaseAll()
+        await provider.waitForFinishedContentLoadCount(1)
+        _ = await consumerTask.result
+
+        #expect(await provider.recordedObservedCancellationCount() == 1)
+        #expect(await eventRecorder.recordedEventCount() == 0)
+        #expect(await eventRecorder.recordedErrorCount() == 0)
+    }
+}
+
+private actor BridgeSchemeHandlerEventRecorder {
+    private var eventCount = 0
+    private var errorCount = 0
+
+    func recordEvent() {
+        eventCount += 1
+    }
+
+    func recordError() {
+        errorCount += 1
+    }
+
+    func recordedEventCount() -> Int {
+        eventCount
+    }
+
+    func recordedErrorCount() -> Int {
+        errorCount
     }
 }

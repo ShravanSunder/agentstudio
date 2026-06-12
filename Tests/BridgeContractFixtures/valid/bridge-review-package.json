@@ -2,6 +2,7 @@
   "packageId": "package-42",
   "schemaVersion": 1,
   "reviewGeneration": 42,
+  "revision": 1,
   "query": {
     "queryId": "query-42",
     "queryKind": "compare",

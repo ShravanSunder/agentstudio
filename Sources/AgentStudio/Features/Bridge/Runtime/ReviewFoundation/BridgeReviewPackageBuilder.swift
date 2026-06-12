@@ -9,6 +9,17 @@ struct BridgeReviewPackageBuildRequest: Equatable, Sendable {
     let generatedAtUnixMilliseconds: Int64
 }
 
+struct BridgeReviewDescriptorPackageBuildRequest: Equatable, Sendable {
+    let packageId: String
+    let query: BridgeReviewQuery
+    let baseEndpoint: BridgeSourceEndpoint
+    let headEndpoint: BridgeSourceEndpoint
+    let descriptors: [BridgeReviewItemDescriptor]
+    let checkpointIds: [String]
+    let reviewGeneration: BridgeReviewGeneration
+    let generatedAtUnixMilliseconds: Int64
+}
+
 enum BridgeReviewPackageBuilder {
     static func build(request: BridgeReviewPackageBuildRequest) throws -> BridgeReviewPackage {
         let descriptors = request.comparison.changedFiles.map { changedFile in
@@ -20,6 +31,24 @@ enum BridgeReviewPackageBuilder {
                 filter: request.query.viewFilter
             )
         }
+        return try buildFromDescriptors(
+            request: BridgeReviewDescriptorPackageBuildRequest(
+                packageId: request.packageId,
+                query: request.query,
+                baseEndpoint: request.comparison.baseEndpoint,
+                headEndpoint: request.comparison.headEndpoint,
+                descriptors: descriptors,
+                checkpointIds: request.checkpointIds,
+                reviewGeneration: request.reviewGeneration,
+                generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
+            )
+        )
+    }
+
+    static func buildFromDescriptors(
+        request: BridgeReviewDescriptorPackageBuildRequest
+    ) throws -> BridgeReviewPackage {
+        let descriptors = request.descriptors
         let groups = BridgeChangeCollator.collate(
             BridgeChangeCollationRequest(
                 descriptors: descriptors,
@@ -41,10 +70,11 @@ enum BridgeReviewPackageBuilder {
             packageId: request.packageId,
             schemaVersion: 1,
             reviewGeneration: request.reviewGeneration,
+            revision: 0,
             query: request.query,
-            baseEndpoint: request.comparison.baseEndpoint,
-            headEndpoint: request.comparison.headEndpoint,
-            orderedItemIds: visibleDescriptors.map(\.itemId),
+            baseEndpoint: request.baseEndpoint,
+            headEndpoint: request.headEndpoint,
+            orderedItemIds: descriptors.map(\.itemId),
             itemsById: itemsById,
             groups: groups,
             summary: BridgeChangeCollator.summary(for: descriptors, visibleDescriptors: visibleDescriptors),

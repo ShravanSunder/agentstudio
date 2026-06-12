@@ -6,7 +6,7 @@ struct BridgeReviewDelta: Codable, Equatable, Sendable {
         let updateItems: [BridgeReviewItemDescriptor]
         let removeItems: [String]
         let moveItems: [String]
-        let updateGroups: [BridgeReviewGroup]
+        let updateGroups: [BridgeReviewGroup]?
         let updateSummary: BridgeReviewPackageSummary?
         let invalidateContent: [String]
 
@@ -15,7 +15,7 @@ struct BridgeReviewDelta: Codable, Equatable, Sendable {
             updateItems: [BridgeReviewItemDescriptor] = [],
             removeItems: [String] = [],
             moveItems: [String] = [],
-            updateGroups: [BridgeReviewGroup] = [],
+            updateGroups: [BridgeReviewGroup]? = nil,
             updateSummary: BridgeReviewPackageSummary? = nil,
             invalidateContent: [String] = []
         ) {

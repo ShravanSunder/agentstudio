@@ -4,6 +4,7 @@ struct BridgeReviewPackage: Codable, Equatable, Sendable {
     let packageId: String
     let schemaVersion: Int
     let reviewGeneration: BridgeReviewGeneration
+    let revision: Int
     let query: BridgeReviewQuery
     let baseEndpoint: BridgeSourceEndpoint
     let headEndpoint: BridgeSourceEndpoint

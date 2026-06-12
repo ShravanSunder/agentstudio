@@ -17,8 +17,10 @@ describe('bridge review contract fixtures', () => {
 		const timeWindowQuery = decodeBridgeReviewQueryFixture(bridgeReviewQueryTimeWindowFixture);
 
 		expect(reviewPackage.reviewGeneration).toBe(42);
+		expect(reviewPackage.revision).toBe(1);
 		expect(checkpoint.checkpointKind).toBe('prompt');
 		expect(delta.operations.invalidateContent).toEqual(['handle-generated-head']);
+		expect(delta.operations.updateGroups).toBeNull();
 		expect(timeWindowQuery.grouping.kind).toBe('timeWindow');
 	});
 

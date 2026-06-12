@@ -227,6 +227,9 @@ Bridge panes are an internal, locked-down WebKit surface:
 - Scheme handlers reject unknown hosts, malformed routes, missing or negative
   generations, unknown handles, stale generations, and traversal attempts after
   percent-decoding.
+- The executable trust-boundary matrix pins negative and overflowing
+  generations, unknown handles, symlink escapes after symlink resolution,
+  canceled scheme streams, and pre-ready non-`bridge.ready` commands.
 
 The bridge nonce is not a secret against hostile same-page script execution. It
 is a guard against accidental cross-script interference and unsanctioned direct

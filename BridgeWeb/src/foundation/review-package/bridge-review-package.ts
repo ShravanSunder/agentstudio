@@ -187,6 +187,7 @@ export interface BridgeReviewPackage {
 	readonly packageId: string;
 	readonly schemaVersion: 1;
 	readonly reviewGeneration: BridgeReviewGeneration;
+	readonly revision: number;
 	readonly query: BridgeReviewQuery;
 	readonly baseEndpoint: BridgeSourceEndpoint;
 	readonly headEndpoint: BridgeSourceEndpoint;

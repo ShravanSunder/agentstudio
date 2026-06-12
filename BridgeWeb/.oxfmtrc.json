@@ -12,5 +12,10 @@
 	"sortPackageJson": {
 		"enabled": true
 	},
-	"ignorePatterns": ["dist", "coverage", "node_modules"]
+	"ignorePatterns": [
+		"dist",
+		"coverage",
+		"node_modules",
+		"src/test-fixtures/bridge-contract-fixtures"
+	]
 }

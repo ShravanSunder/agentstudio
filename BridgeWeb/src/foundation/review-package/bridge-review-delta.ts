@@ -1,11 +1,15 @@
-import type { BridgeReviewItemDescriptor, BridgeReviewPackage } from './bridge-review-package.js';
+import type {
+	BridgeReviewGroup,
+	BridgeReviewItemDescriptor,
+	BridgeReviewPackage,
+} from './bridge-review-package.js';
 
 export interface BridgeReviewDeltaOperations {
 	readonly addItems: readonly BridgeReviewItemDescriptor[];
 	readonly updateItems: readonly BridgeReviewItemDescriptor[];
 	readonly removeItems: readonly string[];
 	readonly moveItems: readonly string[];
-	readonly updateGroups: BridgeReviewPackage['groups'];
+	readonly updateGroups: readonly BridgeReviewGroup[] | null;
 	readonly updateSummary: BridgeReviewPackage['summary'] | null;
 	readonly invalidateContent: readonly string[];
 }
@@ -49,15 +53,22 @@ export function applyBridgeReviewDelta(
 			orderedItemIds.push(item.itemId);
 		}
 	}
+	const movedItemIds =
+		delta.operations.moveItems.length > 0
+			? delta.operations.moveItems.filter((itemId: string): boolean => itemId in itemsById)
+			: orderedItemIds;
+	const movedItemIdSet = new Set(movedItemIds);
+	const nextOrderedItemIds = [
+		...movedItemIds,
+		...orderedItemIds.filter((itemId: string): boolean => !movedItemIdSet.has(itemId)),
+	];
 
 	return {
 		...reviewPackage,
-		orderedItemIds,
+		revision: delta.revision,
+		orderedItemIds: nextOrderedItemIds,
 		itemsById,
-		groups:
-			delta.operations.updateGroups.length > 0
-				? delta.operations.updateGroups
-				: reviewPackage.groups,
+		groups: delta.operations.updateGroups ?? reviewPackage.groups,
 		summary: delta.operations.updateSummary ?? reviewPackage.summary,
 	};
 }

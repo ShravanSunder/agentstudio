@@ -74,6 +74,7 @@ export function makeBridgeReviewPackage(): BridgeReviewPackage {
 		packageId: 'package-1',
 		schemaVersion: 1,
 		reviewGeneration: 1,
+		revision: 1,
 		query: {
 			queryId: 'query-1',
 			queryKind: 'compare',

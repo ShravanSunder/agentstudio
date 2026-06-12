@@ -13,6 +13,7 @@ struct BridgeReviewFoundationContractTests {
 
         #expect(package.schemaVersion == 1)
         #expect(package.reviewGeneration == 42)
+        #expect(package.revision == 1)
         #expect(package.baseEndpoint.kind == .gitRef)
         #expect(package.headEndpoint.kind == .promptCheckpoint)
         #expect(package.orderedItemIds == ["item-file-source-1"])
@@ -61,6 +62,7 @@ struct BridgeReviewFoundationContractTests {
         #expect(delta.packageId == "package-42")
         #expect(delta.reviewGeneration == 42)
         #expect(delta.operations.removeItems == ["item-file-generated-1"])
+        #expect(delta.operations.updateGroups == nil)
         try assertRoundTrip(delta)
     }
 

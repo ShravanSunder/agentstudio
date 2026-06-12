@@ -5,6 +5,7 @@ struct BridgeChangeIndexSnapshot: Equatable, Sendable {
     let endpointsById: [String: BridgeSourceEndpoint]
     let checkpointsById: [String: BridgeReviewCheckpoint]
     let packageRevisionsById: [String: Int]
+    let packagesById: [String: BridgeReviewPackage]
 }
 
 actor BridgeChangeIndex {
@@ -12,6 +13,7 @@ actor BridgeChangeIndex {
     private var endpointsById: [String: BridgeSourceEndpoint] = [:]
     private var checkpointsById: [String: BridgeReviewCheckpoint] = [:]
     private var packageRevisionsById: [String: Int] = [:]
+    private var packagesById: [String: BridgeReviewPackage] = [:]
 
     init(activeReviewGeneration: BridgeReviewGeneration = 0) {
         self.activeReviewGeneration = activeReviewGeneration
@@ -31,14 +33,51 @@ actor BridgeChangeIndex {
         activeReviewGeneration = max(activeReviewGeneration, checkpoint.reviewGeneration)
     }
 
-    func recordPackage(_ package: BridgeReviewPackage, revision: Int = 0) {
+    func recordPackage(_ package: BridgeReviewPackage, revision: Int? = nil) {
+        let resolvedRevision = max(
+            packageRevisionsById[package.packageId] ?? 0,
+            revision ?? package.revision
+        )
         endpointsById[package.baseEndpoint.endpointId] = package.baseEndpoint
         endpointsById[package.headEndpoint.endpointId] = package.headEndpoint
-        packageRevisionsById[package.packageId] = max(
-            packageRevisionsById[package.packageId] ?? 0,
-            revision
-        )
+        packagesById[package.packageId] = package.withRevision(resolvedRevision)
+        packageRevisionsById[package.packageId] = resolvedRevision
         activeReviewGeneration = max(activeReviewGeneration, package.reviewGeneration)
+    }
+
+    func ingestExplicitLoad(_ package: BridgeReviewPackage) throws -> BridgeReviewDelta? {
+        guard package.reviewGeneration >= activeReviewGeneration else {
+            return nil
+        }
+
+        guard let currentPackage = packagesById[package.packageId] else {
+            recordPackage(package)
+            return nil
+        }
+        guard package.reviewGeneration == currentPackage.reviewGeneration else {
+            if package.reviewGeneration > currentPackage.reviewGeneration {
+                recordPackage(package, revision: package.revision)
+            }
+            return nil
+        }
+
+        let currentRevision = packageRevisionsById[package.packageId] ?? currentPackage.revision
+        guard
+            let delta = try BridgeReviewDeltaBuilder.build(
+                BridgeReviewDeltaBuildRequest(
+                    currentPackage: currentPackage,
+                    nextPackage: package,
+                    currentRevision: currentRevision
+                )
+            )
+        else {
+            recordPackage(package, revision: currentRevision)
+            return nil
+        }
+
+        packagesById[package.packageId] = package.withRevision(delta.revision)
+        recordDelta(delta)
+        return delta
     }
 
     func recordDelta(_ delta: BridgeReviewDelta) {
@@ -69,7 +108,28 @@ actor BridgeChangeIndex {
             activeReviewGeneration: activeReviewGeneration,
             endpointsById: endpointsById,
             checkpointsById: checkpointsById,
-            packageRevisionsById: packageRevisionsById
+            packageRevisionsById: packageRevisionsById,
+            packagesById: packagesById
+        )
+    }
+}
+
+extension BridgeReviewPackage {
+    fileprivate func withRevision(_ revision: Int) -> BridgeReviewPackage {
+        BridgeReviewPackage(
+            packageId: packageId,
+            schemaVersion: schemaVersion,
+            reviewGeneration: reviewGeneration,
+            revision: revision,
+            query: query,
+            baseEndpoint: baseEndpoint,
+            headEndpoint: headEndpoint,
+            orderedItemIds: orderedItemIds,
+            itemsById: itemsById,
+            groups: groups,
+            summary: summary,
+            filterState: filterState,
+            generatedAtUnixMilliseconds: generatedAtUnixMilliseconds
         )
     }
 }

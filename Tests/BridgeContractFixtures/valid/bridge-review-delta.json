@@ -7,7 +7,7 @@
     "updateItems": [],
     "removeItems": ["item-file-generated-1"],
     "moveItems": [],
-    "updateGroups": [],
+    "updateGroups": null,
     "updateSummary": null,
     "invalidateContent": ["handle-generated-head"]
   }

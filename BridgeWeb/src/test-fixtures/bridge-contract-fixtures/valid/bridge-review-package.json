@@ -1,232 +1,233 @@
 {
-	"packageId": "package-42",
-	"schemaVersion": 1,
-	"reviewGeneration": 42,
-	"query": {
-		"queryId": "query-42",
-		"queryKind": "compare",
-		"repoId": "11111111-1111-1111-1111-111111111111",
-		"worktreeId": "22222222-2222-2222-2222-222222222222",
-		"baseEndpointId": "endpoint-base-main",
-		"headEndpointId": "endpoint-head-prompt",
-		"comparisonSemantics": "checkpointDelta",
-		"pathScope": ["Sources/AgentStudio/Features/Bridge"],
-		"fileTarget": null,
-		"viewFilter": {
-			"includedPathGlobs": ["Sources/**"],
-			"excludedPathGlobs": ["**/.build/**"],
-			"includedFileClasses": ["source", "test"],
-			"excludedFileClasses": ["generated", "vendor"],
-			"includedExtensions": ["swift"],
-			"excludedExtensions": [],
-			"changeKinds": ["modified", "added"],
-			"reviewStates": ["unreviewed"],
-			"showHiddenFiles": false,
-			"showBinaryFiles": false,
-			"showLargeFiles": false
-		},
-		"grouping": {
-			"kind": "prompt",
-			"label": "Prompt 123"
-		},
-		"provenanceFilter": {
-			"paneIds": [],
-			"agentSessionIds": ["session-abc"],
-			"promptIds": ["prompt-123"],
-			"operationIds": [],
-			"createdAfterUnixMilliseconds": 1780000000000,
-			"createdBeforeUnixMilliseconds": 1780001800000,
-			"sourceKinds": ["runtimeEvent"]
-		}
-	},
-	"baseEndpoint": {
-		"endpointId": "endpoint-base-main",
-		"kind": "gitRef",
-		"repoId": "11111111-1111-1111-1111-111111111111",
-		"worktreeId": "22222222-2222-2222-2222-222222222222",
-		"label": "main",
-		"createdAtUnixMilliseconds": 1780000000000,
-		"contentSetHash": "sha256:base",
-		"providerIdentity": "refs/heads/main"
-	},
-	"headEndpoint": {
-		"endpointId": "endpoint-head-prompt",
-		"kind": "promptCheckpoint",
-		"repoId": "11111111-1111-1111-1111-111111111111",
-		"worktreeId": "22222222-2222-2222-2222-222222222222",
-		"label": "Prompt checkpoint",
-		"createdAtUnixMilliseconds": 1780001800000,
-		"contentSetHash": "sha256:head",
-		"providerIdentity": "checkpoint:prompt-123"
-	},
-	"orderedItemIds": ["item-file-source-1"],
-	"itemsById": {
-		"item-file-source-1": {
-			"itemId": "item-file-source-1",
-			"itemKind": "diff",
-			"itemVersion": 42,
-			"basePath": "Sources/AgentStudio/Features/Bridge/Runtime/BridgeRuntime.swift",
-			"headPath": "Sources/AgentStudio/Features/Bridge/Runtime/BridgeRuntime.swift",
-			"changeKind": "modified",
-			"fileClass": "source",
-			"language": "swift",
-			"extension": "swift",
-			"sizeBytes": 4096,
-			"baseContentHash": "sha256:old-source",
-			"headContentHash": "sha256:new-source",
-			"contentHashAlgorithm": "sha256",
-			"additions": 5,
-			"deletions": 3,
-			"isHiddenByDefault": false,
-			"hiddenReason": null,
-			"reviewPriority": "normal",
-			"contentRoles": {
-				"base": {
-					"handleId": "handle-source-base",
-					"itemId": "item-file-source-1",
-					"role": "base",
-					"endpointId": "endpoint-base-main",
-					"reviewGeneration": 42,
-					"resourceUrl": "agentstudio://resource/content/handle-source-base?generation=42",
-					"contentHash": "sha256:old-source",
-					"contentHashAlgorithm": "sha256",
-					"cacheKey": "endpoint-base-main:item-file-source-1:base:sha256:old-source",
-					"mimeType": "text/x-swift",
-					"language": "swift",
-					"sizeBytes": 4096,
-					"isBinary": false
-				},
-				"head": {
-					"handleId": "handle-source-head",
-					"itemId": "item-file-source-1",
-					"role": "head",
-					"endpointId": "endpoint-head-prompt",
-					"reviewGeneration": 42,
-					"resourceUrl": "agentstudio://resource/content/handle-source-head?generation=42",
-					"contentHash": "sha256:new-source",
-					"contentHashAlgorithm": "sha256",
-					"cacheKey": "endpoint-head-prompt:item-file-source-1:head:sha256:new-source",
-					"mimeType": "text/x-swift",
-					"language": "swift",
-					"sizeBytes": 4096,
-					"isBinary": false
-				},
-				"diff": null,
-				"file": null
-			},
-			"cacheKey": "endpoint-base-main:item-file-source-1:base:sha256:old-source|endpoint-head-prompt:item-file-source-1:head:sha256:new-source",
-			"provenance": {
-				"paneIds": [],
-				"agentSessionIds": ["session-abc"],
-				"promptIds": ["prompt-123"],
-				"operationIds": ["operation-1"],
-				"sourceKinds": ["runtimeEvent"]
-			},
-			"annotationSummary": {
-				"threadCount": 1,
-				"unresolvedThreadCount": 1,
-				"commentCount": 2
-			},
-			"reviewState": "unreviewed",
-			"collapsed": false
-		},
-		"item-file-generated-1": {
-			"itemId": "item-file-generated-1",
-			"itemKind": "diff",
-			"itemVersion": 42,
-			"basePath": "Sources/Generated/API.swift",
-			"headPath": "Sources/Generated/API.swift",
-			"changeKind": "added",
-			"fileClass": "generated",
-			"language": "swift",
-			"extension": "swift",
-			"sizeBytes": 12000,
-			"baseContentHash": null,
-			"headContentHash": "sha256:new-generated",
-			"contentHashAlgorithm": "sha256",
-			"additions": 10,
-			"deletions": 0,
-			"isHiddenByDefault": true,
-			"hiddenReason": "generated",
-			"reviewPriority": "low",
-			"contentRoles": {
-				"base": null,
-				"head": {
-					"handleId": "handle-generated-head",
-					"itemId": "item-file-generated-1",
-					"role": "head",
-					"endpointId": "endpoint-head-prompt",
-					"reviewGeneration": 42,
-					"resourceUrl": "agentstudio://resource/content/handle-generated-head?generation=42",
-					"contentHash": "sha256:new-generated",
-					"contentHashAlgorithm": "sha256",
-					"cacheKey": "endpoint-head-prompt:item-file-generated-1:head:sha256:new-generated",
-					"mimeType": "text/x-swift",
-					"language": "swift",
-					"sizeBytes": 12000,
-					"isBinary": false
-				},
-				"diff": null,
-				"file": null
-			},
-			"cacheKey": "endpoint-head-prompt:item-file-generated-1:head:sha256:new-generated",
-			"provenance": {
-				"paneIds": [],
-				"agentSessionIds": ["session-abc"],
-				"promptIds": ["prompt-123"],
-				"operationIds": ["operation-2"],
-				"sourceKinds": ["runtimeEvent"]
-			},
-			"annotationSummary": {
-				"threadCount": 0,
-				"unresolvedThreadCount": 0,
-				"commentCount": 0
-			},
-			"reviewState": "unreviewed",
-			"collapsed": true
-		}
-	},
-	"groups": [
-		{
-			"groupId": "group-prompt-123",
-			"grouping": {
-				"kind": "prompt",
-				"label": "Prompt 123"
-			},
-			"label": "Prompt 123",
-			"orderedItemIds": ["item-file-source-1"],
-			"summary": {
-				"filesChanged": 1,
-				"additions": 5,
-				"deletions": 3
-			},
-			"hiddenSummary": {
-				"hiddenFileCount": 1,
-				"hiddenAdditions": 10,
-				"hiddenDeletions": 0,
-				"hiddenFileClasses": ["generated"]
-			}
-		}
-	],
-	"summary": {
-		"filesChanged": 2,
-		"additions": 15,
-		"deletions": 3,
-		"visibleFileCount": 1,
-		"hiddenFileCount": 1
-	},
-	"filterState": {
-		"includedPathGlobs": ["Sources/**"],
-		"excludedPathGlobs": ["**/.build/**"],
-		"includedFileClasses": ["source", "test"],
-		"excludedFileClasses": ["generated", "vendor"],
-		"includedExtensions": ["swift"],
-		"excludedExtensions": [],
-		"changeKinds": ["modified", "added"],
-		"reviewStates": ["unreviewed"],
-		"showHiddenFiles": false,
-		"showBinaryFiles": false,
-		"showLargeFiles": false
-	},
-	"generatedAtUnixMilliseconds": 1780001802000
+  "packageId": "package-42",
+  "schemaVersion": 1,
+  "reviewGeneration": 42,
+  "revision": 1,
+  "query": {
+    "queryId": "query-42",
+    "queryKind": "compare",
+    "repoId": "11111111-1111-1111-1111-111111111111",
+    "worktreeId": "22222222-2222-2222-2222-222222222222",
+    "baseEndpointId": "endpoint-base-main",
+    "headEndpointId": "endpoint-head-prompt",
+    "comparisonSemantics": "checkpointDelta",
+    "pathScope": ["Sources/AgentStudio/Features/Bridge"],
+    "fileTarget": null,
+    "viewFilter": {
+      "includedPathGlobs": ["Sources/**"],
+      "excludedPathGlobs": ["**/.build/**"],
+      "includedFileClasses": ["source", "test"],
+      "excludedFileClasses": ["generated", "vendor"],
+      "includedExtensions": ["swift"],
+      "excludedExtensions": [],
+      "changeKinds": ["modified", "added"],
+      "reviewStates": ["unreviewed"],
+      "showHiddenFiles": false,
+      "showBinaryFiles": false,
+      "showLargeFiles": false
+    },
+    "grouping": {
+      "kind": "prompt",
+      "label": "Prompt 123"
+    },
+    "provenanceFilter": {
+      "paneIds": [],
+      "agentSessionIds": ["session-abc"],
+      "promptIds": ["prompt-123"],
+      "operationIds": [],
+      "createdAfterUnixMilliseconds": 1780000000000,
+      "createdBeforeUnixMilliseconds": 1780001800000,
+      "sourceKinds": ["runtimeEvent"]
+    }
+  },
+  "baseEndpoint": {
+    "endpointId": "endpoint-base-main",
+    "kind": "gitRef",
+    "repoId": "11111111-1111-1111-1111-111111111111",
+    "worktreeId": "22222222-2222-2222-2222-222222222222",
+    "label": "main",
+    "createdAtUnixMilliseconds": 1780000000000,
+    "contentSetHash": "sha256:base",
+    "providerIdentity": "refs/heads/main"
+  },
+  "headEndpoint": {
+    "endpointId": "endpoint-head-prompt",
+    "kind": "promptCheckpoint",
+    "repoId": "11111111-1111-1111-1111-111111111111",
+    "worktreeId": "22222222-2222-2222-2222-222222222222",
+    "label": "Prompt checkpoint",
+    "createdAtUnixMilliseconds": 1780001800000,
+    "contentSetHash": "sha256:head",
+    "providerIdentity": "checkpoint:prompt-123"
+  },
+  "orderedItemIds": ["item-file-source-1"],
+  "itemsById": {
+    "item-file-source-1": {
+      "itemId": "item-file-source-1",
+      "itemKind": "diff",
+      "itemVersion": 42,
+      "basePath": "Sources/AgentStudio/Features/Bridge/Runtime/BridgeRuntime.swift",
+      "headPath": "Sources/AgentStudio/Features/Bridge/Runtime/BridgeRuntime.swift",
+      "changeKind": "modified",
+      "fileClass": "source",
+      "language": "swift",
+      "extension": "swift",
+      "sizeBytes": 4096,
+      "baseContentHash": "sha256:old-source",
+      "headContentHash": "sha256:new-source",
+      "contentHashAlgorithm": "sha256",
+      "additions": 5,
+      "deletions": 3,
+      "isHiddenByDefault": false,
+      "hiddenReason": null,
+      "reviewPriority": "normal",
+      "contentRoles": {
+        "base": {
+          "handleId": "handle-source-base",
+          "itemId": "item-file-source-1",
+          "role": "base",
+          "endpointId": "endpoint-base-main",
+          "reviewGeneration": 42,
+          "resourceUrl": "agentstudio://resource/content/handle-source-base?generation=42",
+          "contentHash": "sha256:old-source",
+          "contentHashAlgorithm": "sha256",
+          "cacheKey": "endpoint-base-main:item-file-source-1:base:sha256:old-source",
+          "mimeType": "text/x-swift",
+          "language": "swift",
+          "sizeBytes": 4096,
+          "isBinary": false
+        },
+        "head": {
+          "handleId": "handle-source-head",
+          "itemId": "item-file-source-1",
+          "role": "head",
+          "endpointId": "endpoint-head-prompt",
+          "reviewGeneration": 42,
+          "resourceUrl": "agentstudio://resource/content/handle-source-head?generation=42",
+          "contentHash": "sha256:new-source",
+          "contentHashAlgorithm": "sha256",
+          "cacheKey": "endpoint-head-prompt:item-file-source-1:head:sha256:new-source",
+          "mimeType": "text/x-swift",
+          "language": "swift",
+          "sizeBytes": 4096,
+          "isBinary": false
+        },
+        "diff": null,
+        "file": null
+      },
+      "cacheKey": "endpoint-base-main:item-file-source-1:base:sha256:old-source|endpoint-head-prompt:item-file-source-1:head:sha256:new-source",
+      "provenance": {
+        "paneIds": [],
+        "agentSessionIds": ["session-abc"],
+        "promptIds": ["prompt-123"],
+        "operationIds": ["operation-1"],
+        "sourceKinds": ["runtimeEvent"]
+      },
+      "annotationSummary": {
+        "threadCount": 1,
+        "unresolvedThreadCount": 1,
+        "commentCount": 2
+      },
+      "reviewState": "unreviewed",
+      "collapsed": false
+    },
+    "item-file-generated-1": {
+      "itemId": "item-file-generated-1",
+      "itemKind": "diff",
+      "itemVersion": 42,
+      "basePath": "Sources/Generated/API.swift",
+      "headPath": "Sources/Generated/API.swift",
+      "changeKind": "added",
+      "fileClass": "generated",
+      "language": "swift",
+      "extension": "swift",
+      "sizeBytes": 12000,
+      "baseContentHash": null,
+      "headContentHash": "sha256:new-generated",
+      "contentHashAlgorithm": "sha256",
+      "additions": 10,
+      "deletions": 0,
+      "isHiddenByDefault": true,
+      "hiddenReason": "generated",
+      "reviewPriority": "low",
+      "contentRoles": {
+        "base": null,
+        "head": {
+          "handleId": "handle-generated-head",
+          "itemId": "item-file-generated-1",
+          "role": "head",
+          "endpointId": "endpoint-head-prompt",
+          "reviewGeneration": 42,
+          "resourceUrl": "agentstudio://resource/content/handle-generated-head?generation=42",
+          "contentHash": "sha256:new-generated",
+          "contentHashAlgorithm": "sha256",
+          "cacheKey": "endpoint-head-prompt:item-file-generated-1:head:sha256:new-generated",
+          "mimeType": "text/x-swift",
+          "language": "swift",
+          "sizeBytes": 12000,
+          "isBinary": false
+        },
+        "diff": null,
+        "file": null
+      },
+      "cacheKey": "endpoint-head-prompt:item-file-generated-1:head:sha256:new-generated",
+      "provenance": {
+        "paneIds": [],
+        "agentSessionIds": ["session-abc"],
+        "promptIds": ["prompt-123"],
+        "operationIds": ["operation-2"],
+        "sourceKinds": ["runtimeEvent"]
+      },
+      "annotationSummary": {
+        "threadCount": 0,
+        "unresolvedThreadCount": 0,
+        "commentCount": 0
+      },
+      "reviewState": "unreviewed",
+      "collapsed": true
+    }
+  },
+  "groups": [
+    {
+      "groupId": "group-prompt-123",
+      "grouping": {
+        "kind": "prompt",
+        "label": "Prompt 123"
+      },
+      "label": "Prompt 123",
+      "orderedItemIds": ["item-file-source-1"],
+      "summary": {
+        "filesChanged": 1,
+        "additions": 5,
+        "deletions": 3
+      },
+      "hiddenSummary": {
+        "hiddenFileCount": 1,
+        "hiddenAdditions": 10,
+        "hiddenDeletions": 0,
+        "hiddenFileClasses": ["generated"]
+      }
+    }
+  ],
+  "summary": {
+    "filesChanged": 2,
+    "additions": 15,
+    "deletions": 3,
+    "visibleFileCount": 1,
+    "hiddenFileCount": 1
+  },
+  "filterState": {
+    "includedPathGlobs": ["Sources/**"],
+    "excludedPathGlobs": ["**/.build/**"],
+    "includedFileClasses": ["source", "test"],
+    "excludedFileClasses": ["generated", "vendor"],
+    "includedExtensions": ["swift"],
+    "excludedExtensions": [],
+    "changeKinds": ["modified", "added"],
+    "reviewStates": ["unreviewed"],
+    "showHiddenFiles": false,
+    "showBinaryFiles": false,
+    "showLargeFiles": false
+  },
+  "generatedAtUnixMilliseconds": 1780001802000
 }

@@ -14,11 +14,11 @@ This document describes the target bridge architecture and the verified scaffold
 | Area | Current state | What remains for LUNA-337 |
 |---|---|---|
 | Pane shell | `PaneContent.bridgePanel`, `BridgePaneController`, `BridgeRuntime`, `BridgePaneMountView`, and view lifecycle registration exist. | Wire source-specific loading so `BridgePaneSource` drives domain data instead of only title/panel metadata. |
-| State/push infrastructure | `BridgeDomainState`, per-pane push plans, revision clock, bootstrap relay, and Swift tests exist. Runtime push envelopes use `payload`; some old fixtures still model `data`. | Keep one canonical push envelope shape and update fixtures/tests when the content pipeline lands. |
-| RPC routing | Typed `RPCRouter` and method contracts exist. Some review/inbox commands are real. Diff/review/agent/system methods that need backend data are mostly stubs. | Implement real `diff.loadDiff`, `diff.requestFileContents`, and any direct-response query methods required by the viewer. |
+| State/push infrastructure | `BridgeDomainState`, per-pane push plans, revision clock, bootstrap relay, Swift tests, and BridgeWeb receiver tests exist. Runtime push envelopes use canonical `store` / `op` / `data` detail fields with `__revision` and `__epoch`. | Keep fixture parity across Swift and BridgeWeb whenever the content pipeline changes. |
+| RPC routing | Typed `RPCRouter` and method contracts exist. `diff.loadDiff`, some review commands, and inbox commands are real. Review/agent/system methods that need backend data are mostly stubs. | Implement any direct-response query methods required by the viewer. File content loads through `agentstudio://resource/content/{handleId}?generation=...`, not through RPC. |
 | URL scheme | Scheme routing, MIME/path classification, packaged BridgeWeb app assets, and `agentstudio://resource/content/{handleId}?generation=...` content loading exist. | Wire review-query responses to source-provider-backed package data and keep cancellation/staleness guards covered by tests. |
-| Review foundation | Source-provider-neutral endpoints, review packages, deltas, per-role content handles, collation/filter models, and off-main actors exist. | Wire real source data into `BridgeReviewPipeline` from runtime commands and push package/delta updates to BridgeWeb. |
-| React client | `BridgeWeb/` exists with Vite, strict TypeScript, Vitest, domain-shaped foundation folders, a minimal shell, and packaged build output. | Add bridge push/RPC receivers and Pierre/Shiki/Trees rendering in downstream milestones. |
+| Review foundation | Source-provider-neutral endpoints, review packages, deltas, per-role content handles, collation/filter models, off-main actors, and runtime command wiring exist. | Integrate the real Git data-plane provider and expand same-generation live refresh feeds. |
+| React client | `BridgeWeb/` exists with Vite, strict TypeScript, Vitest, domain-shaped foundation folders, push/RPC receivers, a minimal review shell, and packaged build output. | Add Pierre/Shiki/Trees rendering in downstream milestones. |
 
 Downstream tickets (`LUNA-338+`) should not treat this branch as a finished bridge baseline until the remaining `LUNA-337` review-foundation items above are implemented and tested.
 
@@ -53,7 +53,7 @@ the review contract model.
 
 1. **Three tiers of state** — Swift domain state (authoritative), React mirror state (derived, normalized for UI), React local state (ephemeral: drafts, selection, scroll). Local state can be optimistic; domain state is confirmed by Swift.
 2. **Three streams, not one pipe** — State stream for small pushes, data stream for large payloads, agent event stream for append-only activity. Each stream has different ordering, delivery, and backpressure characteristics.
-3. **Metadata push, content pull** — Swift pushes file manifests (metadata) immediately. React pulls file contents on demand via the data stream when files enter the viewport. This keeps the state stream fast and memory bounded.
+3. **Metadata push, content pull** — Swift pushes review-package metadata immediately. React pulls file contents on demand through `BridgeContentHandle` URLs when files enter the viewport. This keeps the state stream fast and memory bounded.
 4. **Idempotent commands with acks** — React sends commands with a `commandId` (UUID). Swift deduplicates and acknowledges via state push. Enables optimistic local UI with rollback on rejection.
 5. **Revision-ordered pushes** — Every push envelope carries a monotonic `revision` per store. React drops pushes with `revision <= lastSeen`. Combined with `epoch` for load cancellation.
 6. **Read-only source, editable review artifacts** — Code and diff contents are display artifacts in this pane. Comments, annotation notes, and review workflow state are editable review artifacts. Source mutation belongs to a separate pane/workflow.
@@ -71,8 +71,9 @@ the review contract model.
 │  Tier 1: Swift Domain State (authoritative)           │
 │  @Observable models, Codable, persisted               │
 │                                                        │
-│  • DiffManifest: file metadata as keyed collection (per-file EntitySlice)  │
-│  • File contents (served via data stream on demand)   │
+│  • BridgeReviewPackage: ordered review items       │
+│  • BridgeReviewItemDescriptor: keyed metadata      │
+│  • BridgeContentHandle: on-demand content refs     │
 │  • Review annotation/comment model (deferred ticket)   │
 │  • AgentTask: status, completed files, output refs     │
 │  • TimelineEvent: immutable audit log                  │
@@ -86,9 +87,9 @@ the review contract model.
                │
 ┌──────────────▼─────────────────────────────────────────┐
 │  Tier 2: React Mirror State (derived from Swift)        │
-│  BridgeWeb mirror state, normalized for UI rendering            │
+│  BridgeWeb mirror state, normalized for UI rendering │
 │                                                          │
-│  • DiffManifest mirror (file list, statuses)            │
+│  • Review item registry mirror (ordered items)       │
 │  • File content LRU cache (~20 files in memory)         │
 │  • Review annotation markers and comment summaries       │
 │  • Agent task status                                     │
@@ -105,7 +106,7 @@ the review contract model.
 │  • Draft markdown comment text, cursor position           │
 │  • File tree expanded/collapsed nodes                     │
 │  • Scroll position, selection, hover state                │
-│  • Search/filter query (applied locally to manifest)      │
+│  • Search/filter query over package metadata          │
 │  • Optimistic UI state (pending comment, pending action)   │
 │  • CodeView rendering state (virtualizer, height caches)  │
 └────────────────────────────────────────────────────────────┘
@@ -127,7 +128,7 @@ To prevent "local-first everywhere" complexity from leaking into this design, ow
 |---|---|---|---|---|
 | Draft text, cursor, hover, selection, scroll, expanded tree nodes | React local (tier 3) | In-memory only | < 16ms | Never round-trip through Swift |
 | Optimistic overlay (`pending` rows, temporary IDs) | React local (tier 3) | In-memory only | < 16ms | Overlay is reconciled or expired; not durable |
-| Diff source, manifest metadata, review threads, command outcomes, agent task lifecycle | Swift domain (tier 1) | Durable/session durable | 50-300ms | Authoritative truth |
+| Review query/source endpoints, package metadata, review threads, command outcomes, agent task lifecycle | Swift domain (tier 1) | Durable/session durable | 50-300ms | Authoritative truth |
 | File contents/buffers | Data stream (`agentstudio://`) | LRU in React mirror | On-demand | Not pushed via state stream |
 
 **Non-goal**: This architecture does NOT implement offline-first durable operation logs, CRDT merge, or multi-writer conflict resolution. Swift remains the single writer for domain state.
@@ -139,7 +140,7 @@ To prevent "local-first everywhere" complexity from leaking into this design, ow
 | Payload Size | Latency | Use Case |
 |---|---|---|
 | < 5 KB JSON | Sub-millisecond to ~1ms | Status updates, comment CRUD, file metadata |
-| 5–50 KB | 1–5ms | DiffManifest (500 files ≈ 25KB), agent events batch |
+| 5–50 KB | 1–5ms | BridgeReviewPackage metadata (500 items ≈ 25KB), agent events batch |
 | 50–500 KB | 5–20ms | Reserved for data stream (agentstudio://) |
 
 A 60fps frame is 16.7ms. State stream payloads (<50KB) arrive within a single frame. File contents are pulled via the data stream, keeping the state stream fast.
@@ -178,7 +179,7 @@ React (page world) **cannot** call `window.webkit.messageHandlers.rpc.postMessag
 ```typescript
 // Page world (React) — dispatches event with nonce
 document.dispatchEvent(new CustomEvent('__bridge_command', {
-    detail: { jsonrpc: "2.0", method: "diff.requestFileContents", params: { fileId: "abc123" }, __nonce: bridgeNonce }
+    detail: { jsonrpc: "2.0", method: "diff.loadDiff", params: { worktreeId }, __nonce: bridgeNonce }
 }));
 ```
 
@@ -271,7 +272,7 @@ Before any stream can operate, the bridge must complete initialization. The hand
 3. React app mounts, bridge receiver initializes, subscribes to events
 4. React dispatches '__bridge_ready' CustomEvent
 5. Bridge world captures it, relays to Swift via postMessage({ type: "bridge.ready" })
-6. Swift starts observation loops + pushes initial DiffManifest
+6. Swift starts observation loops + pushes initial review-package metadata
 ```
 
 No state pushes or commands are allowed before step 6 completes. The `BridgePaneController` gates on receiving `bridge.ready` before starting observation loops.
@@ -287,8 +288,8 @@ Commands use JSON-RPC 2.0 **notifications** (no `id` field) with an additional `
 ```json
 {
     "jsonrpc": "2.0",
-    "method": "diff.requestFileContents",
-    "params": { "fileId": "abc123" },
+    "method": "diff.loadDiff",
+    "params": { "worktreeId": "00000000-0000-7000-8000-000000000001" },
     "__commandId": "cmd_a1b2c3d4"
 }
 ```
@@ -338,7 +339,7 @@ idle -> pending(local overlay) -> committed(canonical Swift push)
 
 | Namespace | Examples | Description |
 |---|---|---|
-| `diff.*` | `diff.requestFileContents`, `diff.loadDiff` | Diff operations |
+| `diff.*` | `diff.loadDiff` | Review-package loading. File content uses `BridgeContentHandle.resourceUrl`. |
 | `review.*` | `review.addComment`, `review.resolveThread`, `review.deleteComment` | Review lifecycle |
 | `agent.*` | `agent.requestReview`, `agent.cancelTask`, `agent.injectPrompt` | Agent review workflow lifecycle |
 | `git.*` | `git.status`, `git.fileTree` | Git operations |
@@ -377,13 +378,13 @@ try await page.callJavaScript(
 
 The bridge world's `__bridgeInternal.merge/replace` dispatches a `CustomEvent('__bridge_push', ...)` which the page world (React) listens for (see §7.2 and §11.3).
 
-**Push envelope metadata**: Each push includes ordering fields and a security nonce:
+**Push envelope metadata**: Each push includes ordering fields and a bootstrap nonce:
 - `__revision: <int>` — Monotonic counter per store. React drops pushes with `revision <= lastSeen`. Prevents out-of-order delivery.
 - `__epoch: <int>` — Load generation counter. Incremented when a new diff source is loaded. React discards pushes from stale epochs.
-- `nonce: "<bootstrap-nonce>"` — Push nonce from bootstrap handshake. Page world validates this to reject forged push events.
+- `nonce: "<bootstrap-nonce>"` — Push nonce from bootstrap handshake. Page world validates this to reject stale echoes or accidental cross-pane/event collisions. It is not an active-script security boundary because page-world scripts can observe the handshake.
 - `op: 'merge'|'replace'` — Operation type. Determines whether data is deep-merged into or replaces the store.
 
-These are passed as arguments to `__bridgeInternal.merge/replace(store, data, revision, epoch)` and forwarded in the `CustomEvent('__bridge_push', ...)` detail. The receiver uses `__revision` and `__epoch` for ordering/staleness; `nonce` is for security validation.
+These are passed as arguments to `__bridgeInternal.merge/replace(store, data, revision, epoch)` and forwarded in the `CustomEvent('__bridge_push', ...)` detail. The receiver uses `__revision` and `__epoch` for ordering/staleness; `nonce` is a freshness/collision filter. The security boundary is WebKit content-world isolation plus the Swift RPC allowlist and payload validation.
 
 > **Phase 4 additions**: Correlation ID (`__pushId`) and envelope version (`__v`) will be added when the full `callJavaScript` transport replaces the current Phase 2 stub.
 
@@ -442,7 +443,7 @@ try await page.callJavaScript(
 }
 ```
 
-**Security**: Agent event envelopes include `nonce` (the push nonce from bootstrap) and are validated identically to state pushes (see §11.3). The bridge world's `__bridgeInternal.appendAgentEvents` dispatches the `__bridge_agent` CustomEvent with the nonce in the detail. Page world validates `nonce` before processing. This prevents page-world scripts from forging agent events.
+**Trust model**: Agent event envelopes include `nonce` (the push nonce from bootstrap) and are validated identically to state pushes (see §11.3). The bridge world's `__bridgeInternal.appendAgentEvents` dispatches the `__bridge_agent` CustomEvent with the nonce in the detail. Page world validates `nonce` before processing to reject stale echoes and accidental cross-pane/event collisions. A compromised page-world script can observe the handshake, so forgery prevention must not rely on the nonce.
 
 **Ordering and delivery**:
 - `seq` is a monotonic per-pane counter (atomically incremented on `@MainActor`). React tracks `lastSeq` and detects gaps.
@@ -491,7 +492,7 @@ Not all observed state should be pushed with the same cadence. This spec uses th
 |---|---|---|---|---|
 | **`.hot`** | < 1KB | 5-60Hz bursts | `connection.health`, loading/status flags | No debounce, `replace` |
 | **`.warm`** | 1-10KB | 1-20Hz | review thread updates, command acks, small task updates | 8-16ms debounce, `merge` (entity) or `replace` (scalar) |
-| **`.cold`** | > 10KB | < 2Hz | `DiffManifest` snapshots for 100-500 files | 16-50ms debounce, `replace` |
+| **`.cold`** | > 10KB | < 2Hz | `BridgeReviewPackage` metadata snapshots for 100-500 review items | 16-50ms debounce, `replace` |
 
 **Policy rule**:
 - Default every slice to `.cold`.
@@ -526,13 +527,13 @@ Each slice is a capture closure that reads specific properties from an `@Observa
 | Slice name | Capture reads | Store | Level | Op | Notes |
 |---|---|---|---|---|---|
 | `diffStatus` | `.status`, `.error`, `.epoch` | `.diff` | `.hot` | `.replace` | immediate user feedback |
-| `diffManifest` | `.manifest` | `.diff` | `.cold` | `.replace` | metadata only; no file contents |
+| `diffFiles` | `.files` | `.diff` | `.cold` | `.replace` | push-plane metadata projection only; no file contents |
 | `reviewThreads` | `.threads` | `.review` | `.warm` | `.merge` | per-entity diff by thread version |
 | `reviewViewedFiles` | `.viewedFiles` | `.review` | `.warm` | `.replace` | set comparison |
 | `agentTasks` | `agentTasks` dict | `.agent` | `.warm` | `.merge` | per-entity diff by task version |
 | `connectionHealth` | `.health`, `.latencyMs` | `.connection` | `.hot` | `.replace` | no debounce |
 
-> **Property group isolation**: If a developer accidentally reads `.manifest` inside the `diffStatus` capture closure (e.g., in a log statement), the hot loop silently becomes hot+cold — it fires on manifest changes too. This is a maintenance fragility. Code review should enforce that each capture closure reads only its declared properties.
+> **Property group isolation**: If a developer accidentally reads `.files` inside the `diffStatus` capture closure (e.g., in a log statement), the hot loop silently becomes hot+cold — it fires on file metadata changes too. This is a maintenance fragility. Code review should enforce that each capture closure reads only its declared properties.
 
 ### 6.4 Push Infrastructure Types
 
@@ -967,7 +968,7 @@ struct ConnectionSlice: Encodable, Equatable {
 
 // ── Push plan declarations (inside BridgePaneController) ──────
 
-/// Diff state push plan: 2 slices (hot status + cold manifest).
+/// Diff state push plan: 2 slices (hot status + cold file metadata).
 private func makeDiffPushPlan() -> PushPlan<DiffState> {
     PushPlan(
         state: paneState.diff,
@@ -1069,13 +1070,13 @@ Two closures reading different properties of the same `@Observable` object fire 
 
 ### 6.10 Push Cost Considerations
 
-The push pipeline involves three CPU-bound steps per push: (1) Swift `JSONEncoder.encode()`, (2) JS `JSON.parse()`, (3) JS store update (replace or merge). For large state (100+ file manifest), this can spike CPU and drive rerender fanout.
+The push pipeline involves three CPU-bound steps per push: (1) Swift `JSONEncoder.encode()`, (2) JS `JSON.parse()`, (3) JS store update (replace or merge). For large state (100+ review items), this can spike CPU and drive rerender fanout.
 
 **Mitigations**:
 
 | Strategy | When | Effect |
 |---|---|---|
-| **Metadata-only pushes** (§10.1) | Diff loaded | Push `DiffManifest` (file list + metadata), NOT file contents |
+| **Metadata-only pushes** (§10.1) | Review package loaded | Push `BridgeReviewPackage` item metadata, NOT file contents |
 | **Content pull on demand** (§10.2) | File enters viewport | React fetches via `agentstudio://resource/content/{handleId}?generation={n}` — no state stream overhead |
 | **Debounced observation** (§6.2) | Rapid mutations | Coalesce multiple changes into one push (per-level cadence) |
 | **Off-main encoding** (§6.5) | `.cold` payloads | `@concurrent` static func (Swift 6.2, SE-0461) keeps main actor responsive |
@@ -1084,7 +1085,7 @@ The push pipeline involves three CPU-bound steps per push: (1) Swift `JSONEncode
 | **Batched agent events** (§4.4) | Agent activity | 30-50ms batching cadence, append-only |
 | **LRU content cache** (§10.4) | Memory pressure | ~20 files in React memory, oldest evicted |
 
-**Measurement requirement**: Phase 2 testing must include a benchmark: push a 100-file `DiffManifest` (metadata only, no file contents), measure end-to-end time from Swift mutation to React rerender. Target: < 32ms (2 frames). File contents are never pushed via the state stream — they're served on demand via the data stream.
+**Measurement requirement**: Phase 2 testing must include a benchmark: push a 100-item `BridgeReviewPackage` metadata payload (no file contents), measure end-to-end time from Swift mutation to React rerender. Target: < 32ms (2 frames). File contents are never pushed via the state stream — they're served on demand via the data stream.
 
 ---
 
@@ -1113,7 +1114,7 @@ State rules:
 
 React (page world) listens for `CustomEvent` dispatched by the bridge world relay. It does NOT access `window.__bridgeInternal` directly — that global exists only in the bridge content world.
 
-Push events are authenticated via a **push nonce** delivered through a one-time handshake at bootstrap (see §11.3 for full security rationale).
+Push events are ordered by `__revision` and `__epoch` and filtered by a **push nonce** delivered through a bootstrap handshake. The nonce is a freshness/collision filter, not a security boundary against arbitrary page-world script execution (see §11.3).
 
 ```typescript
 // bridge/bridge-push-receiver.ts — page world, listens for CustomEvents from bridge world
@@ -1139,31 +1140,31 @@ const lastEpoch: Record<string, number> = {};
 
 // Listen for state pushes relayed from bridge world via CustomEvent
 document.addEventListener('__bridge_push', ((e: CustomEvent) => {
-    // Reject forged push events from page-world scripts
+    // Drop events that do not belong to this bootstrap session.
     if (e.detail?.nonce !== _pushNonce) return;
 
-    const { channelName, __revision, __epoch } = e.detail;
-    if (channelName !== 'diffPackage' && channelName !== 'connection') {
-        console.warn(`[bridge] Unknown push channel: ${channelName}`);
+    const { store, op, data, __revision, __epoch } = e.detail;
+    if (store !== 'diff' && store !== 'review' && store !== 'agent' && store !== 'connection') {
+        console.warn(`[bridge] Unknown push store: ${store}`);
         return;
     }
 
     // Epoch check: if epoch is older than current, drop entirely (stale load generation)
-    if (__epoch !== undefined && lastEpoch[channelName] !== undefined && __epoch < lastEpoch[channelName]) {
+    if (__epoch !== undefined && lastEpoch[store] !== undefined && __epoch < lastEpoch[store]) {
         return;
     }
     // Epoch advance: clear store state for new load generation
-    if (__epoch !== undefined && __epoch > (lastEpoch[channelName] ?? 0)) {
-        lastEpoch[channelName] = __epoch;
-        lastRevision[channelName] = 0;  // reset revision tracking for new epoch
+    if (__epoch !== undefined && __epoch > (lastEpoch[store] ?? 0)) {
+        lastEpoch[store] = __epoch;
+        lastRevision[store] = 0;  // reset revision tracking for new epoch
     }
 
     // Revision check: drop out-of-order pushes within same epoch
-    if (__revision !== undefined && __revision <= (lastRevision[channelName] ?? 0)) {
+    if (__revision !== undefined && __revision <= (lastRevision[store] ?? 0)) {
         return;
     }
     if (__revision !== undefined) {
-        lastRevision[channelName] = __revision;
+        lastRevision[store] = __revision;
     }
 
     applyBridgePushEnvelope(e.detail);
@@ -1171,7 +1172,7 @@ document.addEventListener('__bridge_push', ((e: CustomEvent) => {
 
 // Listen for direct JSON-RPC responses (rare path)
 document.addEventListener('__bridge_response', ((e: CustomEvent) => {
-    if (e.detail?.nonce !== _pushNonce) return;  // Same nonce validation
+    if (e.detail?.nonce !== _pushNonce) return;  // Same bootstrap-session filter
     rpcClient.handleResponse(e.detail);
 }) as EventListener);
 ```
@@ -1207,10 +1208,8 @@ function sendCommand(method: string, params?: unknown): void {
 
 export const commands = {
     diff: {
-        load: (source: DiffSource) =>
-            sendCommand("diff.loadDiff", { source }),
-        requestFileContents: (fileId: string) =>
-            sendCommand("diff.requestFileContents", { fileId }),
+        load: (worktreeId: string, diffId?: string) =>
+            sendCommand("diff.loadDiff", { worktreeId, diffId }),
     },
     review: {
         addComment: (fileId: string, lineNumber: number | null, side: 'old' | 'new', text: string) =>
@@ -1319,7 +1318,15 @@ Rules:
 5. CustomEvent typing must be explicit:
    ```typescript
    // bridge/bridge-events.d.ts
-   interface BridgePushDetail { channelName: string; payload: unknown; __revision?: number; __epoch?: number }
+   interface BridgePushDetail {
+       store: 'diff' | 'review' | 'agent' | 'connection';
+       op: 'merge' | 'replace';
+       data?: unknown;
+       payload?: unknown;
+       __revision: number;
+       __epoch: number;
+       nonce: string;
+   }
    interface BridgeResponseDetail { id: string; result?: unknown; error?: { code: number; message: string } }
 
    declare global {
@@ -1374,84 +1381,39 @@ class PaneDomainState {
 
 **Ownership**: `BridgePaneController` owns one `PaneDomainState` (which includes `ConnectionState` — see §8.7). Each pane's observation loops push per-pane state into its BridgeWeb mirror state.
 
-### 8.2 Diff Source and Manifest
+### 8.2 Review Package Flow and Push-State Projection
 
-The diff viewer supports four data sources, all producing the same review UI:
+The review viewer supports compare, open-file, tree-browse, filter, and group queries. Those sources normalize into `BridgeReviewQuery` plus explicit base/head endpoints, then the review pipeline returns a metadata package that drives the same read-only review UI:
 
 ```swift
-enum DiffSource: Codable {
-    case none
-    case agentSnapshot(taskId: UUID, timestamp: Date)  // agent produced this
-    case commit(sha: String)                            // single commit review
-    case branchDiff(head: String, base: String)         // branch comparison
-    case workspace(rootPath: String, baseline: WorkspaceBaseline) // live workspace review
-}
+let result = try await reviewPipeline.loadPackage(
+    BridgeReviewPipelineRequest(
+        packageId: packageId,
+        query: query,
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
+        checkpointIds: checkpointIds,
+        reviewGeneration: reviewGeneration,
+        generatedAtUnixMilliseconds: generatedAtUnixMilliseconds
+    )
+)
 
-enum WorkspaceBaseline: Codable {
-    case workingTreeVsHEAD
-    case workingTreeVsBranch(name: String)
-    case indexVsHEAD
+let package: BridgeReviewPackage = result.package
+let orderedItems: [BridgeReviewItemDescriptor] = package.orderedItemIds.compactMap {
+    package.itemsById[$0]
+}
+let contentHandles: [BridgeContentHandle] = orderedItems.flatMap {
+    $0.contentRoles.allHandles
 }
 ```
 
-The diff loading pipeline takes a `DiffSource` and produces file metadata pushed via the state stream. File contents are NOT included; they're fetched on demand via the data stream.
+`BridgeReviewPackage` carries ordered item IDs, keyed `BridgeReviewItemDescriptor` metadata, grouping, summary, filter state, source endpoints, and the `BridgeReviewGeneration`. Each item descriptor carries stable item identity, path metadata, change kind, size, line counts, review state, cache key, provenance, annotation summary, and content roles. File and diff bytes are not included in the metadata payload; each role points at a `BridgeContentHandle` served through the data stream.
 
-The diff state stores file metadata as a `[String: FileManifest]` dictionary keyed by file ID. This enables per-file delta pushes via `EntitySlice` — when one file changes out of 100, only that file's data is pushed.
+`DiffState.files: [String: FileManifest]` remains the live generic push-plane projection used by the existing state-stream machinery. Treat it as a projection of review item metadata for push infrastructure, distinct from the review-package contract that owns source endpoints, generation identity, content handles, groups, and summary fields.
 
-```swift
-struct FileManifest: Codable, Identifiable {
-    let id: String
-    var version: Int                        // bumped when any field changes
-    let path: String
-    let oldPath: String?                    // for renames
-    let changeType: FileChangeType
-    var loadStatus: FileLoadStatus
-    var additions: Int                      // line count
-    var deletions: Int                      // line count
-    var size: Int                           // bytes, for threshold decisions
-    let contextHash: String                 // hash of file content for comment anchoring
-    let hunkSummary: [HunkSummary]          // line ranges that changed
-}
+### 8.3 Diff Push State
 
-struct HunkSummary: Codable {
-    let oldStart: Int
-    let oldCount: Int
-    let newStart: Int
-    let newCount: Int
-    let header: String?                     // e.g., "func loadDiff()"
-}
-
-enum FileChangeType: String, Codable {
-    case added, modified, deleted, renamed
-}
-
-enum FileLoadStatus: String, Codable {
-    case pending     // metadata known, content not yet requested
-    case loading     // content fetch in progress
-    case loaded      // content available via data stream
-    case error       // content fetch failed
-}
-```
-
-### 8.3 Diff State
-
-```swift
-@Observable
-class DiffState {
-    var source: DiffSource = .none
-    var files: [String: FileManifest] = [:] // keyed by file ID, pushed via EntitySlice
-    var status: DiffStatus = .idle
-    var error: String? = nil
-    var epoch: Int = 0                      // current load generation
-}
-
-enum DiffStatus: String, Codable {
-    case idle
-    case loadingManifest                    // computing file list from git
-    case manifestReady                      // file list available, contents on demand
-    case error
-}
-```
+The current `DiffState` root stores status, error, epoch, and keyed `FileManifest` values for the generic push pipeline. That shape is intentionally smaller than the review package: it gives the existing `EntitySlice` path a keyed collection with per-file `version` counters, while the source-of-truth delivery contract remains the review package and handle model above.
 
 **Note**: File contents are NOT stored in `DiffState`. They're served on demand via `agentstudio://resource/content/{handleId}?generation={n}` and cached in React's tier 2 mirror state (LRU of ~20 files). This keeps the state stream fast and Swift memory bounded.
 
@@ -1670,7 +1632,7 @@ class BridgePaneController {
         reviewPushPlan = makeReviewPushPlan()
         connectionPushPlan = makeConnectionPushPlan()
 
-        diffPushPlan?.start()       // 2 observation tasks (status + manifest)
+        diffPushPlan?.start()       // 2 observation tasks (status + file metadata)
         reviewPushPlan?.start()     // 2 observation tasks (threads + viewedFiles)
         connectionPushPlan?.start() // 1 observation task (health)
     }
@@ -1845,35 +1807,21 @@ For large diffs (100+ files), content delivery separates metadata (state stream)
 
 ### 10.1 Metadata Push (State Stream)
 
-Swift computes the `DiffManifest` (file paths, sizes, hunk summaries, statuses) and pushes it via the state stream. No file contents cross this stream.
+Swift resolves a `BridgeReviewQuery` into a `BridgeReviewPackage` and pushes package/item metadata via the state stream. No file contents cross this stream; package items expose `BridgeContentHandle` values that React fetches lazily.
 
 ```swift
-func loadDiff(source: DiffSource) async {
-    paneState.diff.epoch += 1
-    paneState.diff.source = source
-    paneState.diff.status = .loadingManifest
-
-    do {
-        let changedFiles = try await gitService.listChangedFiles(source: source)
-        paneState.diff.manifest = DiffManifest(
-            source: source,
-            epoch: paneState.diff.epoch,
-            files: changedFiles.map { file in
-                FileManifest(
-                    id: file.id, path: file.path, oldPath: file.oldPath,
-                    changeType: file.changeType, loadStatus: .pending,
-                    additions: file.additions, deletions: file.deletions,
-                    size: file.size, contextHash: file.contextHash,
-                    hunkSummary: file.hunks
-                )
-            }
-        )
-        paneState.diff.status = .manifestReady
-        // Observations triggers push → React renders file tree + diff list immediately
-    } catch {
-        paneState.diff.status = .error
-        paneState.diff.error = error.localizedDescription
+func loadReviewPackage(request: BridgeReviewPipelineRequest) async throws {
+    let result = try await reviewPipeline.loadPackage(request)
+    let package: BridgeReviewPackage = result.package
+    let orderedItems: [BridgeReviewItemDescriptor] = package.orderedItemIds.compactMap {
+        package.itemsById[$0]
     }
+    let contentHandles: [BridgeContentHandle] = orderedItems.flatMap {
+        $0.contentRoles.allHandles
+    }
+
+    pushReviewPackageMetadata(package, orderedItems: orderedItems)
+    registerLazyContentHandles(contentHandles)
 }
 ```
 
@@ -1977,17 +1925,17 @@ For live workspace sources, refresh is event-driven first with periodic safety r
 | Trigger | Cadence | Action |
 |---|---|---|
 | File-system/git change event | Debounced 250-500ms | Incremental recompute for changed paths only |
-| Manual refresh command | On demand | Force manifest recompute for current source |
+| Manual refresh command | On demand | Force package metadata recompute for current source |
 | Safety revalidation timer | Every 10-15s | Verify event stream health and reconcile drift |
 
 **Algorithm**:
 1. Collect changed paths during debounce window.
 2. Recompute metadata only for affected files.
-3. Patch manifest in-place (insert/update/remove file entries).
+3. Patch package/item metadata in-place (insert/update/remove file entries).
 4. Bump per-store `revision` (same `epoch` for incremental update).
-5. If base source changes (new branch/commit/snapshot/workspace target), bump `epoch`, clear content cache, cancel in-flight loads, push fresh manifest.
+5. If base source changes (new branch/commit/snapshot/workspace target), bump `epoch`, clear content cache, cancel in-flight loads, push fresh package metadata.
 
-**Why**: This avoids full-manifest rebuild every few seconds, keeps bridge traffic small, and preserves scroll/context in large diffs.
+**Why**: This avoids full package rebuild every few seconds, keeps bridge traffic small, and preserves scroll/context in large diffs.
 
 ---
 
@@ -2024,15 +1972,14 @@ config.userContentController.addUserScript(bootstrapScript)  // No content world
 
 Since content worlds isolate JavaScript namespaces, the bridge world and page world (React) communicate through DOM events:
 
-**Bridge world → Page world (state push)** — includes a push nonce to prevent forgery from page-world scripts:
+**Bridge world → Page world (state push)** — includes a push nonce to filter stale echoes and accidental cross-pane/event collisions:
 ```javascript
 // Bridge world receives callJavaScript from Swift, relays via CustomEvent
-// pushNonce is a separate secret from bridgeNonce — only bridge world knows it
 const pushNonce = crypto.randomUUID();
 
-// Expose pushNonce to page world via a handshake stored in a closure,
-// NOT via a DOM attribute (unlike bridgeNonce, this must not be readable by
-// arbitrary page-world scripts).
+// Expose pushNonce to page world via a handshake stored in a closure.
+// Page-world scripts can observe this event, so the nonce is not an
+// active-script security boundary.
 //
 // The receiver captures it at initialization via a '__bridge_handshake' event.
 // To avoid a startup race (listener registers after event fires), the bridge
@@ -2073,7 +2020,7 @@ window.__bridgeInternal = {
 };
 ```
 
-**Page world (React) listens** — validates push nonce to reject forged events. Uses replay request to handle startup race (see §7.2):
+**Page world (React) listens** — validates push nonce as a bootstrap-session filter. Uses replay request to handle startup race (see §7.2):
 ```typescript
 // bridge/receiver.ts — installed in page world
 // Capture push nonce from handshake (bridge world dispatches at bootstrap).
@@ -2089,7 +2036,7 @@ if (_pushNonce === null) {
 }
 
 document.addEventListener('__bridge_push', ((e: CustomEvent) => {
-    // Reject forged push events from page-world scripts
+    // Drop events that do not belong to this bootstrap session.
     if (e.detail?.nonce !== _pushNonce) return;
 
     applyBridgePushEnvelope(e.detail);
@@ -2098,7 +2045,7 @@ document.addEventListener('__bridge_push', ((e: CustomEvent) => {
 
 **Page world → Bridge world (commands)**:
 
-Since page-world scripts could forge `__bridge_command` events, commands include a **nonce token** generated at bootstrap. The bridge world validates the nonce before relaying to Swift:
+Commands include a **nonce token** generated at bootstrap. The bridge world validates the nonce before relaying to Swift, which filters stale or accidental page events before they hit the Swift message handler:
 
 ```javascript
 // Bridge world generates nonce at document start
@@ -2109,7 +2056,7 @@ document.documentElement.setAttribute('data-bridge-nonce', bridgeNonce);
 
 // Bridge world validates nonce on command events
 document.addEventListener('__bridge_command', (e) => {
-    if (e.detail?.__nonce !== bridgeNonce) return; // reject forged events
+    if (e.detail?.__nonce !== bridgeNonce) return; // reject stale or accidental events
     const { __nonce, ...payload } = e.detail;
     window.webkit.messageHandlers.rpc.postMessage(JSON.stringify(payload));
 });
@@ -2126,7 +2073,7 @@ export function sendCommand(method: string, params?: unknown): void {
 }
 ```
 
-**Note**: This is defense-in-depth. Since we load our own React app (not untrusted content), the nonce prevents accidental cross-script interference rather than active attacks. A truly malicious script could read the DOM attribute. For stronger isolation, the nonce could be delivered via a one-time bridge-world → page-world handshake stored in a closure, not the DOM.
+**Note**: Nonces are defense-in-depth and collision/freshness filters, not the core security model. Since AgentStudio loads its own BridgeWeb app, they primarily prevent accidental cross-script or stale-session interference. A compromised page-world script can read the DOM bridge nonce and observe the push handshake. Security rests on WebKit content-world isolation, the bridge-world-only `rpc` message handler, Swift method allowlists, schema validation, and navigation policy.
 
 ### 11.4 Navigation Policy
 
@@ -2255,7 +2202,7 @@ Worker-backed highlighting is part of the bridge delivery contract, not only vie
 - WKWebView tests must prove the worker script can load from the packaged app, not just from a Vite dev server.
 - Service Workers are not a dependency for this pane; dedicated Web Workers are the required performance path.
 - Worker render options that Pierre owns at the pool level, such as theme, line diff type, tokenization limits, language preloads, and `preferredHighlighter`, should be configured once through the worker pool rather than per component.
-- Shiki highlighter creation is expensive; do not create highlighters in render/hot paths. Use Pierre's shared highlighter or worker pool and explicitly preload common languages/themes when the manifest makes them knowable.
+- Shiki highlighter creation is expensive; do not create highlighters in render/hot paths. Use Pierre's shared highlighter or worker pool and explicitly preload common languages/themes when package metadata makes them knowable.
 
 This is the place where `LUNA-337` and `LUNA-338` meet: `LUNA-337` must make app and worker assets real, and `LUNA-338` must prove Pierre uses those assets for off-main-thread highlighting in the mounted review pane.
 
@@ -2265,8 +2212,8 @@ Trees and CodeView use different identity shapes; the bridge adapter must preser
 
 - Trees identity is the canonical file path. Selection, focus, search, and row decorations use path strings.
 - CodeView identity is the stable item ID. Scroll targets, line selection, annotations, collapse state, and item updates use the item ID.
-- The bridge manifest maps `path -> fileId -> itemId` once per epoch.
-- Swift should emit the ordered path list it already knows from git/source discovery. React should use prepared Trees input for large manifests and avoid reshaping/sorting huge path lists during render.
+- The review package maps path metadata to stable item IDs and content handles once per review generation.
+- Swift should emit the ordered path list it already knows from git/source discovery. React should use prepared Trees input for large packages and avoid reshaping/sorting huge path lists during render.
 - CodeView item `cacheKey` should include stable content identity, such as source ID plus content hash or file version. It must change when file contents change.
 - Language overrides are metadata on file/diff contents; default detection comes from filename, but files like `Dockerfile` may need explicit overrides.
 
@@ -2435,7 +2382,7 @@ After merging current `origin/main`, the valid next step is still `LUNA-337`, bu
 **Deliverables**:
 - `RPCRouter` with typed method registration
 - Method definitions for `diff.*`, `review.*`, `agent.*`, and `system.*` namespaces
-- Command sender on JS side (`commands.diff.requestFileContents(...)`) with `__commandId` (UUID)
+- Command sender on JS side (`commands.diff.load(...)`) with `__commandId` (UUID)
 - Swift deduplicates commands by `commandId`, pushes `commandAck` via state stream
 - Error handling (method not found, invalid params, internal error)
 - Direct-response path for rare request/response needs
@@ -2453,7 +2400,7 @@ After merging current `origin/main`, the valid next step is still `LUNA-337`, bu
 **Goal**: Full diff viewer renders in a webview pane using metadata push + content pull.
 
 **Deliverables**:
-- Keyed diff metadata contract (`DiffState.files`) and `FileManifest` domain model (Swift, §8)
+- Review package metadata contract (`BridgeReviewPackage.itemsById`) with the existing `DiffState.files` push projection where the generic push plane still reads it (§8)
 - Source contract: `BridgePaneSource` (`.agentSnapshot`, `.commit`, `.branchDiff`, `.workspace`)
 - State stream: Swift pushes keyed diff metadata payload (file metadata only) into diff BridgeWeb mirror state
 - App asset stream: `BridgeSchemeHandler` serves bundled React assets and Pierre worker chunks under `agentstudio://app/*`
@@ -2461,19 +2408,19 @@ After merging current `origin/main`, the valid next step is still `LUNA-337`, bu
 - Priority queue on React side: viewport files (high), hovered files (medium), neighbor files (low), cancel when leaving viewport
 - LRU content cache (~20 files) in React, cleared on review-generation change
 - Pierre CodeView integration (`@pierre/diffs/react`) with viewport-driven content hydration
-- Trees adapter for path-first navigation and search, using prepared input for large manifests
+- Trees adapter for path-first navigation and search, using prepared input for large packages
 - Shiki highlighter/worker setup verified against the installed Pierre package version and packaged WKWebView assets
 - Fixture-driven annotation marker rendering in CodeView, without freezing the durable annotation/comment schema
 - Path validation and security hardening for resource URLs
-- Workspace refresh pipeline: event-driven incremental manifest updates + 10-15s safety revalidation
+- Workspace refresh pipeline: event-driven incremental package/item metadata updates + 10-15s safety revalidation
 
 **Tests**:
-- Unit: `DiffManifest` / `FileManifest` Codable round-trip
+- Unit: `BridgeReviewPackage` / `BridgeReviewItemDescriptor` / `BridgeContentHandle` Codable round-trip
 - Unit: `BridgeSchemeHandler` validates allowed resource types and rejects forbidden paths
 - Unit: `BridgeSchemeHandler` resolves app assets and worker chunks with expected MIME types and missing-resource errors
 - Unit: Priority queue ordering logic (viewport > hover > neighbor)
 - Unit: LRU cache evicts oldest entries beyond capacity, clears on epoch bump
-- Unit: Trees adapter consumes prepared/presorted manifest input without re-sorting in React render
+- Unit: Trees adapter consumes prepared/presorted package input without re-sorting in React render
 - Unit: CodeView item adapter creates stable IDs and increments `version` when content, collapsed state, or fixture annotations change
 - Unit: Shiki highlighter/worker setup is configured through documented Pierre APIs
 - Unit: annotation marker fixtures render without requiring a durable comment schema
@@ -2482,7 +2429,7 @@ After merging current `origin/main`, the valid next step is still `LUNA-337`, bu
 - Integration: WKWebView loads packaged React bundle and Pierre worker script from `agentstudio://app/*`
 - Integration: Scroll file into viewport → content pull fires → diff renders within 200ms
 - Integration: Epoch guard: start new diff during active load → stale results discarded
-- Integration: Workspace file change burst (N updates in debounce window) triggers incremental manifest patch, not full reload
+- Integration: Workspace file change burst (N updates in debounce window) triggers incremental package/item metadata patch, not full reload
 - Performance: Binary channel latency for 100KB, 500KB, 1MB files on target hardware
 - Performance: CodeView renders large mixed file/diff surfaces without blanking during aggressive scroll
 - E2E: Open diff pane → Trees navigation renders → select file → CodeView renders with syntax highlighting
@@ -2589,8 +2536,8 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 - [ ] `EntitySlice`: single entity change → delta contains only that entity (not full collection)
 - [ ] `EntityDelta` wire format uses String keys (UUID normalized, not raw)
 - [ ] Push failures log `store/level/revision/epoch/pushId` (verify log output format)
-- [ ] Push 100-file `DiffManifest` (metadata only): end-to-end < 32ms on target hardware
-- [ ] Content world isolation verified: page world listener cannot forge `__bridge_push` events that bypass bridge world
+- [ ] Push 100-item `BridgeReviewPackage` metadata payload: end-to-end < 32ms on target hardware
+- [ ] Content world isolation verified: page world cannot access the bridge-world `rpc` message handler or `window.__bridgeInternal`; nonce tests are freshness/collision tests, not active-script security proof
 
 #### Phase 3 Exit Criteria (Closed in LUNA-336)
 - [x] All registered methods dispatch correctly (positive tests)
@@ -2604,7 +2551,7 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 
 #### Phase 4 Exit Criteria
 - [ ] Diff metadata push → Trees navigation renders file list within 100ms (100 files)
-- [ ] Trees receives prepared/presorted input for repo-scale manifests; React render does not sort/shape large path lists
+- [ ] Trees receives prepared/presorted input for repo-scale packages; React render does not sort/shape large path lists
 - [ ] Packaged WKWebView can load `agentstudio://app/index.html`, app JS/CSS assets, and the Pierre worker script with correct MIME types
 - [ ] Content pull: scroll CodeView item into viewport → `fetch('agentstudio://resource/content/{handleId}?generation={n}')` → diff renders within 200ms
 - [ ] Priority queue: viewport files load before neighbor files (verified with request ordering log)
@@ -2620,8 +2567,8 @@ Each phase requires explicit acceptance criteria before proceeding to the next. 
 - [ ] Worker-pool stats or equivalent test hook proves highlighting work is not blocking the main thread for large fixtures
 - [ ] CodeView `scrollTo` works for item, line, and range targets after layout reconciliation
 - [ ] CodeView fixture annotations render and update via item `version` changes; durable annotation schema remains deferred
-- [ ] Trees search/filter works on 500+ file manifest
-- [ ] Workspace refresh: bursty file changes produce incremental manifest patch (same epoch), not full reset
+- [ ] Trees search/filter works on 500+ review items
+- [ ] Workspace refresh: bursty file changes produce incremental package/item metadata patch (same epoch), not full reset
 
 #### Phase 5 Exit Criteria
 - [ ] `LUNA-340`: Hunk/Pierre annotation research captured before schema freeze
@@ -2828,7 +2775,7 @@ case .bridgePanel(let state):
     return mount
 ```
 
-An explicit `openDiffViewer(...)` action is still planned; current creation path uses generic pane creation + bridgePanel content wiring. `BridgePaneSource` persists the intended source, but current load behavior does not yet derive a real manifest or content handles from that source.
+An explicit `openDiffViewer(...)` action is still planned; current creation path uses generic pane creation + bridgePanel content wiring. `BridgePaneSource` persists the intended source, but current production wiring is still waiting on the review-package push-plane slice before it derives real package metadata and content handles from that source.
 
 ```swift
 func openDiffViewer(source: BridgePaneSource? = nil) -> Pane? {
@@ -2890,7 +2837,7 @@ init(paneId: UUID, state: BridgePaneState) {
 - **Creation**: `PaneCoordinator.openDiffViewer()` → `PaneCoordinator.createViewForContent(.bridgePanel)` → `BridgePaneController` + `BridgePaneMountView` mounted inside `PaneHostView` → `ViewRegistry.register`
 - **Active**: `BridgePaneController` owns observation loops (started on `bridge.ready`), pushes state to BridgeWeb state layer
 - **Teardown**: `BridgePaneController.teardown()` cancels observation tasks, releases `WebPage`. Triggered by pane removal via `WorkspaceStore.removePane` → `ViewRegistry.deregister`
-- **Persistence**: `BridgePaneState` is `Codable` — round-trips through workspace save/restore. On restore, the panel reloads from source (re-computes manifest from git)
+- **Persistence**: `BridgePaneState` is `Codable` — round-trips through workspace save/restore. On restore, the panel reloads from source and recomputes review-package metadata from the provider/source layer.
 
 ### 15.6 Shared State
 
@@ -2905,7 +2852,7 @@ The existing `ViewRegistry`, `Layout`, drag/drop, and split system work unchange
 ### Resolved (in this document)
 
 - ~~**Domain state scope**~~ → **Per-pane** `PaneDomainState` (diff, review, agent tasks, timeline, connection health). All state is per-pane. See §8.1, §8.7.
-- ~~**CustomEvent command forgery**~~ → **Nonce token** generated at bootstrap, validated by bridge world. See §11.3.
+- ~~**CustomEvent command interference**~~ → **Nonce token** generated at bootstrap and validated by bridge world as a stale-session/collision filter; security relies on content-world isolation, RPC allowlists, payload validation, and navigation policy. See §11.3.
 - ~~**Push error handling**~~ → **do-catch** with logging and connection health state update. No force-unwraps. See §6.4.
 - ~~**File loading race conditions**~~ → **Metadata push + content pull with priority queue, LRU cache, and epoch guard**. See §10.
 - ~~**Large diff delivery**~~ → **Three-stream architecture**: metadata via state stream, file contents via data stream (pull-based), agent events via batched agent stream. See §1, §4.4, §10.
