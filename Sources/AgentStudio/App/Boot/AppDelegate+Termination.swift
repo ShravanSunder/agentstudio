@@ -57,6 +57,9 @@ extension AppDelegate {
         await runTerminationDrain("Ghostty action trace") {
             await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
         }
+        await runTerminationDrain("startup trace") { [weak self] in
+            try? await self?.startupTraceRecorder?.drain()
+        }
 
         // Always flush on quit — the pre-persist hook syncs runtime webview state
         // back to the pane model, so this must run even when isDirty == false.
@@ -72,10 +75,20 @@ extension AppDelegate {
             appLogger.warning("Inbox notification flush failed at termination: \(error.localizedDescription)")
         }
 
-        do {
-            try await traceRuntime?.flush()
-        } catch {
-            appLogger.warning("Trace flush failed at termination: \(error.localizedDescription)")
+        await runTerminationDrain("trace flush") { [weak self] in
+            do {
+                try await self?.traceRuntime?.flush()
+            } catch {
+                appLogger.warning("Trace flush failed at termination: \(error.localizedDescription)")
+            }
+        }
+
+        await runTerminationDrain("trace shutdown") { [weak self] in
+            do {
+                try await self?.traceRuntime?.shutdown()
+            } catch {
+                appLogger.warning("Trace shutdown failed at termination: \(error.localizedDescription)")
+            }
         }
     }
 

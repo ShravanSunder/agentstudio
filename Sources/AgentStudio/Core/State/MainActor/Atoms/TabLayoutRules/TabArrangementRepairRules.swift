@@ -1,8 +1,60 @@
 import Foundation
 
 enum TabArrangementRepairRules {
+    static func hasLivePaneReferences(in arrangements: [PaneArrangement]) -> Bool {
+        arrangements.contains { arrangement in
+            !arrangement.layout.isEmpty
+        }
+    }
+
+    static func promotingLiveArrangementToDefault(in arrangements: [PaneArrangement]) -> [PaneArrangement] {
+        guard !arrangements.isEmpty else { return arrangements }
+        let currentDefaultIndex = arrangements.firstIndex(where: \.isDefault) ?? 0
+        let promotedDefaultIndex: Int
+        if !arrangements[currentDefaultIndex].layout.isEmpty {
+            promotedDefaultIndex = currentDefaultIndex
+        } else {
+            promotedDefaultIndex = arrangements.firstIndex { !$0.layout.isEmpty } ?? currentDefaultIndex
+        }
+
+        var updated = arrangements
+        for arrangementIndex in updated.indices {
+            updated[arrangementIndex].isDefault = arrangementIndex == promotedDefaultIndex
+        }
+        return updated
+    }
+
+    static func pruningDrawerViewsMissingParentPane(
+        drawerParentPaneIdByDrawerId: [UUID: UUID]?,
+        from arrangements: [PaneArrangement]
+    ) -> [PaneArrangement] {
+        guard let drawerParentPaneIdByDrawerId else { return arrangements }
+        return arrangements.map { arrangement in
+            var updated = arrangement
+            updated.drawerViews = updated.drawerViews.filter { drawerId, _ in
+                guard let parentPaneId = drawerParentPaneIdByDrawerId[drawerId] else { return false }
+                return updated.layout.contains(parentPaneId)
+            }
+            return updated
+        }
+    }
+
     static func removingPane(
         _ paneId: UUID,
+        removingDrawerIds drawerIds: Set<UUID> = [],
+        layoutSizingMode: DropSizingMode = .halveTarget,
+        from arrangements: [PaneArrangement]
+    ) -> [PaneArrangement] {
+        removingPanes(
+            Set([paneId]),
+            removingDrawerIds: drawerIds,
+            layoutSizingMode: layoutSizingMode,
+            from: arrangements
+        )
+    }
+
+    static func removingPanes(
+        _ paneIds: Set<UUID>,
         removingDrawerIds drawerIds: Set<UUID> = [],
         layoutSizingMode: DropSizingMode = .halveTarget,
         from arrangements: [PaneArrangement]
@@ -13,18 +65,19 @@ enum TabArrangementRepairRules {
                 updated.drawerViews.removeValue(forKey: drawerId)
             }
             updated.drawerViews = pruningInvalidDrawerViewPaneIds(
-                validPaneIds: Set(updated.drawerViews.flatMap { $0.value.layout.paneIds }.filter { $0 != paneId }),
+                validPaneIds: Set(
+                    updated.drawerViews.flatMap { $0.value.layout.paneIds }.filter { !paneIds.contains($0) }),
                 from: updated.drawerViews
             )
-            if updated.layout.contains(paneId),
-                let newLayout = updated.layout.removing(paneId: paneId, sizingMode: layoutSizingMode)
-            {
-                updated.layout = newLayout
-            } else if updated.layout.contains(paneId) {
-                updated.layout = Layout()
+            for paneId in paneIds where updated.layout.contains(paneId) {
+                if let newLayout = updated.layout.removing(paneId: paneId, sizingMode: layoutSizingMode) {
+                    updated.layout = newLayout
+                } else {
+                    updated.layout = Layout()
+                }
             }
-            updated.minimizedPaneIds.remove(paneId)
-            if updated.activePaneId == paneId {
+            updated.minimizedPaneIds.subtract(paneIds)
+            if let activePaneId = updated.activePaneId, paneIds.contains(activePaneId) {
                 updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated)
             }
             return updated

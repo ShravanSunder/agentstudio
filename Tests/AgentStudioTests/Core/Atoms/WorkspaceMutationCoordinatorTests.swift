@@ -101,4 +101,168 @@ struct WorkspaceMutationCoordinatorTests {
         #expect(result == .failedMissingDrawerParent(parentPaneId))
         #expect(paneAtom.pane(drawerPane.id) == nil)
     }
+
+    @Test
+    func restoreDrawerPane_forcesDetachedPaneBackToDrawerChildKind() throws {
+        let paneAtom = WorkspacePaneAtom()
+        let parentPane = makePane(title: "Parent")
+        paneAtom.addPane(parentPane)
+        let drawerPane = try #require(
+            paneAtom.addDrawerPane(
+                to: parentPane.id,
+                parentFallbackCWD: nil
+            )
+        )
+
+        let detachedPane = try #require(paneAtom.detachDrawerPane(drawerPane.id, from: parentPane.id))
+        guard case .layout(let detachedDrawer) = detachedPane.kind else {
+            Issue.record("Expected detached drawer pane to become a layout pane")
+            return
+        }
+        #expect(detachedDrawer.parentPaneId == drawerPane.id)
+
+        #expect(paneAtom.restoreDrawerPane(detachedPane, to: parentPane.id))
+
+        let restoredPane = try #require(paneAtom.pane(drawerPane.id))
+        #expect(restoredPane.kind == .drawerChild(parentPaneId: parentPane.id))
+        #expect(paneAtom.pane(parentPane.id)?.drawer?.paneIds == [drawerPane.id])
+    }
+
+    @Test
+    func restoreFromPaneSnapshot_parentPaneRestoresDrawerViewsAndTabMembership() throws {
+        let store = WorkspaceStore()
+        let anchorPane = makePane(title: "Anchor")
+        let parentPane = makePane(title: "Parent")
+        store.paneAtom.addPane(anchorPane)
+        store.paneAtom.addPane(parentPane)
+
+        let tab = Tab(paneId: anchorPane.id)
+        store.appendTab(tab)
+        #expect(
+            store.insertPane(
+                parentPane.id,
+                inTab: tab.id,
+                at: anchorPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+        let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let drawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
+        store.setActiveDrawerPane(secondDrawerPane.id, in: parentPane.id)
+        let focusArrangementId = try #require(store.createArrangement(name: "Drawer focus", inTab: tab.id))
+        store.switchArrangement(to: focusArrangementId, inTab: tab.id)
+
+        let snapshot = try #require(store.snapshotForPaneClose(paneId: parentPane.id, inTab: tab.id))
+        let tabBeforeClose = try #require(store.tab(tab.id))
+        let drawerViewsBeforeClose = tabBeforeClose.arrangements.compactMap {
+            $0.drawerViews[drawerId]
+        }
+
+        #expect(store.mutationCoordinator.removePane(parentPane.id))
+        let restoreResult = store.mutationCoordinator.restoreFromPaneSnapshot(snapshot)
+
+        let restoredTab = try #require(store.tab(tab.id))
+        #expect(restoreResult == .restored)
+        #expect(restoredTab.allPaneIds.contains(parentPane.id))
+        #expect(restoredTab.allPaneIds.contains(firstDrawerPane.id))
+        #expect(restoredTab.allPaneIds.contains(secondDrawerPane.id))
+        #expect(
+            restoredTab.arrangements.compactMap { $0.drawerViews[drawerId] }
+                == drawerViewsBeforeClose
+        )
+    }
+
+    @Test
+    func backgroundPane_removesOwnedDrawerViewsFromVisibleTab() throws {
+        let store = WorkspaceStore()
+        let anchorPane = makePane(title: "Anchor")
+        let parentPane = makePane(title: "Parent")
+        store.paneAtom.addPane(anchorPane)
+        store.paneAtom.addPane(parentPane)
+        let tab = Tab(paneId: anchorPane.id)
+        store.appendTab(tab)
+        #expect(
+            store.insertPane(
+                parentPane.id,
+                inTab: tab.id,
+                at: anchorPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let drawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
+
+        #expect(store.mutationCoordinator.backgroundPane(parentPane.id))
+
+        let restoredTab = try #require(store.tab(tab.id))
+        #expect(restoredTab.allPaneIds == [anchorPane.id])
+        #expect(restoredTab.arrangements.allSatisfy { $0.drawerViews[drawerId] == nil })
+        #expect(store.pane(parentPane.id)?.residency == .backgrounded)
+        #expect(store.pane(drawerPane.id)?.residency == .backgrounded)
+        #expect(store.pane(drawerPane.id)?.kind == .drawerChild(parentPaneId: parentPane.id))
+        #expect(store.orphanedPanes.map(\.id) == [parentPane.id])
+    }
+
+    @Test
+    func backgroundPane_reactivatePane_restoresOwnedDrawerViewsAndChildMembership() throws {
+        let store = WorkspaceStore()
+        let anchorPane = makePane(title: "Anchor")
+        let parentPane = makePane(title: "Parent")
+        store.paneAtom.addPane(anchorPane)
+        store.paneAtom.addPane(parentPane)
+        let tab = Tab(paneId: anchorPane.id)
+        store.appendTab(tab)
+        #expect(
+            store.insertPane(
+                parentPane.id,
+                inTab: tab.id,
+                at: anchorPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+        let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let drawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
+        store.setActiveDrawerPane(secondDrawerPane.id, in: parentPane.id)
+        let tabBeforeBackground = try #require(store.tab(tab.id))
+        let drawerViewsBeforeBackground = Dictionary(
+            uniqueKeysWithValues: tabBeforeBackground.arrangements.compactMap { arrangement in
+                arrangement.drawerViews[drawerId].map { (arrangement.id, $0) }
+            }
+        )
+
+        #expect(store.mutationCoordinator.backgroundPane(parentPane.id))
+        #expect(
+            store.mutationCoordinator.reactivatePane(
+                parentPane.id,
+                inTab: tab.id,
+                at: anchorPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+
+        let restoredTab = try #require(store.tab(tab.id))
+        #expect(restoredTab.allPaneIds.contains(parentPane.id))
+        #expect(restoredTab.allPaneIds.contains(firstDrawerPane.id))
+        #expect(restoredTab.allPaneIds.contains(secondDrawerPane.id))
+        #expect(store.pane(parentPane.id)?.residency == .active)
+        #expect(store.pane(firstDrawerPane.id)?.residency == .active)
+        #expect(store.pane(secondDrawerPane.id)?.residency == .active)
+        #expect(
+            Dictionary(
+                uniqueKeysWithValues: restoredTab.arrangements.compactMap { arrangement in
+                    arrangement.drawerViews[drawerId].map { (arrangement.id, $0) }
+                }
+            ) == drawerViewsBeforeBackground
+        )
+    }
 }

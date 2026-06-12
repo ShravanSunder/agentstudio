@@ -466,6 +466,104 @@ struct RepoCacheStoreTests {
     }
 
     @Test
+    func observedSnapshotOnlyWorktreeChange_doesNotRewritePersistedCache() async throws {
+        let workspaceId = UUID()
+        let atom = RepoCacheAtom()
+        let clock = TestPushClock()
+        let store = RepoCacheStore(
+            atom: atom,
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/agent-studio")
+        let cacheFileURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
+
+        await store.restoreAsync(for: workspaceId)
+        atom.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: worktreeId,
+                repoId: repoId,
+                branch: "main",
+                updatedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        try await store.flushAsync(for: workspaceId)
+        let originalData = try Data(contentsOf: cacheFileURL)
+
+        store.startObserving()
+        atom.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: worktreeId,
+                repoId: repoId,
+                branch: "main",
+                snapshot: GitWorkingTreeSnapshot(
+                    worktreeId: worktreeId,
+                    repoId: repoId,
+                    rootPath: rootPath,
+                    summary: GitWorkingTreeSummary(changed: 2, staged: 0, untracked: 1),
+                    branch: "main"
+                ),
+                updatedAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(10))
+        await Task.yield()
+
+        #expect(try Data(contentsOf: cacheFileURL) == originalData)
+    }
+
+    @Test
+    func observedPersistedWorktreeChange_autosavesRepoCache() async throws {
+        let workspaceId = UUID()
+        let atom = RepoCacheAtom()
+        let clock = TestPushClock()
+        let store = RepoCacheStore(
+            atom: atom,
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock
+        )
+        let repoId = UUID()
+        let worktreeId = UUID()
+
+        await store.restoreAsync(for: workspaceId)
+        atom.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: worktreeId,
+                repoId: repoId,
+                branch: "main",
+                updatedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        try await store.flushAsync(for: workspaceId)
+
+        store.startObserving()
+        atom.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: worktreeId,
+                repoId: repoId,
+                branch: "feature",
+                updatedAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(10))
+
+        await assertEventuallyMain("persisted worktree change should autosave") {
+            switch persistor.loadCache(for: workspaceId) {
+            case .loaded(let cache):
+                return cache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "feature"
+            case .missing, .corrupt:
+                return false
+            }
+        }
+    }
+
+    @Test
     func observedRecentTargetChange_autosavesRecentTargets() async throws {
         let workspaceId = UUID()
         let atom = RepoCacheAtom()

@@ -84,7 +84,8 @@ struct AppBootSequenceTests {
             encoding: .utf8
         )
 
-        #expect(appDelegateSource.contains("makeWorkspaceSQLiteDatastore()"))
+        #expect(!appDelegateSource.contains("traceRuntime = .fromEnvironment()"))
+        #expect(appDelegateSource.contains("makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)"))
         #expect(appDelegateSource.contains("sqliteDatastore: workspaceSQLiteDatastore"))
         #expect(appDelegateSource.contains("await store.restoreAsync()"))
         #expect(appDelegateSource.contains("await repoCacheStore.restoreAsync("))
@@ -93,7 +94,11 @@ struct AppBootSequenceTests {
         #expect(!appDelegateSource.contains("workspaceSQLiteStoreBackend"))
         #expect(!appDelegateSource.contains("workspaceLocalSQLiteStoreBackend"))
         #expect(datastoreFactorySource.contains("WorkspaceSQLiteDatastoreConfiguration("))
-        #expect(datastoreFactorySource.contains("WorkspaceSQLiteDatastore(configuration: configuration)"))
+        #expect(
+            datastoreFactorySource.contains(
+                "WorkspaceSQLiteDatastore(configuration: configuration, traceRuntime: traceRuntime)"
+            )
+        )
     }
 
     @Test("boot injects feature SQLite adapter into inbox notification store")

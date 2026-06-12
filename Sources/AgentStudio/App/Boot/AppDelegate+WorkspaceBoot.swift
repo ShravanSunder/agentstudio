@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import Observation
 
 @MainActor
 extension AppDelegate {
@@ -78,6 +80,10 @@ extension AppDelegate {
 
     private func recordBootStep(_ step: WorkspaceBootStep) {
         RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
+        startupTraceRecorder.recordWorkspaceBootStep(
+            rawValue: step.rawValue,
+            purpose: step.purpose
+        )
     }
 
     private func executeBootStep(
@@ -115,7 +121,7 @@ extension AppDelegate {
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
-        workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore()
+        workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
@@ -159,7 +165,6 @@ extension AppDelegate {
                 self?.recordPersistenceRecovery(event)
             }
         )
-        traceRuntime = .fromEnvironment()
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         await store.restoreAsync()
@@ -170,18 +175,20 @@ extension AppDelegate {
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
         )
+        synchronizeApplicationLifecycleStateAfterWorkspaceBoot(isApplicationActive: NSApp.isActive)
         RestoreTrace.log(
             "store.restore complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.panes.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
     }
 
-    private func makeWorkspaceSQLiteDatastore() -> WorkspaceSQLiteDatastore? {
-        WorkspaceSQLiteDatastoreFactory().makeDatastore()
+    private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore? {
+        WorkspaceSQLiteDatastoreFactory(traceRuntime: traceRuntime).makeDatastore()
     }
 
     private func bootLoadCacheStore(persistor: WorkspacePersistor) async {
         _ = persistor
         await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
+        await refreshTraceIdentitySnapshot()
         await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
     }
 
@@ -261,6 +268,7 @@ extension AppDelegate {
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: SurfaceManager.shared,
+            startupTraceRecorder: startupTraceRecorder,
             runtimeRegistry: .shared,
             paneEventBus: paneRuntimeBus,
             closeTransitionCoordinator: closeTransitionCoordinator,
@@ -276,6 +284,9 @@ extension AppDelegate {
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
                 await pipeline.applyScopeChange(change)
+            },
+            traceIdentityRefreshHandler: { [weak self] in
+                await self?.refreshTraceIdentitySnapshot()
             }
         )
         paneCoordinator.removeRepoHandler = { [weak self] repoId in
@@ -319,6 +330,35 @@ extension AppDelegate {
                 await filesystemPipelineBootTask.value
             }
             self.paneCoordinator.syncFilesystemRootsAndActivity()
+            await self.refreshTraceIdentitySnapshot()
+            self.observeTraceIdentityInputs()
+        }
+    }
+
+    func refreshTraceIdentitySnapshot() async {
+        let panes = Array(store.paneAtom.panes.values)
+        let snapshot = AgentStudioTraceIdentitySnapshot.from(
+            repos: store.repositoryTopologyAtom.repos,
+            panes: panes,
+            worktreeEnrichments: repoCache.worktreeEnrichmentByWorktreeId
+        )
+        await traceRuntime.updateIdentitySnapshot(snapshot)
+    }
+
+    private func observeTraceIdentityInputs() {
+        guard !isObservingTraceIdentityInputs else { return }
+        isObservingTraceIdentityInputs = true
+        withObservationTracking {
+            _ = store.paneAtom.panes
+            _ = store.repositoryTopologyAtom.repos
+            _ = repoCache.worktreeEnrichmentByWorktreeId
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isObservingTraceIdentityInputs = false
+                self.observeTraceIdentityInputs()
+                await self.refreshTraceIdentitySnapshot()
+            }
         }
     }
 

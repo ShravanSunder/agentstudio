@@ -27,7 +27,7 @@
 - `Tests/AgentStudioTests/Core/Models/SessionConfigurationTests.swift`
 - `Tests/AgentStudioTests/Features/Terminal/Restore/TerminalRestoreTypesTests.swift`
 - `Tests/AgentStudioTests/Features/Terminal/Restore/TerminalRestoreRuntimeTests.swift`
-- `Tests/AgentStudioTests/App/Luna295DirectZmxAttachIntegrationTests.swift`
+- `Tests/AgentStudioTests/App/PaneCoordinatorTerminalRestoreIntegrationTests.swift`
 
 ### Review for collateral references
 
@@ -186,7 +186,7 @@ Expected: PASS.
 ### Task 4: Remove deprecated policy variants from integration coverage
 
 **Files:**
-- Modify: `Tests/AgentStudioTests/App/Luna295DirectZmxAttachIntegrationTests.swift`
+- Modify: `Tests/AgentStudioTests/App/PaneCoordinatorTerminalRestoreIntegrationTests.swift`
 - Test: targeted filtered run
 
 - [ ] **Step 1: Find test cases that still model removed product modes**
@@ -194,14 +194,14 @@ Expected: PASS.
 Run:
 
 ```bash
-rg -n "backgroundRestorePolicy: \\.allTerminalPanes|backgroundRestorePolicy: \\.off" Tests/AgentStudioTests/App/Luna295DirectZmxAttachIntegrationTests.swift
+rg -n "backgroundRestorePolicy: \\.allTerminalPanes|backgroundRestorePolicy: \\.off" Tests/AgentStudioTests/App/PaneCoordinatorTerminalRestoreIntegrationTests.swift
 ```
 
 Expected: hits for deprecated modes.
 
 - [ ] **Step 2: Rewrite or remove deprecated-mode tests**
 
-Edit `Tests/AgentStudioTests/App/Luna295DirectZmxAttachIntegrationTests.swift`:
+Edit `Tests/AgentStudioTests/App/PaneCoordinatorTerminalRestoreIntegrationTests.swift`:
 
 - remove scenarios that only validate user-selectable `.off`
 - remove scenarios that only validate user-selectable `.allTerminalPanes`
@@ -212,7 +212,7 @@ Edit `Tests/AgentStudioTests/App/Luna295DirectZmxAttachIntegrationTests.swift`:
 Run:
 
 ```bash
-swift test --build-path ".build-agent-$PPID" --filter "Luna295DirectZmxAttachIntegrationTests"
+swift test --build-path ".build-agent-$PPID" --filter "PaneCoordinatorTerminalRestoreIntegrationTests"
 ```
 
 Expected: PASS.

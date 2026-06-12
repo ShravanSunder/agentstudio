@@ -17,7 +17,17 @@ extension InboxNotification {
 
 extension PersistenceRecoveryEvent {
     fileprivate var notificationTitle: String {
-        switch store {
+        if recovery == .saveFailed {
+            return saveFailureNotificationTitle
+        }
+        if recovery == .localStateRebuilt {
+            return "Workspace local state rebuilt"
+        }
+        if recovery == .tabMembershipRepaired {
+            return "Workspace layout repaired"
+        }
+
+        return switch store {
         case .workspace:
             "Workspace reset"
         case .repoCache:
@@ -33,6 +43,23 @@ extension PersistenceRecoveryEvent {
         }
     }
 
+    private var saveFailureNotificationTitle: String {
+        switch store {
+        case .workspace:
+            "Workspace save failed"
+        case .repoCache:
+            "Repository cache save failed"
+        case .workspaceSettings:
+            "Workspace settings save failed"
+        case .uiState:
+            "UI state save failed"
+        case .sidebarCache:
+            "Sidebar cache save failed"
+        case .notificationInbox:
+            "Notification inbox save failed"
+        }
+    }
+
     fileprivate var notificationBody: String {
         let action =
             switch recovery {
@@ -44,11 +71,22 @@ extension PersistenceRecoveryEvent {
                 "The saved file could not be loaded, so it was moved aside and defaults were used."
             case .quarantineFailed:
                 "The saved file could not be loaded, and moving it aside failed. Defaults were used."
+            case .localStateRebuilt:
+                "The workspace graph was restored, but local focus and window state were rebuilt."
+            case .tabMembershipRepaired:
+                "The workspace layout had inconsistent tab membership and was repaired before saving."
             case .saveFailed:
                 "The app could not save this state file. Recent changes may not be restored after restart."
             }
 
-        guard let quarantinedFilename else { return action }
-        return "\(action) Quarantined file: \(quarantinedFilename)"
+        var details: [String] = []
+        if let workspaceId {
+            details.append("Workspace: \(workspaceId.uuidString)")
+        }
+        if let quarantinedFilename {
+            details.append("Quarantined file: \(quarantinedFilename)")
+        }
+        guard !details.isEmpty else { return action }
+        return "\(action) \(details.joined(separator: " "))"
     }
 }

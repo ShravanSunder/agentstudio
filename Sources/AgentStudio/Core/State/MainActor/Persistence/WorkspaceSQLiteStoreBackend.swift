@@ -65,7 +65,10 @@ struct WorkspaceSQLiteStoreBackend {
 
     private func loadCompletedSnapshot(preferredWorkspaceId: UUID) throws -> WorkspaceSQLiteSnapshot {
         let workspaceId =
-            try resolvedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
+            try coreRepository.fetchActiveOrPreferredRecoverableStagedWorkspaceId(
+                preferredWorkspaceId: preferredWorkspaceId
+            )
+            ?? resolvedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
             ?? coreRepository.fetchRecoverableStagedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
         guard let workspaceId,
             let workspace = try coreRepository.fetchWorkspace(id: workspaceId)

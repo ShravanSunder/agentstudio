@@ -10,15 +10,16 @@ import Tracing
 
 struct AgentStudioTraceRuntime: Sendable {
     private let configuration: AgentStudioTraceConfiguration
-    private let writer: AgentStudioJSONLTraceWriter?
-    private let resource: [String: String]
+    private let sinks: [any AgentStudioTraceSink]
+    private let baseResource: [String: String]
+    private let identityStore: AgentStudioTraceIdentityStore
     private let scopeVersion: String
     private let timeUnixNano: @Sendable () -> UInt64
 
     let outputFileURL: URL?
 
     var isEnabled: Bool {
-        configuration.isEnabled
+        configuration.isEnabled && !sinks.isEmpty
     }
 
     init(
@@ -29,17 +30,30 @@ struct AgentStudioTraceRuntime: Sendable {
         sessionID: String = UUID().uuidString,
         scopeVersion: String = "0.1.0",
         writerRetainedLineLimit: Int = 2048,
+        sinkFactory: AgentStudioTraceSinkFactory = .live,
+        identityStore: AgentStudioTraceIdentityStore = .init(),
         timeUnixNano: @escaping @Sendable () -> UInt64 = Self.currentTimeUnixNano
     ) {
         self.configuration = configuration
-        self.resource = Self.resourceAttributes(
+        self.baseResource = Self.resourceAttributes(
+            configuration: configuration,
             serviceName: serviceName,
             serviceVersion: serviceVersion,
             processIdentifier: processIdentifier,
             sessionID: sessionID
         )
+        self.identityStore = identityStore
         self.scopeVersion = scopeVersion
         self.timeUnixNano = timeUnixNano
+        let sinkBundle = Self.sinkBundle(
+            configuration: configuration,
+            processIdentifier: processIdentifier,
+            writerRetainedLineLimit: writerRetainedLineLimit,
+            sinkFactory: sinkFactory,
+            timeUnixNano: timeUnixNano
+        )
+        self.sinks = sinkBundle.sinks
+        self.outputFileURL = sinkBundle.outputFileURL
 
         if !configuration.unknownTagSelectors.isEmpty {
             Self.writeStartupDiagnostic(
@@ -56,18 +70,28 @@ struct AgentStudioTraceRuntime: Sendable {
             )
         }
 
-        if configuration.isEnabled {
-            let outputFileURL = configuration.outputFileURL(processIdentifier: processIdentifier)
-            self.outputFileURL = outputFileURL
-            self.writer = AgentStudioJSONLTraceWriter(
-                fileURL: outputFileURL,
-                retainedLineLimit: writerRetainedLineLimit,
-                timeUnixNano: timeUnixNano
+        if let rejectedOTLPEndpointSelector = configuration.rejectedOTLPEndpointSelector {
+            Self.writeStartupDiagnostic(
+                "AgentStudio tracing ignored non-loopback OTLP endpoint: "
+                    + rejectedOTLPEndpointSelector
+                    + "; using jsonl"
             )
-            Self.writeStartupDiagnostic("AgentStudio tracing enabled: \(outputFileURL.path)")
-        } else {
-            self.outputFileURL = nil
-            self.writer = nil
+        }
+
+        if let unsupportedOTLPProtocolSelector = configuration.unsupportedOTLPProtocolSelector {
+            Self.writeStartupDiagnostic(
+                "AgentStudio tracing ignored unsupported OTLP protocol selector: "
+                    + unsupportedOTLPProtocolSelector
+                    + "; using jsonl"
+            )
+        }
+
+        if isEnabled {
+            if let outputFileURL {
+                Self.writeStartupDiagnostic("AgentStudio tracing enabled: \(outputFileURL.path)")
+            } else {
+                Self.writeStartupDiagnostic("AgentStudio tracing enabled: otlp")
+            }
         }
     }
 
@@ -85,6 +109,14 @@ struct AgentStudioTraceRuntime: Sendable {
         configuration.isEnabled(tag)
     }
 
+    func timestampUnixNano() -> UInt64 {
+        timeUnixNano()
+    }
+
+    func updateIdentitySnapshot(_ snapshot: AgentStudioTraceIdentitySnapshot) async {
+        await identityStore.update(snapshot)
+    }
+
     func record(
         tag: AgentStudioTraceTag,
         body: String,
@@ -93,23 +125,25 @@ struct AgentStudioTraceRuntime: Sendable {
         traceID: String? = nil,
         spanID: String? = nil,
         parentSpanID: String? = nil,
+        eventTimeUnixNano: UInt64? = nil,
         attributes: @autoclosure @Sendable () -> [String: AgentStudioTraceValue] = [:]
     ) async {
-        guard configuration.isEnabled(tag), let writer else { return }
+        guard configuration.isEnabled(tag), !sinks.isEmpty else { return }
 
         var mergedAttributes = attributes()
         mergedAttributes["agentstudio.trace.tag"] = .string(tag.rawValue)
         if let correlationID = context?.agentStudioCorrelationID {
             mergedAttributes["agentstudio.correlation_id"] = .string(correlationID)
         }
+        let resource = await identityStore.resourceAttributes(
+            for: mergedAttributes,
+            baseResource: baseResource
+        )
 
-        // Local JSONL is the export path here; real spans belong to a bootstrapped OTLP backend.
         let record = AgentStudioTraceRecord(
-            timeUnixNano: timeUnixNano(),
+            timeUnixNano: eventTimeUnixNano ?? timeUnixNano(),
             severityText: severity,
             body: body,
-            // Dormant under jsonl-only backend; populated automatically when
-            // AGENTSTUDIO_TRACE_BACKEND=otlp wires a real tracer.
             traceID: traceID ?? context?.otelTraceID,
             spanID: spanID,
             parentSpanID: parentSpanID,
@@ -117,26 +151,88 @@ struct AgentStudioTraceRuntime: Sendable {
             scope: .init(name: "agentstudio.\(tag.rawValue)", version: scopeVersion),
             attributes: mergedAttributes
         )
-        do {
-            try await writer.append(record)
-            if configuration.flushMode == .immediate {
-                try await writer.flush()
-            }
-        } catch {
-            debugLog("[trace] failed to record \(body): \(error)")
-            Self.writeStartupDiagnostic("AgentStudio tracing failed to record \(body): \(error)")
-        }
+        await dispatch(record)
+        guard configuration.flushMode == .immediate else { return }
+        await flushFromRecord()
     }
 
     func flush() async throws {
-        try await writer?.flush()
+        var firstError: Error?
+        for sink in sinks {
+            do {
+                try await sink.flush()
+            } catch {
+                if firstError == nil {
+                    firstError = error
+                }
+                debugLog("[trace] failed to flush sink: \(error)")
+                Self.writeStartupDiagnostic("AgentStudio tracing failed to flush sink: \(error)")
+            }
+        }
+        if let firstError {
+            throw firstError
+        }
+    }
+
+    func shutdown() async throws {
+        var firstError: Error?
+        for sink in sinks {
+            do {
+                try await sink.shutdown()
+            } catch {
+                if firstError == nil {
+                    firstError = error
+                }
+                debugLog("[trace] failed to shut down sink: \(error)")
+                Self.writeStartupDiagnostic("AgentStudio tracing failed to shut down sink: \(error)")
+            }
+        }
+        if let firstError {
+            throw firstError
+        }
     }
 
     func diagnostics() async -> AgentStudioTraceWriterDiagnostics {
-        await writer?.diagnostics() ?? .empty
+        var failedFlushCount = 0
+        var lastFlushErrorDescription: String?
+        for sink in sinks {
+            let diagnostics = await sink.diagnostics()
+            failedFlushCount += diagnostics.failedFlushCount
+            if let lastError = diagnostics.lastFlushErrorDescription {
+                lastFlushErrorDescription = lastError
+            }
+        }
+        return AgentStudioTraceWriterDiagnostics(
+            failedFlushCount: failedFlushCount,
+            lastFlushErrorDescription: lastFlushErrorDescription
+        )
+    }
+
+    private func dispatch(_ record: AgentStudioTraceRecord) async {
+        await withTaskGroup(of: Void.self) { taskGroup in
+            for sink in sinks {
+                taskGroup.addTask {
+                    do {
+                        try await sink.record(record)
+                    } catch {
+                        debugLog("[trace] failed to record \(record.body): \(error)")
+                        Self.writeStartupDiagnostic("AgentStudio tracing failed to record \(record.body): \(error)")
+                    }
+                }
+            }
+        }
+    }
+
+    private func flushFromRecord() async {
+        do {
+            try await flush()
+        } catch {
+            debugLog("[trace] failed immediate flush: \(error)")
+        }
     }
 
     private static func resourceAttributes(
+        configuration: AgentStudioTraceConfiguration,
         serviceName: String,
         serviceVersion: String?,
         processIdentifier: Int32,
@@ -144,7 +240,13 @@ struct AgentStudioTraceRuntime: Sendable {
     ) -> [String: String] {
         var attributes = [
             "agentstudio.build.config": buildConfiguration,
+            "agentstudio.release_channel": configuration.releaseChannel.rawValue,
+            "agentstudio.runtime_flavor": configuration.runtimeFlavor.rawValue,
             "agentstudio.session.id": sessionID,
+            "agentstudio.trace.name": configuration.traceName,
+            "dev.build.config": buildConfiguration.lowercased(),
+            "dev.release.channel": configuration.releaseChannel.rawValue,
+            "dev.runtime.flavor": configuration.runtimeFlavor.rawValue,
             "process.pid": "\(processIdentifier)",
             "service.name": serviceName,
         ]
@@ -152,6 +254,47 @@ struct AgentStudioTraceRuntime: Sendable {
             attributes["service.version"] = serviceVersion
         }
         return attributes
+    }
+
+    private static func sinkBundle(
+        configuration: AgentStudioTraceConfiguration,
+        processIdentifier: Int32,
+        writerRetainedLineLimit: Int,
+        sinkFactory: AgentStudioTraceSinkFactory,
+        timeUnixNano: @escaping @Sendable () -> UInt64
+    ) -> (sinks: [any AgentStudioTraceSink], outputFileURL: URL?) {
+        guard configuration.isEnabled else {
+            return ([], nil)
+        }
+
+        var sinks: [any AgentStudioTraceSink] = []
+        var outputFileURL: URL?
+        if configuration.backend.includesJSONL {
+            let fileURL = configuration.outputFileURL(processIdentifier: processIdentifier)
+            outputFileURL = fileURL
+            sinks.append(
+                sinkFactory.makeJSONLSink(
+                    AgentStudioJSONLTraceSinkContext(
+                        fileURL: fileURL,
+                        retainedLineLimit: writerRetainedLineLimit,
+                        timeUnixNano: timeUnixNano
+                    )
+                )
+            )
+        }
+
+        if configuration.backend.includesOTLP, let endpoint = configuration.otlpEndpoint {
+            sinks.append(
+                sinkFactory.makeOTLPSink(
+                    AgentStudioOTLPTraceSinkContext(
+                        endpoint: endpoint,
+                        otlpProtocol: configuration.otlpProtocol
+                    )
+                )
+            )
+        }
+
+        return (sinks, outputFileURL)
     }
 
     private static func currentTimeUnixNano() -> UInt64 {

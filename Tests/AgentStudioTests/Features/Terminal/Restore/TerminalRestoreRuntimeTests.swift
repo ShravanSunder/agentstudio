@@ -132,4 +132,25 @@ struct TerminalRestoreRuntimeTests {
                 )
         )
     }
+
+    @Test
+    func zmxAttachCommand_isNil_whenSessionRestoreIsDisabled() {
+        let store = WorkspaceStore()
+        let pane = store.createPane(
+            source: .floating(launchDirectory: FileManager.default.homeDirectoryForCurrentUser, title: nil),
+            provider: .zmx
+        )
+        let runtime = TerminalRestoreRuntime(
+            sessionConfiguration: SessionConfiguration(
+                isEnabled: false,
+                zmxPath: "/tmp/fake-zmx",
+                zmxDir: "/tmp/fake-zmx-dir",
+                healthCheckInterval: 30,
+                maxCheckpointAge: 60
+            )
+        )
+
+        #expect(runtime.zmxAttachCommand(for: pane, store: store) == nil)
+        #expect(runtime.zmxAttachDiagnostics(for: pane, store: store) == nil)
+    }
 }

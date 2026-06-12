@@ -20,8 +20,7 @@ extension PaneCoordinator {
         )
     }
 
-    /// Open a terminal for a worktree. Creates pane + tab + view.
-    /// Returns the pane if a new one was created, nil if already open.
+    /// Open a terminal for a worktree.
     @discardableResult
     func openTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
         if let existingTab = store.tabLayoutAtom.tabs.first(where: { tab in
@@ -73,17 +72,25 @@ extension PaneCoordinator {
             lifetime: .persistent,
             residency: .active
         )
-        viewRegistry.ensureSlot(for: pane.id)
+        prepareTerminalPaneSlot(pane)
 
-        store.tabLayoutAtom.insertPane(
-            pane.id,
-            inTab: activeTabId,
-            at: targetPaneId,
-            direction: .horizontal,
-            position: .after,
-            sizingMode: .halveTarget
-        )
+        guard
+            store.tabLayoutAtom.insertPane(
+                pane.id,
+                inTab: activeTabId,
+                at: targetPaneId,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        else {
+            Self.logger.error("openWorktreeInPane: failed inserting pane \(pane.id) into tab \(activeTabId)")
+            store.mutationCoordinator.removePane(pane.id)
+            viewRegistry.removeSlot(for: pane.id)
+            return nil
+        }
         store.tabLayoutAtom.setActivePane(pane.id, inTab: activeTabId)
+        traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
         postRecentTargetOpened(
             target: .forWorktree(
@@ -158,14 +165,22 @@ extension PaneCoordinator {
 
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-        store.tabLayoutAtom.insertPane(
-            pane.id,
-            inTab: targetTabId,
-            at: sourcePaneId,
-            direction: layoutDirection,
-            position: position,
-            sizingMode: .halveTarget
-        )
+        guard
+            store.tabLayoutAtom.insertPane(
+                pane.id,
+                inTab: targetTabId,
+                at: sourcePaneId,
+                direction: layoutDirection,
+                position: position,
+                sizingMode: .halveTarget
+            )
+        else {
+            Self.logger.error(
+                "openContextualWebviewInPane: failed inserting pane \(pane.id) into tab \(targetTabId)")
+            store.mutationCoordinator.removePane(pane.id)
+            viewRegistry.removeSlot(for: pane.id)
+            return nil
+        }
         store.tabLayoutAtom.setActivePane(pane.id, inTab: targetTabId)
 
         Self.logger.info("Opened contextual webview pane \(pane.id) from source pane \(sourcePaneId)")
@@ -232,11 +247,12 @@ extension PaneCoordinator {
             provider: .zmx,
             facets: PaneContextFacets(cwd: launchDirectory)
         )
-        viewRegistry.ensureSlot(for: pane.id)
+        prepareTerminalPaneSlot(pane)
 
         let tab = Tab(paneId: pane.id, name: tabNameForPane(pane))
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
+        traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
         if let launchDirectory {
             postRecentTargetOpened(
@@ -256,6 +272,8 @@ extension PaneCoordinator {
     /// Execute a resolved PaneActionCommand.
     func execute(_ action: PaneActionCommand) {
         Self.logger.debug("Executing: \(String(describing: action))")
+        traceTerminalCommandReceived(for: action)
+        defer { clearUnclaimedTerminalStartupOperation() }
 
         switch action {
         case .openWorktree(let worktreeId):
@@ -311,7 +329,13 @@ extension PaneCoordinator {
             executeClosePane(tabId: tabId, paneId: paneId)
 
         case .extractPaneToTab(let tabId, let paneId):
-            guard let newTab = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId) else {
+            guard
+                let newTab = store.tabLayoutAtom.extractPane(
+                    paneId,
+                    fromTab: tabId,
+                    drawerPayload: drawerMovePayload(forParentPaneId: paneId, inTab: tabId)
+                )
+            else {
                 Self.logger.warning("extractPaneToTab: failed to extract pane \(paneId) from tab \(tabId)")
                 break
             }
@@ -497,9 +521,17 @@ extension PaneCoordinator {
                 Self.logger.warning("detachDrawerPane: parent pane \(parentPaneId) is not in a visible tab")
                 break
             }
+            guard
+                store.tabLayoutAtom.tab(tabId)?.activeArrangement.layout.contains(parentPaneId) == true
+            else {
+                Self.logger.warning(
+                    "detachDrawerPane: parent pane \(parentPaneId) is not in the active arrangement for tab \(tabId)"
+                )
+                break
+            }
             let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
 
-            guard store.paneAtom.detachDrawerPane(drawerPaneId, from: parentPaneId) != nil else {
+            guard let detachedPane = store.paneAtom.detachDrawerPane(drawerPaneId, from: parentPaneId) else {
                 Self.logger.warning("detachDrawerPane: failed releasing drawer pane \(drawerPaneId)")
                 break
             }
@@ -508,14 +540,27 @@ extension PaneCoordinator {
                     drawerId: drawerId, drawerPaneId: drawerPaneId, inTab: tabId)
             }
 
-            store.tabLayoutAtom.insertPane(
-                drawerPaneId,
-                inTab: tabId,
-                at: parentPaneId,
-                direction: .horizontal,
-                position: .after,
-                sizingMode: .halveTarget
-            )
+            guard
+                store.tabLayoutAtom.insertPane(
+                    drawerPaneId,
+                    inTab: tabId,
+                    at: parentPaneId,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            else {
+                Self.logger.error("detachDrawerPane: failed inserting detached pane \(drawerPaneId) into tab \(tabId)")
+                if store.paneAtom.restoreDrawerPane(detachedPane, to: parentPaneId), let drawerId {
+                    store.tabArrangementAtom.addDrawerPaneView(
+                        drawerId: drawerId,
+                        parentPaneId: parentPaneId,
+                        drawerPaneId: drawerPaneId,
+                        inTab: tabId
+                    )
+                }
+                break
+            }
             store.tabLayoutAtom.setActivePane(drawerPaneId, inTab: tabId)
             restoreViewsForActiveTabIfNeeded()
             reattachForViewSwitch(paneId: drawerPaneId)
@@ -530,6 +575,7 @@ extension PaneCoordinator {
                 store.repositoryTopologyAtom.worktree)?
                 .path
             if let drawerPane = store.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) {
+                prepareTerminalPaneSlot(drawerPane)
                 guard let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId else {
                     Self.logger.error("addDrawerPane: parent pane \(parentPaneId) has no drawer after pane creation")
                     store.paneAtom.removeDrawerPane(drawerPane.id, from: parentPaneId)
@@ -541,7 +587,7 @@ extension PaneCoordinator {
                     drawerPaneId: drawerPane.id,
                     inTab: tabId
                 )
-                viewRegistry.ensureSlot(for: drawerPane.id)
+                traceTerminalLayoutInsertedAndViewCreateStarted(drawerPane)
                 ensureTerminalPaneView(drawerPane)
                 focusVisiblePaneHost(drawerPane.id)
             }
@@ -694,7 +740,7 @@ extension PaneCoordinator {
             residency: .active,
             facets: paneFacets
         )
-        viewRegistry.ensureSlot(for: pane.id)
+        prepareTerminalPaneSlot(pane)
 
         let tab = Tab(
             paneId: pane.id,
@@ -702,6 +748,7 @@ extension PaneCoordinator {
         )
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
+        traceTerminalLayoutInsertedAndViewCreateStarted(pane)
         ensureTerminalPaneView(pane)
         postRecentTargetOpened(
             target: .forWorktree(
@@ -795,7 +842,10 @@ extension PaneCoordinator {
     }
 
     private func executeBreakUpTab(_ tabId: UUID) {
-        let newTabs = store.tabLayoutAtom.breakUpTab(tabId)
+        let newTabs = store.tabLayoutAtom.breakUpTab(
+            tabId,
+            drawerPayloadsByParentPaneId: drawerMovePayloadsByParentPaneId(inTab: tabId)
+        )
         for newTab in newTabs {
             guard let paneId = newTab.activePaneId else { continue }
             guard let pane = store.paneAtom.pane(paneId) else {
@@ -881,8 +931,16 @@ extension PaneCoordinator {
             viewRegistry.retireSlot(for: drawerPaneId)
         }
 
-        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId, removingDrawerId: closingPane.drawer?.drawerId)
+        let closingDrawerId = closingPane.drawer?.drawerId
+        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId, removingDrawerId: closingDrawerId)
         for drawerPaneId in drawerChildIds {
+            if let closingDrawerId {
+                store.tabArrangementAtom.removeDrawerPaneView(
+                    drawerId: closingDrawerId,
+                    drawerPaneId: drawerPaneId,
+                    inTab: tabId
+                )
+            }
             store.paneAtom.removeDrawerPane(drawerPaneId, from: paneId)
         }
 
@@ -896,77 +954,6 @@ extension PaneCoordinator {
         }
 
         expireOldUndoEntries()
-    }
-
-    private func executeInsertPane(
-        source: PaneSource,
-        targetTabId: UUID,
-        targetPaneId: UUID,
-        direction: SplitNewDirection,
-        sizingMode: DropSizingMode
-    ) {
-        let layoutDirection = bridgeDirection(direction)
-        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-
-        switch source {
-        case .existingPane(let paneId, let sourceTabId):
-            guard store.paneAtom.pane(paneId) != nil else {
-                Self.logger.warning("insertPane existingPane: pane \(paneId) not found")
-                return
-            }
-            guard store.tabLayoutAtom.tab(sourceTabId) != nil else {
-                Self.logger.warning("insertPane existingPane: source tab \(sourceTabId) not found")
-                return
-            }
-            guard store.tabLayoutAtom.tab(targetTabId) != nil else {
-                Self.logger.warning("insertPane existingPane: target tab \(targetTabId) not found")
-                return
-            }
-            store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: sourceTabId)
-            store.tabLayoutAtom.insertPane(
-                paneId, inTab: targetTabId, at: targetPaneId,
-                direction: layoutDirection, position: position, sizingMode: sizingMode
-            )
-
-        case .newTerminal:
-            let targetPane = store.paneAtom.pane(targetPaneId)
-            if let resolved = resolvedWorktreeContext(for: targetPane) {
-                let pane = store.paneAtom.createPane(
-                    source: .worktree(
-                        worktreeId: resolved.worktree.id,
-                        repoId: resolved.repo.id,
-                        launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory
-                            ?? resolved.worktree.path
-                    ),
-                    provider: .zmx,
-                    facets: targetPane?.metadata.facets ?? .empty
-                )
-                viewRegistry.ensureSlot(for: pane.id)
-
-                store.tabLayoutAtom.insertPane(
-                    pane.id, inTab: targetTabId, at: targetPaneId,
-                    direction: layoutDirection, position: position, sizingMode: sizingMode
-                )
-                ensureTerminalPaneView(pane)
-                return
-            }
-
-            let pane = store.paneAtom.createPane(
-                source: .floating(
-                    launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory,
-                    title: nil
-                ),
-                provider: .zmx,
-                facets: targetPane?.metadata.facets ?? .empty
-            )
-            viewRegistry.ensureSlot(for: pane.id)
-
-            store.tabLayoutAtom.insertPane(
-                pane.id, inTab: targetTabId, at: targetPaneId,
-                direction: layoutDirection, position: position, sizingMode: sizingMode
-            )
-            ensureTerminalPaneView(pane)
-        }
     }
 
     private func drawerCommandContext(parentPaneId: UUID, command: String) -> (tabId: UUID, drawerId: UUID)? {

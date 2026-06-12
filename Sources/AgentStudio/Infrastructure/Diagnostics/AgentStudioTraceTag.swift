@@ -8,16 +8,21 @@ struct AgentStudioTraceTagSelection: Equatable, Sendable {
 enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
     case actions
     case appFocus = "app.focus"
+    case appStartup = "app.startup"
     case arrangement
     case atoms
     case drag
     case eventbus
     case inbox
     case paneInbox
+    case persistenceOperation = "persistence.operation"
+    case persistenceRecovery = "persistence.recovery"
+    case persistenceSnapshot = "persistence.snapshot"
     case restore
     case runtime
     case surface
     case terminalActivity = "terminal.activity"
+    case terminalStartup = "terminal.startup"
     case uiInteraction = "ui.interaction"
     case uiSurface = "ui.surface"
 

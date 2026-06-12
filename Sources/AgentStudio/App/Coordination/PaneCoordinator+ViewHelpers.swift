@@ -266,7 +266,8 @@ extension PaneCoordinator {
             intoTarget: targetTabId,
             at: targetPaneId,
             direction: layoutDirection,
-            position: position
+            position: position,
+            drawerPayloadsByParentPaneId: drawerMovePayloadsByParentPaneId(inTab: sourceTabId)
         )
     }
 

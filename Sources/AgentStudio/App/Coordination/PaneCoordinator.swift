@@ -37,6 +37,7 @@ final class PaneCoordinator {
     let viewRegistry: ViewRegistry
     let runtime: SessionRuntime
     let surfaceManager: PaneCoordinatorSurfaceManaging
+    let startupTraceRecorder: AgentStudioStartupTraceRecorder?
     let runtimeRegistry: RuntimeRegistry
     let visibilityTierResolver: StoreVisibilityTierResolver
     let runtimeEventReducer: NotificationReducer
@@ -62,6 +63,8 @@ final class PaneCoordinator {
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
     var filesystemLastActivePaneWorktreeId: UUID?
     var derivedFilesystemPublishTasks: [UUID: Task<Void, Never>] = [:]
+    var pendingTerminalStartupOperationID: String?
+    var terminalStartupOperationIDsByPaneID: [UUID: String] = [:]
 
     var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
@@ -103,6 +106,7 @@ final class PaneCoordinator {
         viewRegistry: ViewRegistry,
         runtime: SessionRuntime,
         surfaceManager: PaneCoordinatorSurfaceManaging,
+        startupTraceRecorder: AgentStudioStartupTraceRecorder? = nil,
         runtimeRegistry: RuntimeRegistry,
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
@@ -122,6 +126,7 @@ final class PaneCoordinator {
         self.viewRegistry = viewRegistry
         self.runtime = runtime
         self.surfaceManager = surfaceManager
+        self.startupTraceRecorder = startupTraceRecorder
         self.runtimeRegistry = runtimeRegistry
         self.visibilityTierResolver = visibilityTierResolver
         self.runtimeEventReducer = NotificationReducer(tierResolver: visibilityTierResolver)

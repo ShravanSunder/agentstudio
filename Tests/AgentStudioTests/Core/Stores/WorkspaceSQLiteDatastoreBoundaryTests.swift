@@ -41,7 +41,7 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         #expect(!appDelegateSource.contains("var workspaceSQLiteStoreBackend: WorkspaceSQLiteStoreBackend?"))
         #expect(!appDelegateSource.contains("var workspaceLocalSQLiteStoreBackend: WorkspaceLocalSQLiteStoreBackend?"))
 
-        #expect(workspaceBootSource.contains("makeWorkspaceSQLiteDatastore()"))
+        #expect(workspaceBootSource.contains("makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)"))
         #expect(workspaceBootSource.contains("sqliteDatastore: workspaceSQLiteDatastore"))
         #expect(!workspaceBootSource.contains("workspaceSQLiteStoreBackend"))
         #expect(!workspaceBootSource.contains("workspaceLocalSQLiteStoreBackend"))
