@@ -9,10 +9,9 @@ usage() {
   cat <<'USAGE'
 Usage: run-debug-observability.sh [--build-path <dir>] [--skip-build] [--detach]
 
-Builds the debug AgentStudio binary, starts the shared Victoria/OTel stack, and
-launches AgentStudio with full trace tags exported to OTLP. This helper is
-strictly Victoria-backed: if the collector is unavailable, it exits instead of
-falling back to JSONL-only tracing.
+Builds the debug AgentStudio binary and launches AgentStudio with full trace
+tags exported to the already-running shared Victoria/OTel stack. This helper
+does not start observability services; run `mise run observability:up` first.
 USAGE
 }
 
@@ -51,9 +50,9 @@ if [ ! -x "$STACK_HELPER" ]; then
   exit 1
 fi
 
-"$STACK_HELPER" up
 if ! curl --fail --silent --show-error --max-time 2 "$COLLECTOR_HEALTH_URL" >/dev/null; then
   echo "OTLP collector is not healthy at $COLLECTOR_HEALTH_URL" >&2
+  echo "Run: mise run observability:up" >&2
   exit 1
 fi
 

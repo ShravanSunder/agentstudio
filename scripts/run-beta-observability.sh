@@ -9,10 +9,11 @@ usage() {
   cat <<'USAGE'
 Usage: run-beta-observability.sh [--app <AgentStudio Beta.app>] [--detach]
 
-Launches a beta bundle with full AgentStudio trace tags and OTLP export when the
-shared collector is reachable. If the collector is not reachable, the app is
-launched with full JSONL tracing only. By default the helper stays attached so
-task runners do not clean up the launched process before verification.
+Launches a beta bundle with full AgentStudio trace tags exported to the
+already-running shared Victoria/OTel stack. This helper does not start
+observability services; run `mise run observability:up` first. By default the
+helper stays attached so task runners do not clean up the launched process
+before verification.
 USAGE
 }
 
@@ -77,17 +78,20 @@ export AGENTSTUDIO_TRACE_FLUSH="${AGENTSTUDIO_TRACE_FLUSH:-immediate}"
 export AGENTSTUDIO_TRACE_NAME="${AGENTSTUDIO_TRACE_NAME:-beta-observability-$(date +%s)-$$}"
 export AGENTSTUDIO_TRACE_DIR="${AGENTSTUDIO_TRACE_DIR:-$PROJECT_ROOT/tmp/beta-observability/traces}"
 
-if [ -x "$STACK_HELPER" ] && curl --fail --silent --show-error --max-time 1 "$COLLECTOR_HEALTH_URL" >/dev/null 2>&1; then
-  export AGENTSTUDIO_TRACE_BACKEND=both
-  export OTEL_EXPORTER_OTLP_ENDPOINT="$("$STACK_HELPER" collector-url)"
-  export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-  echo "launching beta with OTLP collector: $OTEL_EXPORTER_OTLP_ENDPOINT"
-else
-  export AGENTSTUDIO_TRACE_BACKEND=jsonl
-  unset OTEL_EXPORTER_OTLP_ENDPOINT
-  unset OTEL_EXPORTER_OTLP_PROTOCOL
-  echo "collector unavailable; launching beta with JSONL tracing only"
+if [ ! -x "$STACK_HELPER" ]; then
+  echo "observability stack helper not executable: $STACK_HELPER" >&2
+  exit 1
 fi
+if ! curl --fail --silent --show-error --max-time 2 "$COLLECTOR_HEALTH_URL" >/dev/null; then
+  echo "OTLP collector is not healthy at $COLLECTOR_HEALTH_URL" >&2
+  echo "Run: mise run observability:up" >&2
+  exit 1
+fi
+
+export AGENTSTUDIO_TRACE_BACKEND=otlp
+export OTEL_EXPORTER_OTLP_ENDPOINT="$("$STACK_HELPER" collector-url)"
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+echo "launching beta with OTLP collector: $OTEL_EXPORTER_OTLP_ENDPOINT"
 
 echo "app: $app_path"
 launch_log="${AGENTSTUDIO_OBSERVABILITY_LAUNCH_LOG:-$PROJECT_ROOT/tmp/beta-observability/$AGENTSTUDIO_TRACE_NAME.log}"
