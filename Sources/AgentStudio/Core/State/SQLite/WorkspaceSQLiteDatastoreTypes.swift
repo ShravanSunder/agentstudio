@@ -32,6 +32,8 @@ extension WorkspaceSQLiteDatastore {
 
     enum ProbeEvent: Equatable, Sendable {
         case saveWorkspaceSnapshot
+        case saveWorkspaceSnapshotSucceeded
+        case saveWorkspaceSnapshotFailed
         case loadWorkspaceSnapshot
         case localRepositoryOpened(UUID, LocalRepositoryOpenMode)
     }

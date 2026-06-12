@@ -31,6 +31,7 @@ final class WorkspaceStore {
     private let delay: AsyncDelay
     let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
+    private var debouncedSaveFailureDamping = DebouncedSaveFailureDamping()
     private var isObservingPersistedState = false
     private var isRestoringState = false
     private(set) var isDirty: Bool = false
@@ -245,14 +246,18 @@ final class WorkspaceStore {
         }
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
-        return persistLegacyJSONSnapshot(persistedAt: Date()).succeeded
+        let outcome = persistLegacyJSONSnapshot(persistedAt: Date())
+        clearDebouncedSaveFailureDampingIfSucceeded(outcome)
+        return outcome.succeeded
     }
 
     @discardableResult
     func flushAsync() async -> WorkspaceStoreFlushOutcome {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
-        return await persistNow()
+        let outcome = await persistNow()
+        clearDebouncedSaveFailureDampingIfSucceeded(outcome)
+        return outcome
     }
 
     var prePersistHook: (() -> Void)?
@@ -302,8 +307,19 @@ final class WorkspaceStore {
             try? await delay.wait(persistDebounceDuration)
             guard !Task.isCancelled else { return }
             guard let self else { return }
-            _ = await self.persistNow()
+            await self.persistDebouncedAutosave()
         }
+    }
+
+    private func persistDebouncedAutosave() async {
+        guard !debouncedSaveFailureDamping.shouldSuppressNextDebouncedAttempt else {
+            workspaceStoreLogger.warning(
+                "Suppressing repeated workspace autosave after \(self.debouncedSaveFailureDamping.consecutiveFailureCount) identical failure(s)"
+            )
+            return
+        }
+        let outcome = await persistNow()
+        debouncedSaveFailureDamping.record(outcome)
     }
 
     @discardableResult
@@ -336,6 +352,11 @@ final class WorkspaceStore {
             reportSaveFailed()
             return .failed(String(describing: error))
         }
+    }
+
+    private func clearDebouncedSaveFailureDampingIfSucceeded(_ outcome: WorkspaceStoreFlushOutcome) {
+        guard outcome.succeeded else { return }
+        debouncedSaveFailureDamping.reset()
     }
 
     private enum SQLiteRestoreOutcome {
@@ -472,5 +493,33 @@ enum WorkspaceStoreFlushOutcome: Equatable {
             return true
         }
         return false
+    }
+}
+
+private struct DebouncedSaveFailureDamping {
+    private var failureSummary: String?
+    private(set) var consecutiveFailureCount: Int = 0
+
+    var shouldSuppressNextDebouncedAttempt: Bool {
+        consecutiveFailureCount >= AppPolicies.WorkspacePersistence.debouncedAutosaveFailureDampingThreshold
+    }
+
+    mutating func record(_ outcome: WorkspaceStoreFlushOutcome) {
+        switch outcome {
+        case .persisted:
+            reset()
+        case .failed(let summary):
+            if failureSummary == summary {
+                consecutiveFailureCount += 1
+            } else {
+                failureSummary = summary
+                consecutiveFailureCount = 1
+            }
+        }
+    }
+
+    mutating func reset() {
+        failureSummary = nil
+        consecutiveFailureCount = 0
     }
 }

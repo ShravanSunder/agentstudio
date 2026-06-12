@@ -6,6 +6,10 @@ import Testing
 @MainActor
 @Suite("WorkspaceSQLiteStoreBridgeRepairTests", .serialized)
 struct WorkspaceSQLiteStoreBridgeRepairTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     @Test("SQLite flush promotes a live custom arrangement when the default normalizes empty")
     func sqliteFlushPromotesLiveCustomArrangementWhenDefaultNormalizesEmpty() async throws {
         let workspaceId = UUID()

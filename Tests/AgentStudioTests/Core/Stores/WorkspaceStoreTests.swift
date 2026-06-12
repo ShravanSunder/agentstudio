@@ -1,5 +1,6 @@
 import Foundation
 // swiftlint:disable file_length type_body_length
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -1260,6 +1261,108 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func debouncedAutosaveDampsIdenticalFailuresWithoutBlockingExplicitFlush() async throws {
+        let workspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+        let localRepositoryFactory = FailingThenSucceedingLocalRepositoryFactory(
+            localQueue: localQueue,
+            failuresBeforeSuccess: 3
+        )
+        let saveProbe = WorkspaceSQLiteSaveProbe()
+        let sqliteDatastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { workspaceId in
+                try localRepositoryFactory.makeLocalRepository(workspaceId: workspaceId)
+            },
+            probe: { event in
+                await saveProbe.record(event)
+            }
+        )
+        let clock = TestPushClock()
+        var recoveryEvents: [PersistenceRecoveryEvent] = []
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Autosave Damping",
+            createdAt: Date(timeIntervalSince1970: 1_700_010_000)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: sqliteDatastore,
+            persistDebounceDuration: .milliseconds(10),
+            clock: clock,
+            recoveryReporter: { event in recoveryEvents.append(event) }
+        )
+
+        func advanceNextDebouncedSave(after mutation: () -> Void) async {
+            let nextSleepGeneration = clock.scheduledSleepGeneration
+            mutation()
+            await clock.waitForPendingSleepGeneration(nextSleepGeneration)
+            clock.advance(by: .milliseconds(10))
+        }
+
+        func waitForSaveFailedRecoveryCount(_ expectedCount: Int) async {
+            for _ in 0..<80
+            where recoveryEvents.filter({ $0.recovery == .saveFailed }).count < expectedCount {
+                await Task.yield()
+            }
+        }
+
+        for attempt in 1...3 {
+            await advanceNextDebouncedSave {
+                store.setSidebarWidth(CGFloat(300 + attempt))
+            }
+            await saveProbe.waitForSaveCount(atLeast: attempt)
+            await saveProbe.waitForFailedSaveCount(atLeast: attempt)
+            await waitForSaveFailedRecoveryCount(attempt)
+        }
+        #expect(await saveProbe.saveCount == 3)
+        #expect(await saveProbe.failedSaveCount == 3)
+        #expect(localRepositoryFactory.openAttemptCount == 3)
+        #expect(recoveryEvents.filter { $0.recovery == .saveFailed }.count == 3)
+        #expect(store.isDirty)
+
+        await advanceNextDebouncedSave {
+            store.setSidebarWidth(304)
+        }
+        await yieldMainActor(times: 10)
+
+        #expect(await saveProbe.saveCount == 3)
+        #expect(await saveProbe.failedSaveCount == 3)
+        #expect(localRepositoryFactory.openAttemptCount == 3)
+        #expect(recoveryEvents.filter { $0.recovery == .saveFailed }.count == 3)
+        #expect(store.isDirty)
+
+        let explicitOutcome = await store.flushAsync()
+
+        #expect(explicitOutcome.succeeded)
+        #expect(await saveProbe.saveCount == 4)
+        #expect(await saveProbe.succeededSaveCount == 1)
+        #expect(localRepositoryFactory.openAttemptCount == 4)
+        #expect(!store.isDirty)
+
+        await advanceNextDebouncedSave {
+            store.setSidebarWidth(305)
+        }
+        await saveProbe.waitForSaveCount(atLeast: 5)
+        await saveProbe.waitForSucceededSaveCount(atLeast: 2)
+
+        #expect(await saveProbe.saveCount == 5)
+        #expect(await saveProbe.succeededSaveCount == 2)
+        #expect(await saveProbe.failedSaveCount == 3)
+        #expect(localRepositoryFactory.openAttemptCount == 4)
+        #expect(recoveryEvents.filter { $0.recovery == .saveFailed }.count == 3)
+        #expect(!store.isDirty)
+    }
+
+    @Test
     func test_isDirty_setOnDirectPaneAtomMutation() async {
         #expect(!(store.isDirty))
 
@@ -2364,5 +2467,142 @@ final class WorkspaceStoreTests {
 
         // Assert
         #expect(store.watchedPaths.isEmpty)
+    }
+}
+
+private actor WorkspaceSQLiteSaveProbe {
+    private var saveEvents: Int = 0
+    private var succeededSaveEvents: Int = 0
+    private var failedSaveEvents: Int = 0
+    private var waiters: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var succeededWaiters: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var failedWaiters: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    var saveCount: Int {
+        saveEvents
+    }
+
+    var succeededSaveCount: Int {
+        succeededSaveEvents
+    }
+
+    var failedSaveCount: Int {
+        failedSaveEvents
+    }
+
+    func record(_ event: WorkspaceSQLiteDatastore.ProbeEvent) {
+        switch event {
+        case .saveWorkspaceSnapshot:
+            saveEvents += 1
+            resumeSatisfiedWaiters()
+        case .saveWorkspaceSnapshotSucceeded:
+            succeededSaveEvents += 1
+            resumeSatisfiedSucceededWaiters()
+        case .saveWorkspaceSnapshotFailed:
+            failedSaveEvents += 1
+            resumeSatisfiedFailedWaiters()
+        case .loadWorkspaceSnapshot, .localRepositoryOpened:
+            break
+        }
+    }
+
+    func waitForSaveCount(atLeast minimum: Int) async {
+        if saveEvents >= minimum {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append((minimum: minimum, continuation: continuation))
+        }
+    }
+
+    func waitForSucceededSaveCount(atLeast minimum: Int) async {
+        if succeededSaveEvents >= minimum {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            succeededWaiters.append((minimum: minimum, continuation: continuation))
+        }
+    }
+
+    func waitForFailedSaveCount(atLeast minimum: Int) async {
+        if failedSaveEvents >= minimum {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            failedWaiters.append((minimum: minimum, continuation: continuation))
+        }
+    }
+
+    private func resumeSatisfiedWaiters() {
+        var remaining: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        for waiter in waiters {
+            if saveEvents >= waiter.minimum {
+                waiter.continuation.resume()
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        waiters = remaining
+    }
+
+    private func resumeSatisfiedSucceededWaiters() {
+        var remaining: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        for waiter in succeededWaiters {
+            if succeededSaveEvents >= waiter.minimum {
+                waiter.continuation.resume()
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        succeededWaiters = remaining
+    }
+
+    private func resumeSatisfiedFailedWaiters() {
+        var remaining: [(minimum: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        for waiter in failedWaiters {
+            if failedSaveEvents >= waiter.minimum {
+                waiter.continuation.resume()
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        failedWaiters = remaining
+    }
+}
+
+private final class FailingThenSucceedingLocalRepositoryFactory: @unchecked Sendable {
+    private let lock = NSLock()
+    private let localQueue: DatabaseQueue
+    private let failuresBeforeSuccess: Int
+    private var attempts: Int = 0
+
+    init(localQueue: DatabaseQueue, failuresBeforeSuccess: Int) {
+        self.localQueue = localQueue
+        self.failuresBeforeSuccess = failuresBeforeSuccess
+    }
+
+    var openAttemptCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return attempts
+    }
+
+    func makeLocalRepository(workspaceId requestedWorkspaceId: UUID) throws -> WorkspaceLocalRepository {
+        lock.lock()
+        attempts += 1
+        let shouldFail = attempts <= failuresBeforeSuccess
+        lock.unlock()
+
+        if shouldFail {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return WorkspaceLocalRepository(workspaceId: requestedWorkspaceId, databaseWriter: localQueue)
+    }
+}
+
+@MainActor
+private func yieldMainActor(times count: Int) async {
+    for _ in 0..<count {
+        await Task.yield()
     }
 }

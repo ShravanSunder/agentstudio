@@ -2,11 +2,11 @@
 
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5/T5b/T6 committed, T7 implemented with scoped proof gates green in the current changeset. Next implementation step starts at T8.
+Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5/T5b/T6/T7 committed, T8 implemented with scoped proof gates green in the current changeset. Next implementation step starts at T9.
 
 ## Execution State (handoff, 2026-06-11)
 
-T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b landed in commit `07863bb7` (`Add phase A zmx smoke gate`). `origin/main` was merged after PR #164 (`52c5e67725c3a0dfac4fed2a5f22f2386be00579`) in local merge commit `2b49210`. T6 landed in commit `e95ffe66` (`Remove pane source union`). T7 is implemented in the current changeset. Next implementation step starts at T8.
+T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b landed in commit `07863bb7` (`Add phase A zmx smoke gate`). `origin/main` was merged after PR #164 (`52c5e67725c3a0dfac4fed2a5f22f2386be00579`) in local merge commit `2b49210`. T6 landed in commit `e95ffe66` (`Remove pane source union`). T7 landed in commit `7248550` (`Map legacy pane source payloads on import`). T8 is implemented in the current changeset. Next implementation step starts at T9.
 
 Done — T0 (all green, characterization evidence captured):
 - `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These were the red→green pivots for T4.
@@ -125,6 +125,19 @@ Done — T7 implementation (verified red first: legacy JSON payloads that still 
 2. Green scoped proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t7 --filter "WorkspaceSQLiteStoreBridgeTests|WorkspaceSQLiteStoreLegacySourceImportTests|WorkspacePersistenceTransformerTests|WorkspacePersistorTests|PaneMetadataTests"` — build complete; 75 tests in 5 suites passed after 1.633s.
 3. Lint proof: `mise run format`; `git diff --check`; `swift-format lint --recursive Sources/ Tests/ && swiftlint lint --strict && bash scripts/check-core-boundary-imports.sh` — swiftlint 0 violations in 1027 files; Core boundary import check passed.
 
+Done — T8 implementation (verified red first: the fourth mutation-driven debounced autosave still retried and succeeded before damping existed):
+- `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift` — debounced autosave records identical failure summaries and suppresses further debounced attempts once the policy threshold is reached; explicit `flush()` / `flushAsync()` bypass suppression and reset the damping state after successful persistence.
+- `Sources/AgentStudio/Infrastructure/AppPolicies.swift` — centralizes `debouncedAutosaveFailureDampingThreshold = 3`.
+- `Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore*.swift` — extends the existing test probe with save-success/save-failure completion events so async persistence tests can wait on completion instead of wall-clock sleeps.
+- `Tests/AgentStudioTests/Core/Stores/WorkspaceStoreTests.swift` — proves three failing debounced saves emit recovery events, the fourth debounced save is suppressed, explicit flush succeeds and clears suppression, and a later debounced save runs normally.
+- `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteStoreBridgeRepairTests.swift` — installs the shared test atom registry for the coordinator-backed repair test that touched `AtomScope.store`.
+
+**T8 proof gates complete:**
+1. Red proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t8 --filter "WorkspaceStoreTests/debouncedAutosaveDampsIdenticalFailuresWithoutBlockingExplicitFlush"` — failed before implementation because the fourth debounced attempt ran (`saveCount`/local-open count advanced to 4) and cleared dirty state instead of being suppressed.
+2. Focused green proof: same command after implementation — build complete; 1 test in 1 suite passed after 0.145s.
+3. Broader scoped proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t8 --filter "WorkspaceStoreTests|WorkspaceSQLiteDatastoreActorTests|WorkspaceSQLiteStoreBridgeTests|WorkspaceSQLiteStoreBridgeRepairTests"` — build complete; 147 tests in 4 suites passed after 2.086s.
+4. Lint proof: `mise run format`; `git diff --check`; `swift-format lint --recursive Sources/ Tests/ && swiftlint lint --strict && bash scripts/check-core-boundary-imports.sh` — swiftlint 0 violations in 1027 files; Core boundary import check passed.
+
 ## Source Coverage
 
 - Debug investigation (root cause + timeline evidence):
@@ -219,7 +232,7 @@ No red/green exceptions requested.
 - **T7 — Legacy import mapping** (Legacy payload `source` → facets + launch directory at importer boundary)
   Keep legacy JSON fallback supported via explicit legacy DTOs until that fallback is intentionally retired in a separate decision. Old `source` payloads map to live facets + explicit launch directory at the import/fallback boundary.
 - **T8 — Save-failure retry damping** (debounced autosave only; injected clock)
-  Use `TestPushClock` and existing debounce-test patterns. Suppress repeated identical debounced autosave attempts after 3 consecutive failures; re-arm on atom mutation; explicit `flushAsync()` and termination flushes bypass suppression; first success clears suppression.
+  Use `TestPushClock` and existing debounce-test patterns. Suppress repeated identical debounced autosave attempts after 3 consecutive failures; keep suppression active for mutation-driven debounced attempts until successful persistence clears it; explicit `flushAsync()` and termination flushes bypass suppression and are the recovery lane.
 - **T9 — Validated cruft sweep** (deadness-proven removals only; enumerate during execution)
 - **T10 — E2E smoke** (isolated data dir, real zmx; roamed-pane scenario; orphan cleanup non-destructive)
   Concrete recipe required before claiming this gate: launch debug app with isolated `AGENTSTUDIO_DATA_DIR`, create two worktrees, create a zmx pane, print marker `AS_ZMX_ANCHOR_MARKER_<timestamp>`, roam with `cd` into the second worktree, persist/quit, relaunch, assert `zmx list` still contains the same stored id, the marker remains visible/restored, no `Workspace save failed` recovery notification/log appears, and Peekaboo PID-targeted capture records the restored terminal. Store transcript under `tmp/debug-workflows/<date>-zmx-session-anchor-e2e/`.
@@ -253,7 +266,7 @@ Dependencies: T1→T2→T3→T4→T5 strictly ordered for Phase A. T4 must land 
 - **Adoption misfire** (T5): suffix collision is ~impossible (16 hex of UUIDv7 tail), but adoption only fires on *exactly one* live match of the same session kind and only when derivation disagrees; otherwise falls back to derivation. Adoption is centralized in the async hydration prepass for easy disable.
 - **Behavioral change**: command-bar classification of a roamed worktree-born pane shifts from birth worktree to current location — accepted as the design intent (decided in session).
 - **Behavioral change**: `RuntimeRegistry.findPaneWithWorktree` and other worktree-targeted lookups shift from birth worktree to current live facets. Add roamed-pane tests so this semantic loss is explicit and not a surprise.
-- **Save-failure damping (T8)** must not mask failures: damping only suppresses debounced autosave retries, not the first failure per distinct state and not explicit flush/termination saves; recovery event still emitted (notification dedup already coalesces).
+- **Save-failure damping (T8)** must not mask failures: damping only suppresses debounced autosave retries after the threshold, not the first three failures and not explicit flush/termination saves. Recovery events are still emitted for attempted failures; suppression remains active across mutation-driven debounced attempts until a successful persistence clears it.
 
 ## Security Assumptions
 
@@ -264,7 +277,7 @@ Dependencies: T1→T2→T3→T4→T5 strictly ordered for Phase A. T4 must land 
 ## Open Questions
 
 Resolved by plan review:
-1. T8 damping policy: stop debounced autosave after 3 identical consecutive failures, re-arm on atom mutation, and bypass for explicit flush/termination saves.
+1. T8 damping policy: stop debounced autosave after 3 identical consecutive failures, keep suppression active across mutation-triggered debounced retries, and bypass for explicit flush/termination saves. First successful persistence clears suppression.
 2. Pre-009 backup is retained indefinitely until a later explicit schema-backup cleanup decision; no 7-day GC in this plan.
 3. Adoption ships enabled in the Phase-A hydration prepass only; it is same-kind, exact-one-match only.
 
@@ -276,4 +289,4 @@ Execution was started in this worktree (`issues-with-persistance`) and intention
 2. If the T0/T1 commit has not landed yet, commit the current verified T0/T1 changes first.
 3. Proceed T2 → T11 in order, TDD red/green per task, committing per task or per coherent pair.
 4. Honor the repo guardrails: append-only migrations, no wall-clock test sleeps, `mise run test` / `mise run lint` gates, no `#if DEBUG` production hooks, never `pkill AgentStudio`, PID-targeted peekaboo for T10.
-5. T8 policy is resolved by plan review: damp debounced autosave after 3 identical consecutive failures, re-arm on atom mutation, bypass explicit flush/termination saves.
+5. T8 policy is resolved by implementation evidence: damp debounced autosave after 3 identical consecutive failures, keep suppression across mutation-triggered debounced retries until a successful persistence clears it, and bypass explicit flush/termination saves.
