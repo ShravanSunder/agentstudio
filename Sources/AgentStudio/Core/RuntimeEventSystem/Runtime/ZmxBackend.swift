@@ -34,26 +34,6 @@ struct ZmxCommandRetryPolicy: Sendable {
 /// Identifies a backend session that backs a single terminal pane.
 struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
     let id: String
-    let paneId: UUID
-    let projectId: UUID
-    let worktreeId: UUID
-    let repoPath: URL
-    let worktreePath: URL
-    let displayName: String
-    let launchDirectory: URL
-
-    var hasValidId: Bool {
-        guard id.hasPrefix(ZmxBackend.sessionPrefix) else { return false }
-        let suffix = String(id.dropFirst(ZmxBackend.sessionPrefix.count))
-        let segments = suffix.components(separatedBy: "-")
-        let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
-        guard segments.count == 3,
-            segments.allSatisfy({ $0.count == 16 })
-        else { return false }
-        return segments.allSatisfy { seg in
-            seg.unicodeScalars.allSatisfy { hexChars.contains($0) }
-        }
-    }
 }
 
 /// Backend-agnostic protocol for managing per-pane terminal sessions.
@@ -233,16 +213,7 @@ final class ZmxBackend: SessionBackend {
             attributes: nil
         )
 
-        return PaneSessionHandle(
-            id: sessionId,
-            paneId: paneId,
-            projectId: repo.id,
-            worktreeId: worktree.id,
-            repoPath: repo.repoPath,
-            worktreePath: worktree.path,
-            displayName: worktree.name,
-            launchDirectory: worktree.path
-        )
+        return PaneSessionHandle(id: sessionId)
     }
 
     func attachCommand(for handle: PaneSessionHandle) -> String {

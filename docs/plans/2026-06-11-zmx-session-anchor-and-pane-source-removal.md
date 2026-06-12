@@ -2,11 +2,11 @@
 
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5/T5b/T6/T7 committed, T8 implemented with scoped proof gates green in the current changeset. Next implementation step starts at T9.
+Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5/T5b/T6/T7/T8 committed, T9 implemented with scoped proof gates green in the current changeset. Next implementation step starts at T10.
 
 ## Execution State (handoff, 2026-06-11)
 
-T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b landed in commit `07863bb7` (`Add phase A zmx smoke gate`). `origin/main` was merged after PR #164 (`52c5e67725c3a0dfac4fed2a5f22f2386be00579`) in local merge commit `2b49210`. T6 landed in commit `e95ffe66` (`Remove pane source union`). T7 landed in commit `7248550` (`Map legacy pane source payloads on import`). T8 is implemented in the current changeset. Next implementation step starts at T9.
+T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b landed in commit `07863bb7` (`Add phase A zmx smoke gate`). `origin/main` was merged after PR #164 (`52c5e67725c3a0dfac4fed2a5f22f2386be00579`) in local merge commit `2b49210`. T6 landed in commit `e95ffe66` (`Remove pane source union`). T7 landed in commit `7248550` (`Map legacy pane source payloads on import`). T8 landed in commit `035a44a` (`Damp repeated workspace autosave failures`). T9 is implemented in the current changeset. Next implementation step starts at T10.
 
 Done — T0 (all green, characterization evidence captured):
 - `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These were the red→green pivots for T4.
@@ -137,6 +137,17 @@ Done — T8 implementation (verified red first: the fourth mutation-driven debou
 2. Focused green proof: same command after implementation — build complete; 1 test in 1 suite passed after 0.145s.
 3. Broader scoped proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t8 --filter "WorkspaceStoreTests|WorkspaceSQLiteDatastoreActorTests|WorkspaceSQLiteStoreBridgeTests|WorkspaceSQLiteStoreBridgeRepairTests"` — build complete; 147 tests in 4 suites passed after 2.086s.
 4. Lint proof: `mise run format`; `git diff --check`; `swift-format lint --recursive Sources/ Tests/ && swiftlint lint --strict && bash scripts/check-core-boundary-imports.sh` — swiftlint 0 violations in 1027 files; Core boundary import check passed.
+
+Done — T9 implementation (validated cruft sweep, deadness-proven):
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` — shrinks `PaneSessionHandle` to the only runtime-load-bearing value, `id`. Removed the old derived metadata fields (`paneId`, `projectId`, `worktreeId`, `repoPath`, `worktreePath`, `displayName`, `launchDirectory`) and the old `hasValidId` helper.
+- `Tests/AgentStudioTests/Core/Stores/ZmxBackendTests.swift`, `Tests/AgentStudioTests/Integration/ZmxBackendIntegrationTests.swift`, and `Tests/AgentStudioTests/Helpers/ModelFactories.swift` — replace tests/factories that asserted the removed fossil metadata with direct deterministic session-id assertions.
+
+**T9 proof gates complete:**
+1. Deadness proof: `rg -n "hasValidId|idPaneSuffixFixture" Sources/AgentStudio Tests/AgentStudioTests -g '*.swift'` and `rg -n "handle\\.(projectId|worktreeId|repoPath|worktreePath|displayName|launchDirectory)" Sources/AgentStudio Tests/AgentStudioTests -g '*.swift'` — no matches.
+2. Focused green proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t9 --filter "ZmxBackendTests"` — 44 tests in 1 suite passed after 0.018s.
+3. Integration green proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t9 --filter "ZmxBackendIntegrationTests"` — 5 tests in 2 suites passed after 0.080s.
+4. Broader scoped proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t9 --filter "ZmxBackendTests|ZmxBackendIntegrationTests|ZmxOrphanCleanupPlannerTests"` — build complete; 56 tests in 4 suites passed after 0.090s.
+5. Lint proof: `mise run format`; `git diff --check`; `swift-format lint --recursive Sources/ Tests/ && swiftlint lint --strict && bash scripts/check-core-boundary-imports.sh` — swiftlint 0 violations in 1027 files; Core boundary import check passed.
 
 ## Source Coverage
 
