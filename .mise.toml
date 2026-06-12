@@ -477,6 +477,10 @@ run = "bash scripts/create-local-beta-bundle.sh"
 description = "Launch AgentStudio Beta with full trace tags and shared OTLP when available"
 run = "bash scripts/run-beta-observability.sh"
 
+[tasks.run-debug-observability]
+description = "Build and launch debug AgentStudio with full trace tags and shared OTLP"
+run = "bash scripts/run-debug-observability.sh"
+
 [tasks.verify-beta-observability]
 description = "Verify AgentStudio beta records and scrubbed fields in VictoriaLogs"
 run = "bash scripts/verify-beta-observability.sh"
