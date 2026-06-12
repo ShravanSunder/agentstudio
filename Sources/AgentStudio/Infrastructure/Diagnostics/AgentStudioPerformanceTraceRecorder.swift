@@ -12,6 +12,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case gitStatusUnavailable = "performance.git.status_unavailable"
         case gitSuppressedInputSkipped = "performance.git.suppressed_input_skipped"
         case gitTick = "performance.git.tick"
+        case managementLayerAppKitState = "performance.management_layer.appkit_state"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
         case sidebarFilterInput = "performance.sidebar.filter_input"
         case sidebarProjection = "performance.sidebar.projection"

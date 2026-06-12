@@ -129,6 +129,7 @@ class MainSplitViewController: NSSplitViewController {
             viewRegistry: viewRegistry,
             paneInboxPresentation: makePaneInboxPresentation(),
             closeTransitionCoordinator: closeTransitionCoordinator,
+            performanceTraceRecorder: performanceTraceRecorder,
             registersAsCommandHandler: paneTabRegistersAsCommandHandler
         )
         self.paneTabViewController = paneTabVC
