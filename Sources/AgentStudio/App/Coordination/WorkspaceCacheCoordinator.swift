@@ -16,7 +16,10 @@ final class WorkspaceCacheCoordinator {
     private let welcomeAtom: WelcomeAtom
     private let topologyEffectHandler: (any TopologyEffectHandler)?
     private let scopeSyncHandler: @Sendable (ScopeChange) async -> Void
+    private let traceIdentityRefreshHandler: (@MainActor @Sendable () async -> Void)?
     private var consumeTask: Task<Void, Never>?
+    private var traceIdentityRefreshTask: Task<Void, Never>?
+    private var traceIdentityRefreshNeedsReplay = false
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -24,7 +27,8 @@ final class WorkspaceCacheCoordinator {
         repoCache: RepoCacheAtom,
         welcomeAtom: WelcomeAtom = .init(),
         topologyEffectHandler: (any TopologyEffectHandler)? = nil,
-        scopeSyncHandler: @escaping @Sendable (ScopeChange) async -> Void
+        scopeSyncHandler: @escaping @Sendable (ScopeChange) async -> Void,
+        traceIdentityRefreshHandler: (@MainActor @Sendable () async -> Void)? = nil
     ) {
         self.bus = bus
         self.workspaceStore = workspaceStore
@@ -32,10 +36,12 @@ final class WorkspaceCacheCoordinator {
         self.welcomeAtom = welcomeAtom
         self.topologyEffectHandler = topologyEffectHandler
         self.scopeSyncHandler = scopeSyncHandler
+        self.traceIdentityRefreshHandler = traceIdentityRefreshHandler
     }
 
     deinit {
         consumeTask?.cancel()
+        traceIdentityRefreshTask?.cancel()
     }
 
     func startConsuming() {
@@ -56,10 +62,17 @@ final class WorkspaceCacheCoordinator {
 
     func shutdown() async {
         let activeTask = consumeTask
+        let activeTraceIdentityRefreshTask = traceIdentityRefreshTask
         consumeTask?.cancel()
         consumeTask = nil
+        traceIdentityRefreshTask?.cancel()
+        traceIdentityRefreshTask = nil
+        traceIdentityRefreshNeedsReplay = false
         if let activeTask {
             await activeTask.value
+        }
+        if let activeTraceIdentityRefreshTask {
+            await activeTraceIdentityRefreshTask.value
         }
     }
 
@@ -109,6 +122,7 @@ final class WorkspaceCacheCoordinator {
         if let repo = existingRepo {
             if repoCache.repoEnrichmentByRepoId[repo.id] == nil {
                 repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
+                refreshTraceIdentity()
             }
             if repositoryTopology.isRepoUnavailable(repo.id) {
                 _ = workspaceStore.mutationCoordinator.reassociateRepo(
@@ -122,9 +136,13 @@ final class WorkspaceCacheCoordinator {
             let repo = repositoryTopology.addRepo(at: normalizedRepoPath)
             repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
             repoId = repo.id
+            refreshTraceIdentity()
         }
 
-        guard case .scanned(let linkedPaths) = linkedWorktrees else { return }
+        guard case .scanned(let linkedPaths) = linkedWorktrees else {
+            refreshTraceIdentity()
+            return
+        }
         guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else {
             Self.logger.error(
                 "Repo id=\(repoId.uuidString, privacy: .public) not found after creation — store state inconsistency"
@@ -143,7 +161,10 @@ final class WorkspaceCacheCoordinator {
             discovered: discoveredWorktrees,
             traceId: eventId
         )
-        guard delta.didChange else { return }
+        guard delta.didChange else {
+            refreshTraceIdentity()
+            return
+        }
 
         repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: mergedWorktrees)
         for entry in delta.removedWorktrees {
@@ -155,6 +176,7 @@ final class WorkspaceCacheCoordinator {
             )
         }
         topologyEffectHandler?.topologyDidChange(delta)
+        refreshTraceIdentity()
     }
 
     private func handleRepoRemoved(repoPath: URL) {
@@ -174,6 +196,7 @@ final class WorkspaceCacheCoordinator {
             )
         }
         repoCache.removeRepo(repo.id)
+        refreshTraceIdentity()
         Task { [weak self] in
             await self?.syncScope(.unregisterForgeRepo(repoId: repo.id))
         }
@@ -200,6 +223,7 @@ final class WorkspaceCacheCoordinator {
                 )
             )
             repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
+            refreshTraceIdentity()
         }
     }
 
@@ -209,6 +233,7 @@ final class WorkspaceCacheCoordinator {
         let worktrees = repo.worktrees.filter { $0.id != worktreeId }
         repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
         repoCache.removeWorktree(worktreeId)
+        refreshTraceIdentity()
     }
 
     private func handleWorkspaceActivity(_ envelope: SystemEnvelope) {
@@ -238,6 +263,7 @@ final class WorkspaceCacheCoordinator {
                     snapshot: snapshot
                 )
                 repoCache.setWorktreeEnrichment(enrichment)
+                refreshTraceIdentity()
             case .branchChanged(let worktreeId, let repoId, _, let to):
                 var enrichment =
                     repoCache.worktreeEnrichmentByWorktreeId[worktreeId]
@@ -249,6 +275,7 @@ final class WorkspaceCacheCoordinator {
                 enrichment.branch = to
                 enrichment.updatedAt = Date()
                 repoCache.setWorktreeEnrichment(enrichment)
+                refreshTraceIdentity()
             case .originChanged(let repoId, _, let to):
                 let trimmedOrigin = to.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmedOrigin.isEmpty else {
@@ -362,6 +389,7 @@ final class WorkspaceCacheCoordinator {
 
         // 4. Hard-delete from store (removes from repos array + persistence)
         workspaceStore.repositoryTopologyAtom.removeRepo(repoId)
+        refreshTraceIdentity()
     }
 
     func syncScope(_ change: ScopeChange) async {
@@ -380,7 +408,28 @@ final class WorkspaceCacheCoordinator {
             discoveredWorktrees: discoveredWorktrees
         )
         guard updated else { return false }
+        refreshTraceIdentity()
         return true
+    }
+
+    private func refreshTraceIdentity() {
+        guard let traceIdentityRefreshHandler else { return }
+        guard traceIdentityRefreshTask == nil else {
+            traceIdentityRefreshNeedsReplay = true
+            return
+        }
+        traceIdentityRefreshTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                await traceIdentityRefreshHandler()
+                guard let self else { return }
+                guard self.traceIdentityRefreshNeedsReplay else {
+                    self.traceIdentityRefreshTask = nil
+                    return
+                }
+                self.traceIdentityRefreshNeedsReplay = false
+            }
+            self?.traceIdentityRefreshTask = nil
+        }
     }
 
     private static func buildDiscoveredWorktreeList(

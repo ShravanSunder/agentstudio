@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Observation
 
 @MainActor
 extension AppDelegate {
@@ -187,6 +188,7 @@ extension AppDelegate {
     private func bootLoadCacheStore(persistor: WorkspacePersistor) async {
         _ = persistor
         await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
+        await refreshTraceIdentitySnapshot()
         await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
     }
 
@@ -282,6 +284,9 @@ extension AppDelegate {
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
                 await pipeline.applyScopeChange(change)
+            },
+            traceIdentityRefreshHandler: { [weak self] in
+                await self?.refreshTraceIdentitySnapshot()
             }
         )
         paneCoordinator.removeRepoHandler = { [weak self] repoId in
@@ -325,6 +330,35 @@ extension AppDelegate {
                 await filesystemPipelineBootTask.value
             }
             self.paneCoordinator.syncFilesystemRootsAndActivity()
+            await self.refreshTraceIdentitySnapshot()
+            self.observeTraceIdentityInputs()
+        }
+    }
+
+    func refreshTraceIdentitySnapshot() async {
+        let panes = Array(store.paneAtom.panes.values)
+        let snapshot = AgentStudioTraceIdentitySnapshot.from(
+            repos: store.repositoryTopologyAtom.repos,
+            panes: panes,
+            worktreeEnrichments: repoCache.worktreeEnrichmentByWorktreeId
+        )
+        await traceRuntime.updateIdentitySnapshot(snapshot)
+    }
+
+    private func observeTraceIdentityInputs() {
+        guard !isObservingTraceIdentityInputs else { return }
+        isObservingTraceIdentityInputs = true
+        withObservationTracking {
+            _ = store.paneAtom.panes
+            _ = store.repositoryTopologyAtom.repos
+            _ = repoCache.worktreeEnrichmentByWorktreeId
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isObservingTraceIdentityInputs = false
+                self.observeTraceIdentityInputs()
+                await self.refreshTraceIdentitySnapshot()
+            }
         }
     }
 

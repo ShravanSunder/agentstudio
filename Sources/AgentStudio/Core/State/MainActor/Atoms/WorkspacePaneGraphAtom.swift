@@ -532,9 +532,12 @@ final class WorkspacePaneGraphAtom {
             return false
         }
 
-        paneStates[drawerPane.id] = PaneGraphState(pane: drawerPane)
+        var restoredPane = drawerPane
+        restoredPane.kind = .drawerChild(parentPaneId: parentPaneId)
+        paneStates[restoredPane.id] = PaneGraphState(pane: restoredPane)
         paneStates[parentPaneId]?.withDrawer { drawer in
-            drawer.paneIds.append(drawerPane.id)
+            drawer.paneIds.removeAll { $0 == restoredPane.id }
+            drawer.paneIds.append(restoredPane.id)
         }
         return true
     }

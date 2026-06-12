@@ -231,7 +231,7 @@ struct WorkspaceTabBoundaryTests {
         arrangementAtom.hydrate(persistedTabs: [hydratedTab], validPaneIds: Set(hydratedTab.allPaneIds))
         presentationAtom.setZoomedPaneId(paneId, forTab: hydratedTab.id)
 
-        arrangementAtom.removePaneReferences(paneId)
+        arrangementAtom.removePaneReferences(Set([paneId]))
 
         #expect(presentationAtom.zoomedPaneId(forTab: hydratedTab.id) == nil)
         #expect(arrangementAtom.arrangementState(hydratedTab.id)?.zoomedPaneId == nil)

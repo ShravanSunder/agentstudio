@@ -17,9 +17,18 @@ final class WorkspaceTabLayoutAtom {
         self.arrangementAtom = arrangementAtom
     }
 
-    func hydrate(persistedTabs: [Tab], activeTabId: UUID?, validPaneIds: Set<UUID>) {
+    func hydrate(
+        persistedTabs: [Tab],
+        activeTabId: UUID?,
+        validPaneIds: Set<UUID>,
+        drawerParentPaneIdByDrawerId: [UUID: UUID]? = nil
+    ) {
         shellAtom.hydrate(persistedTabs: persistedTabs, activeTabId: activeTabId)
-        arrangementAtom.hydrate(persistedTabs: persistedTabs, validPaneIds: validPaneIds)
+        arrangementAtom.hydrate(
+            persistedTabs: persistedTabs,
+            validPaneIds: validPaneIds,
+            drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId
+        )
         removeTabsWithoutArrangementState()
     }
 
@@ -66,6 +75,16 @@ final class WorkspaceTabLayoutAtom {
         arrangementAtom.insertState(Self.arrangementState(from: tab), at: index)
     }
 
+    func restoreTab(_ tab: Tab, at index: Int) {
+        if shellAtom.tabShell(tab.id) == nil {
+            shellAtom.insertTabShell(TabShell(id: tab.id, name: tab.name), at: index)
+        } else {
+            shellAtom.renameTab(tab.id, name: tab.name)
+        }
+        arrangementAtom.removeState(tab.id)
+        arrangementAtom.insertState(Self.arrangementState(from: tab), at: index)
+    }
+
     func moveTab(fromId: UUID, toIndex: Int) {
         shellAtom.moveTab(fromId: fromId, toIndex: toIndex)
     }
@@ -109,7 +128,7 @@ final class WorkspaceTabLayoutAtom {
     }
 
     func removePaneReferences(_ paneId: UUID, removingDrawerIds drawerIds: Set<UUID> = []) {
-        arrangementAtom.removePaneReferences(paneId, removingDrawerIds: drawerIds)
+        arrangementAtom.removePaneReferences(Set([paneId]), removingDrawerIds: drawerIds)
         removeEmptyTabs()
     }
 
@@ -246,11 +265,7 @@ final class WorkspaceTabLayoutAtom {
 
     private func removeEmptyTabs() {
         for state in arrangementAtom.arrangementStates {
-            let defaultLayoutIsEmpty =
-                state.arrangements.first(where: \.isDefault)?.layout.isEmpty
-                ?? state.arrangements.first?.layout.isEmpty
-                ?? true
-            if state.allPaneIds.isEmpty || defaultLayoutIsEmpty {
+            if !TabArrangementRepairRules.hasLivePaneReferences(in: state.arrangements) {
                 removeTab(state.tabId)
             }
         }

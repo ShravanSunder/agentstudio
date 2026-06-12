@@ -7,7 +7,11 @@ import Testing
 struct AgentStudioTraceConfigurationTests {
     @Test
     func missingTagsDisablesTracing() {
-        let configuration = AgentStudioTraceConfiguration.from(environment: [:])
+        let configuration = AgentStudioTraceConfiguration.from(
+            environment: [:],
+            releaseChannel: .stable,
+            isDebugBuild: false
+        )
 
         #expect(!configuration.isEnabled)
         #expect(configuration.enabledTags.isEmpty)
@@ -153,21 +157,129 @@ struct AgentStudioTraceConfigurationTests {
     }
 
     @Test
-    func jsonlBackendIsDefaultAndOnlyActiveBackend() {
-        let defaultConfiguration = AgentStudioTraceConfiguration.from(environment: [:])
+    func jsonlBackendIsStableDefaultWhenTagsAreExplicit() {
+        let configuration = AgentStudioTraceConfiguration.from(
+            environment: [
+                "AGENTSTUDIO_TRACE_TAGS": "runtime"
+            ],
+            releaseChannel: .stable,
+            isDebugBuild: false
+        )
+
+        #expect(configuration.backend == .jsonl)
+        #expect(configuration.runtimeFlavor == .stable)
+        #expect(configuration.otlpEndpoint == nil)
+    }
+
+    @Test
+    func debugBuildUsesSafeBaselineAndBothBackendWhenTagsAreMissing() {
+        let configuration = AgentStudioTraceConfiguration.from(
+            environment: [:],
+            releaseChannel: .beta,
+            isDebugBuild: true
+        )
+
+        #expect(configuration.backend == .both)
+        #expect(configuration.runtimeFlavor == .debug)
+        #expect(configuration.enabledTags == AgentStudioTraceConfiguration.safeDefaultTags)
+        #expect(configuration.otlpEndpoint?.absoluteString == "http://127.0.0.1:4318")
+        #expect(configuration.otlpProtocol == .httpProtobuf)
+    }
+
+    @Test
+    func betaBuildUsesSafeBaselineAndBothBackendWhenTagsAreMissing() {
+        let configuration = AgentStudioTraceConfiguration.from(
+            environment: [:],
+            releaseChannel: .beta,
+            isDebugBuild: false
+        )
+
+        #expect(configuration.backend == .both)
+        #expect(configuration.runtimeFlavor == .beta)
+        #expect(configuration.enabledTags == AgentStudioTraceConfiguration.safeDefaultTags)
+    }
+
+    @Test
+    func offTagsDisableDebugAndBetaBaseline() {
+        let debugConfiguration = AgentStudioTraceConfiguration.from(
+            environment: [
+                "AGENTSTUDIO_TRACE_TAGS": "off"
+            ],
+            releaseChannel: .stable,
+            isDebugBuild: true
+        )
+        let betaConfiguration = AgentStudioTraceConfiguration.from(
+            environment: [
+                "AGENTSTUDIO_TRACE_TAGS": "off"
+            ],
+            releaseChannel: .beta,
+            isDebugBuild: false
+        )
+
+        #expect(!debugConfiguration.isEnabled)
+        #expect(!betaConfiguration.isEnabled)
+        #expect(debugConfiguration.backend == .jsonl)
+        #expect(betaConfiguration.backend == .jsonl)
+        #expect(debugConfiguration.otlpEndpoint == nil)
+        #expect(betaConfiguration.otlpEndpoint == nil)
+    }
+
+    @Test
+    func backendSelectionSupportsJsonlOtlpBothAndUnknownFallback() {
         let explicitConfiguration = AgentStudioTraceConfiguration.from(environment: [
-            "AGENTSTUDIO_TRACE_BACKEND": "jsonl"
+            "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+            "AGENTSTUDIO_TRACE_TAGS": "runtime",
         ])
-        let reservedConfiguration = AgentStudioTraceConfiguration.from(environment: [
-            "AGENTSTUDIO_TRACE_BACKEND": "otlp"
+        let otlpConfiguration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_BACKEND": "otlp",
+            "AGENTSTUDIO_TRACE_TAGS": "runtime",
+        ])
+        let bothConfiguration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_BACKEND": "both",
+            "AGENTSTUDIO_TRACE_TAGS": "runtime",
+        ])
+        let unknownConfiguration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_BACKEND": "otpl",
+            "AGENTSTUDIO_TRACE_TAGS": "runtime",
         ])
 
-        #expect(defaultConfiguration.backend == .jsonl)
-        #expect(defaultConfiguration.unsupportedBackendSelector == nil)
         #expect(explicitConfiguration.backend == .jsonl)
         #expect(explicitConfiguration.unsupportedBackendSelector == nil)
-        #expect(reservedConfiguration.backend == .jsonl)
-        #expect(reservedConfiguration.unsupportedBackendSelector == "otlp")
+        #expect(otlpConfiguration.backend == .otlp)
+        #expect(otlpConfiguration.unsupportedBackendSelector == nil)
+        #expect(bothConfiguration.backend == .both)
+        #expect(bothConfiguration.unsupportedBackendSelector == nil)
+        #expect(unknownConfiguration.backend == .jsonl)
+        #expect(unknownConfiguration.unsupportedBackendSelector == "otpl")
+    }
+
+    @Test
+    func otlpEndpointPolicyAcceptsOnlyLoopbackHttpProtobuf() {
+        let loopbackConfiguration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_BACKEND": "otlp",
+            "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+        ])
+        let remoteConfiguration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_BACKEND": "both",
+            "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.example.com:4318",
+        ])
+        let grpcConfiguration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_BACKEND": "otlp",
+            "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+        ])
+
+        #expect(loopbackConfiguration.backend == .otlp)
+        #expect(loopbackConfiguration.otlpEndpoint?.absoluteString == "http://localhost:4318")
+        #expect(loopbackConfiguration.otlpProtocol == .httpProtobuf)
+        #expect(remoteConfiguration.backend == .jsonl)
+        #expect(remoteConfiguration.rejectedOTLPEndpointSelector == "https://collector.example.com:4318")
+        #expect(remoteConfiguration.otlpEndpoint == nil)
+        #expect(grpcConfiguration.backend == .jsonl)
+        #expect(grpcConfiguration.unsupportedOTLPProtocolSelector == "grpc")
     }
 
     @Test
