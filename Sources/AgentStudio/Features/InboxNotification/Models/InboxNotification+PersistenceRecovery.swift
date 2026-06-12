@@ -81,6 +81,10 @@ extension PersistenceRecoveryEvent {
         if let quarantinedFilename {
             details.append("Quarantined file: \(quarantinedFilename)")
         }
+        if let localStateResetSummary {
+            details.append("Drawers collapsed: \(localStateResetSummary.drawersCollapsed)")
+            details.append("Cursors reset: \(localStateResetSummary.cursorsDefaulted)")
+        }
         guard !details.isEmpty else { return action }
         return "\(action) \(details.joined(separator: " "))"
     }

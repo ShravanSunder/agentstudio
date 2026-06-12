@@ -4,6 +4,10 @@ import os.log
 
 let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 
+private enum ZmxOrphanCleanupTaskError: Error {
+    case timedOut
+}
+
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
@@ -44,9 +48,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var commandBarController: CommandBarPanelController!
     // MARK: - OAuth
     var oauthService: OAuthService!
+    var sessionConfiguration: SessionConfiguration!
     var filesystemPipelineBootTask: Task<Void, Never>?
     var initialTopologySyncTask: Task<Void, Never>?
     var persistenceObservationBootTask: Task<Void, Never>?
+    var orphanZmxCleanupTask: Task<Void, Never>?
+    var orphanZmxCleanupDelay: AsyncDelay = .taskSleep
+    var orphanZmxCleanupTimeout: Duration = .seconds(30)
     private var terminationDrainTask: Task<Void, Never>?
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?
@@ -159,6 +167,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         filesystemPipelineBootTask?.cancel()
         initialTopologySyncTask?.cancel()
         persistenceObservationBootTask?.cancel()
+        orphanZmxCleanupTask?.cancel()
         launchRestoreObservationTask?.cancel()
         launchRestoreObservationState.cancelDiagnostics()
     }
@@ -210,63 +219,68 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Called from `applicationDidFinishLaunching` (always main thread).
     @MainActor
     func cleanupOrphanZmxSessions() {
-        let config = SessionConfiguration.detect()
+        let config = sessionConfiguration!
         guard let zmxPath = config.zmxPath else {
             appLogger.debug("zmx not found — skipping orphan cleanup")
             return
         }
 
-        // Collect known zmx session IDs from persisted panes. If any main pane cannot
-        // resolve stable repo/worktree keys, skip cleanup to avoid deleting valid sessions.
-        let candidates: [ZmxOrphanCleanupCandidate] = store.paneAtom.panes.values
-            .filter { $0.provider == .zmx }
-            .map { pane in
-                if let parentPaneId = pane.parentPaneId {
-                    return .drawer(parentPaneId: parentPaneId, paneId: pane.id)
-                }
-                let resolvedKeys: (repoStableKey: String?, worktreeStableKey: String?)
-                if let worktreeId = pane.worktreeId,
-                    let repo = store.repositoryTopologyAtom.repo(containing: worktreeId),
-                    let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
-                {
-                    resolvedKeys = (repo.stableKey, worktree.stableKey)
-                } else if let cwd = pane.metadata.facets.cwd {
-                    let stableKey = StableKey.fromPath(cwd)
-                    resolvedKeys = (stableKey, stableKey)
-                } else {
-                    resolvedKeys = (nil, nil)
-                }
-                return .main(
-                    paneId: pane.id,
-                    repoStableKey: resolvedKeys.repoStableKey,
-                    worktreeStableKey: resolvedKeys.worktreeStableKey
-                )
-            }
-
-        let plan = ZmxOrphanCleanupPlanner.plan(candidates: candidates)
-
-        if plan.shouldSkipCleanup {
-            appLogger.warning(
-                "Skipping orphan zmx cleanup: unable to resolve one or more main-pane session IDs from persisted state"
-            )
-            return
-        }
-        if !plan.knownSessionIds.isEmpty {
-            appLogger.info("Orphan cleanup: protecting \(plan.knownSessionIds.count) known persisted zmx session(s)")
-        }
-
         let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
+        let cleanupDelay = orphanZmxCleanupDelay
+        let cleanupTimeout = orphanZmxCleanupTimeout
 
-        Task {
+        cancelOrphanZmxCleanupTask()
+        orphanZmxCleanupTask = Task { @MainActor [weak self, cleanupDelay, cleanupTimeout] in
+            guard let self else { return }
             do {
+                // Sample panes after launch restore has had a chance to mutate paneAtom.
+                let candidates: [ZmxOrphanCleanupCandidate] = store.paneAtom.panes.values
+                    .filter { $0.provider == .zmx }
+                    .map { pane in
+                        if let parentPaneId = pane.parentPaneId {
+                            return .drawer(parentPaneId: parentPaneId, paneId: pane.id)
+                        }
+                        let resolvedKeys: (repoStableKey: String?, worktreeStableKey: String?)
+                        if let worktreeId = pane.worktreeId,
+                            let repo = store.repositoryTopologyAtom.repo(containing: worktreeId),
+                            let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
+                        {
+                            resolvedKeys = (repo.stableKey, worktree.stableKey)
+                        } else if let cwd = pane.metadata.facets.cwd {
+                            let stableKey = StableKey.fromPath(cwd)
+                            resolvedKeys = (stableKey, stableKey)
+                        } else {
+                            resolvedKeys = (nil, nil)
+                        }
+                        return .main(
+                            paneId: pane.id,
+                            repoStableKey: resolvedKeys.repoStableKey,
+                            worktreeStableKey: resolvedKeys.worktreeStableKey
+                        )
+                    }
+
+                let plan = ZmxOrphanCleanupPlanner.plan(candidates: candidates)
+
+                if !plan.knownSessionIds.isEmpty {
+                    appLogger.info(
+                        "Orphan cleanup: protecting \(plan.knownSessionIds.count) known persisted zmx session(s)")
+                }
+                if !plan.protectedPaneSegments.isEmpty {
+                    appLogger.info(
+                        "Orphan cleanup: protecting \(plan.protectedPaneSegments.count) unresolved zmx pane segment(s)"
+                    )
+                }
+
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     group.addTask {
                         let orphans = await backend.discoverOrphanSessions(excluding: plan.knownSessionIds)
-                        if !orphans.isEmpty {
-                            appLogger.info("Found \(orphans.count) orphan zmx session(s) — cleaning up")
-                            for orphanId in orphans {
+                        let destroyableOrphans = plan.destroyableSessionIds(from: orphans)
+                        if !destroyableOrphans.isEmpty {
+                            appLogger.info("Found \(destroyableOrphans.count) orphan zmx session(s) — cleaning up")
+                            for orphanId in destroyableOrphans {
                                 try Task.checkCancellation()
                                 do {
+                                    appLogger.info("Destroying orphan zmx session: \(orphanId)")
                                     try await backend.destroySessionById(orphanId)
                                     appLogger.debug("Killed orphan zmx session: \(orphanId)")
                                 } catch is CancellationError {
@@ -279,19 +293,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         }
                     }
                     group.addTask {
-                        try await Task.sleep(nanoseconds: 30_000_000_000)
-                        throw CancellationError()
+                        try await cleanupDelay.wait(cleanupTimeout)
+                        throw ZmxOrphanCleanupTaskError.timedOut
                     }
                     // Wait for whichever finishes first, cancel the other
                     try await group.next()
                     group.cancelAll()
                 }
             } catch is CancellationError {
-                appLogger.warning("Orphan zmx cleanup timed out after 30s")
+                appLogger.info("Orphan zmx cleanup cancelled")
+            } catch ZmxOrphanCleanupTaskError.timedOut {
+                appLogger.warning("Orphan zmx cleanup timed out after \(cleanupTimeout.description)")
             } catch {
                 appLogger.warning("Orphan zmx cleanup failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    func cancelOrphanZmxCleanupTask() {
+        orphanZmxCleanupTask?.cancel()
+        orphanZmxCleanupTask = nil
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

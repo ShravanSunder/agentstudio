@@ -39,7 +39,7 @@ actor GitWorkingDirectoryProjector {
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
         envelopeClock: ContinuousClock = ContinuousClock(),
-        coalescingWindow: Duration = .zero,
+        coalescingWindow: Duration,
         periodicRefreshInterval: Duration? = nil,
         sleepClock: (any Clock<Duration> & Sendable)? = nil,
         subscriptionBufferLimit: Int = 256

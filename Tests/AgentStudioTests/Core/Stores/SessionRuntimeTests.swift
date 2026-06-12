@@ -9,9 +9,16 @@ import Testing
 final class SessionRuntimeTests {
     private func makeRuntime(
         store: WorkspaceStore? = nil,
-        healthCheckInterval: TimeInterval = 1
+        healthCheckInterval: TimeInterval = 1,
+        clock: (any Clock<Duration> & Sendable)? = nil,
+        healthCheckTimeout: Duration = .seconds(5)
     ) -> SessionRuntime {
-        SessionRuntime(store: store, healthCheckInterval: healthCheckInterval)
+        SessionRuntime(
+            store: store,
+            healthCheckInterval: healthCheckInterval,
+            clock: clock,
+            healthCheckTimeout: healthCheckTimeout
+        )
     }
 
     private final class ObservationFlag: @unchecked Sendable {
@@ -319,6 +326,60 @@ final class SessionRuntimeTests {
         let status = runtime.status(for: pane.id)
         #expect(status == .exited)
     }
+
+    @Test
+    func test_runHealthCheck_timesOutHungPaneAndContinuesToNextPane() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "runtime-health-timeout-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        let store = WorkspaceStore(persistor: persistor)
+        store.restore()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let clock = TestPushClock()
+        let runtime = makeRuntime(
+            store: store,
+            clock: clock,
+            healthCheckTimeout: .seconds(5)
+        )
+        let backend = MockSessionRuntimeBackend(provider: .zmx)
+        runtime.registerBackend(backend)
+
+        let hungPane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "Hung"),
+            provider: .zmx
+        )
+        let healthyPane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "Healthy"),
+            provider: .zmx
+        )
+        backend.hungPaneIds = [hungPane.id]
+        backend.isAliveResults[healthyPane.id] = true
+        runtime.markRunning(hungPane.id)
+        runtime.markRunning(healthyPane.id)
+
+        let healthCheckTask = Task { await runtime.runHealthCheck() }
+
+        await eventually("hung health check should start", maxTurns: 2000) {
+            backend.isAlivePaneIds.contains(hungPane.id)
+        }
+        await eventually("health check timeout should be scheduled", maxTurns: 2000) {
+            clock.pendingSleepCount > 0
+        }
+        clock.advance(by: .seconds(5))
+        await eventually("hung health check should time out", maxTurns: 2000) {
+            runtime.status(for: hungPane.id) == .unhealthy
+        }
+        await eventually("health check should continue after timeout", maxTurns: 2000) {
+            backend.isAlivePaneIds.contains(healthyPane.id)
+        }
+
+        #expect(runtime.status(for: hungPane.id) == .unhealthy)
+        #expect(runtime.status(for: healthyPane.id) == .running)
+
+        backend.resumeHungHealthChecks(returning: false)
+        await healthCheckTask.value
+    }
 }
 
 // MARK: - Mock Backend
@@ -329,6 +390,10 @@ private final class MockSessionRuntimeBackend: SessionBackendProtocol, @unchecke
     var terminateCount = 0
     var restoreResult = true
     var isAliveResult = true
+    var isAliveResults: [UUID: Bool] = [:]
+    var hungPaneIds: Set<UUID> = []
+    private(set) var isAlivePaneIds: [UUID] = []
+    private var hangingHealthChecks: [UUID: CancellableHealthCheckProbe] = [:]
 
     init(provider: SessionProvider) {
         self.provider = provider
@@ -340,7 +405,13 @@ private final class MockSessionRuntimeBackend: SessionBackendProtocol, @unchecke
     }
 
     func isAlive(pane: Pane) async -> Bool {
-        isAliveResult
+        isAlivePaneIds.append(pane.id)
+        if hungPaneIds.contains(pane.id) {
+            let probe = CancellableHealthCheckProbe()
+            hangingHealthChecks[pane.id] = probe
+            return await probe.wait()
+        }
+        return isAliveResults[pane.id] ?? isAliveResult
     }
 
     func terminate(pane: Pane) async {
@@ -349,5 +420,37 @@ private final class MockSessionRuntimeBackend: SessionBackendProtocol, @unchecke
 
     func restore(pane: Pane) async -> Bool {
         restoreResult
+    }
+
+    func resumeHungHealthChecks(returning result: Bool) {
+        for probe in hangingHealthChecks.values {
+            probe.resume(returning: result)
+        }
+        hangingHealthChecks.removeAll()
+    }
+}
+
+private final class CancellableHealthCheckProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    func wait() async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                self.continuation = continuation
+                lock.unlock()
+            }
+        } onCancel: {
+            resume(returning: false)
+        }
+    }
+
+    func resume(returning result: Bool) {
+        lock.lock()
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: result)
     }
 }

@@ -156,6 +156,8 @@ User presses Cmd+Shift+T
 
 The boundary is intentionally split by isolation contract: callback trampolines stay nonisolated and capture stable identity synchronously; surface updates and runtime routing hop to `@MainActor`.
 
+Action routing must never crash the app from inside a Ghostty C callback. Known tags are pinned by tests so each explicitly routed tag produces one decision through the intercepted, workspace, or observed handler chains. Unknown tags and known tags that somehow miss a routing decision are logged, traced, and returned to Ghostty as unhandled (`false`) so Ghostty can apply its default behavior.
+
 ---
 
 ## Host Scrollback UX Boundary

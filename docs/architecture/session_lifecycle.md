@@ -82,10 +82,12 @@ PaneId + RepoStableKey + WorktreeStableKey
                   |
                   v
 AppDelegate.cleanupOrphanZmxSessions()
-  - derive known IDs from persisted panes
+  - runs after launch restore completes
+  - sample restored paneAtom state inside the owned cleanup task
+  - derive known IDs from restored panes
+  - protect unresolvable panes by their embedded paneId segment
   - compare with one zmx list snapshot
-  - classify runtime-only sessions as orphan candidates
-  - apply grace TTL (60s), re-check liveness, then kill if still orphaned
+  - log, then destroy only app sessions outside the known/protected sets
 ```
 
 ### Lookup Ownership Table
@@ -162,6 +164,11 @@ stateDiagram-v2
 | `.running` | Backend is running and healthy |
 | `.exited` | Backend process has exited |
 | `.unhealthy` | Health check failed, session may be stale. Terminal until backend exits. |
+
+`SessionRuntime.runHealthCheck()` checks running panes serially, but each
+backend `isAlive` call is bounded by an injected per-pane timeout (default 5s).
+A timeout marks only that pane `.unhealthy`, logs the timeout, and the pass
+continues to later panes instead of letting one stalled backend block the loop.
 
 ---
 
@@ -412,19 +419,27 @@ See **Identity Contract (Canonical)** above for the complete source of truth.
 
 ### Orphan Cleanup
 
-On app launch, `AppDelegate.cleanupOrphanZmxSessions()` discovers zmx daemons
-with Agent Studio prefixes that are not tracked by persisted panes and marks
-them as orphan candidates.
+On app launch, `AppDelegate.cleanupOrphanZmxSessions()` runs only after launch
+restore has completed. The cleanup task samples restored `paneAtom` state
+inside the task immediately before discovery, because restore can mutate pane
+state that determines the protected set.
 
-Policy is TTL-based and never immediate:
+Policy:
 
-1. Do not kill on discovery.
-2. Apply a grace TTL (default 60 seconds).
-3. Re-check `zmx list` at TTL expiration.
-4. Kill only if the session is still orphaned.
+1. Derive exact known zmx session IDs for resolvable restored panes.
+2. For unresolvable restored main panes, protect any discovered app session ID
+   containing that pane's embedded 16-hex pane segment.
+3. Discover live app-owned zmx sessions with one `zmx list` snapshot.
+4. Destroy only sessions that match Agent Studio's session-ID prefixes, are not
+   in the known set, and contain no protected pane segment.
+5. Log the full session ID before each destroy attempt; zmx destroy is
+   unrecoverable and the log line is the forensic record.
+
+`zmx list` exposes session names but no age metadata, so there is no TTL or
+safety-age guard in the current cleanup path.
 
 This must stay aligned with:
-- [Zmx Restore and Sizing — Orphan Cleanup TTL Policy](zmx_restore_and_sizing.md#orphan-cleanup-ttl-policy)
+- [Zmx Restore and Sizing — Orphan Cleanup Safety Policy](zmx_restore_and_sizing.md#orphan-cleanup-safety-policy)
 - [Pane Runtime Architecture — Contract 5b](pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
 
 ---

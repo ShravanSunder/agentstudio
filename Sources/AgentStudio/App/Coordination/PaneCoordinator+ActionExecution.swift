@@ -23,12 +23,12 @@ extension PaneCoordinator {
     /// Open a terminal for a worktree.
     @discardableResult
     func openTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
-        if let existingTab = store.tabLayoutAtom.tabs.first(where: { tab in
-            tab.allPaneIds.contains { paneId in
-                store.paneAtom.pane(paneId)?.worktreeId == worktree.id
-            }
-        }) {
-            store.tabLayoutAtom.setActiveTab(existingTab.id)
+        if let existingTabId = WorkspaceCommandResolver.existingTabForWorktree(
+            worktree.id,
+            in: store.tabLayoutAtom.tabs,
+            worktreeIdForPane: { store.paneAtom.pane($0)?.worktreeId }
+        ) {
+            store.tabLayoutAtom.setActiveTab(existingTabId)
             postRecentTargetOpened(
                 target: .forWorktree(
                     path: worktree.path,

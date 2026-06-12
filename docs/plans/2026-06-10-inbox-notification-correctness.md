@@ -94,22 +94,35 @@ Read-only context:
 
 ## Task Sequence
 
-1. **Decide and fix the auto-clear gate.** Default decision per the policy's
-   own naming: pass `currentAttendedPaneId() == paneId`. Check call sites of
-   `clearObservedPaneInboxRowsIfNeeded` first — if some call sites genuinely
-   want observed-set semantics (e.g. a clear triggered by scroll-to-bottom in
-   that very pane), thread the caller's pane-attendance fact explicitly rather
-   than the global observed set. Add tests: notification in a visible
-   unattended drawer pinned to bottom is KEPT (reason
-   `source_pane_unattended`); notification in the attended pane pinned to
-   bottom is cleared.
+1a. **Call-site discovery (no code change).** Enumerate the call sites of
+   `clearObservedPaneInboxRowsIfNeeded` (verified during plan review:
+   `InboxNotificationRouter.swift:291-295` — a `scrollbarChanged` envelope
+   from ANY pane whose state transitions to pinned-to-bottom triggers a
+   clear for that pane, and `:578` — the observed-pane sweep). The scrollbar
+   path means today a scroll-to-bottom in a visible-but-unattended pane
+   silently clears that pane's notifications. Product question to settle
+   before 1b (ask if not obvious from the no-toast contract): does the user
+   *scrolling a pane to bottom* count as attending it for auto-clear
+   purposes, or must the pane also hold attended focus? Record the decision
+   in the plan PR.
+1b. **Fix the auto-clear gate.** Default decision per the policy's own
+   naming: pass `currentAttendedPaneId() == paneId`; if 1a decided
+   scroll-implies-attention, thread the caller's pane-attendance fact
+   explicitly per call site instead of the global observed set. Add tests:
+   notification in a visible unattended drawer pinned to bottom is KEPT
+   (reason `source_pane_unattended`); notification in the attended pane
+   pinned to bottom is cleared; scroll-to-bottom in an unattended pane
+   matches the 1a decision.
 2. **Focus tracker restart.** On unexpected stream end while active:
    re-subscribe to `attendedPane.transitions` after a short injected-clock
    delay, capped attempts (e.g. 3, then stay stopped + log error). Test with a
    fake transitions stream that ends after N events: tracker resumes emitting.
-3. **Single coalescence predicate.** Extract `canCoalesceClaim` into one
-   shared site (e.g. on `InboxNotificationClaim` or a small policy type) used
-   by both `InboxNotificationAtom` and `InboxNotificationSQLiteRepository`.
+3. **Single coalescence predicate.** Order matters: first add an agreement
+   test proving the two existing copies (`InboxNotificationAtom.swift:145`,
+   `InboxNotificationSQLiteRepository.swift:362`) return identical results
+   over a generated claim matrix — then extract `canCoalesceClaim` into one
+   shared site (on `InboxNotificationClaim` in `Models/`, importable by both
+   the atom and the repository without violating slice imports) used by both.
    Add an exhaustiveness test: for every `InboxNotificationClaimLane`,
    `mergeableLaneSQLValues` contains the lane's SQL token iff
    `canMergeWithinActivitySession == true` — so adding a lane breaks the test,

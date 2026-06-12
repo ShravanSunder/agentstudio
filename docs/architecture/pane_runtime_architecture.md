@@ -1537,15 +1537,15 @@ enum RestoreClassification: Sendable {
     /// restart manually or the pane can be auto-removed after confirmation.
     case expired(reason: String)
 
-    /// Live in zmx but NOT persisted → orphan from a previous crash or
-    /// incomplete shutdown. Subject to grace TTL before cleanup.
-    case orphan(discoveredAt: ContinuousClock.Instant)
+    /// Live in zmx but NOT persisted or protected → orphan from a previous
+    /// crash or incomplete shutdown.
+    case orphan
 }
 
 struct ReconcileResult: Sendable {
     let runnable: [SessionId: PersistedSessionState]
     let expired: [SessionId: String]  // sessionId → reason
-    let orphans: [SessionId: ContinuousClock.Instant]  // sessionId → discoveredAt
+    let orphans: Set<SessionId>
 }
 
 @MainActor
@@ -1569,12 +1569,7 @@ func reconcileOnLaunch(
     }
 
     // 3. Classify runtime-only sessions (orphans)
-    let orphanIds = liveSet.subtracting(persisted)
-    let now = clock.now
-    var orphans: [SessionId: ContinuousClock.Instant] = [:]
-    for sessionId in orphanIds {
-        orphans[sessionId] = now
-    }
+    let orphans = liveSet.subtracting(persisted)
 
     return ReconcileResult(
         runnable: runnable,
@@ -1584,31 +1579,31 @@ func reconcileOnLaunch(
 }
 ```
 
-#### Orphan Cleanup TTL Policy
+#### Orphan Cleanup Safety Policy
 
 ```swift
-/// Orphans are NEVER killed immediately at discovery. A grace period
-/// prevents killing sessions that are legitimately running but not yet
-/// persisted (e.g., race condition on previous shutdown).
+/// Orphans are destroyed only after launch restore completes and after the
+/// restored pane graph has been sampled for exact known IDs and unresolved
+/// pane-segment protection.
 ///
 /// Rules:
-///   1. Grace TTL: 60 seconds from discovery time.
-///   2. Re-check liveness before kill: call `zmx list` again at TTL
-///      expiration. If the session is gone, no action needed.
-///   3. Log: discovery time, kill attempt time, kill outcome.
-///   4. One cleanup cycle per app launch. No continuous background reaping.
+///   1. Resolvable restored panes protect their exact derived zmx session IDs.
+///   2. Unresolvable restored main panes protect any app session ID containing
+///      their embedded 16-hex paneId segment.
+///   3. Destroy only Agent Studio-prefixed session IDs outside both sets.
+///   4. Log the full session ID before every destroy attempt.
 ///
-/// The TTL is injectable via Clock<Duration> for testability.
+/// `zmx list` exposes session names but no age metadata, so there is no
+/// TTL/safety-age gate in this path.
 
 struct OrphanCleanupPolicy: Sendable {
-    let graceTTL: Duration  // default: .seconds(60)
-    let clock: any Clock<Duration>
+    let knownSessionIds: Set<SessionId>
+    let protectedPaneSegments: Set<String>
 
-    func shouldKill(
-        discoveredAt: ContinuousClock.Instant,
-        now: ContinuousClock.Instant
-    ) -> Bool {
-        now - discoveredAt >= graceTTL
+    func shouldDestroy(_ sessionId: SessionId) -> Bool {
+        isAgentStudioSessionId(sessionId)
+            && !knownSessionIds.contains(sessionId)
+            && !protectedPaneSegments.contains { sessionId.contains($0) }
     }
 }
 ```
@@ -1622,19 +1617,21 @@ struct OrphanCleanupPolicy: Sendable {
 /// Rules:
 ///   1. Health check interval: 30 seconds (injectable).
 ///   2. Health check method: `zmx list` filtered to known sessions.
-///   3. If a previously-runnable session disappears from zmx list:
-///      emit PaneRuntimeEvent.lifecycle(.sessionLost(paneId))
-///      → coordinator transitions pane to .draining → .terminated
-///      → show restart placeholder
-///   4. Health monitoring stops when the pane reaches .terminated.
+///   3. Each pane's backend call is bounded by an injected timeout
+///      (default 5s). A timeout marks only that pane unhealthy and the
+///      health-check pass continues to later panes.
+///   4. If a previously-runnable session disappears from zmx list:
+///      mark the pane unhealthy, then route follow-up lifecycle handling
+///      through the coordinator/runtime event path.
+///   5. Health monitoring stops when the pane reaches .terminated.
 ```
 
 #### Restart Reconcile Invariants
 
-1. **Reconcile before surface creation.** No Ghostty surface is created until reconcile classifies all persisted sessions. This prevents creating surfaces for dead sessions.
+1. **Launch restore before cleanup.** Orphan cleanup starts after launch restore completes so visible-pane restore is not blocked by `zmx list`, and the protected set is sampled from restored pane state.
 2. **Single zmx list snapshot.** Reconcile calls `zmx list` exactly once at startup. Individual session health is checked during the health monitoring phase, not during reconcile.
-3. **Orphans get a grace period.** Never kill on first discovery. The 60-second TTL protects against race conditions where a session is legitimate but not yet persisted.
-4. **Expired sessions show UI.** An expired session is not silently removed — the user sees a restart placeholder in the pane slot. This is important because the user may have unsaved work context associated with that pane's position in the layout.
+3. **Unresolvable panes still protect sessions.** If a restored main pane cannot resolve repo/worktree stable keys, its embedded paneId segment protects matching app session IDs from cleanup.
+4. **Destroy attempts are logged first.** zmx destroys are unrecoverable, so the full session ID is logged before every destroy attempt.
 5. **ZMX_DIR scoping.** All zmx operations during reconcile use the same `ZMX_DIR` as session creation. This ensures reconcile only discovers sessions owned by this Agent Studio instance, not sessions from other installations.
 
 ### Contract 6: Filesystem Batching
@@ -2952,7 +2949,7 @@ The historical codebase used `NotificationCenter` and `DispatchQueue.main.async`
 2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope). See [migration spec](../plans/2026-02-22-swift6-language-mode-migration.md) and [mapping doc](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#luna-342-implementation-record) for details.
 3. **LUNA-325 (in progress):** `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`, and runtime command dispatch scaffolding are landed. Migrated split/tab action families are now routed through typed runtime events (no dual-path NotificationCenter posts for migrated actions). Remaining full-contract parity is tracked through the LUNA-325/LUNA-345 closure gate.
 4. **LUNA-295 (attach orchestration):** Build attach readiness policies and visibility-tier scheduling. Consumes the event stream infrastructure from LUNA-325.
-5. **LUNA-324 (restart reconcile):** Build startup reconcile classification, orphan TTL cleanup, and post-restore health monitoring (Contract 5b).
+5. **LUNA-324 (restart reconcile):** Build startup reconcile classification, identity-guarded orphan cleanup, and post-restore health monitoring (Contract 5b).
 
 ### Migration Invariant
 

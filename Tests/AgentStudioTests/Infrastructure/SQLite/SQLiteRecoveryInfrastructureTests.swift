@@ -18,6 +18,31 @@ struct SQLiteRecoveryInfrastructureTests {
         #expect(result.recoveryFilename == nil)
     }
 
+    @Test("sidecar quarantine reports partial moves separately from full failure")
+    func sidecarQuarantineReportsPartialMovesSeparately() throws {
+        let databaseURL = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-partial-sidecar-\(UUID().uuidString).sqlite")
+        let fixedDate = Date(timeIntervalSince1970: 100)
+
+        let result = SQLiteSidecarQuarantine.quarantine(
+            databaseURL: databaseURL,
+            date: fixedDate,
+            fileExists: { _ in true },
+            moveItem: { sourceURL, _ in
+                if sourceURL.lastPathComponent.hasSuffix("-wal") {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+            }
+        )
+
+        #expect(result.status == .partiallyMoved)
+        #expect(!result.succeeded)
+        #expect(result.failedFilenames == ["\(databaseURL.lastPathComponent)-wal"])
+        #expect(result.quarantinedFilenames.count == 2)
+        #expect(result.recoveryFilename?.contains("quarantined:") == true)
+        #expect(result.recoveryFilename?.contains("failed: \(databaseURL.lastPathComponent)-wal") == true)
+    }
+
     @Test("recovery classifier only quarantines SQLite corruption errors")
     func recoveryClassifierOnlyQuarantinesSQLiteCorruptionErrors() {
         let corruptError = DatabaseError(resultCode: .SQLITE_CORRUPT)

@@ -94,11 +94,10 @@ struct AppBootSequenceTests {
         #expect(!appDelegateSource.contains("workspaceSQLiteStoreBackend"))
         #expect(!appDelegateSource.contains("workspaceLocalSQLiteStoreBackend"))
         #expect(datastoreFactorySource.contains("WorkspaceSQLiteDatastoreConfiguration("))
-        #expect(
-            datastoreFactorySource.contains(
-                "WorkspaceSQLiteDatastore(configuration: configuration, traceRuntime: traceRuntime)"
-            )
-        )
+        #expect(datastoreFactorySource.contains("WorkspaceSQLiteDatastore("))
+        #expect(datastoreFactorySource.contains("configuration: configuration"))
+        #expect(datastoreFactorySource.contains("traceRuntime: traceRuntime"))
+        #expect(datastoreFactorySource.contains("beforeCoreSnapshotCommit: beforeCoreSnapshotCommit"))
     }
 
     @Test("boot injects feature SQLite adapter into inbox notification store")
@@ -351,6 +350,102 @@ struct AppBootSequenceTests {
         )
 
         #expect(terminationSource.contains("workspaceSettingsStore.flush(for: store.identityAtom.workspaceId)"))
+    }
+
+    @Test("zmx orphan cleanup is owned and cancellation driven")
+    func zmxOrphanCleanupIsOwnedAndCancellationDriven() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+            encoding: .utf8
+        )
+        let terminationSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+Termination.swift"),
+            encoding: .utf8
+        )
+
+        #expect(appDelegateSource.contains("orphanZmxCleanupTask"))
+        #expect(!appDelegateSource.contains("Task.sleep(nanoseconds: 30_000_000_000)"))
+        #expect(terminationSource.contains("cancelOrphanZmxCleanupTask()"))
+    }
+
+    @Test("zmx orphan cleanup starts after launch restore and samples panes inside the task")
+    func zmxOrphanCleanupStartsAfterLaunchRestoreAndSamplesPanesInsideTask() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let workspaceBootSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
+        )
+        let launchRestoreSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+LaunchRestore.swift"),
+            encoding: .utf8
+        )
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+            encoding: .utf8
+        )
+
+        #expect(!workspaceBootSource.contains("cleanupOrphanZmxSessions()"))
+
+        let restoreViewsIndex = try #require(
+            launchRestoreSource.range(of: "await paneCoordinator.restoreAllViews")?.lowerBound
+        )
+        let cleanupIndex = try #require(
+            launchRestoreSource.range(
+                of: "completeLaunchRestoreAndStartOrphanCleanup()",
+                range: restoreViewsIndex..<launchRestoreSource.endIndex
+            )?.lowerBound
+        )
+        #expect(restoreViewsIndex < cleanupIndex)
+
+        let cleanupTaskIndex = try #require(
+            appDelegateSource.range(of: "orphanZmxCleanupTask = Task")?.lowerBound
+        )
+        let candidateSamplingIndex = try #require(
+            appDelegateSource.range(of: "let candidates: [ZmxOrphanCleanupCandidate]")?.lowerBound
+        )
+        #expect(cleanupTaskIndex < candidateSamplingIndex)
+    }
+
+    @Test("session configuration detection is async and injected before pane coordination")
+    func sessionConfigurationDetectionIsAsyncAndInjectedBeforePaneCoordination() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+            encoding: .utf8
+        )
+        let workspaceBootSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
+        )
+        let paneCoordinatorSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Coordination/PaneCoordinator.swift"),
+            encoding: .utf8
+        )
+        let sessionConfigurationSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Models/SessionConfiguration.swift"),
+            encoding: .utf8
+        )
+
+        #expect(sessionConfigurationSource.contains("@concurrent"))
+        #expect(sessionConfigurationSource.contains("static func detect("))
+        #expect(sessionConfigurationSource.contains("async -> Self"))
+        #expect(sessionConfigurationSource.contains("processExecutor: any ProcessExecutor"))
+
+        #expect(appDelegateSource.contains("var sessionConfiguration: SessionConfiguration!"))
+        #expect(!appDelegateSource.contains("SessionConfiguration.detect()"))
+
+        let detectIndex = try #require(
+            workspaceBootSource.range(of: "sessionConfiguration = await SessionConfiguration.detect()")?.lowerBound
+        )
+        let coordinatorIndex = try #require(
+            workspaceBootSource.range(of: "paneCoordinator = PaneCoordinator(")?.lowerBound
+        )
+        #expect(detectIndex < coordinatorIndex)
+
+        #expect(paneCoordinatorSource.contains("let sessionConfig: SessionConfiguration"))
+        #expect(paneCoordinatorSource.contains("sessionConfiguration: SessionConfiguration"))
+        #expect(!paneCoordinatorSource.contains("lazy var sessionConfig = SessionConfiguration.detect()"))
     }
 
     @Test("inbox notification autosave observes memory, not runtime handoff state")

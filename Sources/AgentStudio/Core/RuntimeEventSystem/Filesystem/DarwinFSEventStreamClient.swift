@@ -45,16 +45,24 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
     }
 
     private static let defaultLatency: CFTimeInterval = 0.1
+    static let ingressBufferLimit = 256
 
     private let lifecycleLock = NSLock()
     private var hasShutdown = false
     private var streamByWorktreeId: [UUID: StreamRegistration] = [:]
+    private var shouldFlagNextBatchForOverflow = false
 
     private let eventsStream: AsyncStream<FSEventBatch>
     private let eventsContinuation: AsyncStream<FSEventBatch>.Continuation
 
     init() {
-        let (stream, continuation) = AsyncStream.makeStream(of: FSEventBatch.self)
+        // FSEvents are triggers for recomputing filesystem/git facts from disk, not
+        // accumulated deltas. Overflow is surfaced on a later batch so the actor can
+        // refresh control-plane policy such as .gitignore before classification.
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: FSEventBatch.self,
+            bufferingPolicy: .bufferingNewest(Self.ingressBufferLimit)
+        )
         self.eventsStream = stream
         self.eventsContinuation = continuation
     }
@@ -194,10 +202,33 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
 
         lifecycleLock.lock()
         let shouldEmit = !hasShutdown && streamByWorktreeId[worktreeId] != nil
+        let didOverflow = shouldFlagNextBatchForOverflow
+        shouldFlagNextBatchForOverflow = false
         lifecycleLock.unlock()
         guard shouldEmit else { return }
 
-        eventsContinuation.yield(FSEventBatch(worktreeId: worktreeId, paths: paths))
+        let yieldResult = eventsContinuation.yield(
+            FSEventBatch(worktreeId: worktreeId, paths: paths, didOverflow: didOverflow)
+        )
+        markPotentialOverflowIfNeeded(yieldResult)
+    }
+
+    private func markPotentialOverflowIfNeeded(_ yieldResult: AsyncStream<FSEventBatch>.Continuation.YieldResult) {
+        let shouldFlagNextBatch: Bool
+        switch yieldResult {
+        case .enqueued(let remaining):
+            shouldFlagNextBatch = remaining == 0
+        case .dropped:
+            shouldFlagNextBatch = true
+        case .terminated:
+            shouldFlagNextBatch = false
+        @unknown default:
+            shouldFlagNextBatch = true
+        }
+        guard shouldFlagNextBatch else { return }
+        lifecycleLock.lock()
+        shouldFlagNextBatchForOverflow = true
+        lifecycleLock.unlock()
     }
 
     private static func teardown(_ registration: StreamRegistration) {

@@ -299,12 +299,10 @@ struct InboxNotificationRouterTests {
             in: fixture,
             description: "desktop notification should be routed after suppressions"
         )
-
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("inbox router should write decision and append traces") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"inbox.notification.appended\"") == true
-        }
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
 
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         let records = try traceRecords(in: outputFileURL)
@@ -326,9 +324,6 @@ struct InboxNotificationRouterTests {
         #expect(contents.contains("\"agentstudio.inbox.reason\":\"matched\""))
         #expect(contents.contains("\"agentstudio.inbox.kind\":\"agentDesktopNotification\""))
         #expect(contents.contains("\"agentstudio.inbox.global_unread_after\":1"))
-        await fixture.router.stop()
-        await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("inbox router records eventbus delivery summaries without scrollbar spam")
@@ -350,18 +345,33 @@ struct InboxNotificationRouterTests {
                 seq: 2
             )
         )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.desktopNotificationRequested(title: "Done", body: "ready")),
+                seq: 3
+            )
+        )
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "desktop notification should prove router consumed prior events"
+        )
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("inbox router should write eventbus delivery summary") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"eventbus.deliver\"") == true
-        }
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
 
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         let records = try traceRecords(in: outputFileURL)
         let deliveryRecords = records.filter { $0.body == "eventbus.deliver" }
-        #expect(deliveryRecords.count == 1)
-        let deliveryAttributes = try #require(deliveryRecords.first?.attributes)
+        #expect(deliveryRecords.count == 2)
+        let deliveryAttributes = try #require(
+            deliveryRecords.first {
+                $0.attributes["agentstudio.envelope.seq"] == .int(1)
+            }?.attributes
+        )
         #expect(deliveryAttributes["agentstudio.eventbus.consumer"] == .string("InboxNotificationRouter"))
         #expect(deliveryAttributes["agentstudio.eventbus.name"] == .string("paneRuntime"))
         #expect(deliveryAttributes["agentstudio.eventbus.delivery"] == .string("consumed"))
@@ -375,9 +385,6 @@ struct InboxNotificationRouterTests {
         #expect(contents.contains("\"agentstudio.inbox.reason\":\"bell_disabled\""))
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.scrollbarChanged\"") == false)
-        await fixture.router.stop()
-        await fixture.tracker.stop()
-        fixture.attendedPane.stop()
     }
 
     @Test("activity-only scrollbar ignores do not write inbox trace records")

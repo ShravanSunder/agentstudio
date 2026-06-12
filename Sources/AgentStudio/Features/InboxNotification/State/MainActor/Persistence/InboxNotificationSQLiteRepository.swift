@@ -319,7 +319,7 @@ struct InboxNotificationSQLiteRepository {
         let candidates = try rows.map(InboxNotificationSQLiteCodecs.notification(from:))
         return candidates.first { existing in
             existing.claimKey == claimKey
-                && canCoalesceClaim(existing: existing, incoming: incoming)
+                && InboxNotificationClaimCoalescence.canCoalesce(existing: existing, incoming: incoming)
         }
     }
 
@@ -355,21 +355,8 @@ struct InboxNotificationSQLiteRepository {
             return existingClaimKey.paneId == claimKey.paneId
                 && existingClaimKey.sessionId == sessionId
                 && existingClaimKey.lane.canMergeWithinActivitySession
-                && canCoalesceClaim(existing: existing, incoming: incoming)
+                && InboxNotificationClaimCoalescence.canCoalesce(existing: existing, incoming: incoming)
         }
-    }
-
-    private func canCoalesceClaim(
-        existing: InboxNotification,
-        incoming: InboxNotification
-    ) -> Bool {
-        if !existing.isRead && !existing.isDismissedFromPaneInbox {
-            return true
-        }
-        return existing.isRead
-            && existing.isDismissedFromPaneInbox
-            && incoming.isRead
-            && incoming.isDismissedFromPaneInbox
     }
 
     private func fetchNotificationRows(_ database: Database) throws -> [Row] {

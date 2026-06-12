@@ -98,24 +98,40 @@ Read-only context:
    child, many children, reordered children (save twice), expanded/collapsed,
    drawer deleted between saves (cursor table fully replaced — pin the
    full-replace behavior with an assertion on row count).
-2. **Crash-window tests.** Using the existing failure-injection seams from
-   `WorkspaceSQLiteCommitProtocolTests`: (a) local write succeeds → core
-   commit fails → reload: assert staged core is recovered, local defaults are
-   synthesized OR the matching local is repaired — pin whichever the code
-   does; (b) staged-only restore with an expanded drawer: assert drawers come
+2. **Crash-window tests.** Seam check first: the existing
+   `WorkspaceSQLiteCommitProtocolTests` failure injection throws at local
+   repository *construction* — it cannot inject failure **between** the local
+   write completing and the core commit. Add an injectable failure point at
+   that boundary (closure/protocol seam threaded through the backend factory
+   — runtime-injected, not `#if DEBUG`, per repo rule). Then: (a) local write
+   succeeds → core commit fails → reload: first determine what the code does,
+   judge it against the CLAUDE.md SQLite recovery invariants (canonical core
+   + deterministic local defaults + repair-when-possible); if the behavior
+   satisfies the invariants, pin it with the test — if it violates them, stop
+   and report before writing any test that would freeze a wrong behavior;
+   (b) staged-only restore with an expanded drawer: assert drawers come
    back collapsed AND a recovery event reporting the reset is emitted (this
    will fail until task 4). Also pin the `completed_at = NULL` staging
    invariant with a direct repository test so a future refactor cannot
    reintroduce the stale-local pairing.
-3. **Read-side drawer parent validation.** In the fetch path, throw the
-   existing `drawerParentMismatch` error when a fetched drawer's
-   `parent_pane_id` does not match the decoded pane; test with a hand-corrupted
-   fixture DB.
-4. **Recovery event enrichment.** When local state is synthesized or repaired,
-   include counts (drawers reset, cursors defaulted) in the recovery event so
-   the inbox `persistenceRecovery` notification (already non-auto-clearable)
-   tells the user what was lost. Wire through the existing
-   `recoveryReporter` path; no new UI.
+3. **Read-side drawer parent validation — blocked under current fetch seam.**
+   The intended `drawerParentMismatch` read-side case is not observable today:
+   `fetchDrawerRecord(database, parentPaneId:)` already queries
+   `drawer WHERE parent_pane_id = ?`, so a corrupted row with a different
+   parent becomes absent from the original parent or attached to the other
+   parent rather than returning as a mismatched record. Reopen this task only if
+   the fetch path is changed to surface the drawer row's stored parent alongside
+   the requested parent; otherwise do not distort the fetch design just to make
+   this fixture possible.
+4. **Recovery event enrichment.** Precondition: verify `persistenceRecovery`
+   events actually render as inbox notifications (grep
+   `InboxNotificationRouter` / the recovery-reporter consumer chain) — if they
+   are only logged, the enrichment is invisible and this task must first
+   surface them (or stop and report the scope question). Then, when local
+   state is synthesized or repaired, include counts (drawers reset, cursors
+   defaulted) in the recovery event so the inbox `persistenceRecovery`
+   notification (already non-auto-clearable) tells the user what was lost.
+   Wire through the existing `recoveryReporter` path; no new UI.
 5. **Quarantine partial-move reporting.** Make the quarantine outcome
    distinguish full vs partial sidecar moves; on partial move, log loudly and
    include the leftover filenames. Test with a read-only `-wal` fixture.

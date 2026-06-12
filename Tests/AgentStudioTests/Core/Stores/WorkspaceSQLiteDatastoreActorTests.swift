@@ -61,6 +61,33 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(!contents.contains("\"agentstudio.trace.tag\":\"persistence.recovery\""))
     }
 
+    @Test("workspace save emits RestoreTrace duration metric")
+    func workspaceSaveEmitsRestoreTraceDurationMetric() async throws {
+        let workspaceId = UUID(uuidString: "00000000-0000-7000-8000-000000000111")!
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.restore-trace.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.restore-trace.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue) }
+        )
+
+        let capture = try await RestoreTrace.withCapturedMessages {
+            try await datastore.saveWorkspaceSnapshot(
+                .emptyFixture(id: workspaceId, name: "Restore Trace Save")
+            )
+        }
+
+        let messages = capture.messages.joined(separator: "\n")
+        #expect(messages.contains("metric=workspace_save"))
+        #expect(messages.contains("workspace=00000000-0000-7000-8000-000000000111"))
+        #expect(messages.contains("panes=0"))
+        #expect(messages.contains("tabs=0"))
+    }
+
     @Test("workspace save validation failure emits persistence recovery trace")
     func workspaceSaveValidationFailureEmitsPersistenceRecoveryTrace() async throws {
         let workspaceId = UUID()

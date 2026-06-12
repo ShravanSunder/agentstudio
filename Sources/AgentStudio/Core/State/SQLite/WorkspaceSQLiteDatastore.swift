@@ -13,6 +13,7 @@ actor WorkspaceSQLiteDatastore {
     private let makeLocalRestoreRepository: (@Sendable (UUID) throws -> WorkspaceLocalRepository)?
     private let makeLocalLegacyImportDecision:
         (@Sendable (UUID, WorkspaceLocalSQLiteLegacyLane) throws -> WorkspaceLocalSQLiteLegacyImportDecision)?
+    private let beforeCoreSnapshotCommit: @Sendable (WorkspaceSQLiteSnapshot) throws -> Void
     private let probe: (@Sendable (ProbeEvent) async -> Void)?
     private let traceRecorder: WorkspaceSQLiteTraceRecorder
 
@@ -24,6 +25,7 @@ actor WorkspaceSQLiteDatastore {
     init(
         configuration: WorkspaceSQLiteDatastoreConfiguration,
         traceRuntime: AgentStudioTraceRuntime? = nil,
+        beforeCoreSnapshotCommit: @escaping @Sendable (WorkspaceSQLiteSnapshot) throws -> Void = { _ in },
         probe: (@Sendable (ProbeEvent) async -> Void)? = nil
     ) {
         self.backend = nil
@@ -31,6 +33,7 @@ actor WorkspaceSQLiteDatastore {
         self.makeLocalRepository = nil
         self.makeLocalRestoreRepository = nil
         self.makeLocalLegacyImportDecision = nil
+        self.beforeCoreSnapshotCommit = beforeCoreSnapshotCommit
         self.probe = probe
         self.traceRecorder = WorkspaceSQLiteTraceRecorder(traceRuntime: traceRuntime)
     }
@@ -43,23 +46,35 @@ actor WorkspaceSQLiteDatastore {
             (@Sendable (UUID, WorkspaceLocalSQLiteLegacyLane) throws -> WorkspaceLocalSQLiteLegacyImportDecision)? =
             nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
+        beforeCoreSnapshotCommit: @escaping @Sendable (WorkspaceSQLiteSnapshot) throws -> Void = { _ in },
         probe: (@Sendable (ProbeEvent) async -> Void)? = nil
     ) {
         self.backend = WorkspaceSQLiteStoreBackend(
             coreRepository: coreRepository,
             makeLocalRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache },
-            makeLocalRestoreRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache }
+            makeLocalRestoreRepository: { _ in throw WorkspaceSQLiteDatastoreError.useDatastoreLocalRepositoryCache },
+            beforeCoreSnapshotCommit: beforeCoreSnapshotCommit
         )
         self.configuration = nil
         self.makeLocalRepository = makeLocalRepository
         self.makeLocalRestoreRepository = makeLocalRestoreRepository ?? makeLocalRepository
         self.makeLocalLegacyImportDecision = makeLocalLegacyImportDecision
+        self.beforeCoreSnapshotCommit = beforeCoreSnapshotCommit
         self.probe = probe
         self.traceRecorder = WorkspaceSQLiteTraceRecorder(traceRuntime: traceRuntime)
     }
 
     func saveWorkspaceSnapshot(_ snapshot: WorkspaceSQLiteSnapshot) async throws {
         await recordProbe(.saveWorkspaceSnapshot)
+        let saveStart = RestoreTrace.nowIfEnabled()
+        defer {
+            RestoreTrace.logWorkspaceSaveDuration(
+                workspaceId: snapshot.id,
+                paneCount: snapshot.panes.count,
+                tabCount: snapshot.tabs.count,
+                start: saveStart
+            )
+        }
         var failurePhase = WorkspaceSQLiteTracePhase.openCore
         var failureDatabase: WorkspaceSQLiteTraceDatabase? = .core
         await traceRecorder.recordOperation(
@@ -194,7 +209,7 @@ actor WorkspaceSQLiteDatastore {
                     preferredWorkspaceId: preferredWorkspaceId
                 )
                 ?? backend.coreRepository.fetchRecoverableStagedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
-            let snapshot = try await backend.loadCompletedSnapshot(
+            let load = try await backend.loadCompletedSnapshot(
                 preferredWorkspaceId: preferredWorkspaceId,
                 localRepositoryForWorkspaceId: { workspaceId in
                     try await self.cachedRestoreLocalRepository(
@@ -211,15 +226,19 @@ actor WorkspaceSQLiteDatastore {
                     )
                 }
             )
-            if recoverableStagedWorkspaceId == snapshot.id {
+            let snapshot = load.snapshot
+            if let localStateResetSummary = load.localStateResetSummary {
                 appendRecoveryEvent(
                     .init(
                         store: .workspace,
                         workspaceId: snapshot.id,
-                        recovery: .localStateRebuilt
+                        recovery: .localStateRebuilt,
+                        localStateResetSummary: localStateResetSummary
                     ),
                     workspaceId: snapshot.id
                 )
+            }
+            if recoverableStagedWorkspaceId == snapshot.id {
                 await traceRecorder.recordRecovery(
                     .init(
                         recoveryKind: .incompleteSnapshot,
@@ -690,7 +709,8 @@ extension WorkspaceSQLiteDatastore {
                 case .cache:
                     return status.cacheImportedAt == nil ? .allowImport : .blockReplayAllowArchive
                 }
-            }
+            },
+            beforeCoreSnapshotCommit: beforeCoreSnapshotCommit
         )
     }
 

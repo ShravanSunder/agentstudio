@@ -28,6 +28,85 @@ final class WorkspaceCommandResolverTests {
         return TabSnapshot(id: tabId, visiblePaneIds: ids, ownedPaneIds: ids, activePaneId: ids.first)
     }
 
+    // MARK: - existingTabForWorktree
+
+    @Test
+
+    func test_existingTabForWorktree_returnsFirstTabOwningMatchingWorktreePane() {
+        // Arrange
+        let targetWorktreeId = UUID()
+        let firstMatchingTabId = UUID()
+        let secondMatchingTabId = UUID()
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        let tabs = [
+            MockTab(id: firstMatchingTabId, activePaneId: firstPaneId, allPaneIds: [firstPaneId]),
+            MockTab(id: secondMatchingTabId, activePaneId: secondPaneId, allPaneIds: [secondPaneId]),
+        ]
+        let paneWorktreeIdsByPaneId = [
+            firstPaneId: targetWorktreeId,
+            secondPaneId: targetWorktreeId,
+        ]
+
+        // Act
+        let result = WorkspaceCommandResolver.existingTabForWorktree(
+            targetWorktreeId,
+            in: tabs,
+            worktreeIdForPane: { paneWorktreeIdsByPaneId[$0] }
+        )
+
+        // Assert
+        #expect(result == firstMatchingTabId)
+    }
+
+    @Test
+
+    func test_existingTabForWorktree_searchesOwnedPanesNotOnlyVisiblePanes() {
+        // Arrange
+        let targetWorktreeId = UUID()
+        let tabId = UUID()
+        let visiblePaneId = UUID()
+        let hiddenArrangementPaneId = UUID()
+        let tab = MockTab(
+            id: tabId,
+            activePaneId: visiblePaneId,
+            allPaneIds: [visiblePaneId],
+            ownedPaneIds: [visiblePaneId, hiddenArrangementPaneId]
+        )
+        let paneWorktreeIdsByPaneId = [hiddenArrangementPaneId: targetWorktreeId]
+
+        // Act
+        let result = WorkspaceCommandResolver.existingTabForWorktree(
+            targetWorktreeId,
+            in: [tab],
+            worktreeIdForPane: { paneWorktreeIdsByPaneId[$0] }
+        )
+
+        // Assert
+        #expect(result == tabId)
+    }
+
+    @Test
+
+    func test_existingTabForWorktree_returnsNilWhenNoOwnedPaneMatches() {
+        // Arrange
+        let targetWorktreeId = UUID()
+        let otherWorktreeId = UUID()
+        let paneId = UUID()
+        let tab = MockTab(id: UUID(), activePaneId: paneId, allPaneIds: [paneId])
+        let paneWorktreeIdsByPaneId = [paneId: otherWorktreeId]
+
+        // Act
+        let result = WorkspaceCommandResolver.existingTabForWorktree(
+            targetWorktreeId,
+            in: [tab],
+            worktreeIdForPane: { paneWorktreeIdsByPaneId[$0] }
+        )
+
+        // Assert
+        #expect(result == nil)
+    }
+
     // MARK: - resolveDrop: Tab payloads are rejected for split targets
 
     @Test

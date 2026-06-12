@@ -530,41 +530,48 @@ final class ZmxBackendTests {
 
     func test_discoverOrphanSessions_filtersCorrectly() async {
         // Arrange
+        let knownSessionId = "as-aaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-cccccccccccccccc"
+        let orphanSessionId = "as-dddddddddddddddd-eeeeeeeeeeeeeeee-ffffffffffffffff"
+        let secondOrphanSessionId = "as-1111111111111111-2222222222222222-3333333333333333"
         executor.enqueue(
             ProcessResult(
                 exitCode: 0,
                 stdout:
-                    "as-abc-111-222\trunning\nas-def-333-444\trunning\nuser-session\trunning\nas-ghi-555-666\trunning",
+                    "\(knownSessionId)\trunning\n\(orphanSessionId)\trunning\nuser-session\trunning\n\(secondOrphanSessionId)\trunning\nas-user-owned-session\trunning",
                 stderr: ""
             ))
 
         // Act
-        let orphans = await backend.discoverOrphanSessions(excluding: ["as-abc-111-222"])
+        let orphans = await backend.discoverOrphanSessions(excluding: [knownSessionId])
 
         // Assert
         #expect(orphans.count == 2)
-        #expect(orphans.contains("as-def-333-444"))
-        #expect(orphans.contains("as-ghi-555-666"))
+        #expect(orphans.contains(orphanSessionId))
+        #expect(orphans.contains(secondOrphanSessionId))
         #expect(!(orphans.contains("user-session")))
+        #expect(!(orphans.contains("as-user-owned-session")))
     }
 
     @Test
     func test_discoverOrphanSessions_parsesZmx042KeyValueFormat() async {
         // Arrange
+        let knownSessionId = "as-aaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-cccccccccccccccc"
+        let drawerSessionId = "as-d--1111111111111111--2222222222222222"
         executor.enqueue(
             ProcessResult(
                 exitCode: 0,
                 stdout:
-                    "name=as-abc-111-222\tpid=123\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=as-d--aabb--ccdd\tpid=456\tclients=0\tcreated=1774059494\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=user-session\tpid=789\tclients=0",
+                    "name=\(knownSessionId)\tpid=123\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=\(drawerSessionId)\tpid=456\tclients=0\tcreated=1774059494\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=as-d--not-a-complete-drawer-id\tpid=789\tclients=0\nname=user-session\tpid=999\tclients=0",
                 stderr: ""
             ))
 
         // Act
-        let orphans = await backend.discoverOrphanSessions(excluding: ["as-abc-111-222"])
+        let orphans = await backend.discoverOrphanSessions(excluding: [knownSessionId])
 
         // Assert
         #expect(orphans.count == 1)
-        #expect(orphans.contains("as-d--aabb--ccdd"))
+        #expect(orphans.contains(drawerSessionId))
+        #expect(!(orphans.contains("as-d--not-a-complete-drawer-id")))
         #expect(!(orphans.contains("user-session")))
     }
 
@@ -600,20 +607,22 @@ final class ZmxBackendTests {
 
     func test_discoverOrphanSessions_includesDrawerSessions() async {
         // Arrange — mix of main and drawer sessions
+        let knownSessionId = "as-aaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-cccccccccccccccc"
+        let drawerSessionId = "as-d--1111111111111111--2222222222222222"
         executor.enqueue(
             ProcessResult(
                 exitCode: 0,
                 stdout:
-                    "as-abc-111-222\trunning\nas-d--aabb--ccdd\trunning\nuser-session\trunning",
+                    "\(knownSessionId)\trunning\n\(drawerSessionId)\trunning\nuser-session\trunning",
                 stderr: ""
             ))
 
         // Act — exclude the main session, drawer should appear as orphan
-        let orphans = await backend.discoverOrphanSessions(excluding: ["as-abc-111-222"])
+        let orphans = await backend.discoverOrphanSessions(excluding: [knownSessionId])
 
         // Assert
         #expect(orphans.count == 1)
-        #expect(orphans.contains("as-d--aabb--ccdd"))
+        #expect(orphans.contains(drawerSessionId))
         #expect(!(orphans.contains("user-session")))
     }
 

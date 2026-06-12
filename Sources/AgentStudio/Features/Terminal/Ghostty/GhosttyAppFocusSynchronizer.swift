@@ -3,12 +3,10 @@ import GhosttyKit
 import Observation
 import os
 
-@MainActor
-protocol GhosttyAppFocusSetting {
+protocol GhosttyAppFocusSetting: Sendable {
     func setAppFocus(_ app: ghostty_app_t, isActive: Bool)
 }
 
-@MainActor
 private enum LiveGhosttyAppFocusSetter: GhosttyAppFocusSetting {
     case shared
 
@@ -17,7 +15,7 @@ private enum LiveGhosttyAppFocusSetter: GhosttyAppFocusSetting {
     }
 }
 
-private final class GhosttyAppHandleBits {
+final class GhosttyAppHandleBits: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock<UInt?>(initialState: nil)
 
     func update(_ app: ghostty_app_t?) {
@@ -25,8 +23,18 @@ private final class GhosttyAppHandleBits {
         lock.withLock { $0 = appHandleBits }
     }
 
-    func current() -> UInt? {
-        lock.withLock { $0 }
+    @MainActor
+    @discardableResult
+    func withCurrent(_ body: @Sendable (ghostty_app_t) -> Void) -> Bool {
+        lock.withLock { appHandleBits in
+            guard
+                let appHandleBits,
+                let app = UnsafeMutableRawPointer(bitPattern: appHandleBits)
+            else { return false }
+
+            body(app)
+            return true
+        }
     }
 }
 
@@ -36,7 +44,7 @@ extension Ghostty {
     @MainActor
     final class AppFocusSynchronizer {
         private let focusSetter: any GhosttyAppFocusSetting
-        nonisolated(unsafe) private let appHandleBits = GhosttyAppHandleBits()
+        private let appHandleBits = GhosttyAppHandleBits()
         private var appLifecycleStore: AppLifecycleAtom?
         private var isObservingApplicationLifecycle = false
 
@@ -49,6 +57,7 @@ extension Ghostty {
         }
 
         nonisolated func clearAppHandleForDeinit() {
+            // Must run before Ghostty.AppHandle deinit frees ghostty_app_t.
             appHandleBits.update(nil)
         }
 
@@ -84,12 +93,14 @@ extension Ghostty {
             guard let appLifecycleStore else { return }
             let isActive = appLifecycleStore.isActive
 
-            guard
-                let appHandleBits = appHandleBits.current(),
-                let app = UnsafeMutableRawPointer(bitPattern: appHandleBits)
-            else { return }
+            let didSync = appHandleBits.withCurrent { app in
+                // Vendored Ghostty implements ghostty_app_set_focus as a wrapper
+                // around App.focusEvent: redundant-state guard, debug log, boolean
+                // assignment. Keep this lock body to that verified app-focus call.
+                focusSetter.setAppFocus(app, isActive: isActive)
+            }
+            guard didSync else { return }
 
-            focusSetter.setAppFocus(app, isActive: isActive)
             RestoreTrace.log(
                 "Ghostty.AppFocusSynchronizer lifecycleStore.isActive=\(isActive) -> ghostty_app_set_focus(\(isActive))"
             )

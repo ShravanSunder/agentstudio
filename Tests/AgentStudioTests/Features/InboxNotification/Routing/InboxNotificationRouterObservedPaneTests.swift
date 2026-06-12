@@ -482,7 +482,10 @@ struct InboxNotificationRouterObservedPaneTests {
     @Test("observed pane does not auto-clear user-action-required rows")
     func observedPaneDoesNotAutoClearActionOrSecurityRows() async throws {
         let traceRuntime = makeTraceRuntime(name: "inbox-observed-keep", processIdentifier: 411)
-        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        var observedPaneIds: [UUID] = []
+        let fixture = await makeFixture(traceRuntime: traceRuntime) { paneId in
+            observedPaneIds.append(paneId)
+        }
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
         fixture.inboxAtom.append(makeNotification(kind: .securityEvent, paneId: paneId.uuid))
@@ -498,6 +501,11 @@ struct InboxNotificationRouterObservedPaneTests {
 
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1)
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
+        await assertEventuallyMain("focus path should observe the pane before trace drain") {
+            observedPaneIds.contains(paneId.uuid)
+        }
+        await stop(fixture)
+
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         await assertEventuallyMain("kept observed pane row should explain why in trace") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
@@ -507,7 +515,6 @@ struct InboxNotificationRouterObservedPaneTests {
         #expect(contents.contains("\"agentstudio.pane_inbox.cleared_count\":0"))
         #expect(contents.contains("\"agentstudio.pane_inbox.keep_count\":1"))
         #expect(contents.contains("\"agentstudio.inbox.reason\":\"requires_user_action\""))
-        await stop(fixture)
     }
 
     @Test("observed secure input still creates unread notification")

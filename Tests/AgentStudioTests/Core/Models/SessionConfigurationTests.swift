@@ -6,6 +6,34 @@ import Testing
 @Suite(.serialized)
 final class SessionConfigurationTests {
 
+    @Test
+    func test_detectAsync_usesInjectedExecutorForWhichFallback() async {
+        // Arrange
+        let executor = MockProcessExecutor()
+        executor.enqueueSuccess("/bin/echo")
+        executor.enqueueSuccess("zmx 0.test")
+
+        // Act
+        let config = await SessionConfiguration.detect(
+            environment: [:],
+            processExecutor: executor,
+            discoveryLocations: SessionConfiguration.ZmxDiscoveryLocations(
+                bundledBinaryPath: nil,
+                vendorBinaryPath: nil,
+                wellKnownPaths: []
+            )
+        )
+
+        // Assert
+        #expect(config.zmxPath == "/bin/echo")
+        #expect(
+            executor.calls == [
+                MockProcessExecutor.Call(command: "/usr/bin/which", args: ["zmx"], environment: nil),
+                MockProcessExecutor.Call(command: "/bin/echo", args: ["--version"], environment: nil),
+            ]
+        )
+    }
+
     // MARK: - isEnabled Parsing
 
     @Test
@@ -15,7 +43,7 @@ final class SessionConfigurationTests {
         let env: [String: String] = [:]
 
         // Act
-        let config = SessionConfiguration.detect(environment: env)
+        let config = SessionConfiguration.resolved(environment: env, zmxPath: nil)
 
         // Assert
         #expect(config.isEnabled)
@@ -28,7 +56,7 @@ final class SessionConfigurationTests {
         let env = ["AGENTSTUDIO_SESSION_RESTORE": "true"]
 
         // Act
-        let config = SessionConfiguration.detect(environment: env)
+        let config = SessionConfiguration.resolved(environment: env, zmxPath: nil)
 
         // Assert
         #expect(config.isEnabled)
@@ -41,7 +69,7 @@ final class SessionConfigurationTests {
         let env = ["AGENTSTUDIO_SESSION_RESTORE": "1"]
 
         // Act
-        let config = SessionConfiguration.detect(environment: env)
+        let config = SessionConfiguration.resolved(environment: env, zmxPath: nil)
 
         // Assert
         #expect(config.isEnabled)
@@ -54,7 +82,7 @@ final class SessionConfigurationTests {
         let env = ["AGENTSTUDIO_SESSION_RESTORE": "false"]
 
         // Act
-        let config = SessionConfiguration.detect(environment: env)
+        let config = SessionConfiguration.resolved(environment: env, zmxPath: nil)
 
         // Assert
         #expect(!(config.isEnabled))
@@ -115,7 +143,7 @@ final class SessionConfigurationTests {
         let env = ["AGENTSTUDIO_HEALTH_INTERVAL": "60"]
 
         // Act
-        let config = SessionConfiguration.detect(environment: env)
+        let config = SessionConfiguration.resolved(environment: env, zmxPath: nil)
 
         // Assert
         #expect(config.healthCheckInterval == 60.0)
@@ -128,7 +156,7 @@ final class SessionConfigurationTests {
         let env: [String: String] = [:]
 
         // Act
-        let config = SessionConfiguration.detect(environment: env)
+        let config = SessionConfiguration.resolved(environment: env, zmxPath: nil)
 
         // Assert
         #expect(config.healthCheckInterval == 30.0)
@@ -137,7 +165,7 @@ final class SessionConfigurationTests {
     @Test
 
     func test_sessionRestoreDetect_usesExistingSessionsOnlyHiddenRestorePolicy() {
-        let config = SessionConfiguration.detect(environment: [:])
+        let config = SessionConfiguration.resolved(environment: [:], zmxPath: nil)
 
         #expect(config.shouldRestoreHiddenPane(hasExistingSession: true))
         #expect(!config.shouldRestoreHiddenPane(hasExistingSession: false))
@@ -149,7 +177,10 @@ final class SessionConfigurationTests {
 
     func test_zmxDir_pointsToShortSocketSafeAgentStudioSubdir() {
         // Act
-        let config = SessionConfiguration.detect()
+        let config = SessionConfiguration.resolved(
+            environment: ProcessInfo.processInfo.environment,
+            zmxPath: nil
+        )
 
         // Assert — debug builds default to the debug app-state root.
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path

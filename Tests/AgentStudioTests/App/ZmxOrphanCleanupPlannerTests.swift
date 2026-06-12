@@ -6,8 +6,8 @@ import Testing
 @Suite(.serialized)
 struct ZmxOrphanCleanupPlannerTests {
 
-    @Test("returns known session IDs without skip when candidates are resolvable")
-    func test_plan_whenAllCandidatesResolvable_returnsKnownSessionIdsWithoutSkip() {
+    @Test("returns known session IDs when candidates are resolvable")
+    func test_plan_whenAllCandidatesResolvable_returnsKnownSessionIds() {
         // Arrange
         let parentPaneId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
         let drawerPaneId = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
@@ -25,7 +25,6 @@ struct ZmxOrphanCleanupPlannerTests {
         let plan = ZmxOrphanCleanupPlanner.plan(candidates: candidates)
 
         // Assert
-        #expect(!plan.shouldSkipCleanup)
         #expect(
             plan.knownSessionIds
                 == Set([
@@ -37,13 +36,29 @@ struct ZmxOrphanCleanupPlannerTests {
                     ),
                 ])
         )
+        #expect(plan.protectedPaneSegments.isEmpty)
     }
 
-    @Test("marks cleanup skip when any main candidate is unresolvable")
-    func test_plan_whenAnyMainCandidateUnresolvable_setsSkipCleanupTrue() {
+    @Test("protects unresolvable main pane sessions by pane segment")
+    func test_plan_whenMainCandidateUnresolvable_protectsPaneSegment() {
         // Arrange
-        let resolvablePaneId = UUID()
-        let unresolvedPaneId = UUID()
+        let resolvablePaneId = UUID(uuidString: "11111111-1111-1111-AAAA-AAAAAAAAAAAA")!
+        let unresolvedPaneId = UUID(uuidString: "22222222-2222-2222-BBBB-BBBBBBBBBBBB")!
+        let knownSessionId = ZmxBackend.sessionId(
+            repoStableKey: "abcdef0123456789",
+            worktreeStableKey: "fedcba9876543210",
+            paneId: resolvablePaneId
+        )
+        let protectedUnresolvableSessionId = ZmxBackend.sessionId(
+            repoStableKey: "1111222233334444",
+            worktreeStableKey: "5555666677778888",
+            paneId: unresolvedPaneId
+        )
+        let destroyableOrphanId = ZmxBackend.sessionId(
+            repoStableKey: "99990000aaaabbbb",
+            worktreeStableKey: "ccccddddeeeeffff",
+            paneId: UUID(uuidString: "33333333-3333-3333-CCCC-CCCCCCCCCCCC")!
+        )
         let candidates: [ZmxOrphanCleanupCandidate] = [
             .main(
                 paneId: resolvablePaneId,
@@ -61,15 +76,21 @@ struct ZmxOrphanCleanupPlannerTests {
         let plan = ZmxOrphanCleanupPlanner.plan(candidates: candidates)
 
         // Assert
-        #expect(plan.shouldSkipCleanup)
+        #expect(plan.protectedPaneSegments.count == 1)
         #expect(
-            plan.knownSessionIds.contains(
-                ZmxBackend.sessionId(
-                    repoStableKey: "abcdef0123456789",
-                    worktreeStableKey: "fedcba9876543210",
-                    paneId: resolvablePaneId
-                )
-            )
+            plan.knownSessionIds == [knownSessionId]
+        )
+        #expect(
+            plan.destroyableSessionIds(
+                from: [
+                    knownSessionId,
+                    protectedUnresolvableSessionId,
+                    destroyableOrphanId,
+                    "user-session",
+                    "as-user-owned-session",
+                    "as-d--not-a-complete-drawer-id",
+                ]
+            ) == [destroyableOrphanId]
         )
     }
 }

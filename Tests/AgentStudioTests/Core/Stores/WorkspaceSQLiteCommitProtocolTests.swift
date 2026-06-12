@@ -171,6 +171,174 @@ struct WorkspaceSQLiteCommitProtocolTests {
         #expect(try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) == updatedAt)
         #expect(try localRepository.fetchCompletedWorkspaceSQLiteSnapshotAt() == updatedAt)
     }
+
+    @Test("local write followed by core commit failure preserves local drawer state on recovery")
+    func localWriteThenCoreCommitFailurePreservesLocalDrawerStateOnRecovery() async throws {
+        let fixture = try makeDrawerWorkspaceSnapshot(
+            updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.commit.post-local.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.commit.post-local.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+        let failingDatastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue) },
+            beforeCoreSnapshotCommit: { _ in throw InjectedCoreCommitFailure() }
+        )
+
+        do {
+            try await failingDatastore.saveWorkspaceSnapshot(fixture.snapshot)
+            Issue.record("Expected injected core commit failure")
+        } catch is InjectedCoreCommitFailure {
+        } catch {
+            Issue.record("Expected InjectedCoreCommitFailure, got \(error)")
+        }
+
+        #expect(try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: fixture.snapshot.id) == nil)
+        #expect(
+            try WorkspaceLocalRepository(
+                workspaceId: fixture.snapshot.id,
+                databaseWriter: localQueue
+            ).fetchCompletedWorkspaceSQLiteSnapshotAt() == fixture.snapshot.updatedAt
+        )
+
+        let recoveringDatastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue) }
+        )
+
+        let result = await recoveringDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: fixture.snapshot.id)
+
+        guard case .loaded(let recoveredSnapshot, let recoveryEvents) = result else {
+            Issue.record("Expected staged snapshot recovery, got \(result)")
+            return
+        }
+        let recoveredParent = try #require(recoveredSnapshot.panes.first { $0.id == fixture.parentPaneId })
+        let recoveredDrawer = try #require(recoveredParent.drawer)
+        let recoveredTab = try #require(recoveredSnapshot.tabs.first)
+        let recoveredArrangement = try #require(recoveredTab.arrangements.first)
+        let recoveredDrawerView = try #require(recoveredArrangement.drawerViews[recoveredDrawer.drawerId])
+
+        #expect(recoveredDrawer.isExpanded)
+        #expect(recoveredDrawer.paneIds == fixture.drawerChildPaneIds)
+        #expect(recoveredDrawerView.layout.paneIds == fixture.drawerLayoutPaneIds)
+        #expect(recoveredDrawerView.activeChildId == fixture.activeDrawerPaneId)
+        #expect(
+            !recoveryEvents.contains {
+                $0.store == .workspace
+                    && $0.workspaceId == fixture.snapshot.id
+                    && $0.recovery == .localStateRebuilt
+            },
+            "Matching local state was reused, not rebuilt: \(recoveryEvents)"
+        )
+        #expect(
+            try coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(
+                workspaceId: fixture.snapshot.id
+            ) == fixture.snapshot.updatedAt
+        )
+    }
+
+    @Test("staged recovery with synthesized local state reports reset details")
+    func stagedRecoveryWithSynthesizedLocalStateReportsResetDetails() async throws {
+        let fixture = try makeDrawerWorkspaceSnapshot(
+            updatedAt: Date(timeIntervalSince1970: 30)
+        )
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.commit.local-default.core")
+        let repairLocalQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.commit.local-default.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(repairLocalQueue)
+        let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+        let failingDatastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { _ in throw CocoaError(.fileNoSuchFile) }
+        )
+        do {
+            try await failingDatastore.saveWorkspaceSnapshot(fixture.snapshot)
+            Issue.record("Expected local save failure")
+        } catch is CocoaError {
+        } catch {
+            Issue.record("Expected CocoaError, got \(error)")
+        }
+        let recoveringDatastore = WorkspaceSQLiteDatastore(
+            coreRepository: coreRepository,
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: repairLocalQueue) }
+        )
+
+        let result = await recoveringDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: fixture.snapshot.id)
+
+        guard case .loaded(let recoveredSnapshot, let recoveryEvents) = result else {
+            Issue.record("Expected staged snapshot recovery, got \(result)")
+            return
+        }
+        let recoveryEvent = try #require(
+            recoveryEvents.first {
+                $0.store == .workspace
+                    && $0.workspaceId == fixture.snapshot.id
+                    && $0.recovery == .localStateRebuilt
+            }
+        )
+        #expect(recoveryEvent.localStateResetSummary?.drawersCollapsed == 1)
+        #expect(recoveryEvent.localStateResetSummary?.cursorsDefaulted == 4)
+
+        let recoveredParent = try #require(recoveredSnapshot.panes.first { $0.id == fixture.parentPaneId })
+        let recoveredDrawer = try #require(recoveredParent.drawer)
+        #expect(!recoveredDrawer.isExpanded)
+    }
+}
+
+private struct InjectedCoreCommitFailure: Error {}
+
+private struct DrawerWorkspaceSnapshotFixture {
+    var snapshot: WorkspaceSQLiteSnapshot
+    var parentPaneId: UUID
+    var drawerChildPaneIds: [UUID]
+    var drawerLayoutPaneIds: [UUID]
+    var activeDrawerPaneId: UUID
+}
+
+@MainActor
+private func makeDrawerWorkspaceSnapshot(
+    updatedAt: Date
+) throws -> DrawerWorkspaceSnapshotFixture {
+    let store = WorkspaceStore(
+        persistor: WorkspacePersistor(
+            workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        )
+    )
+    let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+    store.appendTab(Tab(paneId: parentPane.id))
+    let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+    let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+
+    store.moveDrawerPane(
+        firstDrawerPane.id,
+        in: parentPane.id,
+        target: .rowSlot(row: .top, insertionIndex: 2),
+        sizingMode: .proportional
+    )
+
+    let snapshot = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshot(
+        identityAtom: store.identityAtom,
+        windowMemoryAtom: store.windowMemoryAtom,
+        repositoryTopologyAtom: store.repositoryTopologyAtom,
+        workspacePaneAtom: store.paneAtom,
+        workspaceTabLayoutAtom: store.tabLayoutAtom,
+        persistedAt: updatedAt
+    )
+
+    return .init(
+        snapshot: snapshot,
+        parentPaneId: parentPane.id,
+        drawerChildPaneIds: [firstDrawerPane.id, secondDrawerPane.id],
+        drawerLayoutPaneIds: [secondDrawerPane.id, firstDrawerPane.id],
+        activeDrawerPaneId: firstDrawerPane.id
+    )
 }
 
 @MainActor

@@ -391,7 +391,12 @@ Stores stable pane hosts by pane ID. `ViewRegistry` stores `PaneHostView` and re
 
 ### PaneTabViewController → `App/Panes/`
 
-Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switching. The container doesn't care what's inside — renamed from `TerminalTabViewController` during LUNA-334 restructure.
+Owns the AppKit pane shell, tab-content host lifecycle, and workspace command
+routing surface. Focus trigger handling is delegated to
+`WorkspaceFocusController`; tab-bar commands, drag/reorder/drop helpers, and
+tab rename popovers are delegated to `TabBarInteractionController`. The
+container doesn't care what's inside — renamed from `TerminalTabViewController`
+during LUNA-334 restructure.
 
 **Deletion test:** passes for any single feature. **Change driver:** tab management behavior changes, not new pane types.
 

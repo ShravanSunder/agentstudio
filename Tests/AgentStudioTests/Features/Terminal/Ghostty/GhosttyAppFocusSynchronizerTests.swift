@@ -1,6 +1,7 @@
 import Foundation
 import GhosttyKit
 import Testing
+import os
 
 @testable import AgentStudio
 
@@ -10,7 +11,11 @@ struct GhosttyAppFocusSynchronizerTests {
     private final class RecordingFocusSetter: GhosttyAppFocusSetting {
         let focusChanges: AsyncStream<Bool>
         private let continuation: AsyncStream<Bool>.Continuation
-        private(set) var deliveredValues: [Bool] = []
+        private let deliveredValuesLock = OSAllocatedUnfairLock<[Bool]>(initialState: [])
+
+        var deliveredValues: [Bool] {
+            deliveredValuesLock.withLock { $0 }
+        }
 
         init() {
             (focusChanges, continuation) = AsyncStream.makeStream(of: Bool.self)
@@ -21,9 +26,57 @@ struct GhosttyAppFocusSynchronizerTests {
         }
 
         func setAppFocus(_ app: ghostty_app_t, isActive: Bool) {
-            deliveredValues.append(isActive)
+            deliveredValuesLock.withLock {
+                $0.append(isActive)
+            }
             continuation.yield(isActive)
         }
+    }
+
+    private final class ClearCompletionProbe: @unchecked Sendable {
+        private let lock = NSLock()
+        private var hasCompletedClear = false
+
+        func markClearCompleted() {
+            lock.withLock {
+                hasCompletedClear = true
+            }
+        }
+
+        var clearCompleted: Bool {
+            lock.withLock {
+                hasCompletedClear
+            }
+        }
+    }
+
+    @Test("handle bits keep clearing from interleaving with current handle use")
+    func appHandleBits_blocksClearUntilCurrentHandleUseCompletes() {
+        let handleBits = GhosttyAppHandleBits()
+        let app = UnsafeMutableRawPointer(bitPattern: 0x1)!
+        let appBits = UInt(bitPattern: app)
+        let clearStarted = DispatchSemaphore(value: 0)
+        let clearCompleted = DispatchSemaphore(value: 0)
+        let clearProbe = ClearCompletionProbe()
+
+        handleBits.update(app)
+
+        handleBits.withCurrent { currentApp in
+            #expect(UInt(bitPattern: currentApp) == appBits)
+
+            DispatchQueue.global(qos: .userInitiated).async {
+                clearStarted.signal()
+                handleBits.update(nil)
+                clearProbe.markClearCompleted()
+                clearCompleted.signal()
+            }
+
+            clearStarted.wait()
+            #expect(!clearProbe.clearCompleted)
+        }
+
+        let clearCompletionResult = clearCompleted.wait(timeout: .now() + 1)
+        #expect(clearCompletionResult == .success)
     }
 
     @Test("pushes lifecycle focus changes to Ghostty")

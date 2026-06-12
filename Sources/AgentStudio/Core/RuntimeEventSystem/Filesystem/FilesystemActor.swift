@@ -8,6 +8,7 @@ import os
 actor FilesystemActor {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemActor")
     static let maxPathsPerFilesChangedEvent = 256
+    typealias PathFilterLoader = @Sendable (URL) async -> FilesystemPathFilter
 
     private struct SchedulingClock: Sendable {
         let now: @Sendable () -> Duration
@@ -70,6 +71,7 @@ actor FilesystemActor {
     private let envelopeClock = ContinuousClock()
     private let schedulingClock: SchedulingClock
     private let groupedWatchedFolderScanner: @Sendable (URL) -> [RepoScanner.RepoScanGroup]
+    private let pathFilterLoader: PathFilterLoader
     private let debounceWindow: Duration
     private let maxFlushLatency: Duration
 
@@ -85,6 +87,8 @@ actor FilesystemActor {
     private var ingressTask: Task<Void, Never>?
     private var drainTask: Task<Void, Never>?
     private var hasShutdown = false
+    private var pendingRegistrationGenerationByWorktreeId: [UUID: UInt64] = [:]
+    private var nextRegistrationGeneration: UInt64 = 0
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -92,12 +96,16 @@ actor FilesystemActor {
         groupedWatchedFolderScanner: @escaping @Sendable (URL) -> [RepoScanner.RepoScanGroup] = {
             RepoScanner().scanForGitReposGrouped(in: $0)
         },
+        pathFilterLoader: @escaping PathFilterLoader = { rootPath in
+            await FilesystemPathFilter.load(forRootPath: rootPath)
+        },
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
     ) {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
         self.groupedWatchedFolderScanner = groupedWatchedFolderScanner
+        self.pathFilterLoader = pathFilterLoader
         schedulingClock = .continuous()
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
@@ -109,6 +117,9 @@ actor FilesystemActor {
         groupedWatchedFolderScanner: @escaping @Sendable (URL) -> [RepoScanner.RepoScanGroup] = {
             RepoScanner().scanForGitReposGrouped(in: $0)
         },
+        pathFilterLoader: @escaping PathFilterLoader = { rootPath in
+            await FilesystemPathFilter.load(forRootPath: rootPath)
+        },
         sleepClock: C,
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
@@ -116,6 +127,7 @@ actor FilesystemActor {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
         self.groupedWatchedFolderScanner = groupedWatchedFolderScanner
+        self.pathFilterLoader = pathFilterLoader
         schedulingClock = .make(clock: sleepClock)
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
@@ -130,9 +142,21 @@ actor FilesystemActor {
     }
 
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
+        guard !hasShutdown else { return }
+        let registrationGeneration = nextRegistrationGeneration
+        nextRegistrationGeneration &+= 1
+        pendingRegistrationGenerationByWorktreeId[worktreeId] = registrationGeneration
         startIngressTaskIfNeeded()
 
         let canonicalRootPath = FilesystemRootOwnership.canonicalRootPath(for: rootPath)
+        let pathFilter = await pathFilterLoader(rootPath)
+
+        guard !hasShutdown,
+            pendingRegistrationGenerationByWorktreeId[worktreeId] == registrationGeneration
+        else {
+            return
+        }
+        pendingRegistrationGenerationByWorktreeId.removeValue(forKey: worktreeId)
 
         let existing = roots[worktreeId]
         roots[worktreeId] = RootState(
@@ -141,7 +165,7 @@ actor FilesystemActor {
             canonicalRootPath: canonicalRootPath,
             isActiveInApp: existing?.isActiveInApp ?? false,
             nextBatchSeq: existing?.nextBatchSeq ?? 0,
-            pathFilter: FilesystemPathFilter.load(forRootPath: rootPath)
+            pathFilter: pathFilter
         )
         pendingChangesByWorktreeId[worktreeId] = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
         fseventStreamClient.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
@@ -155,6 +179,7 @@ actor FilesystemActor {
     }
 
     func unregister(worktreeId: UUID) async {
+        pendingRegistrationGenerationByWorktreeId.removeValue(forKey: worktreeId)
         let removedRoot = roots.removeValue(forKey: worktreeId)
         pendingChangesByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
@@ -172,8 +197,8 @@ actor FilesystemActor {
     }
 
     /// Test seam for deterministic ingress without OS-level FSEvents.
-    func enqueueRawPaths(worktreeId: UUID, paths: [String]) {
-        ingestRawPaths(worktreeId: worktreeId, paths: paths)
+    func enqueueRawPaths(worktreeId: UUID, paths: [String]) async {
+        await ingestRawPaths(worktreeId: worktreeId, paths: paths)
     }
 
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
@@ -220,6 +245,7 @@ actor FilesystemActor {
 
         roots.removeAll(keepingCapacity: false)
         pendingChangesByWorktreeId.removeAll(keepingCapacity: false)
+        pendingRegistrationGenerationByWorktreeId.removeAll(keepingCapacity: false)
         watchedFolderIds.removeAll(keepingCapacity: false)
         watchedFolderRepoGroupsByRoot.removeAll(keepingCapacity: false)
         activePaneWorktreeId = nil
@@ -227,7 +253,7 @@ actor FilesystemActor {
         hasShutdown = true
     }
 
-    private func ingestRawPaths(worktreeId: UUID, paths: [String]) {
+    private func ingestRawPaths(worktreeId: UUID, paths: [String]) async {
         guard roots[worktreeId] != nil else {
             Self.logger.debug(
                 "Dropped filesystem path batch for unregistered worktree \(worktreeId.uuidString, privacy: .public)"
@@ -248,14 +274,23 @@ actor FilesystemActor {
                 continue
             }
 
-            guard var root = roots[ownedPath.worktreeId] else { continue }
+            guard let root = roots[ownedPath.worktreeId] else { continue }
 
             var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
             if Self.isGitIgnoreReloadPath(rawPath: rawPath, relativePath: ownedPath.relativePath) {
-                root.pathFilter = FilesystemPathFilter.load(forRootPath: root.rootPath)
-                roots[ownedPath.worktreeId] = root
-                pendingChanges.recordPendingChange(at: schedulingClock.now())
-                pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
+                let rootPath = root.rootPath
+                let loadedFilter = await pathFilterLoader(rootPath)
+                guard var currentRoot = roots[ownedPath.worktreeId],
+                    currentRoot.rootPath == rootPath
+                else {
+                    continue
+                }
+                currentRoot.pathFilter = loadedFilter
+                roots[ownedPath.worktreeId] = currentRoot
+                var currentPendingChanges =
+                    pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
+                currentPendingChanges.recordPendingChange(at: schedulingClock.now())
+                pendingChangesByWorktreeId[ownedPath.worktreeId] = currentPendingChanges
                 continue
             }
 
@@ -282,12 +317,30 @@ actor FilesystemActor {
             for await batch in stream {
                 guard !Task.isCancelled else { break }
                 guard let self else { break }
+                if batch.didOverflow {
+                    await self.reloadPathFiltersAfterIngressOverflow()
+                }
+                guard !batch.paths.isEmpty else { continue }
                 if await self.isWatchedFolderBatch(batch.worktreeId) {
                     await self.handleWatchedFolderFSEvent(batch)
                 } else {
                     await self.enqueueRawPaths(worktreeId: batch.worktreeId, paths: batch.paths)
                 }
             }
+        }
+    }
+
+    private func reloadPathFiltersAfterIngressOverflow() async {
+        let rootSnapshot = roots.mapValues(\.rootPath)
+        for (worktreeId, rootPath) in rootSnapshot {
+            let loadedFilter = await pathFilterLoader(rootPath)
+            guard var currentRoot = roots[worktreeId],
+                currentRoot.rootPath == rootPath
+            else {
+                continue
+            }
+            currentRoot.pathFilter = loadedFilter
+            roots[worktreeId] = currentRoot
         }
     }
 

@@ -102,6 +102,7 @@ enum SessionBackendError: Error, LocalizedError {
 final class ZmxBackend: SessionBackend {
     /// Prefix for all Agent Studio zmx sessions.
     static let sessionPrefix = "as-"
+    static let drawerSessionPrefix = "as-d--"
 
     /// Default zmx directory for socket/state isolation.
     static let defaultZmxDir: String = {
@@ -184,10 +185,42 @@ final class ZmxBackend: SessionBackend {
     static func drawerSessionId(parentPaneId: UUID, drawerPaneId: UUID) -> String {
         let parentSegment = paneSessionSegment(parentPaneId)
         let drawerSegment = paneSessionSegment(drawerPaneId)
-        return "as-d--\(parentSegment)--\(drawerSegment)"
+        return "\(drawerSessionPrefix)\(parentSegment)--\(drawerSegment)"
     }
 
-    private static func paneSessionSegment(_ paneId: UUID) -> String {
+    static func isAgentStudioSessionId(_ sessionId: String) -> Bool {
+        isStandardSessionId(sessionId) || isDrawerSessionId(sessionId)
+    }
+
+    private static func isStandardSessionId(_ sessionId: String) -> Bool {
+        guard sessionId.hasPrefix(sessionPrefix), !sessionId.hasPrefix(drawerSessionPrefix) else {
+            return false
+        }
+
+        let suffix = String(sessionId.dropFirst(sessionPrefix.count))
+        let segments = suffix.components(separatedBy: "-")
+        return segments.count == 3 && segments.allSatisfy(isLowercaseHex16)
+    }
+
+    private static func isDrawerSessionId(_ sessionId: String) -> Bool {
+        guard sessionId.hasPrefix(drawerSessionPrefix) else {
+            return false
+        }
+
+        let suffix = String(sessionId.dropFirst(drawerSessionPrefix.count))
+        let segments = suffix.components(separatedBy: "--")
+        return segments.count == 2 && segments.allSatisfy(isLowercaseHex16)
+    }
+
+    private static func isLowercaseHex16(_ segment: String) -> Bool {
+        segment.count == 16
+            && segment.utf8.allSatisfy { byte in
+                (byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9"))
+                    || (byte >= UInt8(ascii: "a") && byte <= UInt8(ascii: "f"))
+            }
+    }
+
+    static func paneSessionSegment(_ paneId: UUID) -> String {
         let hex = paneId.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         return String(hex.suffix(16))
     }
@@ -335,7 +368,7 @@ final class ZmxBackend: SessionBackend {
                 .components(separatedBy: "\n")
                 .filter { !$0.isEmpty }
                 .compactMap(Self.extractSessionName(from:))
-                .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("as-d--") }
+                .filter(Self.isAgentStudioSessionId)
                 .filter { !knownIds.contains($0) }
         } catch {
             zmxLogger.warning("Failed to discover orphan sessions: \(error.localizedDescription)")

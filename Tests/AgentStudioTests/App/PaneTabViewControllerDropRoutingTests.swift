@@ -55,7 +55,7 @@ struct PaneTabViewControllerDropRoutingTests {
             ),
             state: state
         )
-        let commitPlan = PaneTabViewController.splitDropCommitPlan(
+        let commitPlan = SplitDropInteractionController.splitDropCommitPlan(
             payload: payload,
             destination: SplitDropCommitDestination(
                 paneId: targetPaneId,
@@ -107,7 +107,7 @@ struct PaneTabViewControllerDropRoutingTests {
         )
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: tabId))
 
-        let commitPlan = PaneTabViewController.splitDropCommitPlan(
+        let commitPlan = SplitDropInteractionController.splitDropCommitPlan(
             payload: payload,
             destination: SplitDropCommitDestination(
                 paneId: destinationPaneId,
@@ -153,7 +153,7 @@ struct PaneTabViewControllerDropRoutingTests {
         )
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: tabId))
 
-        let commitPlan = PaneTabViewController.splitDropCommitPlan(
+        let commitPlan = SplitDropInteractionController.splitDropCommitPlan(
             payload: payload,
             destination: SplitDropCommitDestination(
                 paneId: destinationPaneId,
@@ -196,7 +196,7 @@ struct PaneTabViewControllerDropRoutingTests {
         )
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: tabId))
 
-        let commitPlan = PaneTabViewController.splitDropCommitPlan(
+        let commitPlan = SplitDropInteractionController.splitDropCommitPlan(
             payload: payload,
             destination: SplitDropCommitDestination(
                 paneId: destinationPaneId,

@@ -21,10 +21,40 @@ struct SessionConfiguration: Sendable {
     /// Maximum checkpoint age before it's considered stale.
     let maxCheckpointAge: TimeInterval
 
+    struct ZmxDiscoveryLocations: Sendable, Equatable {
+        let bundledBinaryPath: String?
+        let vendorBinaryPath: String?
+        let wellKnownPaths: [String]
+
+        static var defaults: Self {
+            Self(
+                bundledBinaryPath: Bundle.main.executableURL?
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("zmx").path,
+                vendorBinaryPath: SessionConfiguration.findDevVendorZmx(),
+                wellKnownPaths: [
+                    "/opt/homebrew/bin/zmx",
+                    "/usr/local/bin/zmx",
+                ]
+            )
+        }
+    }
+
     // MARK: - Factory
 
     /// Detect configuration from the current environment.
-    static func detect(environment: [String: String] = ProcessInfo.processInfo.environment) -> Self {
+    @concurrent
+    static func detect(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        processExecutor: any ProcessExecutor = DefaultProcessExecutor(timeout: 2),
+        discoveryLocations: ZmxDiscoveryLocations = .defaults
+    ) async -> Self {
+        let zmxPath = await findZmx(processExecutor: processExecutor, discoveryLocations: discoveryLocations)
+        return resolved(environment: environment, zmxPath: zmxPath)
+    }
+
+    /// Build configuration from already-resolved process facts.
+    static func resolved(environment: [String: String], zmxPath: String?) -> Self {
         let env = environment
 
         let isEnabled =
@@ -32,7 +62,6 @@ struct SessionConfiguration: Sendable {
             .map { $0.lowercased() == "true" || $0 == "1" }
             ?? true
 
-        let zmxPath = findZmx()
         let zmxDir = AppDataPaths.zmxDirectory(environment: env).path
         let healthInterval =
             env["AGENTSTUDIO_HEALTH_INTERVAL"]
@@ -178,54 +207,44 @@ struct SessionConfiguration: Sendable {
     ///
     /// Candidates are validated with a lightweight `--version` probe because
     /// some environments may report a path as executable while launch still fails.
-    private static func findZmx() -> String? {
-        // Avoid blocking startup on main thread. Launch-time detection should stay
-        // lightweight; deeper usability probes can run off-main.
-        let allowBlockingProbe = !Thread.isMainThread
-
+    private static func findZmx(
+        processExecutor: any ProcessExecutor,
+        discoveryLocations: ZmxDiscoveryLocations
+    ) async -> String? {
         // 1. Bundled binary: same directory as the app executable (Contents/MacOS/zmx or .build/debug/zmx)
-        if let bundled = Bundle.main.executableURL?
-            .deletingLastPathComponent()
-            .appendingPathComponent("zmx").path
-        {
-            if isUsableZmxBinary(bundled, allowBlockingProbe: allowBlockingProbe) {
+        if let bundled = discoveryLocations.bundledBinaryPath {
+            if await isUsableZmxBinary(bundled, processExecutor: processExecutor) {
                 return bundled
             }
             RestoreTrace.log("findZmx skip unusable bundled candidate=\(bundled)")
         }
 
         // 2. Vendor build output: for dev builds where zmx was built but not copied
-        if let vendorBin = findDevVendorZmx(),
-            isUsableZmxBinary(vendorBin, allowBlockingProbe: allowBlockingProbe)
+        if let vendorBin = discoveryLocations.vendorBinaryPath,
+            await isUsableZmxBinary(vendorBin, processExecutor: processExecutor)
         {
             return vendorBin
         }
 
         // 3. Well-known PATH locations
-        let candidates = [
-            "/opt/homebrew/bin/zmx",
-            "/usr/local/bin/zmx",
-        ]
-        if let found = candidates.first(where: { isUsableZmxBinary($0, allowBlockingProbe: allowBlockingProbe) }) {
-            return found
+        for candidate in discoveryLocations.wellKnownPaths {
+            if await isUsableZmxBinary(candidate, processExecutor: processExecutor) {
+                return candidate
+            }
         }
 
         // 4. Fallback: check PATH via which
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["zmx"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
         do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let path = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let result = try await processExecutor.execute(
+                command: "/usr/bin/which",
+                args: ["zmx"],
+                cwd: nil,
+                environment: nil
+            )
+            guard result.succeeded else { return nil }
+            let path = result.stdout.trimmedNonEmpty
             if let path, !path.isEmpty,
-                isUsableZmxBinary(path, allowBlockingProbe: allowBlockingProbe)
+                await isUsableZmxBinary(path, processExecutor: processExecutor)
             {
                 return path
             }
@@ -266,40 +285,29 @@ struct SessionConfiguration: Sendable {
     }
 
     /// Validate that a candidate zmx binary can actually launch and respond.
-    private static func isUsableZmxBinary(_ candidatePath: String, allowBlockingProbe: Bool) -> Bool {
+    private static func isUsableZmxBinary(
+        _ candidatePath: String,
+        processExecutor: any ProcessExecutor
+    ) async -> Bool {
         guard FileManager.default.isExecutableFile(atPath: candidatePath) else { return false }
-        guard allowBlockingProbe else { return true }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: candidatePath)
-        process.arguments = ["--version"]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
 
         do {
-            try process.run()
+            let result = try await processExecutor.execute(
+                command: candidatePath,
+                args: ["--version"],
+                cwd: nil,
+                environment: nil
+            )
+            guard result.succeeded else {
+                configLogger.warning(
+                    "zmx candidate probe failed: \(candidatePath) exit=\(result.exitCode)"
+                )
+                return false
+            }
+            return true
         } catch {
             configLogger.warning("zmx candidate failed to launch: \(candidatePath) error=\(error.localizedDescription)")
             return false
         }
-
-        let waitGroup = DispatchGroup()
-        waitGroup.enter()
-        process.terminationHandler = { _ in
-            waitGroup.leave()
-        }
-        if waitGroup.wait(timeout: .now() + .seconds(2)) == .timedOut {
-            process.terminate()
-            configLogger.warning("zmx candidate probe timed out: \(candidatePath)")
-            return false
-        }
-
-        guard process.terminationStatus == 0 else {
-            configLogger.warning(
-                "zmx candidate probe failed: \(candidatePath) exit=\(process.terminationStatus)"
-            )
-            return false
-        }
-        return true
     }
 }

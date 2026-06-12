@@ -39,4 +39,50 @@ struct InboxNotificationClaimTests {
         #expect(InboxNotificationClaimLane.safety.canMergeWithinActivitySession == false)
     }
 
+    @Test("claim coalescence predicate follows read and pane-dismiss state matrix")
+    func claimCoalescencePredicateFollowsReadAndPaneDismissStateMatrix() {
+        for existingIsRead in [false, true] {
+            for existingIsDismissed in [false, true] {
+                for incomingIsRead in [false, true] {
+                    for incomingIsDismissed in [false, true] {
+                        let existing = makeNotification(
+                            isRead: existingIsRead,
+                            isDismissedFromPaneInbox: existingIsDismissed
+                        )
+                        let incoming = makeNotification(
+                            isRead: incomingIsRead,
+                            isDismissedFromPaneInbox: incomingIsDismissed
+                        )
+                        let expected =
+                            (!existingIsRead && !existingIsDismissed)
+                            || (existingIsRead && existingIsDismissed && incomingIsRead
+                                && incomingIsDismissed)
+
+                        #expect(
+                            InboxNotificationClaimCoalescence.canCoalesce(
+                                existing: existing,
+                                incoming: incoming
+                            ) == expected
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func makeNotification(
+        isRead: Bool,
+        isDismissedFromPaneInbox: Bool
+    ) -> InboxNotification {
+        InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: .unseenActivity,
+            title: "Activity",
+            body: nil,
+            source: .pane(.init(paneId: UUID())),
+            isRead: isRead,
+            isDismissedFromPaneInbox: isDismissedFromPaneInbox
+        )
+    }
 }

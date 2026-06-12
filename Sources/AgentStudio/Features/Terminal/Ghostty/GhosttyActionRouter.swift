@@ -18,76 +18,6 @@ extension Ghostty {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
         @MainActor static var startupTraceRecorder: AgentStudioStartupTraceRecorder?
         static let actionTraceQueueStore = GhosttyActionTraceQueueStore()
-        static let explicitlyRoutedTags: Set<GhosttyActionTag> = [
-            .newTab,
-            .ringBell,
-            .setTitle,
-            .setTabTitle,
-            .pwd,
-            .newSplit,
-            .gotoSplit,
-            .resizeSplit,
-            .equalizeSplits,
-            .toggleSplitZoom,
-            .closeTab,
-            .gotoTab,
-            .moveTab,
-            .sizeLimit,
-            .initialSize,
-            .cellSize,
-            .desktopNotification,
-            .promptTitle,
-            .mouseShape,
-            .mouseVisibility,
-            .mouseOverLink,
-            .rendererHealth,
-            .secureInput,
-            .keySequence,
-            .keyTable,
-            .colorChange,
-            .reloadConfig,
-            .configChange,
-            .undo,
-            .redo,
-            .openURL,
-            .progressReport,
-            .commandFinished,
-            .scrollbar,
-            .startSearch,
-            .endSearch,
-            .searchTotal,
-            .searchSelected,
-            .readOnly,
-            .copyTitleToClipboard,
-        ]
-        static let deferredTags: Set<GhosttyActionTag> = []
-        static let interceptedTags: Set<GhosttyActionTag> = [
-            .quit,
-            .newWindow,
-            .closeAllWindows,
-            .toggleMaximize,
-            .toggleFullscreen,
-            .toggleTabOverview,
-            .toggleWindowDecorations,
-            .toggleQuickTerminal,
-            .toggleCommandPalette,
-            .toggleVisibility,
-            .toggleBackgroundOpacity,
-            .gotoWindow,
-            .presentTerminal,
-            .resetWindowSize,
-            .inspector,
-            .showGtkInspector,
-            .renderInspector,
-            .render,
-            .openConfig,
-            .quitTimer,
-            .floatWindow,
-            .closeWindow,
-            .checkForUpdates,
-            .showChildExited,
-            .showOnScreenKeyboard,
-        ]
 
         static func handleAction(
             _ appPtr: ghostty_app_t,
@@ -129,6 +59,31 @@ extension Ghostty {
                 reason: nil
             )
 
+            if let routingResult = routingDecision(
+                for: actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return routingResult
+            }
+
+            return fallbackUnhandledKnownAction(
+                actionTag: actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                routingLookupProvider: routingLookupProvider
+            )
+        }
+
+        static func routingDecision(
+            for actionTag: GhosttyActionTag,
+            rawActionTag: UInt32,
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+        ) -> Bool? {
             if interceptedTags.contains(actionTag) {
                 return handleInterceptedAction(
                     actionTag,
@@ -157,7 +112,27 @@ extension Ghostty {
                 return observedActionResult
             }
 
-            preconditionFailure("Ghostty action tag \(actionTag) missing routing decision")
+            return nil
+        }
+
+        static func fallbackUnhandledKnownAction(
+            actionTag: GhosttyActionTag,
+            rawActionTag: UInt32,
+            target: ghostty_target_s,
+            routingLookupProvider _: @escaping GhosttyActionRoutingLookupProvider
+        ) -> Bool {
+            let targetTag = UInt32(truncatingIfNeeded: target.tag.rawValue)
+            ghosttyLogger.error(
+                "Ghostty action tag \(rawActionTag, privacy: .public) (\(String(describing: actionTag), privacy: .public)) missing routing decision for targetTag=\(targetTag, privacy: .public); returning unhandled to Ghostty"
+            )
+            traceGhosttyAction(
+                body: "ghostty.action.unhandled_known",
+                actionTag: rawActionTag,
+                signalClass: .unhandled,
+                routeResult: false,
+                reason: "missing_routing_decision"
+            )
+            return false
         }
 
         private static func handleWorkspaceAction(

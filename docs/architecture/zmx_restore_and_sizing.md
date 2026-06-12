@@ -131,18 +131,21 @@ On app launch, restore flow should reconcile persisted state against live zmx da
    - persisted + live: mark runnable and restore surface.
    - persisted + missing: mark expired and show restart placeholder.
 3. Classify runtime-only sessions:
-   - live + not persisted: orphan candidate (grace period before kill).
+   - live + not persisted/protected: orphan candidate.
 4. Start periodic health monitoring after restore.
 
 `sessionId` in this document means the zmx daemon session name, not the primary
 pane identity.
 
-## Orphan Cleanup TTL Policy
+## Orphan Cleanup Safety Policy
 
-1. Orphans are never killed immediately at discovery.
-2. Apply a grace TTL (for example, 60s) before cleanup.
-3. Re-check liveness before kill at TTL expiration.
-4. Log discovery time, kill attempt time, and outcome.
+1. Cleanup starts after launch restore completes, not during visible-pane restore.
+2. Known restored panes protect their exact derived zmx session IDs.
+3. Restored panes whose repo/worktree keys cannot be resolved still protect any
+   discovered app session containing their embedded 16-hex pane segment.
+4. Destroy only Agent Studio-prefixed session IDs outside the known/protected
+   sets.
+5. Log the full session ID before each destroy attempt.
 
 ## Test Coverage
 
@@ -175,7 +178,7 @@ The automated suites cover the attach/sizing gate policy and zmx daemon lifecycl
 ## Ticket Mapping
 
 - `LUNA-295`: `Two Attach Paths (Current + Target)` → see also [Contract 5a: Attach Readiness Policy](pane_runtime_architecture.md#contract-5a-attach-readiness-policy-luna-295)
-- `LUNA-324`: `Restart Reconcile Policy (LUNA-324)` and `Orphan Cleanup TTL Policy` → see also [Contract 5b: Restart Reconcile Policy](pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
+- `LUNA-324`: `Restart Reconcile Policy (LUNA-324)` and `Orphan Cleanup Safety Policy` → see also [Contract 5b: Restart Reconcile Policy](pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
 - `LUNA-342`: `Lifecycle Facts (Ghostty + zmx)` and contract wording in this document
 - `LUNA-354`: ZmxIPCClient — direct IPC replacing CLI shell-outs (spec: `docs/superpowers/specs/2026-03-30-zmx-ipc-client-design.md`)
 

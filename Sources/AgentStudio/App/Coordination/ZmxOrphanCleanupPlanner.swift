@@ -2,7 +2,15 @@ import Foundation
 
 struct ZmxOrphanCleanupPlan: Equatable {
     let knownSessionIds: Set<String>
-    let shouldSkipCleanup: Bool
+    let protectedPaneSegments: Set<String>
+
+    func destroyableSessionIds(from discoveredSessionIds: [String]) -> [String] {
+        discoveredSessionIds.filter { sessionId in
+            ZmxBackend.isAgentStudioSessionId(sessionId)
+                && !knownSessionIds.contains(sessionId)
+                && !protectedPaneSegments.contains { sessionId.contains($0) }
+        }
+    }
 }
 
 enum ZmxOrphanCleanupCandidate: Equatable {
@@ -12,9 +20,10 @@ enum ZmxOrphanCleanupCandidate: Equatable {
 
 enum ZmxOrphanCleanupPlanner {
     static func plan(candidates: [ZmxOrphanCleanupCandidate]) -> ZmxOrphanCleanupPlan {
-        var hasUnresolvableMainPane = false
         var knownSessionIds: Set<String> = []
+        var protectedPaneSegments: Set<String> = []
         knownSessionIds.reserveCapacity(candidates.count)
+        protectedPaneSegments.reserveCapacity(candidates.count)
 
         for candidate in candidates {
             switch candidate {
@@ -24,7 +33,7 @@ enum ZmxOrphanCleanupPlanner {
                 )
             case .main(let paneId, let repoStableKey, let worktreeStableKey):
                 guard let repoStableKey, let worktreeStableKey else {
-                    hasUnresolvableMainPane = true
+                    protectedPaneSegments.insert(ZmxBackend.paneSessionSegment(paneId))
                     continue
                 }
                 knownSessionIds.insert(
@@ -39,7 +48,7 @@ enum ZmxOrphanCleanupPlanner {
 
         return ZmxOrphanCleanupPlan(
             knownSessionIds: knownSessionIds,
-            shouldSkipCleanup: hasUnresolvableMainPane
+            protectedPaneSegments: protectedPaneSegments
         )
     }
 }

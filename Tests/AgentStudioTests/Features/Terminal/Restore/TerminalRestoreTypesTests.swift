@@ -7,7 +7,7 @@ import Testing
 struct TerminalRestoreTypesTests {
     @Test
     func hiddenRestorePolicy_usesExistingSessionsOnlyBehavior() {
-        let config = SessionConfiguration.detect()
+        let config = SessionConfiguration.resolved(environment: [:], zmxPath: nil)
 
         #expect(config.shouldRestoreHiddenPane(hasExistingSession: true))
         #expect(!config.shouldRestoreHiddenPane(hasExistingSession: false))

@@ -12,6 +12,11 @@ struct DarwinFSEventStreamClientTests {
         client.shutdown()
     }
 
+    @Test("ingress stream uses bounded newest buffering")
+    func ingressStreamUsesBoundedNewestBuffering() {
+        #expect(DarwinFSEventStreamClient.ingressBufferLimit == 256)
+    }
+
     @Test("register/unregister lifecycle is idempotent")
     func registerUnregisterLifecycleIsIdempotent() async {
         let client = DarwinFSEventStreamClient()

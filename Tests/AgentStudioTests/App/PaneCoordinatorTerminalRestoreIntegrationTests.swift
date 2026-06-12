@@ -45,9 +45,9 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: .shared,
+            sessionConfiguration: fixtureSessionConfiguration,
             windowLifecycleStore: windowLifecycleStore
         )
-        coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
             sessionConfiguration: fixtureSessionConfiguration,
             liveSessionIdsProvider: { _ in [] }
@@ -213,6 +213,38 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
+    }
+
+    @Test
+    func restoreAllViews_emitsRestoreTraceMetricsFromCallSites() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let pane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id, name: "Visible")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+
+        let capture = await RestoreTrace.withCapturedMessages {
+            await harness.coordinator.restoreAllViews(in: trustedBounds)
+        }
+
+        let messages = capture.messages.joined(separator: "\n")
+        #expect(messages.contains("metric=zmx_hidden_discovery"))
+        #expect(messages.contains("hidden=0 liveSessions=0"))
+        #expect(messages.contains("metric=surface_create"))
+        #expect(messages.contains("content=terminal"))
+        #expect(messages.contains("outcome=failed"))
+        #expect(messages.contains("metric=pane_restore"))
+        #expect(messages.contains("metric=restore_all_views"))
+        #expect(messages.contains("panes=1 visible=1 hidden=0"))
+        #expect(messages.contains("failed=1"))
     }
 
     @Test

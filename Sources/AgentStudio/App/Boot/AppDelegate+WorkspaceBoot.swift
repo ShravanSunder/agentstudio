@@ -164,6 +164,7 @@ extension AppDelegate {
                 self?.recordPersistenceRecovery(event)
             }
         )
+        sessionConfiguration = await SessionConfiguration.detect()
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         await store.restoreAsync()
@@ -251,7 +252,6 @@ extension AppDelegate {
         filesystemSource: inout FilesystemGitPipeline?
     ) {
         runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
-        cleanupOrphanZmxSessions()
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
         seedSlotsForRestoredPanes()
@@ -271,6 +271,7 @@ extension AppDelegate {
             paneEventBus: paneRuntimeBus,
             closeTransitionCoordinator: closeTransitionCoordinator,
             filesystemSource: pipeline,
+            sessionConfiguration: sessionConfiguration,
             windowLifecycleStore: windowLifecycleStore
         )
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
