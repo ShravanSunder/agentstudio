@@ -169,7 +169,7 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test]
-description = "Run default test suite (excludes E2E + ZmxE2E by default)"
+description = "Run default test suite (excludes isolated OTLP smoke, E2E, and ZmxE2E by default)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -209,7 +209,7 @@ fi
 """
 
 [tasks.test-fast]
-description = "Run fast lane: unit + non-WebKit integration tests, excluding WebKit/E2E/ZmxE2E"
+description = "Run fast lane: unit + non-WebKit integration tests, excluding isolated OTLP smoke/WebKit/E2E/ZmxE2E"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -244,6 +244,28 @@ source scripts/swift-test-helpers.sh
 
 prebuild_swift_tests
 run_webkit_suites
+"""
+
+[tasks.test-otlp-smoke]
+description = "Run isolated real OTLP bootstrap/export smoke"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
+TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
+echo "[test-otlp-smoke] BUILD_PATH=$BUILD_PATH"
+echo "[test-otlp-smoke] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
+
+LOG_PREFIX="test-otlp-smoke"
+EXTRA_SWIFT_TEST_ARGS=""
+source scripts/swift-test-helpers.sh
+
+prebuild_swift_tests
+run_swift_with_timeout \
+  "AgentStudioOTLPBootstrapSmokeTests" \
+  "$TIMEOUT_SECONDS" \
+  env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter AgentStudioOTLPBootstrapSmokeTests --build-path "$BUILD_PATH"
 """
 
 [tasks.test-coverage]
