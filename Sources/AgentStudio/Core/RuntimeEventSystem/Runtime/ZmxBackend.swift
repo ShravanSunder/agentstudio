@@ -183,8 +183,37 @@ final class ZmxBackend: SessionBackend {
             && sessionId.hasSuffix("--\(paneSessionSegment(paneId))")
     }
 
+    static func isValidStoredMainSessionId(_ sessionId: String, paneId: UUID) -> Bool {
+        let segments = sessionId.split(separator: "-", omittingEmptySubsequences: false)
+        guard segments.count == 4, segments[0] == "as" else { return false }
+        return isLowercaseHex16(segments[1])
+            && isLowercaseHex16(segments[2])
+            && segments[3] == Substring(paneSessionSegment(paneId))
+    }
+
+    static func isValidStoredDrawerSessionId(
+        _ sessionId: String,
+        parentPaneId: UUID,
+        drawerPaneId: UUID
+    ) -> Bool {
+        let prefix = "\(sessionPrefix)d--"
+        guard sessionId.hasPrefix(prefix) else { return false }
+        let tail = String(sessionId.dropFirst(prefix.count))
+        let segments = tail.components(separatedBy: "--")
+        guard segments.count == 2 else { return false }
+        return segments[0] == paneSessionSegment(parentPaneId)
+            && segments[1] == paneSessionSegment(drawerPaneId)
+    }
+
     private static func isDrawerSessionId(_ sessionId: String) -> Bool {
         sessionId.hasPrefix("\(sessionPrefix)d--")
+    }
+
+    private static func isLowercaseHex16(_ value: Substring) -> Bool {
+        guard value.count == 16 else { return false }
+        return value.unicodeScalars.allSatisfy { scalar in
+            (48...57).contains(scalar.value) || (97...102).contains(scalar.value)
+        }
     }
 
     // MARK: - Availability

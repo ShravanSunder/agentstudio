@@ -210,7 +210,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Runs once at startup to prevent accumulation across app restarts.
     /// Called from `applicationDidFinishLaunching` (always main thread).
     @MainActor
-    func cleanupOrphanZmxSessions() {
+    func cleanupOrphanZmxSessions() async {
         let config = SessionConfiguration.detect()
         guard let zmxPath = config.zmxPath else {
             appLogger.debug("zmx not found — skipping orphan cleanup")
@@ -220,35 +220,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: config)
         let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
 
-        Task { @MainActor in
-            let cleanupTask = Task { @MainActor () -> (any Error)? in
-                do {
-                    try await self.runOrphanZmxCleanup(
-                        backend: backend,
-                        terminalRestoreRuntime: terminalRestoreRuntime
-                    )
-                    return nil
-                } catch {
-                    return error
-                }
-            }
-            let timeoutTask = Task {
-                do {
-                    try await Task.sleep(nanoseconds: 30_000_000_000)
-                    cleanupTask.cancel()
-                } catch {}
-            }
-
+        let cleanupTask = Task { @MainActor () -> (any Error)? in
             do {
-                if let cleanupError = await cleanupTask.value {
-                    throw cleanupError
-                }
-                timeoutTask.cancel()
-            } catch is CancellationError {
-                appLogger.warning("Orphan zmx cleanup timed out after 30s")
+                try await self.runOrphanZmxCleanup(
+                    backend: backend,
+                    terminalRestoreRuntime: terminalRestoreRuntime
+                )
+                return nil
             } catch {
-                appLogger.warning("Orphan zmx cleanup failed: \(error.localizedDescription)")
+                return error
             }
+        }
+        let timeoutTask = Task {
+            do {
+                try await Task.sleep(nanoseconds: 30_000_000_000)
+                cleanupTask.cancel()
+            } catch {}
+        }
+
+        do {
+            if let cleanupError = await cleanupTask.value {
+                throw cleanupError
+            }
+            timeoutTask.cancel()
+        } catch is CancellationError {
+            appLogger.warning("Orphan zmx cleanup timed out after 30s")
+        } catch {
+            appLogger.warning("Orphan zmx cleanup failed: \(error.localizedDescription)")
         }
     }
 
@@ -263,6 +261,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
         let cleanupPlan = hydrationPlan.cleanupPlan
 
+        guard await persistHydratedZmxSessionAnchors(hydrationPlan.sessionIdsToPersistByPaneId) else {
+            return
+        }
+
         if cleanupPlan.shouldSkipCleanup {
             appLogger.warning(
                 "Skipping orphan zmx cleanup: unable to resolve one or more persisted zmx pane session IDs"
@@ -273,9 +275,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             appLogger.info(
                 "Orphan cleanup: protecting \(cleanupPlan.knownSessionIds.count) known persisted zmx session(s)"
             )
-        }
-        guard await persistHydratedZmxSessionAnchors(hydrationPlan.sessionIdsToPersistByPaneId) else {
-            return
         }
 
         let orphans = cleanupPlan.destroyableOrphanSessionIds(from: liveSessionIds)

@@ -319,6 +319,15 @@ Resolved by plan review:
 2. Pre-009 backup is retained indefinitely until a later explicit schema-backup cleanup decision; no 7-day GC in this plan.
 3. Adoption ships enabled in the Phase-A hydration prepass only; it is same-kind, exact-one-match only.
 
+## Post-Review Hardening
+
+Implementation review on 2026-06-12 accepted and addressed these issues before PR handoff:
+
+- Pre-009 backup creation and verified restore were added at the backend factory boundary before migration 009, including direct 007-to-009 upgrades where 008 and 009 run in one migrator pass.
+- Boot-time cleanup now persists hydrated anchors before skip-mode cleanup returns, and boot awaits cleanup/hydration before launch restore creates terminal views.
+- Stored zmx session ids are validated against exact app-owned id shapes before restore or cleanup trusts them.
+- Ambiguous legacy live-session matches protect sessions for the current boot but do not persist guessed anchors; only stored valid anchors or unique same-kind live matches persist.
+
 ## Next
 
 Implementation is complete through T11 in this worktree. Remaining follow-through before PR:

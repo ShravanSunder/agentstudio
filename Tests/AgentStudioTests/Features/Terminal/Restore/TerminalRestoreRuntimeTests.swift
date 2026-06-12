@@ -206,6 +206,51 @@ struct TerminalRestoreRuntimeTests {
     }
 
     @Test
+    func zmxSessionId_ignoresStoredAnchor_whenItDoesNotMatchPane() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-restore-invalid-anchor-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let repo = store.addRepo(at: tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let pane = store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let foreignSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: UUID(uuidString: "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD")!
+        )
+        _ = store.paneAtom.setTerminalZmxSessionId(pane.id, sessionId: foreignSessionId)
+        let paneWithInvalidStoredAnchor = try #require(store.paneAtom.pane(pane.id))
+
+        let runtime = TerminalRestoreRuntime(
+            sessionConfiguration: SessionConfiguration(
+                isEnabled: true,
+                zmxPath: "/tmp/fake-zmx",
+                zmxDir: "/tmp/fake-zmx-dir",
+                healthCheckInterval: 30,
+                maxCheckpointAge: 60
+            )
+        )
+
+        let sessionId = runtime.zmxSessionId(for: paneWithInvalidStoredAnchor, store: store)
+
+        let expectedDerivedSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: pane.id
+        )
+        #expect(sessionId == expectedDerivedSessionId)
+        #expect(sessionId != foreignSessionId)
+    }
+
+    @Test
     func zmxAttachCommand_isNil_whenSessionRestoreIsDisabled() {
         let store = WorkspaceStore()
         let pane = store.createPane(

@@ -56,15 +56,15 @@ enum ZmxOrphanCleanupPlanner {
                 protectedDrawerPaneIds.insert(paneId)
             }
 
-            let resolvedSessionId = resolvedSessionId(for: candidate, liveSessionIds: liveSessionIds)
-            guard let resolvedSessionId else {
+            let resolution = sessionResolution(for: candidate, liveSessionIds: liveSessionIds)
+            guard let sessionIdForCleanup = resolution.sessionIdForCleanup else {
                 hasUnresolvablePane = true
                 continue
             }
 
-            knownSessionIds.insert(resolvedSessionId)
-            if candidate.storedSessionId == nil {
-                sessionIdsToPersistByPaneId[paneId] = resolvedSessionId
+            knownSessionIds.insert(sessionIdForCleanup)
+            if let sessionIdToPersist = resolution.sessionIdToPersist {
+                sessionIdsToPersistByPaneId[paneId] = sessionIdToPersist
             }
         }
 
@@ -79,21 +79,27 @@ enum ZmxOrphanCleanupPlanner {
         )
     }
 
-    private static func resolvedSessionId(
+    private static func sessionResolution(
         for candidate: ZmxOrphanCleanupCandidate,
         liveSessionIds: Set<String>
-    ) -> String? {
+    ) -> ZmxSessionAnchorResolution {
         if let storedSessionId = candidate.storedSessionId {
-            return storedSessionId
+            return .init(sessionIdForCleanup: storedSessionId, sessionIdToPersist: nil)
         }
 
         let liveMatches = liveSessionIds.filter { candidate.matchesLiveSessionId($0) }
         if liveMatches.count == 1 {
-            return liveMatches.first
+            let adoptedSessionId = liveMatches.first
+            return .init(sessionIdForCleanup: adoptedSessionId, sessionIdToPersist: adoptedSessionId)
         }
 
-        return candidate.derivedSessionId
+        return .init(sessionIdForCleanup: candidate.derivedSessionId, sessionIdToPersist: nil)
     }
+}
+
+private struct ZmxSessionAnchorResolution {
+    let sessionIdForCleanup: String?
+    let sessionIdToPersist: String?
 }
 
 private enum ZmxOrphanCleanupCandidateKind {
@@ -111,8 +117,24 @@ extension ZmxOrphanCleanupCandidate {
 
     fileprivate var storedSessionId: String? {
         switch self {
-        case .drawer(_, _, let storedSessionId, _), .main(_, let storedSessionId, _):
-            storedSessionId
+        case .drawer(let parentPaneId, let paneId, let storedSessionId, _):
+            guard let storedSessionId,
+                ZmxBackend.isValidStoredDrawerSessionId(
+                    storedSessionId,
+                    parentPaneId: parentPaneId,
+                    drawerPaneId: paneId
+                )
+            else {
+                return nil
+            }
+            return storedSessionId
+        case .main(let paneId, let storedSessionId, _):
+            guard let storedSessionId,
+                ZmxBackend.isValidStoredMainSessionId(storedSessionId, paneId: paneId)
+            else {
+                return nil
+            }
+            return storedSessionId
         }
     }
 

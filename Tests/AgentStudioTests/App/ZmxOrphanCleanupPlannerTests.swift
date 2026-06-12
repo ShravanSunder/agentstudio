@@ -39,13 +39,7 @@ struct ZmxOrphanCleanupPlannerTests {
         // Assert
         let plan = hydrationPlan.cleanupPlan
         #expect(!plan.shouldSkipCleanup)
-        #expect(
-            hydrationPlan.sessionIdsToPersistByPaneId
-                == [
-                    drawerPaneId: drawerSessionId,
-                    mainPaneId: mainSessionId,
-                ]
-        )
+        #expect(hydrationPlan.sessionIdsToPersistByPaneId.isEmpty)
         #expect(
             plan.knownSessionIds
                 == Set([
@@ -199,7 +193,7 @@ struct ZmxOrphanCleanupPlannerTests {
         // Assert
         #expect(!hydrationPlan.cleanupPlan.shouldSkipCleanup)
         #expect(hydrationPlan.cleanupPlan.knownSessionIds == [derivedSessionId])
-        #expect(hydrationPlan.sessionIdsToPersistByPaneId == [paneId: derivedSessionId])
+        #expect(hydrationPlan.sessionIdsToPersistByPaneId.isEmpty)
         #expect(
             hydrationPlan.cleanupPlan.destroyableOrphanSessionIds(
                 from: [firstLiveMatch, secondLiveMatch, unrelatedLiveSessionId]
@@ -230,11 +224,89 @@ struct ZmxOrphanCleanupPlannerTests {
 
         // Assert
         #expect(hydrationPlan.cleanupPlan.knownSessionIds == [derivedMainSessionId])
-        #expect(hydrationPlan.sessionIdsToPersistByPaneId == [paneId: derivedMainSessionId])
+        #expect(hydrationPlan.sessionIdsToPersistByPaneId.isEmpty)
         #expect(
             hydrationPlan.cleanupPlan.destroyableOrphanSessionIds(from: [liveDrawerSessionId]) == [
                 liveDrawerSessionId
             ])
+    }
+
+    @Test("does not persist ambiguous legacy main matches but adopts when ambiguity clears")
+    func test_plan_whenAmbiguousMatchClears_adoptsOnLaterPlan() {
+        // Arrange
+        let paneId = UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!
+        let derivedSessionId = ZmxBackend.sessionId(
+            repoStableKey: "3333333333333333",
+            worktreeStableKey: "4444444444444444",
+            paneId: paneId
+        )
+        let firstLiveMatch = ZmxBackend.sessionId(
+            repoStableKey: "1111111111111111",
+            worktreeStableKey: "2222222222222222",
+            paneId: paneId
+        )
+        let secondLiveMatch = ZmxBackend.sessionId(
+            repoStableKey: "5555555555555555",
+            worktreeStableKey: "6666666666666666",
+            paneId: paneId
+        )
+        let candidates: [ZmxOrphanCleanupCandidate] = [
+            .main(paneId: paneId, storedSessionId: nil, derivedSessionId: derivedSessionId)
+        ]
+
+        // Act
+        let ambiguousPlan = ZmxOrphanCleanupPlanner.plan(
+            candidates: candidates,
+            liveSessionIds: [firstLiveMatch, secondLiveMatch]
+        )
+        let laterUnambiguousPlan = ZmxOrphanCleanupPlanner.plan(
+            candidates: candidates,
+            liveSessionIds: [firstLiveMatch]
+        )
+
+        // Assert
+        #expect(ambiguousPlan.sessionIdsToPersistByPaneId.isEmpty)
+        #expect(
+            ambiguousPlan.cleanupPlan.destroyableOrphanSessionIds(
+                from: [firstLiveMatch, secondLiveMatch]
+            ).isEmpty
+        )
+        #expect(laterUnambiguousPlan.sessionIdsToPersistByPaneId == [paneId: firstLiveMatch])
+    }
+
+    @Test("invalid stored session IDs are ignored during cleanup planning")
+    func test_plan_whenStoredSessionIdDoesNotMatchPane_ignoresStoredIdAndAdoptsLiveMatch() {
+        // Arrange
+        let paneId = UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!
+        let foreignPaneId = UUID(uuidString: "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD")!
+        let invalidStoredSessionId = ZmxBackend.sessionId(
+            repoStableKey: "1111111111111111",
+            worktreeStableKey: "2222222222222222",
+            paneId: foreignPaneId
+        )
+        let derivedSessionId = ZmxBackend.sessionId(
+            repoStableKey: "3333333333333333",
+            worktreeStableKey: "4444444444444444",
+            paneId: paneId
+        )
+        let liveSessionId = ZmxBackend.sessionId(
+            repoStableKey: "5555555555555555",
+            worktreeStableKey: "6666666666666666",
+            paneId: paneId
+        )
+        let candidates: [ZmxOrphanCleanupCandidate] = [
+            .main(paneId: paneId, storedSessionId: invalidStoredSessionId, derivedSessionId: derivedSessionId)
+        ]
+
+        // Act
+        let hydrationPlan = ZmxOrphanCleanupPlanner.plan(
+            candidates: candidates,
+            liveSessionIds: [liveSessionId]
+        )
+
+        // Assert
+        #expect(hydrationPlan.cleanupPlan.knownSessionIds == [liveSessionId])
+        #expect(hydrationPlan.sessionIdsToPersistByPaneId == [paneId: liveSessionId])
     }
 
     @MainActor
