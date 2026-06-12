@@ -69,6 +69,36 @@ enum SessionBackendError: Error, LocalizedError {
     }
 }
 
+enum ZmxSessionInventoryOutcome: Equatable, Sendable {
+    case complete
+    case unavailable(String)
+    case skipped(String)
+
+    var rawValue: String {
+        switch self {
+        case .complete:
+            return "complete"
+        case .unavailable:
+            return "unavailable"
+        case .skipped:
+            return "skipped"
+        }
+    }
+}
+
+struct ZmxSessionInventorySnapshot: Equatable, Sendable {
+    let outcome: ZmxSessionInventoryOutcome
+    let sessionIds: Set<String>
+
+    static func complete(_ sessionIds: Set<String>) -> Self {
+        Self(outcome: .complete, sessionIds: sessionIds)
+    }
+
+    static func unavailable(_ reason: String) -> Self {
+        Self(outcome: .unavailable(reason), sessionIds: [])
+    }
+}
+
 // MARK: - ZmxBackend
 
 /// zmx-based implementation of SessionBackend.
@@ -332,28 +362,43 @@ final class ZmxBackend: SessionBackend {
         await healthCheck(handle)
     }
 
-    /// Discover zmx sessions that are not tracked by the store.
+    /// Discover live AgentStudio-owned zmx sessions.
     /// Filters by the compact main-session and drawer-session prefixes.
-    func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String] {
+    func discoverAgentStudioSessions() async -> ZmxSessionInventorySnapshot {
         do {
             let result = try await executeWithRetry(
                 command: zmxPath,
                 args: ["list"],
-                operation: "zmx list for orphan discovery"
+                operation: "zmx list for AgentStudio session inventory"
             )
 
-            guard result.succeeded else { return [] }
+            guard result.succeeded else {
+                return .unavailable(result.stderr)
+            }
 
             // Parse zmx list output — each line may contain a session name.
             // Extract session names that start with our prefix.
-            return result.stdout
+            let sessionIds = result.stdout
                 .components(separatedBy: "\n")
                 .filter { !$0.isEmpty }
                 .compactMap(Self.extractSessionName(from:))
                 .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("as-d--") }
-                .filter { !knownIds.contains($0) }
+            return .complete(Set(sessionIds))
         } catch {
-            zmxLogger.warning("Failed to discover orphan sessions: \(error.localizedDescription)")
+            zmxLogger.warning("Failed to discover AgentStudio zmx sessions: \(error.localizedDescription)")
+            return .unavailable(error.localizedDescription)
+        }
+    }
+
+    /// Discover zmx sessions that are not tracked by the store.
+    func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String] {
+        let inventory = await discoverAgentStudioSessions()
+        switch inventory.outcome {
+        case .complete:
+            return inventory.sessionIds
+                .filter { !knownIds.contains($0) }
+                .sorted()
+        case .unavailable, .skipped:
             return []
         }
     }

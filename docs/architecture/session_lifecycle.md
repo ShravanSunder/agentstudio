@@ -10,7 +10,7 @@ A pane's identity (`PaneId`) is stable across its entire lifecycle — creation,
 
 `PaneId` is the only primary identity. zmx session names are spawn-time
 anchors: minted deterministically when the pane is created, stored on terminal
-content, and read back verbatim for attach, restore, and orphan cleanup. The
+content, and read back verbatim for attach, restore, and startup reconciliation. The
 deterministic `ZmxBackend` helpers are ID mints and legacy hydration fallbacks,
 not restore-time source of truth.
 
@@ -87,12 +87,12 @@ TerminalRestoreRuntime / attach / diagnostics
   - derive only as legacy fallback for rows missing the anchor
                   |
                   v
-AppDelegate.cleanupOrphanZmxSessions()
-  - hydrate/adopt missing legacy anchors before cleanup
-  - compare stored IDs with one zmx list snapshot
-  - protect same-kind pane-session matches from destruction
-  - classify only unprotected runtime-only sessions as orphan candidates
-  - apply grace TTL (60s), re-check liveness, then kill if still orphaned
+AppDelegate.reconcileZmxSessionAnchorsAtStartup()
+  - skip live inventory when all persistent zmx panes have valid stored anchors
+  - hydrate/adopt missing or invalid legacy anchors from one live zmx inventory
+  - protect stored and same-kind pane-session matches
+  - observe unprotected runtime-only sessions as janitor candidates
+  - never kill zmx sessions during boot
 ```
 
 ### Lookup Ownership Table
@@ -116,6 +116,39 @@ Darwin `sockaddr_un.sun_path` is 104 bytes, so practical max is:
 
 This makes session name length a hard runtime constraint, not just formatting.
 `ZmxTestHarness` uses short `/tmp/zt-<id>` paths specifically to stay under this limit.
+
+### Debug App Identity Budget
+
+Debug observability launches first try an app-bundle launch.
+`scripts/run-debug-observability.sh` computes a deterministic eight-character
+base36 code from the canonical worktree path and uses it for debug app
+identity:
+
+| Field | Shape |
+|-------|-------|
+| app display name | `Agent Studio Debug <code>` |
+| bundle id | `com.agentstudio.app.debug.d<code>` |
+| data root | `~/.agentstudio-db/<code>` |
+| zmx dir | `~/.agentstudio-db/<code>/z` |
+| URL scheme | none |
+
+This code isolates debug worktrees while keeping app names, bundle identifiers,
+zmx paths, and Unix socket paths short. It is not a pane/session identifier.
+The debug observability bundle removes URL-handler registration entirely so it
+cannot claim stable production `agentstudio://` callbacks or deep links.
+Debug isolation is owned by bundle id, app name, data root, and zmx root.
+The generated debug bundle, logs, traces, and zmx root live under
+`~/.agentstudio-db/<code>` instead of the repo checkout, which keeps autonomous
+agent test launches from requiring `~/Documents` access just to read their own
+app artifact. If LaunchServices/Gatekeeper rejects the generated local bundle,
+the debug launcher may fall back to direct `Contents/MacOS/AgentStudio`
+execution and records
+`AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable` in its state file.
+That fallback is valid for Victoria/OTLP debug proof and keeps the same isolated
+data/zmx root. It is not beta promotion proof and not full GUI proof.
+Future zmx session-name compaction should keep equivalent entropy to the
+current `repo16`/`worktree16`/`pane16` segments while using a denser alphabet;
+do not reduce pane identity to the short debug worktree code.
 
 ## Session Properties
 
@@ -419,25 +452,25 @@ See **Identity Contract (Canonical)** above for the complete source of truth.
 - New worktree panes mint `ZmxBackend.sessionId(repoStableKey:worktreeStableKey:paneId:)` at creation.
 - New floating panes mint `ZmxBackend.floatingSessionId(launchDirectory:paneId:)` at creation.
 - New drawer panes mint `ZmxBackend.drawerSessionId(parentPaneId:drawerPaneId:)` at creation.
-- All three are stored on `TerminalState.zmxSessionId`; restore and cleanup read that stored value instead of re-deriving from live facets.
+- All three are stored on `TerminalState.zmxSessionId`; restore and startup reconciliation read that stored value instead of re-deriving from live facets.
 
-### Orphan Cleanup
+### Startup zmx Session Reconciliation
 
-On app launch, `AppDelegate.cleanupOrphanZmxSessions()` discovers zmx daemons
-with Agent Studio prefixes, hydrates/adopts any missing legacy stored anchors,
-and then marks only sessions not tracked or protected by persisted panes as
-orphan candidates. Cleanup never destroys a live session whose kind-aware pane
-segment matches a persisted pane.
+On app launch, `AppDelegate.reconcileZmxSessionAnchorsAtStartup()` discovers
+zmx daemons with Agent Studio prefixes, hydrates/adopts any missing legacy
+stored anchors, and logs sessions not tracked or protected by persisted panes
+as future janitor candidates.
 
-Policy is TTL-based and never immediate:
+Boot is intentionally non-destructive:
 
 1. Do not kill on discovery.
-2. Apply a grace TTL (default 60 seconds).
-3. Re-check `zmx list` at TTL expiration.
-4. Kill only if the session is still orphaned.
+2. Do not run TTL cleanup during startup.
+3. Persist hydrated anchors before any restore/attach logic depends on them.
+4. Treat runtime-only sessions as diagnostic output until a background janitor
+   owns durable instance/workspace ownership proof.
 
 This must stay aligned with:
-- [Zmx Restore and Sizing — Orphan Cleanup TTL Policy](zmx_restore_and_sizing.md#orphan-cleanup-ttl-policy)
+- [Zmx Restore and Sizing — Startup zmx Session Reconciliation](zmx_restore_and_sizing.md#startup-zmx-session-reconciliation-luna-324)
 - [Pane Runtime Architecture — Contract 5b](pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
 
 ---

@@ -3,6 +3,7 @@ import Foundation
 struct ZmxOrphanCleanupPlan: Equatable {
     let knownSessionIds: Set<String>
     let shouldSkipCleanup: Bool
+    let unresolvedCandidateCount: Int
     let protectedMainPaneIds: Set<UUID>
     let protectedDrawerPaneIds: Set<UUID>
 
@@ -29,17 +30,33 @@ struct ZmxSessionAnchorHydrationPlan: Equatable {
     let sessionIdsToPersistByPaneId: [UUID: String]
 }
 
+struct ZmxUnavailableInventorySummary: Equatable {
+    let protectedSessionCount: Int
+    let unresolvedCandidateCount: Int
+}
+
 enum ZmxOrphanCleanupCandidate: Equatable {
     case drawer(parentPaneId: UUID, paneId: UUID, storedSessionId: String?, derivedSessionId: String?)
     case main(paneId: UUID, storedSessionId: String?, derivedSessionId: String?)
 }
 
 enum ZmxOrphanCleanupPlanner {
+    static func unavailableInventorySummary(
+        candidates: [ZmxOrphanCleanupCandidate]
+    ) -> ZmxUnavailableInventorySummary {
+        let protectedSessionCount = candidates.filter(\.hasValidStoredSessionAnchor).count
+        return .init(
+            protectedSessionCount: protectedSessionCount,
+            unresolvedCandidateCount: candidates.count - protectedSessionCount
+        )
+    }
+
     static func plan(
         candidates: [ZmxOrphanCleanupCandidate],
         liveSessionIds: Set<String>
     ) -> ZmxSessionAnchorHydrationPlan {
         var hasUnresolvablePane = false
+        var unresolvedCandidateCount = 0
         var knownSessionIds: Set<String> = []
         var protectedMainPaneIds: Set<UUID> = []
         var protectedDrawerPaneIds: Set<UUID> = []
@@ -59,6 +76,7 @@ enum ZmxOrphanCleanupPlanner {
             let resolution = sessionResolution(for: candidate, liveSessionIds: liveSessionIds)
             guard let sessionIdForCleanup = resolution.sessionIdForCleanup else {
                 hasUnresolvablePane = true
+                unresolvedCandidateCount += 1
                 continue
             }
 
@@ -72,6 +90,7 @@ enum ZmxOrphanCleanupPlanner {
             cleanupPlan: ZmxOrphanCleanupPlan(
                 knownSessionIds: knownSessionIds,
                 shouldSkipCleanup: hasUnresolvablePane,
+                unresolvedCandidateCount: unresolvedCandidateCount,
                 protectedMainPaneIds: protectedMainPaneIds,
                 protectedDrawerPaneIds: protectedDrawerPaneIds
             ),
@@ -108,6 +127,10 @@ private enum ZmxOrphanCleanupCandidateKind {
 }
 
 extension ZmxOrphanCleanupCandidate {
+    var hasValidStoredSessionAnchor: Bool {
+        storedSessionId != nil
+    }
+
     fileprivate var paneId: UUID {
         switch self {
         case .drawer(_, let paneId, _, _), .main(let paneId, _, _):

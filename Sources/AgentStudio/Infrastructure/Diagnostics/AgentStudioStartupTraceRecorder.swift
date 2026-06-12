@@ -52,6 +52,22 @@ final class AgentStudioStartupTraceRecorder: @unchecked Sendable {
         )
     }
 
+    func recordZmxStartupReconciliation(_ summary: ZmxStartupReconciliationSummary) {
+        recordAppStartup(
+            "app.zmx_startup_reconciliation.completed",
+            phase: "zmx_startup_reconciliation",
+            outcome: summary.inventoryOutcome.rawValue,
+            attributes: [
+                "agentstudio.zmx.startup.inventory_outcome": .string(summary.inventoryOutcome.rawValue),
+                "agentstudio.zmx.startup.live_session_count": .int(summary.liveSessionCount),
+                "agentstudio.zmx.startup.hydrated_anchor_count": .int(summary.hydratedAnchorCount),
+                "agentstudio.zmx.startup.protected_session_count": .int(summary.protectedSessionCount),
+                "agentstudio.zmx.startup.unresolved_candidate_count": .int(summary.unresolvedCandidateCount),
+                "agentstudio.zmx.startup.unmatched_live_session_count": .int(summary.unmatchedLiveSessionCount),
+            ]
+        )
+    }
+
     func recordTerminalStartup(
         _ body: String,
         paneID: UUID,

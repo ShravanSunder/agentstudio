@@ -42,27 +42,99 @@ mise run observability:down
 The underlying source of truth is
 `~/dev/devfiles/shared/observability/observability-stack`.
 
-To create and launch a local beta bundle from the current branch with full OTLP
-tags when the collector is healthy:
+To create and launch a local beta-like bundle from the current branch with full
+OTLP tags when the collector is healthy:
 
 ```bash
 mise run create-beta-app-bundle
-mise run run-beta-observability
+mise run run-beta-observability -- --latest-local
 ```
 
-`run-beta-observability` stays attached to the beta process so task runners do
-not clean it up early. Leave it running, then verify from another shell:
+This local beta helper is diagnostic only. The release workflow is the source of
+truth for beta promotion: it builds, signs, notarizes, staples, and publishes the
+real `AgentStudio Beta.app` artifact from a beta tag. Use the local debug runner
+for PR-branch proof, then use the GitHub-produced beta artifact for promotion
+proof.
+
+To launch the current debug build with the same Victoria/OTLP proof path:
 
 ```bash
-mise run verify-beta-observability
+mise run run-debug-observability -- --detach
+```
+
+The debug launcher wraps the debug binary in a signed per-worktree app bundle
+named `Agent Studio Debug <code>`, where `<code>` is a deterministic
+eight-character base36 hash of the canonical worktree path. That launch uses an
+isolated data root at `~/.agentstudio-db/<code>` and zmx directory at
+`~/.agentstudio-db/<code>/z`, so a debug run from one worktree cannot share zmx
+state with stable, beta, or another debug worktree. Debug observability bundles
+also remove URL-handler registration so they cannot claim production
+`agentstudio://` callbacks or deep links. Do not copy production or beta state
+into this root unless a test plan explicitly calls for it. The generated debug
+bundle, logs, traces, and zmx root live under `~/.agentstudio-db/<code>` rather
+than repo `tmp/` so autonomous debug runs do not need to read their runnable app
+from `~/Documents`.
+
+Verify the debug startup records through VictoriaLogs from a second shell:
+
+```bash
+mise run verify-debug-observability
+```
+The launcher refuses to start a second `Agent Studio Debug <code>` instance
+while one is already running; quit the reported PID before collecting a new
+debug observability proof for the same worktree. On refusal it overwrites
+`tmp/debug-observability/latest-observability.env` with
+`AGENTSTUDIO_OBSERVABILITY_STATUS=already_running` so stale markers cannot pass
+verification.
+
+`run-beta-observability` stays attached to LaunchServices with `open -W` so
+task runners do not clean it up early. Leave it running, then verify from
+another shell:
+
+```bash
+AGENTSTUDIO_EXPECTED_BETA_APP="$DOWNLOADED_WORKFLOW_BETA_APP" mise run verify-beta-observability
 ```
 
 `run-beta-observability` does not install over `/Applications/AgentStudio
-Beta.app`. It prefers the newest local bundle under `tmp/beta-observability/`.
-If the shared collector health endpoint is not reachable, it forces JSONL-only
-tracing and clears inherited OTLP env. The launcher writes a per-run marker to
-`tmp/beta-observability/latest-observability.env`; `verify-beta-observability`
-queries that marker so stale beta logs cannot satisfy the gate.
+Beta.app`. With `--latest-local`, it prefers the newest local bundle under
+`~/.agentstudio-db/beta-observability/`, falling back to legacy repo-local
+bundles under `tmp/beta-observability/` only if present. Release-promotion proof
+must pass `--app "$DOWNLOADED_WORKFLOW_BETA_APP"` and bind
+`verify-beta-observability` with `AGENTSTUDIO_EXPECTED_BETA_APP`, so a stale
+installed beta or local diagnostic bundle cannot satisfy the gate. Generated
+beta apps, logs, and traces live outside `~/Documents` so local proof runs do
+not trigger Documents-folder TCC prompts merely because this worktree is under
+Documents.
+The debug and beta observability launchers intentionally require the shared
+collector health endpoint to be reachable; run `mise run observability:up`
+first. They run from a minimal clean environment and pass only the candidate
+app's trace/data variables (`open --env` for LaunchServices, equivalent direct
+environment for debug fallback), so inherited production app identity, Ghostty
+resource variables, `ZMX_DIR`, `ZMX_SESSION`, and `ZMX_SESSION_PREFIX` cannot
+leak into the candidate process. The launchers write per-run markers to
+`tmp/debug-observability/latest-observability.env` or
+`tmp/beta-observability/latest-observability.env`; verification queries those
+markers so stale logs cannot satisfy the gate.
+The beta launcher likewise refuses to launch while any beta-channel
+AgentStudio process is already running, even from another bundle path. Beta
+promotion proof should start from one known beta process. Its refusal path also
+writes `AGENTSTUDIO_OBSERVABILITY_STATUS=already_running` to the beta state
+file. Repo-local observability helpers run under `/bin/bash`
+rather than Homebrew bash because the Homebrew bash process has previously
+wedged release/verification scripts on this machine. Detached debug and beta
+launchers try LaunchServices `open` first. Debug may fall back to direct
+`Contents/MacOS/AgentStudio` execution when a local generated bundle is rejected
+by LaunchServices/Gatekeeper; the state file then records
+`AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable`. This is valid for
+Victoria/OTLP debug proof and keeps the same isolated data/zmx root, but it is
+not full GUI proof. Beta does not use this fallback: if LaunchServices returns a
+launch error, beta writes `AGENTSTUDIO_OBSERVABILITY_STATUS=launch_failed` and
+exits non-zero. Local ad-hoc beta bundles may be rejected by
+AMFI/LaunchServices; Developer ID signing alone can still be rejected as
+unnotarized. Beta promotion proof requires the accepted/notarized artifact
+produced by the GitHub release workflow, or another explicitly notarized local
+artifact. Developer ID signing is opt-in for local diagnostic bundles: set
+`SIGNING_IDENTITY` when running `mise run create-beta-app-bundle`.
 
 Debug and beta builds use a safe baseline when `AGENTSTUDIO_TRACE_TAGS` is
 unset: JSONL plus OTLP logs to `http://127.0.0.1:4318`. Stable builds stay
