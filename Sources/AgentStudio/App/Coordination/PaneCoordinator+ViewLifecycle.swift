@@ -239,7 +239,8 @@ extension PaneCoordinator {
                 repo: repo,
                 restoredSurfaceId: managed.id,
                 paneId: pane.id,
-                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup
+                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup,
+                performanceTraceRecorder: performanceTraceRecorder
             )
             view.onRepairRequested = { [weak self] paneId in
                 self?.execute(.repair(.recreateSurface(paneId: paneId)))
@@ -347,7 +348,8 @@ extension PaneCoordinator {
                 restoredSurfaceId: managed.id,
                 paneId: pane.id,
                 title: pane.metadata.title,
-                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup
+                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup,
+                performanceTraceRecorder: performanceTraceRecorder
             )
             view.onRepairRequested = { [weak self] paneId in
                 self?.execute(.repair(.recreateSurface(paneId: paneId)))
@@ -622,7 +624,8 @@ extension PaneCoordinator {
                     worktree: worktree,
                     repo: repo,
                     restoredSurfaceId: undone.id,
-                    paneId: pane.id
+                    paneId: pane.id,
+                    performanceTraceRecorder: performanceTraceRecorder
                 )
                 surfaceManager.attach(undone.id, to: pane.id)
                 view.displaySurface(undone.surface)

@@ -25,6 +25,10 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case sidebarResize = "performance.sidebar.resize"
         case sidebarToggle = "performance.sidebar.toggle"
         case tabBarRefresh = "performance.tabbar.refresh"
+        case terminalForceGeometrySync = "performance.terminal.force_geometry_sync"
+        case terminalGeometrySync = "performance.terminal.geometry_sync"
+        case terminalMountLayout = "performance.terminal.mount_layout"
+        case terminalSurfaceSizeDidChange = "performance.terminal.surface_size"
     }
 
     private let traceRuntime: AgentStudioTraceRuntime?

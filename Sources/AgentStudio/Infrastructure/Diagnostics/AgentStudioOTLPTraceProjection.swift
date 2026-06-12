@@ -60,6 +60,8 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.management_layer.command",
         "agentstudio.performance.pane_action.name",
         "agentstudio.performance.sidebar.toggle.intent",
+        "agentstudio.performance.terminal.geometry.reason",
+        "agentstudio.performance.terminal.surface.source",
         "agentstudio.persistence.backend",
         "agentstudio.persistence.lane",
         "agentstudio.persistence.operation",
@@ -84,6 +86,15 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.status",
         "agentstudio.performance.sidebar.split_width",
         "agentstudio.performance.sidebar.width",
+        "agentstudio.performance.terminal.geometry.visible_terminal.count",
+        "agentstudio.performance.terminal.surface.cell_height_px",
+        "agentstudio.performance.terminal.surface.cell_width_px",
+        "agentstudio.performance.terminal.surface.column.count",
+        "agentstudio.performance.terminal.surface.current_height_px",
+        "agentstudio.performance.terminal.surface.current_width_px",
+        "agentstudio.performance.terminal.surface.requested_height_px",
+        "agentstudio.performance.terminal.surface.requested_width_px",
+        "agentstudio.performance.terminal.surface.row.count",
         "agentstudio.zmx.socket_path_headroom",
     ]
 
@@ -91,6 +102,10 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.app.is_active",
         "agentstudio.performance.sidebar.is_collapsed",
         "agentstudio.performance.sidebar.was_collapsed",
+        "agentstudio.performance.terminal.surface.dedup_likely",
+        "agentstudio.performance.terminal.surface.hidden",
+        "agentstudio.performance.terminal.surface.has_superview",
+        "agentstudio.performance.terminal.surface.has_window",
     ]
 
     private static let resourceKeysProjectedAsLogAttributes: Set<String> = [

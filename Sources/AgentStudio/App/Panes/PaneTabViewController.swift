@@ -1053,6 +1053,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
         guard let activeTabId = store.tabLayoutAtom.activeTabId else { return }
+        let traceClock = performanceTraceRecorder?.isEnabled == true ? ContinuousClock() : nil
+        let syncStart = traceClock?.now
         let visibleTerminalViews =
             store.tabLayoutAtom.tab(activeTabId)?.paneIds.compactMap {
                 viewRegistry.terminalView(for: $0)
@@ -1066,6 +1068,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         for terminalView in visibleTerminalViews {
             terminalView.forceGeometrySync(reason: reason)
         }
+        guard let traceClock, let syncStart else { return }
+        performanceTraceRecorder?.recordDuration(
+            .terminalGeometrySync,
+            duration: syncStart.duration(to: traceClock.now),
+            attributes: [
+                "agentstudio.performance.terminal.geometry.reason": .string("\(reason)"),
+                "agentstudio.performance.terminal.geometry.visible_terminal.count": .double(
+                    Double(visibleTerminalViews.count)),
+            ]
+        )
     }
 
     func geometryHierarchySnapshot(reason: StaticString) -> String {

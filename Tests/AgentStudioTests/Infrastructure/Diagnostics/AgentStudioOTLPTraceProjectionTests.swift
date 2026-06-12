@@ -261,6 +261,21 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.performance.sidebar.toggle.intent": .string("collapse"),
                 "agentstudio.performance.sidebar.was_collapsed": .bool(false),
                 "agentstudio.performance.sidebar.width": .double(320),
+                "agentstudio.performance.terminal.geometry.reason": .string("splitViewDidResizeSubviews"),
+                "agentstudio.performance.terminal.geometry.visible_terminal.count": .double(7),
+                "agentstudio.performance.terminal.surface.cell_height_px": .double(28),
+                "agentstudio.performance.terminal.surface.cell_width_px": .double(14),
+                "agentstudio.performance.terminal.surface.column.count": .double(80),
+                "agentstudio.performance.terminal.surface.current_height_px": .double(780),
+                "agentstudio.performance.terminal.surface.current_width_px": .double(1200),
+                "agentstudio.performance.terminal.surface.dedup_likely": .bool(false),
+                "agentstudio.performance.terminal.surface.has_superview": .bool(true),
+                "agentstudio.performance.terminal.surface.has_window": .bool(true),
+                "agentstudio.performance.terminal.surface.hidden": .bool(false),
+                "agentstudio.performance.terminal.surface.requested_height_px": .double(800),
+                "agentstudio.performance.terminal.surface.requested_width_px": .double(1280),
+                "agentstudio.performance.terminal.surface.row.count": .double(24),
+                "agentstudio.performance.terminal.surface.source": .string("forceGeometrySync"),
                 "agentstudio.trace.tag": .string("performance"),
                 "agentstudio.worktree.id": .string(worktreeID.uuidString),
             ]
@@ -286,6 +301,25 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.sidebar.toggle.intent"] == .string("collapse"))
         #expect(projection.attributes["agentstudio.performance.sidebar.was_collapsed"] == .bool(false))
         #expect(projection.attributes["agentstudio.performance.sidebar.width"] == .double(320))
+        #expect(
+            projection.attributes["agentstudio.performance.terminal.geometry.reason"]
+                == .string("splitViewDidResizeSubviews"))
+        #expect(projection.attributes["agentstudio.performance.terminal.geometry.visible_terminal.count"] == .double(7))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.cell_height_px"] == .double(28))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.cell_width_px"] == .double(14))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.column.count"] == .double(80))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.current_height_px"] == .double(780))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.current_width_px"] == .double(1200))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.dedup_likely"] == .bool(false))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.has_superview"] == .bool(true))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.has_window"] == .bool(true))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.hidden"] == .bool(false))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.requested_height_px"] == .double(800))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.requested_width_px"] == .double(1280))
+        #expect(projection.attributes["agentstudio.performance.terminal.surface.row.count"] == .double(24))
+        #expect(
+            projection.attributes["agentstudio.performance.terminal.surface.source"]
+                == .string("forceGeometrySync"))
         #expect(projection.attributes["agentstudio.worktree.id"] == nil)
         #expect(projection.resource["process.pid"] == nil)
         #expect(!renderedProjection.contains("/Users/shravan"))
