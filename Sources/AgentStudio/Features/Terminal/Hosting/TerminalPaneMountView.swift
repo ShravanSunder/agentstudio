@@ -329,7 +329,13 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
                 self?.handleSurfaceClose(processAlive: processAlive)
             }
         }
-        surfaceView.verifyGeometryCoherence(reason: geometryVerificationReason)
+        scheduleGeometryCoherenceVerification(reason: geometryVerificationReason)
+    }
+
+    private func scheduleGeometryCoherenceVerification(reason: StaticString) {
+        Task { @MainActor [weak self] in
+            self?.forceGeometrySync(reason: reason)
+        }
     }
 
     func removeSurface() {

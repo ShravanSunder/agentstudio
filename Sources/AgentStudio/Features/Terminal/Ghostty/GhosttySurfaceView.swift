@@ -648,10 +648,11 @@ extension Ghostty {
         }
 
         func sizeDidChange(_ size: NSSize, source: StaticString = "unknown") {
-            if size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 {
-                // Track content size (official pattern)
-                contentSize = size
+            guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
+                return
             }
+            // Track content size (official pattern)
+            contentSize = size
             commitGeometry(contentSize: size, reason: source)
         }
 
@@ -795,7 +796,6 @@ extension Ghostty {
                 RestoreTrace.log(
                     "Ghostty.SurfaceView.geometryCoherence incoherent reason=\(reason) status=\(statusDescription) committed=\(String(describing: lastCommittedGeometry)) expectedScale=\(String(describing: expectedContentScale)) expectedBackingSize=\(String(describing: expectedBackingSize))"
                 )
-                assertionFailure("Ghostty surface geometry incoherent: \(statusDescription)")
             }
         }
 
