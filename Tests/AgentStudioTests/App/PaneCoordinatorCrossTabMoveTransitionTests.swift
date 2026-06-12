@@ -51,6 +51,24 @@ struct PaneCoordinatorCrossTabMoveTransitionTests {
         #expect(transitions.paneIdsToReattach == [movedParentPane])
     }
 
+    @Test("cross-tab move detaches destination panes that transition from visible to hidden")
+    func crossTabMoveTransitionsDetachDestinationPanesThatBecomeHidden() {
+        let movedPane = UUID()
+        let sourceLeftPane = UUID()
+        let remainingDestinationPane = UUID()
+        let hiddenDestinationPane = UUID()
+
+        let transitions = PaneCoordinator.computeCrossTabMoveViewTransitions(
+            sourceVisibleBefore: [movedPane, sourceLeftPane],
+            destinationVisibleBefore: [remainingDestinationPane, hiddenDestinationPane],
+            destinationVisibleAfter: [movedPane, remainingDestinationPane],
+            movedPaneIds: [movedPane]
+        )
+
+        #expect(transitions.paneIdsToDetach == [movedPane, sourceLeftPane, hiddenDestinationPane])
+        #expect(transitions.paneIdsToReattach == [movedPane])
+    }
+
     @Test("executeMovePaneAcrossTabs reattaches only moved pane, not already-visible destination panes")
     func executeMovePaneAcrossTabsReattachesOnlyMovedDestinationDelta() {
         withTestAtomRegistry { atoms in

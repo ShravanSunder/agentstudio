@@ -197,6 +197,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         let appliesRuntimeSnapshot: Bool
         let bindsRuntimeToSurface: Bool
         let installsCloseCallback: Bool
+        let beginsRestorePresentation: Bool
     }
 
     nonisolated static func shouldReuseMountedSurfaceWrapper(
@@ -228,7 +229,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
             appliesRuntimeSnapshot: hasBoundRuntime,
             bindsRuntimeToSurface: hasBoundRuntime
                 && (!runtimeBoundToDisplayedSurfaceMatchesBoundRuntime || !currentSurfaceMatchesIncoming),
-            installsCloseCallback: true
+            installsCloseCallback: true,
+            beginsRestorePresentation: !reusesMountedWrapper
         )
     }
 
@@ -292,7 +294,9 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         self.wantsLayer = true
         self.layer?.backgroundColor = NSColor.clear.cgColor
 
-        beginRestorePresentationIfNeeded()
+        if displayPlan.beginsRestorePresentation {
+            beginRestorePresentationIfNeeded()
+        }
         ensureScrollToBottomIndicator()
         if let boundRuntime {
             if displayPlan.observesRuntime {

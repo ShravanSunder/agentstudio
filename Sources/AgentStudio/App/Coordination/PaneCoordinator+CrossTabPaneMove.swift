@@ -15,9 +15,10 @@ extension PaneCoordinator {
     ) -> CrossTabMoveViewTransitions {
         let newlyVisibleDestinationPaneIds = destinationVisibleAfter.subtracting(destinationVisibleBefore)
         let movedPaneIdsVisibleAfterMove = destinationVisibleAfter.intersection(movedPaneIds)
+        let hiddenDestinationPaneIds = destinationVisibleBefore.subtracting(destinationVisibleAfter)
 
         return CrossTabMoveViewTransitions(
-            paneIdsToDetach: sourceVisibleBefore.union(movedPaneIds),
+            paneIdsToDetach: sourceVisibleBefore.union(movedPaneIds).union(hiddenDestinationPaneIds),
             paneIdsToReattach: newlyVisibleDestinationPaneIds.union(movedPaneIdsVisibleAfterMove)
         )
     }

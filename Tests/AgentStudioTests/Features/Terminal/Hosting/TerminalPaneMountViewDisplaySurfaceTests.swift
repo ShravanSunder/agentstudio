@@ -54,6 +54,7 @@ struct TerminalPaneMountViewDisplaySurfaceTests {
         #expect(plan.appliesRuntimeSnapshot)
         #expect(!plan.bindsRuntimeToSurface)
         #expect(plan.installsCloseCallback)
+        #expect(!plan.beginsRestorePresentation)
     }
 
     @Test("same-surface display plan binds runtime when the surface has not been bound yet")
@@ -72,6 +73,7 @@ struct TerminalPaneMountViewDisplaySurfaceTests {
         #expect(plan.appliesRuntimeSnapshot)
         #expect(plan.bindsRuntimeToSurface)
         #expect(!plan.resetsTerminationFlags)
+        #expect(!plan.beginsRestorePresentation)
     }
 
     @Test("rewrap display plan resets termination state and binds runtime")
@@ -92,5 +94,6 @@ struct TerminalPaneMountViewDisplaySurfaceTests {
         #expect(plan.appliesRuntimeSnapshot)
         #expect(plan.bindsRuntimeToSurface)
         #expect(plan.installsCloseCallback)
+        #expect(plan.beginsRestorePresentation)
     }
 }
