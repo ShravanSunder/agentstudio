@@ -138,6 +138,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             inboxPrefsAtom: atomStore.inboxNotificationPrefs,
             inboxSidebarState: atomStore.inboxSidebarState,
             paneInboxPresenter: paneInboxNotificationPresenter,
+            performanceTraceRecorder: performanceTraceRecorder,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         mainWindowController?.prepareLaunchMaximizeAndRestore()
@@ -367,6 +368,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 inboxPrefsAtom: atomStore.inboxNotificationPrefs,
                 inboxSidebarState: atomStore.inboxSidebarState,
                 paneInboxPresenter: paneInboxNotificationPresenter,
+                performanceTraceRecorder: performanceTraceRecorder,
                 closeTransitionCoordinator: closeTransitionCoordinator
             )
             mainWindowController?.showWindow(nil)

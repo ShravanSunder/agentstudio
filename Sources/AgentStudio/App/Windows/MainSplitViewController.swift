@@ -9,6 +9,7 @@ struct SidebarRootViewDependencies {
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 }
@@ -31,6 +32,7 @@ class MainSplitViewController: NSSplitViewController {
                 inboxAtom: dependencies.inboxAtom,
                 prefsAtom: dependencies.prefsAtom,
                 repoCache: dependencies.repoCache,
+                performanceTraceRecorder: dependencies.performanceTraceRecorder,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
                 onDismissInbox: dependencies.onDismissInbox
             )
@@ -61,6 +63,7 @@ class MainSplitViewController: NSSplitViewController {
     private let inboxPrefsAtom: InboxNotificationPrefsAtom
     private let inboxSidebarState: InboxSidebarState
     private let paneInboxPresenter: PaneInboxNotificationPresenter
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let paneTabRegistersAsCommandHandler: Bool
@@ -82,6 +85,7 @@ class MainSplitViewController: NSSplitViewController {
         inboxPrefsAtom: InboxNotificationPrefsAtom,
         inboxSidebarState: InboxSidebarState,
         paneInboxPresenter: PaneInboxNotificationPresenter,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
             .defaultSidebarRootViewBuilder,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
@@ -99,6 +103,7 @@ class MainSplitViewController: NSSplitViewController {
         self.inboxPrefsAtom = inboxPrefsAtom
         self.inboxSidebarState = inboxSidebarState
         self.paneInboxPresenter = paneInboxPresenter
+        self.performanceTraceRecorder = performanceTraceRecorder
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.paneTabRegistersAsCommandHandler = paneTabRegistersAsCommandHandler
@@ -142,6 +147,7 @@ class MainSplitViewController: NSSplitViewController {
                 inboxAtom: inboxAtom,
                 prefsAtom: inboxPrefsAtom,
                 repoCache: repoCache,
+                performanceTraceRecorder: performanceTraceRecorder,
                 onRefocusActivePane: { [weak paneTabVC] in
                     paneTabVC?.refocusActivePane()
                 },
