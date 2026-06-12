@@ -69,6 +69,37 @@ extension Ghostty {
 
     /// NSView subclass that renders a Ghostty terminal surface
     final class SurfaceView: NSView {
+        struct SurfaceGeometry: Equatable, Sendable {
+            let contentScaleX: Double
+            let contentScaleY: Double
+            let widthPx: UInt32
+            let heightPx: UInt32
+        }
+
+        enum SurfaceGeometryCommitRejection: Equatable, Sendable {
+            case missingContentScale
+            case invalidContentScale
+            case invalidBackingSize
+        }
+
+        enum SurfaceGeometryCommitPlan: Equatable, Sendable {
+            case commit(SurfaceGeometry)
+            case skip(SurfaceGeometry)
+            case reject(SurfaceGeometryCommitRejection)
+        }
+
+        enum SurfaceGeometryCoherenceUnavailableReason: Equatable, Sendable {
+            case missingWindow
+            case missingCommittedGeometry
+            case invalidExpectedGeometry
+        }
+
+        enum SurfaceGeometryCoherenceStatus: Equatable, Sendable {
+            case coherent
+            case unavailable(SurfaceGeometryCoherenceUnavailableReason)
+            case incoherent(scaleDrift: Bool, sizeDrift: Bool)
+        }
+
         nonisolated static func backingContentScale(
             frame: NSRect,
             backingFrame: NSRect
@@ -96,6 +127,109 @@ extension Ghostty {
                 return nil
             }
             return (x: xScale, y: yScale)
+        }
+
+        nonisolated static func geometryCommitPlan(
+            contentScale: (x: Double, y: Double)?,
+            backingSize: NSSize,
+            lastCommittedGeometry: SurfaceGeometry?
+        ) -> SurfaceGeometryCommitPlan {
+            guard let contentScale else {
+                return .reject(.missingContentScale)
+            }
+            guard
+                contentScale.x.isFinite,
+                contentScale.y.isFinite,
+                contentScale.x > 0,
+                contentScale.y > 0
+            else {
+                return .reject(.invalidContentScale)
+            }
+            guard
+                backingSize.width.isFinite,
+                backingSize.height.isFinite,
+                backingSize.width > 0,
+                backingSize.height > 0,
+                backingSize.width <= CGFloat(UInt32.max),
+                backingSize.height <= CGFloat(UInt32.max)
+            else {
+                return .reject(.invalidBackingSize)
+            }
+
+            let widthPx = UInt32(backingSize.width)
+            let heightPx = UInt32(backingSize.height)
+            guard widthPx > 0, heightPx > 0 else {
+                return .reject(.invalidBackingSize)
+            }
+
+            let geometry = SurfaceGeometry(
+                contentScaleX: contentScale.x,
+                contentScaleY: contentScale.y,
+                widthPx: widthPx,
+                heightPx: heightPx
+            )
+            if lastCommittedGeometry == geometry {
+                return .skip(geometry)
+            }
+            return .commit(geometry)
+        }
+
+        nonisolated static func geometryCoherenceStatus(
+            committedGeometry: SurfaceGeometry?,
+            expectedContentScale: (x: Double, y: Double)?,
+            expectedBackingSize: NSSize?
+        ) -> SurfaceGeometryCoherenceStatus {
+            guard let committedGeometry else {
+                return .unavailable(.missingCommittedGeometry)
+            }
+            guard let expectedContentScale else {
+                return .unavailable(.missingWindow)
+            }
+            guard
+                let expectedBackingSize,
+                expectedContentScale.x.isFinite,
+                expectedContentScale.y.isFinite,
+                expectedContentScale.x > 0,
+                expectedContentScale.y > 0,
+                expectedBackingSize.width.isFinite,
+                expectedBackingSize.height.isFinite,
+                expectedBackingSize.width > 0,
+                expectedBackingSize.height > 0
+            else {
+                return .unavailable(.invalidExpectedGeometry)
+            }
+
+            let scaleDrift =
+                abs(committedGeometry.contentScaleX - expectedContentScale.x) > 0.001
+                || abs(committedGeometry.contentScaleY - expectedContentScale.y) > 0.001
+            let sizeDrift =
+                abs(Double(committedGeometry.widthPx) - Double(expectedBackingSize.width)) > 1
+                || abs(Double(committedGeometry.heightPx) - Double(expectedBackingSize.height)) > 1
+            if scaleDrift || sizeDrift {
+                return .incoherent(scaleDrift: scaleDrift, sizeDrift: sizeDrift)
+            }
+            return .coherent
+        }
+
+        nonisolated static func contentSizeForGeometryVerification(
+            contentSize: NSSize,
+            boundsSize: NSSize,
+            frameSize: NSSize
+        ) -> NSSize? {
+            if isValidGeometryContentSize(boundsSize) {
+                return boundsSize
+            }
+            if isValidGeometryContentSize(frameSize) {
+                return frameSize
+            }
+            if isValidGeometryContentSize(contentSize) {
+                return contentSize
+            }
+            return nil
+        }
+
+        private nonisolated static func isValidGeometryContentSize(_ size: NSSize) -> Bool {
+            size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0
         }
 
         var onWorkingDirectoryChanged: (@MainActor @Sendable (ObjectIdentifier, String?) -> Void)?
@@ -129,6 +263,7 @@ extension Ghostty {
 
         /// Content size for the terminal (may differ from frame during resize)
         private var contentSize: NSSize = .zero
+        private var lastCommittedGeometry: SurfaceGeometry?
 
         /// Initial content size reported by Ghostty action callbacks.
         private(set) var reportedInitialSize: NSSize?
@@ -465,68 +600,34 @@ extension Ghostty {
             layer?.contentsScale = scaleFactor
             CATransaction.commit()
 
-            guard let surface else { return }
-
-            // Calculate x and y scale factors separately (official pattern)
-            let fbFrame = convertToBacking(frame)
-            if let contentScale = Self.backingContentScale(frame: frame, backingFrame: fbFrame) {
-                traceContentScale(
-                    source: "viewDidChangeBackingProperties",
-                    frame: frame,
-                    backingFrame: fbFrame,
-                    contentScale: contentScale,
-                    skipped: false
-                )
-                ghostty_surface_set_content_scale(surface, contentScale.x, contentScale.y)
-            } else {
-                traceContentScale(
-                    source: "viewDidChangeBackingProperties",
-                    frame: frame,
-                    backingFrame: fbFrame,
-                    contentScale: nil,
-                    skipped: true
-                )
-            }
-
-            // Refresh size using contentSize (official pattern)
-            if contentSize.width > 0 && contentSize.height > 0 {
-                let scaledSize = convertToBacking(contentSize)
-                RestoreTrace.log(
-                    "Ghostty.SurfaceView.viewDidChangeBackingProperties set_size backing=\(NSStringFromSize(scaledSize)) contentSize=\(NSStringFromSize(contentSize))"
-                )
-                ghostty_surface_set_size(
-                    surface,
-                    UInt32(scaledSize.width),
-                    UInt32(scaledSize.height)
-                )
-            }
+            commitGeometry(contentSize: currentContentSizeForGeometryCommit(), reason: "viewDidChangeBackingProperties")
         }
 
         private func updateScaleFactor(_ scaleFactor: CGFloat) {
-            guard let surface else { return }
-
             // Update layer's contentsScale
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer?.contentsScale = scaleFactor
             CATransaction.commit()
 
-            ghostty_surface_set_content_scale(surface, Double(scaleFactor), Double(scaleFactor))
-            RestoreTrace.log(
-                "Ghostty.SurfaceView.contentScale source=updateScaleFactor view=\(ObjectIdentifier(self)) frame=\(NSStringFromRect(frame)) backingFrame=nil x=\(Double(scaleFactor)) y=\(Double(scaleFactor)) skipped=false"
+            commitGeometry(
+                contentSize: currentContentSizeForGeometryCommit(),
+                reason: "updateScaleFactor",
+                contentScaleOverride: (x: Double(scaleFactor), y: Double(scaleFactor))
             )
         }
 
         private func traceContentScale(
             source: StaticString,
             frame: NSRect,
-            backingFrame: NSRect,
+            backingFrame: NSRect?,
             contentScale: (x: Double, y: Double)?,
             skipped: Bool
         ) {
             let scaleDescription = contentScale.map { "x=\($0.x) y=\($0.y)" } ?? "x=nil y=nil"
+            let backingFrameDescription = backingFrame.map(NSStringFromRect) ?? "nil"
             RestoreTrace.log(
-                "Ghostty.SurfaceView.contentScale source=\(source) view=\(ObjectIdentifier(self)) frame=\(NSStringFromRect(frame)) backingFrame=\(NSStringFromRect(backingFrame)) \(scaleDescription) skipped=\(skipped)"
+                "Ghostty.SurfaceView.contentScale source=\(source) view=\(ObjectIdentifier(self)) frame=\(NSStringFromRect(frame)) backingFrame=\(backingFrameDescription) \(scaleDescription) skipped=\(skipped)"
             )
         }
 
@@ -547,29 +648,155 @@ extension Ghostty {
         }
 
         func sizeDidChange(_ size: NSSize, source: StaticString = "unknown") {
+            if size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 {
+                // Track content size (official pattern)
+                contentSize = size
+            }
+            commitGeometry(contentSize: size, reason: source)
+        }
+
+        private func commitGeometry(
+            contentSize requestedContentSize: NSSize,
+            reason: StaticString,
+            contentScaleOverride: (x: Double, y: Double)? = nil
+        ) {
             guard let surface else { return }
-            guard size.width > 0 && size.height > 0 else { return }
-
-            // Track content size (official pattern)
-            contentSize = size
-
-            let backingSize = convertToBacking(size)
-            let requestedBackingWidth = UInt32(backingSize.width)
-            let requestedBackingHeight = UInt32(backingSize.height)
+            let backingFrame = convertToBacking(frame)
+            let contentScale = contentScaleOverride ?? currentBackingContentScale(backingFrame: backingFrame)
+            let backingSize = convertToBacking(requestedContentSize)
+            let plan = Self.geometryCommitPlan(
+                contentScale: contentScale,
+                backingSize: backingSize,
+                lastCommittedGeometry: lastCommittedGeometry
+            )
             let currentSurfaceSize = ghostty_surface_size(surface)
             let layerState =
                 layer.map { "contentsScale=\($0.contentsScale) layerBounds=\(NSStringFromRect($0.bounds))" }
                 ?? "noLayer"
-            RestoreTrace.log(
-                "Ghostty.SurfaceView.sizeDidChange source=\(source) logical=\(NSStringFromSize(size)) backing=\(NSStringFromSize(backingSize)) requestedPx={\(requestedBackingWidth),\(requestedBackingHeight)} currentPx={\(currentSurfaceSize.width_px),\(currentSurfaceSize.height_px)} currentGrid={\(currentSurfaceSize.columns),\(currentSurfaceSize.rows)} dedupLikely=\(currentSurfaceSize.width_px == requestedBackingWidth && currentSurfaceSize.height_px == requestedBackingHeight) window=\(window != nil) superview=\(superview != nil) hidden=\(isHidden) \(layerState)"
-            )
-            ghostty_surface_set_size(
-                surface,
-                requestedBackingWidth,
-                requestedBackingHeight
-            )
+
+            switch plan {
+            case .reject(let rejection):
+                traceContentScale(
+                    source: reason,
+                    frame: frame,
+                    backingFrame: backingFrame,
+                    contentScale: contentScale,
+                    skipped: true
+                )
+                RestoreTrace.log(
+                    "Ghostty.SurfaceView.commitGeometry rejected reason=\(reason) rejection=\(rejection) logical=\(NSStringFromSize(requestedContentSize)) backing=\(NSStringFromSize(backingSize)) currentPx={\(currentSurfaceSize.width_px),\(currentSurfaceSize.height_px)} currentGrid={\(currentSurfaceSize.columns),\(currentSurfaceSize.rows)} window=\(window != nil) superview=\(superview != nil) hidden=\(isHidden) \(layerState)"
+                )
+                return
+
+            case .skip(let geometry):
+                traceContentScale(
+                    source: reason,
+                    frame: frame,
+                    backingFrame: backingFrame,
+                    contentScale: (x: geometry.contentScaleX, y: geometry.contentScaleY),
+                    skipped: true
+                )
+                RestoreTrace.log(
+                    "Ghostty.SurfaceView.commitGeometry skipped reason=\(reason) logical=\(NSStringFromSize(requestedContentSize)) backing=\(NSStringFromSize(backingSize)) px={\(geometry.widthPx),\(geometry.heightPx)} scale={\(geometry.contentScaleX),\(geometry.contentScaleY)} currentGrid={\(currentSurfaceSize.columns),\(currentSurfaceSize.rows)} window=\(window != nil) superview=\(superview != nil) hidden=\(isHidden) \(layerState)"
+                )
+
+            case .commit(let geometry):
+                traceContentScale(
+                    source: reason,
+                    frame: frame,
+                    backingFrame: backingFrame,
+                    contentScale: (x: geometry.contentScaleX, y: geometry.contentScaleY),
+                    skipped: false
+                )
+                RestoreTrace.log(
+                    "Ghostty.SurfaceView.commitGeometry committed reason=\(reason) logical=\(NSStringFromSize(requestedContentSize)) backing=\(NSStringFromSize(backingSize)) requestedPx={\(geometry.widthPx),\(geometry.heightPx)} scale={\(geometry.contentScaleX),\(geometry.contentScaleY)} currentPx={\(currentSurfaceSize.width_px),\(currentSurfaceSize.height_px)} currentGrid={\(currentSurfaceSize.columns),\(currentSurfaceSize.rows)} window=\(window != nil) superview=\(superview != nil) hidden=\(isHidden) \(layerState)"
+                )
+                ghostty_surface_set_content_scale(
+                    surface,
+                    geometry.contentScaleX,
+                    geometry.contentScaleY
+                )
+                ghostty_surface_set_size(
+                    surface,
+                    geometry.widthPx,
+                    geometry.heightPx
+                )
+                lastCommittedGeometry = geometry
+            }
             ghostty_surface_refresh(surface)
-            logSurfaceSnapshot(reason: "sizeDidChange.\(source)")
+            logSurfaceSnapshot(reason: "commitGeometry.\(reason)")
+        }
+
+        private func currentBackingContentScale(backingFrame: NSRect? = nil) -> (x: Double, y: Double)? {
+            guard let window else { return nil }
+            let resolvedBackingFrame = backingFrame ?? convertToBacking(frame)
+            if let contentScale = Self.backingContentScale(frame: frame, backingFrame: resolvedBackingFrame) {
+                return contentScale
+            }
+            let fallbackScale: CGFloat?
+            if window.backingScaleFactor.isFinite, window.backingScaleFactor > 0 {
+                fallbackScale = window.backingScaleFactor
+            } else {
+                fallbackScale = window.screen?.backingScaleFactor
+            }
+            guard let fallbackScale, fallbackScale.isFinite, fallbackScale > 0 else {
+                return nil
+            }
+            return (x: Double(fallbackScale), y: Double(fallbackScale))
+        }
+
+        private func currentContentSizeForGeometryCommit() -> NSSize {
+            if contentSize.width.isFinite, contentSize.height.isFinite, contentSize.width > 0, contentSize.height > 0 {
+                return contentSize
+            }
+            if bounds.size.width.isFinite, bounds.size.height.isFinite, bounds.size.width > 0, bounds.size.height > 0 {
+                return bounds.size
+            }
+            return frame.size
+        }
+
+        func verifyGeometryCoherence(reason: StaticString) {
+            let expectedContentScale: (x: Double, y: Double)?
+            let expectedBackingSize: NSSize?
+            if window == nil {
+                expectedContentScale = nil
+                expectedBackingSize = nil
+            } else {
+                expectedContentScale = currentBackingContentScale()
+                expectedBackingSize = Self.contentSizeForGeometryVerification(
+                    contentSize: contentSize,
+                    boundsSize: bounds.size,
+                    frameSize: frame.size
+                ).map(convertToBacking)
+            }
+
+            let status = Self.geometryCoherenceStatus(
+                committedGeometry: lastCommittedGeometry,
+                expectedContentScale: expectedContentScale,
+                expectedBackingSize: expectedBackingSize
+            )
+            switch status {
+            case .coherent:
+                RestoreTrace.log(
+                    "Ghostty.SurfaceView.geometryCoherence coherent reason=\(reason) committed=\(String(describing: lastCommittedGeometry))"
+                )
+
+            case .unavailable(let unavailableReason):
+                RestoreTrace.log(
+                    "Ghostty.SurfaceView.geometryCoherence unavailable reason=\(reason) unavailable=\(unavailableReason) committed=\(String(describing: lastCommittedGeometry)) window=\(window != nil)"
+                )
+
+            case .incoherent:
+                TerminalGeometryDiagnostics.shared.recordViolation(reason: reason, status: status)
+                let statusDescription = String(describing: status)
+                ghosttyLogger.fault(
+                    "Ghostty surface geometry incoherent reason=\(String(describing: reason), privacy: .public) status=\(statusDescription, privacy: .public)"
+                )
+                RestoreTrace.log(
+                    "Ghostty.SurfaceView.geometryCoherence incoherent reason=\(reason) status=\(statusDescription) committed=\(String(describing: lastCommittedGeometry)) expectedScale=\(String(describing: expectedContentScale)) expectedBackingSize=\(String(describing: expectedBackingSize))"
+                )
+                assertionFailure("Ghostty surface geometry incoherent: \(statusDescription)")
+            }
         }
 
         func updateReportedInitialSize(_ size: NSSize) {

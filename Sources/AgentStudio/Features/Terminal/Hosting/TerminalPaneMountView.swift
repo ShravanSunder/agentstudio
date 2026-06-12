@@ -176,6 +176,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
             "TerminalPaneMountView.forceGeometrySync pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") reason=\(reason) paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
         )
         surface.sizeDidChange(actualSurfaceSize, source: "forceGeometrySync")
+        surface.verifyGeometryCoherence(reason: reason)
     }
 
     /// During the first layout tick after mount, AppKit can call through before
@@ -234,7 +235,10 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         )
     }
 
-    func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
+    func displaySurface(
+        _ surfaceView: Ghostty.SurfaceView,
+        geometryVerificationReason: StaticString = "displaySurface"
+    ) {
         let previouslyDisplayedSurface = ghosttySurface
         let currentWrapper = surfaceScrollView
         let displayPlan = Self.surfaceDisplayPlan(
@@ -254,7 +258,11 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
             RestoreTrace.log(
                 "TerminalPaneMountView.displaySurface reusedMountedWrapper pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame)) incomingSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
             )
-            finishSurfaceDisplay(surfaceView, displayPlan: displayPlan)
+            finishSurfaceDisplay(
+                surfaceView,
+                displayPlan: displayPlan,
+                geometryVerificationReason: geometryVerificationReason
+            )
             return
         }
 
@@ -283,12 +291,17 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
             "TerminalPaneMountView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") mountedSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
 
-        finishSurfaceDisplay(surfaceView, displayPlan: displayPlan)
+        finishSurfaceDisplay(
+            surfaceView,
+            displayPlan: displayPlan,
+            geometryVerificationReason: geometryVerificationReason
+        )
     }
 
     private func finishSurfaceDisplay(
         _ surfaceView: Ghostty.SurfaceView,
-        displayPlan: SurfaceDisplayPlan
+        displayPlan: SurfaceDisplayPlan,
+        geometryVerificationReason: StaticString
     ) {
         // Make this view layer-backed AFTER the surface is created
         self.wantsLayer = true
@@ -316,6 +329,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
                 self?.handleSurfaceClose(processAlive: processAlive)
             }
         }
+        surfaceView.verifyGeometryCoherence(reason: geometryVerificationReason)
     }
 
     func removeSurface() {
