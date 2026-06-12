@@ -493,6 +493,7 @@ struct PaneCoordinatorHardeningTests {
 
         harness.coordinator.execute(.closePane(tabId: tab.id, paneId: parent.id))
 
+        #expect(harness.store.tab(tab.id)?.allPaneIds.contains(child.id) == false)
         #expect(harness.viewRegistry.isRetiredForTesting(parent.id))
         #expect(harness.viewRegistry.isRetiredForTesting(child.id))
         #expect(harness.viewRegistry.peekSlotForTesting(parent.id) != nil)

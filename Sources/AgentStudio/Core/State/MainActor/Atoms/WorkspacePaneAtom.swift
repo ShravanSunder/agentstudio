@@ -100,6 +100,7 @@ final class WorkspacePaneAtom {
     func orphanedPanes(excluding layoutPaneIds: Set<UUID>) -> [Pane] {
         panes.values.filter {
             guard !layoutPaneIds.contains($0.id) else { return false }
+            guard !$0.isDrawerChild else { return false }
             return $0.residency == .backgrounded || $0.residency.isOrphaned
         }
     }
@@ -189,7 +190,15 @@ final class WorkspacePaneAtom {
     }
 
     func purgeOrphanedPane(_ paneId: UUID) {
-        graphAtom.purgeOrphanedPane(paneId)
+        guard let pane = pane(paneId), pane.residency == .backgrounded || pane.residency.isOrphaned else {
+            graphAtom.purgeOrphanedPane(paneId)
+            return
+        }
+        if pane.drawer != nil {
+            _ = graphAtom.deletePaneAndOwnedDrawerChildren(paneId)
+        } else {
+            graphAtom.purgeOrphanedPane(paneId)
+        }
         drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
     }
 
@@ -315,6 +324,9 @@ final class WorkspacePaneAtom {
     @discardableResult
     func restoreDrawerPane(_ drawerPane: Pane, to parentPaneId: UUID) -> Bool {
         let didRestore = graphAtom.restoreDrawerPane(drawerPane, to: parentPaneId)
+        if didRestore {
+            drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
+        }
         if didRestore, let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
             drawerCursorAtom.expandDrawer(drawerId: drawerId)
         }

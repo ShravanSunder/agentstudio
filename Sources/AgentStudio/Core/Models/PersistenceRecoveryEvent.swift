@@ -25,6 +25,7 @@ struct PersistenceRecoveryEvent: Sendable, Equatable {
         case quarantinedAndReset
         case quarantineFailed
         case localStateRebuilt
+        case tabMembershipRepaired
         case saveFailed
     }
 

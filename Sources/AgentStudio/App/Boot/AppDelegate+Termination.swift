@@ -77,10 +77,20 @@ extension AppDelegate {
             appLogger.warning("Inbox notification flush failed at termination: \(error.localizedDescription)")
         }
 
-        do {
-            try await traceRuntime?.flush()
-        } catch {
-            appLogger.warning("Trace flush failed at termination: \(error.localizedDescription)")
+        await runTerminationDrain("trace flush") { [weak self] in
+            do {
+                try await self?.traceRuntime?.flush()
+            } catch {
+                appLogger.warning("Trace flush failed at termination: \(error.localizedDescription)")
+            }
+        }
+
+        await runTerminationDrain("trace shutdown") { [weak self] in
+            do {
+                try await self?.traceRuntime?.shutdown()
+            } catch {
+                appLogger.warning("Trace shutdown failed at termination: \(error.localizedDescription)")
+            }
         }
     }
 

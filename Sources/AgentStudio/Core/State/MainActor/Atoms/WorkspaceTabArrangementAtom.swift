@@ -53,7 +53,11 @@ final class WorkspaceTabArrangementAtom {
         }
     }
 
-    func hydrate(persistedTabs: [Tab], validPaneIds: Set<UUID>) {
+    func hydrate(
+        persistedTabs: [Tab],
+        validPaneIds: Set<UUID>,
+        drawerParentPaneIdByDrawerId: [UUID: UUID]? = nil
+    ) {
         let hydratedStates = persistedTabs.map { tab in
             TabArrangementState(
                 tabId: tab.id,
@@ -65,7 +69,12 @@ final class WorkspaceTabArrangementAtom {
         }
         replaceArrangementStates(
             TabArrangementValidation.validating(
-                TabArrangementValidation.pruningInvalidPaneIds(validPaneIds: validPaneIds, from: hydratedStates)
+                TabArrangementValidation.pruningInvalidPaneIds(
+                    validPaneIds: validPaneIds,
+                    from: hydratedStates,
+                    drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId
+                ),
+                drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId
             ))
     }
 
@@ -107,31 +116,33 @@ final class WorkspaceTabArrangementAtom {
             workspaceTabArrangementLogger.warning("insertPane: tab \(tabId) not found")
             return false
         }
-        let arrIndex = activeArrangementIndex(for: tabIndex)
+        let currentState = arrangementStates[tabIndex]
+        let arrIndex = Self.activeArrangementIndex(in: currentState)
 
-        guard arrangementStates[tabIndex].arrangements[arrIndex].layout.contains(targetPaneId) else {
+        guard currentState.arrangements[arrIndex].layout.contains(targetPaneId) else {
             workspaceTabArrangementLogger.warning("insertPane: targetPaneId \(targetPaneId) not in active arrangement")
             return false
         }
 
         guard
-            let updatedActiveLayout = arrangementStates[tabIndex].arrangements[arrIndex].layout.inserting(
+            let updatedActiveLayout = currentState.arrangements[arrIndex].layout.inserting(
                 paneId: paneId, at: targetPaneId, direction: direction, position: position, sizingMode: sizingMode)
         else {
             workspaceTabArrangementLogger.warning("insertPane: targetPaneId \(targetPaneId) rejected during insertion")
             return false
         }
 
-        arrangementStates[tabIndex].zoomedPaneId = nil
-        for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
+        var updatedState = currentState
+        updatedState.zoomedPaneId = nil
+        for arrangementIndex in updatedState.arrangements.indices {
             if arrangementIndex == arrIndex {
-                arrangementStates[tabIndex].arrangements[arrangementIndex].layout = updatedActiveLayout
-                arrangementStates[tabIndex].arrangements[arrangementIndex].activePaneId = paneId
-            } else if !arrangementStates[tabIndex].arrangements[arrangementIndex].layout.contains(paneId) {
+                updatedState.arrangements[arrangementIndex].layout = updatedActiveLayout
+                updatedState.arrangements[arrangementIndex].activePaneId = paneId
+            } else if !updatedState.arrangements[arrangementIndex].layout.contains(paneId) {
                 guard
                     let updatedLayout = Self.appendingPane(
                         paneId,
-                        to: arrangementStates[tabIndex].arrangements[arrangementIndex].layout
+                        to: updatedState.arrangements[arrangementIndex].layout
                     )
                 else {
                     workspaceTabArrangementLogger.warning(
@@ -139,14 +150,15 @@ final class WorkspaceTabArrangementAtom {
                     )
                     return false
                 }
-                arrangementStates[tabIndex].arrangements[arrangementIndex].layout = updatedLayout
+                updatedState.arrangements[arrangementIndex].layout = updatedLayout
             }
-            arrangementStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
+            updatedState.arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
         }
 
-        if !arrangementStates[tabIndex].allPaneIds.contains(paneId) {
-            arrangementStates[tabIndex].allPaneIds.append(paneId)
+        if !updatedState.allPaneIds.contains(paneId) {
+            updatedState.allPaneIds.append(paneId)
         }
+        arrangementStates[tabIndex] = updatedState
         return true
     }
 
@@ -171,10 +183,6 @@ final class WorkspaceTabArrangementAtom {
         }
 
         arrangementStates[tabIndex].allPaneIds.removeAll { $0 == paneId }
-    }
-
-    func removePaneReferences(_ paneId: UUID, removingDrawerIds drawerIds: Set<UUID> = []) {
-        removePaneReferences(Set([paneId]), removingDrawerIds: drawerIds)
     }
 
     func removePaneReferences(_ paneIds: Set<UUID>, removingDrawerIds drawerIds: Set<UUID> = []) {
@@ -405,6 +413,44 @@ final class WorkspaceTabArrangementAtom {
 
         if didPlaceDrawerPane, !arrangementStates[tabIndex].allPaneIds.contains(drawerPaneId) {
             arrangementStates[tabIndex].allPaneIds.append(drawerPaneId)
+        }
+    }
+
+    func restoreDrawerPaneViews(
+        drawerId: UUID,
+        parentPaneId: UUID,
+        drawerPaneIds: [UUID],
+        drawerViewsByArrangementId: [UUID: DrawerView],
+        inTab tabId: UUID
+    ) {
+        guard !drawerPaneIds.isEmpty, let tabIndex = findTabIndex(tabId) else { return }
+        let fallbackDrawerView = Self.drawerViewSeed(drawerId: drawerId, drawerPaneIds: drawerPaneIds)
+        let validDrawerPaneIds = Set(drawerPaneIds)
+        var didRestoreDrawerView = false
+        var updatedState = arrangementStates[tabIndex]
+        for arrangementIndex in updatedState.arrangements.indices {
+            guard updatedState.arrangements[arrangementIndex].layout.contains(parentPaneId) else { continue }
+            let arrangementId = updatedState.arrangements[arrangementIndex].id
+            guard let sourceDrawerView = drawerViewsByArrangementId[arrangementId] ?? fallbackDrawerView else {
+                continue
+            }
+            let repairedDrawerViews = TabArrangementRepairRules.pruningInvalidDrawerViewPaneIds(
+                validPaneIds: validDrawerPaneIds,
+                from: [drawerId: sourceDrawerView]
+            )
+            guard
+                let drawerView = repairedDrawerViews[drawerId]
+            else { continue }
+
+            updatedState.arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+            didRestoreDrawerView = true
+        }
+
+        if didRestoreDrawerView {
+            for drawerPaneId in drawerPaneIds where !updatedState.allPaneIds.contains(drawerPaneId) {
+                updatedState.allPaneIds.append(drawerPaneId)
+            }
+            arrangementStates[tabIndex] = updatedState
         }
     }
 

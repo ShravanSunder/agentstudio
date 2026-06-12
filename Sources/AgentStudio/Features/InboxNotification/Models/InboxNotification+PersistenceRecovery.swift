@@ -23,6 +23,9 @@ extension PersistenceRecoveryEvent {
         if recovery == .localStateRebuilt {
             return "Workspace local state rebuilt"
         }
+        if recovery == .tabMembershipRepaired {
+            return "Workspace layout repaired"
+        }
 
         return switch store {
         case .workspace:
@@ -70,6 +73,8 @@ extension PersistenceRecoveryEvent {
                 "The saved file could not be loaded, and moving it aside failed. Defaults were used."
             case .localStateRebuilt:
                 "The workspace graph was restored, but local focus and window state were rebuilt."
+            case .tabMembershipRepaired:
+                "The workspace layout had inconsistent tab membership and was repaired before saving."
             case .saveFailed:
                 "The app could not save this state file. Recent changes may not be restored after restart."
             }

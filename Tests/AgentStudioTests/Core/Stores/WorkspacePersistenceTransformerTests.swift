@@ -65,6 +65,55 @@ struct WorkspacePersistenceTransformerTests {
     }
 
     @Test
+    func hydrate_reportsTabMembershipRepair() {
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
+        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+        let customPane = makePane(title: "Custom")
+        let invalidPaneId = UUID()
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: invalidPaneId),
+            activePaneId: invalidPaneId
+        )
+        let customArrangement = PaneArrangement(
+            name: "Custom",
+            isDefault: false,
+            layout: Layout(paneId: customPane.id),
+            activePaneId: customPane.id
+        )
+        let tab = Tab(
+            name: "Broken",
+            allPaneIds: [invalidPaneId, customPane.id],
+            arrangements: [defaultArrangement, customArrangement],
+            activeArrangementId: customArrangement.id
+        )
+        let state = WorkspacePersistor.PersistableState(
+            id: UUID(),
+            panes: [customPane],
+            tabs: [tab],
+            activeTabId: tab.id
+        )
+
+        let repairReport = WorkspacePersistenceTransformer.hydrate(
+            state,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: topologyAtom,
+            workspacePaneAtom: paneAtom,
+            workspaceTabLayoutAtom: tabLayoutAtom
+        )
+
+        #expect(repairReport.repairedTabIds == [tab.id])
+        #expect(!repairReport.activeTabIdChanged)
+        #expect(tabLayoutAtom.tab(tab.id)?.allPaneIds == [customPane.id])
+        #expect(tabLayoutAtom.tab(tab.id)?.defaultArrangement.id == customArrangement.id)
+    }
+
+    @Test
     func makePersistableState_prunesTemporaryPanesFromTabs() {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
@@ -258,15 +307,21 @@ struct WorkspacePersistenceTransformerTests {
             windowFrame: nil
         )
 
-        let parentPane = makePane(title: "Parent")
+        let drawerId = UUID()
+        var parentPane = makePane(title: "Parent")
         let persistentDrawerPane = makePane(title: "Persistent Drawer")
         let temporaryDrawerPane = makePane(title: "Temporary Drawer", lifetime: .temporary)
+        parentPane.kind = .layout(
+            drawer: Drawer(
+                drawerId: drawerId,
+                parentPaneId: parentPane.id,
+                paneIds: [persistentDrawerPane.id, temporaryDrawerPane.id]
+            ))
         paneAtom.addPane(parentPane)
         paneAtom.addPane(persistentDrawerPane)
         paneAtom.addPane(temporaryDrawerPane)
 
         var tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
-        let drawerId = UUID()
         let drawerLayout = DrawerGridLayout(
             topRow: Layout(paneId: persistentDrawerPane.id)
                 .inserting(
@@ -451,4 +506,263 @@ struct WorkspacePersistenceTransformerTests {
         #expect(state.activeTabId == tab.id)
         #expect(state.tabs[0].activeArrangement.layout.paneIds == [pane.id])
     }
+
+    @Test
+    func makeLiveSQLiteSnapshot_addsArrangementPanesMissingFromTabMembership() {
+        let fixture = makeSQLiteSnapshotFixture()
+        let firstPane = makePane(title: "First")
+        let arrangementOnlyPane = makePane(title: "Arrangement Only")
+        fixture.paneAtom.addPane(firstPane)
+        fixture.paneAtom.addPane(arrangementOnlyPane)
+
+        let layout = Layout(paneId: firstPane.id)
+            .inserting(
+                paneId: arrangementOnlyPane.id,
+                at: firstPane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )!
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            activePaneId: arrangementOnlyPane.id
+        )
+        let tab = Tab(
+            name: "Broken",
+            allPaneIds: [firstPane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        fixture.tabLayoutAtom.appendTab(tab)
+        fixture.tabLayoutAtom.setActiveTab(tab.id)
+
+        let snapshot = makeLiveSQLiteSnapshot(from: fixture)
+
+        #expect(snapshot.tabs.single?.allPaneIds == [firstPane.id, arrangementOnlyPane.id])
+    }
+
+    @Test
+    func makeLiveSQLiteSnapshot_prunesMembershipOnlyPanes() {
+        let fixture = makeSQLiteSnapshotFixture()
+        let visiblePane = makePane(title: "Visible")
+        let membershipOnlyPane = makePane(title: "Membership Only")
+        fixture.paneAtom.addPane(visiblePane)
+        fixture.paneAtom.addPane(membershipOnlyPane)
+
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: visiblePane.id),
+            activePaneId: visiblePane.id
+        )
+        let tab = Tab(
+            name: "Broken",
+            allPaneIds: [visiblePane.id, membershipOnlyPane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        fixture.tabLayoutAtom.appendTab(tab)
+        fixture.tabLayoutAtom.setActiveTab(tab.id)
+
+        let snapshot = makeLiveSQLiteSnapshot(from: fixture)
+
+        #expect(snapshot.tabs.single?.allPaneIds == [visiblePane.id])
+    }
+
+    @Test
+    func makeLiveSQLiteSnapshot_addsDrawerViewPanesMissingFromTabMembership() {
+        let fixture = makeSQLiteSnapshotFixture()
+        let parentPane = makePane(title: "Parent")
+        let drawerPane = makePane(title: "Drawer")
+        fixture.paneAtom.addPane(parentPane)
+        fixture.paneAtom.addPane(drawerPane)
+
+        let drawerId = UUID()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: parentPane.id),
+            activePaneId: parentPane.id,
+            drawerViews: [
+                drawerId: DrawerView(
+                    layout: DrawerGridLayout(topRow: Layout(paneId: drawerPane.id)),
+                    activeChildId: drawerPane.id
+                )
+            ]
+        )
+        let tab = Tab(
+            name: "Broken Drawer",
+            allPaneIds: [parentPane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        fixture.tabLayoutAtom.appendTab(tab)
+        fixture.tabLayoutAtom.setActiveTab(tab.id)
+
+        let snapshot = makeLiveSQLiteSnapshot(from: fixture)
+
+        #expect(snapshot.tabs.single?.allPaneIds == [parentPane.id, drawerPane.id])
+    }
+
+    @Test
+    func normalizeLiveSQLiteTabs_reportsNoRepairsForValidTab() {
+        let pane = makePane(title: "Valid")
+        let tab = Tab(paneId: pane.id, name: "Valid Tab")
+
+        let result = WorkspacePersistenceTransformer.normalizeLiveSQLiteTabs(
+            tabs: [tab],
+            validPaneIds: [pane.id],
+            activeTabId: tab.id
+        )
+
+        #expect(result.tabs == [tab])
+        #expect(result.activeTabId == tab.id)
+        #expect(!result.repairReport.hasRepairs)
+        #expect(result.repairReport.repairedTabIds.isEmpty)
+        #expect(!result.repairReport.activeTabIdChanged)
+    }
+
+    @Test
+    func normalizeLiveSQLiteTabs_promotesCustomArrangementWhenDefaultPrunesEmpty() throws {
+        let customPane = makePane(title: "Custom")
+        let fallbackPane = makePane(title: "Fallback")
+        let invalidPaneId = UUID()
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: invalidPaneId),
+            activePaneId: invalidPaneId
+        )
+        let customArrangement = PaneArrangement(
+            name: "Custom",
+            isDefault: false,
+            layout: Layout(paneId: customPane.id),
+            activePaneId: customPane.id
+        )
+        let brokenTab = Tab(
+            name: "Broken",
+            allPaneIds: [invalidPaneId, customPane.id],
+            arrangements: [defaultArrangement, customArrangement],
+            activeArrangementId: customArrangement.id
+        )
+        let fallbackTab = Tab(paneId: fallbackPane.id, name: "Fallback")
+
+        let result = WorkspacePersistenceTransformer.normalizeLiveSQLiteTabs(
+            tabs: [brokenTab, fallbackTab],
+            validPaneIds: [customPane.id, fallbackPane.id],
+            activeTabId: brokenTab.id
+        )
+
+        let normalizedBrokenTab = try #require(result.tabs.first { $0.id == brokenTab.id })
+        #expect(result.tabs.map(\.id) == [brokenTab.id, fallbackTab.id])
+        #expect(result.activeTabId == brokenTab.id)
+        #expect(normalizedBrokenTab.allPaneIds == [customPane.id])
+        #expect(normalizedBrokenTab.defaultArrangement.id == customArrangement.id)
+        #expect(normalizedBrokenTab.defaultArrangement.layout.paneIds == [customPane.id])
+        #expect(normalizedBrokenTab.activeArrangementId == customArrangement.id)
+        #expect(result.repairReport.repairedTabIds == [brokenTab.id])
+        #expect(!result.repairReport.activeTabIdChanged)
+    }
+
+    @Test
+    func normalizeLiveSQLiteTabs_dropsDrawerOnlyTabAfterParentPrunesEmpty() throws {
+        let parentPane = makePane(title: "Parent")
+        let drawerId = try #require(parentPane.drawer?.drawerId)
+        let drawerPane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Drawer"),
+            kind: .drawerChild(parentPaneId: parentPane.id)
+        )
+        let fallbackPane = makePane(title: "Fallback")
+        let invalidParentPaneId = UUID()
+        let drawerOnlyArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: invalidParentPaneId),
+            activePaneId: invalidParentPaneId,
+            drawerViews: [
+                drawerId: DrawerView(
+                    layout: DrawerGridLayout(topRow: Layout(paneId: drawerPane.id)),
+                    activeChildId: drawerPane.id
+                )
+            ]
+        )
+        let brokenTab = Tab(
+            name: "Drawer Only",
+            allPaneIds: [invalidParentPaneId, drawerPane.id],
+            arrangements: [drawerOnlyArrangement],
+            activeArrangementId: drawerOnlyArrangement.id
+        )
+        let fallbackTab = Tab(paneId: fallbackPane.id, name: "Fallback")
+
+        let result = WorkspacePersistenceTransformer.normalizeLiveSQLiteTabs(
+            tabs: [brokenTab, fallbackTab],
+            validPaneIds: [drawerPane.id, fallbackPane.id],
+            activeTabId: brokenTab.id,
+            drawerParentPaneIdByDrawerId: [drawerId: parentPane.id]
+        )
+
+        #expect(result.tabs.map(\.id) == [fallbackTab.id])
+        #expect(result.activeTabId == fallbackTab.id)
+        #expect(result.repairReport.repairedTabIds == [brokenTab.id])
+        #expect(result.repairReport.activeTabIdChanged)
+    }
+
+    @Test
+    func normalizeLiveSQLiteTabs_preservesDuplicatePaneOwnershipForRepositoryValidation() {
+        let pane = makePane(title: "Shared")
+        let firstTab = Tab(paneId: pane.id, name: "First")
+        let secondTab = Tab(paneId: pane.id, name: "Second")
+
+        let result = WorkspacePersistenceTransformer.normalizeLiveSQLiteTabs(
+            tabs: [firstTab, secondTab],
+            validPaneIds: [pane.id],
+            activeTabId: firstTab.id
+        )
+
+        #expect(result.tabs.map(\.allPaneIds) == [[pane.id], [pane.id]])
+        #expect(result.repairReport.repairedTabIds.isEmpty)
+    }
+
+    private func makeSQLiteSnapshotFixture() -> SQLiteSnapshotFixture {
+        let identityAtom = WorkspaceIdentityAtom()
+        let windowMemoryAtom = WorkspaceWindowMemoryAtom()
+        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+        identityAtom.hydrate(
+            workspaceId: UUID(),
+            workspaceName: "SQLite Workspace",
+            createdAt: Date(timeIntervalSince1970: 1000)
+        )
+        windowMemoryAtom.hydrate(sidebarWidth: 250, windowFrame: nil)
+        return SQLiteSnapshotFixture(
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            topologyAtom: topologyAtom,
+            paneAtom: paneAtom,
+            tabLayoutAtom: tabLayoutAtom
+        )
+    }
+
+    private func makeLiveSQLiteSnapshot(from fixture: SQLiteSnapshotFixture) -> WorkspaceSQLiteSnapshot {
+        WorkspacePersistenceTransformer.makeLiveSQLiteSnapshot(
+            identityAtom: fixture.identityAtom,
+            windowMemoryAtom: fixture.windowMemoryAtom,
+            repositoryTopologyAtom: fixture.topologyAtom,
+            workspacePaneAtom: fixture.paneAtom,
+            workspaceTabLayoutAtom: fixture.tabLayoutAtom,
+            persistedAt: Date(timeIntervalSince1970: 2000)
+        )
+    }
+}
+
+private struct SQLiteSnapshotFixture {
+    let identityAtom: WorkspaceIdentityAtom
+    let windowMemoryAtom: WorkspaceWindowMemoryAtom
+    let topologyAtom: WorkspaceRepositoryTopologyAtom
+    let paneAtom: WorkspacePaneAtom
+    let tabLayoutAtom: WorkspaceTabLayoutAtom
 }

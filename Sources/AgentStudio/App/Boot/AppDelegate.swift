@@ -55,6 +55,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var orphanZmxCleanupTask: Task<Void, Never>?
     var orphanZmxCleanupDelay: AsyncDelay = .taskSleep
     var orphanZmxCleanupTimeout: Duration = .seconds(30)
+    var isObservingTraceIdentityInputs = false
     private var terminationDrainTask: Task<Void, Never>?
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?
