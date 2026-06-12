@@ -2,11 +2,11 @@
 
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4 committed, T5 implemented with proof gates green in the current changeset. Next implementation step starts at T5b.
+Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5 committed, T5b implemented with proof gates green in the current changeset. Next implementation step starts at T6.
 
 ## Execution State (handoff, 2026-06-11)
 
-T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 is implemented in the current changeset (`Hydrate zmx anchors before orphan cleanup`). Next implementation step starts at T5b.
+T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b is implemented in the current changeset (`Add phase A zmx smoke gate`). Next implementation step starts at T6.
 
 Done — T0 (all green, characterization evidence captured):
 - `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These were the red→green pivots for T4.
@@ -61,6 +61,28 @@ Done — T4 implementation (verified red first: source-binding validators reject
 3. Broader scoped proof: `swift build --build-tests --build-path .build-agent-t4 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t4 --filter "WorkspaceCoreRepository|WorkspaceSQLiteStoreBridgeTests|WorkspaceCoreMigrationTests"` — build complete; 130 tests in 15 suites passed after 1.930s.
 4. Full default test proof: `mise run test` first hit the runner's 60s wrapper timeout (exit 124) while tests were still passing; rerun as `SWIFT_TEST_TIMEOUT_SECONDS=180 mise run test` — exit 0; default E2E and Zmx E2E lanes skipped by `SWIFT_TEST_INCLUDE_E2E=0` and `SWIFT_TEST_INCLUDE_ZMX_E2E=0`.
 5. Lint proof: after `mise run format`, `mise run lint` — swift-format OK; swiftlint 0 violations in 1014 files; Core boundary import check passed; release script verification passed.
+
+Done — T5 implementation (verified red first: cleanup planning tests had to be widened from exact derived ids to stored/derived ids plus kind-aware live-session protection):
+- `Sources/AgentStudio/App/Boot/AppDelegate.swift` — boot cleanup discovers live zmx sessions once, hydrates/adopts missing anchors, flushes SQLite, and skips destructive cleanup if anchor persistence fails.
+- `Sources/AgentStudio/App/Coordination/ZmxOrphanCleanupPlanner.swift` — owns pure anchor hydration/adoption and cleanup filtering; stored ids win, exactly-one same-kind same-pane live match is adopted, and same-pane live sessions are protected from orphan destruction.
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` — exposes kind-aware pane-session matching helpers for main and drawer zmx ids.
+- `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` — adds the facade mutator used to persist hydrated terminal anchors.
+- `Sources/AgentStudio/Features/Terminal/Restore/TerminalRestoreRuntime.swift` — keeps sync restore reads stored-first with a non-persisting legacy fallback for unhydrated rows.
+- `Tests/AgentStudioTests/App/ZmxOrphanCleanupPlannerTests.swift` — covers stored-id protection, unique live adoption, ambiguous-match fallback, same-pane cleanup belt, and the app-level SQLite cleanup path for a legacy roamed pane.
+
+**T5 proof gates complete:**
+1. Red proof: `swift build --build-tests --build-path .build-agent-t5 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t5 --filter ZmxOrphanCleanupPlannerTests` — failed as expected before implementation; the tests required stored/derived candidate ids and a live-session set for kind-aware suffix protection.
+2. Green scoped proof: same command after implementation — 7 tests in `ZmxOrphanCleanupPlannerTests` passed.
+3. Broader scoped proof: `swift build --build-tests --build-path .build-agent-t5 && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t5 --filter "ZmxOrphanCleanupPlannerTests|TerminalRestoreRuntimeTests|ZmxBackendTests|WorkspaceSQLiteStoreBridgeTests|PaneCoordinatorTerminalRestoreIntegrationTests"` — build complete; 94 tests in 5 suites passed after 1.820s.
+4. Lint/full gates: `mise run format && mise run lint` — swift-format OK; swiftlint 0 violations in 1014 files; Core boundary import check passed; release script verification passed. `SWIFT_TEST_TIMEOUT_SECONDS=180 mise run test` — exit 0; default E2E/Zmx E2E skipped by repo defaults. `git diff --check` — clean.
+
+Done — T5b implementation (Phase-A smoke before source deletion):
+- `Tests/AgentStudioTests/Integration/ZmxE2ETests.swift` — adds an opt-in real-zmx smoke that creates a legacy roamed pane with no stored anchor, starts the live birth session and an unrelated session, runs boot orphan cleanup, then asserts cleanup adopts/persists the live birth id, preserves that live session, destroys only the unrelated session, emits no recovery events, and writes `zmx_session_id` to SQLite.
+
+**T5b proof gates complete:**
+1. Focused smoke: `swift build --build-tests --build-path .build-agent-t5b && AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --build-path .build-agent-t5b --filter "ZmxE2ETests/test_phaseASmoke_hydratesLegacyRoamedPaneBeforeCleanup"` — build complete; 1 test in 2 suites passed after 1.566s.
+2. Full opt-in zmx E2E lane: `SWIFT_BUILD_DIR=.build-agent-t5b mise run test-zmx-e2e` — build complete; 6 tests in 2 suites passed after 5.244s.
+3. Lint/diff gate: `mise run format && mise run lint && git diff --check` — swift-format OK; swiftlint 0 violations in 1014 files; Core boundary import check passed; release script verification passed; whitespace diff check clean.
 
 Execution discoveries the remaining tasks must respect:
 - **Source columns double as facet storage.** `decodePaneRecord` (WorkspaceCoreRepository+PaneGraph.swift:202-213) reads `durableFacets.repoId/worktreeId` FROM `source_repo_id`/`source_worktree_id`. On write, `SQLitePaneGraphStorage.sourceIds` stores source ids for worktree panes and facet ids for floating panes. Consequence for T6/migration 009: those columns are not "dropped" — they are RENAMED/refit as facet columns (`facet_repo_id`, `facet_worktree_id`) written from `durableFacets` for all panes, and `source_kind` is dropped. A facet/source mismatch can never round-trip through the DB (single column) — it exists only in memory, which is consistent with the latch evidence.

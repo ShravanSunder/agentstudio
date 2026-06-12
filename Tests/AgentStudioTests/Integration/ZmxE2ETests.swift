@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -199,6 +200,189 @@ extension E2ESerializedTests {
             }
         }
 
+        // MARK: - Phase-A Smoke
+
+        @MainActor
+        @Test("phase A smoke hydrates roamed legacy pane without killing live zmx session")
+        func test_phaseASmoke_hydratesLegacyRoamedPaneBeforeCleanup() async throws {
+            let harness = ZmxTestHarness()
+            let backend = try #require(
+                harness.createBackend(),
+                "ZmxTestHarness failed to resolve zmx path; integration test requires zmx"
+            )
+            try #require(await backend.isAvailable, "zmx is unavailable in this environment")
+            try FileManager.default.createDirectory(
+                atPath: harness.zmxDir,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+
+            do {
+                try await runPhaseASmoke(harness: harness, backend: backend)
+                await harness.cleanup()
+            } catch {
+                await harness.cleanup()
+                throw error
+            }
+        }
+
+        @MainActor
+        private func runPhaseASmoke(harness: ZmxTestHarness, backend: ZmxBackend) async throws {
+            // Arrange — a legacy pre-anchor pane was born in worktree A, roamed to
+            // worktree B, and still has a live zmx daemon under its birth id.
+            let workspaceId = UUID()
+            let fixture = try makeZmxE2ESQLiteFixture(workspaceId: workspaceId)
+            let identityAtom = WorkspaceIdentityAtom()
+            identityAtom.hydrate(
+                workspaceId: workspaceId,
+                workspaceName: "zmx Phase A Smoke",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_300)
+            )
+            var recoveryEvents: [PersistenceRecoveryEvent] = []
+            let store = WorkspaceStore(
+                identityAtom: identityAtom,
+                persistor: WorkspacePersistor(
+                    workspacesDir: URL(filePath: harness.zmxDir).appending(path: "workspaces")
+                ),
+                sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
+                recoveryReporter: { event in recoveryEvents.append(event) }
+            )
+            let delegate = AppDelegate()
+            delegate.store = store
+
+            let birthURL = URL(filePath: harness.zmxDir).appending(path: "birth")
+            let roamedURL = URL(filePath: harness.zmxDir).appending(path: "roamed")
+            try FileManager.default.createDirectory(at: birthURL, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: roamedURL, withIntermediateDirectories: true)
+
+            let birthRepo = store.addRepo(at: birthURL)
+            let birthWorktree = try #require(birthRepo.worktrees.first)
+            let roamedRepo = store.addRepo(at: roamedURL)
+            let roamedWorktree = try #require(roamedRepo.worktrees.first)
+            let legacyPaneState = store.paneAtom.createPane(
+                content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionId: nil)),
+                metadata: PaneMetadata(
+                    source: .worktree(
+                        worktreeId: birthWorktree.id,
+                        repoId: birthRepo.id,
+                        launchDirectory: birthWorktree.path
+                    ),
+                    title: "Legacy Roamed",
+                    facets: PaneContextFacets(
+                        repoId: roamedRepo.id,
+                        worktreeId: roamedWorktree.id,
+                        cwd: roamedWorktree.path
+                    )
+                )
+            )
+            let legacyPane = try #require(store.paneAtom.pane(legacyPaneState.id))
+            store.appendTab(Tab(paneId: legacyPane.id, name: "Legacy"))
+
+            let sessions = try await startPhaseASmokeSessions(
+                harness: harness,
+                backend: backend,
+                paneContext: ZmxPhaseASmokePaneContext(
+                    birthRepo: birthRepo,
+                    birthWorktree: birthWorktree,
+                    roamedRepo: roamedRepo,
+                    roamedWorktree: roamedWorktree,
+                    legacyPane: legacyPane
+                )
+            )
+
+            // Act — simulate boot cleanup on the next launch with the real backend.
+            try await delegate.runOrphanZmxCleanup(
+                backend: backend,
+                terminalRestoreRuntime: TerminalRestoreRuntime(
+                    sessionConfiguration: SessionConfiguration(
+                        isEnabled: true,
+                        zmxPath: sessions.zmxPath,
+                        zmxDir: harness.zmxDir,
+                        healthCheckInterval: 30,
+                        maxCheckpointAge: 60
+                    )
+                )
+            )
+
+            // Assert — the live birth daemon is adopted and protected; only the
+            // unrelated zmx session is destroyed.
+            #expect(store.pane(legacyPane.id)?.terminalState?.zmxSessionId == sessions.birthHandle.id)
+            #expect(store.pane(legacyPane.id)?.terminalState?.zmxSessionId != sessions.roamedDerivedSessionId)
+            #expect(await backend.healthCheck(sessions.birthHandle))
+            #expect(
+                await harness.waitForSessionSocket(
+                    sessionId: sessions.unrelatedSessionId,
+                    exists: false,
+                    timeout: .seconds(5)
+                )
+            )
+            #expect(recoveryEvents.isEmpty)
+
+            try assertPersistedZmxSessionId(
+                fixture: fixture,
+                workspaceId: workspaceId,
+                paneId: legacyPane.id,
+                expectedSessionId: sessions.birthHandle.id
+            )
+        }
+
+        private func startPhaseASmokeSessions(
+            harness: ZmxTestHarness,
+            backend: ZmxBackend,
+            paneContext: ZmxPhaseASmokePaneContext
+        ) async throws -> ZmxPhaseASmokeSessions {
+            let birthHandle = try await backend.createPaneSession(
+                repo: paneContext.birthRepo,
+                worktree: paneContext.birthWorktree,
+                paneId: paneContext.legacyPane.id
+            )
+            let roamedDerivedSessionId = ZmxBackend.sessionId(
+                repoStableKey: paneContext.roamedRepo.stableKey,
+                worktreeStableKey: paneContext.roamedWorktree.stableKey,
+                paneId: paneContext.legacyPane.id
+            )
+            let unrelatedSessionId = ZmxBackend.sessionId(
+                repoStableKey: "1111111111111111",
+                worktreeStableKey: "2222222222222222",
+                paneId: UUID(uuidString: "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD")!
+            )
+
+            let zmxPath = try #require(harness.zmxPath, "Expected zmx path to be available")
+            _ = try harness.spawnZmxSession(
+                zmxPath: zmxPath,
+                sessionId: birthHandle.id,
+                commandArgs: ["/bin/sleep", "300"]
+            )
+            _ = try harness.spawnZmxSession(
+                zmxPath: zmxPath,
+                sessionId: unrelatedSessionId,
+                commandArgs: ["/bin/sleep", "300"]
+            )
+            #expect(await harness.waitForSessionSocket(sessionId: birthHandle.id, exists: true))
+            #expect(await harness.waitForSessionSocket(sessionId: unrelatedSessionId, exists: true))
+            return .init(
+                birthHandle: birthHandle,
+                roamedDerivedSessionId: roamedDerivedSessionId,
+                unrelatedSessionId: unrelatedSessionId,
+                zmxPath: zmxPath
+            )
+        }
+
+        private func assertPersistedZmxSessionId(
+            fixture: ZmxE2ESQLiteFixture,
+            workspaceId: UUID,
+            paneId: UUID,
+            expectedSessionId: String
+        ) throws {
+            let storedPanes = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceId).panes
+            let storedPane = try #require(storedPanes.first { $0.id == paneId })
+            guard case .terminal(_, _, let storedSessionId) = storedPane.content else {
+                Issue.record("Expected terminal content for legacy pane")
+                return
+            }
+            #expect(storedSessionId == expectedSessionId)
+        }
+
         // MARK: - Socket Exists E2E
 
         @Test("socket exists after daemon starts")
@@ -258,4 +442,42 @@ extension E2ESerializedTests {
             }
         }
     }
+}
+
+private struct ZmxE2ESQLiteFixture {
+    let coreQueue: DatabaseQueue
+    let localQueue: DatabaseQueue
+    let coreRepository: WorkspaceCoreRepository
+    let backend: WorkspaceSQLiteStoreBackend
+}
+
+private struct ZmxPhaseASmokePaneContext {
+    let birthRepo: Repo
+    let birthWorktree: Worktree
+    let roamedRepo: Repo
+    let roamedWorktree: Worktree
+    let legacyPane: Pane
+}
+
+private struct ZmxPhaseASmokeSessions {
+    let birthHandle: PaneSessionHandle
+    let roamedDerivedSessionId: String
+    let unrelatedSessionId: String
+    let zmxPath: String
+}
+
+@MainActor
+private func makeZmxE2ESQLiteFixture(workspaceId: UUID) throws -> ZmxE2ESQLiteFixture {
+    let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.zmx.e2e.core")
+    let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.zmx.e2e.local")
+    try WorkspaceCoreMigrations.migrate(coreQueue)
+    try WorkspaceLocalMigrations.migrate(localQueue)
+    let coreRepository = WorkspaceCoreRepository(databaseWriter: coreQueue)
+    let backend = WorkspaceSQLiteStoreBackend(
+        coreRepository: coreRepository,
+        makeLocalRepository: { workspaceId in
+            WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
+        }
+    )
+    return .init(coreQueue: coreQueue, localQueue: localQueue, coreRepository: coreRepository, backend: backend)
 }
