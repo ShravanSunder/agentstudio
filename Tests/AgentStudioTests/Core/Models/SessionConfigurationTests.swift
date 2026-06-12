@@ -11,7 +11,6 @@ final class SessionConfigurationTests {
         // Arrange
         let executor = MockProcessExecutor()
         executor.enqueueSuccess("/bin/echo")
-        executor.enqueueSuccess("zmx 0.test")
 
         // Act
         let config = await SessionConfiguration.detect(
@@ -28,10 +27,31 @@ final class SessionConfigurationTests {
         #expect(config.zmxPath == "/bin/echo")
         #expect(
             executor.calls == [
-                MockProcessExecutor.Call(command: "/usr/bin/which", args: ["zmx"], environment: nil),
-                MockProcessExecutor.Call(command: "/bin/echo", args: ["--version"], environment: nil),
+                MockProcessExecutor.Call(command: "/usr/bin/which", args: ["zmx"], environment: nil)
             ]
         )
+    }
+
+    @Test
+    func test_detectAsync_whenSessionRestoreDisabled_skipsZmxDiscovery() async {
+        // Arrange
+        let executor = MockProcessExecutor()
+
+        // Act
+        let config = await SessionConfiguration.detect(
+            environment: ["AGENTSTUDIO_SESSION_RESTORE": "false"],
+            processExecutor: executor,
+            discoveryLocations: SessionConfiguration.ZmxDiscoveryLocations(
+                bundledBinaryPath: "/tmp/bundled-zmx",
+                vendorBinaryPath: "/tmp/vendor-zmx",
+                wellKnownPaths: ["/tmp/path-zmx"]
+            )
+        )
+
+        // Assert
+        #expect(!config.isEnabled)
+        #expect(config.zmxPath == nil)
+        #expect(executor.calls.isEmpty)
     }
 
     // MARK: - isEnabled Parsing

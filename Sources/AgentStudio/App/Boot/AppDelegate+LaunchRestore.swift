@@ -9,7 +9,7 @@ extension AppDelegate {
         using restoreBounds: CGRect,
         source: StaticString
     ) async {
-        guard !launchRestoreObservationState.didComplete else { return }
+        guard launchRestoreObservationState.beginRestoreIfNeeded() else { return }
         guard !restoreBounds.isEmpty else {
             RestoreTrace.log("launchRestore skipped reason=emptyBounds source=\(source)")
             launchRestoreLogger.error(
@@ -51,6 +51,12 @@ extension AppDelegate {
                     return
                 }
                 guard !self.launchRestoreObservationState.didComplete else { return }
+                guard !self.launchRestoreObservationState.isInProgress else {
+                    launchRestoreLogger.error(
+                        "Launch restore timed out while restore is already in progress; skipping concurrent recovery"
+                    )
+                    return
+                }
                 launchRestoreLogger.error(
                     "Launch restore timed out — isSettled=\(self.windowLifecycleStore.isLaunchLayoutSettled, privacy: .public) bounds=\(NSStringFromRect(self.windowLifecycleStore.terminalContainerBounds), privacy: .public)"
                 )

@@ -51,8 +51,8 @@ struct GhosttyActionRouterTests {
         }
     }
 
-    @Test("missing routing decisions fall back to Ghostty default instead of crashing")
-    func missingRoutingDecision_fallsBackToGhosttyDefault() async throws {
+    @Test("missing routing decisions fail closed instead of falling back to Ghostty default")
+    func missingRoutingDecision_failsClosed() async throws {
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
@@ -79,7 +79,7 @@ struct GhosttyActionRouterTests {
             routingLookupProvider: { routingLookup }
         )
 
-        #expect(!handled)
+        #expect(handled)
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
@@ -87,8 +87,17 @@ struct GhosttyActionRouterTests {
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.ghostty.action.name\":\"newTab\""))
         #expect(contents.contains("\"agentstudio.ghostty.route.reason\":\"missing_routing_decision\""))
-        #expect(contents.contains("\"agentstudio.ghostty.route.result\":false"))
+        #expect(contents.contains("\"agentstudio.ghostty.route.result\":true"))
         #expect(contents.contains("\"agentstudio.ghostty.signal.class\":\"unhandled\""))
+    }
+
+    @Test("known Ghostty action tags are exhaustively classified")
+    func knownGhosttyActionTagsAreExhaustivelyClassified() {
+        let classifiedTags = Ghostty.ActionRouter.explicitlyRoutedTags
+            .union(Ghostty.ActionRouter.interceptedTags)
+            .union(Ghostty.ActionRouter.deferredTags)
+
+        #expect(classifiedTags == Set(GhosttyActionTag.allCases))
     }
 
     @Test(

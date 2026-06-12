@@ -50,15 +50,14 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
     private let lifecycleLock = NSLock()
     private var hasShutdown = false
     private var streamByWorktreeId: [UUID: StreamRegistration] = [:]
-    private var shouldFlagNextBatchForOverflow = false
 
     private let eventsStream: AsyncStream<FSEventBatch>
     private let eventsContinuation: AsyncStream<FSEventBatch>.Continuation
 
     init() {
         // FSEvents are triggers for recomputing filesystem/git facts from disk, not
-        // accumulated deltas. Overflow is surfaced on a later batch so the actor can
-        // refresh control-plane policy such as .gitignore before classification.
+        // accumulated deltas. AsyncStream buffer overflow is surfaced immediately
+        // as a marker batch so the actor can refresh control-plane policy and resync.
         let (stream, continuation) = AsyncStream.makeStream(
             of: FSEventBatch.self,
             bufferingPolicy: .bufferingNewest(Self.ingressBufferLimit)
@@ -202,33 +201,28 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
 
         lifecycleLock.lock()
         let shouldEmit = !hasShutdown && streamByWorktreeId[worktreeId] != nil
-        let didOverflow = shouldFlagNextBatchForOverflow
-        shouldFlagNextBatchForOverflow = false
         lifecycleLock.unlock()
         guard shouldEmit else { return }
 
         let yieldResult = eventsContinuation.yield(
-            FSEventBatch(worktreeId: worktreeId, paths: paths, didOverflow: didOverflow)
+            FSEventBatch(worktreeId: worktreeId, paths: paths, didOverflow: false)
         )
-        markPotentialOverflowIfNeeded(yieldResult)
+        emitOverflowMarkerIfNeeded(yieldResult)
     }
 
-    private func markPotentialOverflowIfNeeded(_ yieldResult: AsyncStream<FSEventBatch>.Continuation.YieldResult) {
-        let shouldFlagNextBatch: Bool
-        switch yieldResult {
-        case .enqueued(let remaining):
-            shouldFlagNextBatch = remaining == 0
-        case .dropped:
-            shouldFlagNextBatch = true
-        case .terminated:
-            shouldFlagNextBatch = false
-        @unknown default:
-            shouldFlagNextBatch = true
-        }
-        guard shouldFlagNextBatch else { return }
+    private func emitOverflowMarkerIfNeeded(_ yieldResult: AsyncStream<FSEventBatch>.Continuation.YieldResult) {
+        guard case .dropped(let droppedBatch) = yieldResult else { return }
+        guard !droppedBatch.didOverflow else { return }
+
+        let overflowWorktreeId = droppedBatch.worktreeId
         lifecycleLock.lock()
-        shouldFlagNextBatchForOverflow = true
+        let shouldEmit = !hasShutdown && streamByWorktreeId[overflowWorktreeId] != nil
         lifecycleLock.unlock()
+        guard shouldEmit else { return }
+
+        _ = eventsContinuation.yield(
+            FSEventBatch(worktreeId: overflowWorktreeId, paths: [], didOverflow: true)
+        )
     }
 
     private static func teardown(_ registration: StreamRegistration) {

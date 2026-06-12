@@ -169,7 +169,7 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test]
-description = "Run default test suite (excludes isolated OTLP smoke, E2E, and ZmxE2E by default)"
+description = "Run default test suite (includes isolated OTLP smoke; excludes E2E and ZmxE2E by default)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -187,6 +187,7 @@ prebuild_swift_tests
 
 run_non_serialized_swift_tests "non-serialized suites"
 run_webkit_suites
+run_otlp_bootstrap_smoke
 
 echo "--- E2E serialized tests (serial) ---"
 if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
@@ -262,10 +263,7 @@ EXTRA_SWIFT_TEST_ARGS=""
 source scripts/swift-test-helpers.sh
 
 prebuild_swift_tests
-run_swift_with_timeout \
-  "AgentStudioOTLPBootstrapSmokeTests" \
-  "$TIMEOUT_SECONDS" \
-  env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter AgentStudioOTLPBootstrapSmokeTests --build-path "$BUILD_PATH"
+run_otlp_bootstrap_smoke
 """
 
 [tasks.test-coverage]
@@ -287,6 +285,7 @@ prebuild_swift_tests
 
 run_non_serialized_swift_tests "non-serialized suites (coverage)"
 run_webkit_suites
+run_otlp_bootstrap_smoke
 
 echo "--- E2E serialized tests (serial, coverage) ---"
 if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then

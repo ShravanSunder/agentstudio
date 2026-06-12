@@ -17,6 +17,19 @@ struct DarwinFSEventStreamClientTests {
         #expect(DarwinFSEventStreamClient.ingressBufferLimit == 256)
     }
 
+    @Test("buffer overflow marker emission is bounded")
+    func bufferOverflowMarkerEmissionIsBounded() throws {
+        let projectRoot = TestPathResolver.projectRoot(from: #filePath)
+        let sourceURL = URL(fileURLWithPath: projectRoot)
+            .appending(path: "Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/DarwinFSEventStreamClient.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(source.contains("guard case .dropped(let droppedBatch) = yieldResult else { return }"))
+        #expect(source.contains("guard !droppedBatch.didOverflow else { return }"))
+        #expect(source.contains("_ = eventsContinuation.yield"))
+        #expect(!source.contains("while case .dropped"))
+    }
+
     @Test("register/unregister lifecycle is idempotent")
     func registerUnregisterLifecycleIsIdempotent() async {
         let client = DarwinFSEventStreamClient()

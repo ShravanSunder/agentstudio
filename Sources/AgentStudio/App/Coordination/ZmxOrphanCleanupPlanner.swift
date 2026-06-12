@@ -4,11 +4,15 @@ struct ZmxOrphanCleanupPlan: Equatable {
     let knownSessionIds: Set<String>
     let protectedPaneSegments: Set<String>
 
+    func protects(sessionId: String) -> Bool {
+        knownSessionIds.contains(sessionId)
+            || protectedPaneSegments.contains { sessionId.contains($0) }
+    }
+
     func destroyableSessionIds(from discoveredSessionIds: [String]) -> [String] {
         discoveredSessionIds.filter { sessionId in
             ZmxBackend.isAgentStudioSessionId(sessionId)
-                && !knownSessionIds.contains(sessionId)
-                && !protectedPaneSegments.contains { sessionId.contains($0) }
+                && !protects(sessionId: sessionId)
         }
     }
 }

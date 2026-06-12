@@ -402,9 +402,55 @@ struct AppBootSequenceTests {
             appDelegateSource.range(of: "orphanZmxCleanupTask = Task")?.lowerBound
         )
         let candidateSamplingIndex = try #require(
-            appDelegateSource.range(of: "let candidates: [ZmxOrphanCleanupCandidate]")?.lowerBound
+            appDelegateSource.range(of: "let plan = currentZmxOrphanCleanupPlan()")?.lowerBound
         )
         #expect(cleanupTaskIndex < candidateSamplingIndex)
+    }
+
+    @Test("launch restore observation is single-flight while restore is in progress")
+    func launchRestoreObservationStateIsSingleFlight() {
+        let state = AppDelegateLaunchRestoreObservationState()
+
+        state.prepareForObservation()
+
+        #expect(state.beginRestoreIfNeeded())
+        #expect(!state.beginRestoreIfNeeded())
+        #expect(state.isInProgress)
+        #expect(!state.didComplete)
+
+        state.complete()
+
+        #expect(!state.isInProgress)
+        #expect(state.didComplete)
+        #expect(!state.beginRestoreIfNeeded())
+    }
+
+    @Test("Worktrunk dependency prompt is off launch path and non-modal")
+    func worktrunkDependencyPromptIsOffLaunchPathAndNonModal() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+            encoding: .utf8
+        )
+
+        let didFinishLaunchingIndex = try #require(
+            appDelegateSource.range(of: "func applicationDidFinishLaunching")?.lowerBound
+        )
+        let finishLaunchingIndex = try #require(
+            appDelegateSource.range(of: "private func finishLaunchingAfterWorkspaceBoot")?.lowerBound
+        )
+        let didFinishLaunchingBody = appDelegateSource[didFinishLaunchingIndex..<finishLaunchingIndex]
+        #expect(!didFinishLaunchingBody.contains("checkWorktrunkInstallation"))
+        #expect(!appDelegateSource.contains("alert.runModal()"))
+
+        let showWindowIndex = try #require(appDelegateSource.range(of: "showWindow(nil)")?.lowerBound)
+        let worktrunkCheckIndex = try #require(
+            appDelegateSource.range(
+                of: "scheduleWorktrunkInstallationCheckAfterFirstWindowVisible()",
+                range: showWindowIndex..<appDelegateSource.endIndex
+            )?.lowerBound
+        )
+        #expect(showWindowIndex < worktrunkCheckIndex)
     }
 
     @Test("session configuration detection is async and injected before pane coordination")

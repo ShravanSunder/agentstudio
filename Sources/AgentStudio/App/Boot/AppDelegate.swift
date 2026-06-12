@@ -104,9 +104,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             RestoreTrace.log("unset NO_COLOR for terminal color support")
         }
 
-        // Check for worktrunk dependency
-        checkWorktrunkInstallation()
-
         // Set up main menu (doesn't depend on zmx restore)
         setupMainMenu()
 
@@ -150,6 +147,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         mainWindowController?.completeLaunchPresentation()
+        scheduleWorktrunkInstallationCheckAfterFirstWindowVisible()
         observeLaunchRestoreReadiness()
         wireLifecycleConsumers()
         if let window = mainWindowController?.window {
@@ -175,8 +173,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Dependency Check
 
-    private func checkWorktrunkInstallation() {
+    func scheduleWorktrunkInstallationCheckAfterFirstWindowVisible() {
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.presentWorktrunkInstallationSheetIfNeeded()
+        }
+    }
+
+    private func presentWorktrunkInstallationSheetIfNeeded() {
         guard !WorktrunkService.shared.isInstalled else { return }
+        guard let window = mainWindowController?.window else { return }
 
         let alert = NSAlert()
         alert.messageText = "Worktrunk Not Installed"
@@ -187,33 +193,68 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.addButton(withTitle: "Copy Command")
         alert.addButton(withTitle: "Later")
 
-        let response = alert.runModal()
+        alert.beginSheetModal(for: window) { response in
+            switch response {
+            case .alertFirstButtonReturn:
+                // Open Terminal and run install
+                let script = """
+                    tell application "Terminal"
+                        activate
+                        do script "\(WorktrunkService.shared.installCommand)"
+                    end tell
+                    """
+                if let appleScript = NSAppleScript(source: script) {
+                    var error: NSDictionary?
+                    appleScript.executeAndReturnError(&error)
+                }
 
-        switch response {
-        case .alertFirstButtonReturn:
-            // Open Terminal and run install
-            let script = """
-                tell application "Terminal"
-                    activate
-                    do script "\(WorktrunkService.shared.installCommand)"
-                end tell
-                """
-            if let appleScript = NSAppleScript(source: script) {
-                var error: NSDictionary?
-                appleScript.executeAndReturnError(&error)
+            case .alertSecondButtonReturn:
+                // Copy command to clipboard
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(WorktrunkService.shared.installCommand, forType: .string)
+
+            default:
+                break
             }
-
-        case .alertSecondButtonReturn:
-            // Copy command to clipboard
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(WorktrunkService.shared.installCommand, forType: .string)
-
-        default:
-            break
         }
     }
 
     // MARK: - Orphan Cleanup
+
+    private func currentZmxOrphanCleanupCandidates() -> [ZmxOrphanCleanupCandidate] {
+        store.paneAtom.panes.values
+            .filter { $0.provider == .zmx }
+            .map { pane in
+                if let parentPaneId = pane.parentPaneId {
+                    return .drawer(parentPaneId: parentPaneId, paneId: pane.id)
+                }
+                let resolvedKeys: (repoStableKey: String?, worktreeStableKey: String?)
+                if let worktreeId = pane.worktreeId,
+                    let repo = store.repositoryTopologyAtom.repo(containing: worktreeId),
+                    let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
+                {
+                    resolvedKeys = (repo.stableKey, worktree.stableKey)
+                } else if let cwd = pane.metadata.facets.cwd {
+                    let stableKey = StableKey.fromPath(cwd)
+                    resolvedKeys = (stableKey, stableKey)
+                } else {
+                    resolvedKeys = (nil, nil)
+                }
+                return .main(
+                    paneId: pane.id,
+                    repoStableKey: resolvedKeys.repoStableKey,
+                    worktreeStableKey: resolvedKeys.worktreeStableKey
+                )
+            }
+    }
+
+    private func currentZmxOrphanCleanupPlan() -> ZmxOrphanCleanupPlan {
+        ZmxOrphanCleanupPlanner.plan(candidates: currentZmxOrphanCleanupCandidates())
+    }
+
+    private func isCurrentlyProtectedZmxSession(_ sessionId: String) -> Bool {
+        currentZmxOrphanCleanupPlan().protects(sessionId: sessionId)
+    }
 
     /// Kill zmx daemons that aren't tracked by any persisted session.
     /// Runs once at startup to prevent accumulation across app restarts.
@@ -235,32 +276,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self else { return }
             do {
                 // Sample panes after launch restore has had a chance to mutate paneAtom.
-                let candidates: [ZmxOrphanCleanupCandidate] = store.paneAtom.panes.values
-                    .filter { $0.provider == .zmx }
-                    .map { pane in
-                        if let parentPaneId = pane.parentPaneId {
-                            return .drawer(parentPaneId: parentPaneId, paneId: pane.id)
-                        }
-                        let resolvedKeys: (repoStableKey: String?, worktreeStableKey: String?)
-                        if let worktreeId = pane.worktreeId,
-                            let repo = store.repositoryTopologyAtom.repo(containing: worktreeId),
-                            let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
-                        {
-                            resolvedKeys = (repo.stableKey, worktree.stableKey)
-                        } else if let cwd = pane.metadata.facets.cwd {
-                            let stableKey = StableKey.fromPath(cwd)
-                            resolvedKeys = (stableKey, stableKey)
-                        } else {
-                            resolvedKeys = (nil, nil)
-                        }
-                        return .main(
-                            paneId: pane.id,
-                            repoStableKey: resolvedKeys.repoStableKey,
-                            worktreeStableKey: resolvedKeys.worktreeStableKey
-                        )
-                    }
-
-                let plan = ZmxOrphanCleanupPlanner.plan(candidates: candidates)
+                let plan = currentZmxOrphanCleanupPlan()
 
                 if !plan.knownSessionIds.isEmpty {
                     appLogger.info(
@@ -280,6 +296,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                             appLogger.info("Found \(destroyableOrphans.count) orphan zmx session(s) — cleaning up")
                             for orphanId in destroyableOrphans {
                                 try Task.checkCancellation()
+                                let isProtectedNow = await MainActor.run {
+                                    self.isCurrentlyProtectedZmxSession(orphanId)
+                                }
+                                guard !isProtectedNow else {
+                                    appLogger.info(
+                                        "Skipping zmx session that became protected before destroy: \(orphanId)"
+                                    )
+                                    continue
+                                }
                                 do {
                                     appLogger.info("Destroying orphan zmx session: \(orphanId)")
                                     try await backend.destroySessionById(orphanId)

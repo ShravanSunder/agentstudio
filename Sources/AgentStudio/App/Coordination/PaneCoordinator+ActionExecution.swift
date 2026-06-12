@@ -23,12 +23,12 @@ extension PaneCoordinator {
     /// Open a terminal for a worktree.
     @discardableResult
     func openTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
-        if let existingTabId = WorkspaceCommandResolver.existingTabForWorktree(
+        if let existingTarget = WorkspaceCommandResolver.existingTabAndPaneForWorktree(
             worktree.id,
             in: store.tabLayoutAtom.tabs,
             worktreeIdForPane: { store.paneAtom.pane($0)?.worktreeId }
         ) {
-            store.tabLayoutAtom.setActiveTab(existingTabId)
+            revealExistingWorktreePane(tabId: existingTarget.tabId, paneId: existingTarget.paneId)
             postRecentTargetOpened(
                 target: .forWorktree(
                     path: worktree.path,
@@ -40,6 +40,19 @@ extension PaneCoordinator {
         }
 
         return createTerminalTab(for: worktree, in: repo)
+    }
+
+    private func revealExistingWorktreePane(tabId: UUID, paneId: UUID) {
+        store.tabLayoutAtom.setActiveTab(tabId)
+        if let tab = store.tabLayoutAtom.tab(tabId),
+            let arrangement = tab.arrangements.first(where: { $0.layout.paneIds.contains(paneId) }),
+            tab.activeArrangementId != arrangement.id
+        {
+            store.tabLayoutAtom.switchArrangement(to: arrangement.id, inTab: tabId)
+        }
+        store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
+        store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
+        restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
     }
 
     /// Open a new terminal for a worktree, always creating a fresh pane+tab

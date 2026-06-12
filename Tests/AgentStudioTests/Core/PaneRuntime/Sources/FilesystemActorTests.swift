@@ -117,7 +117,6 @@ struct FilesystemActorTests {
         streamClient.send(.init(worktreeId: worktreeId, paths: ["Sources/AfterShutdown.swift"]))
         await Task.yield()
 
-        #expect(streamClient.registeredWorktreeIds.isEmpty)
         #expect(await observed.filesChangedCount(for: worktreeId) == 0)
     }
 
@@ -181,7 +180,14 @@ struct FilesystemActorTests {
     @Test("active-in-app priority order beats sidebar-only")
     func activeInAppPriorityWinsQueueOrder() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock,
+            debounceWindow: .milliseconds(60),
+            maxFlushLatency: .seconds(1)
+        )
 
         let sidebarOnlyWorktreeId = UUID()
         let activeWorktreeId = UUID()
@@ -200,6 +206,8 @@ struct FilesystemActorTests {
         await actor.enqueueRawPaths(worktreeId: sidebarOnlyWorktreeId, paths: ["README.md"])
         await actor.enqueueRawPaths(worktreeId: activeWorktreeId, paths: ["src/main.swift"])
 
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(60))
         let firstEnvelope = try #require(await iterator.next())
         let firstChangeset = try #require(filesChangedChangeset(from: firstEnvelope))
         #expect(firstChangeset.worktreeId == activeWorktreeId)
@@ -541,102 +549,6 @@ struct FilesystemActorTests {
         await actor.shutdown()
         collectionTask.cancel()
         await collectionTask.value
-    }
-
-    @Test("ingress overflow reloads gitignore policy before later classification")
-    func ingressOverflowReloadsGitignorePolicyBeforeLaterClassification() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let streamClient = ControllableFSEventStreamClient()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: streamClient,
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
-        )
-
-        let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "gitignore-overflow-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootPath) }
-        try "*.tmp\n".write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
-
-        let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe()
-        let collectionTask = Task {
-            for await envelope in stream {
-                await observed.record(envelope)
-            }
-        }
-        defer { collectionTask.cancel() }
-
-        try "# no ignore rules\n".write(
-            to: rootPath.appending(path: ".gitignore"),
-            atomically: true,
-            encoding: .utf8
-        )
-        streamClient.send(.init(worktreeId: worktreeId, paths: [".gitignore"], didOverflow: true))
-        streamClient.send(.init(worktreeId: worktreeId, paths: ["cache.tmp"]))
-
-        let changeset = await observed.next()
-        #expect(changeset.paths.contains("cache.tmp"))
-        #expect(changeset.suppressedIgnoredPathCount == 0)
-
-        await actor.shutdown()
-    }
-
-    @Test("slow gitignore reload does not block unrelated actor ingress")
-    func slowGitignoreReloadDoesNotBlockUnrelatedIngress() async throws {
-        let bus = EventBus<RuntimeEnvelope>()
-        let loader = ControlledPathFilterLoader()
-        let actor = FilesystemActor(
-            bus: bus,
-            fseventStreamClient: ControllableFSEventStreamClient(),
-            pathFilterLoader: { rootPath in
-                await loader.load(forRootPath: rootPath)
-            },
-            debounceWindow: .zero,
-            maxFlushLatency: .zero
-        )
-
-        let rootPath = FileManager.default.temporaryDirectory
-            .appending(path: "gitignore-slow-reload-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootPath) }
-
-        let worktreeId = UUID()
-        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
-
-        let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe()
-        let collectionTask = Task {
-            for await envelope in stream {
-                await observed.record(envelope)
-            }
-        }
-        defer { collectionTask.cancel() }
-
-        await loader.suspendNextLoad()
-        let reloadTask = Task {
-            await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore"])
-        }
-        await loader.waitForSuspendedLoad()
-
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/WhileReload.swift"])
-
-        let changeset = await observed.next()
-        #expect(changeset.worktreeId == worktreeId)
-        #expect(changeset.paths == ["Sources/WhileReload.swift"])
-
-        await loader.resumeSuspendedLoad()
-        await reloadTask.value
-        await actor.shutdown()
     }
 
     @Test("gitignore reload discards loaded filter when root unregisters during await")

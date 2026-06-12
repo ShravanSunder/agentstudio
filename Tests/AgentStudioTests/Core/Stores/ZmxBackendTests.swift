@@ -149,6 +149,26 @@ final class ZmxBackendTests {
         #expect(id == "as-\(stableKey)-\(stableKey)-5566778899001122")
     }
 
+    @Test
+    func test_isAgentStudioSessionId_acceptsAllProductionConstructors() {
+        let paneId = UUID(uuidString: "AABBCCDD-1122-3344-5566-778899001122")!
+        let drawerPaneId = UUID(uuidString: "11223344-5566-7788-99AA-BBCCDDEEFF00")!
+        let standardId = ZmxBackend.sessionId(
+            repoStableKey: "abcdef0123456789",
+            worktreeStableKey: "fedcba9876543210",
+            paneId: paneId
+        )
+        let floatingId = ZmxBackend.floatingSessionId(
+            launchDirectory: URL(fileURLWithPath: "/Users/test/dev/project"),
+            paneId: paneId
+        )
+        let drawerId = ZmxBackend.drawerSessionId(parentPaneId: paneId, drawerPaneId: drawerPaneId)
+
+        #expect(ZmxBackend.isAgentStudioSessionId(standardId))
+        #expect(ZmxBackend.isAgentStudioSessionId(floatingId))
+        #expect(ZmxBackend.isAgentStudioSessionId(drawerId))
+    }
+
     // MARK: - Drawer Session ID Generation
 
     @Test

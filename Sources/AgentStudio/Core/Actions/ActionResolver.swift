@@ -302,11 +302,26 @@ enum WorkspaceCommandResolver {
         in tabs: [T],
         worktreeIdForPane: (UUID) -> UUID?
     ) -> UUID? {
-        tabs.first { tab in
-            tab.ownedPaneIds.contains { paneId in
+        existingTabAndPaneForWorktree(
+            worktreeId,
+            in: tabs,
+            worktreeIdForPane: worktreeIdForPane
+        )?.tabId
+    }
+
+    static func existingTabAndPaneForWorktree<T: ResolvableTab>(
+        _ worktreeId: UUID,
+        in tabs: [T],
+        worktreeIdForPane: (UUID) -> UUID?
+    ) -> (tabId: UUID, paneId: UUID)? {
+        for tab in tabs {
+            if let paneId = tab.ownedPaneIds.first(where: { paneId in
                 worktreeIdForPane(paneId) == worktreeId
+            }) {
+                return (tab.id, paneId)
             }
-        }?.id
+        }
+        return nil
     }
 
     // MARK: - Private Helpers

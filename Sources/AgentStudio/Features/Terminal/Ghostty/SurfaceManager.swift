@@ -117,8 +117,6 @@ final class SurfaceManager {
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
         self.checkpointURL = AppDataPaths.surfaceCheckpointURL()
 
-        setupHealthMonitoring()
-
         logger.info("SurfaceManager initialized")
     }
 
@@ -616,7 +614,16 @@ final class SurfaceManager {
 
 extension SurfaceManager {
 
-    private func setupHealthMonitoring() {
+    private func updateHealthMonitoringLifecycle() {
+        if activeSurfaces.isEmpty, hiddenSurfaces.isEmpty {
+            stopHealthMonitoring()
+        } else {
+            startHealthMonitoringIfNeeded()
+        }
+    }
+
+    private func startHealthMonitoringIfNeeded() {
+        guard healthCheckTimer == nil else { return }
         healthCheckTimer = Timer.scheduledTimer(
             withTimeInterval: healthCheckInterval,
             repeats: true
@@ -625,6 +632,11 @@ extension SurfaceManager {
                 self?.checkAllSurfacesHealth()
             }
         }
+    }
+
+    private func stopHealthMonitoring() {
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = nil
     }
 
     private func subscribeToSurfaceNotifications(_ surfaceView: Ghostty.SurfaceView) {
@@ -854,6 +866,7 @@ extension SurfaceManager {
     private func updateCounts() {
         activeSurfaceCount = activeSurfaces.count
         hiddenSurfaceCount = hiddenSurfaces.count
+        updateHealthMonitoringLifecycle()
     }
 
     /// Reverse-lookup: surfaceId → paneId.

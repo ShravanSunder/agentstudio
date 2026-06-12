@@ -28,7 +28,7 @@ extension PaneCoordinator {
             RestoreTrace.log("restoreAllViews inputBounds=nil")
         }
         let orderedPaneIds = TerminalRestoreScheduler.order(
-            Self.orderedUniquePaneIds(store.tabLayoutAtom.tabs.flatMap(\.allPaneIds)).map(PaneId.init(uuid:)),
+            restoreCandidatePaneIds().map(PaneId.init(uuid:)),
             resolver: visibilityTierResolver
         ).map(\.uuid)
         RestoreTrace.log(
@@ -73,7 +73,7 @@ extension PaneCoordinator {
                 progress: progress
             )
         }
-        let liveHiddenSessionIds = await tracedHiddenLiveSessionIds(hiddenPaneCount: hiddenPaneIds.count)
+        async let discoveredHiddenSessionIds = tracedHiddenLiveSessionIds(hiddenPaneCount: hiddenPaneIds.count)
         let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
 
         // Stage 1: restore currently visible panes first for fast first paint/interaction.
@@ -81,7 +81,7 @@ extension PaneCoordinator {
             restorePaneAndDrawers(
                 paneId,
                 resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-                liveHiddenSessionIds: liveHiddenSessionIds,
+                liveHiddenSessionIds: [],
                 progress: &progress
             )
         }
@@ -97,6 +97,7 @@ extension PaneCoordinator {
         }
 
         // Stage 2: restore eligible hidden panes cooperatively after visible work.
+        let liveHiddenSessionIds = await discoveredHiddenSessionIds
         for (index, paneId) in hiddenPaneIds.enumerated() {
             if Task.isCancelled { break }
             restorePaneAndDrawers(
@@ -209,6 +210,17 @@ extension PaneCoordinator {
         return paneIds.filter { seen.insert($0).inserted }
     }
 
+    private func restoreCandidatePaneIds() -> [UUID] {
+        var paneIds: [UUID] = []
+        for tab in store.tabLayoutAtom.tabs {
+            for paneId in tab.allPaneIds {
+                paneIds.append(paneId)
+                paneIds.append(contentsOf: store.paneAtom.pane(paneId)?.drawer?.paneIds ?? [])
+            }
+        }
+        return Self.orderedUniquePaneIds(paneIds)
+    }
+
     private func tracedHiddenLiveSessionIds(hiddenPaneCount: Int) async -> Set<String> {
         let hiddenDiscoveryStart = RestoreTrace.nowIfEnabled()
         let liveHiddenSessionIds = await hiddenLiveSessionIds()
@@ -257,7 +269,7 @@ extension PaneCoordinator {
         liveHiddenSessionIds: Set<String>,
         progress: inout RestoreAllViewsProgress
     ) {
-        guard progress.restoredPaneIds.insert(paneId).inserted else { return }
+        guard !progress.restoredPaneIds.contains(paneId) else { return }
         let paneRestoreStart = RestoreTrace.nowIfEnabled()
         defer {
             RestoreTrace.logDuration(
@@ -271,6 +283,14 @@ extension PaneCoordinator {
             RestoreTrace.log("restoreAllViews skip missing pane=\(paneId)")
             return
         }
+        if restoreDrawerChildFromParentIfNeeded(
+            pane,
+            resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
+            liveHiddenSessionIds: liveHiddenSessionIds,
+            progress: &progress
+        ) {
+            return
+        }
         guard shouldRestoreHiddenPane(pane, liveHiddenSessionIds: liveHiddenSessionIds) else {
             RestoreTrace.log("restoreAllViews skip hidden pane=\(paneId) reason=policy")
             restoreDrawerPanes(
@@ -281,6 +301,7 @@ extension PaneCoordinator {
             )
             return
         }
+        guard progress.restoredPaneIds.insert(paneId).inserted else { return }
 
         RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
         if viewRegistry.view(for: paneId) != nil {
@@ -306,6 +327,28 @@ extension PaneCoordinator {
         )
     }
 
+    private func restoreDrawerChildFromParentIfNeeded(
+        _ pane: Pane,
+        resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
+        liveHiddenSessionIds: Set<String>,
+        progress: inout RestoreAllViewsProgress
+    ) -> Bool {
+        guard let parentPaneId = pane.parentPaneId else { return false }
+        guard let parentPane = store.paneAtom.pane(parentPaneId) else {
+            Self.logger.warning(
+                "restoreAllViews: drawer child \(pane.id) references missing parent \(parentPaneId)"
+            )
+            return false
+        }
+        restoreDrawerPanes(
+            for: parentPane,
+            resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
+            liveHiddenSessionIds: liveHiddenSessionIds,
+            progress: &progress
+        )
+        return true
+    }
+
     private func restoreDrawerPanes(
         for parentPane: Pane,
         resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
@@ -314,7 +357,6 @@ extension PaneCoordinator {
     ) {
         guard let drawer = parentPane.drawer else { return }
         for drawerPaneId in drawer.paneIds {
-            guard progress.restoredPaneIds.insert(drawerPaneId).inserted else { continue }
             guard let drawerPane = store.paneAtom.pane(drawerPaneId) else {
                 Self.logger.warning(
                     "restoreAllViews: drawer pane \(drawerPaneId) referenced by parent \(parentPane.id) is missing from store"
@@ -327,14 +369,16 @@ extension PaneCoordinator {
                 )
                 continue
             }
+            guard progress.restoredPaneIds.insert(drawerPaneId).inserted else { continue }
             RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(parentPane.id)")
             if viewRegistry.view(for: drawerPaneId) != nil {
                 progress.drawerRestored += 1
             } else {
                 let restoredView = createViewForContent(
                     pane: drawerPane,
-                    initialFrame: initialFrame(
+                    initialFrame: initialDrawerPaneFrame(
                         for: drawerPane,
+                        parentPane: parentPane,
                         resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
                     ),
                     treatAsRestoredSessionStart: true
@@ -346,6 +390,15 @@ extension PaneCoordinator {
                 }
             }
         }
+    }
+
+    private func initialDrawerPaneFrame(
+        for drawerPane: Pane,
+        parentPane: Pane,
+        resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]]
+    ) -> NSRect? {
+        initialFrame(for: drawerPane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId)
+            ?? initialFrame(for: parentPane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId)
     }
 
     private func resolvedDrawerContentRect(

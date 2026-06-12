@@ -216,6 +216,104 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
     }
 
     @Test
+    func restoreAllViews_restoresVisiblePaneBeforeHiddenSessionDiscoveryCompletes() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let visiblePane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+        let hiddenPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+
+        let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
+        let hiddenTab = Tab(paneId: hiddenPane.id, name: "Hidden")
+        harness.store.appendTab(visibleTab)
+        harness.store.appendTab(hiddenTab)
+        harness.store.setActiveTab(visibleTab.id)
+
+        let liveSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: hiddenPane.id
+        )
+        let gate = LiveSessionDiscoveryGate()
+        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
+            sessionConfiguration: fixtureSessionConfiguration,
+            liveSessionIdsProvider: { _ in await gate.waitForLiveSessionIds() }
+        )
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        let restoreTask = Task { @MainActor in
+            await harness.coordinator.restoreAllViews(in: trustedBounds)
+        }
+        await gate.waitForRequest()
+
+        let createdVisibleBeforeDiscovery = await yieldUntil {
+            harness.surfaceManager.createdPaneIds.contains(visiblePane.id)
+        }
+        #expect(createdVisibleBeforeDiscovery)
+        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
+
+        await gate.resume(with: [liveSessionId])
+        await restoreTask.value
+
+        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
+    }
+
+    @Test
+    func restoreAllViews_restoresHiddenDrawerUnderVisibleParentAfterLiveSessionDiscovery() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let visiblePane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+
+        let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
+        harness.store.appendTab(visibleTab)
+        harness.store.setActiveTab(visibleTab.id)
+        let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: visiblePane.id))
+        harness.store.toggleDrawer(for: visiblePane.id)
+
+        let liveSessionId = ZmxBackend.drawerSessionId(
+            parentPaneId: visiblePane.id,
+            drawerPaneId: hiddenDrawerPane.id
+        )
+        let gate = LiveSessionDiscoveryGate()
+        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
+            sessionConfiguration: fixtureSessionConfiguration,
+            liveSessionIdsProvider: { _ in await gate.waitForLiveSessionIds() }
+        )
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        let restoreTask = Task { @MainActor in
+            await harness.coordinator.restoreAllViews(in: trustedBounds)
+        }
+        await gate.waitForRequest()
+
+        let createdVisibleBeforeDiscovery = await yieldUntil {
+            harness.surfaceManager.createdPaneIds.contains(visiblePane.id)
+        }
+        #expect(createdVisibleBeforeDiscovery)
+        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
+
+        await gate.resume(with: [liveSessionId])
+        await restoreTask.value
+
+        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenDrawerPane.id])
+        #expect(harness.surfaceManager.createdConfigsByPaneId[hiddenDrawerPane.id]?.initialFrame != nil)
+    }
+
+    @Test
     func restoreAllViews_emitsRestoreTraceMetricsFromCallSites() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -773,5 +871,45 @@ private final class CapturingSurfaceManager: PaneCoordinatorSurfaceManaging {
 
     func destroy(_ surfaceId: UUID) {
         _ = surfaceId
+    }
+}
+
+@MainActor
+private func yieldUntil(_ condition: @MainActor () -> Bool) async -> Bool {
+    for _ in 0..<50 {
+        if condition() {
+            return true
+        }
+        await Task.yield()
+    }
+    return condition()
+}
+
+private actor LiveSessionDiscoveryGate {
+    private var liveSessionIdsContinuation: CheckedContinuation<Set<String>, Never>?
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitForLiveSessionIds() async -> Set<String> {
+        await withCheckedContinuation { continuation in
+            liveSessionIdsContinuation = continuation
+            let waiters = requestWaiters
+            requestWaiters.removeAll(keepingCapacity: false)
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
+    }
+
+    func waitForRequest() async {
+        guard liveSessionIdsContinuation == nil else { return }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append(continuation)
+        }
+    }
+
+    func resume(with liveSessionIds: Set<String>) {
+        let continuation = liveSessionIdsContinuation
+        liveSessionIdsContinuation = nil
+        continuation?.resume(returning: liveSessionIds)
     }
 }

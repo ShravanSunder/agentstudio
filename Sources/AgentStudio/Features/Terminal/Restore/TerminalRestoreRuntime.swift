@@ -121,7 +121,7 @@ struct TerminalRestoreRuntime {
         let backend = ZmxBackend(
             zmxPath: zmxPath,
             zmxDir: sessionConfiguration.zmxDir,
-            retryPolicy: .standard
+            retryPolicy: .singleAttempt
         )
         return Set(await backend.discoverOrphanSessions(excluding: []))
     }

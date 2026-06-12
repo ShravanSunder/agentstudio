@@ -66,6 +66,15 @@ run_webkit_suites() {
   done < <(webkit_suite_filters)
 }
 
+run_otlp_bootstrap_smoke() {
+  echo "--- OTLP bootstrap smoke (isolated) ---"
+  run_swift_with_timeout \
+    "AgentStudioOTLPBootstrapSmokeTests" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
+      --skip-build --filter AgentStudioOTLPBootstrapSmokeTests --build-path "$BUILD_PATH"
+}
+
 run_swift_with_timeout() {
   local label="$1"
   shift

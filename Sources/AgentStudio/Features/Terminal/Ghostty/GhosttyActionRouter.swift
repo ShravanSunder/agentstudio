@@ -123,16 +123,16 @@ extension Ghostty {
         ) -> Bool {
             let targetTag = UInt32(truncatingIfNeeded: target.tag.rawValue)
             ghosttyLogger.error(
-                "Ghostty action tag \(rawActionTag, privacy: .public) (\(String(describing: actionTag), privacy: .public)) missing routing decision for targetTag=\(targetTag, privacy: .public); returning unhandled to Ghostty"
+                "Ghostty action tag \(rawActionTag, privacy: .public) (\(String(describing: actionTag), privacy: .public)) missing routing decision for targetTag=\(targetTag, privacy: .public); swallowing known action"
             )
             traceGhosttyAction(
                 body: "ghostty.action.unhandled_known",
                 actionTag: rawActionTag,
                 signalClass: .unhandled,
-                routeResult: false,
+                routeResult: true,
                 reason: "missing_routing_decision"
             )
-            return false
+            return true
         }
 
         private static func handleWorkspaceAction(

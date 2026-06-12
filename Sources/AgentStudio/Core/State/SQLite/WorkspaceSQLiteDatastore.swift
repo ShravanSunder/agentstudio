@@ -125,7 +125,7 @@ actor WorkspaceSQLiteDatastore {
                 workspaceId: snapshot.id,
                 database: .local
             )
-            try backend.writeLocalSnapshotAndCommit(snapshot, state: state, localRepository: localRepository)
+            try backend.writeLocalSnapshot(snapshot, state: state, localRepository: localRepository)
             await traceRecorder.recordOperation(
                 .workspaceSave,
                 phase: .writeLocal,
@@ -134,6 +134,17 @@ actor WorkspaceSQLiteDatastore {
                 workspaceId: snapshot.id,
                 database: .local
             )
+            failurePhase = .commitCore
+            failureDatabase = .core
+            await traceRecorder.recordOperation(
+                .workspaceSave,
+                phase: .commitCore,
+                lane: .workspace,
+                outcome: .started,
+                workspaceId: snapshot.id,
+                database: .core
+            )
+            try backend.commitWorkspaceSnapshot(snapshot)
             await traceRecorder.recordOperation(
                 .workspaceSave,
                 phase: .commitCore,

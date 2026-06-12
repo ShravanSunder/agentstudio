@@ -49,6 +49,9 @@ struct SessionConfiguration: Sendable {
         processExecutor: any ProcessExecutor = DefaultProcessExecutor(timeout: 2),
         discoveryLocations: ZmxDiscoveryLocations = .defaults
     ) async -> Self {
+        guard isSessionRestoreEnabled(environment: environment) else {
+            return resolved(environment: environment, zmxPath: nil)
+        }
         let zmxPath = await findZmx(processExecutor: processExecutor, discoveryLocations: discoveryLocations)
         return resolved(environment: environment, zmxPath: zmxPath)
     }
@@ -57,10 +60,7 @@ struct SessionConfiguration: Sendable {
     static func resolved(environment: [String: String], zmxPath: String?) -> Self {
         let env = environment
 
-        let isEnabled =
-            env["AGENTSTUDIO_SESSION_RESTORE"]
-            .map { $0.lowercased() == "true" || $0 == "1" }
-            ?? true
+        let isEnabled = isSessionRestoreEnabled(environment: env)
 
         let zmxDir = AppDataPaths.zmxDirectory(environment: env).path
         let healthInterval =
@@ -202,11 +202,16 @@ struct SessionConfiguration: Sendable {
 
     // MARK: - Private
 
+    private static func isSessionRestoreEnabled(environment: [String: String]) -> Bool {
+        environment["AGENTSTUDIO_SESSION_RESTORE"]
+            .map { $0.lowercased() == "true" || $0 == "1" }
+            ?? true
+    }
+
     /// Find the zmx binary.
     /// Fallback chain: bundled binary → vendor build output → well-known PATH → `which zmx`.
-    ///
-    /// Candidates are validated with a lightweight `--version` probe because
-    /// some environments may report a path as executable while launch still fails.
+    /// Only the bundled candidate is launched during startup discovery; other candidates
+    /// are treated as executable path facts so a bad user PATH cannot block app launch.
     private static func findZmx(
         processExecutor: any ProcessExecutor,
         discoveryLocations: ZmxDiscoveryLocations
@@ -221,14 +226,14 @@ struct SessionConfiguration: Sendable {
 
         // 2. Vendor build output: for dev builds where zmx was built but not copied
         if let vendorBin = discoveryLocations.vendorBinaryPath,
-            await isUsableZmxBinary(vendorBin, processExecutor: processExecutor)
+            isExecutableZmxCandidate(vendorBin)
         {
             return vendorBin
         }
 
         // 3. Well-known PATH locations
         for candidate in discoveryLocations.wellKnownPaths {
-            if await isUsableZmxBinary(candidate, processExecutor: processExecutor) {
+            if isExecutableZmxCandidate(candidate) {
                 return candidate
             }
         }
@@ -244,7 +249,7 @@ struct SessionConfiguration: Sendable {
             guard result.succeeded else { return nil }
             let path = result.stdout.trimmedNonEmpty
             if let path, !path.isEmpty,
-                await isUsableZmxBinary(path, processExecutor: processExecutor)
+                isExecutableZmxCandidate(path)
             {
                 return path
             }
@@ -253,6 +258,10 @@ struct SessionConfiguration: Sendable {
             configLogger.warning("which zmx failed during detection: \(error.localizedDescription)")
         }
         return nil
+    }
+
+    private static func isExecutableZmxCandidate(_ candidatePath: String) -> Bool {
+        FileManager.default.isExecutableFile(atPath: candidatePath)
     }
 
     /// Walk up from the executable directory looking for the dev source tree.

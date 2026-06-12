@@ -194,11 +194,23 @@ struct WorkspaceSQLiteStoreBackend {
     ) throws {
         // Commit order is core staged -> local completed -> core completed.
         // Restore only trusts a core completion token that the local sidecar can match.
+        try writeLocalSnapshot(snapshot, state: state, localRepository: localRepository)
+        try commitWorkspaceSnapshot(snapshot)
+    }
+
+    func writeLocalSnapshot(
+        _ snapshot: WorkspaceSQLiteSnapshot,
+        state: WorkspacePersistor.PersistableState,
+        localRepository: WorkspaceLocalRepository
+    ) throws {
         try localRepository.replaceWorkspaceSnapshotLocalState(
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
             windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
             completedAt: snapshot.updatedAt
         )
+    }
+
+    func commitWorkspaceSnapshot(_ snapshot: WorkspaceSQLiteSnapshot) throws {
         try beforeCoreSnapshotCommit(snapshot)
         try markWorkspaceSnapshotCommitted(workspaceId: snapshot.id, committedAt: snapshot.updatedAt)
     }
