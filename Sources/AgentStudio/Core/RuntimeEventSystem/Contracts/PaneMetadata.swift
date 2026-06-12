@@ -116,16 +116,72 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         case note
     }
 
+    private enum LegacyCodingKeys: String, CodingKey {
+        case source
+    }
+
+    private enum LegacySource: Codable {
+        case worktree(worktreeId: UUID, repoId: UUID, launchDirectory: URL)
+        case floating(launchDirectory: URL?, title: String?)
+
+        var repoId: UUID? {
+            if case .worktree(_, let repoId, _) = self {
+                return repoId
+            }
+            return nil
+        }
+
+        var worktreeId: UUID? {
+            if case .worktree(let worktreeId, _, _) = self {
+                return worktreeId
+            }
+            return nil
+        }
+
+        var launchDirectory: URL? {
+            switch self {
+            case .worktree(_, _, let launchDirectory):
+                return launchDirectory
+            case .floating(let launchDirectory, _):
+                return launchDirectory
+            }
+        }
+
+        var facets: PaneContextFacets {
+            PaneContextFacets(
+                repoId: repoId,
+                worktreeId: worktreeId,
+                cwd: launchDirectory
+            )
+        }
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        let legacySource = try legacyContainer.decodeIfPresent(LegacySource.self, forKey: .source)
 
         self.paneId = try container.decode(PaneId.self, forKey: .paneId)
         self.contentType = try container.decode(PaneContentType.self, forKey: .contentType)
-        self.launchDirectory = try container.decodeIfPresent(URL.self, forKey: .launchDirectory)
+        self.launchDirectory =
+            try container.decodeIfPresent(URL.self, forKey: .launchDirectory)
+            ?? legacySource?.launchDirectory
         self.executionBackend = try container.decode(ExecutionBackend.self, forKey: .executionBackend)
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.title = try container.decode(String.self, forKey: .title)
-        self.facets = try container.decode(PaneContextFacets.self, forKey: .facets)
+        if let decodedFacets = try container.decodeIfPresent(PaneContextFacets.self, forKey: .facets) {
+            self.facets = decodedFacets.fillingNilFields(from: legacySource?.facets ?? .empty)
+        } else if let legacySource {
+            self.facets = legacySource.facets
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.facets,
+                .init(
+                    codingPath: container.codingPath,
+                    debugDescription: "PaneMetadata.facets is required unless legacy source is present"
+                )
+            )
+        }
         self.checkoutRef = try container.decodeIfPresent(String.self, forKey: .checkoutRef)
         self.note = Self.normalizedNote(try container.decodeIfPresent(String.self, forKey: .note))
     }

@@ -2,11 +2,11 @@
 
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5/T5b committed, T6 implemented with scoped proof gates green in the current changeset. Next implementation step starts at T7.
+Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4/T5/T5b/T6 committed, T7 implemented with scoped proof gates green in the current changeset. Next implementation step starts at T8.
 
 ## Execution State (handoff, 2026-06-11)
 
-T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b landed in commit `07863bb7` (`Add phase A zmx smoke gate`). `origin/main` was merged after PR #164 (`52c5e67725c3a0dfac4fed2a5f22f2386be00579`) in local merge commit `2b49210`. T6 is implemented in the current changeset. Next implementation step starts at T7.
+T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 landed in commit `dcc320db` (`Hydrate zmx anchors before orphan cleanup`). T5b landed in commit `07863bb7` (`Add phase A zmx smoke gate`). `origin/main` was merged after PR #164 (`52c5e67725c3a0dfac4fed2a5f22f2386be00579`) in local merge commit `2b49210`. T6 landed in commit `e95ffe66` (`Remove pane source union`). T7 is implemented in the current changeset. Next implementation step starts at T8.
 
 Done — T0 (all green, characterization evidence captured):
 - `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These were the red→green pivots for T4.
@@ -114,6 +114,16 @@ Execution discoveries the remaining tasks must respect:
 - Cleanup/adoption suffix matching must be kind-aware: main panes match `as-<repo16>-<wt16>-<pane16>`, drawer panes match `as-d--<parent16>--<pane16>`. Suffix alone is not enough.
 - Migration 009 backup/rollback must be sidecar-safe: checkpoint before backup; verify backup opens; on restore replace `core.sqlite` and remove stale `core.sqlite-wal` / `core.sqlite-shm`.
 - T8 damping is debounced-autosave-only. Explicit `flushAsync()` and termination flushes bypass suppression; first successful save clears it.
+
+Done — T7 implementation (verified red first: legacy JSON payloads that still carried `metadata.source` imported with `launchDirectory`/facet fields nil after source removal):
+- `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneMetadata.swift` — decodes legacy `source` payloads as import-only DTOs and maps them into explicit `launchDirectory` plus live `PaneContextFacets`; current encoding does not write `source`.
+- `Tests/AgentStudioTests/Core/Stores/WorkspaceSQLiteStoreLegacySourceImportTests.swift` (new) — imports a legacy JSON workspace with `metadata.source`, no `launchDirectory`, and empty durable facets, then asserts both hydrated atoms and core SQLite rows carry launch directory/repo/worktree/cwd.
+- `Tests/AgentStudioTests/Core/Stores/WorkspacePersistenceTransformerTests.swift` — fixes the drawer-view normalization fixture to create a real drawer parent/child graph before asserting drawer panes are added to tab membership.
+
+**T7 proof gates complete:**
+1. Red proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t7 --filter "WorkspaceSQLiteStoreBridgeTests/restoreMapsLegacyPaneSourcePayloadIntoLaunchDirectoryAndLiveFacets"` — failed before implementation with 8 expectation issues: imported pane and SQLite row had nil launchDirectory/repoId/worktreeId/cwd.
+2. Green scoped proof: `AGENT_STUDIO_BENCHMARK_MODE=off swift test --build-path .build-agent-t7 --filter "WorkspaceSQLiteStoreBridgeTests|WorkspaceSQLiteStoreLegacySourceImportTests|WorkspacePersistenceTransformerTests|WorkspacePersistorTests|PaneMetadataTests"` — build complete; 75 tests in 5 suites passed after 1.633s.
+3. Lint proof: `mise run format`; `git diff --check`; `swift-format lint --recursive Sources/ Tests/ && swiftlint lint --strict && bash scripts/check-core-boundary-imports.sh` — swiftlint 0 violations in 1027 files; Core boundary import check passed.
 
 ## Source Coverage
 
