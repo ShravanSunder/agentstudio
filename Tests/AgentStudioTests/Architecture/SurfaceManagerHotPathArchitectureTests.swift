@@ -28,6 +28,45 @@ struct SurfaceManagerHotPathArchitectureTests {
         #expect(guardRange.lowerBound < activeWriteRange.lowerBound)
         #expect(cacheWriteRange.lowerBound < delegateNotifyRange.lowerBound)
     }
+
+    @Test("surface manager injects performance recorder before initial surface size sync")
+    func surfaceManagerInjectsPerformanceRecorderBeforeInitialSurfaceSizeSync() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let surfaceManagerSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift"
+            ),
+            encoding: .utf8
+        )
+        let surfaceViewSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        let createSurfaceBody = try #require(
+            surfaceManagerSource.slice(
+                from: "func createSurface(",
+                to: "// Verify surface was created successfully"
+            )
+        )
+        #expect(createSurfaceBody.contains("performanceTraceRecorder: performanceTraceRecorder"))
+
+        let surfaceViewInitBody = try #require(
+            surfaceViewSource.slice(
+                from: "init(",
+                to: "required init?"
+            )
+        )
+        let recorderAssignmentRange = try #require(
+            surfaceViewInitBody.range(of: "self.performanceTraceRecorder = performanceTraceRecorder")
+        )
+        let initialSizeSyncRange = try #require(
+            surfaceViewInitBody.range(of: "sizeDidChange(frame.size, source: \"init\")")
+        )
+        #expect(recorderAssignmentRange.lowerBound < initialSizeSyncRange.lowerBound)
+    }
 }
 
 extension String {

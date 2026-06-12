@@ -99,6 +99,8 @@ final class SurfaceManager {
     /// Checkpoint file URL
     private let checkpointURL: URL
 
+    private weak var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+
     // MARK: - Initialization
 
     private init(
@@ -130,6 +132,10 @@ final class SurfaceManager {
 
     var surfaceCWDChanges: AsyncStream<SurfaceCWDChangeEvent> {
         cwdChangeStream
+    }
+
+    func setPerformanceTraceRecorder(_ recorder: AgentStudioPerformanceTraceRecorder?) {
+        performanceTraceRecorder = recorder
     }
 
     // MARK: - Surface Creation
@@ -168,7 +174,11 @@ final class SurfaceManager {
             }
 
             // Create surface view using Ghostty.App (not ghostty_app_t)
-            let surfaceView = Ghostty.SurfaceView(app: Ghostty.shared, config: mutableConfig)
+            let surfaceView = Ghostty.SurfaceView(
+                app: Ghostty.shared,
+                config: mutableConfig,
+                performanceTraceRecorder: performanceTraceRecorder
+            )
 
             // Verify surface was created successfully
             guard surfaceView.surface != nil else {

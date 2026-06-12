@@ -1052,15 +1052,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
-        guard let activeTabId = store.tabLayoutAtom.activeTabId else { return }
         let traceClock = performanceTraceRecorder?.isEnabled == true ? ContinuousClock() : nil
         let syncStart = traceClock?.now
-        let visibleTerminalViews =
-            store.tabLayoutAtom.tab(activeTabId)?.paneIds.compactMap {
-                viewRegistry.terminalView(for: $0)
-            }.filter { terminalView in
-                terminalView.window != nil && !terminalView.isHidden
-            } ?? []
+        let visibleTerminalViews = visibleTerminalPaneIdsForActiveTab().compactMap {
+            viewRegistry.terminalView(for: $0)
+        }.filter { terminalView in
+            terminalView.window != nil && !terminalView.isHidden
+        }
         guard !visibleTerminalViews.isEmpty else { return }
         RestoreTrace.log(
             "PaneTabViewController.syncVisibleTerminalGeometry reason=\(reason) count=\(visibleTerminalViews.count)"
@@ -1078,6 +1076,30 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     Double(visibleTerminalViews.count)),
             ]
         )
+    }
+
+    func visibleTerminalPaneIdsForActiveTab() -> [UUID] {
+        guard let activeTabId = store.tabLayoutAtom.activeTabId,
+            let tab = store.tabLayoutAtom.tab(activeTabId)
+        else { return [] }
+
+        var seenPaneIds: Set<UUID> = []
+        var paneIds: [UUID] = []
+        func append(_ candidatePaneId: UUID) {
+            guard seenPaneIds.insert(candidatePaneId).inserted else { return }
+            paneIds.append(candidatePaneId)
+        }
+
+        for paneId in tab.activeArrangement.layout.paneIds {
+            append(paneId)
+            guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else { continue }
+            guard let drawerView = tab.activeArrangement.drawerViews[drawer.drawerId] else { continue }
+            for drawerPaneId in drawerView.layout.paneIds where !drawerView.minimizedPaneIds.contains(drawerPaneId) {
+                append(drawerPaneId)
+            }
+        }
+
+        return paneIds
     }
 
     func geometryHierarchySnapshot(reason: StaticString) -> String {

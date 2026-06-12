@@ -151,7 +151,11 @@ extension Ghostty {
         let mouseVisibilityToken = UUID()
         // MARK: - Initialization
 
-        init(app: App, config: SurfaceConfiguration? = nil) {
+        init(
+            app: App,
+            config: SurfaceConfiguration? = nil,
+            performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        ) {
             guard let config else {
                 preconditionFailure(
                     "Ghostty SurfaceView requires a SurfaceConfiguration with initialFrame"
@@ -160,6 +164,7 @@ extension Ghostty {
             config.requireInitialFrameForSurfaceCreation()
             self.ghosttyApp = app
             self.hostConfigSnapshot = app.hostConfigSnapshot()
+            self.performanceTraceRecorder = performanceTraceRecorder
             super.init(frame: config.initialFrame!)
             let startupCommandForSurface = config.startupStrategy.startupCommandForSurface
             RestoreTrace.log(

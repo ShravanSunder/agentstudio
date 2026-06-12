@@ -265,6 +265,7 @@ extension AppDelegate {
         )
         filesystemSource = pipeline
         watchedFolderCommands = pipeline
+        SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
         paneCoordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
