@@ -24,6 +24,7 @@ final class CommandBarPanelController {
     private let notificationInboxCommands: InboxNotificationCommands?
     private let commandBarSurface: CommandBarSurfaceAtom
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    private let resultSession: CommandBarResultSession
 
     // MARK: - Panel
 
@@ -54,6 +55,13 @@ final class CommandBarPanelController {
         self.notificationInboxCommands = notificationInboxCommands
         self.commandBarSurface = commandBarSurface
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.resultSession = CommandBarResultSession(
+            store: store,
+            repoCache: repoCache,
+            dispatcher: dispatcher,
+            notificationInboxCommands: notificationInboxCommands,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
         state.loadRecents()
     }
 
@@ -161,11 +169,7 @@ final class CommandBarPanelController {
         // Set SwiftUI content
         let contentView = CommandBarView(
             state: state,
-            store: store,
-            repoCache: repoCache,
-            dispatcher: dispatcher,
-            notificationInboxCommands: notificationInboxCommands,
-            performanceTraceRecorder: performanceTraceRecorder,
+            resultSession: resultSession,
             onShortcutTrigger: { [weak self] trigger in
                 self?.handleShortcutTrigger(trigger) ?? false
             },
@@ -216,75 +220,12 @@ final class CommandBarPanelController {
         panel.makeKeyAndOrderFront(nil)
     }
 
-    private var currentContext: WorkspacePaneFocus {
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        return atom(\.workspacePaneFocus).currentFocus(
-            workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner)
-        )
-    }
-
-    private var allItems: [CommandBarItem] {
-        if let level = state.currentLevel {
-            return level.items
-        }
-        return CommandBarDataSource.items(
-            scope: state.activeScope,
-            store: store,
-            repoCache: repoCache,
-            dispatcher: dispatcher,
-            focus: currentContext,
-            notificationInboxCommands: notificationInboxCommands,
-            performanceTraceRecorder: performanceTraceRecorder
-        )
-    }
-
-    private var filteredItems: [CommandBarItem] {
-        CommandBarSearch.filter(
-            items: allItems,
-            query: state.searchQuery,
-            recentIds: state.recentItemIds,
-            performanceTraceRecorder: performanceTraceRecorder
-        )
-    }
-
-    private var groups: [CommandBarItemGroup] {
-        CommandBarDataSource.grouped(filteredItems)
-    }
-
-    private var displayedItems: [CommandBarItem] {
-        CommandBarDataSource.displayItems(from: groups)
-    }
-
-    private var selectedItem: CommandBarItem? {
-        guard state.selectedIndex >= 0, state.selectedIndex < displayedItems.count else { return nil }
-        return displayedItems[state.selectedIndex]
-    }
-
-    private var canOpenWorktreeInCurrentTab: Bool {
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        guard
-            let activeTabId = store.tabShellAtom.activeTabId,
-            let activeTab = workspaceTab.tab(activeTabId),
-            activeTab.activePaneId != nil
-        else {
-            return false
-        }
-        return true
-    }
-
     private func handleShortcutTrigger(_ trigger: ShortcutTrigger) -> Bool {
+        let resultSnapshot = resultSession.snapshot(state: state)
         switch CommandBarShortcutRouter.route(
             trigger: trigger,
-            selectedItem: selectedItem,
-            displayedItems: displayedItems
+            selectedItem: resultSnapshot.selectedItem,
+            displayedItems: resultSnapshot.displayedItems
         ) {
         case .dismiss:
             dismiss()
@@ -301,7 +242,7 @@ final class CommandBarPanelController {
             executeItem(item)
             return true
         case .executeSelected(let modifier):
-            guard let selectedItem else { return false }
+            guard let selectedItem = resultSnapshot.selectedItem else { return false }
             executeItem(selectedItem, modifier: modifier)
             return true
         case .unhandled:
@@ -339,6 +280,7 @@ final class CommandBarPanelController {
             dismiss()
             closure()
         case .worktreeAction(let presence):
+            let canOpenWorktreeInCurrentTab = resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
             executeResolvedWorktreeAction(
                 resolution: CommandBarWorktreeActionResolver.resolve(
                     presence: presence,
@@ -346,7 +288,8 @@ final class CommandBarPanelController {
                     canOpenInCurrentTab: canOpenWorktreeInCurrentTab
                 ),
                 presence: presence,
-                itemId: item.id
+                itemId: item.id,
+                canOpenInCurrentTab: canOpenWorktreeInCurrentTab
             )
         }
     }
@@ -354,7 +297,8 @@ final class CommandBarPanelController {
     private func executeResolvedWorktreeAction(
         resolution: CommandBarWorktreeActionResolution,
         presence: WorktreePresence,
-        itemId: String
+        itemId: String,
+        canOpenInCurrentTab: Bool
     ) {
         switch resolution {
         case .dispatch(let command, let target, let targetType):
@@ -367,7 +311,7 @@ final class CommandBarPanelController {
                 CommandBarDataSource.buildWorktreeActionsLevel(
                     worktree: worktree,
                     presence: presence,
-                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
+                    canOpenInCurrentTab: canOpenInCurrentTab
                 )
             )
         }

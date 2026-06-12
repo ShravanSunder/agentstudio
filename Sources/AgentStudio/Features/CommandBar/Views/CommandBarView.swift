@@ -6,19 +6,16 @@ import SwiftUI
 /// and footer. Bound to CommandBarState.
 struct CommandBarView: View {
     @Bindable var state: CommandBarState
-    let store: WorkspaceStore
-    let repoCache: RepoCacheAtom
-    let dispatcher: CommandDispatcher
-    let notificationInboxCommands: InboxNotificationCommands?
-    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let resultSession: CommandBarResultSession
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onExecuteItem: (CommandBarItem, EnterModifier) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
+        let resultSnapshot = resultSession.snapshot(state: state)
+        return VStack(spacing: 0) {
             CommandBarStatusStrip(
-                mode: currentMode,
-                context: currentContext
+                mode: resultSnapshot.currentMode,
+                context: resultSnapshot.currentContext
             )
 
             Divider()
@@ -26,8 +23,8 @@ struct CommandBarView: View {
 
             CommandBarSearchField(
                 state: state,
-                onArrowUp: { state.moveSelectionUp(totalItems: totalItems) },
-                onArrowDown: { state.moveSelectionDown(totalItems: totalItems) },
+                onArrowUp: { state.moveSelectionUp(totalItems: resultSnapshot.totalItems) },
+                onArrowDown: { state.moveSelectionDown(totalItems: resultSnapshot.totalItems) },
                 onEnter: { modifier in executeSelected(modifier: modifier) },
                 onShortcutTrigger: onShortcutTrigger,
                 onBackspaceOnEmpty: { handleBackspace() }
@@ -47,10 +44,10 @@ struct CommandBarView: View {
 
             // Results list
             CommandBarResultsList(
-                groups: groups,
+                groups: resultSnapshot.groups,
                 selectedIndex: state.selectedIndex,
                 searchQuery: state.searchQuery,
-                dimmedItemIds: dimmedItemIds,
+                dimmedItemIds: resultSnapshot.dimmedItemIds,
                 onSelect: { item in onExecuteItem(item, .plain) }
             )
 
@@ -60,111 +57,16 @@ struct CommandBarView: View {
 
             // Footer
             CommandBarFooter(
-                hints: footerHints
+                hints: resultSnapshot.footerHints
             )
         }
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Data
-
-    private var currentMode: CommandBarAppMode {
-        atom(\.managementLayer).isActive ? .management : .normal
-    }
-
-    private var currentContext: WorkspacePaneFocus {
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        return atom(\.workspacePaneFocus).currentFocus(
-            workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner)
-        )
-    }
-
-    private var allItems: [CommandBarItem] {
-        if let level = state.currentLevel {
-            return level.items
-        }
-        return CommandBarDataSource.items(
-            scope: state.activeScope,
-            store: store,
-            repoCache: repoCache,
-            dispatcher: dispatcher,
-            focus: currentContext,
-            notificationInboxCommands: notificationInboxCommands,
-            performanceTraceRecorder: performanceTraceRecorder
-        )
-    }
-
-    private var filteredItems: [CommandBarItem] {
-        CommandBarSearch.filter(
-            items: allItems,
-            query: state.searchQuery,
-            recentIds: state.recentItemIds,
-            performanceTraceRecorder: performanceTraceRecorder
-        )
-    }
-
-    private var groups: [CommandBarItemGroup] {
-        CommandBarDataSource.grouped(filteredItems)
-    }
-
-    private var displayedItems: [CommandBarItem] {
-        CommandBarDataSource.displayItems(from: groups)
-    }
-
-    private var totalItems: Int {
-        displayedItems.count
-    }
-
-    private var selectedItem: CommandBarItem? {
-        guard state.selectedIndex >= 0, state.selectedIndex < displayedItems.count else { return nil }
-        return displayedItems[state.selectedIndex]
-    }
-
-    /// IDs of items that should be dimmed (command not currently dispatchable).
-    /// Checks both direct dispatch and navigate (drill-in) items via the `command` property.
-    private var dimmedItemIds: Set<String> {
-        var ids = Set<String>()
-        for item in displayedItems {
-            if let command = item.command, !dispatcher.canDispatch(command) {
-                ids.insert(item.id)
-            }
-        }
-        return ids
-    }
-
-    private var footerHints: [FooterHint] {
-        FooterHintBuilder.hints(
-            for: selectedItem,
-            isNested: state.isNested,
-            canOpenInCurrentTab: canOpenWorktreeInCurrentTab,
-            scope: state.currentScope
-        )
-    }
-
-    private var canOpenWorktreeInCurrentTab: Bool {
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        guard
-            let activeTabId = store.tabShellAtom.activeTabId,
-            let activeTab = workspaceTab.tab(activeTabId),
-            activeTab.activePaneId != nil
-        else {
-            return false
-        }
-        return true
-    }
-
     // MARK: - Actions
 
     private func executeSelected(modifier: EnterModifier = .plain) {
-        guard let item = selectedItem else { return }
+        guard let item = resultSession.snapshot(state: state).selectedItem else { return }
         onExecuteItem(item, modifier)
     }
 

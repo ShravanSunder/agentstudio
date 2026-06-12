@@ -27,6 +27,34 @@ struct CommandBarHotPathArchitectureTests {
         #expect(everythingWorktreeItems.contains("buildWorktreePresenceByWorktreeId(store: store)"))
         #expect(!everythingWorktreeItems.contains("buildWorktreePresence(worktree:"))
     }
+
+    @Test("view and controller consume CommandBarResultSession instead of independent pipelines")
+    func viewAndControllerConsumeResultSession() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let viewSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/CommandBar/Views/CommandBarView.swift"
+            ),
+            encoding: .utf8
+        )
+        let controllerSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/CommandBar/CommandBarPanelController.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(viewSource.contains("CommandBarResultSession"))
+        #expect(controllerSource.contains("CommandBarResultSession"))
+
+        for source in [viewSource, controllerSource] {
+            #expect(!source.contains("private var allItems"))
+            #expect(!source.contains("private var filteredItems"))
+            #expect(!source.contains("private var groups"))
+            #expect(!source.contains("private var displayedItems"))
+            #expect(!source.contains("private var selectedItem"))
+        }
+    }
 }
 
 extension String {
