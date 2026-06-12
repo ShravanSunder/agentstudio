@@ -216,82 +216,126 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
 
-        // Collect known zmx session IDs from persisted panes. If any main pane cannot
-        // resolve stable repo/worktree keys, skip cleanup to avoid deleting valid sessions.
-        let candidates: [ZmxOrphanCleanupCandidate] = store.paneAtom.panes.values
-            .filter { $0.provider == .zmx }
-            .map { pane in
-                if let parentPaneId = pane.parentPaneId {
-                    return .drawer(parentPaneId: parentPaneId, paneId: pane.id)
-                }
-                let resolvedKeys: (repoStableKey: String?, worktreeStableKey: String?)
-                if let worktreeId = pane.worktreeId,
-                    let repo = store.repositoryTopologyAtom.repo(containing: worktreeId),
-                    let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
-                {
-                    resolvedKeys = (repo.stableKey, worktree.stableKey)
-                } else if let cwd = pane.metadata.facets.cwd {
-                    let stableKey = StableKey.fromPath(cwd)
-                    resolvedKeys = (stableKey, stableKey)
-                } else {
-                    resolvedKeys = (nil, nil)
-                }
-                return .main(
-                    paneId: pane.id,
-                    repoStableKey: resolvedKeys.repoStableKey,
-                    worktreeStableKey: resolvedKeys.worktreeStableKey
-                )
-            }
-
-        let plan = ZmxOrphanCleanupPlanner.plan(candidates: candidates)
-
-        if plan.shouldSkipCleanup {
-            appLogger.warning(
-                "Skipping orphan zmx cleanup: unable to resolve one or more main-pane session IDs from persisted state"
-            )
-            return
-        }
-        if !plan.knownSessionIds.isEmpty {
-            appLogger.info("Orphan cleanup: protecting \(plan.knownSessionIds.count) known persisted zmx session(s)")
-        }
-
+        let terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: config)
         let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
 
-        Task {
-            do {
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    group.addTask {
-                        let orphans = await backend.discoverOrphanSessions(excluding: plan.knownSessionIds)
-                        if !orphans.isEmpty {
-                            appLogger.info("Found \(orphans.count) orphan zmx session(s) — cleaning up")
-                            for orphanId in orphans {
-                                try Task.checkCancellation()
-                                do {
-                                    try await backend.destroySessionById(orphanId)
-                                    appLogger.debug("Killed orphan zmx session: \(orphanId)")
-                                } catch is CancellationError {
-                                    throw CancellationError()
-                                } catch {
-                                    appLogger.warning(
-                                        "Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
-                                }
-                            }
-                        }
-                    }
-                    group.addTask {
-                        try await Task.sleep(nanoseconds: 30_000_000_000)
-                        throw CancellationError()
-                    }
-                    // Wait for whichever finishes first, cancel the other
-                    try await group.next()
-                    group.cancelAll()
+        Task { @MainActor in
+            let cleanupTask = Task { @MainActor () -> (any Error)? in
+                do {
+                    try await self.runOrphanZmxCleanup(
+                        backend: backend,
+                        terminalRestoreRuntime: terminalRestoreRuntime
+                    )
+                    return nil
+                } catch {
+                    return error
                 }
+            }
+            let timeoutTask = Task {
+                do {
+                    try await Task.sleep(nanoseconds: 30_000_000_000)
+                    cleanupTask.cancel()
+                } catch {}
+            }
+
+            do {
+                if let cleanupError = await cleanupTask.value {
+                    throw cleanupError
+                }
+                timeoutTask.cancel()
             } catch is CancellationError {
                 appLogger.warning("Orphan zmx cleanup timed out after 30s")
             } catch {
                 appLogger.warning("Orphan zmx cleanup failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    func runOrphanZmxCleanup(
+        backend: any SessionBackend,
+        terminalRestoreRuntime: TerminalRestoreRuntime
+    ) async throws {
+        let liveSessionIds = Set(await backend.discoverOrphanSessions(excluding: []))
+        let hydrationPlan = ZmxOrphanCleanupPlanner.plan(
+            candidates: zmxOrphanCleanupCandidates(terminalRestoreRuntime: terminalRestoreRuntime),
+            liveSessionIds: liveSessionIds
+        )
+        let cleanupPlan = hydrationPlan.cleanupPlan
+
+        if cleanupPlan.shouldSkipCleanup {
+            appLogger.warning(
+                "Skipping orphan zmx cleanup: unable to resolve one or more persisted zmx pane session IDs"
+            )
+            return
+        }
+        if !cleanupPlan.knownSessionIds.isEmpty {
+            appLogger.info(
+                "Orphan cleanup: protecting \(cleanupPlan.knownSessionIds.count) known persisted zmx session(s)"
+            )
+        }
+        guard await persistHydratedZmxSessionAnchors(hydrationPlan.sessionIdsToPersistByPaneId) else {
+            return
+        }
+
+        let orphans = cleanupPlan.destroyableOrphanSessionIds(from: liveSessionIds)
+        if !orphans.isEmpty {
+            appLogger.info("Found \(orphans.count) orphan zmx session(s) — cleaning up")
+            for orphanId in orphans {
+                try Task.checkCancellation()
+                do {
+                    try await backend.destroySessionById(orphanId)
+                    appLogger.debug("Killed orphan zmx session: \(orphanId)")
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    appLogger.warning(
+                        "Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func zmxOrphanCleanupCandidates(
+        terminalRestoreRuntime: TerminalRestoreRuntime
+    ) -> [ZmxOrphanCleanupCandidate] {
+        store.paneAtom.panes.values.compactMap { pane in
+            guard pane.provider == .zmx else { return nil }
+            let storedSessionId = pane.terminalState?.zmxSessionId
+            let derivedSessionId = terminalRestoreRuntime.legacyZmxSessionId(for: pane, store: store)
+            if let parentPaneId = pane.parentPaneId {
+                return .drawer(
+                    parentPaneId: parentPaneId,
+                    paneId: pane.id,
+                    storedSessionId: storedSessionId,
+                    derivedSessionId: derivedSessionId
+                )
+            }
+            return .main(
+                paneId: pane.id,
+                storedSessionId: storedSessionId,
+                derivedSessionId: derivedSessionId
+            )
+        }
+    }
+
+    func persistHydratedZmxSessionAnchors(_ sessionIdsByPaneId: [UUID: String]) async -> Bool {
+        guard !sessionIdsByPaneId.isEmpty else { return true }
+        let sortedAnchors = sessionIdsByPaneId.sorted { lhs, rhs in
+            lhs.key.uuidString < rhs.key.uuidString
+        }
+        var didChange = false
+        for (paneId, sessionId) in sortedAnchors {
+            didChange = store.paneAtom.setTerminalZmxSessionId(paneId, sessionId: sessionId) || didChange
+        }
+        guard didChange else { return true }
+
+        let flushOutcome = await store.flushAsync()
+        guard flushOutcome.succeeded else {
+            appLogger.warning("Skipping orphan zmx cleanup: failed to persist hydrated zmx session anchors")
+            return false
+        }
+        appLogger.info("Persisted \(sessionIdsByPaneId.count) hydrated zmx session anchor(s) before orphan cleanup")
+        return true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

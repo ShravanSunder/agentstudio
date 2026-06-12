@@ -66,6 +66,11 @@ struct TerminalRestoreRuntime {
         if let storedSessionId = pane.terminalState?.zmxSessionId {
             return storedSessionId
         }
+        return legacyZmxSessionId(for: pane, store: store)
+    }
+
+    func legacyZmxSessionId(for pane: Pane, store: WorkspaceStore) -> String? {
+        guard pane.provider == .zmx else { return nil }
         let workspaceRepositoryTopology = store.repositoryTopologyAtom
 
         if let parentPaneId = pane.parentPaneId {

@@ -2,11 +2,11 @@
 
 Date: 2026-06-11
 Branch context: `issues-with-persistance` (plan authored here; execution continues here)
-Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3 committed, T4 implemented with proof gates green. Next implementation step starts at T5.
+Status: in execution — plan-review-swarm completed, accepted revisions folded in. T0/T1/T2/T3/T4 committed, T5 implemented with proof gates green in the current changeset. Next implementation step starts at T5b.
 
 ## Execution State (handoff, 2026-06-11)
 
-T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). Next implementation step starts at T5.
+T0/T1 landed in commit `0026a7b8` (`Anchor terminal zmx session ids in pane storage`). T2 landed in commit `0636adf4` (`Capture zmx session anchors at pane creation`). T3 landed in commit `7e6232d1` (`Prefer stored zmx session anchors on restore`). T4 landed in commit `73e4ddb0` (`Tolerate dangling pane facet refs on save`). T5 is implemented in the current changeset (`Hydrate zmx anchors before orphan cleanup`). Next implementation step starts at T5b.
 
 Done — T0 (all green, characterization evidence captured):
 - `Tests/AgentStudioTests/Core/Stores/WorkspaceCoreRepositoryPaneSourceLatchTests.swift` (new) — 3 tests pinning the save-latch throws (`worktreeNotFoundInWorkspace`, `paneSourceFacetWorktreeMismatch`). These were the red→green pivots for T4.
@@ -159,6 +159,8 @@ No red/green exceptions requested.
   Anchors: `WorkspaceCoreRepository+PaneGraphValidation.swift:41-96` (`validatePaneSource`, `validateWorktreeSourceFacets`) and `requireWorktreeExists:293-316`. Write-side NULLing happens in `paneStatementArguments` (`+PaneGraphMutation.swift:249-279`): resolve facet repo/worktree ids against the topology rows already written in the same transaction; write NULL when missing. Flip the 3 tests in `WorkspaceCoreRepositoryPaneSourceLatchTests.swift` to assert success + NULLed columns (rename them accordingly — they document the fix from then on).
 - **T5 — Async anchor hydration/adoption + cleanup belt**
   Add a resolver/prepass that discovers live zmx sessions once, then resolves every persisted zmx pane before boot orphan cleanup. Stored ids win. Missing ids are derived through today's fallback, then optionally adopted only when exactly one live session of the same kind matches: main `as-<repo16>-<wt16>-<pane16>`, drawer `as-d--<parent16>--<pane16>`. Persist anchors only after T4 validator tolerance. `ZmxOrphanCleanupPlanner` consumes hydrated stored ids and kind-aware suffix protection; no destructive cleanup may rely on stale derived ids for legacy rows. Existing `ZmxOrphanCleanupPlannerTests` characterize current behavior — extend, don't weaken.
+
+  Implementation note: T5 keeps the sync restore reader pure (`TerminalRestoreRuntime.zmxSessionId` is stored-first with legacy fallback only). Boot cleanup performs the async hydration/adoption pass once, persists any adopted/derived anchors through `WorkspacePaneAtom.setTerminalZmxSessionId`, flushes SQLite, and only then computes destroyable orphan sessions. If anchor persistence fails, destructive cleanup is skipped for that launch.
 - **T5b — Phase-A smoke**
   Run a focused real-zmx smoke before Phase B: isolated data dir, create/restore anchored panes, roam a pane, relaunch, assert the stored session id is still used and cleanup does not destroy the live session. If this cannot be bounded, stop and report the blocker instead of entering source deletion.
 

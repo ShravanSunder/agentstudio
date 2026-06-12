@@ -187,9 +187,24 @@ final class ZmxBackend: SessionBackend {
         return "as-d--\(parentSegment)--\(drawerSegment)"
     }
 
-    private static func paneSessionSegment(_ paneId: UUID) -> String {
+    static func paneSessionSegment(_ paneId: UUID) -> String {
         let hex = paneId.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         return String(hex.suffix(16))
+    }
+
+    static func mainSessionId(_ sessionId: String, matchesPaneId paneId: UUID) -> Bool {
+        sessionId.hasPrefix(sessionPrefix)
+            && !isDrawerSessionId(sessionId)
+            && sessionId.hasSuffix("-\(paneSessionSegment(paneId))")
+    }
+
+    static func drawerSessionId(_ sessionId: String, matchesPaneId paneId: UUID) -> Bool {
+        isDrawerSessionId(sessionId)
+            && sessionId.hasSuffix("--\(paneSessionSegment(paneId))")
+    }
+
+    private static func isDrawerSessionId(_ sessionId: String) -> Bool {
+        sessionId.hasPrefix("\(sessionPrefix)d--")
     }
 
     // MARK: - Availability

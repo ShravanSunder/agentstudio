@@ -138,6 +138,11 @@ final class WorkspacePaneAtom {
     }
 
     @discardableResult
+    func setTerminalZmxSessionId(_ paneId: UUID, sessionId: String) -> Bool {
+        graphAtom.setTerminalZmxSessionId(paneId, sessionId: sessionId)
+    }
+
+    @discardableResult
     func insertRestoredPane(_ pane: Pane) -> Bool {
         let didInsert = graphAtom.insertRestoredPane(pane)
         if didInsert {
