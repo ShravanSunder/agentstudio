@@ -18,6 +18,8 @@ final class WorkspaceCacheCoordinator {
     private let scopeSyncHandler: @Sendable (ScopeChange) async -> Void
     private let traceIdentityRefreshHandler: (@MainActor @Sendable () async -> Void)?
     private var consumeTask: Task<Void, Never>?
+    private var traceIdentityRefreshTask: Task<Void, Never>?
+    private var traceIdentityRefreshNeedsReplay = false
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -39,6 +41,7 @@ final class WorkspaceCacheCoordinator {
 
     deinit {
         consumeTask?.cancel()
+        traceIdentityRefreshTask?.cancel()
     }
 
     func startConsuming() {
@@ -59,10 +62,17 @@ final class WorkspaceCacheCoordinator {
 
     func shutdown() async {
         let activeTask = consumeTask
+        let activeTraceIdentityRefreshTask = traceIdentityRefreshTask
         consumeTask?.cancel()
         consumeTask = nil
+        traceIdentityRefreshTask?.cancel()
+        traceIdentityRefreshTask = nil
+        traceIdentityRefreshNeedsReplay = false
         if let activeTask {
             await activeTask.value
+        }
+        if let activeTraceIdentityRefreshTask {
+            await activeTraceIdentityRefreshTask.value
         }
     }
 
@@ -404,8 +414,21 @@ final class WorkspaceCacheCoordinator {
 
     private func refreshTraceIdentity() {
         guard let traceIdentityRefreshHandler else { return }
-        Task { @MainActor in
-            await traceIdentityRefreshHandler()
+        guard traceIdentityRefreshTask == nil else {
+            traceIdentityRefreshNeedsReplay = true
+            return
+        }
+        traceIdentityRefreshTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                await traceIdentityRefreshHandler()
+                guard let self else { return }
+                guard self.traceIdentityRefreshNeedsReplay else {
+                    self.traceIdentityRefreshTask = nil
+                    return
+                }
+                self.traceIdentityRefreshNeedsReplay = false
+            }
+            self?.traceIdentityRefreshTask = nil
         }
     }
 

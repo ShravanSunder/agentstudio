@@ -356,8 +356,8 @@ extension AppDelegate {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isObservingTraceIdentityInputs = false
-                await self.refreshTraceIdentitySnapshot()
                 self.observeTraceIdentityInputs()
+                await self.refreshTraceIdentitySnapshot()
             }
         }
     }

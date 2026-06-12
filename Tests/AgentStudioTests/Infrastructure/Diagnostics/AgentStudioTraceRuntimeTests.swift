@@ -363,6 +363,35 @@ struct AgentStudioTraceRuntimeTests {
     }
 
     @Test
+    func recordDispatchStartsLaterSinkBeforeEarlierSinkCompletes() async throws {
+        let recordingSinks = RecordingTraceSinks()
+        await recordingSinks.jsonl.suspendRecords()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "both",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 987,
+            sinkFactory: recordingSinks.factory(),
+            timeUnixNano: { 16 }
+        )
+
+        let recordTask = Task {
+            await runtime.record(tag: .runtime, body: "runtime.concurrent-dispatch")
+        }
+        await recordingSinks.jsonl.waitForRecordAttempt()
+
+        let didRecordOTLP = await waitForBodyByYielding("runtime.concurrent-dispatch", in: recordingSinks.otlp)
+        await recordingSinks.jsonl.resumeRecords()
+        await recordTask.value
+
+        #expect(didRecordOTLP)
+        #expect(await recordingSinks.jsonl.bodies() == ["runtime.concurrent-dispatch"])
+        #expect(await recordingSinks.otlp.bodies() == ["runtime.concurrent-dispatch"])
+    }
+
+    @Test
     func flushFansOutToAllLiveSinks() async throws {
         let recordingSinks = RecordingTraceSinks()
         let runtime = AgentStudioTraceRuntime(
@@ -408,6 +437,16 @@ struct AgentStudioTraceRuntimeTests {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
+    private func waitForBodyByYielding(_ body: String, in sink: RecordingTraceSink) async -> Bool {
+        for _ in 0..<100 {
+            if await sink.bodies().contains(body) {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
+    }
+
     private final class AttributeEvaluationFlag: @unchecked Sendable {
         private(set) var didEvaluate = false
 
@@ -435,8 +474,25 @@ struct AgentStudioTraceRuntimeTests {
         private var recordedShutdownCount = 0
         private var recordError: Error?
         private var flushError: Error?
+        private var shouldSuspendRecords = false
+        private var suspendedRecordContinuations: [CheckedContinuation<Void, Never>] = []
+        private var recordAttemptCount = 0
+        private var recordAttemptContinuations: [CheckedContinuation<Void, Never>] = []
 
-        func record(_ record: AgentStudioTraceRecord) throws {
+        func record(_ record: AgentStudioTraceRecord) async throws {
+            recordAttemptCount += 1
+            let waitingContinuations = recordAttemptContinuations
+            recordAttemptContinuations.removeAll()
+            for continuation in waitingContinuations {
+                continuation.resume()
+            }
+
+            if shouldSuspendRecords {
+                await withCheckedContinuation { continuation in
+                    suspendedRecordContinuations.append(continuation)
+                }
+            }
+
             if let recordError {
                 throw recordError
             }
@@ -460,6 +516,26 @@ struct AgentStudioTraceRuntimeTests {
 
         func setRecordError(_ error: Error?) {
             recordError = error
+        }
+
+        func suspendRecords() {
+            shouldSuspendRecords = true
+        }
+
+        func resumeRecords() {
+            shouldSuspendRecords = false
+            let continuations = suspendedRecordContinuations
+            suspendedRecordContinuations.removeAll()
+            for continuation in continuations {
+                continuation.resume()
+            }
+        }
+
+        func waitForRecordAttempt() async {
+            guard recordAttemptCount == 0 else { return }
+            await withCheckedContinuation { continuation in
+                recordAttemptContinuations.append(continuation)
+            }
         }
 
         func bodies() -> [String] {

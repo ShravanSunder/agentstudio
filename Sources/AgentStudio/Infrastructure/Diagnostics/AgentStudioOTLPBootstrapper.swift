@@ -14,6 +14,7 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
 
     private var state: AgentStudioOTLPServiceState?
     private var didReportBootstrapFailure = false
+    private var didShutdown = false
 
     func emit(_ record: AgentStudioOTLPProjectedLogRecord, context: AgentStudioOTLPTraceSinkContext) async {
         guard let state = bootstrapIfNeeded(record: record, context: context) else {
@@ -33,6 +34,7 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
     }
 
     func shutdown() async {
+        didShutdown = true
         guard let state else { return }
         await state.serviceGroup.triggerGracefulShutdown()
         await state.runTask.value
@@ -45,6 +47,9 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
     ) -> AgentStudioOTLPServiceState? {
         if let state {
             return state
+        }
+        guard !didShutdown else {
+            return nil
         }
 
         do {

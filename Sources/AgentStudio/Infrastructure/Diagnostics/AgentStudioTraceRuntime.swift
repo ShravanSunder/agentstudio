@@ -209,12 +209,16 @@ struct AgentStudioTraceRuntime: Sendable {
     }
 
     private func dispatch(_ record: AgentStudioTraceRecord) async {
-        for sink in sinks {
-            do {
-                try await sink.record(record)
-            } catch {
-                debugLog("[trace] failed to record \(record.body): \(error)")
-                Self.writeStartupDiagnostic("AgentStudio tracing failed to record \(record.body): \(error)")
+        await withTaskGroup(of: Void.self) { taskGroup in
+            for sink in sinks {
+                taskGroup.addTask {
+                    do {
+                        try await sink.record(record)
+                    } catch {
+                        debugLog("[trace] failed to record \(record.body): \(error)")
+                        Self.writeStartupDiagnostic("AgentStudio tracing failed to record \(record.body): \(error)")
+                    }
+                }
             }
         }
     }
