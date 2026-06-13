@@ -239,7 +239,8 @@ extension PaneCoordinator {
                 repo: repo,
                 restoredSurfaceId: managed.id,
                 paneId: pane.id,
-                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup
+                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup,
+                performanceTraceRecorder: performanceTraceRecorder
             )
             view.onRepairRequested = { [weak self] paneId in
                 self?.execute(.repair(.recreateSurface(paneId: paneId)))
@@ -347,7 +348,8 @@ extension PaneCoordinator {
                 restoredSurfaceId: managed.id,
                 paneId: pane.id,
                 title: pane.metadata.title,
-                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup
+                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup,
+                performanceTraceRecorder: performanceTraceRecorder
             )
             view.onRepairRequested = { [weak self] paneId in
                 self?.execute(.repair(.recreateSurface(paneId: paneId)))
@@ -445,7 +447,7 @@ extension PaneCoordinator {
 
     /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
     func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
-        paneFilesystemProjectionStore.unregisterPaneContext(paneId)
+        removePaneFilesystemProjectionContext(paneId: paneId)
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
@@ -577,28 +579,7 @@ extension PaneCoordinator {
     }
 
     private func registerPaneFilesystemContextIfNeeded(for pane: Pane) {
-        guard let repoId = pane.repoId, let worktreeId = pane.worktreeId else {
-            paneFilesystemProjectionStore.unregisterPaneContext(pane.id)
-            return
-        }
-
-        let fallbackCwd =
-            store.repositoryTopologyAtom.worktree(worktreeId)?.path
-            ?? pane.metadata.launchDirectory
-            ?? pane.metadata.cwd
-        guard let fallbackCwd else {
-            paneFilesystemProjectionStore.unregisterPaneContext(pane.id)
-            return
-        }
-
-        paneFilesystemProjectionStore.registerPaneContext(
-            PaneFilesystemContext(
-                paneId: PaneId(uuid: pane.id),
-                repoId: repoId,
-                cwd: (pane.metadata.cwd ?? fallbackCwd).standardizedFileURL.resolvingSymlinksInPath(),
-                worktreeId: worktreeId
-            )
-        )
+        upsertPaneFilesystemProjectionContext(for: pane)
     }
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.
@@ -622,7 +603,8 @@ extension PaneCoordinator {
                     worktree: worktree,
                     repo: repo,
                     restoredSurfaceId: undone.id,
-                    paneId: pane.id
+                    paneId: pane.id,
+                    performanceTraceRecorder: performanceTraceRecorder
                 )
                 surfaceManager.attach(undone.id, to: pane.id)
                 view.displaySurface(undone.surface)

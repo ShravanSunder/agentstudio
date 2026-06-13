@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -6,6 +7,123 @@ import Testing
 @MainActor
 @Suite("WorkspaceSQLiteStoreBackendFactoryTests", .serialized)
 struct WorkspaceSQLiteStoreBackendFactoryTests {
+    @Test("pending migration 009 creates a verified pre-009 core backup")
+    func pendingMigration009CreatesVerifiedPre009CoreBackup() throws {
+        let rootDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pre009-backup-\(UUID().uuidString)")
+        let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
+        try FileManager.default.createDirectory(
+            at: rootDirectory,
+            withIntermediateDirectories: true
+        )
+        do {
+            let setupPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+                at: coreSQLiteURL,
+                label: "AgentStudio.pre009.setup"
+            )
+            try WorkspaceCoreMigrations.migrator.migrate(setupPool, upTo: "007_stage_workspace_sqlite_snapshot_status")
+            try setupPool.write { database in
+                try database.execute(
+                    sql: """
+                        INSERT INTO workspace(id, name, created_at, updated_at)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                    arguments: [UUID().uuidString, "Pre-009", 1.0, 1.0]
+                )
+            }
+        }
+
+        let factory = WorkspaceSQLiteStoreBackendFactory(
+            coreDatabaseURL: coreSQLiteURL,
+            localDatabaseURL: { workspaceId in
+                rootDirectory.appending(path: "\(workspaceId.uuidString).local.sqlite")
+            }
+        )
+
+        _ = try #require(factory.makeBackend())
+
+        let backupURL = WorkspaceSQLiteStoreBackendFactory.pre009BackupURL(coreDatabaseURL: coreSQLiteURL)
+        #expect(FileManager.default.fileExists(atPath: backupURL.path))
+        let backupQueue = try DatabaseQueue(
+            path: backupURL.path,
+            configuration: SQLiteDatabaseFactory.makeConfiguration(label: "AgentStudio.pre009.backup.verify")
+        )
+        let backupColumns = try backupQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(pane)")
+                .map { row in row["name"] as String }
+        }
+        let backupTerminalColumns = try backupQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(pane_content_terminal)")
+                .map { row in row["name"] as String }
+        }
+        #expect(backupColumns.contains("source_kind"))
+        #expect(backupColumns.contains("source_repo_id"))
+        #expect(!backupColumns.contains("facet_repo_id"))
+        #expect(!backupTerminalColumns.contains("zmx_session_id"))
+
+        let migratedPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreSQLiteURL,
+            label: "AgentStudio.pre009.migrated.verify"
+        )
+        let migratedColumns = try migratedPool.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(pane)")
+                .map { row in row["name"] as String }
+        }
+        let migratedTerminalColumns = try migratedPool.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(pane_content_terminal)")
+                .map { row in row["name"] as String }
+        }
+        #expect(!migratedColumns.contains("source_kind"))
+        #expect(migratedColumns.contains("facet_repo_id"))
+        #expect(migratedTerminalColumns.contains("zmx_session_id"))
+    }
+
+    @Test("pre-009 backup restore replaces core database and removes stale sidecars")
+    func pre009BackupRestoreReplacesCoreDatabaseAndRemovesStaleSidecars() throws {
+        let rootDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pre009-restore-\(UUID().uuidString)")
+        let coreSQLiteURL = rootDirectory.appending(path: "core.sqlite")
+        try FileManager.default.createDirectory(
+            at: rootDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let backupURL = WorkspaceSQLiteStoreBackendFactory.pre009BackupURL(coreDatabaseURL: coreSQLiteURL)
+        do {
+            let backupPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+                at: backupURL,
+                label: "AgentStudio.pre009.restore.backup"
+            )
+            try WorkspaceCoreMigrations.migrator.migrate(backupPool, upTo: "008_add_zmx_session_id")
+        }
+
+        do {
+            let migratedPool = try SQLiteDatabaseFactory.makeFileBackedPool(
+                at: coreSQLiteURL,
+                label: "AgentStudio.pre009.restore.current"
+            )
+            try WorkspaceCoreMigrations.migrate(migratedPool)
+        }
+        try Data("stale wal".utf8).write(to: URL(filePath: "\(coreSQLiteURL.path)-wal"))
+        try Data("stale shm".utf8).write(to: URL(filePath: "\(coreSQLiteURL.path)-shm"))
+
+        try WorkspaceSQLiteStoreBackendFactory.restorePre009Backup(coreDatabaseURL: coreSQLiteURL)
+
+        #expect(!FileManager.default.fileExists(atPath: "\(coreSQLiteURL.path)-wal"))
+        #expect(!FileManager.default.fileExists(atPath: "\(coreSQLiteURL.path)-shm"))
+        let restoredQueue = try DatabaseQueue(
+            path: coreSQLiteURL.path,
+            configuration: SQLiteDatabaseFactory.makeConfiguration(label: "AgentStudio.pre009.restored.verify")
+        )
+        let restoredColumns = try restoredQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(pane)")
+                .map { row in row["name"] as String }
+        }
+        #expect(restoredColumns.contains("source_kind"))
+        #expect(restoredColumns.contains("source_repo_id"))
+        #expect(!restoredColumns.contains("facet_repo_id"))
+    }
+
     @Test("corrupt core SQLite is quarantined and recreated before legacy workspace import")
     func corruptCoreSQLiteIsQuarantinedAndRecreatedBeforeLegacyWorkspaceImport() async throws {
         let rootDirectory = FileManager.default.temporaryDirectory
@@ -23,7 +141,6 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
         let pane = Pane(
             content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
             metadata: .init(
-                source: .floating(launchDirectory: nil, title: nil),
                 createdAt: createdAt,
                 title: "Legacy After Corruption"
             )

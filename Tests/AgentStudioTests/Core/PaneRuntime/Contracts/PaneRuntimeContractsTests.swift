@@ -25,7 +25,7 @@ struct PaneRuntimeContractsTests {
 
     @Test("pane metadata remains available after relocation to pane runtime contracts")
     func paneMetadataRelocation() {
-        let metadata = PaneMetadata(source: .floating(launchDirectory: nil, title: "X"), title: "X")
+        let metadata = PaneMetadata(title: "X")
         #expect(metadata.title == "X")
         #expect(metadata.paneId.isV7)
         #expect(metadata.contentType == .terminal)
@@ -34,14 +34,19 @@ struct PaneRuntimeContractsTests {
         #expect(metadata.facets.tags.isEmpty)
     }
 
-    @Test("pane context facets merge source defaults for worktree metadata")
-    func paneContextFacetsMergeSourceDefaults() {
+    @Test("pane context facets carry live worktree metadata")
+    func paneContextFacetsCarryLiveWorktreeMetadata() {
         let worktreeId = UUID()
         let repoId = UUID()
+        let worktreeURL = URL(fileURLWithPath: "/tmp/worktree")
         let metadata = PaneMetadata(
-            source: .worktree(
-                worktreeId: worktreeId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")),
-            facets: PaneContextFacets(tags: ["focus"])
+            launchDirectory: worktreeURL,
+            facets: PaneContextFacets(
+                repoId: repoId,
+                worktreeId: worktreeId,
+                cwd: worktreeURL,
+                tags: ["focus"]
+            )
         )
         #expect(metadata.facets.worktreeId == worktreeId)
         #expect(metadata.facets.repoId == repoId)

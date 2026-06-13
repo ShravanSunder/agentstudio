@@ -6,6 +6,10 @@ import Testing
 @MainActor
 @Suite("WorkspaceSQLiteStoreBridgeRepairTests", .serialized)
 struct WorkspaceSQLiteStoreBridgeRepairTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     @Test("SQLite flush promotes a live custom arrangement when the default normalizes empty")
     func sqliteFlushPromotesLiveCustomArrangementWhenDefaultNormalizesEmpty() async throws {
         let workspaceId = UUID()
@@ -35,11 +39,11 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [discoveredWorktree])
         let worktree = try #require(store.repositoryTopologyAtom.repo(repo.id)?.worktrees.single)
         let customOnlyPane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            title: "Custom Only"
+            launchDirectory: worktree.path,
+            title: "Custom Only",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
         )
         let fallbackPane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Fallback"),
             title: "Fallback"
         )
         let invalidPaneId = UUID()
@@ -128,11 +132,12 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
             recoveryReporter: { event in recoveryEvents.append(event) }
         )
-        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Parent"), title: "Parent")
+        let parentPane = store.createPane(title: "Parent")
         let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
         let drawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
         let fallbackPane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Fallback"), title: "Fallback")
+            title: "Fallback"
+        )
         let drawerOnlyArrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -194,8 +199,8 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
             ),
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
-        let anchorPane = store.createPane(source: .floating(launchDirectory: nil, title: "Anchor"), title: "Anchor")
-        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Parent"), title: "Parent")
+        let anchorPane = store.createPane(title: "Anchor")
+        let parentPane = store.createPane(title: "Parent")
         let tab = Tab(paneId: anchorPane.id, name: "Drawer Close")
         store.appendTab(tab)
         #expect(
@@ -247,7 +252,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
             ),
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
-        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Parent"), title: "Parent")
+        let parentPane = store.createPane(title: "Parent")
         let tab = Tab(paneId: parentPane.id, name: "Drawer Detach")
         store.appendTab(tab)
         let detachedPane = try #require(store.addDrawerPane(to: parentPane.id))
@@ -301,8 +306,8 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
             ),
             sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
         )
-        let anchorPane = store.createPane(source: .floating(launchDirectory: nil, title: "Anchor"), title: "Anchor")
-        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Parent"), title: "Parent")
+        let anchorPane = store.createPane(title: "Anchor")
+        let parentPane = store.createPane(title: "Parent")
         let tab = Tab(paneId: anchorPane.id, name: "Drawer Background")
         store.appendTab(tab)
         #expect(

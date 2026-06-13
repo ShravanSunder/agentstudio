@@ -73,7 +73,7 @@ extension WorkspaceStore {
 
     @discardableResult
     func createPane(
-        source: TerminalSource,
+        launchDirectory: URL? = nil,
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
@@ -81,7 +81,7 @@ extension WorkspaceStore {
         facets: PaneContextFacets = .empty
     ) -> Pane {
         paneAtom.createPane(
-            source: source,
+            launchDirectory: launchDirectory,
             title: title,
             provider: provider,
             lifetime: lifetime,

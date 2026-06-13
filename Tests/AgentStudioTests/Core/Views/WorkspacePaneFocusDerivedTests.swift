@@ -32,7 +32,7 @@ struct WorkspacePaneFocusDerivedTests {
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+            let pane = store.createPane()
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
@@ -63,8 +63,8 @@ struct WorkspacePaneFocusDerivedTests {
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
-            let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
-            let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
+            let paneA = store.createPane()
+            let paneB = store.createPane()
             var tab = Tab(paneId: paneA.id)
             let namedArrangement = PaneArrangement(
                 name: "Review",
@@ -113,8 +113,9 @@ struct WorkspacePaneFocusDerivedTests {
             )
             store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
             let pane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-                title: "Terminal"
+                launchDirectory: worktree.path,
+                title: "Terminal",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
             )
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
@@ -139,7 +140,7 @@ struct WorkspacePaneFocusDerivedTests {
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+            let pane = store.createPane()
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
@@ -164,7 +165,7 @@ struct WorkspacePaneFocusDerivedTests {
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
-            let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+            let parentPane = store.createPane()
             let tab = Tab(paneId: parentPane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
@@ -208,12 +209,13 @@ struct WorkspacePaneFocusDerivedTests {
             let drawerRepoId = UUID()
             let drawerWorktreeId = UUID()
             let parentPane = store.createPane(
-                source: .worktree(
-                    worktreeId: parentWorktreeId,
+                launchDirectory: URL(filePath: "/tmp/parent-worktree"),
+                title: "Parent",
+                facets: PaneContextFacets(
                     repoId: parentRepoId,
-                    launchDirectory: URL(filePath: "/tmp/parent-worktree")
-                ),
-                title: "Parent"
+                    worktreeId: parentWorktreeId,
+                    cwd: URL(filePath: "/tmp/parent-worktree")
+                )
             )
             let tab = Tab(paneId: parentPane.id)
             store.appendTab(tab)
@@ -225,12 +227,13 @@ struct WorkspacePaneFocusDerivedTests {
                     to: parentPane.id,
                     content: .webview(WebviewState(url: URL(string: "https://drawer.example")!)),
                     metadata: PaneMetadata(
-                        source: .worktree(
-                            worktreeId: drawerWorktreeId,
+                        launchDirectory: URL(filePath: "/tmp/drawer-worktree"),
+                        title: "Drawer Web",
+                        facets: PaneContextFacets(
                             repoId: drawerRepoId,
-                            launchDirectory: URL(filePath: "/tmp/drawer-worktree")
-                        ),
-                        title: "Drawer Web"
+                            worktreeId: drawerWorktreeId,
+                            cwd: URL(filePath: "/tmp/drawer-worktree")
+                        )
                     )
                 )
             else {

@@ -63,6 +63,16 @@ struct TerminalRestoreRuntime {
 
     func zmxSessionId(for pane: Pane, store: WorkspaceStore) -> String? {
         guard pane.provider == .zmx else { return nil }
+        if let storedSessionId = pane.terminalState?.zmxSessionId,
+            Self.isValidStoredSessionId(storedSessionId, for: pane)
+        {
+            return storedSessionId
+        }
+        return legacyZmxSessionId(for: pane, store: store)
+    }
+
+    func legacyZmxSessionId(for pane: Pane, store: WorkspaceStore) -> String? {
+        guard pane.provider == .zmx else { return nil }
         let workspaceRepositoryTopology = store.repositoryTopologyAtom
 
         if let parentPaneId = pane.parentPaneId {
@@ -124,5 +134,16 @@ struct TerminalRestoreRuntime {
             retryPolicy: .standard
         )
         return Set(await backend.discoverOrphanSessions(excluding: []))
+    }
+
+    static func isValidStoredSessionId(_ sessionId: String, for pane: Pane) -> Bool {
+        if let parentPaneId = pane.parentPaneId {
+            return ZmxBackend.isValidStoredDrawerSessionId(
+                sessionId,
+                parentPaneId: parentPaneId,
+                drawerPaneId: pane.id
+            )
+        }
+        return ZmxBackend.isValidStoredLayoutPaneSessionId(sessionId, paneId: pane.id)
     }
 }

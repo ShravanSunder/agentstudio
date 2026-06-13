@@ -27,8 +27,9 @@ struct GitHubWebviewLaunchResolverTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            title: "Terminal"
+            launchDirectory: worktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -62,8 +63,9 @@ struct GitHubWebviewLaunchResolverTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            title: "Terminal"
+            launchDirectory: worktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -94,7 +96,7 @@ struct GitHubWebviewLaunchResolverTests {
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         let cwd = URL(fileURLWithPath: "/tmp/agent-studio/Sources")
         let pane = store.createPane(
-            source: .floating(launchDirectory: cwd, title: "Floating"),
+            launchDirectory: cwd,
             title: "Floating"
         )
         let tab = Tab(paneId: pane.id)
@@ -139,8 +141,9 @@ struct GitHubWebviewLaunchResolverTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            title: "Terminal"
+            launchDirectory: worktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
         )
         cache.setRepoEnrichment(
             .resolvedRemote(

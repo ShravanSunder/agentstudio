@@ -100,7 +100,7 @@ extension AppDelegate {
         case .loadUIStore:
             await bootLoadUIStore(persistor: persistor)
         case .establishRuntimeBus:
-            bootEstablishRuntimeBus(paneRuntimeBus: paneRuntimeBus, filesystemSource: &filesystemSource)
+            await bootEstablishRuntimeBus(paneRuntimeBus: paneRuntimeBus, filesystemSource: &filesystemSource)
         case .startFilesystemActor:
             bootChainPipelineStep(filesystemSource) { await $0.startFilesystemActor() }
         case .startGitProjector:
@@ -120,6 +120,7 @@ extension AppDelegate {
 
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
+        atomStore.workspaceRepositoryTopology.setPerformanceTraceRecorder(performanceTraceRecorder)
         AtomScope.setUp(atomStore)
         workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
         store = WorkspaceStore(
@@ -251,18 +252,20 @@ extension AppDelegate {
     private func bootEstablishRuntimeBus(
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
-    ) {
+    ) async {
         runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
-        cleanupOrphanZmxSessions()
+        await reconcileZmxSessionAnchorsAtStartup()
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
         seedSlotsForRestoredPanes()
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
-            fseventStreamClient: DarwinFSEventStreamClient()
+            fseventStreamClient: DarwinFSEventStreamClient(),
+            performanceTraceRecorder: performanceTraceRecorder
         )
         filesystemSource = pipeline
         watchedFolderCommands = pipeline
+        SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
         paneCoordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
@@ -273,7 +276,8 @@ extension AppDelegate {
             paneEventBus: paneRuntimeBus,
             closeTransitionCoordinator: closeTransitionCoordinator,
             filesystemSource: pipeline,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
             bus: paneRuntimeBus,
@@ -294,13 +298,18 @@ extension AppDelegate {
             self?.paneCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = ActionExecutor(coordinator: paneCoordinator, store: store)
-        tabBarAdapter = TabBarAdapter(store: store, repoCache: repoCache)
+        tabBarAdapter = TabBarAdapter(
+            store: store,
+            repoCache: repoCache,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
         commandBarController = CommandBarPanelController(
             store: store,
             repoCache: repoCache,
             dispatcher: .shared,
             notificationInboxCommands: makeInboxNotificationCommands(),
-            commandBarSurface: atomStore.commandBarSurface
+            commandBarSurface: atomStore.commandBarSurface,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         bootStartInboxNotificationRouter(bus: paneRuntimeBus)
         bootStartTerminalActivityRouter(bus: paneRuntimeBus)

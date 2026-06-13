@@ -64,9 +64,10 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         }
     }
 
-    @Test("pane graph replace rejects source repo outside workspace")
-    func paneGraphReplaceRejectsSourceRepoOutsideWorkspace() throws {
-        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+    @Test("pane graph replace nulls source repo outside workspace")
+    func paneGraphReplaceNullsSourceRepoOutsideWorkspace() throws {
+        let fixture = try makeWorkspaceCoreRepositoryFixture()
+        let repository = fixture.repository
         let firstWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002002")!
         let secondWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002003")!
         let foreignRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000002201")!
@@ -113,18 +114,21 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         )
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000002102")!
 
-        #expect(throws: WorkspaceCoreRepositoryError.repoNotFoundInWorkspace(foreignRepoId, firstWorkspaceId)) {
-            try repository.replacePaneGraph(
-                workspaceId: firstWorkspaceId,
-                graph: .init(panes: [
-                    makeWorktreePane(
-                        id: paneId,
-                        repoId: foreignRepoId,
-                        worktreeId: foreignWorktreeId
-                    )
-                ])
-            )
-        }
+        try repository.replacePaneGraph(
+            workspaceId: firstWorkspaceId,
+            graph: .init(panes: [
+                makeWorktreePane(
+                    id: paneId,
+                    repoId: foreignRepoId,
+                    worktreeId: foreignWorktreeId
+                )
+            ])
+        )
+
+        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
+        let requiredSource = try #require(storedSource)
+        #expect(requiredSource.repoId == nil)
+        #expect(requiredSource.worktreeId == nil)
     }
 
     @Test("pane graph replace rejects drawer child outside incoming graph")
@@ -365,9 +369,10 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         }
     }
 
-    @Test("pane graph replace rejects worktree source facet repo mismatch")
-    func paneGraphReplaceRejectsWorktreeSourceFacetRepoMismatch() throws {
-        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+    @Test("pane graph replace normalizes worktree source facet repo mismatch")
+    func paneGraphReplaceNormalizesWorktreeSourceFacetRepoMismatch() throws {
+        let fixture = try makeWorkspaceCoreRepositoryFixture()
+        let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002010")!
         let sourceRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000002202")!
         let facetRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000002203")!
@@ -384,30 +389,28 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
             )
         )
 
-        #expect(
-            throws: WorkspaceCoreRepositoryError.paneSourceFacetRepoMismatch(
-                paneId: paneId,
-                sourceRepoId: sourceRepoId,
-                facetRepoId: facetRepoId
-            )
-        ) {
-            try repository.replacePaneGraph(
-                workspaceId: workspaceId,
-                graph: .init(panes: [
-                    makeWorktreePane(
-                        id: paneId,
-                        repoId: sourceRepoId,
-                        worktreeId: worktreeId,
-                        durableFacets: .init(repoId: facetRepoId, worktreeId: worktreeId)
-                    )
-                ])
-            )
-        }
+        try repository.replacePaneGraph(
+            workspaceId: workspaceId,
+            graph: .init(panes: [
+                makeWorktreePane(
+                    id: paneId,
+                    repoId: sourceRepoId,
+                    worktreeId: worktreeId,
+                    durableFacets: .init(repoId: facetRepoId, worktreeId: worktreeId)
+                )
+            ])
+        )
+
+        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
+        let requiredSource = try #require(storedSource)
+        #expect(requiredSource.repoId == sourceRepoId)
+        #expect(requiredSource.worktreeId == worktreeId)
     }
 
-    @Test("pane graph replace rejects worktree source facet worktree mismatch")
-    func paneGraphReplaceRejectsWorktreeSourceFacetWorktreeMismatch() throws {
-        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+    @Test("pane graph replace nulls missing worktree source facet mismatch")
+    func paneGraphReplaceNullsMissingWorktreeSourceFacetMismatch() throws {
+        let fixture = try makeWorkspaceCoreRepositoryFixture()
+        let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002019")!
         let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000002206")!
         let sourceWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000002304")!
@@ -415,30 +418,28 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000002129")!
         try upsertWorkspace(repository, workspaceId: workspaceId, name: "Facet Worktree")
 
-        #expect(
-            throws: WorkspaceCoreRepositoryError.paneSourceFacetWorktreeMismatch(
-                paneId: paneId,
-                sourceWorktreeId: sourceWorktreeId,
-                facetWorktreeId: facetWorktreeId
-            )
-        ) {
-            try repository.replacePaneGraph(
-                workspaceId: workspaceId,
-                graph: .init(panes: [
-                    makeWorktreePane(
-                        id: paneId,
-                        repoId: repoId,
-                        worktreeId: sourceWorktreeId,
-                        durableFacets: .init(repoId: repoId, worktreeId: facetWorktreeId)
-                    )
-                ])
-            )
-        }
+        try repository.replacePaneGraph(
+            workspaceId: workspaceId,
+            graph: .init(panes: [
+                makeWorktreePane(
+                    id: paneId,
+                    repoId: repoId,
+                    worktreeId: sourceWorktreeId,
+                    durableFacets: .init(repoId: repoId, worktreeId: facetWorktreeId)
+                )
+            ])
+        )
+
+        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
+        let requiredSource = try #require(storedSource)
+        #expect(requiredSource.repoId == nil)
+        #expect(requiredSource.worktreeId == nil)
     }
 
-    @Test("pane graph replace rejects source worktree missing from workspace")
-    func paneGraphReplaceRejectsSourceWorktreeMissingFromWorkspace() throws {
-        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+    @Test("pane graph replace nulls source worktree missing from workspace")
+    func paneGraphReplaceNullsSourceWorktreeMissingFromWorkspace() throws {
+        let fixture = try makeWorkspaceCoreRepositoryFixture()
+        let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002020")!
         let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000002207")!
         let missingWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000002306")!
@@ -449,21 +450,23 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
             topology: makeTopology(repos: [(repoId: repoId, worktreeId: nil, path: "/tmp/agentstudio/no-worktree")])
         )
 
-        #expect(
-            throws: WorkspaceCoreRepositoryError.worktreeNotFoundInWorkspace(missingWorktreeId, workspaceId)
-        ) {
-            try repository.replacePaneGraph(
-                workspaceId: workspaceId,
-                graph: .init(panes: [
-                    makeWorktreePane(id: paneId, repoId: repoId, worktreeId: missingWorktreeId)
-                ])
-            )
-        }
+        try repository.replacePaneGraph(
+            workspaceId: workspaceId,
+            graph: .init(panes: [
+                makeWorktreePane(id: paneId, repoId: repoId, worktreeId: missingWorktreeId)
+            ])
+        )
+
+        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
+        let requiredSource = try #require(storedSource)
+        #expect(requiredSource.repoId == nil)
+        #expect(requiredSource.worktreeId == nil)
     }
 
-    @Test("pane graph replace rejects source worktree that belongs to another repo")
-    func paneGraphReplaceRejectsSourceWorktreeThatBelongsToAnotherRepo() throws {
-        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+    @Test("pane graph replace normalizes source worktree that belongs to another repo")
+    func paneGraphReplaceNormalizesSourceWorktreeThatBelongsToAnotherRepo() throws {
+        let fixture = try makeWorkspaceCoreRepositoryFixture()
+        let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002011")!
         let sourceRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000002204")!
         let actualRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000002205")!
@@ -480,18 +483,15 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
             )
         )
 
-        #expect(
-            throws: WorkspaceCoreRepositoryError.worktreeRepoMismatch(
-                worktreeId: worktreeId,
-                expectedRepoId: sourceRepoId,
-                actualRepoId: actualRepoId
-            )
-        ) {
-            try repository.replacePaneGraph(
-                workspaceId: workspaceId,
-                graph: .init(panes: [makeWorktreePane(id: paneId, repoId: sourceRepoId, worktreeId: worktreeId)])
-            )
-        }
+        try repository.replacePaneGraph(
+            workspaceId: workspaceId,
+            graph: .init(panes: [makeWorktreePane(id: paneId, repoId: sourceRepoId, worktreeId: worktreeId)])
+        )
+
+        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
+        let requiredSource = try #require(storedSource)
+        #expect(requiredSource.repoId == actualRepoId)
+        #expect(requiredSource.worktreeId == worktreeId)
     }
 
     @Test("pane graph replace rejects content type changes for existing panes")
@@ -629,7 +629,6 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
             id: id,
             content: content,
             metadata: .init(
-                source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/floating")),
                 executionBackend: .local,
                 createdAt: Date(timeIntervalSince1970: 300),
                 title: title,
@@ -659,11 +658,7 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
             id: id,
             content: .terminal(provider: .zmx, lifetime: .persistent),
             metadata: .init(
-                source: .worktree(
-                    repoId: repoId,
-                    worktreeId: worktreeId,
-                    launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/worktree")
-                ),
+                launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/worktree"),
                 executionBackend: .local,
                 createdAt: Date(timeIntervalSince1970: 300),
                 title: "Worktree",

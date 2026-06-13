@@ -119,7 +119,6 @@ struct WebviewRuntimeTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .browser,
-            source: .floating(launchDirectory: nil, title: "Web"),
             title: "Web"
         )
         return WebviewRuntime(

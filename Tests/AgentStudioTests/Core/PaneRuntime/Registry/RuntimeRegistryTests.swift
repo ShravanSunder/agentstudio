@@ -49,19 +49,43 @@ struct RuntimeRegistryTests {
         let registry = RuntimeRegistry()
         let paneId = PaneId()
         let worktreeId = UUID()
+        let launchDirectory = URL(fileURLWithPath: "/tmp/worktree")
         let runtime = TestPaneRuntime(
             paneId: paneId,
-            source: .worktree(
-                worktreeId: worktreeId,
-                repoId: UUID(),
-                launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
-            )
+            launchDirectory: launchDirectory,
+            facets: PaneContextFacets(repoId: UUID(), worktreeId: worktreeId, cwd: launchDirectory)
         )
         registry.register(runtime)
 
         let found = registry.findPaneWithWorktree(worktreeId: worktreeId)
 
         #expect(found == paneId)
+    }
+
+    @Test("findPaneWithWorktree follows live facets after a pane roams")
+    func findPaneWithWorktreeUsesLiveFacets() {
+        let registry = RuntimeRegistry()
+        let paneId = PaneId()
+        let birthWorktreeId = UUID()
+        let liveRepoId = UUID()
+        let liveWorktreeId = UUID()
+        let birthLaunchDirectory = URL(fileURLWithPath: "/tmp/birth-worktree")
+        let runtime = TestPaneRuntime(
+            paneId: paneId,
+            launchDirectory: birthLaunchDirectory,
+            facets: PaneContextFacets(repoId: UUID(), worktreeId: birthWorktreeId, cwd: birthLaunchDirectory)
+        )
+        runtime.metadata.updateFacets(
+            PaneContextFacets(
+                repoId: liveRepoId,
+                worktreeId: liveWorktreeId,
+                cwd: URL(fileURLWithPath: "/tmp/live-worktree")
+            )
+        )
+        registry.register(runtime)
+
+        #expect(registry.findPaneWithWorktree(worktreeId: liveWorktreeId) == paneId)
+        #expect(registry.findPaneWithWorktree(worktreeId: birthWorktreeId) == nil)
     }
 
     @Test("findPaneWithWorktree returns nil for unknown worktree")
@@ -113,14 +137,16 @@ private final class TestPaneRuntime: PaneRuntime {
     init(
         paneId: PaneId,
         contentType: PaneContentType = .terminal,
-        source: PaneMetadata.PaneMetadataSource = .floating(launchDirectory: nil, title: "Test")
+        launchDirectory: URL? = nil,
+        facets: PaneContextFacets = .empty
     ) {
         self.paneId = paneId
         self.metadata = PaneMetadata(
             paneId: paneId,
             contentType: contentType,
-            source: source,
-            title: "Test"
+            launchDirectory: launchDirectory,
+            title: "Test",
+            facets: facets
         )
         self.lifecycle = .ready
         self.capabilities = []

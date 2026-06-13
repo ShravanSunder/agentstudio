@@ -31,10 +31,11 @@ struct CommandBarDataSourceTests {
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
 
         let paneA = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            title: "Primary"
+            launchDirectory: worktree.path,
+            title: "Primary",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
         )
-        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Secondary"))
+        let paneB = store.createPane()
         var tab = Tab(paneId: paneA.id)
         let namedArrangement = PaneArrangement(
             name: "Review",
@@ -220,7 +221,7 @@ struct CommandBarDataSourceTests {
             WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/pane-labels")
         )
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Shell title",
             facets: PaneContextFacets(
                 repoId: repo.id,
@@ -251,9 +252,9 @@ struct CommandBarDataSourceTests {
     @Test
     func test_everythingScope_tabSubtitleIncludesPaneCount() {
         let store = makeStore()
-        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
-        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
-        let paneC = store.createPane(source: .floating(launchDirectory: nil, title: "Pane C"))
+        let paneA = store.createPane()
+        let paneB = store.createPane()
+        let paneC = store.createPane()
 
         let tab = Tab(paneId: paneA.id)
         store.appendTab(tab)
@@ -273,7 +274,7 @@ struct CommandBarDataSourceTests {
     @Test
     func test_everythingScope_panesGroupSortsAheadOfTabs() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let pane = store.createPane()
         store.appendTab(Tab(paneId: pane.id))
 
         let items = CommandBarDataSource.items(
@@ -293,7 +294,7 @@ struct CommandBarDataSourceTests {
     @Test
     func test_everythingScope_namedTabUsesCustomTitle() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id, name: "agent-vm")
         store.appendTab(tab)
 
@@ -307,7 +308,7 @@ struct CommandBarDataSourceTests {
     @Test
     func test_everythingScope_paneSubtitleIncludesOwningTabTitle() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id, name: "agent-vm")
         store.appendTab(tab)
         store.setActiveTab(tab.id)
@@ -327,7 +328,6 @@ struct CommandBarDataSourceTests {
                 WebviewState(url: try #require(URL(string: "https://localhost:3000")), title: "", showNavigation: true)
             ),
             metadata: PaneMetadata(
-                source: .init(.floating(launchDirectory: nil, title: nil)),
                 title: "Webview"
             )
         )
@@ -353,7 +353,6 @@ struct CommandBarDataSourceTests {
                 )
             ),
             metadata: PaneMetadata(
-                source: .init(.floating(launchDirectory: nil, title: nil)),
                 title: "Webview"
             )
         )
@@ -370,7 +369,7 @@ struct CommandBarDataSourceTests {
     @Test
     func test_everythingScope_tabItem_dispatchesTargetedSelectTabCommand() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -391,7 +390,7 @@ struct CommandBarDataSourceTests {
     @Test
     func test_everythingScope_paneItem_dispatchesTargetedFocusPaneCommand() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -437,7 +436,6 @@ struct CommandBarDataSourceTests {
     func test_everythingScope_tabTitleUsesTabName() {
         let store = makeStore()
         let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil),
             title: "Scratch Pad"
         )
         let tab = Tab(paneId: pane.id, name: "Scratch Pad")
@@ -454,7 +452,6 @@ struct CommandBarDataSourceTests {
     func test_everythingScope_terminalPaneFallsBackToPrimaryLabelWithoutBranchOrCwd() {
         let store = makeStore()
         let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil),
             title: "Scratch Pad"
         )
         let tab = Tab(paneId: pane.id)
@@ -471,10 +468,7 @@ struct CommandBarDataSourceTests {
     func test_everythingScope_terminalPaneUsesCwdFolderWithoutBranch() {
         let store = makeStore()
         let pane = store.createPane(
-            source: .floating(
-                launchDirectory: URL(fileURLWithPath: "/tmp/workspace-demo"),
-                title: "Shell"
-            ),
+            launchDirectory: URL(fileURLWithPath: "/tmp/workspace-demo"),
             title: "Shell",
             facets: PaneContextFacets(cwd: URL(fileURLWithPath: "/tmp/workspace-demo"))
         )
@@ -494,7 +488,6 @@ struct CommandBarDataSourceTests {
         let pane = store.createPane(
             content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
             metadata: PaneMetadata(
-                source: .init(.floating(launchDirectory: nil, title: nil)),
                 title: "Bridge"
             )
         )
@@ -516,7 +509,6 @@ struct CommandBarDataSourceTests {
                 CodeViewerState(filePath: URL(fileURLWithPath: "/tmp/example.swift"), scrollToLine: 42)
             ),
             metadata: PaneMetadata(
-                source: .init(.floating(launchDirectory: nil, title: nil)),
                 title: "Code"
             )
         )
@@ -536,12 +528,7 @@ struct CommandBarDataSourceTests {
         let pane = store.createPane(
             content: .unsupported(UnsupportedContent(type: "future-pane", version: 3, rawState: nil)),
             metadata: PaneMetadata(
-                source: .init(
-                    .floating(
-                        launchDirectory: URL(fileURLWithPath: "/tmp/unsupported-pane"),
-                        title: nil
-                    )
-                ),
+                launchDirectory: URL(fileURLWithPath: "/tmp/unsupported-pane"),
                 title: "Unsupported",
                 facets: PaneContextFacets(cwd: URL(fileURLWithPath: "/tmp/unsupported-pane"))
             )
@@ -668,7 +655,7 @@ struct CommandBarDataSourceTests {
     func test_commandsScope_targetableArrangementCommandsHaveChildren() {
         // Arrange — need a tab with arrangements for drill-in to work
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         var tab = Tab(paneId: pane.id)
         let namedArrangement = PaneArrangement(
             name: "Review",
@@ -698,7 +685,7 @@ struct CommandBarDataSourceTests {
     @Test
     func test_commandsScope_newTerminalInTabHasDrillIn() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
@@ -741,8 +728,8 @@ struct CommandBarDataSourceTests {
     func test_commandsScope_movePaneToTab_hasDrillIn() {
         let store = makeStore()
 
-        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
-        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
+        let paneA = store.createPane()
+        let paneB = store.createPane()
         let tabA = Tab(paneId: paneA.id)
         let tabB = Tab(paneId: paneB.id)
         store.appendTab(tabA)
@@ -762,8 +749,8 @@ struct CommandBarDataSourceTests {
     func test_movePaneToTab_drillIn_postsMoveEvent() async {
         let store = makeStore()
 
-        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
-        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
+        let paneA = store.createPane()
+        let paneB = store.createPane()
         let tabA = Tab(paneId: paneA.id)
         let tabB = Tab(paneId: paneB.id)
         store.appendTab(tabA)
@@ -919,7 +906,7 @@ struct CommandBarDataSourceTests {
     @Test
     func test_commandsScope_navigateDrawerPaneIsTargetable() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
@@ -940,7 +927,7 @@ struct CommandBarDataSourceTests {
     func test_navigateDrawerPane_targetLevel_listsDrawerPanes() {
         // Arrange — create a pane with two drawer panes
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)

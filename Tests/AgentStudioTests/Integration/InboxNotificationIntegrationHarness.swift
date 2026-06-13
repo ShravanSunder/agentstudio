@@ -100,7 +100,6 @@ enum InboxNotificationIntegrationHarness {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: contentType,
-            source: .floating(launchDirectory: nil, title: nil),
             title: "Integration Pane",
             facets: PaneContextFacets(
                 repoId: repoId,

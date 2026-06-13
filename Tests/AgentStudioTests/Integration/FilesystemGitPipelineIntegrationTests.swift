@@ -63,7 +63,7 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         #expect(receivedFilesChanged)
         let filesChangedPayloadConverged = await eventually("filesChanged payload should retain projected path") {
-            await observed.latestFilesChangedPaths(for: worktreeId)?.contains("Sources/Feature.swift") == true
+            await observed.hasSeenFilesChangedPath("Sources/Feature.swift", for: worktreeId)
         }
         #expect(filesChangedPayloadConverged)
 
@@ -103,6 +103,10 @@ struct FilesystemGitPipelineIntegrationTests {
             filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero,
             gitPeriodicRefreshInterval: .milliseconds(120),
+            gitRefreshPolicy: AppPolicies.GitRefresh.Policy(
+                activeCadence: .milliseconds(120),
+                backgroundStripeCount: 1
+            ),
             gitSleepClock: gitClock
         )
         await pipeline.start()
@@ -165,6 +169,72 @@ struct FilesystemGitPipelineIntegrationTests {
             repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.behindCount == 2
         }
         #expect(behindUpdateArrived)
+
+        await shutdownWorld(
+            pipeline: pipeline,
+            observerTasks: [coordinatorTask],
+            bus: bus
+        )
+    }
+
+    @Test("active pane worktree switch triggers git refresh without periodic cadence")
+    func activePaneWorktreeSwitchTriggersGitRefreshWithoutPeriodicCadence() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let provider = MutableGitWorkingTreeStatusProvider(
+            status: makeTrackedStatus(branch: "main")
+        )
+        let pipeline = FilesystemGitPipeline(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            fseventStreamClient: SilentFSEventStreamClient(),
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero,
+            gitCoalescingWindow: .zero,
+            gitPeriodicRefreshInterval: nil
+        )
+        await pipeline.start()
+
+        let rootPath = FileManager.default.temporaryDirectory
+            .appending(path: "pipeline-focus-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+
+        let worktreeId = UUID()
+        let repoId = UUID()
+        let workspaceDir = FileManager.default.temporaryDirectory
+            .appending(path: "pipeline-focus-store-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: workspaceDir) }
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
+        store.restore()
+
+        let repoCache = RepoCacheAtom()
+        let cacheCoordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: store,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in }
+        )
+        let coordinatorStream = await bus.subscribe()
+        let coordinatorTask = Task { @MainActor in
+            for await envelope in coordinatorStream {
+                cacheCoordinator.consume(envelope)
+            }
+        }
+        await waitForSubscriberCount(bus: bus, atLeast: 3)
+        await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+
+        let initialSnapshotArrived = await eventually("initial focus test snapshot should arrive") {
+            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main"
+        }
+        #expect(initialSnapshotArrived)
+
+        await provider.setStatus(makeTrackedStatus(branch: "focused"))
+        await pipeline.setActivePaneWorktree(worktreeId: worktreeId)
+
+        let focusRefreshArrived = await eventually("focus switch should refresh without periodic cadence") {
+            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "focused"
+        }
+        #expect(focusRefreshArrived)
 
         await shutdownWorld(
             pipeline: pipeline,
@@ -382,6 +452,7 @@ private actor ObservedFilesystemGitEvents {
     private var filesChangedCountsByWorktreeId: [UUID: Int] = [:]
     private var gitSnapshotCountsByWorktreeId: [UUID: Int] = [:]
     private var latestFilesChangedPathsByWorktreeId: [UUID: [String]] = [:]
+    private var seenFilesChangedPathsByWorktreeId: [UUID: Set<String>] = [:]
 
     func record(_ envelope: RuntimeEnvelope) {
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
@@ -390,6 +461,7 @@ private actor ObservedFilesystemGitEvents {
         case .filesystem(.filesChanged(let changeset)):
             filesChangedCountsByWorktreeId[changeset.worktreeId, default: 0] += 1
             latestFilesChangedPathsByWorktreeId[changeset.worktreeId] = changeset.paths
+            seenFilesChangedPathsByWorktreeId[changeset.worktreeId, default: []].formUnion(changeset.paths)
         case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
             gitSnapshotCountsByWorktreeId[snapshot.worktreeId, default: 0] += 1
         case .filesystem, .gitWorkingDirectory, .forge, .security:
@@ -407,5 +479,9 @@ private actor ObservedFilesystemGitEvents {
 
     func latestFilesChangedPaths(for worktreeId: UUID) -> [String]? {
         latestFilesChangedPathsByWorktreeId[worktreeId]
+    }
+
+    func hasSeenFilesChangedPath(_ path: String, for worktreeId: UUID) -> Bool {
+        seenFilesChangedPathsByWorktreeId[worktreeId]?.contains(path) == true
     }
 }

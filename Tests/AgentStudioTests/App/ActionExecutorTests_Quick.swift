@@ -81,7 +81,7 @@ struct ActionExecutorTestsQuick {
         }
 
         let sourcePane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Source",
             facets: PaneContextFacets(
                 repoId: repo.id,
@@ -122,7 +122,7 @@ struct ActionExecutorTestsQuick {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "about:blank")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Web"))
+            metadata: PaneMetadata()
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -150,8 +150,8 @@ struct ActionExecutorTestsQuick {
         let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let paneOne = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let paneTwo = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneOne = store.createPane()
+        let paneTwo = store.createPane()
         let tab = Tab(paneId: paneOne.id)
         store.appendTab(tab)
         store.insertPane(
@@ -194,11 +194,11 @@ struct ActionExecutorTestsQuick {
 
         let paneOne = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/one")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "One"), title: "One")
+            metadata: PaneMetadata(title: "One")
         )
         let paneTwo = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/two")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Two"), title: "Two")
+            metadata: PaneMetadata(title: "Two")
         )
         let tab = Tab(paneId: paneOne.id)
         store.appendTab(tab)

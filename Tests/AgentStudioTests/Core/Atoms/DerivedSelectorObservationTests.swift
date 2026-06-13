@@ -15,7 +15,6 @@ struct DerivedSelectorObservationTests {
             let pane = Pane(
                 content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
                 metadata: PaneMetadata(
-                    source: .floating(launchDirectory: nil, title: nil),
                     title: "Initial"
                 )
             )

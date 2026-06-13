@@ -144,8 +144,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
             atoms.workspaceSidebarState.setSidebarSurface(.repos)
             atoms.workspaceSidebarState.setSidebarHasFocus(true)
 
-            let first = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-            let second = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+            let first = harness.store.createPane()
+            let second = harness.store.createPane()
             let tab = Tab(paneId: first.id)
             harness.store.appendTab(tab)
             harness.store.insertPane(
@@ -181,7 +181,7 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
 
-            let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Only"))
+            let pane = harness.store.createPane()
             let tab = Tab(paneId: pane.id)
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
@@ -218,8 +218,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
 
-            let first = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-            let second = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+            let first = harness.store.createPane()
+            let second = harness.store.createPane()
             let tab = Tab(paneId: first.id)
             harness.store.appendTab(tab)
             harness.store.insertPane(
@@ -584,8 +584,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
                 workspaceWindowId: workspaceWindowId
             )
 
-            let first = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-            let second = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+            let first = harness.store.createPane()
+            let second = harness.store.createPane()
             let tab = Tab(paneId: first.id)
             harness.store.appendTab(tab)
             harness.store.insertPane(

@@ -3,6 +3,8 @@ import AppKit
 @MainActor
 extension PaneCoordinator {
     func restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: Bool = false) {
+        let clock = ContinuousClock()
+        let restoreStart = clock.now
         guard let activeTab = store.tabLayoutAtom.activeTab else { return }
         if !windowLifecycleStore.isLaunchLayoutSettled {
             let hasPreparingPlaceholder = activeTab.activePaneIds.contains { paneId in
@@ -48,6 +50,16 @@ extension PaneCoordinator {
             visiblePaneIds,
             in: activeTab,
             resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
+        )
+        performanceTraceRecorder?.recordDuration(
+            .paneViewRestore,
+            duration: restoreStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.pane_view_restore.force_when_bounds_exist": .bool(forceWhenBoundsExist),
+                "agentstudio.performance.pane_view_restore.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_view_restore.visible_pane.count": .int(visiblePaneIds.count),
+                "agentstudio.performance.pane_view_restore.tab.count": .int(store.tabLayoutAtom.tabs.count),
+            ]
         )
     }
 
