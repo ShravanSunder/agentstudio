@@ -91,14 +91,10 @@ struct PaneCoordinatorCrossTabMoveTransitionTests {
                 windowLifecycleStore: WindowLifecycleAtom()
             )
 
-            let movedPane = store.createPane(source: .floating(launchDirectory: nil, title: nil), title: "A")
-            let sourceLeftPane = store.createPane(source: .floating(launchDirectory: nil, title: nil), title: "B")
-            let existingDestinationPane = store.createPane(
-                source: .floating(launchDirectory: nil, title: nil), title: "C")
-            let otherExistingDestinationPane = store.createPane(
-                source: .floating(launchDirectory: nil, title: nil),
-                title: "D"
-            )
+            let movedPane = store.createPane(title: "A")
+            let sourceLeftPane = store.createPane(title: "B")
+            let existingDestinationPane = store.createPane(title: "C")
+            let otherExistingDestinationPane = store.createPane(title: "D")
 
             let sourceTab = Tab(paneId: movedPane.id)
             let destinationTab = Tab(paneId: existingDestinationPane.id)
