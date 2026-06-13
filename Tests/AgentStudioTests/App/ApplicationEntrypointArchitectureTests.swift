@@ -64,6 +64,10 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(diagnosticActionSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
         #expect(startupDiagnosticsSource.contains("AgentStudioStartupDiagnosticAction.fromEnvironment()"))
         #expect(startupDiagnosticsSource.contains("CommandDispatcher.shared.dispatch(.newTab)"))
+        #expect(startupDiagnosticsSource.contains("CommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
+        #expect(startupDiagnosticsSource.contains("commandBarController.state.rawInput = \"# repo\""))
+        #expect(startupDiagnosticsSource.contains("handleWatchFolderRequested(startingAt: folderURL)"))
+        #expect(diagnosticActionSource.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
         #expect(!appDelegateSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
     }
 

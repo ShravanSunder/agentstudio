@@ -50,6 +50,9 @@ protocol GitWorkingTreeStatusProvider: Sendable {
 
 struct ShellGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemGitWorkingTree")
+    private static let gitSubprocessEnvironment: [String: String] = [
+        "GIT_OPTIONAL_LOCKS": "0"
+    ]
 
     private let processExecutor: any ProcessExecutor
 
@@ -77,7 +80,7 @@ struct ShellGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
                     "--untracked-files=normal",
                 ],
                 cwd: nil,
-                environment: nil
+                environment: Self.gitSubprocessEnvironment
             )
 
             guard result.succeeded else {
@@ -255,7 +258,7 @@ struct ShellGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
                     "--",
                 ],
                 cwd: nil,
-                environment: nil
+                environment: Self.gitSubprocessEnvironment
             )
             guard result.succeeded else {
                 let stderrPreview = result.stderr.isEmpty ? "<empty>" : result.stderr
@@ -308,7 +311,7 @@ struct ShellGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
                     "remote.origin.url",
                 ],
                 cwd: nil,
-                environment: nil
+                environment: Self.gitSubprocessEnvironment
             )
 
             guard result.succeeded else {

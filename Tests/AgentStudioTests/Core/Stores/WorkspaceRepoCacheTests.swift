@@ -43,6 +43,89 @@ final class RepoCacheAtomTests {
     }
 
     @Test
+    func setWorktreeEnrichment_skipsTimestampOnlyCacheContentRewrite() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let initial = WorktreeEnrichment(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            branch: "main",
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        let timestampOnlyUpdate = WorktreeEnrichment(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            branch: "main",
+            updatedAt: Date(timeIntervalSince1970: 200)
+        )
+        let invalidationCounter = RepoCacheObservationInvalidationCounter()
+
+        cacheAtom.setWorktreeEnrichment(initial)
+        withObservationTracking {
+            _ = cacheAtom.worktreeEnrichmentByWorktreeId
+        } onChange: {
+            invalidationCounter.didInvalidate = true
+        }
+
+        cacheAtom.setWorktreeEnrichment(timestampOnlyUpdate)
+
+        #expect(!invalidationCounter.didInvalidate)
+        #expect(cacheAtom.worktreeEnrichmentByWorktreeId[worktreeId]?.updatedAt == initial.updatedAt)
+    }
+
+    @Test
+    func setWorktreeEnrichment_rewritesWhenSnapshotContentChanges() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
+        let initialSnapshot = GitWorkingTreeSnapshot(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath,
+            summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+            branch: "main"
+        )
+        let nextSnapshot = GitWorkingTreeSnapshot(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath,
+            summary: GitWorkingTreeSummary(changed: 2, staged: 0, untracked: 0),
+            branch: "main"
+        )
+        let invalidationCounter = RepoCacheObservationInvalidationCounter()
+
+        cacheAtom.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: worktreeId,
+                repoId: repoId,
+                branch: "main",
+                snapshot: initialSnapshot,
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        withObservationTracking {
+            _ = cacheAtom.worktreeEnrichmentByWorktreeId
+        } onChange: {
+            invalidationCounter.didInvalidate = true
+        }
+
+        cacheAtom.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: worktreeId,
+                repoId: repoId,
+                branch: "main",
+                snapshot: nextSnapshot,
+                updatedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+
+        #expect(invalidationCounter.didInvalidate)
+        #expect(cacheAtom.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot == nextSnapshot)
+    }
+
+    @Test
     func removeRepo_prunesWorktreeAndPullRequestCounters() {
         let store = RepoCacheAtom()
         let repoId = UUID()

@@ -431,6 +431,10 @@ run = "/bin/bash scripts/verify-beta-observability.sh"
 description = "Verify AgentStudio debug startup records and scrubbed fields in VictoriaLogs"
 run = "/bin/bash scripts/verify-debug-observability.sh"
 
+[tasks.verify-git-refresh-performance-workload]
+description = "Run disposable AgentStudio git-refresh performance workload proof"
+run = "/bin/bash scripts/verify-git-refresh-performance-workload.sh"
+
 [tasks."observability:up"]
 description = "Start the shared local Victoria + OTel collector stack"
 run = "/bin/bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" up"

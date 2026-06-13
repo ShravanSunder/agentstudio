@@ -147,10 +147,15 @@ extension Ghostty {
         /// Any error during surface initialization
         private(set) var error: Error?
         weak var terminalRuntime: TerminalRuntime?
+        weak var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
         let mouseVisibilityToken = UUID()
         // MARK: - Initialization
 
-        init(app: App, config: SurfaceConfiguration? = nil) {
+        init(
+            app: App,
+            config: SurfaceConfiguration? = nil,
+            performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        ) {
             guard let config else {
                 preconditionFailure(
                     "Ghostty SurfaceView requires a SurfaceConfiguration with initialFrame"
@@ -159,6 +164,7 @@ extension Ghostty {
             config.requireInitialFrameForSurfaceCreation()
             self.ghosttyApp = app
             self.hostConfigSnapshot = app.hostConfigSnapshot()
+            self.performanceTraceRecorder = performanceTraceRecorder
             super.init(frame: config.initialFrame!)
             let startupCommandForSurface = config.startupStrategy.startupCommandForSurface
             RestoreTrace.log(
@@ -489,6 +495,8 @@ extension Ghostty {
         func sizeDidChange(_ size: NSSize, source: StaticString = "unknown") {
             guard let surface else { return }
             guard size.width > 0 && size.height > 0 else { return }
+            let traceClock = performanceTraceRecorder?.isEnabled == true ? ContinuousClock() : nil
+            let sizeChangeStart = traceClock?.now
 
             // Track content size (official pattern)
             contentSize = size
@@ -509,6 +517,39 @@ extension Ghostty {
                 requestedBackingHeight
             )
             ghostty_surface_refresh(surface)
+            guard let traceClock, let sizeChangeStart, let performanceTraceRecorder else {
+                logSurfaceSnapshot(reason: "sizeDidChange.\(source)")
+                return
+            }
+            let dedupLikely =
+                currentSurfaceSize.width_px == requestedBackingWidth
+                && currentSurfaceSize.height_px == requestedBackingHeight
+            performanceTraceRecorder.recordDuration(
+                .terminalSurfaceSizeDidChange,
+                duration: sizeChangeStart.duration(to: traceClock.now),
+                attributes: [
+                    "agentstudio.performance.terminal.surface.source": .string("\(source)"),
+                    "agentstudio.performance.terminal.surface.requested_width_px": .double(
+                        Double(requestedBackingWidth)),
+                    "agentstudio.performance.terminal.surface.requested_height_px": .double(
+                        Double(requestedBackingHeight)),
+                    "agentstudio.performance.terminal.surface.current_width_px": .double(
+                        Double(currentSurfaceSize.width_px)),
+                    "agentstudio.performance.terminal.surface.current_height_px": .double(
+                        Double(currentSurfaceSize.height_px)),
+                    "agentstudio.performance.terminal.surface.column.count": .double(
+                        Double(currentSurfaceSize.columns)),
+                    "agentstudio.performance.terminal.surface.row.count": .double(Double(currentSurfaceSize.rows)),
+                    "agentstudio.performance.terminal.surface.cell_width_px": .double(
+                        Double(currentSurfaceSize.cell_width_px)),
+                    "agentstudio.performance.terminal.surface.cell_height_px": .double(
+                        Double(currentSurfaceSize.cell_height_px)),
+                    "agentstudio.performance.terminal.surface.dedup_likely": .bool(dedupLikely),
+                    "agentstudio.performance.terminal.surface.has_window": .bool(window != nil),
+                    "agentstudio.performance.terminal.surface.has_superview": .bool(superview != nil),
+                    "agentstudio.performance.terminal.surface.hidden": .bool(isHidden),
+                ]
+            )
             logSurfaceSnapshot(reason: "sizeDidChange.\(source)")
         }
 

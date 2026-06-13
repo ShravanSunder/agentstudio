@@ -173,18 +173,30 @@ struct HomebrewBetaReleaseScriptsTests {
         process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, newValue in newValue }
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
+        let outputDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-script-output-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+
+        let stdoutURL = outputDirectory.appending(path: "stdout.txt")
+        let stderrURL = outputDirectory.appending(path: "stderr.txt")
+        _ = FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+
+        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+        process.standardOutput = stdoutHandle
+        process.standardError = stderrHandle
 
         try process.run()
         process.waitUntilExit()
+        try stdoutHandle.close()
+        try stderrHandle.close()
 
         return ScriptResult(
             exitCode: process.terminationStatus,
-            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
+            stderr: try String(contentsOf: stderrURL, encoding: .utf8)
         )
     }
 

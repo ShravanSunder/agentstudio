@@ -15,6 +15,7 @@ usage() {
   cat <<'USAGE'
 Usage: run-debug-observability.sh [--build-path <dir>] [--skip-build] [--detach]
        run-debug-observability.sh --print-identity
+       run-debug-observability.sh --preflight-idle
 
 Builds the debug AgentStudio binary, wraps it in a per-worktree Debug .app, and
 launches that app with full trace tags exported to the already-running shared
@@ -41,6 +42,20 @@ write_state_value() {
   printf '%s=%q\n' "$key" "$value"
 }
 
+decode_state_value() {
+  local raw_value="${1:-}"
+  /usr/bin/python3 - "$raw_value" <<'PY'
+import shlex
+import sys
+
+try:
+    parsed = shlex.split(sys.argv[1])
+except ValueError:
+    parsed = []
+print(parsed[0] if parsed else "")
+PY
+}
+
 agentstudio_pids_for_binary() {
   local binary_path="${1:?missing binary path}"
   local executable_path
@@ -52,6 +67,7 @@ agentstudio_pids_for_binary() {
   printf '%s\n' "$pids" |
     while IFS= read -r pid; do
       local txt_output
+      local txt_path
       if ! txt_output="$("$LSOF_BIN" -a -p "$pid" -d txt -Fn 2>/dev/null)"; then
         echo "unable to inspect running AgentStudio PID $pid with $LSOF_BIN" >&2
         return 2
@@ -61,10 +77,23 @@ agentstudio_pids_for_binary() {
         echo "unable to resolve executable for running AgentStudio PID $pid" >&2
         return 2
       fi
-      if [ "$txt_path" = "$executable_path" ]; then
+      if [ "$(realpath_value "$txt_path")" = "$executable_path" ]; then
         printf '%s\n' "$pid"
       fi
     done
+}
+
+realpath_value() {
+  /usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]) if sys.argv[1] else "")' "$1"
+}
+
+process_executable_path() {
+  local pid="${1:?missing pid}"
+  local txt_output
+  if ! txt_output="$("$LSOF_BIN" -a -p "$pid" -d txt -Fn 2>/dev/null)"; then
+    return 1
+  fi
+  awk '/^n/ { print substr($0, 2); exit }' <<<"$txt_output"
 }
 
 bundle_path_for_executable() {
@@ -194,9 +223,13 @@ running_debug_state_pid() {
   [ -f "$state_path" ] || return 0
 
   local state_code
+  local state_executable
+  local state_launch_method
   local state_pid
   local state_status
   state_code="$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=//p' "$state_path" | tail -1)"
+  state_executable="$(decode_state_value "$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=//p' "$state_path" | tail -1)")"
+  state_launch_method="$(decode_state_value "$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=//p' "$state_path" | tail -1)")"
   state_pid="$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_PID=//p' "$state_path" | tail -1)"
   state_status="$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_STATUS=//p' "$state_path" | tail -1)"
 
@@ -210,7 +243,15 @@ running_debug_state_pid() {
     [ "$state_status" = "running" ] &&
     kill -0 "$state_pid" >/dev/null 2>&1
   then
-    if running_debug_app_pids "$expected_code" | grep -qx "$state_pid"; then
+    if [ "$state_launch_method" = "direct_executable" ] && [ -n "$state_executable" ]; then
+      local expected_executable actual_executable
+      expected_executable="$(realpath_value "$state_executable")"
+      actual_executable="$(process_executable_path "$state_pid" || true)"
+      actual_executable="$(realpath_value "$actual_executable")"
+      if [ -n "$expected_executable" ] && [ "$actual_executable" = "$expected_executable" ]; then
+        printf '%s\n' "$state_pid"
+      fi
+    elif running_debug_app_pids "$expected_code" | grep -qx "$state_pid"; then
       printf '%s\n' "$state_pid"
     fi
   fi
@@ -320,6 +361,7 @@ build_path="${AGENTSTUDIO_DEBUG_BUILD_PATH:-}"
 skip_build=false
 detach=false
 print_identity=false
+preflight_idle=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --build-path)
@@ -336,6 +378,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --print-identity)
       print_identity=true
+      shift
+      ;;
+    --preflight-idle)
+      preflight_idle=true
       shift
       ;;
     -h|--help)
@@ -366,11 +412,30 @@ if [ "$print_identity" = true ]; then
   exit 0
 fi
 
+if [ "$preflight_idle" = true ]; then
+  if existing_state_pid="$(running_debug_state_pid "$state_file" "$debug_code")" &&
+    [ -n "$existing_state_pid" ]
+  then
+    echo "Agent Studio Debug $debug_code is already running: PID(s) $existing_state_pid" >&2
+    exit 1
+  fi
+  if ! existing_pids="$(running_debug_app_pids "$debug_code" | paste -sd ' ' -)"; then
+    echo "Unable to verify whether Agent Studio Debug $debug_code is already running." >&2
+    exit 1
+  fi
+  if [ -n "$existing_pids" ]; then
+    echo "Agent Studio Debug $debug_code is already running: PID(s) $existing_pids" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
 if [ -z "$build_path" ]; then
   # shellcheck disable=SC1091
   source "$PROJECT_ROOT/scripts/swift-build-slot.sh" debug
   build_path="$SWIFT_BUILD_DIR"
 fi
+binary_path="$build_path/debug/AgentStudio"
 
 if [ ! -x "$STACK_HELPER" ]; then
   mkdir -p "$(dirname "$state_file")"
@@ -405,6 +470,32 @@ then
   echo "Quit that debug app before launching another observability run for this worktree." >&2
   echo "observability state: $state_file" >&2
   exit 1
+fi
+if [ -x "$binary_path" ]; then
+  if ! existing_direct_pids="$(agentstudio_pids_for_binary "$binary_path" | paste -sd ' ' -)"; then
+    mkdir -p "$(dirname "$state_file")"
+    write_launch_failed_state duplicate_attribution_failed
+    echo "Unable to verify whether direct AgentStudio Debug $debug_code is already running." >&2
+    echo "Refusing to launch because duplicate debug apps would share data and zmx roots." >&2
+    echo "observability state: $state_file" >&2
+    exit 1
+  fi
+  if [ -n "$existing_direct_pids" ]; then
+    mkdir -p "$(dirname "$state_file")"
+    {
+      write_state_value AGENTSTUDIO_OBSERVABILITY_STATUS already_running
+      write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR debug
+      write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "$debug_code"
+      write_state_value AGENTSTUDIO_OBSERVABILITY_PID "$existing_direct_pids"
+      write_state_value AGENTSTUDIO_OBSERVABILITY_EXECUTABLE "$binary_path"
+      write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
+      write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
+    } >"$state_file"
+    echo "Agent Studio Debug $debug_code direct executable is already running: PID(s) $existing_direct_pids" >&2
+    echo "Quit that debug app before launching another observability run for this worktree." >&2
+    echo "observability state: $state_file" >&2
+    exit 1
+  fi
 fi
 if ! existing_pids="$(running_debug_app_pids "$debug_code" | paste -sd ' ' -)"; then
   mkdir -p "$(dirname "$state_file")"
@@ -447,7 +538,6 @@ if [ "$skip_build" = false ]; then
   fi
 fi
 
-binary_path="$build_path/debug/AgentStudio"
 if [ ! -x "$binary_path" ]; then
   mkdir -p "$(dirname "$state_file")"
   write_launch_failed_state debug_executable_not_found
@@ -501,6 +591,9 @@ open_env_args=(
     --env "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint" \
     --env "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
 )
+if [ -n "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION")
+fi
 
 direct_launch_env=(
   /usr/bin/env
@@ -520,6 +613,9 @@ direct_launch_env=(
   "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint"
   "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
 )
+if [ -n "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" ]; then
+  direct_launch_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION")
+fi
 
 launch_method=launchservices
 launched_with_direct=false

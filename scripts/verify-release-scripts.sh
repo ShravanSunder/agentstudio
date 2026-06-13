@@ -4,21 +4,39 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SHA="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
+assert_contains() {
+  local haystack="$1"
+  local needle="$2"
+  if [[ "$haystack" != *"$needle"* ]]; then
+    echo "expected output to contain: $needle" >&2
+    exit 1
+  fi
+}
+
+assert_not_contains() {
+  local haystack="$1"
+  local needle="$2"
+  if [[ "$haystack" == *"$needle"* ]]; then
+    echo "expected output not to contain: $needle" >&2
+    exit 1
+  fi
+}
+
 stable_metadata="$("$ROOT_DIR/scripts/release-tag-metadata.sh" v0.0.54)"
 beta_metadata="$("$ROOT_DIR/scripts/release-tag-metadata.sh" v0.0.54-beta.1)"
 
-grep -q "channel=stable" <<<"$stable_metadata"
-grep -q "cask_token=agent-studio" <<<"$stable_metadata"
-grep -q "app_bundle_name=AgentStudio.app" <<<"$stable_metadata"
-grep -q "bundle_identifier=com.agentstudio.app" <<<"$stable_metadata"
-grep -q "app_cache_domain=com.agentstudio.app" <<<"$stable_metadata"
-grep -q "oauth_callback_scheme=agentstudio" <<<"$stable_metadata"
-grep -q "channel=beta" <<<"$beta_metadata"
-grep -q "cask_token=agent-studio@beta" <<<"$beta_metadata"
-grep -q "app_bundle_name=AgentStudio Beta.app" <<<"$beta_metadata"
-grep -q "bundle_identifier=com.agentstudio.app.beta" <<<"$beta_metadata"
-grep -q "app_cache_domain=com.agentstudio.app.beta" <<<"$beta_metadata"
-grep -q "oauth_callback_scheme=agentstudio-beta" <<<"$beta_metadata"
+assert_contains "$stable_metadata" "channel=stable"
+assert_contains "$stable_metadata" "cask_token=agent-studio"
+assert_contains "$stable_metadata" "app_bundle_name=AgentStudio.app"
+assert_contains "$stable_metadata" "bundle_identifier=com.agentstudio.app"
+assert_contains "$stable_metadata" "app_cache_domain=com.agentstudio.app"
+assert_contains "$stable_metadata" "oauth_callback_scheme=agentstudio"
+assert_contains "$beta_metadata" "channel=beta"
+assert_contains "$beta_metadata" "cask_token=agent-studio@beta"
+assert_contains "$beta_metadata" "app_bundle_name=AgentStudio Beta.app"
+assert_contains "$beta_metadata" "bundle_identifier=com.agentstudio.app.beta"
+assert_contains "$beta_metadata" "app_cache_domain=com.agentstudio.app.beta"
+assert_contains "$beta_metadata" "oauth_callback_scheme=agentstudio-beta"
 
 if "$ROOT_DIR/scripts/release-tag-metadata.sh" v0.0.54-beta >/dev/null 2>&1; then
   echo "malformed beta tag unexpectedly passed" >&2
@@ -28,30 +46,30 @@ fi
 stable_cask="$("$ROOT_DIR/scripts/render-homebrew-cask.sh" stable 0.0.54 "$SHA")"
 beta_cask="$("$ROOT_DIR/scripts/render-homebrew-cask.sh" beta 0.0.54-beta.1 "$SHA")"
 
-grep -q 'cask "agent-studio" do' <<<"$stable_cask"
-grep -q 'name "Agent Studio"' <<<"$stable_cask"
-grep -q 'desc "Terminal application with Ghostty terminal emulator and project management"' <<<"$stable_cask"
-! grep -q 'conflicts_with cask: "agent-studio@beta"' <<<"$stable_cask"
-grep -q 'depends_on macos: :tahoe' <<<"$stable_cask"
-grep -q 'app "AgentStudio.app"' <<<"$stable_cask"
-grep -q '"~/.agentstudio"' <<<"$stable_cask"
-grep -q '"~/Library/Caches/com.agentstudio.app"' <<<"$stable_cask"
-grep -q '"~/Library/Preferences/com.agentstudio.app.plist"' <<<"$stable_cask"
-grep -q '"~/Library/Saved Application State/com.agentstudio.app.savedState"' <<<"$stable_cask"
-! grep -q 'desc "macOS' <<<"$stable_cask"
-! grep -q 'depends_on macos: ">= :tahoe"' <<<"$stable_cask"
-grep -q 'cask "agent-studio@beta" do' <<<"$beta_cask"
-grep -q 'name "Agent Studio Beta"' <<<"$beta_cask"
-grep -q 'desc "Terminal application with Ghostty terminal emulator and project management"' <<<"$beta_cask"
-! grep -q 'conflicts_with cask: "agent-studio"' <<<"$beta_cask"
-grep -q 'depends_on macos: :tahoe' <<<"$beta_cask"
-grep -q 'app "AgentStudio Beta.app"' <<<"$beta_cask"
-grep -q '"~/.agent-studio-b"' <<<"$beta_cask"
-grep -q '"~/Library/Caches/com.agentstudio.app.beta"' <<<"$beta_cask"
-grep -q '"~/Library/Preferences/com.agentstudio.app.beta.plist"' <<<"$beta_cask"
-grep -q '"~/Library/Saved Application State/com.agentstudio.app.beta.savedState"' <<<"$beta_cask"
-! grep -q 'desc "macOS' <<<"$beta_cask"
-! grep -q 'depends_on macos: ">= :tahoe"' <<<"$beta_cask"
+assert_contains "$stable_cask" 'cask "agent-studio" do'
+assert_contains "$stable_cask" 'name "Agent Studio"'
+assert_contains "$stable_cask" 'desc "Terminal application with Ghostty terminal emulator and project management"'
+assert_not_contains "$stable_cask" 'conflicts_with cask: "agent-studio@beta"'
+assert_contains "$stable_cask" 'depends_on macos: :tahoe'
+assert_contains "$stable_cask" 'app "AgentStudio.app"'
+assert_contains "$stable_cask" '"~/.agentstudio"'
+assert_contains "$stable_cask" '"~/Library/Caches/com.agentstudio.app"'
+assert_contains "$stable_cask" '"~/Library/Preferences/com.agentstudio.app.plist"'
+assert_contains "$stable_cask" '"~/Library/Saved Application State/com.agentstudio.app.savedState"'
+assert_not_contains "$stable_cask" 'desc "macOS'
+assert_not_contains "$stable_cask" 'depends_on macos: ">= :tahoe"'
+assert_contains "$beta_cask" 'cask "agent-studio@beta" do'
+assert_contains "$beta_cask" 'name "Agent Studio Beta"'
+assert_contains "$beta_cask" 'desc "Terminal application with Ghostty terminal emulator and project management"'
+assert_not_contains "$beta_cask" 'conflicts_with cask: "agent-studio"'
+assert_contains "$beta_cask" 'depends_on macos: :tahoe'
+assert_contains "$beta_cask" 'app "AgentStudio Beta.app"'
+assert_contains "$beta_cask" '"~/.agent-studio-b"'
+assert_contains "$beta_cask" '"~/Library/Caches/com.agentstudio.app.beta"'
+assert_contains "$beta_cask" '"~/Library/Preferences/com.agentstudio.app.beta.plist"'
+assert_contains "$beta_cask" '"~/Library/Saved Application State/com.agentstudio.app.beta.savedState"'
+assert_not_contains "$beta_cask" 'desc "macOS'
+assert_not_contains "$beta_cask" 'depends_on macos: ">= :tahoe"'
 
 if ! awk '
   /depends_on macos: :tahoe/ { depends = NR }
@@ -61,7 +79,7 @@ if ! awk '
       exit 1
     }
   }
-' <<<"$beta_cask"; then
+' < <(printf '%s\n' "$beta_cask"); then
   echo "beta cask stanza order is incorrect or missing expected stanzas" >&2
   exit 1
 fi
@@ -76,7 +94,7 @@ if ! awk '
       exit 1
     }
   }
-' <<<"$beta_cask"; then
+' < <(printf '%s\n' "$beta_cask"); then
   echo "beta cask zap trash order is incorrect or missing expected paths" >&2
   exit 1
 fi
