@@ -223,7 +223,8 @@ AGENTSTUDIO_PERF_DURATION_SECONDS=30 \
 scripts/verify-git-refresh-performance-workload.sh
 ```
 
-Use the workload artifact summary and marker-scoped VictoriaLogs for:
+Use the workload artifact summary and marker-scoped VictoriaLogs from the
+standard debug observability runner for:
 
 - coordinator records with `phase`
 - `mainactor_apply_elapsed_ms`
@@ -231,8 +232,8 @@ Use the workload artifact summary and marker-scoped VictoriaLogs for:
 - `derived_envelope.count`
 - git status counts for separation-of-concerns proof
 
-Preserve JSONL artifact proof separately. If this harness needs changes, update
-its script tests in the same slice.
+Do not add a performance-specific app bundle/build/data-root launcher. If this
+harness needs changes, update its script tests in the same slice.
 
 Run the filtered filesystem E2E seam gate:
 

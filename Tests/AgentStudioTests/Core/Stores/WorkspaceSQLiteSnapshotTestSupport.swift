@@ -111,34 +111,4 @@ extension WorkspaceSQLiteSnapshot {
         )
     }
 
-    static func snapshotWithPaneSourceFacetRepoMismatch(workspaceId: UUID = UUID()) -> Self {
-        let sourceRepoId = UUID()
-        let facetRepoId = UUID()
-        let worktreeId = UUID()
-        var pane = makePane(
-            launchDirectory: URL(fileURLWithPath: "/tmp/repo"),
-            facets: PaneContextFacets(
-                repoId: sourceRepoId,
-                worktreeId: worktreeId,
-                cwd: URL(fileURLWithPath: "/tmp/repo")
-            )
-        )
-        pane.metadata.updateFacets(
-            PaneContextFacets(
-                repoId: facetRepoId,
-                worktreeId: worktreeId,
-                cwd: URL(fileURLWithPath: "/tmp/repo")
-            )
-        )
-
-        return Self(
-            id: workspaceId,
-            name: "Invalid Pane Facets",
-            panes: [pane],
-            tabs: [Tab(paneId: pane.id)],
-            activeTabId: nil,
-            createdAt: Date(timeIntervalSince1970: 1),
-            updatedAt: Date(timeIntervalSince1970: 2)
-        )
-    }
 }

@@ -218,7 +218,7 @@ extension E2ESerializedTests {
             )
 
             do {
-                try await runPhaseASmoke(harness: harness, backend: backend)
+                _ = try await runPhaseASmoke(harness: harness, backend: backend)
                 await harness.cleanup()
             } catch {
                 await harness.cleanup()
@@ -227,7 +227,58 @@ extension E2ESerializedTests {
         }
 
         @MainActor
-        private func runPhaseASmoke(harness: ZmxTestHarness, backend: ZmxBackend) async throws {
+        @Test("startup reconciliation preserves two workspaces sharing one zmx dir")
+        func test_startupReconciliation_whenTwoWorkspacesShareZmxDir_preservesAllSessions() async throws {
+            let harness = ZmxTestHarness()
+            let backend = try #require(
+                harness.createBackend(),
+                "ZmxTestHarness failed to resolve zmx path; integration test requires zmx"
+            )
+            try #require(await backend.isAvailable, "zmx is unavailable in this environment")
+            try FileManager.default.createDirectory(
+                atPath: harness.zmxDir,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+
+            do {
+                let firstWorkspaceSessions = try await runPhaseASmoke(harness: harness, backend: backend)
+                let secondWorkspaceSessions = try await runPhaseASmoke(harness: harness, backend: backend)
+
+                for sessionId in [
+                    firstWorkspaceSessions.birthHandle.id,
+                    firstWorkspaceSessions.unrelatedSessionId,
+                    secondWorkspaceSessions.birthHandle.id,
+                    secondWorkspaceSessions.unrelatedSessionId,
+                ] {
+                    #expect(
+                        await harness.waitForSessionSocket(
+                            sessionId: sessionId,
+                            exists: true,
+                            timeout: .seconds(5)
+                        ),
+                        "startup reconciliation must not destroy live session \(sessionId)"
+                    )
+                }
+
+                let firstHistory = try await harness.sessionHistory(sessionId: firstWorkspaceSessions.birthHandle.id)
+                let secondHistory = try await harness.sessionHistory(sessionId: secondWorkspaceSessions.birthHandle.id)
+                #expect(firstHistory.contains(firstWorkspaceSessions.scrollbackMarker))
+                #expect(secondHistory.contains(secondWorkspaceSessions.scrollbackMarker))
+
+                await harness.cleanup()
+            } catch {
+                await harness.cleanup()
+                throw error
+            }
+        }
+
+        @MainActor
+        @discardableResult
+        private func runPhaseASmoke(
+            harness: ZmxTestHarness,
+            backend: ZmxBackend
+        ) async throws -> ZmxPhaseASmokeSessions {
             // Arrange — a legacy pre-anchor pane was born in worktree A, roamed to
             // worktree B, and still has a live zmx daemon under its birth id.
             let workspaceId = UUID()
@@ -286,9 +337,9 @@ extension E2ESerializedTests {
                 )
             )
 
-            // Act — simulate boot cleanup on the next launch with the real backend.
-            try await delegate.runOrphanZmxCleanup(
-                backend: backend,
+            // Act — simulate boot reconciliation on the next launch with the real backend.
+            _ = try await delegate.runZmxStartupSessionReconciliation(
+                inventory: backend,
                 terminalRestoreRuntime: TerminalRestoreRuntime(
                     sessionConfiguration: SessionConfiguration(
                         isEnabled: true,
@@ -300,8 +351,8 @@ extension E2ESerializedTests {
                 )
             )
 
-            // Assert — the live birth daemon is adopted and protected; only the
-            // unrelated zmx session is destroyed.
+            // Assert — the live birth daemon is adopted and protected; the
+            // unrelated zmx session is not destroyed during boot reconciliation.
             #expect(store.pane(legacyPane.id)?.terminalState?.zmxSessionId == sessions.birthHandle.id)
             #expect(store.pane(legacyPane.id)?.terminalState?.zmxSessionId != sessions.roamedDerivedSessionId)
             #expect(await backend.healthCheck(sessions.birthHandle))
@@ -310,7 +361,7 @@ extension E2ESerializedTests {
             #expect(
                 await harness.waitForSessionSocket(
                     sessionId: sessions.unrelatedSessionId,
-                    exists: false,
+                    exists: true,
                     timeout: .seconds(5)
                 )
             )
@@ -322,6 +373,7 @@ extension E2ESerializedTests {
                 paneId: legacyPane.id,
                 expectedSessionId: sessions.birthHandle.id
             )
+            return sessions
         }
 
         private func startPhaseASmokeSessions(
@@ -342,7 +394,7 @@ extension E2ESerializedTests {
             let unrelatedSessionId = ZmxBackend.sessionId(
                 repoStableKey: "1111111111111111",
                 worktreeStableKey: "2222222222222222",
-                paneId: UUID(uuidString: "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD")!
+                paneId: UUID()
             )
             let scrollbackMarker = "agentstudio-zmx-scrollback-\(paneContext.legacyPane.id.uuidString)"
 
@@ -359,6 +411,12 @@ extension E2ESerializedTests {
             )
             #expect(await harness.waitForSessionSocket(sessionId: birthHandle.id, exists: true))
             #expect(await harness.waitForSessionSocket(sessionId: unrelatedSessionId, exists: true))
+            #expect(
+                await harness.waitForSessionHistory(
+                    sessionId: birthHandle.id,
+                    containing: scrollbackMarker
+                )
+            )
             return .init(
                 birthHandle: birthHandle,
                 roamedDerivedSessionId: roamedDerivedSessionId,

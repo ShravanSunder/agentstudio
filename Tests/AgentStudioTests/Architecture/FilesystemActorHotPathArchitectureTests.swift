@@ -57,21 +57,15 @@ struct FilesystemActorHotPathArchitectureTests {
 
         let projectionBody = try #require(
             coordinatorSource.slice(
-                from: "func handleFilesystemEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) -> Bool",
+                from: "func handleFilesystemEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) async -> Bool",
                 to: "nonisolated private static func shouldProjectPaneFilesystemEnvelope"
             )
         )
-        let rootLookupBody = try #require(
-            coordinatorSource.slice(
-                from: "nonisolated private static func requiresWorktreeRootLookup",
-                to: "func setupFilesystemSourceSync()"
-            )
-        )
 
-        #expect(projectionBody.contains("Self.requiresWorktreeRootLookup(envelope)"))
-        #expect(projectionBody.contains(": [:]"))
-        #expect(rootLookupBody.contains("case .filesystem(.filesChanged)"))
-        #expect(!rootLookupBody.contains(".gitWorkingDirectory(.snapshotChanged)"))
+        #expect(projectionBody.contains("await filesystemProjectionIndex.projectPaneFilesystem"))
+        #expect(projectionBody.contains("paneFilesystemProjectionStore.applyProjectionIntent"))
+        #expect(!projectionBody.contains("workspaceWorktreeContexts"))
+        #expect(!projectionBody.contains("filesystemRegisteredContextsByWorktreeId"))
     }
 }
 

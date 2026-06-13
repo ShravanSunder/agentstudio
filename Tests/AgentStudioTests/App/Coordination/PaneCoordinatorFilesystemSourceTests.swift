@@ -120,11 +120,9 @@ struct PaneCoordinatorFilesystemSourceTests {
         )
 
         await index.resumePausedSourceSync()
+        coordinator.syncFilesystemRootsAndActivity()
 
-        await assertEventuallyAsync("latest topology should be applied", maxTurns: 200_000) {
-            let snapshot = await source.snapshot()
-            return Set(snapshot.registeredRoots.keys) == Set([mainWorktree.id, reconciledLatest.id])
-        }
+        await source.waitForAssertTopology(worktreeIds: Set([mainWorktree.id, reconciledLatest.id]))
 
         let operations = await source.operations()
         #expect(!operations.contains(.register(worktreeId: reconciledStale.id)))
@@ -386,6 +384,7 @@ private actor OrderedRecordingFilesystemSource: PaneCoordinatorFilesystemSourceM
     private var activePaneWorktreeId: UUID?
     private var operationLog: [FilesystemSourceOperation] = []
     private var operationWaiters: [FilesystemSourceOperationKind: [CheckedContinuation<Void, Never>]] = [:]
+    private var topologyWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
 
     func start() async {}
 
@@ -457,6 +456,13 @@ private actor OrderedRecordingFilesystemSource: PaneCoordinatorFilesystemSourceM
         }
     }
 
+    func waitForAssertTopology(worktreeIds: Set<UUID>) async {
+        if operationLog.contains(.assertTopology(worktreeIds: worktreeIds)) { return }
+        await withCheckedContinuation { continuation in
+            topologyWaiters.append((worktreeIds, continuation))
+        }
+    }
+
     private func appendOperation(_ operation: FilesystemSourceOperation) {
         operationLog.append(operation)
         let kind = operation.kind
@@ -464,6 +470,16 @@ private actor OrderedRecordingFilesystemSource: PaneCoordinatorFilesystemSourceM
         for waiter in waiters {
             waiter.resume()
         }
+        guard case .assertTopology(let worktreeIds) = operation else { return }
+        var remainingWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
+        for (expectedWorktreeIds, continuation) in topologyWaiters {
+            if expectedWorktreeIds == worktreeIds {
+                continuation.resume()
+            } else {
+                remainingWaiters.append((expectedWorktreeIds, continuation))
+            }
+        }
+        topologyWaiters = remainingWaiters
     }
 }
 

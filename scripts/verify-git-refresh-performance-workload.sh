@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STACK_HELPER="${SHRAVAN_OBSERVABILITY_STACK_HELPER:-$HOME/dev/devfiles/shared/observability/observability-stack}"
 COLLECTOR_HEALTH_URL="${SHRAVAN_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
+LOGS_QUERY_URL="${SHRAVAN_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
 
 DEFAULT_PROOF_ROOT="$PROJECT_ROOT/tmp/debug-workflows/2026-06-11-agent-studio-performance-issues-cmdp-slowdown/proofs"
 DEFAULT_UI_PROOF_ROOT="/tmp/asperf"
@@ -13,13 +14,11 @@ usage() {
 Usage: verify-git-refresh-performance-workload.sh [--prepare-only]
 
 Creates a disposable 118-repo / 163-worktree / 14-pane AgentStudio workspace,
-launches a debug or beta AgentStudio process with isolated AGENTSTUDIO_DATA_DIR,
-runs five fixture git writers, and captures marker-scoped JSONL/OTLP performance
-trace evidence.
+launches AgentStudio through the standard per-worktree debug observability
+runner, runs five fixture git writers, and captures marker-scoped VictoriaLogs
+performance evidence.
 
 Environment overrides:
-  AGENTSTUDIO_PERF_APP_BINARY       Use an existing AgentStudio executable.
-  AGENTSTUDIO_PERF_APP_BUNDLE       Launch an existing AgentStudio .app bundle with open(1).
   AGENTSTUDIO_PERF_PROOF_ROOT       Parent directory for timestamped artifacts.
                                       Default: repo tmp for git-only runs, /tmp for UI-driven runs.
   AGENTSTUDIO_PERF_REPO_COUNT       Repo count. Default: 118.
@@ -31,8 +30,8 @@ Environment overrides:
                                       a full 16-stripe background refresh cycle.
   AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR
                                       Set to 0 to skip startup command-bar repo filter smoke. Default: 1.
-  AGENTSTUDIO_PERF_SKIP_BUILD       Set to 1 when AGENTSTUDIO_PERF_APP_BINARY is supplied.
-  AGENTSTUDIO_PERF_TRACE_BACKEND    jsonl|both. Default: both when collector is healthy, else jsonl.
+  AGENTSTUDIO_OBSERVABILITY_STATE_FILE
+                                      State file passed through to the standard debug runner.
 
 The script never reads or mutates the user's live AgentStudio app data, user
 worktrees, or global git config. Cleanup kills only PIDs launched by this script.
@@ -106,6 +105,9 @@ TRACE_DIR="$ARTIFACT/traces"
 PID_DIR="$ARTIFACT/pids"
 COMMAND_LOG="$ARTIFACT/commands.log"
 SUMMARY_FILE="$ARTIFACT/summary.txt"
+DEBUG_OBSERVABILITY_STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
+DEBUG_IDENTITY_FILE="$ARTIFACT/debug-identity.env"
+DEBUG_STATE_COPY="$ARTIFACT/debug-observability.env"
 
 APP_PID=""
 APP_BINARY=""
@@ -192,8 +194,37 @@ if [ "$ACTIVE_PANE_COUNT" -gt "$WORKTREE_COUNT" ]; then
   exit 2
 fi
 
-mkdir -p "$ARTIFACT" "$FIXTURE_ROOT" "$APP_DATA_DIR/workspaces" "$TRACE_DIR" "$PID_DIR"
-: >"$COMMAND_LOG"
+decode_env_file_value() {
+  local env_file="$1"
+  local lookup_key="$2"
+  [ -f "$env_file" ] || return 1
+  local raw_value
+  raw_value="$(sed -n "s/^$lookup_key=//p" "$env_file" | tail -1)"
+  [ -n "$raw_value" ] || return 1
+  /usr/bin/python3 - "$raw_value" <<'PY'
+import shlex
+import sys
+
+try:
+    parsed = shlex.split(sys.argv[1])
+except ValueError:
+    parsed = []
+print(parsed[0] if parsed else "")
+PY
+}
+
+load_debug_identity_for_workload() {
+  mkdir -p "$ARTIFACT"
+  log_command "$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity
+  AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$DEBUG_OBSERVABILITY_STATE_FILE" \
+    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity >"$DEBUG_IDENTITY_FILE"
+  APP_DATA_DIR="$(decode_env_file_value "$DEBUG_IDENTITY_FILE" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
+  TRACE_DIR="$APP_DATA_DIR/traces"
+  if [ -z "$APP_DATA_DIR" ] || [ -z "$TRACE_DIR" ]; then
+    echo "debug identity did not provide data/trace directories: $DEBUG_IDENTITY_FILE" >&2
+    exit 1
+  fi
+}
 
 uuid_v7() {
   local seconds millis ts_hex random_hex
@@ -431,241 +462,89 @@ prepare_fixture() {
   WORKSPACE_FILE="$(write_workspace_json "$WORKSPACE_ID")"
 }
 
-resolve_app_binary() {
-  if [ -n "${AGENTSTUDIO_PERF_APP_BINARY:-}" ]; then
-    reject_live_app_binary_override "$AGENTSTUDIO_PERF_APP_BINARY"
-    printf '%s\n' "$AGENTSTUDIO_PERF_APP_BINARY"
-    return 0
-  fi
-  if [ -n "${AGENTSTUDIO_PERF_APP_BUNDLE:-}" ]; then
-    printf '%s\n' "$AGENTSTUDIO_PERF_APP_BUNDLE/Contents/MacOS/AgentStudio"
-    return 0
-  fi
-  if [ "${AGENTSTUDIO_PERF_SKIP_BUILD:-0}" != "1" ]; then
-    log_command mise run build >/dev/null
-    mise run build >"$ARTIFACT/build.log" 2>&1
-  fi
-  find "$PROJECT_ROOT" \
-    \( -path "$PROJECT_ROOT/.build-agent-*/debug/AgentStudio" \
-      -o -path "$PROJECT_ROOT/.build-agent-*/*/debug/AgentStudio" \) \
-    -type f -perm -111 -print0 2>/dev/null |
-    while IFS= read -r -d '' binary_path; do
-      printf '%s\t%s\n' "$(stat -f '%m' "$binary_path")" "$binary_path"
-    done |
-    sort -nr |
-    sed -n $'1s/^[^\t]*\t//p'
-}
-
-materialize_app_bundle_for_ui_smoke() {
-  local app_binary="$1"
-  local bundle_path="$ARTIFACT/AgentStudio Performance Proof.app"
-  local contents_path="$bundle_path/Contents"
-  local binary_dir
-  binary_dir="$(dirname "$app_binary")"
-
-  log_command materialize temporary app bundle "$bundle_path"
-  if [ -e "$bundle_path" ]; then
-    echo "temporary app bundle path already exists: $bundle_path" >&2
+launch_debug_observability_app() {
+  if [ ! -x "$STACK_HELPER" ]; then
+    echo "observability stack helper not executable: $STACK_HELPER" >&2
     exit 1
   fi
-  mkdir -p "$contents_path/MacOS" "$contents_path/Resources"
-  cp "$app_binary" "$contents_path/MacOS/AgentStudio"
-  if [ -x "$PROJECT_ROOT/vendor/zmx/zig-out/bin/zmx" ]; then
-    cp "$PROJECT_ROOT/vendor/zmx/zig-out/bin/zmx" "$contents_path/MacOS/zmx"
-  fi
-  cp "$PROJECT_ROOT/Sources/AgentStudio/Resources/Info.plist" "$contents_path/Info.plist"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.agentstudio.app.performanceproof" \
-    "$contents_path/Info.plist" >/dev/null 2>&1 || true
-  /usr/libexec/PlistBuddy -c "Set :CFBundleName AgentStudio Performance Proof" \
-    "$contents_path/Info.plist" >/dev/null 2>&1 || true
-  /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName AgentStudio Performance Proof" \
-    "$contents_path/Info.plist" >/dev/null 2>&1 || true
-  cp "$PROJECT_ROOT/Sources/AgentStudio/Resources/AppIcon.icns" "$contents_path/Resources/" 2>/dev/null || true
-  if [ -d "$PROJECT_ROOT/Sources/AgentStudio/Resources/terminfo" ]; then
-    cp -R "$PROJECT_ROOT/Sources/AgentStudio/Resources/terminfo" "$contents_path/Resources/"
-  fi
-  if [ -d "$PROJECT_ROOT/Sources/AgentStudio/Resources/ghostty" ]; then
-    mkdir -p "$contents_path/Resources/ghostty"
-    cp -R "$PROJECT_ROOT/Sources/AgentStudio/Resources/ghostty/." "$contents_path/Resources/ghostty/"
-  fi
-  if [ -d "$binary_dir/AgentStudio_AgentStudio.bundle" ]; then
-    cp -R "$binary_dir/AgentStudio_AgentStudio.bundle" "$contents_path/Resources/"
-  fi
-  codesign --force --deep --sign - "$bundle_path" >>"$ARTIFACT/bundle.log" 2>&1
-  APP_LAUNCH_BUNDLE="$bundle_path"
-  APP_BINARY="$contents_path/MacOS/AgentStudio"
-}
-
-reject_live_app_binary_override() {
-  local binary_path="$1"
-  local binary_parent
-  binary_parent="$(dirname "$binary_path")"
-  [ -d "$binary_parent" ] || return 0
-  local canonical_parent
-  canonical_parent="$(cd "$binary_parent" && pwd -P)"
-  local canonical_binary="$canonical_parent/$(basename "$binary_path")"
-  case "$canonical_binary" in
-    "/Applications/AgentStudio.app/Contents/MacOS/AgentStudio"|"/Applications/AgentStudio Beta.app/Contents/MacOS/AgentStudio")
-      echo "AGENTSTUDIO_PERF_APP_BINARY must not target a live /Applications AgentStudio executable: $canonical_binary" >&2
-      exit 2
-      ;;
-  esac
-}
-
-reject_live_app_bundle_override() {
-  local bundle_path="$1"
-  local canonical_parent
-  canonical_parent="$(cd "$(dirname "$bundle_path")" && pwd -P)"
-  local canonical_bundle="$canonical_parent/$(basename "$bundle_path")"
-  case "$canonical_bundle" in
-    "/Applications/AgentStudio.app"|"/Applications/AgentStudio Beta.app")
-      echo "AGENTSTUDIO_PERF_APP_BUNDLE must not target a live /Applications AgentStudio bundle: $canonical_bundle" >&2
-      exit 2
-      ;;
-  esac
-}
-
-proof_app_pid_candidates() {
-  [ -n "$APP_BINARY" ] || return 0
-  ps -axo pid=,command= | awk -v app_binary="$APP_BINARY" '
-    index($0, app_binary) > 0 {
-      print $1
-    }
-  '
-}
-
-resolve_app_launch_target() {
-  if [ -n "${AGENTSTUDIO_PERF_APP_BUNDLE:-}" ]; then
-    reject_live_app_bundle_override "$AGENTSTUDIO_PERF_APP_BUNDLE"
-    APP_LAUNCH_BUNDLE="$AGENTSTUDIO_PERF_APP_BUNDLE"
-    APP_BINARY="$APP_LAUNCH_BUNDLE/Contents/MacOS/AgentStudio"
-    return 0
-  fi
-
-  APP_BINARY="$(resolve_app_binary)"
-  if [ -z "$APP_BINARY" ]; then
-    echo "AgentStudio build product not found under .build-agent-*; see $ARTIFACT/build.log" >&2
+  if ! curl --fail --silent --show-error --max-time 2 "$COLLECTOR_HEALTH_URL" >/dev/null; then
+    echo "OTLP collector is not healthy at $COLLECTOR_HEALTH_URL" >&2
+    echo "Run: mise run observability:up" >&2
     exit 1
   fi
+
+  local launcher_env=(
+    "AGENTSTUDIO_OBSERVABILITY_STATE_FILE=$DEBUG_OBSERVABILITY_STATE_FILE"
+    "AGENTSTUDIO_TRACE_TAGS=${AGENTSTUDIO_TRACE_TAGS:-*}"
+    "AGENTSTUDIO_TRACE_FLUSH=immediate"
+    "AGENTSTUDIO_TRACE_NAME=$TRACE_NAME"
+    "AGENTSTUDIO_TRACE_DIR=$TRACE_DIR"
+  )
   if [ "$DRIVE_COMMAND_BAR" = "1" ]; then
-    materialize_app_bundle_for_ui_smoke "$APP_BINARY"
+    launcher_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=command-bar-repo-filter")
   fi
-}
 
-select_trace_backend() {
-  if [ -n "${AGENTSTUDIO_PERF_TRACE_BACKEND:-}" ]; then
-    printf '%s\n' "$AGENTSTUDIO_PERF_TRACE_BACKEND"
-    return 0
-  fi
-  if [ -x "$STACK_HELPER" ] && curl --fail --silent --show-error --max-time 1 "$COLLECTOR_HEALTH_URL" >/dev/null 2>&1; then
-    printf 'both\n'
-  else
-    printf 'jsonl\n'
-  fi
-}
+  log_command env "${launcher_env[@]}" "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
+  env "${launcher_env[@]}" "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach \
+    >"$ARTIFACT/run-debug-observability.log" 2>&1
 
-launch_app() {
-  local app_binary="$1"
-  local trace_backend="$2"
-  if [ "$trace_backend" = "otlp" ]; then
-    echo "AGENTSTUDIO_PERF_TRACE_BACKEND=otlp is not accepted; use both so JSONL PID-scoped proof is preserved" >&2
-    exit 2
-  fi
-  if [ ! -x "$app_binary" ]; then
-    echo "AgentStudio executable not found or not executable: $app_binary" >&2
+  cp "$DEBUG_OBSERVABILITY_STATE_FILE" "$DEBUG_STATE_COPY"
+  APP_PID="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+  APP_BINARY="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_EXECUTABLE)"
+  APP_LAUNCH_BUNDLE="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_APP)"
+  if [ -z "$APP_PID" ] || [ -z "$APP_BINARY" ]; then
+    echo "debug observability state did not include PID/executable: $DEBUG_OBSERVABILITY_STATE_FILE" >&2
     exit 1
-  fi
-
-  local otlp_endpoint=""
-  local otlp_protocol=""
-  if [ "$trace_backend" = "both" ] || [ "$trace_backend" = "otlp" ]; then
-    otlp_endpoint="${OTEL_EXPORTER_OTLP_ENDPOINT:-$("$STACK_HELPER" collector-url 2>/dev/null || true)}"
-    otlp_protocol="${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}"
-  fi
-
-  if [ -n "$APP_LAUNCH_BUNDLE" ]; then
-    if [ ! -d "$APP_LAUNCH_BUNDLE" ]; then
-      echo "AgentStudio app bundle not found: $APP_LAUNCH_BUNDLE" >&2
-      exit 1
-    fi
-    log_command /usr/bin/open -n "$APP_LAUNCH_BUNDLE" --env AGENTSTUDIO_DATA_DIR="$APP_DATA_DIR" \
-      --env AGENTSTUDIO_TRACE_NAME="$TRACE_NAME"
-    local open_args=(
-      -n "$APP_LAUNCH_BUNDLE"
-      --stdout "$ARTIFACT/app.log"
-      --stderr "$ARTIFACT/app.log"
-      --env "AGENTSTUDIO_DATA_DIR=$APP_DATA_DIR"
-      --env "AGENTSTUDIO_TRACE_TAGS=performance"
-      --env "AGENTSTUDIO_TRACE_FLUSH=immediate"
-      --env "AGENTSTUDIO_TRACE_NAME=$TRACE_NAME"
-      --env "AGENTSTUDIO_TRACE_DIR=$TRACE_DIR"
-      --env "AGENTSTUDIO_TRACE_BACKEND=$trace_backend"
-      --env "AGENTSTUDIO_RESTORE_TRACE=1"
-      --env "HOME=${HOME:-}"
-      --env "PATH=${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
-      --env "SHELL=${SHELL:-/bin/zsh}"
-      --env "USER=${USER:-}"
-      --env "LOGNAME=${LOGNAME:-}"
-    )
-    if [ "$DRIVE_COMMAND_BAR" = "1" ]; then
-      open_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=command-bar-repo-filter")
-    fi
-    if [ -n "$otlp_endpoint" ]; then
-      open_args+=(--env "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint")
-      open_args+=(--env "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol")
-    fi
-    /usr/bin/open "${open_args[@]}"
-    local deadline=$((SECONDS + 30))
-    local trace_pid_confirmed=false
-    while [ "$SECONDS" -lt "$deadline" ]; do
-      local candidate_pid
-      candidate_pid="$(proof_app_pid_candidates | head -n 1)"
-      if [ -n "$candidate_pid" ] && kill -0 "$candidate_pid" >/dev/null 2>&1; then
-        APP_PID="$candidate_pid"
-      fi
-      local trace_file
-      trace_file="$(find "$TRACE_DIR" -name "agentstudio-$TRACE_NAME-*.jsonl" -type f -print | head -n 1)"
-      if [ -n "$trace_file" ]; then
-        local trace_pid
-        trace_pid="$(printf '%s\n' "$trace_file" | sed -E 's/.*-([0-9]+)\.jsonl$/\1/')"
-        if kill -0 "$trace_pid" >/dev/null 2>&1; then
-          APP_PID="$trace_pid"
-          trace_pid_confirmed=true
-          break
-        fi
-      fi
-      sleep 1
-    done
-    if [ "$trace_pid_confirmed" != "true" ]; then
-      echo "Unable to determine launched AgentStudio PID for bundle: $APP_LAUNCH_BUNDLE" >&2
-      exit 1
-    fi
-  else
-    export AGENTSTUDIO_DATA_DIR="$APP_DATA_DIR"
-    export AGENTSTUDIO_TRACE_TAGS=performance
-    export AGENTSTUDIO_TRACE_FLUSH=immediate
-    export AGENTSTUDIO_TRACE_NAME="$TRACE_NAME"
-    export AGENTSTUDIO_TRACE_DIR="$TRACE_DIR"
-    export AGENTSTUDIO_TRACE_BACKEND="$trace_backend"
-    export AGENTSTUDIO_RESTORE_TRACE=1
-    if [ "$DRIVE_COMMAND_BAR" = "1" ]; then
-      export AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=command-bar-repo-filter
-    else
-      unset AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION
-    fi
-    if [ -n "$otlp_endpoint" ]; then
-      export OTEL_EXPORTER_OTLP_ENDPOINT="$otlp_endpoint"
-      export OTEL_EXPORTER_OTLP_PROTOCOL="$otlp_protocol"
-    else
-      unset OTEL_EXPORTER_OTLP_ENDPOINT
-      unset OTEL_EXPORTER_OTLP_PROTOCOL
-    fi
-
-    log_command AGENTSTUDIO_DATA_DIR="$APP_DATA_DIR" AGENTSTUDIO_TRACE_NAME="$TRACE_NAME" "$app_binary"
-    "$app_binary" >"$ARTIFACT/app.log" 2>&1 &
-    APP_PID=$!
   fi
   printf '%s\n' "$APP_PID" >"$PID_DIR/app.pid"
+
+  log_command "$PROJECT_ROOT/scripts/verify-debug-observability.sh"
+  local deadline=$((SECONDS + 60))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$DEBUG_OBSERVABILITY_STATE_FILE" \
+      "$PROJECT_ROOT/scripts/verify-debug-observability.sh" \
+      >"$ARTIFACT/verify-debug-observability.log" 2>&1
+    then
+      return 0
+    fi
+    sleep 2
+  done
+  cat "$ARTIFACT/verify-debug-observability.log" >&2
+  return 1
+}
+
+query_victoria_logs() {
+  local logsql="$1"
+  curl --fail --silent --show-error --max-time 5 --get \
+    --data-urlencode "query=$logsql" \
+    "$LOGS_QUERY_URL"
+}
+
+victoria_event_query() {
+  local event_name="$1"
+  printf '{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="%s"} _msg:%s' \
+    "$TRACE_NAME" "$event_name"
+}
+
+victoria_event_count() {
+  local event_name="$1"
+  local response
+  response="$(query_victoria_logs "$(victoria_event_query "$event_name") | fields _msg | limit 10000" 2>/dev/null || true)"
+  if [ -z "$response" ]; then
+    printf '0\n'
+  else
+    printf '%s\n' "$response" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' '
+  fi
+}
+
+jsonl_event_count() {
+  local event_name="$1"
+  local jsonl_file="$2"
+  [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ] || {
+    printf '0\n'
+    return 0
+  }
+  grep -c "\"body\":\"$event_name\"" "$jsonl_file" || true
 }
 
 wait_for_trace_event() {
@@ -674,6 +553,9 @@ wait_for_trace_event() {
   local deadline=$((SECONDS + timeout_seconds))
   while [ "$SECONDS" -lt "$deadline" ]; do
     if grep -R "\"body\":\"$event_name\"" "$TRACE_DIR" >/dev/null 2>&1; then
+      return 0
+    fi
+    if [ "$(victoria_event_count "$event_name")" -gt 0 ]; then
       return 0
     fi
     sleep 1
@@ -686,7 +568,18 @@ wait_for_command_bar_repo_filter_event() {
   local deadline=$((SECONDS + timeout_seconds))
   while [ "$SECONDS" -lt "$deadline" ]; do
     if grep -R "\"body\":\"performance.commandbar.filter\"" "$TRACE_DIR" 2>/dev/null \
-      | grep "\"agentstudio.performance.commandbar.query_character.count\":[1-9][0-9]*" >/dev/null 2>&1; then
+      | grep -E "\"agentstudio.performance.commandbar.query_character.count\":\"?[1-9][0-9]*\"?" >/dev/null 2>&1; then
+      return 0
+    fi
+    local victoria_response
+    victoria_response="$(
+      query_victoria_logs \
+        "$(victoria_event_query performance.commandbar.filter) | fields _msg,agentstudio.performance.commandbar.query_character.count | limit 20" \
+        2>/dev/null || true
+    )"
+    if printf '%s\n' "$victoria_response" |
+      grep -E "\"agentstudio.performance.commandbar.query_character.count\":\"?[1-9][0-9]*\"?" >/dev/null 2>&1
+    then
       return 0
     fi
     sleep 1
@@ -778,28 +671,36 @@ summarize_traces() {
     echo "duration_seconds=$DURATION_SECONDS"
     echo "drive_command_bar=$DRIVE_COMMAND_BAR"
     echo "app_pid=$APP_PID"
+    echo "debug_observability_state_file=$DEBUG_OBSERVABILITY_STATE_FILE"
+    [ -f "$DEBUG_STATE_COPY" ] && echo "debug_observability_state_copy=$DEBUG_STATE_COPY"
     echo "jsonl_file=$jsonl_file"
     [ -f "$ARTIFACT/restore-trace.log" ] && echo "restore_trace_file=$ARTIFACT/restore-trace.log"
-    if [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ]; then
-      for event_name in \
-        performance.git.tick \
-        performance.git.admission \
-        performance.git.status \
-        performance.git.snapshot_dedup \
-        performance.git.event_posted \
-        performance.coordinator.write \
-        performance.topology.repo_and_worktree \
-        performance.tabbar.refresh \
-        performance.commandbar.items \
-        performance.commandbar.filter
-      do
-        local count
-        count="$(grep -c "\"body\":\"$event_name\"" "$jsonl_file" || true)"
-        echo "$event_name count=$count"
-      done
-    fi
+    for event_name in \
+      performance.git.tick \
+      performance.git.admission \
+      performance.git.status \
+      performance.git.snapshot_dedup \
+      performance.git.event_posted \
+      performance.coordinator.write \
+      performance.topology.repo_and_worktree \
+      performance.tabbar.refresh \
+      performance.commandbar.items \
+      performance.commandbar.filter
+    do
+      local victoria_count jsonl_count
+      victoria_count="$(victoria_event_count "$event_name")"
+      jsonl_count="$(jsonl_event_count "$event_name" "$jsonl_file")"
+      echo "$event_name victoria_count=$victoria_count jsonl_count=$jsonl_count"
+    done
   } | tee "$SUMMARY_FILE"
 }
+
+mkdir -p "$ARTIFACT" "$FIXTURE_ROOT" "$PID_DIR"
+: >"$COMMAND_LOG"
+if [ "$prepare_only" != true ]; then
+  load_debug_identity_for_workload
+fi
+mkdir -p "$APP_DATA_DIR/workspaces" "$TRACE_DIR"
 
 prepare_fixture
 
@@ -808,6 +709,7 @@ prepare_fixture
   echo "artifact=$ARTIFACT"
   echo "workspace_file=$WORKSPACE_FILE"
   echo "app_data_dir=$APP_DATA_DIR"
+  echo "debug_observability_state_file=$DEBUG_OBSERVABILITY_STATE_FILE"
   echo "fixture_root=$FIXTURE_ROOT"
   echo "repo_count=$REPO_COUNT"
   echo "worktree_count=$WORKTREE_COUNT"
@@ -820,9 +722,7 @@ if [ "$prepare_only" = true ]; then
   exit 0
 fi
 
-resolve_app_launch_target
-TRACE_BACKEND="$(select_trace_backend)"
-launch_app "$APP_BINARY" "$TRACE_BACKEND"
+launch_debug_observability_app
 
 if ! wait_for_trace_event performance.coordinator.write 45; then
   echo "did not observe performance.coordinator.write within startup timeout" >&2

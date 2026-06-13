@@ -44,16 +44,16 @@ enum WorkspaceCoreMigrations {
 
     private static let dropPaneSourceBindingStatements = [
         """
-        DROP TRIGGER pane_source_repo_matches_workspace
+        DROP TRIGGER IF EXISTS pane_source_repo_matches_workspace
         """,
         """
-        DROP TRIGGER pane_source_repo_update_matches_workspace
+        DROP TRIGGER IF EXISTS pane_source_repo_update_matches_workspace
         """,
         """
-        DROP TRIGGER pane_source_worktree_matches_workspace
+        DROP TRIGGER IF EXISTS pane_source_worktree_matches_workspace
         """,
         """
-        DROP TRIGGER pane_source_worktree_update_matches_workspace
+        DROP TRIGGER IF EXISTS pane_source_worktree_update_matches_workspace
         """,
         """
         ALTER TABLE pane RENAME COLUMN source_repo_id TO facet_repo_id

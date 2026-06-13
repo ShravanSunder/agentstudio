@@ -10,11 +10,11 @@ LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
 CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 DITTO_BIN="${AGENTSTUDIO_DITTO_BIN:-/usr/bin/ditto}"
 CODESIGN_BIN="${AGENTSTUDIO_CODESIGN_BIN:-/usr/bin/codesign}"
-CC_BIN="${AGENTSTUDIO_CC_BIN:-/usr/bin/cc}"
 
 usage() {
   cat <<'USAGE'
 Usage: run-debug-observability.sh [--build-path <dir>] [--skip-build] [--detach]
+       run-debug-observability.sh --print-identity
 
 Builds the debug AgentStudio binary, wraps it in a per-worktree Debug .app, and
 launches that app with full trace tags exported to the already-running shared
@@ -56,7 +56,7 @@ agentstudio_pids_for_binary() {
         echo "unable to inspect running AgentStudio PID $pid with $LSOF_BIN" >&2
         return 2
       fi
-      txt_path="$(printf '%s\n' "$txt_output" | sed -n 's/^n//p' | head -1)"
+      txt_path="$(awk '/^n/ { print substr($0, 2); exit }' <<<"$txt_output")"
       if [ -z "$txt_path" ]; then
         echo "unable to resolve executable for running AgentStudio PID $pid" >&2
         return 2
@@ -72,9 +72,6 @@ bundle_path_for_executable() {
   case "$executable_path" in
     *.app/Contents/MacOS/AgentStudio)
       printf '%s\n' "${executable_path%/Contents/MacOS/AgentStudio}"
-      ;;
-    *.app/Contents/MacOS/AgentStudio.bin)
-      printf '%s\n' "${executable_path%/Contents/MacOS/AgentStudio.bin}"
       ;;
   esac
 }
@@ -106,7 +103,7 @@ running_debug_app_pids() {
         echo "unable to inspect running AgentStudio PID $pid with $LSOF_BIN" >&2
         return 2
       fi
-      txt_path="$(printf '%s\n' "$txt_output" | sed -n 's/^n//p' | head -1)"
+      txt_path="$(awk '/^n/ { print substr($0, 2); exit }' <<<"$txt_output")"
       if [ -z "$txt_path" ]; then
         echo "unable to resolve executable for running AgentStudio PID $pid" >&2
         return 2
@@ -142,7 +139,10 @@ open_app() {
   local open_args=("$@")
 
   for attempt in 1 2 3 4 5; do
-    if "$OPEN_BIN" ${wait_flag:+"$wait_flag"} -n "$app_path" "${open_args[@]}"
+    if "${clean_open_env[@]}" "$OPEN_BIN" ${wait_flag:+"$wait_flag"} -n "$app_path" \
+      --stdout "$launch_log" \
+      --stderr "$launch_log" \
+      "${open_args[@]}"
     then
       return 0
     fi
@@ -167,6 +167,89 @@ write_launch_failed_state() {
   } >"$state_file"
 }
 
+write_running_state() {
+  local launch_method="${1:?missing launch method}"
+  local launched_pid="${2:?missing pid}"
+  local launched_executable="$app_binary_path"
+  if [ "$launch_method" = "direct_executable" ]; then
+    launched_executable="$binary_path"
+  fi
+  {
+    write_state_value AGENTSTUDIO_OBSERVABILITY_STATUS running
+    write_state_value AGENTSTUDIO_OBSERVABILITY_MARKER "$trace_name"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR debug
+    write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "$debug_code"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD "$launch_method"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_QUERY_START "$query_start"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_PID "$launched_pid"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_APP "$app_path"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_EXECUTABLE "$launched_executable"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "$launch_log"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "$build_path"
+  } >"$state_file"
+}
+
+running_debug_state_pid() {
+  local state_path="${1:?missing state path}"
+  local expected_code="${2:?missing debug code}"
+  [ -f "$state_path" ] || return 0
+
+  local state_code
+  local state_pid
+  local state_status
+  state_code="$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=//p' "$state_path" | tail -1)"
+  state_pid="$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_PID=//p' "$state_path" | tail -1)"
+  state_status="$(sed -n 's/^AGENTSTUDIO_OBSERVABILITY_STATUS=//p' "$state_path" | tail -1)"
+
+  case "$state_pid" in
+    ''|*[!0-9]*)
+      return 0
+      ;;
+  esac
+
+  if [ "$state_code" = "$expected_code" ] &&
+    [ "$state_status" = "running" ] &&
+    kill -0 "$state_pid" >/dev/null 2>&1
+  then
+    if running_debug_app_pids "$expected_code" | grep -qx "$state_pid"; then
+      printf '%s\n' "$state_pid"
+    fi
+  fi
+}
+
+launch_direct_binary() {
+  local executable_path="${1:?missing executable path}"
+  "${direct_launch_env[@]}" "$executable_path" >>"$launch_log" 2>&1 &
+  direct_launch_pid=$!
+
+  if kill -0 "$direct_launch_pid" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  wait "$direct_launch_pid" >/dev/null 2>&1 || true
+  return 1
+}
+
+start_debug_direct_fallback() {
+  local launchservices_reason="${1:?missing LaunchServices failure reason}"
+
+  if [ "${AGENTSTUDIO_DEBUG_DIRECT_FALLBACK:-1}" != "1" ]; then
+    return 1
+  fi
+
+  echo "LaunchServices failed for debug app ($launchservices_reason); trying debug direct executable fallback." >&2
+  if launch_direct_binary "$app_binary_path"; then
+    pid="$direct_launch_pid"
+    launch_method=direct_executable
+    launched_with_direct=true
+    return 0
+  fi
+
+  return 1
+}
+
 worktree_debug_code() {
   local canonical_root
   canonical_root="$(cd "$PROJECT_ROOT" && pwd -P)"
@@ -177,7 +260,7 @@ import sys
 alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
 space = 36 ** 4
 digest = hashlib.sha256(sys.argv[1].encode("utf-8")).digest()
-value = int.from_bytes(digest[:8], "big") % space
+value = int.from_bytes(digest[:4], "big") % space
 chars = []
 for _ in range(4):
     value, digit = divmod(value, 36)
@@ -194,11 +277,12 @@ copy_debug_bundle() {
   local app_path="$artifact_root/AgentStudio Debug $code.app"
   local app_dir="$app_path/Contents"
   local plist_path="$app_dir/Info.plist"
+  local entitlements="Sources/AgentStudio/Resources/AgentStudio.entitlements"
   local marketing_version="${APP_MARKETING_VERSION:-0.0.1-debug+$code}"
   local build_version="${APP_BUILD_VERSION:-$(git rev-list --count HEAD)}"
 
   mkdir -p "$app_dir/MacOS" "$app_dir/Resources"
-  "$DITTO_BIN" "$source_binary" "$app_dir/MacOS/AgentStudio.bin"
+  "$DITTO_BIN" "$source_binary" "$app_dir/MacOS/AgentStudio"
 
   if [ -f "vendor/zmx/zig-out/bin/zmx" ]; then
     "$DITTO_BIN" "vendor/zmx/zig-out/bin/zmx" "$app_dir/MacOS/zmx"
@@ -226,87 +310,19 @@ copy_debug_bundle() {
   resource_bundle="$(find "$build_root" -path '*/debug/AgentStudio_AgentStudio.bundle' -type d | head -1)"
   [ -n "$resource_bundle" ] && "$DITTO_BIN" "$resource_bundle" "$app_dir/Resources/AgentStudio_AgentStudio.bundle"
 
-  printf '%s\n' "$app_path"
-}
-
-write_debug_launcher() {
-  local app_path="${1:?missing app path}"
-  local debug_root="${2:?missing debug root}"
-  local trace_tags="${3:?missing trace tags}"
-  local trace_flush="${4:?missing trace flush}"
-  local trace_backend="${5:?missing trace backend}"
-  local trace_name="${6:?missing trace name}"
-  local trace_dir="${7:?missing trace dir}"
-  local otlp_endpoint="${8:?missing otlp endpoint}"
-  local otlp_protocol="${9:?missing otlp protocol}"
-  local app_dir="$app_path/Contents"
-  local launcher_path="$app_dir/MacOS/AgentStudio"
-  local launcher_source="$app_dir/MacOS/AgentStudioLauncher.c"
-
-  c_string_literal() {
-    /usr/bin/python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
-  }
-
-  {
-    printf '#include <libgen.h>\n'
-    printf '#include <limits.h>\n'
-    printf '#include <mach-o/dyld.h>\n'
-    printf '#include <stdio.h>\n'
-    printf '#include <stdlib.h>\n'
-    printf '#include <string.h>\n'
-    printf '#include <unistd.h>\n\n'
-    printf 'int main(int argc, char *argv[]) {\n'
-    printf '  (void)argc;\n'
-    printf '  setenv("AGENTSTUDIO_DATA_DIR", %s, 1);\n' "$(c_string_literal "$debug_root")"
-    printf '  setenv("AGENTSTUDIO_TRACE_TAGS", %s, 1);\n' "$(c_string_literal "$trace_tags")"
-    printf '  setenv("AGENTSTUDIO_TRACE_FLUSH", %s, 1);\n' "$(c_string_literal "$trace_flush")"
-    printf '  setenv("AGENTSTUDIO_TRACE_BACKEND", %s, 1);\n' "$(c_string_literal "$trace_backend")"
-    printf '  setenv("AGENTSTUDIO_TRACE_NAME", %s, 1);\n' "$(c_string_literal "$trace_name")"
-    printf '  setenv("AGENTSTUDIO_TRACE_DIR", %s, 1);\n' "$(c_string_literal "$trace_dir")"
-    printf '  setenv("OTEL_EXPORTER_OTLP_ENDPOINT", %s, 1);\n' "$(c_string_literal "$otlp_endpoint")"
-    printf '  setenv("OTEL_EXPORTER_OTLP_PROTOCOL", %s, 1);\n' "$(c_string_literal "$otlp_protocol")"
-    printf '  char executable_path[PATH_MAX];\n'
-    printf '  uint32_t executable_path_size = sizeof(executable_path);\n'
-    printf '  if (_NSGetExecutablePath(executable_path, &executable_path_size) != 0) {\n'
-    printf '    fprintf(stderr, "AgentStudio launcher path exceeded PATH_MAX\\n");\n'
-    printf '    return 126;\n'
-    printf '  }\n'
-    printf '  char resolved_path[PATH_MAX];\n'
-    printf '  if (realpath(executable_path, resolved_path) == NULL) {\n'
-    printf '    perror("realpath");\n'
-    printf '    return 126;\n'
-    printf '  }\n'
-    printf '  char directory_buffer[PATH_MAX];\n'
-    printf '  strlcpy(directory_buffer, resolved_path, sizeof(directory_buffer));\n'
-    printf '  char target_path[PATH_MAX];\n'
-    printf '  snprintf(target_path, sizeof(target_path), "%%s/AgentStudio.bin", dirname(directory_buffer));\n'
-    printf '  execv(target_path, argv);\n'
-    printf '  perror("execv AgentStudio.bin");\n'
-    printf '  return 127;\n'
-    printf '}\n'
-  } >"$launcher_source"
-
-  "$CC_BIN" "$launcher_source" -o "$launcher_path"
-  rm -f "$launcher_source"
-}
-
-sign_debug_bundle() {
-  local app_path="${1:?missing app path}"
-  local app_dir="$app_path/Contents"
-  local entitlements="Sources/AgentStudio/Resources/AgentStudio.entitlements"
-
-  "$CODESIGN_BIN" --force --sign - --entitlements "$entitlements" "$app_dir/MacOS/AgentStudio" >/dev/null
-  "$CODESIGN_BIN" --force --sign - --entitlements "$entitlements" "$app_dir/MacOS/AgentStudio.bin" >/dev/null
   if [ -f "$app_dir/MacOS/zmx" ]; then
     "$CODESIGN_BIN" --force --sign - --entitlements "$entitlements" "$app_dir/MacOS/zmx" >/dev/null
   fi
   "$CODESIGN_BIN" --force --deep --sign - "$app_path" >/dev/null
   "$CODESIGN_BIN" --verify --deep --strict "$app_path"
+
+  printf '%s\n' "$app_path"
 }
 
-build_path="${AGENTSTUDIO_DEBUG_BUILD_PATH:-.build-agent-review}"
+build_path="${AGENTSTUDIO_DEBUG_BUILD_PATH:-}"
 skip_build=false
 detach=false
+print_identity=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --build-path)
@@ -319,6 +335,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --detach)
       detach=true
+      shift
+      ;;
+    --print-identity)
+      print_identity=true
       shift
       ;;
     -h|--help)
@@ -334,6 +354,27 @@ done
 
 cd "$PROJECT_ROOT"
 
+debug_code="$(worktree_debug_code)"
+debug_root="$HOME/.agentstudio-db/$debug_code"
+debug_zmx_dir="$debug_root/z"
+state_file="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
+
+if [ "$print_identity" = true ]; then
+  write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR debug
+  write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "$debug_code"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_BUNDLE_IDENTIFIER "com.agentstudio.app.debug.d$debug_code"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_APP_NAME "Agent Studio Debug $debug_code"
+  exit 0
+fi
+
+if [ -z "$build_path" ]; then
+  # shellcheck disable=SC1091
+  source "$PROJECT_ROOT/scripts/swift-build-slot.sh" debug
+  build_path="$SWIFT_BUILD_DIR"
+fi
+
 if [ ! -x "$STACK_HELPER" ]; then
   echo "observability stack helper not executable: $STACK_HELPER" >&2
   exit 1
@@ -345,10 +386,23 @@ if ! "$CURL_BIN" --fail --silent --show-error --max-time 2 "$COLLECTOR_HEALTH_UR
   exit 1
 fi
 
-debug_code="$(worktree_debug_code)"
-debug_root="$HOME/.agentstudio-db/$debug_code"
-debug_zmx_dir="$debug_root/z"
-state_file="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
+if existing_state_pid="$(running_debug_state_pid "$state_file" "$debug_code")" &&
+  [ -n "$existing_state_pid" ]
+then
+  mkdir -p "$(dirname "$state_file")"
+  {
+    write_state_value AGENTSTUDIO_OBSERVABILITY_STATUS already_running
+    write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR debug
+    write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "$debug_code"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_PID "$existing_state_pid"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
+  } >"$state_file"
+  echo "Agent Studio Debug $debug_code is already running: PID(s) $existing_state_pid" >&2
+  echo "Quit that debug app before launching another observability run for this worktree." >&2
+  echo "observability state: $state_file" >&2
+  exit 1
+fi
 if ! existing_pids="$(running_debug_app_pids "$debug_code" | paste -sd ' ' -)"; then
   mkdir -p "$(dirname "$state_file")"
   {
@@ -390,19 +444,19 @@ if [ ! -x "$binary_path" ]; then
   exit 1
 fi
 
-artifact_parent="${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-$PROJECT_ROOT/tmp/debug-observability/$debug_code/app-$(date +%Y%m%d%H%M%S)-$$}"
+artifact_parent="${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-$debug_root/apps/app-$(date +%Y%m%d%H%M%S)-$$}"
 app_path="$(copy_debug_bundle "$binary_path" "$build_path" "$debug_code" "$artifact_parent")"
-app_binary_path="$app_path/Contents/MacOS/AgentStudio.bin"
+app_binary_path="$app_path/Contents/MacOS/AgentStudio"
 
 trace_tags="${AGENTSTUDIO_TRACE_TAGS:-*}"
 trace_flush="${AGENTSTUDIO_TRACE_FLUSH:-immediate}"
 trace_backend=otlp
 trace_name="${AGENTSTUDIO_TRACE_NAME:-debug-observability-$debug_code-$(date +%s)-$$}"
-trace_dir="${AGENTSTUDIO_TRACE_DIR:-$PROJECT_ROOT/tmp/debug-observability/$debug_code/traces}"
+trace_dir="${AGENTSTUDIO_TRACE_DIR:-$debug_root/traces}"
 otlp_endpoint="$("$STACK_HELPER" collector-url)"
 otlp_protocol=http/protobuf
 
-launch_log="${AGENTSTUDIO_OBSERVABILITY_LAUNCH_LOG:-$PROJECT_ROOT/tmp/debug-observability/$debug_code/$trace_name.log}"
+launch_log="${AGENTSTUDIO_OBSERVABILITY_LAUNCH_LOG:-$debug_root/logs/$trace_name.log}"
 mkdir -p "$(dirname "$launch_log")" "$(dirname "$state_file")" "$trace_dir" "$debug_root"
 : >"$launch_log"
 query_start="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -414,25 +468,78 @@ echo "data root: $debug_root"
 echo "zmx dir: $debug_zmx_dir"
 echo "marker: $trace_name"
 
-write_debug_launcher "$app_path" "$debug_root" "$trace_tags" "$trace_flush" "$trace_backend" "$trace_name" "$trace_dir" "$otlp_endpoint" "$otlp_protocol"
-sign_debug_bundle "$app_path"
+clean_open_env=(
+  /usr/bin/env
+  -i
+  "HOME=$HOME"
+  "USER=${USER:-$(id -un)}"
+  "LOGNAME=${LOGNAME:-${USER:-$(id -un)}}"
+  "SHELL=${SHELL:-/bin/zsh}"
+  "TMPDIR=${TMPDIR:-/tmp}"
+  "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
+)
 
+open_env_args=(
+    --env "AGENTSTUDIO_DATA_DIR=$debug_root" \
+    --env "AGENTSTUDIO_TRACE_TAGS=$trace_tags" \
+    --env "AGENTSTUDIO_TRACE_FLUSH=$trace_flush" \
+    --env "AGENTSTUDIO_TRACE_BACKEND=$trace_backend" \
+    --env "AGENTSTUDIO_TRACE_NAME=$trace_name" \
+    --env "AGENTSTUDIO_TRACE_DIR=$trace_dir" \
+    --env "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint" \
+    --env "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
+)
+if [ -n "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION")
+fi
+
+direct_launch_env=(
+  /usr/bin/env
+  -i
+  "HOME=$HOME"
+  "USER=${USER:-$(id -un)}"
+  "LOGNAME=${LOGNAME:-${USER:-$(id -un)}}"
+  "SHELL=${SHELL:-/bin/zsh}"
+  "TMPDIR=${TMPDIR:-/tmp}"
+  "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
+  "AGENTSTUDIO_DATA_DIR=$debug_root"
+  "AGENTSTUDIO_TRACE_TAGS=$trace_tags"
+  "AGENTSTUDIO_TRACE_FLUSH=$trace_flush"
+  "AGENTSTUDIO_TRACE_BACKEND=$trace_backend"
+  "AGENTSTUDIO_TRACE_NAME=$trace_name"
+  "AGENTSTUDIO_TRACE_DIR=$trace_dir"
+  "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint"
+  "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
+)
+if [ -n "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" ]; then
+  direct_launch_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION")
+fi
+
+launch_method=launchservices
+launched_with_direct=false
+direct_launch_pid=""
 if [ "$detach" = true ]; then
-  if ! open_app "$app_path" "$launch_log" ""; then
-    write_launch_failed_state launchservices_open_failed
-    echo "LaunchServices open failed for debug app; GUI observability proof was not started." >&2
-    echo "Use an accepted app bundle or run beta proof against an installed notarized beta." >&2
-    echo "observability state: $state_file" >&2
-    exit 1
+  if ! open_app "$app_path" "$launch_log" "" "${open_env_args[@]}"; then
+    if ! start_debug_direct_fallback launchservices_open_failed; then
+      write_launch_failed_state launchservices_open_failed
+      echo "LaunchServices open failed for debug app; GUI observability proof was not started." >&2
+      echo "Use an accepted app bundle or run beta proof against an installed notarized beta." >&2
+      echo "observability state: $state_file" >&2
+      exit 1
+    fi
   fi
-  if ! pid="$(wait_for_app_pid "$app_binary_path")"; then
+  if [ "$launched_with_direct" = false ] && ! pid="$(wait_for_app_pid "$app_binary_path")"; then
+    if start_debug_direct_fallback launchservices_pid_not_found; then
+      :
+    else
     write_launch_failed_state launchservices_pid_not_found
     echo "LaunchServices started but Agent Studio Debug PID was not found." >&2
     echo "observability state: $state_file" >&2
     exit 1
+    fi
   fi
 else
-  open_app "$app_path" "$launch_log" "-W" &
+  open_app "$app_path" "$launch_log" "-W" "${open_env_args[@]}" &
   open_pid=$!
   if ! pid="$(wait_for_app_pid "$app_binary_path")"; then
     if kill -0 "$open_pid" >/dev/null 2>&1; then
@@ -444,27 +551,19 @@ else
     else
       failure_reason=launchservices_open_failed
     fi
-    write_launch_failed_state "$failure_reason"
-    echo "LaunchServices started but Agent Studio Debug PID was not found." >&2
-    echo "observability state: $state_file" >&2
-    exit 1
+    if ! start_debug_direct_fallback "$failure_reason"; then
+      write_launch_failed_state "$failure_reason"
+      echo "LaunchServices started but Agent Studio Debug PID was not found." >&2
+      echo "observability state: $state_file" >&2
+      exit 1
+    fi
   fi
 fi
 
-{
-  write_state_value AGENTSTUDIO_OBSERVABILITY_MARKER "$trace_name"
-  write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR debug
-  write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "$debug_code"
-  write_state_value AGENTSTUDIO_OBSERVABILITY_QUERY_START "$query_start"
-  write_state_value AGENTSTUDIO_OBSERVABILITY_PID "$pid"
-  write_state_value AGENTSTUDIO_OBSERVABILITY_APP "$app_path"
-  write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
-  write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
-  write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "$launch_log"
-  write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "$build_path"
-} >"$state_file"
+write_running_state "$launch_method" "$pid"
 
 echo "pid: $pid"
+echo "launch method: $launch_method"
 echo "log: $launch_log"
 echo "observability state: $state_file"
 
@@ -476,7 +575,11 @@ if [ "$detach" = false ]; then
   }
   trap terminate_child INT TERM
   set +e
-  wait "$open_pid"
+  if [ "$launched_with_direct" = true ]; then
+    wait "$pid"
+  else
+    wait "$open_pid"
+  fi
   child_status=$?
   set -e
   case "$child_status" in

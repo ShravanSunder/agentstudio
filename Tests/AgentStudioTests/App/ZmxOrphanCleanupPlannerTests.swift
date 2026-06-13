@@ -310,8 +310,10 @@ struct ZmxOrphanCleanupPlannerTests {
     }
 
     @MainActor
-    @Test("startup cleanup hydrates legacy roamed pane anchor before destroying unrelated sessions")
-    func test_runOrphanCleanup_whenLegacyRoamedPaneHasLiveBirthSession_persistsAdoptedAnchor() async throws {
+    @Test("startup reconciliation hydrates legacy roamed pane anchor without destroying unrelated sessions")
+    func test_runStartupReconciliation_whenLegacyRoamedPaneHasLiveBirthSession_persistsAdoptedAnchorWithoutDestroying()
+        async throws
+    {
         // Arrange
         let workspaceId = UUID()
         let fixture = try makeZmxCleanupSQLiteFixture(workspaceId: workspaceId)
@@ -367,7 +369,7 @@ struct ZmxOrphanCleanupPlannerTests {
             worktreeStableKey: "2222222222222222",
             paneId: UUID(uuidString: "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD")!
         )
-        let backend = RecordingZmxCleanupBackend(liveSessionIds: [birthSessionId, unrelatedSessionId])
+        let inventory = RecordingZmxStartupSessionInventory(liveSessionIds: [birthSessionId, unrelatedSessionId])
         let terminalRestoreRuntime = TerminalRestoreRuntime(
             sessionConfiguration: SessionConfiguration(
                 isEnabled: true,
@@ -379,16 +381,26 @@ struct ZmxOrphanCleanupPlannerTests {
         )
 
         // Act
-        try await delegate.runOrphanZmxCleanup(
-            backend: backend,
+        let summary = try await delegate.runZmxStartupSessionReconciliation(
+            inventory: inventory,
             terminalRestoreRuntime: terminalRestoreRuntime
         )
 
         // Assert
         #expect(store.pane(legacyPane.id)?.terminalState?.zmxSessionId == birthSessionId)
         #expect(store.pane(legacyPane.id)?.terminalState?.zmxSessionId != roamedDerivedSessionId)
-        #expect(Set(backend.destroyedSessionIds) == [unrelatedSessionId])
         #expect(recoveryEvents.isEmpty)
+        #expect(
+            summary
+                == ZmxStartupReconciliationSummary(
+                    inventoryOutcome: .complete,
+                    liveSessionCount: 2,
+                    hydratedAnchorCount: 1,
+                    protectedSessionCount: 1,
+                    unresolvedCandidateCount: 0,
+                    unmatchedLiveSessionCount: 1
+                )
+        )
 
         let storedPanes = try fixture.coreRepository.fetchPaneGraph(workspaceId: workspaceId).panes
         let storedPane = try #require(storedPanes.first { $0.id == legacyPane.id })
@@ -397,6 +409,265 @@ struct ZmxOrphanCleanupPlannerTests {
             return
         }
         #expect(storedSessionId == birthSessionId)
+    }
+
+    @MainActor
+    @Test("startup wrapper uses discovery-only inventory seam")
+    func test_reconcileZmxSessionAnchorsAtStartup_usesInjectedInventoryWithoutConcreteBackend() async throws {
+        // Arrange
+        let workspaceId = UUID()
+        let fixture = try makeZmxCleanupSQLiteFixture(workspaceId: workspaceId)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Wrapper zmx Reconciliation",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_300)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
+            recoveryReporter: { _ in }
+        )
+        let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-zmx-wrapper"))
+        let worktree = try #require(repo.worktrees.first)
+        let paneState = store.paneAtom.createPane(
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionId: nil)),
+            metadata: PaneMetadata(
+                launchDirectory: worktree.path,
+                title: "Wrapper",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            )
+        )
+        store.appendTab(Tab(paneId: paneState.id, name: "Wrapper"))
+        let expectedSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneState.id
+        )
+        let inventory = RecordingZmxStartupSessionInventory(liveSessionIds: [expectedSessionId])
+        let delegate = AppDelegate()
+        delegate.store = store
+
+        // Act
+        await delegate.reconcileZmxSessionAnchorsAtStartup(
+            sessionConfiguration: SessionConfiguration(
+                isEnabled: true,
+                zmxPath: "/tmp/fake-zmx",
+                zmxDir: "/tmp/fake-zmx-dir",
+                healthCheckInterval: 30,
+                maxCheckpointAge: 60
+            ),
+            makeInventory: { _ in inventory }
+        )
+
+        // Assert
+        #expect(inventory.discoveryCallCount == 1)
+        #expect(store.pane(paneState.id)?.terminalState?.zmxSessionId == expectedSessionId)
+    }
+
+    @MainActor
+    @Test("startup wrapper skips zmx inventory when panes already have stored anchors")
+    func test_reconcileZmxSessionAnchorsAtStartup_whenAnchorsAlreadyStored_skipsInventory() async throws {
+        // Arrange
+        let workspaceId = UUID()
+        let fixture = try makeZmxCleanupSQLiteFixture(workspaceId: workspaceId)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Anchored zmx Reconciliation",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_350)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
+            recoveryReporter: { _ in }
+        )
+        let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-zmx-anchored"))
+        let worktree = try #require(repo.worktrees.first)
+        let paneState = store.paneAtom.createPane(
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionId: nil)),
+            metadata: PaneMetadata(
+                launchDirectory: worktree.path,
+                title: "Anchored",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            )
+        )
+        let storedSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneState.id
+        )
+        _ = store.paneAtom.setTerminalZmxSessionId(paneState.id, sessionId: storedSessionId)
+        store.appendTab(Tab(paneId: paneState.id, name: "Anchored"))
+        let delegate = AppDelegate()
+        delegate.store = store
+        var didCreateInventory = false
+
+        // Act
+        await delegate.reconcileZmxSessionAnchorsAtStartup(
+            sessionConfiguration: SessionConfiguration(
+                isEnabled: true,
+                zmxPath: "/tmp/fake-zmx",
+                zmxDir: "/tmp/fake-zmx-dir",
+                healthCheckInterval: 30,
+                maxCheckpointAge: 60
+            ),
+            makeInventory: { _ in
+                didCreateInventory = true
+                return RecordingZmxStartupSessionInventory(liveSessionIds: [])
+            }
+        )
+
+        // Assert
+        #expect(didCreateInventory == false)
+        #expect(store.pane(paneState.id)?.terminalState?.zmxSessionId == storedSessionId)
+    }
+
+    @MainActor
+    @Test("startup wrapper reconciles invalid stored zmx anchors")
+    func test_reconcileZmxSessionAnchorsAtStartup_whenStoredAnchorDoesNotMatchPane_consultsInventoryAndRepairsAnchor()
+        async throws
+    {
+        // Arrange
+        let workspaceId = UUID()
+        let fixture = try makeZmxCleanupSQLiteFixture(workspaceId: workspaceId)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Invalid Anchor zmx Reconciliation",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_375)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
+            recoveryReporter: { _ in }
+        )
+        let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-zmx-invalid-anchor"))
+        let worktree = try #require(repo.worktrees.first)
+        let paneState = store.paneAtom.createPane(
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionId: nil)),
+            metadata: PaneMetadata(
+                launchDirectory: worktree.path,
+                title: "Invalid Anchor",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            )
+        )
+        let invalidStoredSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: UUID(uuidString: "EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE")!
+        )
+        let expectedSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: paneState.id
+        )
+        _ = store.paneAtom.setTerminalZmxSessionId(paneState.id, sessionId: invalidStoredSessionId)
+        store.appendTab(Tab(paneId: paneState.id, name: "Invalid Anchor"))
+        let inventory = RecordingZmxStartupSessionInventory(liveSessionIds: [expectedSessionId])
+        let delegate = AppDelegate()
+        delegate.store = store
+
+        // Act
+        await delegate.reconcileZmxSessionAnchorsAtStartup(
+            sessionConfiguration: SessionConfiguration(
+                isEnabled: true,
+                zmxPath: "/tmp/fake-zmx",
+                zmxDir: "/tmp/fake-zmx-dir",
+                healthCheckInterval: 30,
+                maxCheckpointAge: 60
+            ),
+            makeInventory: { _ in inventory }
+        )
+
+        // Assert
+        #expect(inventory.discoveryCallCount == 1)
+        #expect(store.pane(paneState.id)?.terminalState?.zmxSessionId == expectedSessionId)
+    }
+
+    @MainActor
+    @Test("startup reconciliation reports unavailable inventory distinctly from empty inventory")
+    func test_runStartupReconciliation_whenInventoryUnavailable_returnsUnavailableSummary() async throws {
+        // Arrange
+        let workspaceId = UUID()
+        let fixture = try makeZmxCleanupSQLiteFixture(workspaceId: workspaceId)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Unavailable zmx Inventory",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_400)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend),
+            recoveryReporter: { _ in }
+        )
+        let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-zmx-unavailable"))
+        let worktree = try #require(repo.worktrees.first)
+        let paneState = store.paneAtom.createPane(
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionId: nil)),
+            metadata: PaneMetadata(
+                launchDirectory: worktree.path,
+                title: "Unavailable",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            )
+        )
+        store.appendTab(Tab(paneId: paneState.id, name: "Unavailable"))
+        let anchoredPaneState = store.paneAtom.createPane(
+            content: .terminal(.init(provider: .zmx, lifetime: .persistent, zmxSessionId: nil)),
+            metadata: PaneMetadata(
+                launchDirectory: worktree.path,
+                title: "Anchored",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            )
+        )
+        let anchoredSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: anchoredPaneState.id
+        )
+        _ = store.paneAtom.setTerminalZmxSessionId(anchoredPaneState.id, sessionId: anchoredSessionId)
+        store.appendTab(Tab(paneId: anchoredPaneState.id, name: "Anchored"))
+        let delegate = AppDelegate()
+        delegate.store = store
+        let inventory = RecordingZmxStartupSessionInventory(
+            snapshot: .unavailable("zmx list failed")
+        )
+        let terminalRestoreRuntime = TerminalRestoreRuntime(
+            sessionConfiguration: SessionConfiguration(
+                isEnabled: true,
+                zmxPath: "/tmp/fake-zmx",
+                zmxDir: "/tmp/fake-zmx-dir",
+                healthCheckInterval: 30,
+                maxCheckpointAge: 60
+            )
+        )
+
+        // Act
+        let summary = try await delegate.runZmxStartupSessionReconciliation(
+            inventory: inventory,
+            terminalRestoreRuntime: terminalRestoreRuntime
+        )
+
+        // Assert
+        #expect(summary.inventoryOutcome == .unavailable("zmx list failed"))
+        #expect(summary.liveSessionCount == 0)
+        #expect(summary.protectedSessionCount == 1)
+        #expect(summary.unresolvedCandidateCount == 1)
+        #expect(store.pane(paneState.id)?.terminalState?.zmxSessionId == nil)
+        #expect(store.pane(anchoredPaneState.id)?.terminalState?.zmxSessionId == anchoredSessionId)
     }
 }
 
@@ -423,52 +694,22 @@ private func makeZmxCleanupSQLiteFixture(workspaceId: UUID) throws -> ZmxCleanup
     return .init(coreQueue: coreQueue, localQueue: localQueue, coreRepository: coreRepository, backend: backend)
 }
 
-private final class RecordingZmxCleanupBackend: SessionBackend, @unchecked Sendable {
-    private let lock = NSLock()
-    private let liveSessionIds: [String]
-    private var destroyedIds: [String] = []
+private final class RecordingZmxStartupSessionInventory: ZmxStartupSessionInventory, @unchecked Sendable {
+    private let snapshot: ZmxSessionInventorySnapshot
+    private(set) var discoveryCallCount = 0
 
     init(liveSessionIds: [String]) {
-        self.liveSessionIds = liveSessionIds
+        self.snapshot = .complete(
+            Set(liveSessionIds.filter { $0.hasPrefix(ZmxBackend.sessionPrefix) || $0.hasPrefix("as-d--") })
+        )
     }
 
-    var destroyedSessionIds: [String] {
-        lock.withLock { destroyedIds }
+    init(snapshot: ZmxSessionInventorySnapshot) {
+        self.snapshot = snapshot
     }
 
-    var isAvailable: Bool {
-        get async { true }
-    }
-
-    func createPaneSession(repo: Repo, worktree: Worktree, paneId: UUID) async throws -> PaneSessionHandle {
-        throw SessionBackendError.operationFailed("unused in cleanup tests")
-    }
-
-    func attachCommand(for handle: PaneSessionHandle) -> String {
-        "unused"
-    }
-
-    func destroyPaneSession(_ handle: PaneSessionHandle) async throws {}
-
-    func healthCheck(_ handle: PaneSessionHandle) async -> Bool {
-        false
-    }
-
-    func socketExists() -> Bool {
-        true
-    }
-
-    func sessionExists(_ handle: PaneSessionHandle) async -> Bool {
-        false
-    }
-
-    func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String] {
-        liveSessionIds.filter { $0.hasPrefix(ZmxBackend.sessionPrefix) && !knownIds.contains($0) }
-    }
-
-    func destroySessionById(_ sessionId: String) async throws {
-        lock.withLock {
-            destroyedIds.append(sessionId)
-        }
+    func discoverLiveSessionInventory() async -> ZmxSessionInventorySnapshot {
+        discoveryCallCount += 1
+        return snapshot
     }
 }

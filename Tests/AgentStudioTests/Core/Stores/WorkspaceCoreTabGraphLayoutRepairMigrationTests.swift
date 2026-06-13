@@ -408,6 +408,29 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
         paneId: String,
         parentPaneId: String? = nil
     ) throws {
+        if try paneTableColumnNames(database).contains("source_kind") {
+            try insertLegacySourcePane(
+                database,
+                workspaceId: workspaceId,
+                paneId: paneId,
+                parentPaneId: parentPaneId
+            )
+        } else {
+            try insertFacetPane(database, workspaceId: workspaceId, paneId: paneId, parentPaneId: parentPaneId)
+        }
+    }
+
+    private func paneTableColumnNames(_ database: Database) throws -> Set<String> {
+        let rows = try Row.fetchAll(database, sql: "PRAGMA table_info(pane)")
+        return Set(rows.compactMap { row in row["name"] as String? })
+    }
+
+    private func insertLegacySourcePane(
+        _ database: Database,
+        workspaceId: String,
+        paneId: String,
+        parentPaneId: String?
+    ) throws {
         try database.execute(
             sql: """
                 INSERT INTO pane(
@@ -423,6 +446,40 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
                 SQLitePaneContentTypeStorage.storageValue(for: .terminal),
                 "zmx",
                 "workspace",
+                nil,
+                nil,
+                "/tmp",
+                "Terminal",
+                "/tmp",
+                "active",
+                parentPaneId == nil ? "leaf" : "drawerChild",
+                parentPaneId,
+                1.0,
+                1.0,
+            ]
+        )
+    }
+
+    private func insertFacetPane(
+        _ database: Database,
+        workspaceId: String,
+        paneId: String,
+        parentPaneId: String?
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO pane(
+                    id, workspace_id, content_type, execution_backend,
+                    facet_repo_id, facet_worktree_id, launch_directory, title, cwd,
+                    residency_kind, kind, parent_pane_id, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                paneId,
+                workspaceId,
+                SQLitePaneContentTypeStorage.storageValue(for: .terminal),
+                "zmx",
                 nil,
                 nil,
                 "/tmp",

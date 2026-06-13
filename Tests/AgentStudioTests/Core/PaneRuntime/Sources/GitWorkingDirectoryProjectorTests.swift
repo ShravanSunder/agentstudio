@@ -676,7 +676,10 @@ struct GitWorkingDirectoryProjectorTests {
             return labels.contains { $0.contains("healthy-after-nil") }
         }
         #expect(healthyWorktreeAdmittedBeforeRetryDelay)
-        #expect(await observed.snapshotCount(for: healthyWorktreeId) == 1)
+        let healthySnapshotObserved = await waitUntil {
+            await observed.snapshotCount(for: healthyWorktreeId) == 1
+        }
+        #expect(healthySnapshotObserved)
 
         await actor.shutdown()
         collectionTask.cancel()

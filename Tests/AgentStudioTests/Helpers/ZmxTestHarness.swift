@@ -189,6 +189,23 @@ final class ZmxTestHarness: @unchecked Sendable {
         return result.stdout
     }
 
+    func waitForSessionHistory(
+        sessionId: String,
+        containing expectedContent: String,
+        timeout: Duration = .seconds(5)
+    ) async -> Bool {
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if let history = try? await sessionHistory(sessionId: sessionId),
+                history.contains(expectedContent)
+            {
+                return true
+            }
+            try? await clock.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
     private func awaitSessionSocketEvent(
         fileDescriptor: Int32,
         sessionSocketPath: String,

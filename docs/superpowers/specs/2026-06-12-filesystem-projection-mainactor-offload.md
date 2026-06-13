@@ -357,12 +357,12 @@ Smoke/proof gates:
 
 - Launch debug/beta observability by PID/marker, never the user's production
   AgentStudio.
-- Preserve the PID-scoped JSONL artifact even when the collector is healthy;
-  Victoria is the primary aggregate proof, not the only proof. The existing
-  `scripts/verify-git-refresh-performance-workload.sh` satisfies this contract
-  when `AGENTSTUDIO_PERF_TRACE_BACKEND=both`; otherwise add a dedicated helper
-  with the same isolated-data, JSONL, marker-scoped Victoria, and script-test
-  guarantees before claiming the proof gate.
+- Launch performance proof through `scripts/run-debug-observability.sh`; the
+  performance workload owns fixture generation and writer pressure only, not app
+  identity, build-slot selection, data root, zmx root, or process attribution.
+  VictoriaLogs is the primary proof source, with JSONL treated only as an
+  optional fallback if the shared debug runner is explicitly configured to emit
+  it.
 - Use an existing automated workload surface for the first slice:
   - run the git refresh performance workload with reduced duration/repo counts
     for local iteration and production-scale counts for PR proof when resource
