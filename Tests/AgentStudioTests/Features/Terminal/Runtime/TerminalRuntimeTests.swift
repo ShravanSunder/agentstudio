@@ -11,7 +11,7 @@ struct TerminalRuntimeTests {
     func rejectWhenNotReady() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         let commandEnvelope = makeEnvelope(command: .activate, paneId: runtime.paneId)
         let result = await runtime.handleCommand(commandEnvelope)
@@ -22,7 +22,7 @@ struct TerminalRuntimeTests {
     func succeedsWhenReady() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
         let commandEnvelope = makeEnvelope(command: .activate, paneId: runtime.paneId)
@@ -39,7 +39,7 @@ struct TerminalRuntimeTests {
     func terminalCommandFailsWithoutSurface() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
@@ -52,7 +52,7 @@ struct TerminalRuntimeTests {
     func scrollToBottomTerminalCommandFailsWithoutSurface() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
@@ -66,7 +66,7 @@ struct TerminalRuntimeTests {
     func scrollPageUpTerminalCommandFailsWithoutSurface() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
@@ -80,7 +80,7 @@ struct TerminalRuntimeTests {
     func jumpToPromptTerminalCommandFailsWithoutSurface() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
@@ -94,7 +94,7 @@ struct TerminalRuntimeTests {
     func rejectsUnsupportedCommandFamilies() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
@@ -117,7 +117,7 @@ struct TerminalRuntimeTests {
     func prepareForCloseTransitionsToDraining() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
@@ -135,7 +135,7 @@ struct TerminalRuntimeTests {
     func replaysEvents() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
         runtime.handleGhosttyEvent(.bellRang)
@@ -152,7 +152,7 @@ struct TerminalRuntimeTests {
     func ghosttyEventMetadataAndEnvelope() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
@@ -184,7 +184,7 @@ struct TerminalRuntimeTests {
         let replayBuffer = EventReplayBuffer(config: .init(maxEvents: 2, maxBytes: 10_000, ttl: .seconds(300)))
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            metadata: PaneMetadata(title: "Runtime"),
             replayBuffer: replayBuffer
         )
         runtime.transitionToReady()
@@ -203,7 +203,7 @@ struct TerminalRuntimeTests {
     func actionEventsBypassReplayBuffer() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
         var iterator = runtime.subscribe().makeAsyncIterator()
@@ -235,7 +235,7 @@ struct TerminalRuntimeTests {
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: harness.bus
         )
         runtime.transitionToReady()
@@ -301,7 +301,7 @@ struct TerminalRuntimeTests {
         let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: paneEventBus
         )
         runtime.transitionToReady()
@@ -329,7 +329,7 @@ struct TerminalRuntimeTests {
     func mouseEventsUpdateObservableRuntimeState() {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
@@ -345,7 +345,7 @@ struct TerminalRuntimeTests {
         let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: paneEventBus
         )
         runtime.transitionToReady()
@@ -373,7 +373,7 @@ struct TerminalRuntimeTests {
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: harness.bus
         )
         runtime.transitionToReady()
@@ -433,7 +433,7 @@ struct TerminalRuntimeTests {
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: harness.bus
         )
         runtime.transitionToReady()
@@ -471,7 +471,7 @@ struct TerminalRuntimeTests {
     func searchEnded_clearsStateAndReplays() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
@@ -498,7 +498,7 @@ struct TerminalRuntimeTests {
         let subscriber = await harness.makeSubscriber()
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: harness.bus
         )
         runtime.transitionToReady()
@@ -534,7 +534,7 @@ struct TerminalRuntimeTests {
         let paneEventBus = EventBus<RuntimeEnvelope>()
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            metadata: PaneMetadata(title: "Runtime"),
             paneEventBus: paneEventBus
         )
         runtime.transitionToReady()
@@ -554,7 +554,7 @@ struct TerminalRuntimeTests {
     func subscribeBroadcastsToMultipleSubscribers() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
 
@@ -594,7 +594,7 @@ struct TerminalRuntimeTests {
     func shutdownFinishesEventStream() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
         var iterator = runtime.subscribe().makeAsyncIterator()
@@ -610,7 +610,7 @@ struct TerminalRuntimeTests {
     func rejectCommandsAfterShutdown() async {
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         runtime.transitionToReady()
         _ = await runtime.shutdown(timeout: .seconds(1))

@@ -42,9 +42,11 @@ final class DynamicViewDerivedTests {
         let pane1 = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .worktree(worktreeId: wtA1.id, repoId: repoA.id, launchDirectory: wtA1.path),
+                launchDirectory: wtA1.path,
                 title: "agent-studio main",
                 facets: PaneContextFacets(
+                    repoId: repoA.id,
+                    worktreeId: wtA1.id,
                     cwd: URL(fileURLWithPath: "/Users/dev/projects/agent-studio/main")
                 ),
             )
@@ -52,9 +54,11 @@ final class DynamicViewDerivedTests {
         let pane2 = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .worktree(worktreeId: wtA2.id, repoId: repoA.id, launchDirectory: wtA2.path),
+                launchDirectory: wtA2.path,
                 title: "agent-studio feature-x",
                 facets: PaneContextFacets(
+                    repoId: repoA.id,
+                    worktreeId: wtA2.id,
                     cwd: URL(fileURLWithPath: "/Users/dev/projects/agent-studio/feature-x")
                 )
             )
@@ -62,9 +66,11 @@ final class DynamicViewDerivedTests {
         let pane3 = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .worktree(worktreeId: wtB1.id, repoId: repoB.id, launchDirectory: wtB1.path),
+                launchDirectory: wtB1.path,
                 title: "askluna main",
                 facets: PaneContextFacets(
+                    repoId: repoB.id,
+                    worktreeId: wtB1.id,
                     cwd: URL(fileURLWithPath: "/Users/dev/projects/askluna/main")
                 )
             )
@@ -72,7 +78,6 @@ final class DynamicViewDerivedTests {
         let pane4 = Pane(
             content: .webview(WebviewState(url: URL(string: "https://docs.example.com")!, showNavigation: true)),
             metadata: PaneMetadata(
-                source: .floating(launchDirectory: nil, title: "Docs"),
                 title: "Docs"
             )
         )
@@ -280,7 +285,7 @@ final class DynamicViewDerivedTests {
         // Add a pane that's not in any tab
         let orphan = Pane(
             content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Orphan")
+            metadata: PaneMetadata(title: "Orphan")
         )
         panes[orphan.id] = orphan
 

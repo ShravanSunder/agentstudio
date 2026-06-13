@@ -183,12 +183,7 @@ enum CommandBarDataSource {
                 let isActive = tab.activePaneId == paneId
 
                 let capturedPaneId = pane.id
-                let targetType: SearchItemType = {
-                    switch pane.source {
-                    case .floating: return .floatingTerminal
-                    case .worktree: return .pane
-                    }
-                }()
+                let targetType = targetTypeForPane(pane)
                 var paneKeywords = keywordsForPane(pane, store: store, repoCache: repoCache)
                 paneKeywords.append(tabDisplayTitle(tab: tab, store: store, repoCache: repoCache))
                 items.append(
@@ -256,12 +251,7 @@ enum CommandBarDataSource {
                 let isActive = tab.activePaneId == paneId
 
                 let capturedPaneId = pane.id
-                let targetType: SearchItemType = {
-                    switch pane.source {
-                    case .floating: return .floatingTerminal
-                    case .worktree: return .pane
-                    }
-                }()
+                let targetType = targetTypeForPane(pane)
                 var paneKeywords = keywordsForPane(pane, store: store, repoCache: repoCache)
                 paneKeywords.append(tabTitle)
                 items.append(
@@ -467,11 +457,7 @@ enum CommandBarDataSource {
             for (tabIndex, tab) in workspaceTab.tabs.enumerated() {
                 for paneId in tab.activePaneIds {
                     guard let pane = workspacePane.pane(paneId) else { continue }
-                    let targetType: SearchItemType
-                    switch pane.source {
-                    case .floating: targetType = .floatingTerminal
-                    case .worktree: targetType = .pane
-                    }
+                    let targetType = targetTypeForPane(pane)
                     items.append(
                         CommandBarItem(
                             id: "target-pane-\(pane.id.uuidString)",
@@ -705,16 +691,17 @@ enum CommandBarDataSource {
 
     // MARK: - Helpers
 
+    private static func targetTypeForPane(_ pane: Pane) -> SearchItemType {
+        pane.worktreeId == nil ? .floatingTerminal : .pane
+    }
+
     private static func iconForPane(_ pane: Pane) -> CommandIcon {
         switch pane.content {
         case .webview: return .system(.globe)
         case .bridgePanel: return .system(.rectangleSplit2x1)
         case .codeViewer: return .system(.docText)
         default:
-            switch pane.source {
-            case .floating: return .system(.terminalFill)
-            case .worktree: return .system(.terminal)
-            }
+            return targetTypeForPane(pane) == .floatingTerminal ? .system(.terminalFill) : .system(.terminal)
         }
     }
 

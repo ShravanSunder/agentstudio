@@ -16,10 +16,10 @@ final class PaneArrangementInvariantTests {
 
     @Test
     func insertPaneAddsPaneToEveryArrangementInTab() throws {
-        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let firstPane = store.createPane()
         let tab = Tab(paneId: firstPane.id)
         store.appendTab(tab)
-        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let secondPane = store.createPane()
         store.insertPane(
             secondPane.id,
             inTab: tab.id,
@@ -30,7 +30,7 @@ final class PaneArrangementInvariantTests {
         )
         let customArrangementId = try #require(store.createArrangement(name: "Focus", inTab: tab.id))
 
-        let thirdPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let thirdPane = store.createPane()
         store.insertPane(
             thirdPane.id,
             inTab: tab.id,
@@ -48,10 +48,10 @@ final class PaneArrangementInvariantTests {
 
     @Test
     func removePanePrunesOwnedDrawerViews() throws {
-        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let parentPane = store.createPane()
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)
-        let siblingPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let siblingPane = store.createPane()
         store.insertPane(
             siblingPane.id,
             inTab: tab.id,
@@ -73,7 +73,7 @@ final class PaneArrangementInvariantTests {
 
     @Test
     func removingLastDrawerPanePreservesDrawerIdentity() throws {
-        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let parentPane = store.createPane()
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)
         let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))

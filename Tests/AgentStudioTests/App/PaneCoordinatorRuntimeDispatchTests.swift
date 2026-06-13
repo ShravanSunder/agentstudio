@@ -50,7 +50,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-dispatch")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -109,7 +109,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-not-ready")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -146,7 +146,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-capability")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -188,7 +188,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-diff")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(title: "Runtime")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -239,7 +239,9 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-close")!)),
             metadata: PaneMetadata(
-                source: .floating(launchDirectory: nil, title: "RuntimeClose"), title: "RuntimeClose")
+                contentType: .browser,
+                title: "RuntimeClose"
+            )
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -274,11 +276,11 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(title: "Source")
         )
         let otherPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/other")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Other"), title: "Other")
+            metadata: PaneMetadata(title: "Other")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         let otherTab = Tab(paneId: otherPane.id)
@@ -331,11 +333,11 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-next")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(title: "Source")
         )
         let nextPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/next")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Next"), title: "Next")
+            metadata: PaneMetadata(title: "Next")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         let nextTab = Tab(paneId: nextPane.id)
@@ -387,7 +389,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-metadata")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(title: "Source")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         store.appendTab(sourceTab)
@@ -461,8 +463,9 @@ struct PaneCoordinatorRuntimeDispatchTests {
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [main, feature])
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: main.id, repoId: repo.id, launchDirectory: main.path),
-            title: "Terminal"
+            launchDirectory: main.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: main.id, cwd: main.path),
         )
         store.appendTab(Tab(paneId: pane.id))
 
@@ -491,12 +494,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         #expect(updated?.worktreeId == feature.id)
         #expect(updated?.metadata.worktreeName == "feature")
 
-        guard case .worktree(let launchWorktreeId, _, let launchDirectory) = updated?.metadata.source else {
-            Issue.record("Expected launch source to remain unchanged")
-            return
-        }
-        #expect(launchWorktreeId == main.id)
-        #expect(launchDirectory == main.path)
+        #expect(updated?.metadata.launchDirectory == main.path)
 
         try? FileManager.default.removeItem(at: tempDir)
     }
@@ -520,15 +518,15 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let leftPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/left")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Left"), title: "Left")
+            metadata: PaneMetadata(title: "Left")
         )
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-right")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(title: "Source")
         )
         let rightPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/right")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Right"), title: "Right")
+            metadata: PaneMetadata(title: "Right")
         )
         let leftTab = Tab(paneId: leftPane.id)
         let sourceTab = Tab(paneId: sourcePane.id)
@@ -585,15 +583,15 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-first")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(title: "Source")
         )
         let rightOnePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/right-one")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "RightOne"), title: "RightOne")
+            metadata: PaneMetadata(title: "RightOne")
         )
         let rightTwoPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/right-two")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "RightTwo"), title: "RightTwo")
+            metadata: PaneMetadata(title: "RightTwo")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         let rightOneTab = Tab(paneId: rightOnePane.id)
@@ -648,11 +646,11 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let leftPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/left-last")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Left"), title: "Left")
+            metadata: PaneMetadata(title: "Left")
         )
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-last")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(title: "Source")
         )
         let leftTab = Tab(paneId: leftPane.id)
         let sourceTab = Tab(paneId: sourcePane.id)
@@ -706,15 +704,15 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-index")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(title: "Source")
         )
         let middlePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/middle-index")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Middle"), title: "Middle")
+            metadata: PaneMetadata(title: "Middle")
         )
         let lastPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/last-index")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Last"), title: "Last")
+            metadata: PaneMetadata(title: "Last")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         let middleTab = Tab(paneId: middlePane.id)
@@ -785,15 +783,15 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-boundary")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(title: "Source")
         )
         let middlePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/middle-boundary")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Middle"), title: "Middle")
+            metadata: PaneMetadata(title: "Middle")
         )
         let lastPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/last-boundary")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Last"), title: "Last")
+            metadata: PaneMetadata(title: "Last")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         let middleTab = Tab(paneId: middlePane.id)

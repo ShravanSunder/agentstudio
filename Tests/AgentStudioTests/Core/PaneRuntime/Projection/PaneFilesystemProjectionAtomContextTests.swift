@@ -125,11 +125,7 @@ struct PaneFilesystemProjectionAtomContextTests {
         Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .worktree(
-                    worktreeId: worktreeId,
-                    repoId: repoId,
-                    launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
-                ),
+                launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
                 title: "Pane",
                 facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: cwd)
             )

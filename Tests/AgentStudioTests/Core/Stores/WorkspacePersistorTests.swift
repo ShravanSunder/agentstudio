@@ -82,15 +82,16 @@ final class WorkspacePersistorTests {
     func test_saveAndLoad_withPanes() throws {
         // Arrange
         let pane = makePane(
-            source: .worktree(
-                worktreeId: UUID(),
-                repoId: UUID(),
-                launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
-            ),
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
             title: "Feature",
             provider: .zmx,
             lifetime: .persistent,
-            residency: .active
+            residency: .active,
+            facets: PaneContextFacets(
+                repoId: UUID(),
+                worktreeId: UUID(),
+                cwd: URL(fileURLWithPath: "/tmp/worktree")
+            )
         )
         var state = WorkspacePersistor.PersistableState()
         state.panes = [pane]
@@ -328,13 +329,13 @@ final class WorkspacePersistorTests {
         let firstDrawerChildPane = Pane(
             id: firstDrawerChildPaneId,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "First Drawer Child"),
+            metadata: PaneMetadata(title: "First Drawer Child"),
             kind: .drawerChild(parentPaneId: parentPane.id)
         )
         let secondDrawerChildPane = Pane(
             id: secondDrawerChildPaneId,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Second Drawer Child"),
+            metadata: PaneMetadata(title: "Second Drawer Child"),
             kind: .drawerChild(parentPaneId: parentPane.id)
         )
         var tab = Tab(paneId: parentPane.id)

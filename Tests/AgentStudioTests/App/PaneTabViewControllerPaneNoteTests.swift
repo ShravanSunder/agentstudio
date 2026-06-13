@@ -89,7 +89,7 @@ struct PaneTabViewControllerPaneNoteTests {
         launchDirectory: URL? = nil
     ) -> Pane {
         let pane = harness.store.createPane(
-            source: .floating(launchDirectory: launchDirectory, title: "Terminal"),
+            launchDirectory: launchDirectory,
             title: "Terminal",
             provider: .zmx
         )

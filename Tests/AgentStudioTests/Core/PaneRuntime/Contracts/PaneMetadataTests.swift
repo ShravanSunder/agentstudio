@@ -8,7 +8,6 @@ struct PaneMetadataTests {
     @Test("pane note trims whitespace and stores nil for blank notes")
     func paneNoteNormalizesBlankValues() {
         var metadata = PaneMetadata(
-            source: .floating(launchDirectory: nil, title: "scratch"),
             title: "Terminal"
         )
 
@@ -22,7 +21,6 @@ struct PaneMetadataTests {
     @Test("pane metadata decodes persisted values without a note")
     func paneMetadataDecodesWithoutNote() throws {
         let original = PaneMetadata(
-            source: .floating(launchDirectory: nil, title: "scratch"),
             title: "Terminal"
         )
         var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as! [String: Any]
@@ -37,7 +35,6 @@ struct PaneMetadataTests {
     @Test("pane metadata note round-trips through persistence encoding")
     func paneMetadataNoteRoundTripsThroughPersistenceEncoding() throws {
         let original = PaneMetadata(
-            source: .floating(launchDirectory: nil, title: "scratch"),
             title: "Terminal",
             note: "  Keep an eye on deploy logs  "
         )

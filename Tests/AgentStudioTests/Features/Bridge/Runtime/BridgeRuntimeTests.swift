@@ -145,7 +145,6 @@ struct BridgeRuntimeTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .diff,
-            source: .floating(launchDirectory: nil, title: "Diff"),
             title: "Diff"
         )
         return BridgeRuntime(

@@ -6,6 +6,14 @@ enum AppPolicies {
         static let traceEventQueueBufferLimit: Int = 4096
     }
 
+    enum WorkspacePersistence {
+        static let debouncedAutosaveFailureDampingThreshold: Int = 3
+    }
+
+    enum ZmxStartup {
+        static let reconciliationTimeoutNanoseconds: UInt64 = 3_000_000_000
+    }
+
     enum SelectablePopover {
         static let maxNumberedShortcuts: Int = 9
     }

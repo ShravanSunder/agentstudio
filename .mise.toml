@@ -110,7 +110,7 @@ swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"
 echo "--- architecture boundary checks ---"
 bash scripts/check-core-boundary-imports.sh
 echo "--- release script checks ---"
-bash scripts/verify-release-scripts.sh
+/bin/bash scripts/verify-release-scripts.sh
 """
 
 [tasks.doctor-mac]
@@ -170,81 +170,15 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.test]
 description = "Run default test suite (excludes E2E + ZmxE2E by default)"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
-BUILD_PATH="$SWIFT_BUILD_DIR"
-TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
-echo "[test] BUILD_PATH=$BUILD_PATH"
-echo "[test] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
-
-LOG_PREFIX="test"
-EXTRA_SWIFT_TEST_ARGS=""
-source scripts/swift-test-helpers.sh
-
-prebuild_swift_tests
-
-run_non_serialized_swift_tests "non-serialized suites"
-run_webkit_suites
-
-echo "--- E2E serialized tests (serial) ---"
-if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
-  run_swift_with_timeout \
-    "E2ESerializedTests" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH"
-else
-  echo "[test] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
-fi
-echo "--- Zmx E2E tests (serial) ---"
-if [ "${SWIFT_TEST_INCLUDE_ZMX_E2E:-0}" = "1" ]; then
-  run_swift_with_timeout \
-    "ZmxE2ETests" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH"
-else
-  echo "[test] skipping ZmxE2ETests (SWIFT_TEST_INCLUDE_ZMX_E2E=${SWIFT_TEST_INCLUDE_ZMX_E2E:-0})"
-fi
-"""
+run = "/bin/bash scripts/run-swift-test-task.sh test"
 
 [tasks.test-fast]
 description = "Run fast lane: unit + non-WebKit integration tests, excluding WebKit/E2E/ZmxE2E"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
-BUILD_PATH="$SWIFT_BUILD_DIR"
-TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
-echo "[test-fast] BUILD_PATH=$BUILD_PATH"
-echo "[test-fast] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
-
-LOG_PREFIX="test-fast"
-EXTRA_SWIFT_TEST_ARGS=""
-source scripts/swift-test-helpers.sh
-
-prebuild_swift_tests
-run_non_serialized_swift_tests "fast non-WebKit suites"
-"""
+run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
 
 [tasks.test-webkit]
 description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
-BUILD_PATH="$SWIFT_BUILD_DIR"
-TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
-echo "[test-webkit] BUILD_PATH=$BUILD_PATH"
-echo "[test-webkit] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
-
-LOG_PREFIX="test-webkit"
-EXTRA_SWIFT_TEST_ARGS=""
-source scripts/swift-test-helpers.sh
-
-prebuild_swift_tests
-run_webkit_suites
-"""
+run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"
 
 [tasks.test-coverage]
 description = "Run test suite with code coverage and print coverage JSON path"
@@ -308,7 +242,8 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
@@ -320,7 +255,8 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
@@ -428,7 +364,7 @@ cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
 MARKETING_VERSION="${APP_MARKETING_VERSION:-0.0.1-dev}"
 BUILD_VERSION="${APP_BUILD_VERSION:-$(git rev-list --count HEAD)}"
 RELEASE_CHANNEL="${APP_RELEASE_CHANNEL:-stable}"
-bash scripts/inject-bundle-version.sh "$APP_DIR/Info.plist" "$MARKETING_VERSION" "$BUILD_VERSION" "$RELEASE_CHANNEL"
+/bin/bash scripts/inject-bundle-version.sh "$APP_DIR/Info.plist" "$MARKETING_VERSION" "$BUILD_VERSION" "$RELEASE_CHANNEL"
 cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
 
 # terminfo
@@ -449,17 +385,23 @@ RESOURCE_BUNDLE="$(find "$BUILD_PATH" -path '*/release/AgentStudio_AgentStudio.b
 # Sign — uses Developer ID if SIGNING_IDENTITY is set, else ad-hoc
 ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
 IDENTITY="${SIGNING_IDENTITY:--}"
+TIMESTAMP_ARGS=()
+if [ "${SIGNING_TIMESTAMP:-1}" != "0" ]; then
+  TIMESTAMP_ARGS=(--timestamp)
+elif [ "$IDENTITY" != "-" ]; then
+  echo "Signing timestamp disabled (SIGNING_TIMESTAMP=0)"
+fi
 
 if [ "$IDENTITY" != "-" ]; then
   echo "Signing with: $IDENTITY"
   if [ -d "AgentStudio.app/Contents/Frameworks" ]; then
     find AgentStudio.app/Contents/Frameworks -name "*.dylib" -o -name "*.framework" | while read item; do
-      codesign --force --sign "$IDENTITY" --timestamp --options runtime "$item"
+      codesign --force --sign "$IDENTITY" "${TIMESTAMP_ARGS[@]}" --options runtime "$item"
     done
   fi
   [ -f "AgentStudio.app/Contents/MacOS/zmx" ] && \
-    codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/MacOS/zmx"
-  codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" AgentStudio.app
+    codesign --force --sign "$IDENTITY" "${TIMESTAMP_ARGS[@]}" --options runtime --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/MacOS/zmx"
+  codesign --force --sign "$IDENTITY" "${TIMESTAMP_ARGS[@]}" --options runtime --entitlements "$ENTITLEMENTS" AgentStudio.app
 else
   echo "Ad-hoc signing (set SIGNING_IDENTITY for Developer ID)"
   codesign --force --deep --sign - AgentStudio.app
@@ -471,35 +413,43 @@ echo "AgentStudio.app created and signed"
 
 [tasks.create-beta-app-bundle]
 description = "Create a local signed AgentStudio Beta.app bundle from this branch"
-run = "bash scripts/create-local-beta-bundle.sh"
+run = "/bin/bash scripts/create-local-beta-bundle.sh"
 
 [tasks.run-beta-observability]
-description = "Launch AgentStudio Beta with full trace tags and shared OTLP when available"
-run = "bash scripts/run-beta-observability.sh"
+description = "Launch AgentStudio Beta with full trace tags through the already-running shared OTLP collector"
+run = "/bin/bash scripts/run-beta-observability.sh"
+
+[tasks.run-debug-observability]
+description = "Build and launch debug AgentStudio with full trace tags and shared OTLP"
+run = "/bin/bash scripts/run-debug-observability.sh"
 
 [tasks.verify-beta-observability]
 description = "Verify AgentStudio beta records and scrubbed fields in VictoriaLogs"
-run = "bash scripts/verify-beta-observability.sh"
+run = "/bin/bash scripts/verify-beta-observability.sh"
+
+[tasks.verify-debug-observability]
+description = "Verify AgentStudio debug startup records and scrubbed fields in VictoriaLogs"
+run = "/bin/bash scripts/verify-debug-observability.sh"
 
 [tasks."observability:up"]
 description = "Start the shared local Victoria + OTel collector stack"
-run = "bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" up"
+run = "/bin/bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" up"
 
 [tasks."observability:status"]
 description = "Show shared local observability stack status"
-run = "bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" status"
+run = "/bin/bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" status"
 
 [tasks."observability:smoke"]
 description = "Send a safe OTLP canary through the shared collector and query VictoriaLogs"
-run = "bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" smoke"
+run = "/bin/bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" smoke"
 
 [tasks."observability:down"]
 description = "Stop the shared local observability stack without deleting data"
-run = "bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" down"
+run = "/bin/bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" down"
 
 [tasks."observability:agentstudio-beta-env"]
 description = "Print env vars for AgentStudio beta full-tag OTLP sessions"
-run = "bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" agentstudio-beta-env"
+run = "/bin/bash \"$HOME/dev/devfiles/shared/observability/observability-stack\" agentstudio-beta-env"
 
 [tasks.generate-icon]
 description = "Regenerate AppIcon.icns from AppIcon.svg (requires: brew install librsvg)"

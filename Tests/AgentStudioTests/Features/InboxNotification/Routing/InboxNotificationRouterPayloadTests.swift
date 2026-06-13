@@ -172,7 +172,6 @@ struct InboxNotificationRouterPayloadTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .terminal,
-            source: .floating(launchDirectory: nil, title: nil),
             title: "Terminal"
         )
         let pane = Pane(

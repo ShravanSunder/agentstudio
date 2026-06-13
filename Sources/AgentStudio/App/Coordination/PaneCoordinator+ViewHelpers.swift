@@ -32,10 +32,7 @@ extension PaneCoordinator {
             return (
                 PaneMetadata(
                     contentType: .browser,
-                    source: .worktree(
-                        worktreeId: worktree.id, repoId: repo.id,
-                        launchDirectory: worktree.path
-                    ),
+                    launchDirectory: worktree.path,
                     title: fallbackTitle,
                     facets: PaneContextFacets(
                         repoId: repo.id,
@@ -54,10 +51,7 @@ extension PaneCoordinator {
             return (
                 PaneMetadata(
                     contentType: .browser,
-                    source: .worktree(
-                        worktreeId: resolved.worktree.id, repoId: resolved.repo.id,
-                        launchDirectory: resolved.worktree.path
-                    ),
+                    launchDirectory: resolved.worktree.path,
                     title: fallbackTitle,
                     facets: PaneContextFacets(
                         repoId: resolved.repo.id,
@@ -75,7 +69,6 @@ extension PaneCoordinator {
         return (
             PaneMetadata(
                 contentType: .browser,
-                source: .floating(launchDirectory: nil, title: fallbackTitle),
                 title: fallbackTitle
             ),
             nil,

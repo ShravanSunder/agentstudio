@@ -13,7 +13,7 @@ struct CommandBarTerminalCommandTests {
     @Test
     func commandsScopeIncludesTerminalScrollAndPromptCommandsInTerminalGroup() {
         let store = WorkspaceStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)

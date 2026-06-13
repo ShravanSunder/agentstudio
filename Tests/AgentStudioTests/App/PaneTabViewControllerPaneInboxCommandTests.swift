@@ -16,9 +16,10 @@ struct PaneTabViewControllerPaneInboxCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let parentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Parent",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
@@ -38,9 +39,10 @@ struct PaneTabViewControllerPaneInboxCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let parentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Parent",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
@@ -61,7 +63,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = harness.store.createPane()
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -77,7 +79,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = harness.store.createPane()
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -94,7 +96,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentPane = harness.store.createPane()
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -112,10 +114,10 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentPane = harness.store.createPane()
         let parentTab = Tab(paneId: parentPane.id)
         harness.store.appendTab(parentTab)
-        let unrelatedPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Unrelated"))
+        let unrelatedPane = harness.store.createPane()
         let unrelatedTab = Tab(paneId: unrelatedPane.id)
         harness.store.appendTab(unrelatedTab)
         harness.store.setActiveTab(unrelatedTab.id)
@@ -141,10 +143,10 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentPane = harness.store.createPane()
         let parentTab = Tab(paneId: parentPane.id)
         harness.store.appendTab(parentTab)
-        let unrelatedPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Unrelated"))
+        let unrelatedPane = harness.store.createPane()
         let unrelatedTab = Tab(paneId: unrelatedPane.id)
         harness.store.appendTab(unrelatedTab)
         harness.store.setActiveTab(unrelatedTab.id)
@@ -164,8 +166,8 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let visiblePane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Visible"))
-        let hiddenPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Hidden"))
+        let visiblePane = harness.store.createPane()
+        let hiddenPane = harness.store.createPane()
         let tab = Tab(paneId: visiblePane.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -226,10 +228,10 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentPane = harness.store.createPane()
         let parentTab = Tab(paneId: parentPane.id)
         harness.store.appendTab(parentTab)
-        let unrelatedPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Unrelated"))
+        let unrelatedPane = harness.store.createPane()
         let unrelatedTab = Tab(paneId: unrelatedPane.id)
         harness.store.appendTab(unrelatedTab)
         harness.store.setActiveTab(unrelatedTab.id)
@@ -259,11 +261,11 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activePane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Active"))
+        let activePane = harness.store.createPane()
         let activeTab = Tab(paneId: activePane.id)
         harness.store.appendTab(activeTab)
         harness.store.setActiveTab(activeTab.id)
-        let unattachedPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Detached"))
+        let unattachedPane = harness.store.createPane()
 
         #expect(
             !harness.controller.canExecute(
@@ -292,7 +294,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activePane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Active"))
+        let activePane = harness.store.createPane()
         let activeTab = Tab(paneId: activePane.id)
         harness.store.appendTab(activeTab)
         harness.store.setActiveTab(activeTab.id)

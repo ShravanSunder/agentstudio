@@ -671,7 +671,11 @@ enum WorkspaceSQLiteStateBridge {
     ) throws -> WorkspaceCoreRepository.PaneContentRecord {
         switch content {
         case .terminal(let state):
-            return .terminal(provider: state.provider, lifetime: state.lifetime)
+            return .terminal(
+                provider: state.provider,
+                lifetime: state.lifetime,
+                zmxSessionId: state.zmxSessionId
+            )
         case .webview(let state):
             return .webview(url: state.url, title: state.title, showNavigation: state.showNavigation)
         case .codeViewer(let state):
@@ -691,7 +695,7 @@ enum WorkspaceSQLiteStateBridge {
         from metadata: PaneMetadata
     ) -> WorkspaceCoreRepository.PaneMetadataRecord {
         .init(
-            source: paneSourceRecord(from: metadata.source),
+            launchDirectory: metadata.launchDirectory,
             executionBackend: metadata.executionBackend,
             createdAt: metadata.createdAt,
             title: metadata.title,
@@ -704,17 +708,6 @@ enum WorkspaceSQLiteStateBridge {
                 tags: metadata.facets.tags
             )
         )
-    }
-
-    private static func paneSourceRecord(
-        from source: PaneMetadata.PaneMetadataSource
-    ) -> WorkspaceCoreRepository.PaneSourceRecord {
-        switch source {
-        case .worktree(let worktreeId, let repoId, let launchDirectory):
-            .worktree(repoId: repoId, worktreeId: worktreeId, launchDirectory: launchDirectory)
-        case .floating(let launchDirectory, _):
-            .floating(launchDirectory: launchDirectory)
-        }
     }
 
     private static func paneResidencyRecord(
@@ -802,8 +795,8 @@ enum WorkspaceSQLiteStateBridge {
         from record: WorkspaceCoreRepository.PaneContentRecord
     ) throws -> PaneContent {
         switch record {
-        case .terminal(let provider, let lifetime):
-            .terminal(.init(provider: provider, lifetime: lifetime))
+        case .terminal(let provider, let lifetime, let zmxSessionId):
+            .terminal(.init(provider: provider, lifetime: lifetime, zmxSessionId: zmxSessionId))
         case .webview(let url, let title, let showNavigation):
             .webview(.init(url: url, title: title, showNavigation: showNavigation))
         case .codeViewer(let filePath, let scrollToLine):
@@ -821,7 +814,7 @@ enum WorkspaceSQLiteStateBridge {
         .init(
             paneId: PaneId(uuid: paneId),
             contentType: contentType,
-            source: paneMetadataSource(from: record.source),
+            launchDirectory: record.launchDirectory,
             executionBackend: record.executionBackend,
             createdAt: record.createdAt,
             title: record.title,
@@ -834,17 +827,6 @@ enum WorkspaceSQLiteStateBridge {
             checkoutRef: record.checkoutRef,
             note: record.note
         )
-    }
-
-    private static func paneMetadataSource(
-        from record: WorkspaceCoreRepository.PaneSourceRecord
-    ) -> PaneMetadata.PaneMetadataSource {
-        switch record {
-        case .worktree(let repoId, let worktreeId, let launchDirectory):
-            .worktree(worktreeId: worktreeId, repoId: repoId, launchDirectory: launchDirectory)
-        case .floating(let launchDirectory):
-            .floating(launchDirectory: launchDirectory, title: nil)
-        }
     }
 
     private static func paneResidency(

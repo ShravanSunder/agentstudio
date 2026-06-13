@@ -157,7 +157,6 @@ struct GhosttyActionRouterTests {
             paneId: paneId,
             metadata: PaneMetadata(
                 paneId: paneId,
-                source: .init(TerminalSource.floating(launchDirectory: nil, title: "Runtime")),
                 title: "Runtime"
             )
         )
@@ -195,7 +194,6 @@ struct GhosttyActionRouterTests {
             paneId: paneId,
             metadata: PaneMetadata(
                 paneId: paneId,
-                source: .init(TerminalSource.floating(launchDirectory: nil, title: "Runtime")),
                 title: "Runtime"
             )
         )
@@ -245,7 +243,6 @@ struct GhosttyActionRouterTests {
             paneId: paneId,
             metadata: PaneMetadata(
                 paneId: paneId,
-                source: .init(TerminalSource.floating(launchDirectory: nil, title: "Runtime")),
                 title: "Runtime"
             )
         )
@@ -350,7 +347,6 @@ struct GhosttyActionRouterTests {
             paneId: paneId,
             metadata: PaneMetadata(
                 paneId: paneId,
-                source: .init(TerminalSource.floating(launchDirectory: nil, title: "Runtime")),
                 title: "Runtime"
             )
         )
@@ -415,7 +411,6 @@ struct GhosttyActionRouterTests {
             paneId: paneId,
             metadata: PaneMetadata(
                 paneId: paneId,
-                source: .init(TerminalSource.floating(launchDirectory: nil, title: "Runtime")),
                 title: "Runtime"
             )
         )

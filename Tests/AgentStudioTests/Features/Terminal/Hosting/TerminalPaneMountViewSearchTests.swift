@@ -116,7 +116,7 @@ struct TerminalPaneMountViewSearchTests {
 
         let runtime = TerminalRuntime(
             paneId: PaneId(),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Terminal"), title: "Terminal")
+            metadata: PaneMetadata(title: "Terminal")
         )
         #expect(runtime.transitionToReady())
         runtime.handleGhosttyEvent(.cellSizeChanged(NSSize(width: 8, height: 20)))

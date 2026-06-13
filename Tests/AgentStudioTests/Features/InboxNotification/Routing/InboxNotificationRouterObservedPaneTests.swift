@@ -93,7 +93,6 @@ struct InboxNotificationRouterObservedPaneTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .terminal,
-            source: .floating(launchDirectory: nil, title: nil),
             title: "Terminal"
         )
         let pane = Pane(
@@ -682,7 +681,6 @@ struct InboxNotificationRouterObservedPaneTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .terminal,
-            source: .floating(launchDirectory: nil, title: nil),
             title: "Terminal"
         )
         let pane = Pane(
@@ -718,7 +716,6 @@ struct InboxNotificationRouterObservedPaneTests {
             metadata: PaneMetadata(
                 paneId: paneId,
                 contentType: .terminal,
-                source: .floating(launchDirectory: nil, title: nil),
                 title: "Terminal"
             )
         )

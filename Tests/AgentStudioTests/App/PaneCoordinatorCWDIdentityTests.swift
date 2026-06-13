@@ -42,8 +42,9 @@ struct PaneCoordinatorCWDIdentityTests {
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, featureWorktree])
         let pane = store.createPane(
-            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
-            title: "Terminal"
+            launchDirectory: mainWorktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: mainWorktree.id, cwd: mainWorktree.path)
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -60,7 +61,7 @@ struct PaneCoordinatorCWDIdentityTests {
         #expect(updated?.repoId == repo.id)
         #expect(updated?.worktreeId == featureWorktree.id)
         #expect(updated?.metadata.worktreeName == "feature")
-        #expect(updated?.metadata.source == pane.metadata.source)
+        #expect(updated?.metadata.launchDirectory == pane.metadata.launchDirectory)
 
         await coordinator.shutdown()
         try? FileManager.default.removeItem(at: tempDir)
@@ -90,8 +91,9 @@ struct PaneCoordinatorCWDIdentityTests {
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree])
         let pane = store.createPane(
-            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
-            title: "Terminal"
+            launchDirectory: mainWorktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: mainWorktree.id, cwd: mainWorktree.path)
         )
         store.appendTab(Tab(paneId: pane.id))
 
@@ -105,7 +107,7 @@ struct PaneCoordinatorCWDIdentityTests {
         }
 
         let updated = store.pane(pane.id)
-        #expect(updated?.metadata.source == pane.metadata.source)
+        #expect(updated?.metadata.launchDirectory == pane.metadata.launchDirectory)
         #expect(updated?.metadata.cwd == outsideKnownWorktrees)
         #expect(updated?.repoId == nil)
         #expect(updated?.worktreeId == nil)
@@ -145,8 +147,9 @@ struct PaneCoordinatorCWDIdentityTests {
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, featureWorktree])
         let pane = store.createPane(
-            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
-            title: "Terminal"
+            launchDirectory: mainWorktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: mainWorktree.id, cwd: mainWorktree.path)
         )
         store.appendTab(Tab(paneId: pane.id))
 
@@ -165,7 +168,7 @@ struct PaneCoordinatorCWDIdentityTests {
         }
 
         let updated = store.pane(pane.id)
-        #expect(updated?.metadata.source == pane.metadata.source)
+        #expect(updated?.metadata.launchDirectory == pane.metadata.launchDirectory)
         #expect(updated?.metadata.cwd == expectedCwd)
         #expect(updated?.repoId == repo.id)
         #expect(updated?.worktreeId == featureWorktree.id)
@@ -176,8 +179,8 @@ struct PaneCoordinatorCWDIdentityTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
-    @Test("surface cwd changed enriches floating source while preserving launch provenance")
-    func surfaceCwdChangedEnrichesFloatingSourceWhilePreservingLaunchProvenance() async {
+    @Test("surface cwd changed enriches live facets while preserving launch directory")
+    func surfaceCwdChangedEnrichesLiveFacetsWhilePreservingLaunchDirectory() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-floating-cwd-\(UUID().uuidString)")
         let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
@@ -199,20 +202,20 @@ struct PaneCoordinatorCWDIdentityTests {
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         let pane = store.createPane(
-            source: .floating(launchDirectory: URL(filePath: "/tmp/scratch"), title: "scratch"),
+            launchDirectory: URL(filePath: "/tmp/scratch"),
             title: "Scratch Terminal"
         )
         store.appendTab(Tab(paneId: pane.id))
 
         surfaceManager.sendCWDChange(surfaceId: UUID(), paneId: pane.id, cwd: worktree.path.appending(path: "Sources"))
 
-        await eventually("floating source cwd should refresh pane live identity") {
+        await eventually("floating cwd should refresh pane live identity") {
             store.pane(pane.id)?.repoId == repo.id
                 && store.pane(pane.id)?.worktreeId == worktree.id
         }
 
         let updated = store.pane(pane.id)
-        #expect(updated?.metadata.source == pane.metadata.source)
+        #expect(updated?.metadata.launchDirectory == pane.metadata.launchDirectory)
         #expect(updated?.repoId == repo.id)
         #expect(updated?.worktreeId == worktree.id)
         #expect(updated?.metadata.worktreeName == "floating-target")

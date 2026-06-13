@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 CHANNEL="${1:?usage: render-homebrew-cask.sh <stable|beta> <version> <sha256>}"

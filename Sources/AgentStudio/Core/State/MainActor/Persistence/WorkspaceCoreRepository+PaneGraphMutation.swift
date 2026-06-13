@@ -97,19 +97,18 @@ private func upsertPane(_ database: Database, workspaceId: UUID, pane: Workspace
     try database.execute(
         sql: """
             INSERT INTO pane(
-                id, workspace_id, content_type, execution_backend, source_kind,
-                source_repo_id, source_worktree_id, launch_directory, title, note,
+                id, workspace_id, content_type, execution_backend,
+                facet_repo_id, facet_worktree_id, launch_directory, title, note,
                 cwd, checkout_ref, residency_kind, pending_undo_expires_at,
                 orphan_reason_kind, orphan_worktree_path, kind, parent_pane_id,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 content_type = excluded.content_type,
                 execution_backend = excluded.execution_backend,
-                source_kind = excluded.source_kind,
-                source_repo_id = excluded.source_repo_id,
-                source_worktree_id = excluded.source_worktree_id,
+                facet_repo_id = excluded.facet_repo_id,
+                facet_worktree_id = excluded.facet_worktree_id,
                 launch_directory = excluded.launch_directory,
                 title = excluded.title,
                 note = excluded.note,
@@ -124,15 +123,21 @@ private func upsertPane(_ database: Database, workspaceId: UUID, pane: Workspace
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at
             """,
-        arguments: try paneStatementArguments(workspaceId: workspaceId, pane: pane)
+        arguments: try paneStatementArguments(database, workspaceId: workspaceId, pane: pane)
     )
 }
 
 private func replacePaneContent(_ database: Database, pane: WorkspaceCoreRepository.PaneRecord) throws {
     try deletePaneContentRows(database, paneId: pane.id)
     switch pane.content {
-    case .terminal(let provider, let lifetime):
-        try insertTerminalContent(database, paneId: pane.id, provider: provider, lifetime: lifetime)
+    case .terminal(let provider, let lifetime, let zmxSessionId):
+        try insertTerminalContent(
+            database,
+            paneId: pane.id,
+            provider: provider,
+            lifetime: lifetime,
+            zmxSessionId: zmxSessionId
+        )
     case .webview(let url, let title, let showNavigation):
         try insertWebviewContent(database, paneId: pane.id, url: url, title: title, showNavigation: showNavigation)
     case .codeViewer(let filePath, let scrollToLine):
@@ -152,14 +157,15 @@ private func insertTerminalContent(
     _ database: Database,
     paneId: UUID,
     provider: SessionProvider,
-    lifetime: SessionLifetime
+    lifetime: SessionLifetime,
+    zmxSessionId: String?
 ) throws {
     try database.execute(
         sql: """
-            INSERT INTO pane_content_terminal(pane_id, provider, lifetime)
-            VALUES (?, ?, ?)
+            INSERT INTO pane_content_terminal(pane_id, provider, lifetime, zmx_session_id)
+            VALUES (?, ?, ?, ?)
             """,
-        arguments: [paneId.uuidString, provider.rawValue, lifetime.rawValue]
+        arguments: [paneId.uuidString, provider.rawValue, lifetime.rawValue, zmxSessionId]
     )
 }
 
@@ -247,10 +253,11 @@ private func insertDrawerMembershipRows(_ database: Database, drawer: WorkspaceC
 }
 
 private func paneStatementArguments(
+    _ database: Database,
     workspaceId: UUID,
     pane: WorkspaceCoreRepository.PaneRecord
 ) throws -> StatementArguments {
-    let sourceIds = SQLitePaneGraphStorage.sourceIds(pane: pane)
+    let facetIds = try resolvedPaneReferenceIds(database, workspaceId: workspaceId, pane: pane)
     let residency = SQLitePaneGraphStorage.residency(pane.residency)
     let placement = SQLitePaneGraphStorage.placement(pane.placement)
     let values: [(any DatabaseValueConvertible)?] = [
@@ -258,10 +265,9 @@ private func paneStatementArguments(
         workspaceId.uuidString,
         SQLitePaneContentTypeStorage.storageValue(for: pane.content.contentType),
         try encodeExecutionBackend(pane.metadata.executionBackend),
-        SQLitePaneGraphStorage.sourceKind(pane.metadata.source),
-        sourceIds.repoId?.uuidString,
-        sourceIds.worktreeId?.uuidString,
-        pane.metadata.source.launchDirectory?.path,
+        facetIds.repoId?.uuidString,
+        facetIds.worktreeId?.uuidString,
+        pane.metadata.launchDirectory?.path,
         pane.metadata.title,
         pane.metadata.note,
         pane.metadata.durableFacets.cwd?.path,
@@ -276,6 +282,74 @@ private func paneStatementArguments(
         pane.updatedAt.timeIntervalSince1970,
     ]
     return StatementArguments(values)
+}
+
+private func resolvedPaneReferenceIds(
+    _ database: Database,
+    workspaceId: UUID,
+    pane: WorkspaceCoreRepository.PaneRecord
+) throws -> (repoId: UUID?, worktreeId: UUID?) {
+    let facets = pane.metadata.durableFacets
+    if let worktreeId = facets.worktreeId {
+        guard
+            let repoId = try fetchPaneReferenceWorktreeRepoId(
+                database,
+                workspaceId: workspaceId,
+                worktreeId: worktreeId
+            )
+        else {
+            return (nil, nil)
+        }
+        return (repoId, worktreeId)
+    }
+
+    if let repoId = facets.repoId, try paneReferenceRepoExists(database, workspaceId: workspaceId, repoId: repoId) {
+        return (repoId, nil)
+    }
+    return (nil, nil)
+}
+
+private func fetchPaneReferenceWorktreeRepoId(
+    _ database: Database,
+    workspaceId: UUID,
+    worktreeId: UUID
+) throws -> UUID? {
+    guard
+        let repoIdString = try String.fetchOne(
+            database,
+            sql: """
+                SELECT repo_id
+                FROM worktree
+                WHERE id = ?
+                AND workspace_id = ?
+                """,
+            arguments: [worktreeId.uuidString, workspaceId.uuidString]
+        )
+    else {
+        return nil
+    }
+    guard let repoId = UUID(uuidString: repoIdString) else {
+        throw WorkspaceCoreRepositoryError.malformedRepoId(repoIdString)
+    }
+    return repoId
+}
+
+private func paneReferenceRepoExists(
+    _ database: Database,
+    workspaceId: UUID,
+    repoId: UUID
+) throws -> Bool {
+    let matchingCount = try Int.fetchOne(
+        database,
+        sql: """
+            SELECT count(*)
+            FROM repo
+            WHERE id = ?
+            AND workspace_id = ?
+            """,
+        arguments: [repoId.uuidString, workspaceId.uuidString]
+    )
+    return matchingCount == 1
 }
 
 private func paneGraphPlaceholders(count: Int) -> String {

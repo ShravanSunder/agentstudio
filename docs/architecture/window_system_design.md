@@ -52,12 +52,14 @@ Pane Context Chain:
 
 | Property | Source | Example |
 |----------|--------|---------|
-| `repoId` | From `TerminalSource.worktree` | UUID of "agent-studio" repo |
-| `worktreeId` | From `TerminalSource.worktree` | UUID of "feature-x" worktree |
+| `repoId` | Live `PaneContextFacets`, resolved from cwd/topology | UUID of "agent-studio" repo |
+| `worktreeId` | Live `PaneContextFacets`, resolved from cwd/topology | UUID of "feature-x" worktree |
 | `cwd` | Live from shell (propagated) | `~/dev/agent-studio/src` |
 | Parent folder | Auto-detected from repo path | `~/dev/agent-studio/` |
 
-**Floating terminals** (`TerminalSource.floating`) have no repo or worktree — just a working directory and optional title. They are standalone panes not tied to any project.
+**Floating terminals** are panes whose live facets currently have no repo or
+worktree. They still carry a launch directory for cold spawn, but grouping and
+classification follow cwd/topology rather than any creation-time binding.
 
 **Tab-pane relationship:**
 - A tab is a container — it does not inherently belong to a repo
@@ -464,8 +466,8 @@ Same panes, different slicing. The panes themselves don't move — the dynamic v
 ### Facet Sources
 
 **Auto-detected (no user setup)**:
-- Repo — already tracked per pane via metadata.source
-- Worktree — already tracked per pane via metadata.source
+- Repo — tracked per pane via live metadata facets
+- Worktree — tracked per pane via live metadata facets
 - CWD — already propagated from shell
 - Agent type — already tracked in metadata
 - Parent folder — auto-detected from repo path on disk (e.g., `~/dev/askluna/` groups all repos under it)
