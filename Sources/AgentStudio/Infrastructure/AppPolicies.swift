@@ -84,7 +84,7 @@ enum AppPolicies {
     }
 
     enum ZmxStartup {
-        static let reconciliationTimeoutNanoseconds: UInt64 = 3_000_000_000
+        static let reconciliationTimeout: Duration = .seconds(3)
     }
 
     enum SelectablePopover {

@@ -298,7 +298,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let timeoutTask = Task {
             do {
-                try await Task.sleep(nanoseconds: AppPolicies.ZmxStartup.reconciliationTimeoutNanoseconds)
+                try await Task.sleep(for: AppPolicies.ZmxStartup.reconciliationTimeout)
                 reconciliationTask.cancel()
             } catch {}
         }
@@ -474,7 +474,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         var didChange = false
         for (paneId, sessionId) in sortedAnchors {
-            didChange = store.paneAtom.setTerminalZmxSessionId(paneId, sessionId: sessionId) || didChange
+            if store.paneAtom.setTerminalZmxSessionId(paneId, sessionId: sessionId) {
+                didChange = true
+            }
         }
         guard didChange else { return true }
 
