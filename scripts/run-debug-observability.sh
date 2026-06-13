@@ -186,13 +186,13 @@ write_launch_failed_state() {
   {
     write_state_value AGENTSTUDIO_OBSERVABILITY_STATUS launch_failed
     write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR debug
-    write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "$debug_code"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "${debug_code:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_REASON "$reason"
     write_state_value AGENTSTUDIO_OBSERVABILITY_APP "${app_path:-}"
-    write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
-    write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "${debug_root:-}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "${debug_zmx_dir:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "${launch_log:-}"
-    write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "$build_path"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "${build_path:-}"
   } >"$state_file"
 }
 
@@ -438,7 +438,10 @@ fi
 binary_path="$build_path/debug/AgentStudio"
 
 if [ ! -x "$STACK_HELPER" ]; then
+  mkdir -p "$(dirname "$state_file")"
+  write_launch_failed_state observability_stack_helper_not_executable
   echo "observability stack helper not executable: $STACK_HELPER" >&2
+  echo "observability state: $state_file" >&2
   exit 1
 fi
 
@@ -447,6 +450,7 @@ if ! "$CURL_BIN" --fail --silent --show-error --max-time 2 "$COLLECTOR_HEALTH_UR
   write_launch_failed_state otlp_collector_unhealthy
   echo "OTLP collector is not healthy at $COLLECTOR_HEALTH_URL" >&2
   echo "Run: mise run observability:up" >&2
+  echo "observability state: $state_file" >&2
   exit 1
 fi
 
@@ -525,11 +529,20 @@ if [ -n "$existing_pids" ]; then
 fi
 
 if [ "$skip_build" = false ]; then
-  swift build --build-path "$build_path"
+  if ! swift build --build-path "$build_path"; then
+    mkdir -p "$(dirname "$state_file")"
+    write_launch_failed_state swift_build_failed
+    echo "debug AgentStudio build failed" >&2
+    echo "observability state: $state_file" >&2
+    exit 1
+  fi
 fi
 
 if [ ! -x "$binary_path" ]; then
+  mkdir -p "$(dirname "$state_file")"
+  write_launch_failed_state debug_executable_not_found
   echo "debug AgentStudio executable not found: $binary_path" >&2
+  echo "observability state: $state_file" >&2
   exit 1
 fi
 
@@ -618,14 +631,11 @@ if [ "$detach" = true ]; then
     fi
   fi
   if [ "$launched_with_direct" = false ] && ! pid="$(wait_for_app_pid "$app_binary_path")"; then
-    if start_debug_direct_fallback launchservices_pid_not_found; then
-      :
-    else
     write_launch_failed_state launchservices_pid_not_found
     echo "LaunchServices started but Agent Studio Debug PID was not found." >&2
+    echo "Refusing direct fallback because LaunchServices already accepted the app launch." >&2
     echo "observability state: $state_file" >&2
     exit 1
-    fi
   fi
 else
   open_app "$app_path" "$launch_log" "-W" "${open_env_args[@]}" &
@@ -640,9 +650,16 @@ else
     else
       failure_reason=launchservices_open_failed
     fi
-    if ! start_debug_direct_fallback "$failure_reason"; then
+    if [ "$failure_reason" = "launchservices_open_failed" ] &&
+      start_debug_direct_fallback "$failure_reason"
+    then
+      :
+    else
       write_launch_failed_state "$failure_reason"
       echo "LaunchServices started but Agent Studio Debug PID was not found." >&2
+      if [ "$failure_reason" = "launchservices_pid_not_found" ]; then
+        echo "Refusing direct fallback because LaunchServices already accepted the app launch." >&2
+      fi
       echo "observability state: $state_file" >&2
       exit 1
     fi

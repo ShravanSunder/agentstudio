@@ -153,7 +153,7 @@ extension ZmxOrphanCleanupCandidate {
             return storedSessionId
         case .main(let paneId, let storedSessionId, _):
             guard let storedSessionId,
-                ZmxBackend.isValidStoredMainSessionId(storedSessionId, paneId: paneId)
+                ZmxBackend.isValidStoredLayoutPaneSessionId(storedSessionId, paneId: paneId)
             else {
                 return nil
             }

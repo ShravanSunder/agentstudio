@@ -151,11 +151,30 @@ struct WorkspaceSQLiteStoreBackendFactory {
         }
         try verifySQLiteDatabase(at: backupURL)
 
-        try removeSQLiteSidecars(for: coreDatabaseURL)
-        if fileManager.fileExists(atPath: coreDatabaseURL.path) {
-            try fileManager.removeItem(at: coreDatabaseURL)
+        let tempURL =
+            coreDatabaseURL
+            .deletingLastPathComponent()
+            .appending(path: "\(coreDatabaseURL.lastPathComponent).restore-\(UUID().uuidString)")
+        if fileManager.fileExists(atPath: tempURL.path) {
+            try fileManager.removeItem(at: tempURL)
         }
-        try fileManager.copyItem(at: backupURL, to: coreDatabaseURL)
+        try fileManager.copyItem(at: backupURL, to: tempURL)
+        do {
+            try verifySQLiteDatabase(at: tempURL)
+            if fileManager.fileExists(atPath: coreDatabaseURL.path) {
+                _ = try fileManager.replaceItemAt(
+                    coreDatabaseURL,
+                    withItemAt: tempURL,
+                    backupItemName: nil,
+                    options: []
+                )
+            } else {
+                try fileManager.moveItem(at: tempURL, to: coreDatabaseURL)
+            }
+        } catch {
+            try? fileManager.removeItem(at: tempURL)
+            throw error
+        }
         try removeSQLiteSidecars(for: coreDatabaseURL)
         try verifySQLiteDatabase(at: coreDatabaseURL)
         try removeSQLiteSidecars(for: coreDatabaseURL)

@@ -298,7 +298,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let timeoutTask = Task {
             do {
-                try await Task.sleep(nanoseconds: 30_000_000_000)
+                try await Task.sleep(nanoseconds: AppPolicies.ZmxStartup.reconciliationTimeoutNanoseconds)
                 reconciliationTask.cancel()
             } catch {}
         }
@@ -314,10 +314,38 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 throw reconciliationError
             }
         } catch is CancellationError {
-            appLogger.warning("Startup zmx session reconciliation timed out after 30s")
+            appLogger.warning("Startup zmx session reconciliation timed out")
+            recordZmxStartupReconciliation(
+                unavailableStartupReconciliationSummary(
+                    reason: "startup reconciliation timeout",
+                    terminalRestoreRuntime: terminalRestoreRuntime
+                )
+            )
         } catch {
             appLogger.warning("Startup zmx session reconciliation failed: \(error.localizedDescription)")
+            recordZmxStartupReconciliation(
+                unavailableStartupReconciliationSummary(
+                    reason: "startup reconciliation failed",
+                    terminalRestoreRuntime: terminalRestoreRuntime
+                )
+            )
         }
+    }
+
+    private func unavailableStartupReconciliationSummary(
+        reason: String,
+        terminalRestoreRuntime: TerminalRestoreRuntime
+    ) -> ZmxStartupReconciliationSummary {
+        let candidates = zmxOrphanCleanupCandidates(terminalRestoreRuntime: terminalRestoreRuntime)
+        let unavailableSummary = ZmxOrphanCleanupPlanner.unavailableInventorySummary(candidates: candidates)
+        return .init(
+            inventoryOutcome: .unavailable(reason),
+            liveSessionCount: 0,
+            hydratedAnchorCount: 0,
+            protectedSessionCount: unavailableSummary.protectedSessionCount,
+            unresolvedCandidateCount: unavailableSummary.unresolvedCandidateCount,
+            unmatchedLiveSessionCount: 0
+        )
     }
 
     nonisolated static func makeZmxStartupSessionInventory(
@@ -435,7 +463,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     drawerPaneId: pane.id
                 )
             }
-            return !ZmxBackend.isValidStoredMainSessionId(storedSessionId, paneId: pane.id)
+            return !ZmxBackend.isValidStoredLayoutPaneSessionId(storedSessionId, paneId: pane.id)
         }
     }
 

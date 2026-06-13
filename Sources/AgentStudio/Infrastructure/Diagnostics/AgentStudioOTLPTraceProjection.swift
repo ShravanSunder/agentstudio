@@ -76,6 +76,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.terminal.startup.phase",
         "agentstudio.trace.tag",
         "agentstudio.workspace.boot.step",
+        "agentstudio.zmx.startup.inventory_outcome",
         "dev.runtime.flavor",
         "git.branch",
     ]

@@ -28,6 +28,7 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.app.startup.outcome": .string("succeeded"),
                 "agentstudio.ghostty.status": .int(0),
                 "agentstudio.trace.tag": .string("app.startup"),
+                "agentstudio.zmx.startup.inventory_outcome": .string("complete"),
             ]
         )
 
@@ -42,6 +43,7 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.resource["agentstudio.session.id"] == nil)
         #expect(projection.attributes["agentstudio.app.startup.phase"] == .string("ghostty_init"))
         #expect(projection.attributes["agentstudio.app.startup.outcome"] == .string("succeeded"))
+        #expect(projection.attributes["agentstudio.zmx.startup.inventory_outcome"] == .string("complete"))
         #expect(projection.attributes["agentstudio.event.time_unix_nano"] == .int(100))
         #expect(projection.attributes["agentstudio.ghostty.status"] == .int(0))
         #expect(projection.traceID == nil)

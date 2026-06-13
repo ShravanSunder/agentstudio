@@ -83,6 +83,10 @@ enum AppPolicies {
         }
     }
 
+    enum ZmxStartup {
+        static let reconciliationTimeoutNanoseconds: UInt64 = 3_000_000_000
+    }
+
     enum SelectablePopover {
         static let maxNumberedShortcuts: Int = 9
     }

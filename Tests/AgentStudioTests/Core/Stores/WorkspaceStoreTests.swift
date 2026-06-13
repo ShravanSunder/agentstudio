@@ -1261,7 +1261,7 @@ final class WorkspaceStoreTests {
     }
 
     @Test
-    func debouncedAutosaveDampsIdenticalFailuresWithoutBlockingExplicitFlush() async throws {
+    func debouncedAutosaveDampsIdenticalFailureReportsWithoutStoppingRetries() async throws {
         let workspaceId = UUID()
         let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.core")
         let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.t8.damping.local")
@@ -1332,20 +1332,14 @@ final class WorkspaceStoreTests {
         await advanceNextDebouncedSave {
             store.setSidebarWidth(304)
         }
-        await yieldMainActor(times: 10)
+        await saveProbe.waitForSaveCount(atLeast: 4)
+        await saveProbe.waitForSucceededSaveCount(atLeast: 1)
 
-        #expect(await saveProbe.saveCount == 3)
-        #expect(await saveProbe.failedSaveCount == 3)
-        #expect(localRepositoryFactory.openAttemptCount == 3)
-        #expect(recoveryEvents.filter { $0.recovery == .saveFailed }.count == 3)
-        #expect(store.isDirty)
-
-        let explicitOutcome = await store.flushAsync()
-
-        #expect(explicitOutcome.succeeded)
         #expect(await saveProbe.saveCount == 4)
+        #expect(await saveProbe.failedSaveCount == 3)
         #expect(await saveProbe.succeededSaveCount == 1)
         #expect(localRepositoryFactory.openAttemptCount == 4)
+        #expect(recoveryEvents.filter { $0.recovery == .saveFailed }.count == 3)
         #expect(!store.isDirty)
 
         await advanceNextDebouncedSave {

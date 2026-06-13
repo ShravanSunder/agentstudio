@@ -138,9 +138,22 @@ final class WorkspacePaneAtom {
     func createPane(
         content: PaneContent,
         metadata: PaneMetadata,
-        residency: SessionResidency = .active
+        residency: SessionResidency = .active,
+        anchorZmxSessionIfNeeded: Bool = true
     ) -> Pane {
         let state = graphAtom.createPane(content: content, metadata: metadata, residency: residency)
+        if anchorZmxSessionIfNeeded,
+            case .terminal(let terminalState) = content,
+            terminalState.provider == .zmx,
+            terminalState.zmxSessionId == nil,
+            let sessionId = zmxSessionId(
+                launchDirectory: metadata.launchDirectory,
+                facets: metadata.facets,
+                paneId: state.id
+            )
+        {
+            graphAtom.setTerminalZmxSessionId(state.id, sessionId: sessionId)
+        }
         return pane(state.id)!
     }
 

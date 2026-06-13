@@ -144,6 +144,6 @@ struct TerminalRestoreRuntime {
                 drawerPaneId: pane.id
             )
         }
-        return ZmxBackend.isValidStoredMainSessionId(sessionId, paneId: pane.id)
+        return ZmxBackend.isValidStoredLayoutPaneSessionId(sessionId, paneId: pane.id)
     }
 }

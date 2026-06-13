@@ -251,6 +251,48 @@ struct TerminalRestoreRuntimeTests {
     }
 
     @Test
+    func zmxSessionId_preservesStoredDrawerAnchor_whenDrawerPaneWasDetachedToLayout() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-restore-detached-drawer-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        let repo = store.addRepo(at: tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let parentPane = store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let storedDrawerSessionId = try #require(drawerPane.terminalState?.zmxSessionId)
+
+        let detachedPane = try #require(store.paneAtom.detachDrawerPane(drawerPane.id, from: parentPane.id))
+        let runtime = TerminalRestoreRuntime(
+            sessionConfiguration: SessionConfiguration(
+                isEnabled: true,
+                zmxPath: "/tmp/fake-zmx",
+                zmxDir: "/tmp/fake-zmx-dir",
+                healthCheckInterval: 30,
+                maxCheckpointAge: 60
+            )
+        )
+
+        let sessionId = runtime.zmxSessionId(for: detachedPane, store: store)
+
+        #expect(sessionId == storedDrawerSessionId)
+        #expect(
+            sessionId
+                != ZmxBackend.sessionId(
+                    repoStableKey: repo.stableKey,
+                    worktreeStableKey: worktree.stableKey,
+                    paneId: detachedPane.id
+                ))
+    }
+
+    @Test
     func zmxAttachCommand_isNil_whenSessionRestoreIsDisabled() {
         let store = WorkspaceStore()
         let pane = store.createPane(
