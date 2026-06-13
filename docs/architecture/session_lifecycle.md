@@ -312,7 +312,7 @@ zmx is a ~1000 LOC Zig tool that provides raw byte passthrough with an internal 
 
 ### IPC Protocol
 
-zmx uses a binary protocol over Unix domain sockets. Each message is a packed header followed by a variable-length payload.
+zmx uses a binary protocol over Unix domain sockets. Each message is a packed header followed by a variable-length payload. For future direct-client work, re-verify these protocol details against the pinned `vendor/zmx` sources before implementation; see [zmx Backend IPC Design](../superpowers/specs/2026-06-13-zmx-backend-ipc-design.md).
 
 **Header format (5 bytes):**
 
@@ -373,7 +373,7 @@ The `redraw=0` injection tells the outer terminal "this process cannot redraw pr
 
 ### ZMX_DIR Isolation
 
-All zmx calls use `ZMX_DIR=~/.agentstudio/zmx/` to isolate Agent Studio sessions from any user-owned zmx sessions.
+All zmx calls use `ZMX_DIR=<app-root>/z` to isolate Agent Studio sessions from any user-owned zmx sessions. The app root is channel-aware and resolved through `AppDataPaths.zmxDirectory()`.
 
 - Destroy/list/health paths pass `ZMX_DIR` via process environment.
 - Attach path passes `ZMX_DIR` through Ghostty surface environment variables.

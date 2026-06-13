@@ -177,7 +177,7 @@ The automated suites cover the attach/sizing gate policy and zmx daemon lifecycl
 - `LUNA-295`: `Two Attach Paths (Current + Target)` → see also [Contract 5a: Attach Readiness Policy](pane_runtime_architecture.md#contract-5a-attach-readiness-policy-luna-295)
 - `LUNA-324`: `Restart Reconcile Policy (LUNA-324)` and `Orphan Cleanup TTL Policy` → see also [Contract 5b: Restart Reconcile Policy](pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
 - `LUNA-342`: `Lifecycle Facts (Ghostty + zmx)` and contract wording in this document
-- `LUNA-354`: ZmxIPCClient — direct IPC replacing CLI shell-outs (spec: `docs/superpowers/specs/2026-03-30-zmx-ipc-client-design.md`)
+- `LUNA-354`: zmx backend IPC — direct IPC replacing CLI shell-outs (spec: `docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md`)
 
 ## Related Documentation
 
