@@ -186,6 +186,11 @@ actor BridgeContentStore {
             let digest = SHA256.hash(data: data)
             let hex = digest.map { String(format: "%02x", $0) }.joined()
             return "sha256:\(hex)"
+        case "git-blob-sha1":
+            var blobData = Data("blob \(data.count)\0".utf8)
+            blobData.append(data)
+            let digest = Insecure.SHA1.hash(data: blobData)
+            return digest.map { String(format: "%02x", $0) }.joined()
         default:
             throw BridgeProviderFailure.providerFailed(message: "Unsupported content hash algorithm: \(algorithm)")
         }

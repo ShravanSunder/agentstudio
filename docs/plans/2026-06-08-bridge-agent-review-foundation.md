@@ -259,14 +259,14 @@ Bridge follows the existing Agent Studio state architecture:
 │                                                                  │
 │  One implementation behind the protocol                          │
 │        │                                                         │
-│        ├─ direct AgentStudioGitClient call if DTOs match exactly │
+│        ├─ direct AgentStudioGit SDK call if DTOs match exactly    │
 │        └─ thin mapping adapter if Git DTOs differ from Bridge DTOs│
 │                                                                  │
 │  This lane can change internals without changing Bridge packages │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Bridge owns the `BridgeReviewSourceProvider` protocol because Bridge owns review queries, source endpoints, checkpoints, filters, grouping, provenance, content handles, review generations, package identity, and item deltas. The implementation can call `AgentStudioGitClient` directly if the client returns the exact Bridge request/result DTOs. If Git data-plane DTOs differ from Bridge review DTOs, use one thin mapping implementation such as `AgentStudioGitReviewSourceProvider`. Do not build a generic provider framework.
+Bridge owns the `BridgeReviewSourceProvider` protocol because Bridge owns review queries, source endpoints, checkpoints, filters, grouping, provenance, content handles, review generations, package identity, and item deltas. The implementation can call the AgentStudioGit SDK directly if the client returns the exact Bridge request/result DTOs. If Git data-plane DTOs differ from Bridge review DTOs, use one thin mapping implementation such as `AgentStudioGitBridgeReviewDataClient`. Do not build a generic provider framework.
 
 ## Source Provider Boundary
 
@@ -274,7 +274,7 @@ Bridge defines the request/response contract and the stable `BridgeReviewSourceP
 
 ### Direct Client Vs Adapter Rule
 
-- Direct `AgentStudioGitClient` calls from `BridgeReviewPipeline` are allowed when the client's public `Sendable` request/result DTOs exactly match Bridge review contracts.
+- Direct AgentStudioGit SDK calls from `BridgeReviewPipeline` are allowed when the client's public `Sendable` request/result DTOs exactly match Bridge review contracts.
 - Use a thin `BridgeReviewSourceProvider` implementation when mapping is needed between Git concepts and Bridge source endpoints, checkpoints, content handles, review generations, or package identity.
 - Keep only one production implementation and one fake/test implementation in `LUNA-337`.
 - Apply the same rule to future Git command systems: define the Bridge-owned command protocol first; call the client directly only when contracts match; add a thin mapper only when it protects a real boundary.
@@ -827,7 +827,8 @@ Expected result:
 - Rewrite: `Sources/AgentStudio/Features/Bridge/Models/ReviewFoundation/BridgeContentLoadRequest.swift`
 - Rewrite: `Sources/AgentStudio/Features/Bridge/Models/ReviewFoundation/BridgeContentLoadResult.swift`
 - Rewrite: `Sources/AgentStudio/Features/Bridge/Models/ReviewFoundation/BridgeProviderFailure.swift`
-- Test: `Tests/AgentStudioTests/Features/Bridge/BridgeReviewSourceProviderContractTests.swift`
+- Create: `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeGitReviewSourceProvider.swift`
+- Test: `Tests/AgentStudioTests/Features/Bridge/BridgeGitReviewSourceProviderTests.swift`
 - Test support: `Tests/AgentStudioTests/Features/Bridge/BridgeReviewSourceProviderFake.swift`
 
 - [x] Define `BridgeReviewSourceProvider` as the narrow Bridge-owned protocol for endpoint resolution, endpoint comparison, checkpoint endpoint lookup, and content loading.
@@ -840,14 +841,52 @@ Expected result:
   - `loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult`
 - [x] Model `BridgeProviderFailure` as typed failure data with cases for unavailable endpoint, stale review generation, missing content, oversized content, binary content, provider unavailable, and provider failed.
 - [x] Keep provider implementations off the main actor; `BridgePaneController` may call them only through async facade methods.
-- [ ] Keep production backend implementation out of this task except for direct-client shape notes and a fake provider used by tests.
-- [ ] Document in type comments that `BridgeReviewPipeline` may call `AgentStudioGitClient` directly if its public DTOs exactly match Bridge contracts.
-- [ ] Document in type comments that a thin `AgentStudioGitReviewSourceProvider` mapping implementation is required when Git DTOs differ from Bridge endpoint/checkpoint/content-handle/package contracts.
-- [ ] Run `mise run test -- --filter BridgeReviewSourceProviderContractTests`.
+- [x] Keep production backend implementation out of this pre-SDK facade task except for direct-client shape notes and a fake provider used by tests.
+- [x] Document in type comments that `BridgeReviewPipeline` may call the AgentStudioGit SDK directly if its public DTOs exactly match Bridge contracts.
+- [x] Document in type comments that a thin mapping implementation is required when Git DTOs differ from Bridge endpoint/checkpoint/content-handle/package contracts.
+- [x] Run `mise run test -- --filter BridgeGitReviewSourceProviderTests`.
 
 Expected result:
 
 - Bridge has one stable provider protocol. Direct client calls are allowed only when contracts match exactly; otherwise a thin mapper protects `BridgeReviewPackage`, `BridgeReviewDelta`, `BridgeContentHandle`, checkpoint, query/filter/grouping, and BridgeWeb contract shapes.
+
+### Task 4A: Bridge-Owned AgentStudioGit SDK Adapter
+
+This is the post-SDK follow-up to Task 4. The separate AgentStudioGit package has now landed its public `AgentStudioGitLocalClient` data-plane protocol and `LibGit2AgentStudioGitLocalClient` implementation, so Bridge can add the one production mapper allowed by the source-provider boundary.
+
+**Files:**
+
+- Modify: `Package.swift`
+- Create: `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/AgentStudioGitBridgeReviewDataClient.swift`
+- Create: `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeContentHandleIdentity.swift`
+- Create: `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeReviewSourceProviderFactory.swift`
+- Create: `Sources/AgentStudio/App/Coordination/PaneCoordinator+BridgeReviewSourceProvider.swift`
+- Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator+ViewLifecycle.swift`
+- Modify: `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeContentStore.swift`
+- Modify: `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeGitReviewSourceProvider.swift`
+- Modify: `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeReviewPackageBuilder.swift`
+- Modify: `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeReviewPipeline.swift`
+- Modify: `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeReviewSourceProvider.swift`
+- Test: `Tests/AgentStudioTests/Features/Bridge/BridgeGitReviewSourceProviderTests.swift`
+
+- [x] Add the development SwiftPM dependency on `../agentstudio-git` and depend on the `AgentStudioGit` product from the app and test targets.
+- [ ] Before opening a self-contained PR, replace the local path dependency with a remote AgentStudioGit package revision whose libgit2 binary target resolves without the adjacent SDK worktree.
+- [x] Add `AgentStudioGitBridgeReviewDataClient` as the only production mapper from `AgentStudioGitLocalClient` DTOs into Bridge review contracts.
+- [x] Keep the existing `BridgeGitReviewSourceProvider` as a narrow pass-through from `BridgeReviewSourceProvider` to `BridgeGitReviewDataClient`.
+- [x] Wire production Bridge pane creation through a Bridge-owned provider factory using the resolved worktree or workspace source path.
+- [x] Convert SDK diff metadata into `BridgeEndpointComparison` without eager content reads.
+- [x] Register generation-scoped transient handle locators keyed by canonical opaque `BridgeContentHandle.handleId` values so `BridgeContentStore` can load visible content lazily without URL-unsafe path identifiers.
+- [x] Preserve SDK `git-blob-sha1` diff handles and teach Bridge content validation to recompute Git blob hashes from lazy-loaded bytes.
+- [x] Aggregate `readTree` requests across all scoped paths for git-ref endpoints and explicitly reject non-revision tree reads until the SDK can enumerate those endpoint kinds.
+- [x] Map oversized open-file content reads to hidden `.large` descriptors instead of surfacing provider failures to the viewer shell.
+- [x] Prune stale content locators on review-generation advances and reject stale load requests at the adapter boundary.
+- [x] Keep checkpoint endpoint materialization Bridge-owned; the SDK adapter rejects checkpoint endpoint kinds until the Bridge change index supplies materialized endpoints.
+- [x] Keep the adapter off the MainActor and persistence-free.
+- [x] Prove the adapter with `mise run test -- --filter BridgeGitReviewSourceProviderTests`, including lazy content loading, path-scoped tree reads, non-revision tree rejection, oversized file descriptors, generation pruning, and URL-safe content handles.
+
+Expected result:
+
+- Bridge has a concrete Git-backed review data adapter behind the Bridge-owned protocol, while Bridge packages, handles, generations, filters, and BridgeWeb contracts remain independent from AgentStudioGit DTOs.
 
 ### Task 5: Bridge Change Index
 
@@ -1020,7 +1059,7 @@ and execution plans, not from the retired February document:
 `LUNA-337` is done when:
 
 1. Runtime vocabulary no longer exposes approve/reject/patch-apply semantics for the Bridge diff surface.
-2. `BridgeReviewSourceProvider` is the single stable protocol Bridge uses for endpoint resolution, endpoint comparison, checkpoint endpoint lookup, and content loading; direct `AgentStudioGitClient` calls are allowed only when DTOs match exactly.
+2. `BridgeReviewSourceProvider` is the single stable protocol Bridge uses for endpoint resolution, endpoint comparison, checkpoint endpoint lookup, and content loading; direct AgentStudioGit SDK calls are allowed only when DTOs match exactly.
 3. Swift contract fixtures define review queries, source endpoints, checkpoints, filters, grouping, provenance filters, review packages, review deltas, item descriptors, and content handles.
 4. Change indexing, checkpoint collation, file classification, content loading, hashing, and package building run off the main actor behind actors/services.
 5. Prompt/session checkpoints and time-window collation semantics are documented and tested.

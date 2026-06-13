@@ -1,5 +1,10 @@
 import Foundation
 
+/// Off-main review package assembly boundary for Bridge panes.
+///
+/// Keep this actor protocol-first unless a backend's public `Sendable` DTOs
+/// exactly match Bridge review contracts. When they differ, the mapper belongs
+/// behind `BridgeReviewSourceProvider`, not in the pipeline.
 actor BridgeReviewPipeline {
     private let provider: any BridgeReviewSourceProvider
 
