@@ -18,6 +18,7 @@ private struct FilesystemSourceSyncWriteMetrics {
     let registeredCount: Int
     let activityWriteCount: Int
     let activePaneWriteCount: Int
+    let topologyGeneration: UInt64
     let filesystemSourceDuration: Duration
 }
 
@@ -195,12 +196,20 @@ extension PaneCoordinator {
             filesystemSyncRequested = true
             return
         }
+        let didCommitIndexSnapshot = await filesystemProjectionIndex.commitSourceSync(
+            requestGeneration: syncDiff.requestGeneration,
+            topologyGeneration: writeMetrics.topologyGeneration
+        )
+        guard didCommitIndexSnapshot else {
+            filesystemSyncRequested = true
+            return
+        }
         guard !Task.isCancelled else { return }
         let applyStart = clock.now
         filesystemRegisteredContextsByWorktreeId = syncDiff.contextsByWorktreeId
         filesystemActivityByWorktreeId = syncDiff.activityByWorktreeId
         filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
-        filesystemAppliedTopologyGeneration = filesystemTopologyAssertionGeneration
+        filesystemAppliedTopologyGeneration = writeMetrics.topologyGeneration
         paneFilesystemProjectionStore.prune(
             validPaneIds: syncDiff.validPaneIds,
             validWorktreeIds: syncDiff.validWorktreeIds
@@ -286,9 +295,10 @@ extension PaneCoordinator {
 
         guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
         filesystemTopologyAssertionGeneration &+= 1
+        let topologyGeneration = filesystemTopologyAssertionGeneration
         await filesystemSource.assertTopology(
             FilesystemTopologyAssertion(
-                generation: filesystemTopologyAssertionGeneration,
+                generation: topologyGeneration,
                 contextsByWorktreeId: syncDiff.contextsByWorktreeId
             )
         )
@@ -299,6 +309,7 @@ extension PaneCoordinator {
             registeredCount: registeredCount,
             activityWriteCount: activityWriteCount,
             activePaneWriteCount: activePaneWriteCount,
+            topologyGeneration: topologyGeneration,
             filesystemSourceDuration: sourceStart.duration(to: clock.now)
         )
     }

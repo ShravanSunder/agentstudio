@@ -75,7 +75,7 @@ struct ObservabilityDebugLaunchScriptsTests {
             ]
         )
 
-        #expect(result.exitCode == 1)
+        #expect(result.exitCode == 1, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
         #expect(!FileManager.default.fileExists(atPath: openMarker.path))
         let state = try String(contentsOf: stateFile, encoding: .utf8)
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=already_running"))
@@ -196,6 +196,170 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
     }
 
+    @Test("debug launcher refuses running direct executable from state file")
+    func debugLauncherRefusesRunningDirectExecutableFromStateFile() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let debugCode = try fixture.worktreeDebugCode()
+        let stateFile = fixture.url("latest.env")
+        let openMarker = fixture.url("open-called")
+        let buildPath = fixture.url("debug-build")
+        let debugPath = buildPath.appending(path: "debug")
+        try FileManager.default.createDirectory(at: debugPath, withIntermediateDirectories: true)
+        let executableURL = debugPath.appending(path: "AgentStudio")
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/sleep"), to: executableURL)
+        chmod(executableURL.path, 0o755)
+        let executablePath = buildPath.appending(path: "debug/AgentStudio").path
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=\(debugCode)
+        AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable
+        AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
+        AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=\(executablePath)
+        """
+        .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
+
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
+            environment: [
+                "AGENTSTUDIO_OPEN_BIN": try fixture.executable(
+                    "open",
+                    """
+                    #!/bin/bash
+                    echo called > "\(openMarker.path)"
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
+                    "lsof",
+                    """
+                    #!/bin/bash
+                    echo "n\(executablePath)"
+                    """
+                ).path,
+                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(!FileManager.default.fileExists(atPath: openMarker.path))
+        let state = try String(contentsOf: stateFile, encoding: .utf8)
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=already_running"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())"))
+    }
+
+    @Test("debug launcher ignores stale direct executable state when PID attribution differs")
+    func debugLauncherIgnoresStaleDirectExecutableStateWhenPIDAttributionDiffers() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let debugCode = try fixture.worktreeDebugCode()
+        let stateFile = fixture.url("latest.env")
+        let buildPath = try fixture.makeDebugBuildExecutable(
+            """
+            #!/bin/bash
+            sleep 30
+            """
+        )
+        let executablePath = buildPath.appending(path: "debug/AgentStudio").path
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=\(debugCode)
+        AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable
+        AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
+        AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=\(executablePath)
+        """
+        .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
+
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
+            environment: [
+                "AGENTSTUDIO_OPEN_BIN": try fixture.executable(
+                    "open",
+                    """
+                    #!/bin/bash
+                    exit 1
+                    """
+                ).path,
+                "AGENTSTUDIO_PGREP_BIN": try fixture.executable(
+                    "pgrep",
+                    """
+                    #!/bin/bash
+                    exit 1
+                    """
+                ).path,
+                "AGENTSTUDIO_DITTO_BIN": try fixture.executable(
+                    "ditto",
+                    """
+                    #!/bin/bash
+                    cp -R "$1" "$2"
+                    """
+                ).path,
+                "AGENTSTUDIO_CODESIGN_BIN": try fixture.executable(
+                    "codesign",
+                    """
+                    #!/bin/bash
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
+                "AGENTSTUDIO_PID_WAIT_ATTEMPTS": "1",
+            ]
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        let state = try String(contentsOf: stateFile, encoding: .utf8)
+        defer {
+            if let pid = state.firstMatch(of: /AGENTSTUDIO_OBSERVABILITY_PID=([0-9]+)/)?.1 {
+                kill(pid_t(pid) ?? -1, SIGTERM)
+            }
+        }
+        #expect(!state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=already_running"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=running"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
+    }
+
+    @Test("debug launcher overwrites stale state when collector is unhealthy")
+    func debugLauncherOverwritesStaleStateWhenCollectorIsUnhealthy() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        let buildPath = try fixture.makeDebugBuildExecutable(
+            """
+            #!/bin/bash
+            sleep 30
+            """
+        )
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_PID=99999
+        AGENTSTUDIO_OBSERVABILITY_MARKER=stale-marker
+        """
+        .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
+
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
+            environment: [
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl-unhealthy",
+                    """
+                    #!/bin/bash
+                    exit 22
+                    """
+                ).path,
+                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        let state = try String(contentsOf: stateFile, encoding: .utf8)
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=launch_failed"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_REASON=otlp_collector_unhealthy"))
+        #expect(!state.contains("stale-marker"))
+    }
+
     @Test("debug launcher falls back to direct executable when local app bundle is blocked")
     func debugLauncherFallsBackToDirectExecutableWhenLaunchServicesBlocksLocalBundle() throws {
         let fixture = try LauncherScriptFixture()
@@ -268,6 +432,8 @@ struct ObservabilityDebugLaunchScriptsTests {
         }
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=running"))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE="))
+        #expect(state.contains("AgentStudio\\ Debug\\ "))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_DATA_DIR="))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR="))
 
@@ -278,6 +444,15 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(launchedEnv.contains("backend=otlp"))
         #expect(launchedEnv.contains("marker=debug-observability-"))
         #expect(!FileManager.default.fileExists(atPath: fixture.url("leaked-env").path))
+    }
+
+    @Test("debug launcher exposes idle preflight command")
+    func debugLauncherExposesIdlePreflightCommand() throws {
+        let source = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
+
+        #expect(source.contains("run-debug-observability.sh --preflight-idle"))
+        #expect(source.contains("preflight_idle=true"))
+        #expect(source.contains("running_debug_state_pid \"$state_file\" \"$debug_code\""))
     }
 
     @Test("release scripts do not resolve inject-bundle-version through PATH bash")

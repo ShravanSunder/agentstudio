@@ -3,6 +3,7 @@ import Metrics
 
 final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
     private let factory: any MetricsFactory
+    private let lock = NSLock()
     private var eventCounters: [String: Counter] = [:]
     private var elapsedRecorders: [String: Recorder] = [:]
     private var numericGauges: [MetricGaugeKey: Gauge] = [:]
@@ -14,14 +15,16 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
     func record(_ record: AgentStudioOTLPProjectedLogRecord) {
         guard let metricEvent = AgentStudioOTLPPerformanceMetricEvent(record: record) else { return }
 
-        counter(for: metricEvent.eventName).increment()
+        lock.withLock {
+            counter(for: metricEvent.eventName).increment()
 
-        if let elapsedMilliseconds = metricEvent.elapsedMilliseconds {
-            recorder(for: metricEvent.eventName).record(elapsedMilliseconds)
-        }
+            if let elapsedMilliseconds = metricEvent.elapsedMilliseconds {
+                recorder(for: metricEvent.eventName).record(elapsedMilliseconds)
+            }
 
-        for sample in metricEvent.samples {
-            gauge(for: sample).record(sample.value)
+            for sample in metricEvent.samples {
+                gauge(for: sample).record(sample.value)
+            }
         }
     }
 

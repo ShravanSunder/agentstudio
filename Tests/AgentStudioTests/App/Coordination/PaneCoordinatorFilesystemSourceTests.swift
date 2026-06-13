@@ -129,6 +129,41 @@ struct PaneCoordinatorFilesystemSourceTests {
         #expect(operations.contains(.register(worktreeId: reconciledLatest.id)))
     }
 
+    @Test("source sync commit failure requeues a fresh pass")
+    func sourceSyncCommitFailureRequeuesFreshPass() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir.appending(path: "commit-requeue-repo"))
+        let worktree = try #require(harness.store.repo(repo.id)?.worktrees.first { $0.isMainWorktree })
+        let pane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        harness.store.appendTab(Tab(paneId: pane.id))
+
+        let source = OrderedRecordingFilesystemSource()
+        let index = GateableFilesystemProjectionIndex()
+        await index.failNextCommit()
+        let coordinator = makeCoordinator(
+            store: harness.store,
+            source: source,
+            index: index,
+            bus: harness.bus
+        )
+        defer { Task { await coordinator.shutdown() } }
+
+        await assertEventuallyAsync("commit failure should requeue source sync", maxTurns: 200_000) {
+            let operations = await source.operations()
+            return operations.filter(\.isAssertTopology).count >= 2
+        }
+
+        let operations = await source.operations()
+        let topologyAssertions = operations.compactMap(\.assertedTopologyWorktreeIds)
+        #expect(topologyAssertions.count >= 2)
+        #expect(topologyAssertions.last == Set([worktree.id]))
+    }
+
     @Test("stale projection result is dropped when pane context generation changes")
     func staleProjectionResultIsDroppedWhenPaneContextGenerationChanges() async throws {
         let harness = makeHarness()
@@ -364,6 +399,11 @@ private enum FilesystemSourceOperation: Sendable, Equatable {
         if case .assertTopology = self { return true }
         return false
     }
+
+    var assertedTopologyWorktreeIds: Set<UUID>? {
+        guard case .assertTopology(let worktreeIds) = self else { return nil }
+        return worktreeIds
+    }
 }
 
 private enum FilesystemSourceOperationKind: Sendable, Equatable {
@@ -485,6 +525,7 @@ private actor OrderedRecordingFilesystemSource: PaneCoordinatorFilesystemSourceM
 
 private actor GateableFilesystemProjectionIndex: PaneCoordinatorFilesystemProjectionIndexing {
     private let base = FilesystemProjectionIndex()
+    private var commitFailuresRemaining = 0
     private var sourceSyncPauseCount = 0
     private var projectionPauseCount = 0
     private var pausedSourceSyncCount = 0
@@ -500,6 +541,10 @@ private actor GateableFilesystemProjectionIndex: PaneCoordinatorFilesystemProjec
 
     func pauseNextProjection() {
         projectionPauseCount += 1
+    }
+
+    func failNextCommit() {
+        commitFailuresRemaining += 1
     }
 
     func waitForPausedSourceSync() async {
@@ -547,6 +592,14 @@ private actor GateableFilesystemProjectionIndex: PaneCoordinatorFilesystemProjec
             }
         }
         return await base.reconcileSourceSync(request)
+    }
+
+    func commitSourceSync(requestGeneration: UInt64, topologyGeneration: UInt64) async -> Bool {
+        if commitFailuresRemaining > 0 {
+            commitFailuresRemaining -= 1
+            return false
+        }
+        return await base.commitSourceSync(requestGeneration: requestGeneration, topologyGeneration: topologyGeneration)
     }
 
     func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async {

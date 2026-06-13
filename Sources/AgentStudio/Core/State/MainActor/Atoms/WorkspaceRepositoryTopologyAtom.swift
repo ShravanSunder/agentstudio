@@ -34,11 +34,14 @@ final class WorkspaceRepositoryTopologyAtom {
 
     func performBatchedTopologyMutation(_ mutation: () -> Void) {
         deferredWorktreePathIndexRebuildDepth += 1
+        defer {
+            deferredWorktreePathIndexRebuildDepth -= 1
+            if deferredWorktreePathIndexRebuildDepth == 0, deferredWorktreePathIndexRebuildNeeded {
+                deferredWorktreePathIndexRebuildNeeded = false
+                rebuildWorktreePathIndexAndBumpGeneration()
+            }
+        }
         mutation()
-        deferredWorktreePathIndexRebuildDepth -= 1
-        guard deferredWorktreePathIndexRebuildDepth == 0, deferredWorktreePathIndexRebuildNeeded else { return }
-        deferredWorktreePathIndexRebuildNeeded = false
-        rebuildWorktreePathIndexAndBumpGeneration()
     }
 
     func hydrate(

@@ -112,6 +112,7 @@ DEBUG_STATE_COPY="$ARTIFACT/debug-observability.env"
 APP_PID=""
 APP_BINARY=""
 APP_LAUNCH_BUNDLE=""
+QUERY_START=""
 WRITER_PIDS=()
 
 log_command() {
@@ -222,6 +223,22 @@ load_debug_identity_for_workload() {
   TRACE_DIR="$APP_DATA_DIR/traces"
   if [ -z "$APP_DATA_DIR" ] || [ -z "$TRACE_DIR" ]; then
     echo "debug identity did not provide data/trace directories: $DEBUG_IDENTITY_FILE" >&2
+    exit 1
+  fi
+}
+
+preflight_debug_observability_idle() {
+  log_command "$PROJECT_ROOT/scripts/run-debug-observability.sh" --preflight-idle
+  AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$DEBUG_OBSERVABILITY_STATE_FILE" \
+    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --preflight-idle
+}
+
+fail_if_trace_marker_would_reuse_jsonl() {
+  if find "$TRACE_DIR" -maxdepth 1 -name "agentstudio-$TRACE_NAME-*.jsonl" -type f -print -quit 2>/dev/null |
+    grep -q .
+  then
+    echo "trace marker already has JSONL files in $TRACE_DIR: $TRACE_NAME" >&2
+    echo "Choose a fresh AGENTSTUDIO_TRACE_NAME before running workload proof." >&2
     exit 1
   fi
 }
@@ -492,6 +509,7 @@ launch_debug_observability_app() {
   APP_PID="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
   APP_BINARY="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_EXECUTABLE)"
   APP_LAUNCH_BUNDLE="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_APP)"
+  QUERY_START="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_QUERY_START)"
   if [ -z "$APP_PID" ] || [ -z "$APP_BINARY" ]; then
     echo "debug observability state did not include PID/executable: $DEBUG_OBSERVABILITY_STATE_FILE" >&2
     exit 1
@@ -515,9 +533,18 @@ launch_debug_observability_app() {
 
 query_victoria_logs() {
   local logsql="$1"
-  curl --fail --silent --show-error --max-time 5 --get \
-    --data-urlencode "query=$logsql" \
-    "$LOGS_QUERY_URL"
+  local args=(
+    --fail
+    --silent
+    --show-error
+    --max-time 5
+    --get
+    --data-urlencode "query=$logsql"
+  )
+  if [ -n "$QUERY_START" ]; then
+    args+=(--data-urlencode "start=$QUERY_START")
+  fi
+  curl "${args[@]}" "$LOGS_QUERY_URL"
 }
 
 victoria_event_query() {
@@ -547,12 +574,39 @@ jsonl_event_count() {
   grep -c "\"body\":\"$event_name\"" "$jsonl_file" || true
 }
 
+current_trace_jsonl_files() {
+  find "$TRACE_DIR" -maxdepth 1 -name "agentstudio-$TRACE_NAME-*.jsonl" -type f -print 2>/dev/null
+}
+
+current_trace_jsonl_has_event() {
+  local event_name="$1"
+  local jsonl_file
+  while IFS= read -r jsonl_file; do
+    if grep "\"body\":\"$event_name\"" "$jsonl_file" >/dev/null 2>&1; then
+      return 0
+    fi
+  done < <(current_trace_jsonl_files)
+  return 1
+}
+
+current_trace_jsonl_has_command_bar_filter() {
+  local jsonl_file
+  while IFS= read -r jsonl_file; do
+    if grep "\"body\":\"performance.commandbar.filter\"" "$jsonl_file" 2>/dev/null \
+      | grep -E "\"agentstudio.performance.commandbar.query_character.count\":\"?[1-9][0-9]*\"?" >/dev/null 2>&1
+    then
+      return 0
+    fi
+  done < <(current_trace_jsonl_files)
+  return 1
+}
+
 wait_for_trace_event() {
   local event_name="$1"
   local timeout_seconds="$2"
   local deadline=$((SECONDS + timeout_seconds))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if grep -R "\"body\":\"$event_name\"" "$TRACE_DIR" >/dev/null 2>&1; then
+    if current_trace_jsonl_has_event "$event_name"; then
       return 0
     fi
     if [ "$(victoria_event_count "$event_name")" -gt 0 ]; then
@@ -567,8 +621,7 @@ wait_for_command_bar_repo_filter_event() {
   local timeout_seconds="$1"
   local deadline=$((SECONDS + timeout_seconds))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if grep -R "\"body\":\"performance.commandbar.filter\"" "$TRACE_DIR" 2>/dev/null \
-      | grep -E "\"agentstudio.performance.commandbar.query_character.count\":\"?[1-9][0-9]*\"?" >/dev/null 2>&1; then
+    if current_trace_jsonl_has_command_bar_filter; then
       return 0
     fi
     local victoria_response
@@ -657,7 +710,7 @@ capture_restore_trace() {
 summarize_traces() {
   capture_restore_trace
   local jsonl_file
-  jsonl_file="$(find "$TRACE_DIR" -name "agentstudio-$TRACE_NAME-*.jsonl" -type f -print | head -n 1)"
+  jsonl_file="$(current_trace_jsonl_files | head -n 1)"
   {
     echo "artifact=$ARTIFACT"
     echo "trace_name=$TRACE_NAME"
@@ -699,6 +752,8 @@ mkdir -p "$ARTIFACT" "$FIXTURE_ROOT" "$PID_DIR"
 : >"$COMMAND_LOG"
 if [ "$prepare_only" != true ]; then
   load_debug_identity_for_workload
+  preflight_debug_observability_idle
+  fail_if_trace_marker_would_reuse_jsonl
 fi
 mkdir -p "$APP_DATA_DIR/workspaces" "$TRACE_DIR"
 

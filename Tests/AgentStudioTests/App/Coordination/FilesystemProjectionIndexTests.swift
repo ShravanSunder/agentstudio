@@ -83,7 +83,7 @@ struct FilesystemProjectionIndexTests {
             appliedActivePaneWorktreeId: nil
         )
 
-        _ = await index.reconcileSourceSync(request)
+        _ = await reconcileAndCommit(index, request, topologyGeneration: 1)
         let secondAppliedActivity = [worktreeId: true]
         let secondDiff = await index.reconcileSourceSync(
             FilesystemSourceSyncRequest(
@@ -110,7 +110,8 @@ struct FilesystemProjectionIndexTests {
         let paneId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/repo")
         let index = FilesystemProjectionIndex()
-        _ = await index.reconcileSourceSync(
+        _ = await reconcileAndCommit(
+            index,
             FilesystemSourceSyncRequest(
                 requestGeneration: 1,
                 paneContextGeneration: 1,
@@ -121,7 +122,8 @@ struct FilesystemProjectionIndexTests {
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: nil,
                 appliedActivePaneWorktreeId: nil
-            )
+            ),
+            topologyGeneration: 1
         )
 
         await index.applyPaneUpdate(
@@ -165,7 +167,8 @@ struct FilesystemProjectionIndexTests {
         let paneId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/repo")
         let index = FilesystemProjectionIndex()
-        _ = await index.reconcileSourceSync(
+        _ = await reconcileAndCommit(
+            index,
             FilesystemSourceSyncRequest(
                 requestGeneration: 1,
                 paneContextGeneration: 1,
@@ -184,7 +187,8 @@ struct FilesystemProjectionIndexTests {
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: worktreeId,
                 appliedActivePaneWorktreeId: nil
-            )
+            ),
+            topologyGeneration: 4
         )
 
         let result = await index.projectPaneFilesystem(
@@ -240,7 +244,8 @@ struct FilesystemProjectionIndexTests {
         let paneId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/repo")
         let index = FilesystemProjectionIndex()
-        _ = await index.reconcileSourceSync(
+        _ = await reconcileAndCommit(
+            index,
             FilesystemSourceSyncRequest(
                 requestGeneration: 1,
                 paneContextGeneration: 1,
@@ -259,7 +264,8 @@ struct FilesystemProjectionIndexTests {
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: worktreeId,
                 appliedActivePaneWorktreeId: nil
-            )
+            ),
+            topologyGeneration: 5
         )
         await index.applyPaneUpdate(
             FilesystemProjectionPaneUpdate(
@@ -319,7 +325,8 @@ struct FilesystemProjectionIndexTests {
         let paneId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/repo")
         let index = FilesystemProjectionIndex()
-        _ = await index.reconcileSourceSync(
+        _ = await reconcileAndCommit(
+            index,
             FilesystemSourceSyncRequest(
                 requestGeneration: 1,
                 paneContextGeneration: 1,
@@ -338,7 +345,8 @@ struct FilesystemProjectionIndexTests {
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: nil,
                 appliedActivePaneWorktreeId: nil
-            )
+            ),
+            topologyGeneration: 1
         )
 
         let projectionTask = Task {
@@ -402,7 +410,8 @@ struct FilesystemProjectionIndexTests {
         let paneId = UUIDv7.generate()
         let rootPath = URL(fileURLWithPath: "/tmp/repo")
         let index = FilesystemProjectionIndex()
-        _ = await index.reconcileSourceSync(
+        _ = await reconcileAndCommit(
+            index,
             FilesystemSourceSyncRequest(
                 requestGeneration: 1,
                 paneContextGeneration: 1,
@@ -415,7 +424,8 @@ struct FilesystemProjectionIndexTests {
                 appliedActivityByWorktreeId: [:],
                 activePaneWorktreeId: worktreeId,
                 appliedActivePaneWorktreeId: nil
-            )
+            ),
+            topologyGeneration: 5
         )
         await index.applyPaneUpdate(
             FilesystemProjectionPaneUpdate(
@@ -454,5 +464,212 @@ struct FilesystemProjectionIndexTests {
 
         #expect(result.intents.isEmpty)
         #expect(result.paneCount == 0)
+    }
+
+    @Test("projection reports committed topology snapshot generation")
+    func projectionReportsCommittedTopologySnapshotGeneration() async {
+        let repoId = UUID()
+        let oldWorktreeId = UUID()
+        let newWorktreeId = UUID()
+        let paneId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/repo")
+        let index = FilesystemProjectionIndex()
+        let oldRequest = FilesystemSourceSyncRequest(
+            requestGeneration: 1,
+            paneContextGeneration: 1,
+            topologyEntries: [
+                .init(repoId: repoId, worktreeId: oldWorktreeId, rootPath: rootPath, isUnavailable: false)
+            ],
+            paneEntries: [
+                .init(paneId: paneId, paneKind: .terminal, repoId: repoId, worktreeId: oldWorktreeId, cwd: rootPath)
+            ],
+            appliedActivityByWorktreeId: [:],
+            activePaneWorktreeId: nil,
+            appliedActivePaneWorktreeId: nil
+        )
+        _ = await reconcileAndCommit(index, oldRequest, topologyGeneration: 10)
+
+        _ = await index.reconcileSourceSync(
+            FilesystemSourceSyncRequest(
+                requestGeneration: 2,
+                paneContextGeneration: 1,
+                topologyEntries: [
+                    .init(repoId: repoId, worktreeId: newWorktreeId, rootPath: rootPath, isUnavailable: false)
+                ],
+                paneEntries: [
+                    .init(paneId: paneId, paneKind: .terminal, repoId: repoId, worktreeId: newWorktreeId, cwd: rootPath)
+                ],
+                appliedActivityByWorktreeId: [:],
+                activePaneWorktreeId: nil,
+                appliedActivePaneWorktreeId: nil
+            )
+        )
+
+        let uncommittedResult = await index.projectPaneFilesystem(
+            PaneFilesystemProjectionRequest(
+                requestGeneration: 3,
+                paneContextGeneration: 1,
+                topologyGeneration: 10,
+                envelope: filesystemEnvelope(repoId: repoId, worktreeId: newWorktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(uncommittedResult.topologyGeneration == 10)
+        #expect(uncommittedResult.intents.isEmpty)
+
+        _ = await index.commitSourceSync(requestGeneration: 2, topologyGeneration: 11)
+        let committedResult = await index.projectPaneFilesystem(
+            PaneFilesystemProjectionRequest(
+                requestGeneration: 4,
+                paneContextGeneration: 1,
+                topologyGeneration: 11,
+                envelope: filesystemEnvelope(repoId: repoId, worktreeId: newWorktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(committedResult.topologyGeneration == 11)
+        #expect(committedResult.intents.count == 1)
+    }
+
+    @Test("stale source sync commit does not roll back newer pane update")
+    func staleSourceSyncCommitDoesNotRollBackNewerPaneUpdate() async {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let paneId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/repo")
+        let index = FilesystemProjectionIndex()
+        _ = await reconcileAndCommit(
+            index,
+            FilesystemSourceSyncRequest(
+                requestGeneration: 1,
+                paneContextGeneration: 1,
+                topologyEntries: [
+                    .init(repoId: repoId, worktreeId: worktreeId, rootPath: rootPath, isUnavailable: false)
+                ],
+                paneEntries: [
+                    .init(
+                        paneId: paneId,
+                        paneKind: .terminal,
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        cwd: rootPath.appending(path: "src")
+                    )
+                ],
+                appliedActivityByWorktreeId: [:],
+                activePaneWorktreeId: nil,
+                appliedActivePaneWorktreeId: nil
+            ),
+            topologyGeneration: 10
+        )
+
+        _ = await index.reconcileSourceSync(
+            FilesystemSourceSyncRequest(
+                requestGeneration: 2,
+                paneContextGeneration: 1,
+                topologyEntries: [
+                    .init(repoId: repoId, worktreeId: worktreeId, rootPath: rootPath, isUnavailable: false)
+                ],
+                paneEntries: [
+                    .init(
+                        paneId: paneId,
+                        paneKind: .terminal,
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        cwd: rootPath.appending(path: "src")
+                    )
+                ],
+                appliedActivityByWorktreeId: [worktreeId: true],
+                activePaneWorktreeId: nil,
+                appliedActivePaneWorktreeId: nil
+            )
+        )
+        await index.applyPaneUpdate(
+            FilesystemProjectionPaneUpdate(
+                requestGeneration: 2,
+                kind: .upsert(
+                    .init(
+                        paneId: paneId,
+                        paneKind: .terminal,
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        cwd: rootPath.appending(path: "docs")
+                    )
+                )
+            )
+        )
+
+        let didCommit = await index.commitSourceSync(requestGeneration: 2, topologyGeneration: 11)
+        #expect(!didCommit)
+
+        let result = await index.projectPaneFilesystem(
+            PaneFilesystemProjectionRequest(
+                requestGeneration: 3,
+                paneContextGeneration: 2,
+                topologyGeneration: 10,
+                envelope: .worktree(
+                    WorktreeEnvelope(
+                        source: .system(.builtin(.filesystemWatcher)),
+                        seq: 1,
+                        timestamp: .now,
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        event: .filesystem(
+                            .filesChanged(
+                                changeset: FileChangeset(
+                                    worktreeId: worktreeId,
+                                    repoId: repoId,
+                                    rootPath: rootPath,
+                                    paths: ["src/main.swift", "docs/readme.md"],
+                                    timestamp: .now,
+                                    batchSeq: 10
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        #expect(result.topologyGeneration == 10)
+        guard case .cwdSubtreeChanged(let projection) = result.intents.first else {
+            Issue.record("Expected cwdSubtreeChanged intent")
+            return
+        }
+        #expect(projection.paths == ["docs/readme.md"])
+    }
+
+    private func reconcileAndCommit(
+        _ index: FilesystemProjectionIndex,
+        _ request: FilesystemSourceSyncRequest,
+        topologyGeneration: UInt64
+    ) async -> FilesystemSourceSyncDiff {
+        let diff = await index.reconcileSourceSync(request)
+        _ = await index.commitSourceSync(
+            requestGeneration: request.requestGeneration,
+            topologyGeneration: topologyGeneration
+        )
+        return diff
+    }
+
+    private func filesystemEnvelope(repoId: UUID, worktreeId: UUID, rootPath: URL) -> RuntimeEnvelope {
+        .worktree(
+            WorktreeEnvelope(
+                source: .system(.builtin(.filesystemWatcher)),
+                seq: 1,
+                timestamp: .now,
+                repoId: repoId,
+                worktreeId: worktreeId,
+                event: .filesystem(
+                    .filesChanged(
+                        changeset: FileChangeset(
+                            worktreeId: worktreeId,
+                            repoId: repoId,
+                            rootPath: rootPath,
+                            paths: ["Sources/App.swift"],
+                            timestamp: .now,
+                            batchSeq: 1
+                        )
+                    )
+                )
+            )
+        )
     }
 }

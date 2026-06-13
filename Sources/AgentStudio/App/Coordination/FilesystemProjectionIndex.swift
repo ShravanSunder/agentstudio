@@ -2,6 +2,7 @@ import Foundation
 
 protocol PaneCoordinatorFilesystemProjectionIndexing: Sendable {
     func reconcileSourceSync(_ request: FilesystemSourceSyncRequest) async -> FilesystemSourceSyncDiff
+    func commitSourceSync(requestGeneration: UInt64, topologyGeneration: UInt64) async -> Bool
     func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async
     func projectPaneFilesystem(_ request: PaneFilesystemProjectionRequest) async -> PaneFilesystemProjectionResult
 }
@@ -22,13 +23,24 @@ actor FilesystemProjectionIndex: PaneCoordinatorFilesystemProjectionIndexing {
         let canonicalCwdPath: String
     }
 
+    private struct PendingSourceSyncSnapshot: Sendable {
+        let worktreesById: [UUID: IndexedWorktree]
+        let panesById: [UUID: IndexedPane]
+        let paneIdsByWorktreeId: [UUID: Set<UUID>]
+        let activityByWorktreeId: [UUID: Bool]
+        let activePaneWorktreeId: UUID?
+        let paneContextGeneration: UInt64
+    }
+
     private var worktreesById: [UUID: IndexedWorktree] = [:]
     private var panesById: [UUID: IndexedPane] = [:]
     private var paneIdsByWorktreeId: [UUID: Set<UUID>] = [:]
     private var activityByWorktreeId: [UUID: Bool] = [:]
     private var activePaneWorktreeId: UUID?
+    private var topologyGeneration: UInt64 = 0
     private var appliedPaneUpdateGeneration: UInt64 = 0
     private var canonicalPathByRawPath: [String: String] = [:]
+    private var pendingSourceSyncsByRequestGeneration: [UInt64: PendingSourceSyncSnapshot] = [:]
     private var paneUpdateWaiters: [UInt64: [CheckedContinuation<Void, Never>]] = [:]
 
     func reconcileSourceSync(_ request: FilesystemSourceSyncRequest) async -> FilesystemSourceSyncDiff {
@@ -90,13 +102,17 @@ actor FilesystemProjectionIndex: PaneCoordinatorFilesystemProjectionIndexing {
 
         let shouldUpdateActivePaneWorktree = request.appliedActivePaneWorktreeId != request.activePaneWorktreeId
 
-        worktreesById = nextWorktreesById
-        panesById = nextPanesById
-        paneIdsByWorktreeId = nextPaneIdsByWorktreeId
-        activityByWorktreeId = nextActivityByWorktreeId
-        activePaneWorktreeId = request.activePaneWorktreeId
-        appliedPaneUpdateGeneration = max(appliedPaneUpdateGeneration, request.paneContextGeneration)
-        resumePaneUpdateWaiters()
+        pendingSourceSyncsByRequestGeneration = pendingSourceSyncsByRequestGeneration.filter { requestGeneration, _ in
+            requestGeneration >= request.requestGeneration
+        }
+        pendingSourceSyncsByRequestGeneration[request.requestGeneration] = PendingSourceSyncSnapshot(
+            worktreesById: nextWorktreesById,
+            panesById: nextPanesById,
+            paneIdsByWorktreeId: nextPaneIdsByWorktreeId,
+            activityByWorktreeId: nextActivityByWorktreeId,
+            activePaneWorktreeId: request.activePaneWorktreeId,
+            paneContextGeneration: request.paneContextGeneration
+        )
 
         return FilesystemSourceSyncDiff(
             requestGeneration: request.requestGeneration,
@@ -110,6 +126,27 @@ actor FilesystemProjectionIndex: PaneCoordinatorFilesystemProjectionIndexing {
             validPaneIds: Set(nextPanesById.keys),
             validWorktreeIds: nextWorktreeIds
         )
+    }
+
+    func commitSourceSync(requestGeneration: UInt64, topologyGeneration: UInt64) async -> Bool {
+        guard let pending = pendingSourceSyncsByRequestGeneration.removeValue(forKey: requestGeneration) else {
+            return false
+        }
+        guard appliedPaneUpdateGeneration <= pending.paneContextGeneration else {
+            return false
+        }
+        worktreesById = pending.worktreesById
+        panesById = pending.panesById
+        paneIdsByWorktreeId = pending.paneIdsByWorktreeId
+        activityByWorktreeId = pending.activityByWorktreeId
+        activePaneWorktreeId = pending.activePaneWorktreeId
+        self.topologyGeneration = topologyGeneration
+        appliedPaneUpdateGeneration = max(appliedPaneUpdateGeneration, pending.paneContextGeneration)
+        pendingSourceSyncsByRequestGeneration = pendingSourceSyncsByRequestGeneration.filter { generation, _ in
+            generation > requestGeneration
+        }
+        resumePaneUpdateWaiters()
+        return true
     }
 
     func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async {
@@ -147,7 +184,7 @@ actor FilesystemProjectionIndex: PaneCoordinatorFilesystemProjectionIndexing {
         return PaneFilesystemProjectionResult(
             requestGeneration: request.requestGeneration,
             paneContextGeneration: request.paneContextGeneration,
-            topologyGeneration: request.topologyGeneration,
+            topologyGeneration: topologyGeneration,
             intents: intents,
             worktreeCount: worktreesById.count,
             paneCount: panesById.count

@@ -36,15 +36,19 @@ final class PaneFilesystemProjectionAtom {
                 unregisterPaneContext(entry.paneId)
                 return
             }
-            registerPaneContext(
-                PaneFilesystemContext(
-                    paneId: PaneId(uuid: entry.paneId),
-                    repoId: repoId,
-                    cwd: cwd.standardizedFileURL.resolvingSymlinksInPath(),
-                    worktreeId: worktreeId
-                )
+            let context = PaneFilesystemContext(
+                paneId: PaneId(uuid: entry.paneId),
+                repoId: repoId,
+                cwd: cwd.standardizedFileURL.resolvingSymlinksInPath(),
+                worktreeId: worktreeId
             )
-            snapshotsByPaneId.removeValue(forKey: entry.paneId)
+            let existingContext = contextsByPaneId[entry.paneId]
+            registerPaneContext(
+                context
+            )
+            if existingContext != context {
+                snapshotsByPaneId.removeValue(forKey: entry.paneId)
+            }
         }
     }
 
