@@ -15,8 +15,8 @@ decisions must move into `docs/architecture/`:
 - Runtime command and event rules move into `pane_runtime_architecture.md` and
   `pane_runtime_eventbus_design.md`.
 - Terminal-backend zmx IPC details remain in `session_lifecycle.md`,
-  `zmx_terminal_integration_lessons.md`, or a dedicated zmx IPC architecture
-  document.
+  `zmx_terminal_integration_lessons.md`, or the backend-only design track in
+  `2026-06-13-zmx-backend-ipc-design.md`.
 
 This spec should then become implementation history, not the permanent
 architecture entrypoint.
@@ -39,9 +39,14 @@ and JSON schemas without making MCP the phase-1 wire protocol.
 - Do not add a V1 line-oriented text protocol.
 - Do not support JSON-RPC batch requests in phase 1.
 - Do not stream terminal output as events in phase 1.
+- Do not expose zmx history, scrollback, or terminal output payloads in phase 1.
 - Do not add password auth in phase 1.
 - Do not add an `allowAll` or world-writable production mode.
+- Do not expose remote zmx sockets, SSH-forwarded zmx sockets, or raw zmx
+  daemon transports in phase 1.
 - Do not route commands through the EventBus.
+- Do not expose arbitrary internal event names or raw runtime envelopes as the
+  public event/wait contract.
 - Do not mutate atoms directly from IPC methods.
 
 ## Grounding In The Current System
@@ -190,6 +195,17 @@ metadata file must be owner-only. Socket paths must be derived from the
 channel-aware app root, not from worktree or workspace paths, so they stay under
 the macOS `sun_path` limit and never cross stable, beta, or debug channels.
 
+The IPC service must fail closed when the filesystem boundary is not trustworthy:
+
+- the app root, `<root>/ipc`, socket path, metadata path, and any future
+  automation token file must be owned by the current uid;
+- the IPC directory, socket, metadata file, and token file must not be group- or
+  world-accessible;
+- symlinked IPC paths are refused;
+- metadata writes are atomic replace operations;
+- `AGENTSTUDIO_DATA_DIR` is allowed only when the resolved root passes the same
+  ownership and permission checks.
+
 Metadata includes only non-secret discovery facts in `agentStudioOnly`:
 
 ```json
@@ -288,6 +304,19 @@ observe app/runtime state, mutate pane layout, and eventually control browser or
 webview surfaces. The threat model is local by default, but local access is
 still powerful.
 
+Threat actors and entry points:
+
+- the Agent Studio app process;
+- Agent Studio-spawned terminal child processes and their descendants;
+- arbitrary same-uid local processes;
+- future external CLI clients;
+- future MCP adapter or plugin host processes;
+- future SSH-forwarded zmx paths and the remote host/user that owns them.
+
+All app IPC requests, event subscriptions, handles, replay cursors, and zmx
+response bytes are untrusted inputs until validated by the layer that receives
+them.
+
 Phase 1 uses cmux-shaped modes with an Orca-style runtime token, adjusted so
 `agentStudioOnly` is enforceable.
 
@@ -308,7 +337,8 @@ automationSameUser
   socket and metadata are owner-only
   peer uid must match the app owner
   token can be discoverable through owner-only metadata or a token file
-  the mode honestly grants same-user automation
+  the mode honestly grants same-user automation to any same-uid process that can
+  obtain the bootstrap material
 
 password
   reserved follow-up mode
@@ -323,6 +353,13 @@ unsafeDebug
 `agentStudioOnly` requires memory-only token custody. If the token is written to
 disk, any same-user process can read it and the mode collapses into
 `automationSameUser`.
+
+In `agentStudioOnly`, the runtime token is generated per app runtime, rotated on
+listener restart, scoped to authenticated connections only, never persisted,
+never echoed in logs/errors/events, and invalidated when the runtime identity
+changes. The mode trusts Agent Studio-spawned terminal descendants that inherit
+the environment. It is not a guarantee that no child process can delegate that
+capability onward.
 
 The app injects the token and socket path into spawned terminal sessions:
 
@@ -343,14 +380,19 @@ The first client request on a connection must authenticate:
 }
 ```
 
-The server stores authenticated state per connection. Requests before
-authentication fail with `-32001 unauthenticated`. `auth.login` is retained as
-the stable method name so a later password mode does not require a wire-protocol
+The server stores authenticated state per connection. Before successful
+authentication, only `auth.login` and an explicitly pre-auth `system.ping` are
+allowed. That `system.ping` response must return no runtime metadata. All other
+methods fail with `-32001 unauthenticated`. `auth.login` is retained as the
+stable method name so a later password mode does not require a wire-protocol
 break.
 
 Peer credential checks run before token validation. Same-uid checks are required
 in every enabled mode. `agentStudioOnly` may additionally use peer PID ancestry
 when available, but the token remains the primary capability for spawned agents.
+If peer credentials cannot be obtained, the connection is rejected before
+JSON-RPC dispatch. Repeated authentication failures or malformed authentication
+frames close the connection.
 
 ## Privilege Classes
 
@@ -361,7 +403,7 @@ systemRead
   identify, ping, version, capabilities
 
 workspaceRead
-  list/current windows, workspaces, tabs, panes, surfaces
+  list/current windows, workspaces, tabs, panes, and runtime summaries
 
 layoutMutate
   focus, split, close, select, move
@@ -370,7 +412,7 @@ terminalRead
   terminal status and bounded snapshots
 
 terminalWrite
-  send input, interrupt, run terminal commands
+  send input and supported terminal runtime commands
 
 eventsRead
   subscribe to lifecycle/status event streams
@@ -423,6 +465,12 @@ accepted
   completion or failure is observed later through an event carrying correlationId
 ```
 
+Phase-1 methods default to `applied`. A method may declare `accepted` only when
+its execution owner is actually asynchronous and can emit a later exported
+completion/failure event. `terminal.send` is `applied` when bytes are accepted by
+the terminal surface; shell command completion is observed separately through
+`terminal.wait` or exported terminal events.
+
 The registry must not route raw requests directly into atoms. It must not invent
 a generic command bus. It binds external methods to focused existing
 capabilities.
@@ -437,7 +485,6 @@ window:1
 workspace:1
 tab:1
 pane:1
-surface:1
 ```
 
 Rules:
@@ -449,13 +496,20 @@ Rules:
 - Responses include the resolved canonical target when a friendly ref or active
   target was used.
 - Methods with implicit active targets must say so in the registry.
+- Phase 1 is pane-first. `surface:*` handles are deferred until Agent Studio has
+  a public surface-level contract distinct from `PaneId`.
 
 This keeps future remote zmx placement from leaking transport-specific terminal
 identity into public app control.
 
 ## Phase-1 Method Surface
 
-Phase 1 is intentionally small.
+Phase 1 is intentionally small and pane-first. The first implementation slice
+ships the app IPC transport, auth, registry, read/query surface, pane focus,
+terminal send/status/snapshot/wait, and event subscriptions. Broader layout
+mutation is still Agent Studio app control, but it is gated on an explicit
+app-control action adapter rather than hidden access to private view-controller
+methods.
 
 ```text
 system.ping
@@ -471,23 +525,30 @@ window.current
 
 workspace.list
 workspace.current
-workspace.select
 
 pane.list
 pane.current
 pane.focus
-pane.split
-pane.close
 pane.snapshot
 
 terminal.status
 terminal.send
-terminal.interrupt
 terminal.snapshot
 terminal.wait
 
 events.subscribe
 events.unsubscribe
+```
+
+Phase-1 expansion methods may be added before implementation planning only after
+the spec names their exact execution owner, active-window behavior, validation
+errors, and no-direct-atom-mutation proof:
+
+```text
+workspace.select
+pane.split
+pane.close
+terminal.interrupt
 ```
 
 Deferred method groups:
@@ -505,6 +566,33 @@ password management
 remote app control
 ```
 
+Terminal method semantics:
+
+```text
+terminal.status
+  live in-memory runtime/backend status only
+  no terminal output, scrollback, zmx history, or raw PTY bytes
+
+terminal.snapshot
+  exported DTO composed from PaneRuntimeSnapshot plus allowlisted terminal
+  runtime fields
+  not a raw dump of TerminalRuntime, Ghostty, or zmx state
+
+terminal.send
+  applied when bytes are accepted by the terminal surface
+  does not mean the shell command completed
+
+terminal.wait
+  bounded wait over exported terminal conditions
+  not arbitrary internal event predicates
+  not durable replay
+```
+
+Allowed phase-1 wait conditions must be a small enum such as attach-ready,
+command-finished, renderer-healthy, title-changed, or cwd-changed. The
+implementation plan may shrink this list further after mapping each condition
+to current runtime facts.
+
 ## Execution Ownership
 
 Every method must name its execution owner.
@@ -516,11 +604,21 @@ system.* / auth.*
 window.* / workspace.* reads
   App/IPC query adapter over app/workspace state
 
-pane.* structural mutations
-  workspace action adapter using resolver, validator, and coordinator seams
+pane.focus / future pane structural mutations
+  App IPC layout adapter
+    -> ActionExecutor.execute(...)
+    -> WorkspaceCommandValidator
+    -> PaneCoordinator
+
+app and shell commands, if exposed later
+  CommandDispatcher
+    -> appCommandRouter or active workspace handler
 
 terminal.* runtime commands
-  AppIPCRuntimeAdapter -> PaneCoordinator.dispatchRuntimeCommand(...)
+  App IPC runtime adapter
+    -> PaneCoordinator.dispatchRuntimeCommand(...)
+    -> RuntimeRegistry
+    -> PaneRuntime.handleCommand(...)
 
 events.*
   event adapter over authoritative runtime/app facts
@@ -532,10 +630,26 @@ instead of making the public IPC adapter depend on private view-controller
 methods. Window-specific methods may still require an active/key workspace
 window and must return `-32006 no active window` when unavailable.
 
+No IPC method may mutate atoms directly. A method that has no named owner chain
+is not ready for phase-1 registration.
+
 ## Events And Waits
 
-Phase 1 events carry lifecycle, topology, focus, runtime status, and accepted
-command completion facts. They do not carry terminal output bytes.
+Phase 1 events carry only exported lifecycle, topology, focus, terminal status,
+and command-completion facts. They do not carry terminal output bytes, scrollback,
+zmx history, raw runtime envelopes, or arbitrary internal event payloads.
+
+The observer model is snapshot plus live stream:
+
+1. call a snapshot/read method,
+2. subscribe to exported events,
+3. optionally request bounded in-memory replay when the implementation supports
+   it for that source,
+4. refresh from snapshot after a gap, app restart, runtime restart, or replay
+   miss.
+
+Replay is not durable. There is no global event sequence. External cursors are
+scoped to the subscription/source that issued them.
 
 The event model uses subscriptions over the authenticated socket connection:
 
@@ -575,12 +689,18 @@ Rules:
 - Phase 1 does not promise durable replay.
 - The server may keep a bounded in-memory buffer for active subscribers.
 - Slow subscribers are disconnected with a terminal error notification.
-- Event payloads must be scoped and must not include terminal output by default.
+- Event names and payloads are allowlisted public contracts, not mirrors of
+  internal enum cases.
+- Event payloads must be scoped and must not include terminal output, scrollback,
+  zmx history, raw PTY bytes, or full paths/URLs unless the method contract
+  explicitly includes and redacts them.
 - Methods that return `accepted` must emit a later completion/failure event when
   the underlying owner can observe one.
 
 `terminal.wait` is a request/response method with a bounded timeout. It must use
-admission limits so long waits cannot starve short RPC calls.
+admission limits so long waits cannot starve short RPC calls. It waits on a
+small exported condition enum, not arbitrary internal event names or payload
+predicates.
 
 ## MCP Compatibility
 
@@ -608,14 +728,24 @@ MCP adds initialization, capability negotiation, tools, resources, prompts,
 transport rules, and security semantics. AgentStudio keeps its app-native method
 catalog and later maps registry entries into MCP tools/resources/prompts.
 
-Phase 1 must make this mapping possible by requiring machine-readable schemas
-and explicit privilege metadata from the start.
+Phase 1 preserves future MCP compatibility only by requiring machine-readable
+schemas, explicit privilege metadata, and stable semantic method definitions. It
+does not let MCP tool/resource/prompt modeling choose the phase-1 local method
+surface. A future MCP adapter is a separate trust boundary and must map
+privilege classes explicitly instead of inheriting broad app IPC authority by
+default.
 
 ## zmx IPC Reconciliation
 
 The old `agent-studio.zmx-ipc` worktree contains a valuable design for replacing
 `ZmxBackend` CLI shell-outs with one-shot zmx daemon socket calls. That worktree
 is stale relative to current AgentStudio and must not be git-merged wholesale.
+The refreshed backend-only design lives in
+`docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md`.
+
+zmx IPC refresh is a separate internal backend task. It is not a prerequisite
+for phase-1 public app IPC planning except to prove that no zmx protocol details
+leak into public schemas.
 
 The new IPC spec keeps the valid design idea but changes placement:
 
@@ -647,11 +777,14 @@ Details that stay out of public AgentStudio IPC:
 - zmx socket paths
 - zmx session naming
 - zmx `Info` struct layout
+- zmx history and scrollback payload formats
 - raw PTY output broadcast semantics
 - any public method named `zmx.*`
 
-The implementation plan should create a separate coarse task for refreshing the
-zmx IPC spec against current main and current vendor zmx sources.
+All concrete zmx wire-layout claims remain unverified in this checkout while
+`vendor/zmx` is uninitialized. The zmx backend implementation plan must first
+verify the current pinned vendor sources before carrying forward tag values,
+struct offsets, history formats, or read-loop behavior from the old worktree.
 
 ## Security Context
 
@@ -683,7 +816,16 @@ Security rules:
   correlation id, without sensitive payload values.
 - Bound frame size, request duration, open connection count, and long waits.
 - Treat terminal snapshots and future output streams as secret-bearing.
+- Phase-1 methods and events are allowlist-based. Internal runtime envelopes are
+  not public payload schemas.
+- Treat cwd, window/title text, command lines, search query/state, progress text,
+  secure-input transitions, paths, URLs, terminal output, scrollback, zmx
+  history, prompts, and browser/webview content as sensitive by default.
 - Do not put app-control tokens into zmx daemon state.
+- Do not proxy or expose remote zmx sockets in phase 1. Future SSH-forwarded zmx
+  support changes authentication, custody, audit, and failure semantics.
+- Future plugin or MCP hosts must receive explicitly scoped privileges and must
+  not inherit broad app IPC authority by default.
 
 ## Testing Strategy
 
@@ -710,24 +852,34 @@ auth tests
   agentStudioOnly token is not written to disk
   spawned-session env contains socket/token
   same-uid/peer credential checks
+  token rotates on runtime/listener restart
+  repeated failed auth closes the connection
+  automationSameUser bootstrap material is never present in agentStudioOnly
 
 registry tests
   every method has params/result schema
   every method has privilege class
   every method has execution owner
   no deferred namespace is registered in phase 1
+  no method is registered without a named owner chain
 
 adapter tests
   pane target resolution
   validation rejection maps to JSON-RPC error
   runtime not ready maps to JSON-RPC error
   accepted commands expose correlationId
+  no-active-window behavior maps to JSON-RPC error
+  no adapter mutates atoms directly
 
 event tests
   subscribe/unsubscribe
   status event delivery
   slow subscriber disconnect
   no terminal output in phase-1 events
+  exported event allowlist blocks internal-only payloads
+  replay gap or restart requires snapshot refresh
+  terminal.wait accepts only exported wait conditions
+  terminal.send result is not shell command completion
 ```
 
 ## Coarse Work Breakdown
@@ -744,7 +896,7 @@ become Linear tickets after the spec and plan are approved.
 6. Terminal runtime adapter and bounded terminal methods
 7. Event subscription and wait model
 8. CLI client for local agents
-9. zmx IPC spec refresh against current main and vendor zmx
+9. zmx backend IPC vendor verification and transport-swap plan
 10. Future MCP adapter design and implementation
 ```
 
@@ -755,24 +907,39 @@ token injected into AgentStudio-spawned sessions. `automationSameUser` is opt-in
 for external local tools. Keep this as the default unless spec review changes
 the threat model or first consumer.
 
-If any phase-1 method must work without an active window, the implementation
-plan must name that method and route it around window-bound owners. Otherwise,
-window-bound methods return `-32006 no active window`.
+Phase-1 expansion methods `workspace.select`, `pane.split`, `pane.close`, and
+`terminal.interrupt` stay deferred until the spec names their exact owner chain
+and no-active-window behavior. Otherwise, window-bound methods return `-32006 no
+active window`.
+
+If `terminal.snapshot` cannot be backed by an explicit exported DTO during
+planning, shrink phase 1 to `terminal.status` plus `pane.snapshot` rather than
+leaking raw runtime state.
+
+If `terminal.wait` cannot be represented as a small exported condition enum,
+remove it from phase 1 instead of exposing arbitrary internal event predicates.
 
 If any phase-1 use case needs terminal output streaming, that should be a
 separate explicit scope decision because it changes the security and backpressure
 model.
 
+If the first real consumer is an external same-user CLI rather than an
+AgentStudio-spawned terminal agent, decide whether `automationSameUser` is part
+of phase 1 or remains a follow-up mode.
+
 ## References
 
 - [AppDataPaths.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/Sources/AgentStudio/Infrastructure/AppDataPaths.swift)
 - [AppCommand.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/Sources/AgentStudio/App/Commands/AppCommand.swift)
+- [ActionExecutor.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/Sources/AgentStudio/App/Commands/ActionExecutor.swift)
 - [PaneCoordinator+RuntimeDispatch.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/Sources/AgentStudio/App/Coordination/PaneCoordinator+RuntimeDispatch.swift)
+- [RuntimeRegistry.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/Sources/AgentStudio/Core/RuntimeEventSystem/Registry/RuntimeRegistry.swift)
 - [PaneRuntime.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntime.swift)
 - [RPCRouter.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/Sources/AgentStudio/Features/Bridge/Transport/RPCRouter.swift)
 - [pane_runtime_architecture.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/docs/architecture/pane_runtime_architecture.md)
 - [session_lifecycle.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/docs/architecture/session_lifecycle.md)
 - [remote_zmx_architecture_ideas.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/docs/architecture/remote_zmx_architecture_ideas.md)
+- [2026-06-13-zmx-backend-ipc-design.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.programatical-control/docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md)
 - [2026-03-30-zmx-ipc-client-design.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.zmx-ipc/docs/superpowers/specs/2026-03-30-zmx-ipc-client-design.md)
 - JSON-RPC 2.0: https://www.jsonrpc.org/specification
 - MCP 2025-11-25: https://modelcontextprotocol.io/specification/2025-11-25
