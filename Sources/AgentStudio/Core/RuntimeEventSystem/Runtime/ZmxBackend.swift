@@ -221,6 +221,11 @@ final class ZmxBackend: SessionBackend {
             && segments[3] == Substring(paneSessionSegment(paneId))
     }
 
+    static func isValidStoredLayoutPaneSessionId(_ sessionId: String, paneId: UUID) -> Bool {
+        isValidStoredMainSessionId(sessionId, paneId: paneId)
+            || drawerSessionId(sessionId, matchesPaneId: paneId)
+    }
+
     static func isValidStoredDrawerSessionId(
         _ sessionId: String,
         parentPaneId: UUID,

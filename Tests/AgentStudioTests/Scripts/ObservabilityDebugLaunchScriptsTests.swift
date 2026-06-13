@@ -117,6 +117,41 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_REASON=duplicate_attribution_failed"))
     }
 
+    @Test("debug launcher overwrites stale running state when collector health fails")
+    func debugLauncherOverwritesStaleRunningStateWhenCollectorHealthFails() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=stale-marker
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=stale
+        AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
+        """
+        .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
+
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--skip-build", "--detach"],
+            environment: [
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl-fail-health",
+                    """
+                    #!/bin/bash
+                    exit 7
+                    """
+                ).path,
+                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        let state = try String(contentsOf: stateFile, encoding: .utf8)
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=launch_failed"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_REASON=otlp_collector_unhealthy"))
+        #expect(!state.contains("stale-marker"))
+    }
+
     @Test("debug launcher ignores stale state PID when bundle identity does not match")
     func debugLauncherIgnoresStaleStatePIDWhenBundleIdentityDoesNotMatch() throws {
         let fixture = try LauncherScriptFixture()
@@ -268,6 +303,9 @@ struct ObservabilityDebugLaunchScriptsTests {
         }
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=running"))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
+        #expect(state.contains("AgentStudio\\ Debug\\ "))
+        let buildExecutable = shellEscapedStateValue(buildPath.appending(path: "debug/AgentStudio").path)
+        #expect(!state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=\(buildExecutable)"))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_DATA_DIR="))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR="))
 
@@ -278,6 +316,64 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(launchedEnv.contains("backend=otlp"))
         #expect(launchedEnv.contains("marker=debug-observability-"))
         #expect(!FileManager.default.fileExists(atPath: fixture.url("leaked-env").path))
+    }
+
+    @Test("debug launcher fails closed when LaunchServices accepts app but PID never appears")
+    func debugLauncherFailsClosedWhenLaunchServicesAcceptsAppButPidNeverAppears() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        let launchedEnv = fixture.url("launched-env")
+        let buildPath = try fixture.makeDebugBuildExecutable(
+            """
+            #!/bin/bash
+            printf "direct fallback launched\\n" > "\(launchedEnv.path)"
+            sleep 30
+            """
+        )
+
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
+            environment: [
+                "AGENTSTUDIO_OPEN_BIN": try fixture.executable(
+                    "open",
+                    """
+                    #!/bin/bash
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_PGREP_BIN": try fixture.executable(
+                    "pgrep",
+                    """
+                    #!/bin/bash
+                    exit 1
+                    """
+                ).path,
+                "AGENTSTUDIO_DITTO_BIN": try fixture.executable(
+                    "ditto",
+                    """
+                    #!/bin/bash
+                    cp -R "$1" "$2"
+                    """
+                ).path,
+                "AGENTSTUDIO_CODESIGN_BIN": try fixture.executable(
+                    "codesign",
+                    """
+                    #!/bin/bash
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_PID_WAIT_ATTEMPTS": "1",
+                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(!FileManager.default.fileExists(atPath: launchedEnv.path))
+        let state = try String(contentsOf: stateFile, encoding: .utf8)
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=launch_failed"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_REASON=launchservices_pid_not_found"))
     }
 
     @Test("release scripts do not resolve inject-bundle-version through PATH bash")

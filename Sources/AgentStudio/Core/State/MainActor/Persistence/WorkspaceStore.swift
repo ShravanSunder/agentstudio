@@ -312,18 +312,18 @@ final class WorkspaceStore {
     }
 
     private func persistDebouncedAutosave() async {
-        guard !debouncedSaveFailureDamping.shouldSuppressNextDebouncedAttempt else {
+        let shouldReportFailure = !debouncedSaveFailureDamping.shouldDampNextDebouncedFailureReport
+        if !shouldReportFailure {
             workspaceStoreLogger.warning(
-                "Suppressing repeated workspace autosave after \(self.debouncedSaveFailureDamping.consecutiveFailureCount) identical failure(s)"
+                "Damping repeated workspace autosave failure report after \(self.debouncedSaveFailureDamping.consecutiveFailureCount) identical failure(s); autosave will still retry"
             )
-            return
         }
-        let outcome = await persistNow()
+        let outcome = await persistNow(shouldReportSaveFailure: shouldReportFailure)
         debouncedSaveFailureDamping.record(outcome)
     }
 
     @discardableResult
-    private func persistNow() async -> WorkspaceStoreFlushOutcome {
+    private func persistNow(shouldReportSaveFailure: Bool = true) async -> WorkspaceStoreFlushOutcome {
         let persistedAt = Date()
         do {
             if let sqliteDatastore {
@@ -349,7 +349,9 @@ final class WorkspaceStore {
             return .persisted
         } catch {
             workspaceStoreLogger.error("Failed to persist workspace: \(String(reflecting: error))")
-            reportSaveFailed()
+            if shouldReportSaveFailure {
+                reportSaveFailed()
+            }
             return .failed(String(describing: error))
         }
     }
@@ -500,7 +502,7 @@ private struct DebouncedSaveFailureDamping {
     private var failureSummary: String?
     private(set) var consecutiveFailureCount: Int = 0
 
-    var shouldSuppressNextDebouncedAttempt: Bool {
+    var shouldDampNextDebouncedFailureReport: Bool {
         consecutiveFailureCount >= AppPolicies.WorkspacePersistence.debouncedAutosaveFailureDampingThreshold
     }
 

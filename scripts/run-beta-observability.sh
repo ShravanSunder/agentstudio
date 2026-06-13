@@ -77,7 +77,16 @@ bundle_release_channel_for_executable() {
   /usr/libexec/PlistBuddy -c 'Print :AgentStudioReleaseChannel' "$bundle_path/Contents/Info.plist" 2>/dev/null || true
 }
 
-running_beta_app_pids() {
+realpath_or_empty() {
+  /usr/bin/python3 - "$1" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]) if sys.argv[1] else "")
+PY
+}
+
+running_beta_channel_pids() {
   local pids
   pids="$("$PGREP_BIN" -x AgentStudio 2>/dev/null || true)"
   [ -n "$pids" ] || return 0
@@ -100,12 +109,41 @@ running_beta_app_pids() {
     done
 }
 
+running_beta_app_pids() {
+  local expected_app_path="${1:?missing beta app path}"
+  local expected_binary_path="$expected_app_path/Contents/MacOS/AgentStudio"
+  local expected_binary_realpath
+  local pids
+  expected_binary_realpath="$(realpath_or_empty "$expected_binary_path")"
+  pids="$("$PGREP_BIN" -x AgentStudio 2>/dev/null || true)"
+  [ -n "$pids" ] || return 0
+
+  printf '%s\n' "$pids" |
+    while IFS= read -r pid; do
+      local txt_output
+      if ! txt_output="$("$LSOF_BIN" -a -p "$pid" -d txt -Fn 2>/dev/null)"; then
+        echo "unable to inspect running AgentStudio PID $pid with $LSOF_BIN" >&2
+        return 2
+      fi
+      txt_path="$(awk '/^n/ { print substr($0, 2); exit }' <<<"$txt_output")"
+      if [ -z "$txt_path" ]; then
+        echo "unable to resolve executable for running AgentStudio PID $pid" >&2
+        return 2
+      fi
+      if [ "$(realpath_or_empty "$txt_path")" = "$expected_binary_realpath" ] &&
+        [ "$(bundle_release_channel_for_executable "$txt_path")" = "beta" ]; then
+        printf '%s\n' "$pid"
+      fi
+    done
+}
+
 wait_for_beta_app_pid() {
-  local attempts="${1:-${AGENTSTUDIO_PID_WAIT_ATTEMPTS:-200}}"
+  local expected_app_path="${1:?missing beta app path}"
+  local attempts="${2:-${AGENTSTUDIO_PID_WAIT_ATTEMPTS:-200}}"
   local pid=""
 
   for _ in $(seq 1 "$attempts"); do
-    pid="$(running_beta_app_pids | tail -1 || true)"
+    pid="$(running_beta_app_pids "$expected_app_path" | tail -1 || true)"
     if [ -n "$pid" ]; then
       printf '%s\n' "$pid"
       return 0
@@ -214,7 +252,7 @@ if [ ! -x "$binary_path" ]; then
   echo "observability state: $state_file" >&2
   exit 1
 fi
-if ! existing_pids="$(running_beta_app_pids | paste -sd ' ' -)"; then
+if ! existing_pids="$(running_beta_channel_pids | paste -sd ' ' -)"; then
   mkdir -p "$(dirname "$state_file")"
   {
     write_state_value AGENTSTUDIO_OBSERVABILITY_STATUS launch_failed
@@ -312,7 +350,7 @@ if [ "$detach" = true ]; then
     echo "observability state: $state_file" >&2
     exit 1
   fi
-  if ! pid="$(wait_for_beta_app_pid)"; then
+  if ! pid="$(wait_for_beta_app_pid "$app_path")"; then
     write_launch_failed_state launchservices_pid_not_found
     echo "LaunchServices started but AgentStudio beta PID was not found." >&2
     echo "observability state: $state_file" >&2
@@ -322,7 +360,7 @@ if [ "$detach" = true ]; then
 else
   open_app "$app_path" "$launch_log" "-W" "${open_env_args[@]}" &
   open_pid=$!
-  if ! pid="$(wait_for_beta_app_pid)"; then
+  if ! pid="$(wait_for_beta_app_pid "$app_path")"; then
     if kill -0 "$open_pid" >/dev/null 2>&1; then
       failure_reason=launchservices_pid_not_found
       kill "$open_pid" >/dev/null 2>&1 || true

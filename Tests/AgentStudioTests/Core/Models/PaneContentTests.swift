@@ -19,7 +19,13 @@ final class PaneContentTests {
 
     func test_roundTrip_terminal() throws {
         // Arrange
-        let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
+        let content = PaneContent.terminal(
+            TerminalState(
+                provider: .zmx,
+                lifetime: .persistent,
+                zmxSessionId: "as-1111111111111111-2222222222222222-3333333333333333"
+            )
+        )
 
         // Act
         let data = try encoder.encode(content)
@@ -127,7 +133,23 @@ final class PaneContentTests {
 
         #expect(json["type"] as? String == "terminal")
         #expect(json["version"] as? Int == PaneContent.currentVersion)
-        #expect((json["state"]) != nil)
+        let state = try #require(json["state"] as? [String: Any])
+        #expect(state["zmxSessionId"] as? String == nil)
+    }
+
+    @Test
+    func test_encode_terminal_includesStoredZmxSessionAnchorWhenPresent() throws {
+        let sessionId = "as-1111111111111111-2222222222222222-3333333333333333"
+        let content = PaneContent.terminal(
+            TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionId: sessionId)
+        )
+
+        let data = try encoder.encode(content)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let state = try #require(json["state"] as? [String: Any])
+
+        #expect(json["version"] as? Int == 3)
+        #expect(state["zmxSessionId"] as? String == sessionId)
     }
 
     @Test

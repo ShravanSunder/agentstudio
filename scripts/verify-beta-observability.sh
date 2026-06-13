@@ -106,6 +106,15 @@ process_executable_path() {
   awk '/^n/ { print substr($0, 2); exit }' <<<"$txt_output"
 }
 
+realpath_or_empty() {
+  /usr/bin/python3 - "$1" <<'PY'
+import os
+import sys
+
+print(os.path.realpath(sys.argv[1]) if sys.argv[1] else "")
+PY
+}
+
 actual_app="$(
   /usr/bin/python3 - "$state_app" <<'PY'
 import os
@@ -154,6 +163,14 @@ if [ -z "$process_executable" ] ||
   echo "state file: $STATE_FILE" >&2
   exit 1
 fi
+process_app="$(realpath_or_empty "$(bundle_path_for_executable "$process_executable")")"
+if [ -z "$process_app" ] || [ "$process_app" != "$expected_app" ]; then
+  echo "AgentStudio beta observability PID app mismatch" >&2
+  echo "expected: $expected_app" >&2
+  echo "actual: ${process_app:-<missing>}" >&2
+  echo "state file: $STATE_FILE" >&2
+  exit 1
+fi
 
 portable_utc_time() {
   local macos_offset="$1"
@@ -189,7 +206,7 @@ fi
 
 startup_response="$(
   query_logs \
-    "$query _msg:app.zmx_startup_reconciliation.completed | fields _msg,agentstudio.zmx.startup.live_session_count,agentstudio.zmx.startup.hydrated_anchor_count,agentstudio.zmx.startup.protected_session_count,agentstudio.zmx.startup.unresolved_candidate_count,agentstudio.zmx.startup.unmatched_live_session_count | limit 5"
+    "$query _msg:app.zmx_startup_reconciliation.completed | fields _msg,agentstudio.zmx.startup.inventory_outcome,agentstudio.zmx.startup.live_session_count,agentstudio.zmx.startup.hydrated_anchor_count,agentstudio.zmx.startup.protected_session_count,agentstudio.zmx.startup.unresolved_candidate_count,agentstudio.zmx.startup.unmatched_live_session_count | limit 5"
 )"
 if [ -z "$startup_response" ]; then
   echo "no startup zmx reconciliation record found in VictoriaLogs for marker $MARKER" >&2
@@ -197,6 +214,7 @@ if [ -z "$startup_response" ]; then
 fi
 
 required_startup_fields=(
+  agentstudio.zmx.startup.inventory_outcome
   agentstudio.zmx.startup.live_session_count
   agentstudio.zmx.startup.hydrated_anchor_count
   agentstudio.zmx.startup.protected_session_count
@@ -211,6 +229,13 @@ for field in "${required_startup_fields[@]}"; do
     exit 1
   fi
 done
+
+if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_UNAVAILABLE_ZMX_STARTUP:-0}" != "1" ] &&
+  grep -q '"agentstudio.zmx.startup.inventory_outcome":"unavailable"' <<<"$startup_response"; then
+  echo "startup zmx reconciliation inventory was unavailable" >&2
+  echo "$startup_response" >&2
+  exit 1
+fi
 
 sensitive_fields=(
   agentstudio.session.id

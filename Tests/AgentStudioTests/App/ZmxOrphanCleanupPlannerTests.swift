@@ -231,6 +231,30 @@ struct ZmxOrphanCleanupPlannerTests {
             ])
     }
 
+    @Test("stored drawer-form session anchors stay valid after a pane is detached into the main layout")
+    func test_plan_whenMainPaneHasStoredDrawerSessionAnchor_protectsExistingSession() {
+        let parentPaneId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let paneId = UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!
+        let storedDrawerSessionId = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: paneId)
+        let derivedMainSessionId = ZmxBackend.sessionId(
+            repoStableKey: "3333333333333333",
+            worktreeStableKey: "4444444444444444",
+            paneId: paneId
+        )
+        let candidates: [ZmxOrphanCleanupCandidate] = [
+            .main(paneId: paneId, storedSessionId: storedDrawerSessionId, derivedSessionId: derivedMainSessionId)
+        ]
+
+        let hydrationPlan = ZmxOrphanCleanupPlanner.plan(
+            candidates: candidates,
+            liveSessionIds: [storedDrawerSessionId]
+        )
+
+        #expect(hydrationPlan.cleanupPlan.knownSessionIds == [storedDrawerSessionId])
+        #expect(hydrationPlan.sessionIdsToPersistByPaneId.isEmpty)
+        #expect(hydrationPlan.cleanupPlan.destroyableOrphanSessionIds(from: [storedDrawerSessionId]).isEmpty)
+    }
+
     @Test("does not persist ambiguous legacy main matches but adopts when ambiguity clears")
     func test_plan_whenAmbiguousMatchClears_adoptsOnLaterPlan() {
         // Arrange
@@ -349,7 +373,8 @@ struct ZmxOrphanCleanupPlannerTests {
                     worktreeId: roamedWorktree.id,
                     cwd: roamedWorktree.path
                 )
-            )
+            ),
+            anchorZmxSessionIfNeeded: false
         )
         let legacyPane = try #require(store.paneAtom.pane(legacyPaneState.id))
         store.appendTab(Tab(paneId: legacyPane.id, name: "Legacy"))
@@ -439,7 +464,8 @@ struct ZmxOrphanCleanupPlannerTests {
                 launchDirectory: worktree.path,
                 title: "Wrapper",
                 facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-            )
+            ),
+            anchorZmxSessionIfNeeded: false
         )
         store.appendTab(Tab(paneId: paneState.id, name: "Wrapper"))
         let expectedSessionId = ZmxBackend.sessionId(
@@ -496,7 +522,8 @@ struct ZmxOrphanCleanupPlannerTests {
                 launchDirectory: worktree.path,
                 title: "Anchored",
                 facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-            )
+            ),
+            anchorZmxSessionIfNeeded: false
         )
         let storedSessionId = ZmxBackend.sessionId(
             repoStableKey: repo.stableKey,
@@ -559,7 +586,8 @@ struct ZmxOrphanCleanupPlannerTests {
                 launchDirectory: worktree.path,
                 title: "Invalid Anchor",
                 facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-            )
+            ),
+            anchorZmxSessionIfNeeded: false
         )
         let invalidStoredSessionId = ZmxBackend.sessionId(
             repoStableKey: repo.stableKey,
@@ -622,7 +650,8 @@ struct ZmxOrphanCleanupPlannerTests {
                 launchDirectory: worktree.path,
                 title: "Unavailable",
                 facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-            )
+            ),
+            anchorZmxSessionIfNeeded: false
         )
         store.appendTab(Tab(paneId: paneState.id, name: "Unavailable"))
         let anchoredPaneState = store.paneAtom.createPane(
@@ -631,7 +660,8 @@ struct ZmxOrphanCleanupPlannerTests {
                 launchDirectory: worktree.path,
                 title: "Anchored",
                 facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
-            )
+            ),
+            anchorZmxSessionIfNeeded: false
         )
         let anchoredSessionId = ZmxBackend.sessionId(
             repoStableKey: repo.stableKey,

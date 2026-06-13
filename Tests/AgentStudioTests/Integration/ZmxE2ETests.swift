@@ -320,7 +320,8 @@ extension E2ESerializedTests {
                         worktreeId: roamedWorktree.id,
                         cwd: roamedWorktree.path
                     )
-                )
+                ),
+                anchorZmxSessionIfNeeded: false
             )
             let legacyPane = try #require(store.paneAtom.pane(legacyPaneState.id))
             store.appendTab(Tab(paneId: legacyPane.id, name: "Legacy"))
