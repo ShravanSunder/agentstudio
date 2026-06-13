@@ -559,18 +559,20 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(miseConfig.contains("/bin/bash scripts/inject-bundle-version.sh"))
         #expect(
             !miseConfig.contains("run = \"bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\""))
+        #expect(!miseConfig.contains("$HOME/dev/devfiles/shared/observability/observability-stack"))
+        #expect(!miseConfig.contains("observability:agentstudio-beta-env"))
         #expect(
             miseConfig.contains(
-                "run = \"/bin/bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\" up\""))
+                "run = \"/bin/bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\" up\""))
         #expect(
             miseConfig.contains(
-                "run = \"/bin/bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\" status\""))
+                "run = \"/bin/bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\" status\""))
         #expect(
             miseConfig.contains(
-                "run = \"/bin/bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\" smoke\""))
+                "run = \"/bin/bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\" smoke\""))
         #expect(
             miseConfig.contains(
-                "run = \"/bin/bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\" down\""))
+                "run = \"/bin/bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\" down\""))
         #expect(!verifierScript.contains("\nbash \"$ROOT_DIR/scripts/inject-bundle-version.sh\""))
         #expect(verifierScript.contains("/bin/bash \"$ROOT_DIR/scripts/inject-bundle-version.sh\""))
     }
