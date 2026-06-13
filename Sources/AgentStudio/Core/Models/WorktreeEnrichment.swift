@@ -61,6 +61,14 @@ struct WorktreeEnrichment: Codable, Hashable, Sendable {
             && lhs.updatedAt == rhs.updatedAt
     }
 
+    func hasSameCacheContent(as other: Self) -> Bool {
+        worktreeId == other.worktreeId
+            && repoId == other.repoId
+            && branch == other.branch
+            && isMainWorktree == other.isMainWorktree
+            && snapshot == other.snapshot
+    }
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(worktreeId)
         hasher.combine(repoId)

@@ -90,6 +90,52 @@ struct PaneFilesystemProjectionAtomContextTests {
         #expect(store.contextsByPaneId[context.paneId.uuid] == context)
     }
 
+    @Test("unchanged pane context upsert preserves snapshot")
+    func unchangedPaneContextUpsertPreservesSnapshot() {
+        let store = PaneFilesystemProjectionAtom()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let root = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
+        let paneId = UUIDv7.generate()
+        let update = FilesystemProjectionPaneUpdate(
+            requestGeneration: 1,
+            kind: .upsert(
+                .init(
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    cwd: root
+                )
+            )
+        )
+
+        store.applyPaneContextUpdate(update)
+        _ = store.applyProjectionIntent(
+            .cwdSubtreeChanged(
+                PaneFilesystemCWDSubtreeProjection(
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    context: PaneFilesystemContext(
+                        paneId: PaneId(uuid: paneId),
+                        repoId: repoId,
+                        cwd: root,
+                        worktreeId: worktreeId
+                    ),
+                    paths: ["Sources/App.swift"],
+                    batchSequence: 1,
+                    timestamp: .now,
+                    correlationId: nil,
+                    commandId: nil
+                )
+            )
+        )
+
+        store.applyPaneContextUpdate(update)
+
+        #expect(store.snapshotsByPaneId[paneId]?.changedPaths == ["Sources/App.swift"])
+    }
+
     @Test("prune and reset clean context tracking state")
     func pruneAndResetCleanContextTrackingState() {
         let store = PaneFilesystemProjectionAtom()

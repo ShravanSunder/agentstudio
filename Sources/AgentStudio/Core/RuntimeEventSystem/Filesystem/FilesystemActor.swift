@@ -54,7 +54,9 @@ actor FilesystemActor {
         var lastPendingTimestamp: Duration?
 
         var hasPendingChanges: Bool {
-            !projectedPaths.isEmpty || suppressedIgnoredPathCount > 0 || suppressedGitInternalPathCount > 0
+            !projectedPaths.isEmpty
+                || containsGitInternalChanges
+                || suppressedGitInternalPathCount > 0
         }
 
         mutating func recordPendingChange(at timestamp: Duration) {
@@ -133,6 +135,7 @@ actor FilesystemActor {
         startIngressTaskIfNeeded()
 
         let canonicalRootPath = FilesystemRootOwnership.canonicalRootPath(for: rootPath)
+        let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: rootPath)
 
         let existing = roots[worktreeId]
         roots[worktreeId] = RootState(
@@ -141,7 +144,7 @@ actor FilesystemActor {
             canonicalRootPath: canonicalRootPath,
             isActiveInApp: existing?.isActiveInApp ?? false,
             nextBatchSeq: existing?.nextBatchSeq ?? 0,
-            pathFilter: FilesystemPathFilter.load(forRootPath: rootPath)
+            pathFilter: pathFilter
         )
         pendingChangesByWorktreeId[worktreeId] = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
         fseventStreamClient.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
@@ -171,9 +174,29 @@ actor FilesystemActor {
         )
     }
 
+    func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
+        let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
+        let removedWorktreeIds = Set(roots.keys).subtracting(desiredWorktreeIds)
+        for worktreeId in removedWorktreeIds.sorted(by: Self.sortWorktreeIds) {
+            await unregister(worktreeId: worktreeId)
+        }
+
+        for (worktreeId, context) in assertion.contextsByWorktreeId.sorted(by: { lhs, rhs in
+            Self.sortWorktreeIds(lhs.key, rhs.key)
+        }) {
+            guard
+                roots[worktreeId]?.repoId != context.repoId
+                    || roots[worktreeId]?.rootPath != context.rootPath
+            else {
+                continue
+            }
+            await register(worktreeId: worktreeId, repoId: context.repoId, rootPath: context.rootPath)
+        }
+    }
+
     /// Test seam for deterministic ingress without OS-level FSEvents.
-    func enqueueRawPaths(worktreeId: UUID, paths: [String]) {
-        ingestRawPaths(worktreeId: worktreeId, paths: paths)
+    func enqueueRawPaths(worktreeId: UUID, paths: [String]) async {
+        await ingestRawPaths(worktreeId: worktreeId, paths: paths)
     }
 
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
@@ -227,7 +250,7 @@ actor FilesystemActor {
         hasShutdown = true
     }
 
-    private func ingestRawPaths(worktreeId: UUID, paths: [String]) {
+    private func ingestRawPaths(worktreeId: UUID, paths: [String]) async {
         guard roots[worktreeId] != nil else {
             Self.logger.debug(
                 "Dropped filesystem path batch for unregistered worktree \(worktreeId.uuidString, privacy: .public)"
@@ -248,17 +271,22 @@ actor FilesystemActor {
                 continue
             }
 
-            guard var root = roots[ownedPath.worktreeId] else { continue }
+            guard let root = roots[ownedPath.worktreeId] else { continue }
 
-            var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
             if Self.isGitIgnoreReloadPath(rawPath: rawPath, relativePath: ownedPath.relativePath) {
-                root.pathFilter = FilesystemPathFilter.load(forRootPath: root.rootPath)
-                roots[ownedPath.worktreeId] = root
+                let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: root.rootPath)
+                guard var latestRoot = roots[ownedPath.worktreeId] else { continue }
+                latestRoot.pathFilter = pathFilter
+                roots[ownedPath.worktreeId] = latestRoot
+
+                var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
+                pendingChanges.containsGitInternalChanges = true
                 pendingChanges.recordPendingChange(at: schedulingClock.now())
                 pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
                 continue
             }
 
+            var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
             switch root.pathFilter.classify(relativePath: ownedPath.relativePath) {
             case .projected:
                 pendingChanges.projectedPaths.insert(ownedPath.relativePath)
@@ -688,12 +716,14 @@ actor FilesystemActor {
 
         watchedFolderRepoGroupsByRoot[folderPath] = currentRepoGroups
 
+        var discoveredRepositories: [DiscoveredRepoTopologyInfo] = []
         for repoPath in addedRepoPaths {
             guard let group = currentRepoGroupsByClonePath[repoPath] else { continue }
-            await emitRepoDiscovered(
-                repoPath: repoPath,
-                parentPath: folderPath,
-                linkedWorktrees: .scanned(group.linkedWorktreePaths)
+            discoveredRepositories.append(
+                DiscoveredRepoTopologyInfo(
+                    repoPath: repoPath,
+                    linkedWorktrees: .scanned(group.linkedWorktreePaths)
+                )
             )
         }
 
@@ -704,12 +734,14 @@ actor FilesystemActor {
                 continue
             }
             guard currentGroup.linkedWorktreePaths != previousGroup.linkedWorktreePaths else { continue }
-            await emitRepoDiscovered(
-                repoPath: repoPath,
-                parentPath: folderPath,
-                linkedWorktrees: .scanned(currentGroup.linkedWorktreePaths)
+            discoveredRepositories.append(
+                DiscoveredRepoTopologyInfo(
+                    repoPath: repoPath,
+                    linkedWorktrees: .scanned(currentGroup.linkedWorktreePaths)
+                )
             )
         }
+        await emitReposDiscovered(parentPath: folderPath, repositories: discoveredRepositories)
 
         return WatchedFolderRefreshResult(
             repoPaths: currentRepoGroups.map(\.clonePath).sorted(by: Self.sortByPath),
@@ -741,6 +773,33 @@ actor FilesystemActor {
         if droppedCount > 0 {
             Self.logger.warning(
                 "Repo discovered event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); repoPath=\(repoPath.path, privacy: .public)"
+            )
+        }
+    }
+
+    private func emitReposDiscovered(
+        parentPath: URL,
+        repositories: [DiscoveredRepoTopologyInfo]
+    ) async {
+        guard !repositories.isEmpty else { return }
+        nextEnvelopeSequence += 1
+        let envelope = RuntimeEnvelope.system(
+            SystemEnvelope(
+                source: .builtin(.filesystemWatcher),
+                seq: nextEnvelopeSequence,
+                timestamp: envelopeClock.now,
+                event: .topology(
+                    .reposDiscovered(
+                        parentPath: parentPath,
+                        repositories: repositories
+                    )
+                )
+            )
+        )
+        let droppedCount = (await runtimeBus.post(envelope)).droppedCount
+        if droppedCount > 0 {
+            Self.logger.warning(
+                "Repos discovered event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); parentPath=\(parentPath.path, privacy: .public)"
             )
         }
     }
@@ -800,6 +859,10 @@ actor FilesystemActor {
 
     private static func sortByPath(_ lhs: URL, _ rhs: URL) -> Bool {
         lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
+    }
+
+    private static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
+        lhs.uuidString < rhs.uuidString
     }
 
     private func startFallbackRescan() {

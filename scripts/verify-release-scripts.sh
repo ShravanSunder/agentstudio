@@ -5,38 +5,38 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SHA="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 assert_contains() {
-  local needle="${1:?missing expected content}"
-  local content="${2:?missing content}"
-  if [[ "$content" != *"$needle"* ]]; then
-    echo "expected content missing: $needle" >&2
-    return 1
+  local haystack="$1"
+  local needle="$2"
+  if [[ "$haystack" != *"$needle"* ]]; then
+    echo "expected output to contain: $needle" >&2
+    exit 1
   fi
 }
 
 assert_not_contains() {
-  local needle="${1:?missing rejected content}"
-  local content="${2:?missing content}"
-  if [[ "$content" == *"$needle"* ]]; then
-    echo "rejected content present: $needle" >&2
-    return 1
+  local haystack="$1"
+  local needle="$2"
+  if [[ "$haystack" == *"$needle"* ]]; then
+    echo "expected output not to contain: $needle" >&2
+    exit 1
   fi
 }
 
 stable_metadata="$("$ROOT_DIR/scripts/release-tag-metadata.sh" v0.0.54)"
 beta_metadata="$("$ROOT_DIR/scripts/release-tag-metadata.sh" v0.0.54-beta.1)"
 
-assert_contains "channel=stable" "$stable_metadata"
-assert_contains "cask_token=agent-studio" "$stable_metadata"
-assert_contains "app_bundle_name=AgentStudio.app" "$stable_metadata"
-assert_contains "bundle_identifier=com.agentstudio.app" "$stable_metadata"
-assert_contains "app_cache_domain=com.agentstudio.app" "$stable_metadata"
-assert_contains "oauth_callback_scheme=agentstudio" "$stable_metadata"
-assert_contains "channel=beta" "$beta_metadata"
-assert_contains "cask_token=agent-studio@beta" "$beta_metadata"
-assert_contains "app_bundle_name=AgentStudio Beta.app" "$beta_metadata"
-assert_contains "bundle_identifier=com.agentstudio.app.beta" "$beta_metadata"
-assert_contains "app_cache_domain=com.agentstudio.app.beta" "$beta_metadata"
-assert_contains "oauth_callback_scheme=agentstudio-beta" "$beta_metadata"
+assert_contains "$stable_metadata" "channel=stable"
+assert_contains "$stable_metadata" "cask_token=agent-studio"
+assert_contains "$stable_metadata" "app_bundle_name=AgentStudio.app"
+assert_contains "$stable_metadata" "bundle_identifier=com.agentstudio.app"
+assert_contains "$stable_metadata" "app_cache_domain=com.agentstudio.app"
+assert_contains "$stable_metadata" "oauth_callback_scheme=agentstudio"
+assert_contains "$beta_metadata" "channel=beta"
+assert_contains "$beta_metadata" "cask_token=agent-studio@beta"
+assert_contains "$beta_metadata" "app_bundle_name=AgentStudio Beta.app"
+assert_contains "$beta_metadata" "bundle_identifier=com.agentstudio.app.beta"
+assert_contains "$beta_metadata" "app_cache_domain=com.agentstudio.app.beta"
+assert_contains "$beta_metadata" "oauth_callback_scheme=agentstudio-beta"
 
 if "$ROOT_DIR/scripts/release-tag-metadata.sh" v0.0.54-beta >/dev/null 2>&1; then
   echo "malformed beta tag unexpectedly passed" >&2
@@ -46,32 +46,32 @@ fi
 stable_cask="$("$ROOT_DIR/scripts/render-homebrew-cask.sh" stable 0.0.54 "$SHA")"
 beta_cask="$("$ROOT_DIR/scripts/render-homebrew-cask.sh" beta 0.0.54-beta.1 "$SHA")"
 
-assert_contains 'cask "agent-studio" do' "$stable_cask"
-assert_contains 'name "Agent Studio"' "$stable_cask"
-assert_contains 'desc "Terminal application with Ghostty terminal emulator and project management"' "$stable_cask"
-assert_not_contains 'conflicts_with cask: "agent-studio@beta"' "$stable_cask"
-assert_contains 'depends_on macos: :tahoe' "$stable_cask"
-assert_contains 'app "AgentStudio.app"' "$stable_cask"
-assert_contains '"~/.agentstudio"' "$stable_cask"
-assert_contains '"~/Library/Caches/com.agentstudio.app"' "$stable_cask"
-assert_contains '"~/Library/Preferences/com.agentstudio.app.plist"' "$stable_cask"
-assert_contains '"~/Library/Saved Application State/com.agentstudio.app.savedState"' "$stable_cask"
-assert_not_contains 'desc "macOS' "$stable_cask"
-assert_not_contains 'depends_on macos: ">= :tahoe"' "$stable_cask"
-assert_contains 'cask "agent-studio@beta" do' "$beta_cask"
-assert_contains 'name "Agent Studio Beta"' "$beta_cask"
-assert_contains 'desc "Terminal application with Ghostty terminal emulator and project management"' "$beta_cask"
-assert_not_contains 'conflicts_with cask: "agent-studio"' "$beta_cask"
-assert_contains 'depends_on macos: :tahoe' "$beta_cask"
-assert_contains 'app "AgentStudio Beta.app"' "$beta_cask"
-assert_contains '"~/.agent-studio-b"' "$beta_cask"
-assert_contains '"~/Library/Caches/com.agentstudio.app.beta"' "$beta_cask"
-assert_contains '"~/Library/Preferences/com.agentstudio.app.beta.plist"' "$beta_cask"
-assert_contains '"~/Library/Saved Application State/com.agentstudio.app.beta.savedState"' "$beta_cask"
-assert_not_contains 'desc "macOS' "$beta_cask"
-assert_not_contains 'depends_on macos: ">= :tahoe"' "$beta_cask"
+assert_contains "$stable_cask" 'cask "agent-studio" do'
+assert_contains "$stable_cask" 'name "Agent Studio"'
+assert_contains "$stable_cask" 'desc "Terminal application with Ghostty terminal emulator and project management"'
+assert_not_contains "$stable_cask" 'conflicts_with cask: "agent-studio@beta"'
+assert_contains "$stable_cask" 'depends_on macos: :tahoe'
+assert_contains "$stable_cask" 'app "AgentStudio.app"'
+assert_contains "$stable_cask" '"~/.agentstudio"'
+assert_contains "$stable_cask" '"~/Library/Caches/com.agentstudio.app"'
+assert_contains "$stable_cask" '"~/Library/Preferences/com.agentstudio.app.plist"'
+assert_contains "$stable_cask" '"~/Library/Saved Application State/com.agentstudio.app.savedState"'
+assert_not_contains "$stable_cask" 'desc "macOS'
+assert_not_contains "$stable_cask" 'depends_on macos: ">= :tahoe"'
+assert_contains "$beta_cask" 'cask "agent-studio@beta" do'
+assert_contains "$beta_cask" 'name "Agent Studio Beta"'
+assert_contains "$beta_cask" 'desc "Terminal application with Ghostty terminal emulator and project management"'
+assert_not_contains "$beta_cask" 'conflicts_with cask: "agent-studio"'
+assert_contains "$beta_cask" 'depends_on macos: :tahoe'
+assert_contains "$beta_cask" 'app "AgentStudio Beta.app"'
+assert_contains "$beta_cask" '"~/.agent-studio-b"'
+assert_contains "$beta_cask" '"~/Library/Caches/com.agentstudio.app.beta"'
+assert_contains "$beta_cask" '"~/Library/Preferences/com.agentstudio.app.beta.plist"'
+assert_contains "$beta_cask" '"~/Library/Saved Application State/com.agentstudio.app.beta.savedState"'
+assert_not_contains "$beta_cask" 'desc "macOS'
+assert_not_contains "$beta_cask" 'depends_on macos: ">= :tahoe"'
 
-if ! printf '%s\n' "$beta_cask" | awk '
+if ! awk '
   /depends_on macos: :tahoe/ { depends = NR }
   /app "AgentStudio Beta.app"/ { app = NR }
   END {
@@ -79,12 +79,12 @@ if ! printf '%s\n' "$beta_cask" | awk '
       exit 1
     }
   }
-'; then
+' < <(printf '%s\n' "$beta_cask"); then
   echo "beta cask stanza order is incorrect or missing expected stanzas" >&2
   exit 1
 fi
 
-if ! printf '%s\n' "$beta_cask" | awk '
+if ! awk '
   /"~\/\.agent-studio-b",/ { data = NR }
   /"~\/Library\/Caches\/com\.agentstudio\.app\.beta",/ { cache = NR }
   /"~\/Library\/Preferences\/com\.agentstudio\.app\.beta\.plist",/ { preferences = NR }
@@ -94,7 +94,7 @@ if ! printf '%s\n' "$beta_cask" | awk '
       exit 1
     }
   }
-'; then
+' < <(printf '%s\n' "$beta_cask"); then
   echo "beta cask zap trash order is incorrect or missing expected paths" >&2
   exit 1
 fi

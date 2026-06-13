@@ -41,6 +41,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var canArchiveLegacyInboxFile = true
     var terminalActivityRouter: TerminalActivityRouter!
     var traceRuntime: AgentStudioTraceRuntime!
+    var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!
     var repoCacheStore: RepoCacheStore!
     var sidebarCacheStore: SidebarCacheStore!
@@ -85,6 +86,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         startupTraceRecorder: AgentStudioStartupTraceRecorder
     ) {
         self.traceRuntime = traceRuntime
+        self.performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         self.startupTraceRecorder = startupTraceRecorder
         super.init()
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
@@ -155,6 +157,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             inboxPrefsAtom: atomStore.inboxNotificationPrefs,
             inboxSidebarState: atomStore.inboxSidebarState,
             paneInboxPresenter: paneInboxNotificationPresenter,
+            performanceTraceRecorder: performanceTraceRecorder,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         mainWindowController?.prepareLaunchMaximizeAndRestore()
@@ -295,7 +298,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let timeoutTask = Task {
             do {
-                try await Task.sleep(nanoseconds: AppPolicies.ZmxStartup.reconciliationTimeoutNanoseconds)
+                try await Task.sleep(nanoseconds: AppPolicies.ZmxStartup.reconciliationTimeout.nanosecondsForTaskSleep)
                 reconciliationTask.cancel()
             } catch {}
         }
@@ -471,7 +474,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         var didChange = false
         for (paneId, sessionId) in sortedAnchors {
-            didChange = store.paneAtom.setTerminalZmxSessionId(paneId, sessionId: sessionId) || didChange
+            if store.paneAtom.setTerminalZmxSessionId(paneId, sessionId: sessionId) {
+                didChange = true
+            }
         }
         guard didChange else { return true }
 
@@ -512,6 +517,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 inboxPrefsAtom: atomStore.inboxNotificationPrefs,
                 inboxSidebarState: atomStore.inboxSidebarState,
                 paneInboxPresenter: paneInboxNotificationPresenter,
+                performanceTraceRecorder: performanceTraceRecorder,
                 closeTransitionCoordinator: closeTransitionCoordinator
             )
             mainWindowController?.showWindow(nil)
@@ -788,11 +794,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let normalizedRoot = rootURL.standardizedFileURL.path
             await PaneRuntimeEventBus.shared.waitForFirst { envelope -> Void? in
                 guard case .system(let sys) = envelope,
-                    case .topology(.repoDiscovered(let repoPath, let parentPath, _)) = sys.event,
-                    parentPath.standardizedFileURL.path == normalizedRoot
-                        || repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
-                else { return nil }
-                return ()
+                    case .topology(let topologyEvent) = sys.event
+                else {
+                    return nil
+                }
+                switch topologyEvent {
+                case .repoDiscovered(let repoPath, let parentPath, _):
+                    guard
+                        parentPath.standardizedFileURL.path == normalizedRoot
+                            || repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
+                    else { return nil }
+                    return ()
+                case .reposDiscovered(let parentPath, let repositories):
+                    guard
+                        parentPath.standardizedFileURL.path == normalizedRoot
+                            || repositories.contains(where: {
+                                $0.repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
+                            })
+                    else { return nil }
+                    return ()
+                case .repoRemoved, .worktreeRegistered, .worktreeUnregistered:
+                    return nil
+                }
             }
             self.mainWindowController?.expandSidebar()
         }

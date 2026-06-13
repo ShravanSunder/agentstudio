@@ -273,22 +273,29 @@ final class EventReplayBuffer {
     private static func estimateSize(of event: TopologyEvent) -> Int {
         switch event {
         case .repoDiscovered(let repoPath, let parentPath, let linkedWorktrees):
-            let linkedWorktreeSize: Int
-            switch linkedWorktrees {
-            case .scanned(let linkedWorktreePaths):
-                linkedWorktreeSize = linkedWorktreePaths.reduce(into: 0) { partial, path in
-                    partial += path.path.utf8.count
-                }
-            case .notScanned:
-                linkedWorktreeSize = 0
+            return 24 + repoPath.path.utf8.count + parentPath.path.utf8.count
+                + estimateSize(of: linkedWorktrees)
+        case .reposDiscovered(let parentPath, let repositories):
+            return repositories.reduce(24 + parentPath.path.utf8.count) { partial, repository in
+                partial + repository.repoPath.path.utf8.count + estimateSize(of: repository.linkedWorktrees)
             }
-            return 24 + repoPath.path.utf8.count + parentPath.path.utf8.count + linkedWorktreeSize
         case .repoRemoved(let repoPath):
             return 24 + repoPath.path.utf8.count
         case .worktreeRegistered(_, _, let rootPath):
             return 24 + rootPath.path.utf8.count
         case .worktreeUnregistered:
             return 24
+        }
+    }
+
+    private static func estimateSize(of linkedWorktrees: LinkedWorktreeInfo) -> Int {
+        switch linkedWorktrees {
+        case .scanned(let linkedWorktreePaths):
+            return linkedWorktreePaths.reduce(into: 0) { partial, path in
+                partial += path.path.utf8.count
+            }
+        case .notScanned:
+            return 0
         }
     }
 

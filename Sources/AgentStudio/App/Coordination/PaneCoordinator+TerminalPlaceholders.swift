@@ -56,7 +56,8 @@ extension PaneCoordinator {
 
         let terminalView = TerminalPaneMountView(
             paneId: pane.id,
-            title: pane.metadata.title
+            title: pane.metadata.title,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         terminalView.showPlaceholder(
             mode: mode,

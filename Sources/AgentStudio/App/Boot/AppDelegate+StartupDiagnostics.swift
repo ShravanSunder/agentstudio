@@ -21,6 +21,22 @@ extension AppDelegate {
             switch action.kind {
             case .newTab:
                 CommandDispatcher.shared.dispatch(.newTab)
+            case .commandBarRepoFilter:
+                CommandDispatcher.shared.dispatch(.showCommandBarEverything)
+                await Task.yield()
+                self.commandBarController.state.rawInput = "# repo"
+            case .addWatchFolder:
+                guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {
+                    self.startupTraceRecorder.recordAppStartup(
+                        "app.startup_diagnostic_action.skipped",
+                        phase: "startup_diagnostic_action",
+                        attributes: self.startupDiagnosticTraceAttributes(for: action).merging([
+                            "agentstudio.startup_diagnostic.skip_reason": .string("missing_watch_folder")
+                        ]) { _, newValue in newValue }
+                    )
+                    return
+                }
+                await self.handleWatchFolderRequested(startingAt: folderURL)
             }
         }
     }

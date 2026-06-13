@@ -39,24 +39,23 @@ case "$CHANNEL" in
     ;;
 esac
 
-printf '%s\n' \
-  "cask \"$TOKEN\" do" \
-  "  version \"$VERSION\"" \
-  "  sha256 \"$SHA256\"" \
-  "" \
-  "  url \"https://github.com/ShravanSunder/agentstudio/releases/download/v#{version}/AgentStudio-v#{version}-macos.zip\"" \
-  "  name \"$CASK_NAME\"" \
-  "  desc \"Terminal application with Ghostty terminal emulator and project management\"" \
-  "  homepage \"https://github.com/ShravanSunder/agentstudio\"" \
-  "" \
-  "  depends_on macos: :tahoe" \
-  "" \
-  "  app \"$APP_BUNDLE_NAME\"" \
-  "" \
-  "  zap trash: [" \
-  "    \"~/$DATA_DIR\"," \
-  "    \"~/Library/Caches/$APP_CACHE_DOMAIN\"," \
-  "    \"~/Library/Preferences/$APP_CACHE_DOMAIN.plist\"," \
-  "    \"~/Library/Saved Application State/$APP_CACHE_DOMAIN.savedState\"," \
-  "  ]" \
-  "end"
+printf 'cask "%s" do\n' "$TOKEN"
+printf '  version "%s"\n' "$VERSION"
+printf '  sha256 "%s"\n' "$SHA256"
+printf '\n'
+printf '  url "https://github.com/ShravanSunder/agentstudio/releases/download/v#{version}/AgentStudio-v#{version}-macos.zip"\n'
+printf '  name "%s"\n' "$CASK_NAME"
+printf '  desc "Terminal application with Ghostty terminal emulator and project management"\n'
+printf '  homepage "https://github.com/ShravanSunder/agentstudio"\n'
+printf '\n'
+printf '  depends_on macos: :tahoe\n'
+printf '\n'
+printf '  app "%s"\n' "$APP_BUNDLE_NAME"
+printf '\n'
+printf '  zap trash: [\n'
+printf '    "~/%s",\n' "$DATA_DIR"
+printf '    "~/Library/Caches/%s",\n' "$APP_CACHE_DOMAIN"
+printf '    "~/Library/Preferences/%s.plist",\n' "$APP_CACHE_DOMAIN"
+printf '    "~/Library/Saved Application State/%s.savedState",\n' "$APP_CACHE_DOMAIN"
+printf '  ]\n'
+printf 'end\n'

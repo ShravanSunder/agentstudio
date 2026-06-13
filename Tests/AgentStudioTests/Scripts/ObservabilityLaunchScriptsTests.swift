@@ -102,6 +102,7 @@ struct ObservabilityLaunchScriptsTests {
             #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_STATUS launch_failed"))
             #expect(script.contains("LaunchServices open failed"))
         }
+        #expect(debugScript.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
         #expect(
             betaScript.contains(
                 "BETA_ARTIFACT_ROOT=\"${AGENTSTUDIO_BETA_ARTIFACT_ROOT:-$HOME/.agentstudio-db/beta-observability}\""))

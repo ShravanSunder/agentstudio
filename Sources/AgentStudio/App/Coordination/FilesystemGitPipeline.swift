@@ -29,8 +29,10 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Watc
         filesystemDebounceWindow: Duration = .milliseconds(500),
         filesystemMaxFlushLatency: Duration = .seconds(2),
         gitCoalescingWindow: Duration = .milliseconds(200),
-        gitPeriodicRefreshInterval: Duration? = .seconds(2),
-        gitSleepClock: any Clock<Duration> & Sendable = ContinuousClock()
+        gitPeriodicRefreshInterval: Duration? = nil,
+        gitRefreshPolicy: AppPolicies.GitRefresh.Policy = AppPolicies.GitRefresh.defaultPolicy,
+        gitSleepClock: any Clock<Duration> & Sendable = ContinuousClock(),
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.filesystemActor = FilesystemActor(
             bus: bus,
@@ -42,8 +44,10 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Watc
             bus: bus,
             gitWorkingTreeProvider: gitWorkingTreeProvider,
             coalescingWindow: gitCoalescingWindow,
-            periodicRefreshInterval: gitPeriodicRefreshInterval,
-            sleepClock: gitSleepClock
+            periodicRefreshInterval: gitPeriodicRefreshInterval ?? gitRefreshPolicy.activeCadence,
+            sleepClock: gitSleepClock,
+            refreshPolicy: gitRefreshPolicy,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         self.forgeActor = ForgeActor(
             bus: bus,
@@ -87,12 +91,20 @@ final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, Watc
         await filesystemActor.unregister(worktreeId: worktreeId)
     }
 
+    func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
+        await startGitProjector()
+        await filesystemActor.assertTopology(assertion)
+        await gitWorkingDirectoryProjector.assertTopology(assertion)
+    }
+
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) async {
         await filesystemActor.setActivity(worktreeId: worktreeId, isActiveInApp: isActiveInApp)
+        await gitWorkingDirectoryProjector.setActivity(worktreeId: worktreeId, isActiveInApp: isActiveInApp)
     }
 
     func setActivePaneWorktree(worktreeId: UUID?) async {
         await filesystemActor.setActivePaneWorktree(worktreeId: worktreeId)
+        await gitWorkingDirectoryProjector.setActivePaneWorktree(worktreeId: worktreeId)
     }
 
     func enqueueRawPathsForTesting(worktreeId: UUID, paths: [String]) async {

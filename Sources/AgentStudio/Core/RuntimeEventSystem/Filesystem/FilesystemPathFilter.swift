@@ -39,6 +39,10 @@ struct FilesystemPathFilter: Sendable {
         return Self(ignoredRules: rules)
     }
 
+    @concurrent nonisolated static func loadOffExecutor(forRootPath rootPath: URL) async -> Self {
+        load(forRootPath: rootPath)
+    }
+
     func classify(relativePath: String) -> FilesystemPathDisposition {
         if Self.isOriginConfigPath(relativePath: relativePath) {
             return .projected

@@ -499,6 +499,14 @@ struct FilesystemActorWatchedFolderTests {
                             repoPath: repoPath.standardizedFileURL,
                             linkedWorktrees: linkedWorktrees
                         ))
+                case .reposDiscovered(_, let repositories):
+                    for repository in repositories {
+                        events.discovered.append(
+                            RepoDiscoveryEvent(
+                                repoPath: repository.repoPath.standardizedFileURL,
+                                linkedWorktrees: repository.linkedWorktrees
+                            ))
+                    }
                 case .repoRemoved(let repoPath):
                     events.removed.insert(repoPath.standardizedFileURL)
                 case .worktreeRegistered, .worktreeUnregistered:

@@ -198,19 +198,36 @@ enum CommandBarSearch {
         items: [CommandBarItem],
         query: String,
         recentIds: [String] = [],
-        threshold: Double = defaultThreshold
+        threshold: Double = defaultThreshold,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) -> [CommandBarItem] {
-        guard !query.isEmpty else { return items }
-
-        return
-            items
-            .compactMap { item -> (CommandBarItem, Double)? in
-                guard let score = scoreItem(item, query: query, recentIds: recentIds, threshold: threshold) else {
-                    return nil
+        let clock = ContinuousClock()
+        let start = clock.now
+        let filteredItems: [CommandBarItem]
+        if query.isEmpty {
+            filteredItems = items
+        } else {
+            filteredItems =
+                items
+                .compactMap { item -> (CommandBarItem, Double)? in
+                    guard let score = scoreItem(item, query: query, recentIds: recentIds, threshold: threshold) else {
+                        return nil
+                    }
+                    return (item, score)
                 }
-                return (item, score)
-            }
-            .sorted { $0.1 < $1.1 }
-            .map(\.0)
+                .sorted { $0.1 < $1.1 }
+                .map(\.0)
+        }
+
+        performanceTraceRecorder?.recordDuration(
+            .commandBarFilter,
+            duration: start.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.commandbar.input.count": .int(items.count),
+                "agentstudio.performance.commandbar.result.count": .int(filteredItems.count),
+                "agentstudio.performance.commandbar.query_character.count": .int(query.count),
+            ]
+        )
+        return filteredItems
     }
 }
