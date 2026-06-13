@@ -298,7 +298,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let timeoutTask = Task {
             do {
-                try await Task.sleep(for: AppPolicies.ZmxStartup.reconciliationTimeout)
+                try await Task.sleep(nanoseconds: AppPolicies.ZmxStartup.reconciliationTimeout.nanosecondsForTaskSleep)
                 reconciliationTask.cancel()
             } catch {}
         }
