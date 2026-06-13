@@ -32,10 +32,36 @@ struct GhosttySurfaceViewContentScaleTests {
         #expect(scale == nil)
     }
 
+    @Test("content scale rejects negative logical dimensions")
+    func contentScaleRejectsNegativeLogicalDimensions() {
+        let frame = NSRect(x: 0, y: 0, width: -400, height: 200)
+        let backingFrame = NSRect(x: 0, y: 0, width: 800, height: 300)
+
+        let scale = Ghostty.SurfaceView.backingContentScale(
+            frame: frame,
+            backingFrame: backingFrame
+        )
+
+        #expect(scale == nil)
+    }
+
     @Test("content scale rejects zero backing dimensions")
     func contentScaleRejectsZeroBackingDimensions() {
         let frame = NSRect(x: 0, y: 0, width: 400, height: 200)
         let backingFrame = NSRect(x: 0, y: 0, width: 0, height: 300)
+
+        let scale = Ghostty.SurfaceView.backingContentScale(
+            frame: frame,
+            backingFrame: backingFrame
+        )
+
+        #expect(scale == nil)
+    }
+
+    @Test("content scale rejects negative backing dimensions")
+    func contentScaleRejectsNegativeBackingDimensions() {
+        let frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+        let backingFrame = NSRect(x: 0, y: 0, width: 800, height: -300)
 
         let scale = Ghostty.SurfaceView.backingContentScale(
             frame: frame,

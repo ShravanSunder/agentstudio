@@ -11,6 +11,36 @@ private struct CrossTabMoveGeometrySmokeFixture {
     var paneIds: [UUID] {
         [movedPaneId, sourceLeftPaneId, targetPaneId, otherDestinationPaneId]
     }
+
+    var expectedVisiblePaneIdsAfterMove: [UUID] {
+        [movedPaneId, targetPaneId, otherDestinationPaneId]
+    }
+}
+
+struct CrossTabMoveGeometrySmokeRenderProof: Equatable {
+    let expectedVisiblePaneCount: Int
+    let terminalViewCount: Int
+    let surfaceIdCount: Int
+    let mountedSurfaceCount: Int
+    let validGeometryCount: Int
+
+    var succeeded: Bool {
+        expectedVisiblePaneCount > 0
+            && terminalViewCount == expectedVisiblePaneCount
+            && mountedSurfaceCount == expectedVisiblePaneCount
+            && validGeometryCount == expectedVisiblePaneCount
+    }
+
+    var attributes: [String: AgentStudioTraceValue] {
+        [
+            "agentstudio.startup_diagnostic.expected_visible_pane.count": .int(expectedVisiblePaneCount),
+            "agentstudio.startup_diagnostic.fixture.terminal_view.count": .int(terminalViewCount),
+            "agentstudio.startup_diagnostic.fixture.surface_reference.count": .int(surfaceIdCount),
+            "agentstudio.startup_diagnostic.fixture.surface.count": .int(mountedSurfaceCount),
+            "agentstudio.startup_diagnostic.fixture.valid_geometry.count": .int(validGeometryCount),
+            "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(succeeded),
+        ]
+    }
 }
 
 @MainActor
@@ -108,25 +138,20 @@ extension AppDelegate {
         )
         await Task.yield()
         mainWindowController?.syncVisibleTerminalGeometry(reason: "crossTabMoveGeometrySmokeAfter")
-        let fixtureSurfaceCount = fixture.paneIds
-            .compactMap { viewRegistry.terminalView(for: $0)?.surfaceId }
-            .count
-        let fixtureTerminalViewCount = fixture.paneIds
-            .filter { viewRegistry.terminalView(for: $0) != nil }
-            .count
+        let renderProof = crossTabMoveGeometrySmokeRenderProof(for: fixture)
         startupTraceRecorder.recordAppStartup(
             "app.startup_diagnostic_action.command_exercised",
             phase: "startup_diagnostic_action",
             outcome: "succeeded",
-            attributes: startupDiagnosticTraceAttributes(for: action).merging([
-                "agentstudio.startup_diagnostic.created_pane.count": .int(fixture.paneIds.count),
-                "agentstudio.startup_diagnostic.destination_initial_pane.count": .int(2),
-                "agentstudio.startup_diagnostic.fixture.tab.count": .int(2),
-                "agentstudio.startup_diagnostic.fixture.terminal_view.count": .int(fixtureTerminalViewCount),
-                "agentstudio.startup_diagnostic.fixture.surface.count": .int(fixtureSurfaceCount),
-            ]) { _, newValue in newValue }
+            attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                [
+                    "agentstudio.startup_diagnostic.created_pane.count": .int(fixture.paneIds.count),
+                    "agentstudio.startup_diagnostic.destination_initial_pane.count": .int(2),
+                    "agentstudio.startup_diagnostic.fixture.tab.count": .int(2),
+                ].merging(renderProof.attributes) { _, newValue in newValue }
+            ) { _, newValue in newValue }
         )
-        let renderProofSucceeded = fixtureSurfaceCount == fixture.paneIds.count
+        let renderProofSucceeded = renderProof.succeeded
         let finalMessage =
             renderProofSucceeded
             ? "app.startup_diagnostic_action.completed"
@@ -135,22 +160,22 @@ extension AppDelegate {
         RestoreTrace.log(
             """
             StartupDiagnostic.crossTabMoveGeometrySmoke \(finalOutcome) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil") \
-            fixtureTerminalViews=\(fixtureTerminalViewCount) fixtureSurfaces=\(fixtureSurfaceCount) \
-            fixturePanes=\(fixture.paneIds.count)
+            expectedVisiblePanes=\(renderProof.expectedVisiblePaneCount) fixtureTerminalViews=\(renderProof.terminalViewCount) \
+            fixtureSurfaceIds=\(renderProof.surfaceIdCount) fixtureMountedSurfaces=\(renderProof.mountedSurfaceCount) \
+            validGeometry=\(renderProof.validGeometryCount) fixturePanes=\(fixture.paneIds.count)
             """
         )
         startupTraceRecorder.recordAppStartup(
             finalMessage,
             phase: "startup_diagnostic_action",
             outcome: finalOutcome,
-            attributes: startupDiagnosticTraceAttributes(for: action).merging([
-                "agentstudio.startup_diagnostic.created_pane.count": .int(fixture.paneIds.count),
-                "agentstudio.startup_diagnostic.destination_initial_pane.count": .int(2),
-                "agentstudio.startup_diagnostic.fixture.tab.count": .int(2),
-                "agentstudio.startup_diagnostic.fixture.terminal_view.count": .int(fixtureTerminalViewCount),
-                "agentstudio.startup_diagnostic.fixture.surface.count": .int(fixtureSurfaceCount),
-                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(renderProofSucceeded),
-            ]) { _, newValue in newValue }
+            attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                [
+                    "agentstudio.startup_diagnostic.created_pane.count": .int(fixture.paneIds.count),
+                    "agentstudio.startup_diagnostic.destination_initial_pane.count": .int(2),
+                    "agentstudio.startup_diagnostic.fixture.tab.count": .int(2),
+                ].merging(renderProof.attributes) { _, newValue in newValue }
+            ) { _, newValue in newValue }
         )
     }
 
@@ -160,10 +185,67 @@ extension AppDelegate {
         }
 
         let bridge = WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)
-        for await bounds in bridge.stream {
-            return bounds
+        return await Self.firstLaunchRestoreBounds(
+            from: bridge.stream,
+            timeout: AppPolicies.StartupDiagnostic.launchRestoreBoundsTimeout
+        )
+    }
+
+    nonisolated static func firstLaunchRestoreBounds(
+        from stream: AsyncStream<CGRect>,
+        timeout: Duration
+    ) async -> CGRect? {
+        await withTaskGroup(of: CGRect?.self, returning: CGRect?.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(nanoseconds: timeout.nanosecondsForTaskSleep)
+                } catch {
+                    return nil
+                }
+                return nil
+            }
+
+            guard let firstResult = await group.next() else {
+                group.cancelAll()
+                return nil
+            }
+            group.cancelAll()
+            return firstResult
         }
-        return nil
+    }
+
+    private func crossTabMoveGeometrySmokeRenderProof(
+        for fixture: CrossTabMoveGeometrySmokeFixture
+    ) -> CrossTabMoveGeometrySmokeRenderProof {
+        let expectedVisiblePaneIds = fixture.expectedVisiblePaneIdsAfterMove
+        let terminalViews = expectedVisiblePaneIds.compactMap { viewRegistry.terminalView(for: $0) }
+        let mountedSurfaces = terminalViews.compactMap(\.ghosttySurface)
+        let validGeometryCount = mountedSurfaces.filter(Self.surfaceHasValidSmokeGeometry).count
+
+        return CrossTabMoveGeometrySmokeRenderProof(
+            expectedVisiblePaneCount: expectedVisiblePaneIds.count,
+            terminalViewCount: terminalViews.count,
+            surfaceIdCount: expectedVisiblePaneIds.compactMap { viewRegistry.terminalView(for: $0)?.surfaceId }.count,
+            mountedSurfaceCount: mountedSurfaces.count,
+            validGeometryCount: validGeometryCount
+        )
+    }
+
+    private static func surfaceHasValidSmokeGeometry(_ surface: Ghostty.SurfaceView) -> Bool {
+        frameIsFiniteAndPositive(surface.frame) && frameIsFiniteAndPositive(surface.bounds)
+    }
+
+    nonisolated static func frameIsFiniteAndPositive(_ rect: CGRect) -> Bool {
+        rect.origin.x.isFinite
+            && rect.origin.y.isFinite
+            && rect.size.width.isFinite
+            && rect.size.height.isFinite
+            && rect.size.width > 0
+            && rect.size.height > 0
     }
 
     private func createCrossTabMoveGeometrySmokeFixture() -> CrossTabMoveGeometrySmokeFixture {
