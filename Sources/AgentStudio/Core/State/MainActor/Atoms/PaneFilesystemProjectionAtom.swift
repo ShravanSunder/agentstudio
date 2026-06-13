@@ -23,6 +23,31 @@ final class PaneFilesystemProjectionAtom {
         contextsByPaneId[context.paneId.uuid] = context
     }
 
+    func applyPaneContextUpdate(_ update: FilesystemProjectionPaneUpdate) {
+        switch update.kind {
+        case .remove(let paneId):
+            unregisterPaneContext(paneId)
+        case .upsert(let entry):
+            guard
+                let repoId = entry.repoId,
+                let worktreeId = entry.worktreeId,
+                let cwd = entry.cwd
+            else {
+                unregisterPaneContext(entry.paneId)
+                return
+            }
+            registerPaneContext(
+                PaneFilesystemContext(
+                    paneId: PaneId(uuid: entry.paneId),
+                    repoId: repoId,
+                    cwd: cwd.standardizedFileURL.resolvingSymlinksInPath(),
+                    worktreeId: worktreeId
+                )
+            )
+            snapshotsByPaneId.removeValue(forKey: entry.paneId)
+        }
+    }
+
     func unregisterPaneContext(_ paneUUID: UUID) {
         contextsByPaneId.removeValue(forKey: paneUUID)
         snapshotsByPaneId.removeValue(forKey: paneUUID)
@@ -50,6 +75,63 @@ final class PaneFilesystemProjectionAtom {
         )
         contextsByPaneId[paneUUID] = existing
         snapshotsByPaneId.removeValue(forKey: paneUUID)
+    }
+
+    func applyProjectionIntent(_ intent: PaneFilesystemProjectionIntent) -> RuntimeEnvelope? {
+        switch intent {
+        case .cwdSubtreeChanged(let projection):
+            let previousSummary = snapshotsByPaneId[projection.paneId]?.lastGitSummary
+            contextsByPaneId[projection.paneId] = projection.context
+            snapshotsByPaneId[projection.paneId] = PaneSnapshot(
+                paneId: projection.paneId,
+                worktreeId: projection.context.worktreeId,
+                changedPaths: projection.paths,
+                batchSequence: projection.batchSequence,
+                timestamp: projection.timestamp,
+                lastGitSummary: previousSummary
+            )
+            return makePaneContextEnvelope(
+                paneId: projection.paneId,
+                paneKind: projection.paneKind,
+                timestamp: projection.timestamp,
+                correlationId: projection.correlationId,
+                commandId: projection.commandId,
+                event: .paneFilesystemContext(
+                    .cwdSubtreeChanged(
+                        context: projection.context,
+                        paths: Set(projection.paths),
+                        batchSeq: projection.batchSequence
+                    )
+                )
+            )
+
+        case .gitWorkingTreeInCwd(let projection):
+            let previousSnapshot = snapshotsByPaneId[projection.paneId]
+            contextsByPaneId[projection.paneId] = projection.context
+            snapshotsByPaneId[projection.paneId] = PaneSnapshot(
+                paneId: projection.paneId,
+                worktreeId: projection.context.worktreeId,
+                changedPaths: previousSnapshot?.changedPaths ?? [],
+                batchSequence: previousSnapshot?.batchSequence ?? 0,
+                timestamp: projection.timestamp,
+                lastGitSummary: projection.summary
+            )
+            return makePaneContextEnvelope(
+                paneId: projection.paneId,
+                paneKind: projection.paneKind,
+                timestamp: projection.timestamp,
+                correlationId: projection.correlationId,
+                commandId: projection.commandId,
+                event: .paneFilesystemContext(
+                    .gitWorkingTreeInCwd(
+                        context: projection.context,
+                        staged: projection.summary.staged,
+                        unstaged: projection.summary.changed,
+                        untracked: projection.summary.untracked
+                    )
+                )
+            )
+        }
     }
 
     func consume(
@@ -201,18 +283,36 @@ final class PaneFilesystemProjectionAtom {
         commandId: UUID?,
         event: PaneRuntimeEvent
     ) -> RuntimeEnvelope {
-        let nextSequence = nextSequenceByPaneId[pane.id, default: 0] + 1
-        nextSequenceByPaneId[pane.id] = nextSequence
+        makePaneContextEnvelope(
+            paneId: pane.id,
+            paneKind: pane.metadata.contentType,
+            timestamp: timestamp,
+            correlationId: correlationId,
+            commandId: commandId,
+            event: event
+        )
+    }
+
+    private func makePaneContextEnvelope(
+        paneId: UUID,
+        paneKind: PaneContentType,
+        timestamp: ContinuousClock.Instant,
+        correlationId: UUID?,
+        commandId: UUID?,
+        event: PaneRuntimeEvent
+    ) -> RuntimeEnvelope {
+        let nextSequence = nextSequenceByPaneId[paneId, default: 0] + 1
+        nextSequenceByPaneId[paneId] = nextSequence
 
         return .pane(
             PaneEnvelope(
-                source: .pane(PaneId(uuid: pane.id)),
+                source: .pane(PaneId(uuid: paneId)),
                 seq: nextSequence,
                 timestamp: timestamp,
                 correlationId: correlationId,
                 commandId: commandId,
-                paneId: PaneId(uuid: pane.id),
-                paneKind: pane.metadata.contentType,
+                paneId: PaneId(uuid: paneId),
+                paneKind: paneKind,
                 event: event
             )
         )

@@ -57,6 +57,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.eventbus.consumer",
         "agentstudio.eventbus.name",
         "agentstudio.pane.kind",
+        "agentstudio.performance.coordinator.phase",
         "agentstudio.performance.management_layer.command",
         "agentstudio.performance.pane_action.name",
         "agentstudio.performance.sidebar.toggle.intent",

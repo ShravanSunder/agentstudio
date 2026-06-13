@@ -285,7 +285,7 @@ struct PaneCoordinatorTests {
     }
 
     @Test("filesystem projection ignores non-projectable worktree events before deriving topology maps")
-    func filesystemProjectionIgnoresNonProjectableWorktreeEvents() {
+    func filesystemProjectionIgnoresNonProjectableWorktreeEvents() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-filesystem-ignore-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -309,7 +309,7 @@ struct PaneCoordinatorTests {
             )
         )
 
-        #expect(coordinator.handleFilesystemEnvelopeIfNeeded(envelope) == false)
+        #expect(await coordinator.handleFilesystemEnvelopeIfNeeded(envelope) == false)
     }
 
     @Test("closing tab with drawer children snapshots all panes for undo")

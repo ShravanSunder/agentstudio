@@ -46,6 +46,7 @@ final class PaneCoordinator {
     let runtimeCommandClock: ContinuousClock
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
+    let filesystemProjectionIndex: any PaneCoordinatorFilesystemProjectionIndexing
     let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
     let windowLifecycleStore: WindowLifecycleAtom
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -64,7 +65,10 @@ final class PaneCoordinator {
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
     var filesystemLastActivePaneWorktreeId: UUID?
     var filesystemTopologyAssertionGeneration: UInt64 = 0
-    var derivedFilesystemPublishTasks: [UUID: Task<Void, Never>] = [:]
+    var filesystemSyncRequestGeneration: UInt64 = 0
+    var filesystemProjectionRequestGeneration: UInt64 = 0
+    var filesystemAppliedTopologyGeneration: UInt64 = 0
+    var paneContextGeneration: UInt64 = 0
     var pendingTerminalStartupOperationID: String?
     var terminalStartupOperationIDsByPaneID: [UUID: String] = [:]
 
@@ -114,6 +118,7 @@ final class PaneCoordinator {
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
         filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
+        filesystemProjectionIndex: (any PaneCoordinatorFilesystemProjectionIndexing)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
         windowLifecycleStore: WindowLifecycleAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
@@ -139,6 +144,7 @@ final class PaneCoordinator {
         self.runtimeCommandClock = runtimeCommandClock
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.filesystemSource = resolvedFilesystemSource
+        self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
         self.windowLifecycleStore = windowLifecycleStore
         self.performanceTraceRecorder = performanceTraceRecorder
@@ -160,9 +166,6 @@ final class PaneCoordinator {
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
-        for task in derivedFilesystemPublishTasks.values {
-            task.cancel()
-        }
         let filesystemSource = filesystemSource
         Task {
             await filesystemSource.shutdown()
@@ -176,7 +179,6 @@ final class PaneCoordinator {
         let activeBatchedRuntimeEventsTask = batchedRuntimeEventsTask
         let activeFilesystemSyncTask = filesystemSyncTask
         let activeRuntimeBridgeTasks = Array(runtimeEventBridgeTasks.values)
-        let activeDerivedFilesystemPublishTasks = Array(derivedFilesystemPublishTasks.values)
 
         cwdChangesTask?.cancel()
         cwdChangesTask = nil
@@ -189,10 +191,6 @@ final class PaneCoordinator {
         filesystemSyncTask?.cancel()
         filesystemSyncTask = nil
         filesystemSyncRequested = false
-        for task in activeDerivedFilesystemPublishTasks {
-            task.cancel()
-        }
-        derivedFilesystemPublishTasks.removeAll()
 
         for task in activeRuntimeBridgeTasks {
             task.cancel()
@@ -213,9 +211,6 @@ final class PaneCoordinator {
         }
         if let activeFilesystemSyncTask {
             await activeFilesystemSyncTask.value
-        }
-        for task in activeDerivedFilesystemPublishTasks {
-            await task.value
         }
         for task in activeRuntimeBridgeTasks {
             await task.value
@@ -259,6 +254,7 @@ final class PaneCoordinator {
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {
+        let previousWorktreeId = store.paneAtom.pane(paneId)?.worktreeId
         let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
         let updateResult = store.paneAtom.updatePaneCWDAndResolvedContext(
             paneId,
@@ -267,8 +263,14 @@ final class PaneCoordinator {
         )
         switch updateResult {
         case .applied:
-            guard let cwd else { return }
-            paneFilesystemProjectionStore.updatePaneCwd(paneId: paneId, newCwd: cwd)
+            guard let pane = store.paneAtom.pane(paneId) else {
+                removePaneFilesystemProjectionContext(paneId: paneId)
+                return
+            }
+            upsertPaneFilesystemProjectionContext(for: pane)
+            if previousWorktreeId != pane.worktreeId {
+                syncFilesystemRootsAndActivity()
+            }
         case .unchanged:
             return
         case .paneMissing:
@@ -353,7 +355,7 @@ final class PaneCoordinator {
             guard let self else { return }
             for await envelope in self.runtimeEventReducer.criticalEvents {
                 if Task.isCancelled { break }
-                self.handleRuntimeEnvelope(envelope)
+                await self.handleRuntimeEnvelope(envelope)
             }
         }
 
@@ -362,14 +364,14 @@ final class PaneCoordinator {
             for await batch in self.runtimeEventReducer.batchedEvents {
                 if Task.isCancelled { break }
                 for envelope in batch {
-                    self.handleRuntimeEnvelope(envelope)
+                    await self.handleRuntimeEnvelope(envelope)
                 }
             }
         }
     }
 
-    private func handleRuntimeEnvelope(_ envelope: RuntimeEnvelope) {
-        if handleFilesystemEnvelopeIfNeeded(envelope) {
+    private func handleRuntimeEnvelope(_ envelope: RuntimeEnvelope) async {
+        if await handleFilesystemEnvelopeIfNeeded(envelope) {
             return
         }
 
