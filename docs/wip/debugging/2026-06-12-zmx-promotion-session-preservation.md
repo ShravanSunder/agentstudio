@@ -30,7 +30,7 @@ Debug promotion proof uses the launcher-created bundle:
 mise run run-debug-observability -- --detach
 ```
 
-The launcher computes a deterministic eight-character base36 worktree code,
+The launcher computes a deterministic four-character base36 worktree code,
 builds `Agent Studio Debug <code>.app` under `~/.agentstudio-db/<code>/apps`,
 launches with targeted environment scrubbing, and sets:
 

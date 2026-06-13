@@ -130,11 +130,11 @@ struct LauncherScriptFixture {
             """
             import hashlib, os, sys
             alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
-            space = 36 ** 8
+            space = 36 ** 4
             root = os.path.realpath(sys.argv[1])
-            value = int.from_bytes(hashlib.sha256(root.encode("utf-8")).digest()[:8], "big") % space
+            value = int.from_bytes(hashlib.sha256(root.encode("utf-8")).digest()[:4], "big") % space
             chars = []
-            for _ in range(8):
+            for _ in range(4):
                 value, digit = divmod(value, 36)
                 chars.append(alphabet[digit])
             print("".join(reversed(chars)))

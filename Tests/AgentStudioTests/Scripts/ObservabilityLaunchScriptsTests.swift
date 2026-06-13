@@ -9,7 +9,7 @@ struct ObservabilityLaunchScriptsTests {
         let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
 
         #expect(script.contains("worktree_debug_code()"))
-        #expect(script.contains("space = 36 ** 8"))
+        #expect(script.contains("space = 36 ** 4"))
         #expect(script.contains("source \"$PROJECT_ROOT/scripts/swift-build-slot.sh\" debug"))
         #expect(script.contains("--print-identity"))
         #expect(script.contains("AgentStudio Debug $code.app"))
@@ -33,9 +33,26 @@ struct ObservabilityLaunchScriptsTests {
         let firstCode = try fixture.worktreeDebugCode(for: "/tmp/worktree-657")
         let secondCode = try fixture.worktreeDebugCode(for: "/tmp/worktree-1190")
 
-        #expect(firstCode.count == 8)
-        #expect(secondCode.count == 8)
+        #expect(firstCode.count == 4)
+        #expect(secondCode.count == 4)
         #expect(firstCode != secondCode)
+    }
+
+    @Test("mise swift test tasks forward requested filters through the slot wrapper")
+    func miseSwiftTestTasksForwardRequestedFiltersThroughSlotWrapper() throws {
+        let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let wrapperScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
+        let testHelperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let agentInstructions = try String(contentsOfFile: "AGENTS.md", encoding: .utf8)
+
+        #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test\""))
+        #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-fast\""))
+        #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-webkit\""))
+        #expect(wrapperScript.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\" debug"))
+        #expect(wrapperScript.contains("swift test --skip-build \"$@\" --build-path \"$BUILD_PATH\""))
+        #expect(testHelperScript.contains("terminate_process_tree TERM \"$command_pid\""))
+        #expect(!testHelperScript.contains("pkill -9 -f"))
+        #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
     }
 
     @Test("observability launchers scrub inherited AgentStudio process identity")

@@ -4,6 +4,34 @@ import Testing
 
 @Suite("Observability debug launch scripts")
 struct ObservabilityDebugLaunchScriptsTests {
+    @Test("debug launcher uses four-character worktree code for socket path headroom")
+    func debugLauncherUsesFourCharacterWorktreeCodeForSocketPathHeadroom() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--print-identity"],
+            environment: [:]
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        let codeMatch = result.stdout.firstMatch(of: /AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=([0-9a-z]+)/)
+        let code = String(codeMatch?.1 ?? "")
+        #expect(code.count == 4)
+        #expect(code.wholeMatch(of: /[0-9a-z]{4}/) != nil)
+        #expect(result.stdout.contains("Agent\\ Studio\\ Debug\\ \(code)"))
+        #expect(result.stdout.contains("/.agentstudio-db/\(code)"))
+    }
+
+    @Test("debug launcher allocates a shared swift build slot by default")
+    func debugLauncherAllocatesSharedSwiftBuildSlotByDefault() throws {
+        let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
+
+        #expect(script.contains("source \"$PROJECT_ROOT/scripts/swift-build-slot.sh\" debug"))
+        #expect(script.contains("swift build --build-path \"$build_path\""))
+    }
+
     @Test("debug launcher refuses same worktree debug app outside default artifact root")
     func debugLauncherRefusesSameWorktreeDebugRuntimeByBundleIdentifier() throws {
         let fixture = try LauncherScriptFixture()

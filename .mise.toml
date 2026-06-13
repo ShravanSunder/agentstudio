@@ -170,81 +170,15 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.test]
 description = "Run default test suite (excludes E2E + ZmxE2E by default)"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
-BUILD_PATH="$SWIFT_BUILD_DIR"
-TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
-echo "[test] BUILD_PATH=$BUILD_PATH"
-echo "[test] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
-
-LOG_PREFIX="test"
-EXTRA_SWIFT_TEST_ARGS=""
-source scripts/swift-test-helpers.sh
-
-prebuild_swift_tests
-
-run_non_serialized_swift_tests "non-serialized suites"
-run_webkit_suites
-
-echo "--- E2E serialized tests (serial) ---"
-if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
-  run_swift_with_timeout \
-    "E2ESerializedTests" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH"
-else
-  echo "[test] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
-fi
-echo "--- Zmx E2E tests (serial) ---"
-if [ "${SWIFT_TEST_INCLUDE_ZMX_E2E:-0}" = "1" ]; then
-  run_swift_with_timeout \
-    "ZmxE2ETests" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH"
-else
-  echo "[test] skipping ZmxE2ETests (SWIFT_TEST_INCLUDE_ZMX_E2E=${SWIFT_TEST_INCLUDE_ZMX_E2E:-0})"
-fi
-"""
+run = "/bin/bash scripts/run-swift-test-task.sh test"
 
 [tasks.test-fast]
 description = "Run fast lane: unit + non-WebKit integration tests, excluding WebKit/E2E/ZmxE2E"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
-BUILD_PATH="$SWIFT_BUILD_DIR"
-TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
-echo "[test-fast] BUILD_PATH=$BUILD_PATH"
-echo "[test-fast] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
-
-LOG_PREFIX="test-fast"
-EXTRA_SWIFT_TEST_ARGS=""
-source scripts/swift-test-helpers.sh
-
-prebuild_swift_tests
-run_non_serialized_swift_tests "fast non-WebKit suites"
-"""
+run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
 
 [tasks.test-webkit]
 description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
-BUILD_PATH="$SWIFT_BUILD_DIR"
-TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
-echo "[test-webkit] BUILD_PATH=$BUILD_PATH"
-echo "[test-webkit] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
-
-LOG_PREFIX="test-webkit"
-EXTRA_SWIFT_TEST_ARGS=""
-source scripts/swift-test-helpers.sh
-
-prebuild_swift_tests
-run_webkit_suites
-"""
+run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"
 
 [tasks.test-coverage]
 description = "Run test suite with code coverage and print coverage JSON path"

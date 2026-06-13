@@ -110,7 +110,7 @@ Reads as override-wins. **But Option C's empirical crash contradicts this** — 
 
 `mise run run-debug-observability` builds a signed per-worktree bundle named
 `Agent Studio Debug <code>.app`, where `<code>` is a deterministic
-eight-character base36 hash of the canonical worktree path. The generated bundle,
+four-character base36 hash of the canonical worktree path. The generated bundle,
 logs, traces, and zmx root live under `~/.agentstudio-db/<code>` instead of the
 repo checkout. That matters for autonomy: if the checkout is under
 `~/Documents`, putting the runnable `.app` under repo `tmp/` can make macOS TCC
@@ -149,11 +149,11 @@ The debug observability bundle removes URL-handler registration entirely so it
 cannot claim stable production `agentstudio://` callbacks or deep links. Debug
 isolation comes from bundle id, bundle name, data root, and zmx root.
 
-The short code is intentionally bounded because zmx session names and Unix
-socket paths are length-sensitive. The code is not a pane/session id; pane zmx
-identities still need enough entropy for durable uniqueness. A future compact
-zmx naming pass should preserve the current entropy budget while using a denser
-alphabet.
+The short code is intentionally four characters because zmx session names and
+Unix socket paths are length-sensitive. The code is not a pane/session id; it is
+only a debug worktree discriminator. Pane zmx identities still need enough
+entropy for durable uniqueness. A future compact zmx naming pass should preserve
+the current entropy budget while using a denser alphabet.
 
 `mise run run-beta-observability` keeps the normal beta identity
 (`Agent Studio Beta`, `com.agentstudio.app.beta`, `~/.agent-studio-b`) but uses

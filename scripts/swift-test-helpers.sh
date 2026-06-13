@@ -104,10 +104,9 @@ run_swift_with_timeout() {
 
   if [ "$timed_out" -eq 1 ]; then
     echo "[$LOG_PREFIX] ERROR: timeout while running '$label' after ${timeout_seconds}s"
-    kill -TERM "$command_pid" 2>/dev/null || true
+    terminate_process_tree TERM "$command_pid"
     sleep 2
-    kill -KILL "$command_pid" 2>/dev/null || true
-    pkill -9 -f "swiftpm-testing-helper|swift test|swift-build|AgentStudioPackageTests" || true
+    terminate_process_tree KILL "$command_pid"
     wait "$command_pid" 2>/dev/null || true
     return 124
   fi
@@ -118,6 +117,17 @@ run_swift_with_timeout() {
   set -e
 
   return "$command_status"
+}
+
+terminate_process_tree() {
+  local signal="$1"
+  local root_pid="$2"
+  local child_pid
+
+  for child_pid in $(pgrep -P "$root_pid" 2>/dev/null || true); do
+    terminate_process_tree "$signal" "$child_pid"
+  done
+  kill -"$signal" "$root_pid" 2>/dev/null || true
 }
 
 run_webkit_suite_with_retry() {

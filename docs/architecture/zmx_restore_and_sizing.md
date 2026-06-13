@@ -151,7 +151,7 @@ pane identity.
 Startup reconciliation proof must use bundled app identities, not raw SwiftPM
 executables. The debug observability launcher creates
 `Agent Studio Debug <code>.app` with `AGENTSTUDIO_DATA_DIR` set to
-`~/.agentstudio-db/<code>`, where `<code>` is a deterministic eight-character
+`~/.agentstudio-db/<code>`, where `<code>` is a deterministic four-character
 base36 worktree hash. Beta proof uses `Agent Studio Beta` and `~/.agent-studio-b`.
 Both launchers use a scrubbed environment so inherited `ZMX_DIR`, `ZMX_SESSION`,
 Ghostty resource variables, or production app identity cannot select the wrong

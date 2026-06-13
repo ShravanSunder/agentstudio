@@ -42,30 +42,25 @@ mise run observability:down
 The underlying source of truth is
 `~/dev/devfiles/shared/observability/observability-stack`.
 
-To create and launch a local beta-like bundle from the current branch with full
-OTLP tags when the collector is healthy:
+Standard debug proof path for PR branches:
 
 ```bash
-mise run create-beta-app-bundle
-mise run run-beta-observability -- --latest-local
-```
-
-This local beta helper is diagnostic only. The release workflow is the source of
-truth for beta promotion: it builds, signs, notarizes, staples, and publishes the
-real `AgentStudio Beta.app` artifact from a beta tag. Use the local debug runner
-for PR-branch proof, then use the GitHub-produced beta artifact for promotion
-proof.
-
-To launch the current debug build with the same Victoria/OTLP proof path:
-
-```bash
+mise run observability:up
 mise run run-debug-observability -- --detach
+mise run verify-debug-observability
 ```
+
+Use this path instead of raw `swift build` plus hand-written environment
+variables. The runner allocates a shared Swift build slot, creates the debug app
+identity, launches with the Victoria/OTLP environment, and records the marker
+that the verifier queries in VictoriaLogs.
 
 The debug launcher wraps the debug binary in a signed per-worktree app bundle
 named `Agent Studio Debug <code>`, where `<code>` is a deterministic
-eight-character base36 hash of the canonical worktree path. That launch uses an
-isolated data root at `~/.agentstudio-db/<code>` and zmx directory at
+four-character base36 hash of the canonical worktree path. The short code is
+intentional: zmx session names and Unix-domain socket paths are length-sensitive,
+so debug identity spends as little path/name budget as possible. That launch
+uses an isolated data root at `~/.agentstudio-db/<code>` and zmx directory at
 `~/.agentstudio-db/<code>/z`, so a debug run from one worktree cannot share zmx
 state with stable, beta, or another debug worktree. Debug observability bundles
 also remove URL-handler registration so they cannot claim production
@@ -75,17 +70,35 @@ bundle, logs, traces, and zmx root live under `~/.agentstudio-db/<code>` rather
 than repo `tmp/` so autonomous debug runs do not need to read their runnable app
 from `~/Documents`.
 
-Verify the debug startup records through VictoriaLogs from a second shell:
+To inspect the deterministic identity without launching:
 
 ```bash
-mise run verify-debug-observability
+scripts/run-debug-observability.sh --print-identity
 ```
+
+The state file is `tmp/debug-observability/latest-observability.env`. It is a
+marker/verifier handoff, not proof by itself; `mise run verify-debug-observability`
+must still query VictoriaLogs and validate the live process identity.
 The launcher refuses to start a second `Agent Studio Debug <code>` instance
 while one is already running; quit the reported PID before collecting a new
 debug observability proof for the same worktree. On refusal it overwrites
 `tmp/debug-observability/latest-observability.env` with
 `AGENTSTUDIO_OBSERVABILITY_STATUS=already_running` so stale markers cannot pass
 verification.
+
+Local beta diagnostic path:
+
+```bash
+mise run observability:up
+mise run create-beta-app-bundle
+mise run run-beta-observability -- --latest-local
+```
+
+This local beta helper is diagnostic only. The release workflow is the source of
+truth for beta promotion: it builds, signs, notarizes, staples, and publishes the
+real `AgentStudio Beta.app` artifact from a beta tag. Use the local debug runner
+for PR-branch proof, then use the GitHub-produced beta artifact for promotion
+proof.
 
 `run-beta-observability` stays attached to LaunchServices with `open -W` so
 task runners do not clean it up early. Leave it running, then verify from
@@ -645,7 +658,11 @@ swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 
 **Timeouts are mandatory.** `60000` (60s) for test, `30000` (30s) for build. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention.
 
-**Lock recovery:** If "Another instance of SwiftPM is already running..." — kill it (`pkill -f "swift-build"`) and retry.
+**Lock recovery:** Do not blanket-kill SwiftPM or `swift-build`; another agent
+may own that process. First run `mise run clean-agent-builds` for leaked
+`.slot-claim` directories. If SwiftPM still reports an active lock, inspect the
+specific owning PID/slot and wait for it or terminate only that confirmed stale
+process.
 
 ---
 

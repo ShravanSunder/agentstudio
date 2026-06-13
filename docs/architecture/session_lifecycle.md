@@ -120,7 +120,7 @@ This makes session name length a hard runtime constraint, not just formatting.
 ### Debug App Identity Budget
 
 Debug observability launches first try an app-bundle launch.
-`scripts/run-debug-observability.sh` computes a deterministic eight-character
+`scripts/run-debug-observability.sh` computes a deterministic four-character
 base36 code from the canonical worktree path and uses it for debug app
 identity:
 
