@@ -869,8 +869,8 @@ This is the post-SDK follow-up to Task 4. The separate AgentStudioGit package ha
 - Modify: `Sources/AgentStudio/Features/Bridge/Runtime/ReviewFoundation/BridgeReviewSourceProvider.swift`
 - Test: `Tests/AgentStudioTests/Features/Bridge/BridgeGitReviewSourceProviderTests.swift`
 
-- [x] Add the development SwiftPM dependency on `../agentstudio-git` and depend on the `AgentStudioGit` product from the app and test targets.
-- [ ] Before opening a self-contained PR, replace the local path dependency with a remote AgentStudioGit package revision whose libgit2 binary target resolves without the adjacent SDK worktree.
+- [x] Depend on the remote `AgentStudioGit` SwiftPM package from the app and test targets.
+- [x] Replace the local path dependency with a remote AgentStudioGit package revision whose libgit2 binary target resolves without the adjacent SDK worktree.
 - [x] Add `AgentStudioGitBridgeReviewDataClient` as the only production mapper from `AgentStudioGitLocalClient` DTOs into Bridge review contracts.
 - [x] Keep the existing `BridgeGitReviewSourceProvider` as a narrow pass-through from `BridgeReviewSourceProvider` to `BridgeGitReviewDataClient`.
 - [x] Wire production Bridge pane creation through a Bridge-owned provider factory using the resolved worktree or workspace source path.

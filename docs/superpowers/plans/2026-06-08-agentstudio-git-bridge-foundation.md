@@ -47,8 +47,8 @@ Do not create a second `BridgeReviewSourceProvider`, a parallel `ReviewSource` p
 
 ### Architecture Decisions
 
-1. `agentstudio-git` is a separate SwiftPM repository at `/Users/shravansunder/Documents/dev/project-dev/agentstudio-git`.
-2. AgentStudio imports `agentstudio-git` by local path during development and by versioned package after the package has stable releases.
+1. `agentstudio-git` is a separate SwiftPM repository published at `https://github.com/ShravanSunder/agentstudio-git.git`; the local `/Users/shravansunder/Documents/dev/project-dev/agentstudio-git` checkout is a development workspace, not an AgentStudio package dependency.
+2. AgentStudio imports `agentstudio-git` by remote SwiftPM revision, with `Package.resolved` pinned to `6938a8470b91ef3b83ddf4848dd246839de35c8d` until a later release-tag decision replaces the revision pin.
 3. The package is the only runtime code that imports libgit2 modules.
 4. Public package APIs expose Swift value types only: no `OpaquePointer`, no libgit2 C structs, no SwiftGitX types.
 5. `AgentStudioGitClient` is an actor. Internal libgit2 sessions are non-Sendable and never cross actor boundaries.
@@ -1979,19 +1979,24 @@ mise run test -- --filter "AgentStudioGitWorkingTreeStatusProvider"
 
 Expected: FAIL because provider does not exist.
 
-- [ ] **Step 4: Add local package dependency**
+- [x] **Step 4: Add remote package dependency**
 
 Modify `/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/Package.swift`:
 
 ```swift
-.package(path: "../agentstudio-git"),
+.package(
+    url: "https://github.com/ShravanSunder/agentstudio-git.git",
+    revision: "6938a8470b91ef3b83ddf4848dd246839de35c8d"
+),
 ```
 
-Add product dependency to `AgentStudio` target:
+Add product dependency to `AgentStudio` and test targets:
 
 ```swift
 .product(name: "AgentStudioGit", package: "agentstudio-git"),
 ```
+
+Do not wire hosted libgit2 artifact environment in AgentStudio. The pinned `agentstudio-git` revision owns the public hosted binary target default; AgentStudio should not duplicate artifact URL/checksum configuration.
 
 - [ ] **Step 5: Add provider adapter**
 
@@ -2116,7 +2121,7 @@ The foundation is complete when all of these are true:
 4. Worktree listing/validation, status, branches, diffs, content handles, and checkpoint inputs are covered by unit and integration tests.
 5. Diff lines preserve separate `oldLine` and `newLine` semantics.
 6. Git ignores, repo excludes, and global excludes are respected in status and filtering.
-7. AgentStudio imports the package through a local path dependency.
+7. AgentStudio imports the package through the remote `agentstudio-git` revision; the pinned SDK revision owns the hosted libgit2 artifact URL/checksum default, so AgentStudio does not duplicate artifact environment configuration.
 8. `GitWorkingDirectoryProjector` can use `AgentStudioGitWorkingTreeStatusProvider` behind the existing provider seam.
 9. The plan contains no executable Bridge adapter, BridgeWeb, Bridge RPC, or Bridge contract tasks after Task 8.
 10. Package validation passes: `mise run test`, `mise run lint`, and benchmark command.

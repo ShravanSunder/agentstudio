@@ -16,7 +16,10 @@ let package = Package(
         .package(url: "https://github.com/swift-otel/swift-otel.git", from: "1.0.0"),
         .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.10.0"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.10.0"),
-        .package(path: "../agentstudio-git"),
+        .package(
+            url: "https://github.com/ShravanSunder/agentstudio-git.git",
+            revision: "6938a8470b91ef3b83ddf4848dd246839de35c8d"
+        ),
     ],
     targets: [
         .executableTarget(
