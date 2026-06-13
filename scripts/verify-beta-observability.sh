@@ -182,7 +182,7 @@ portable_utc_time() {
 QUERY_START="${AGENTSTUDIO_OBSERVABILITY_QUERY_START:-${state_query_start:-$(portable_utc_time -4H '4 hours ago')}}"
 QUERY_END="${AGENTSTUDIO_OBSERVABILITY_QUERY_END:-$(portable_utc_time +5M '5 minutes')}"
 
-query="{service.name=\"AgentStudio\",dev.release.channel=\"beta\",agentstudio.trace.name=\"${MARKER}\"}"
+query="service.name:AgentStudio dev.release.channel:beta agentstudio.trace.name:${MARKER}"
 
 query_logs() {
   local logsql="$1"
