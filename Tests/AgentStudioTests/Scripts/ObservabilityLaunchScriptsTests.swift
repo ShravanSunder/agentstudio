@@ -18,9 +18,12 @@ struct ObservabilityLaunchScriptsTests {
         #expect(script.contains("Delete :CFBundleURLTypes"))
         #expect(!script.contains("CFBundleURLTypes:0:CFBundleURLSchemes:0 \"agentstudio\""))
         #expect(script.contains("debug_root=\"$HOME/.agentstudio-db/$debug_code\""))
+        #expect(script.contains("trace_name_is_safe_path_component()"))
+        #expect(script.contains("write_launch_failed_state invalid_trace_name"))
         #expect(script.contains("launch_data_root=\"${AGENTSTUDIO_DEBUG_DATA_DIR:-$debug_root}\""))
         #expect(script.contains("launch_data_root=\"$debug_root/runs/$trace_name\""))
         #expect(script.contains("\"AGENTSTUDIO_DATA_DIR=$launch_data_root\""))
+        #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION"))
         #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE"))
         #expect(script.contains("running_debug_app_pids()"))
         #expect(script.contains("Agent Studio Debug $debug_code is already running"))
@@ -261,6 +264,9 @@ struct ObservabilityLaunchScriptsTests {
                       printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
                       exit 0
                     fi
+                    if [[ "$*" == *"app.startup_diagnostic_action."* ]]; then
+                      exit 0
+                    fi
                     if [[ "$*" == *":*"* ]]; then
                       exit 0
                     fi
@@ -487,6 +493,9 @@ struct ObservabilityLaunchScriptsTests {
                     printf '%s\\n' "$*" >> "\(curlArguments.path)"
                     if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
                       printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *"app.startup_diagnostic_action."* ]]; then
                       exit 0
                     fi
                     if [[ "$*" == *":*"* ]]; then

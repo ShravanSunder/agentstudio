@@ -42,6 +42,19 @@ write_state_value() {
   printf '%s=%q\n' "$key" "$value"
 }
 
+trace_name_is_safe_path_component() {
+  local name="${1:-}"
+  [ -n "$name" ] || return 1
+  [ "$name" != "." ] || return 1
+  [ "$name" != ".." ] || return 1
+  [ "${#name}" -le 160 ] || return 1
+  case "$name" in
+    *[!A-Za-z0-9._-]*)
+      return 1
+      ;;
+  esac
+}
+
 decode_state_value() {
   local raw_value="${1:-}"
   /usr/bin/python3 - "$raw_value" <<'PY'
@@ -191,6 +204,7 @@ write_launch_failed_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_APP "${app_path:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "${launch_data_root:-${debug_root:-}}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "${launch_zmx_dir:-${debug_zmx_dir:-}}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "${startup_diagnostic_action:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "${launch_log:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "${build_path:-}"
   } >"$state_file"
@@ -212,6 +226,7 @@ write_running_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_EXECUTABLE "$launched_executable"
     write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$launch_data_root"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$launch_zmx_dir"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "$startup_diagnostic_action"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "$launch_log"
     write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "$build_path"
   } >"$state_file"
@@ -546,19 +561,26 @@ if [ ! -x "$binary_path" ]; then
   exit 1
 fi
 
-artifact_parent="${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-$debug_root/apps/app-$(date +%Y%m%d%H%M%S)-$$}"
-app_path="$(copy_debug_bundle "$binary_path" "$build_path" "$debug_code" "$artifact_parent")"
-app_binary_path="$app_path/Contents/MacOS/AgentStudio"
-
 trace_tags="${AGENTSTUDIO_TRACE_TAGS:-*}"
 trace_flush="${AGENTSTUDIO_TRACE_FLUSH:-immediate}"
 trace_backend=otlp
 trace_name="${AGENTSTUDIO_TRACE_NAME:-debug-observability-$debug_code-$(date +%s)-$$}"
+startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}"
+if ! trace_name_is_safe_path_component "$trace_name"; then
+  mkdir -p "$(dirname "$state_file")"
+  write_launch_failed_state invalid_trace_name
+  echo "invalid AGENTSTUDIO_TRACE_NAME; use only letters, numbers, dot, underscore, and hyphen" >&2
+  echo "observability state: $state_file" >&2
+  exit 1
+fi
+
+artifact_parent="${AGENTSTUDIO_DEBUG_ARTIFACT_DIR:-$debug_root/apps/app-$(date +%Y%m%d%H%M%S)-$$}"
+app_path="$(copy_debug_bundle "$binary_path" "$build_path" "$debug_code" "$artifact_parent")"
+app_binary_path="$app_path/Contents/MacOS/AgentStudio"
+
 trace_dir="${AGENTSTUDIO_TRACE_DIR:-$debug_root/traces}"
 launch_data_root="${AGENTSTUDIO_DEBUG_DATA_DIR:-$debug_root}"
-if [ "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" = "cross-tab-move-geometry-smoke" ] &&
-  [ -z "${AGENTSTUDIO_DEBUG_DATA_DIR:-}" ]
-then
+if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
   launch_data_root="$debug_root/runs/$trace_name"
 fi
 launch_zmx_dir="$launch_data_root/z"
@@ -598,8 +620,8 @@ open_env_args=(
     --env "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint" \
     --env "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
 )
-if [ -n "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" ]; then
-  open_env_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION")
+if [ -n "$startup_diagnostic_action" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action")
 fi
 if [ -n "${AGENTSTUDIO_RESTORE_TRACE:-}" ]; then
   open_env_args+=(--env "AGENTSTUDIO_RESTORE_TRACE=$AGENTSTUDIO_RESTORE_TRACE")
@@ -623,8 +645,8 @@ direct_launch_env=(
   "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint"
   "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
 )
-if [ -n "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" ]; then
-  direct_launch_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION")
+if [ -n "$startup_diagnostic_action" ]; then
+  direct_launch_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action")
 fi
 if [ -n "${AGENTSTUDIO_RESTORE_TRACE:-}" ]; then
   direct_launch_env+=("AGENTSTUDIO_RESTORE_TRACE=$AGENTSTUDIO_RESTORE_TRACE")

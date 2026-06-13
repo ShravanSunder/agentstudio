@@ -100,6 +100,11 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.surface.requested_height_px",
         "agentstudio.performance.terminal.surface.requested_width_px",
         "agentstudio.performance.terminal.surface.row.count",
+        "agentstudio.startup_diagnostic.expected_visible_pane.count",
+        "agentstudio.startup_diagnostic.fixture.surface.count",
+        "agentstudio.startup_diagnostic.fixture.surface_reference.count",
+        "agentstudio.startup_diagnostic.fixture.terminal_view.count",
+        "agentstudio.startup_diagnostic.fixture.valid_geometry.count",
         "agentstudio.zmx.socket_path_headroom",
     ]
 
