@@ -2,10 +2,10 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STACK_HELPER="${SHRAVAN_OBSERVABILITY_STACK_HELPER:-$HOME/dev/devfiles/shared/observability/observability-stack}"
-COLLECTOR_HEALTH_URL="${SHRAVAN_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
-LOGS_QUERY_URL="${SHRAVAN_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
-METRICS_QUERY_URL="${SHRAVAN_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
+STACK_HELPER="${AI_TOOLS_OBSERVABILITY_STACK_HELPER:-$HOME/dev/ai-tools/observability/observability-stack}"
+COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
+LOGS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
+METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 
 DEFAULT_PROOF_ROOT="$PROJECT_ROOT/tmp/debug-workflows/2026-06-11-agent-studio-performance-issues-cmdp-slowdown/proofs"
 DEFAULT_UI_PROOF_ROOT="/tmp/asperf"

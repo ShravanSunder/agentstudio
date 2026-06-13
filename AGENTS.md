@@ -27,8 +27,8 @@ Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A P
 AgentStudio is an observability producer only. Do not add Docker Compose,
 VictoriaMetrics, VictoriaLogs, VictoriaTraces, or collector ownership to this
 repo. The shared local observability host is intended to live in shared tooling
-such as `~/dev/devfiles`, with generic service names and data directories so
-unrelated projects can use the same stack.
+at `~/dev/ai-tools/observability`, with shared service names and data
+directories so unrelated projects can use the same stack.
 
 Shared-host commands:
 
@@ -40,7 +40,7 @@ mise run observability:down
 ```
 
 The underlying source of truth is
-`~/dev/devfiles/shared/observability/observability-stack`.
+`~/dev/ai-tools/observability/observability-stack`.
 
 Standard debug proof path for PR branches:
 
