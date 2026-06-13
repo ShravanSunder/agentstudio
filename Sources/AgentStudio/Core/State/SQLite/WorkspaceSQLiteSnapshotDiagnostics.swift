@@ -119,6 +119,9 @@ struct WorkspaceSQLiteSnapshotDiagnostics: Sendable {
     }
 
     private func sourceFacetMismatches() -> [String] {
+        // Source was removed as durable pane identity; facets are now the only
+        // persisted workspace location truth. Keep the empty attribute for
+        // trace schema stability, but there is no source/facet pair to compare.
         []
     }
 

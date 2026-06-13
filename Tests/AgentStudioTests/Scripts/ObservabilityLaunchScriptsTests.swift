@@ -44,15 +44,22 @@ struct ObservabilityLaunchScriptsTests {
         let wrapperScript = try String(contentsOfFile: "scripts/run-swift-test-task.sh", encoding: .utf8)
         let testHelperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let agentInstructions = try String(contentsOfFile: "AGENTS.md", encoding: .utf8)
+        let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
 
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test\""))
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-fast\""))
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-webkit\""))
         #expect(wrapperScript.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\" debug"))
+        #expect(wrapperScript.contains("run_swift_with_timeout"))
+        #expect(wrapperScript.contains("requested swift test args: $*"))
         #expect(wrapperScript.contains("swift test --skip-build \"$@\" --build-path \"$BUILD_PATH\""))
+        #expect(testHelperScript.contains("swift_test_output_has_failures()"))
+        #expect(testHelperScript.contains("emitted Swift Testing failure output despite exit 0"))
+        #expect(testHelperScript.contains("recorded an issue"))
         #expect(testHelperScript.contains("terminate_process_tree TERM \"$command_pid\""))
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
+        #expect(ciWorkflow.contains("set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"))
     }
 
     @Test("observability launchers scrub inherited AgentStudio process identity")
