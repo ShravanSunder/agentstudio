@@ -412,6 +412,8 @@ struct ObservabilityDebugLaunchScriptsTests {
             printf "data=%s\\n" "$AGENTSTUDIO_DATA_DIR" > "\(fixture.url("launched-env").path)"
             printf "backend=%s\\n" "$AGENTSTUDIO_TRACE_BACKEND" >> "\(fixture.url("launched-env").path)"
             printf "marker=%s\\n" "$AGENTSTUDIO_TRACE_NAME" >> "\(fixture.url("launched-env").path)"
+            printf "restore_trace=%s\\n" "${AGENTSTUDIO_RESTORE_TRACE:-}" >> "\(fixture.url("launched-env").path)"
+            printf "diagnostic=%s\\n" "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" >> "\(fixture.url("launched-env").path)"
             sleep 30
             """
         )
@@ -449,6 +451,8 @@ struct ObservabilityDebugLaunchScriptsTests {
                     """
                 ).path,
                 "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
+                "AGENTSTUDIO_RESTORE_TRACE": "1",
+                "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "cross-tab-move-geometry-smoke",
                 "ZMX_DIR": "/tmp/hostile-zmx-dir",
                 "ZMX_SESSION": "hostile-session",
                 "ZMX_SESSION_PREFIX": "hostile-prefix",
@@ -469,18 +473,108 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE="))
         #expect(state.contains("AgentStudio\\ Debug\\ "))
+        #expect(state.contains("/runs/debug-observability-"))
         let buildExecutable = shellEscapedStateValue(buildPath.appending(path: "debug/AgentStudio").path)
         #expect(!state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=\(buildExecutable)"))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_DATA_DIR="))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR="))
 
         try fixture.waitForFile(
-            fixture.url("launched-env"), containing: "marker=debug-observability-", timeoutSeconds: 5)
+            fixture.url("launched-env"), containing: "diagnostic=cross-tab-move-geometry-smoke", timeoutSeconds: 5)
         let launchedEnv = try String(contentsOf: fixture.url("launched-env"), encoding: .utf8)
         #expect(launchedEnv.contains("data=/"))
+        #expect(launchedEnv.contains("/runs/debug-observability-"))
         #expect(launchedEnv.contains("backend=otlp"))
         #expect(launchedEnv.contains("marker=debug-observability-"))
+        #expect(launchedEnv.contains("restore_trace=1"))
+        #expect(launchedEnv.contains("diagnostic=cross-tab-move-geometry-smoke"))
         #expect(!FileManager.default.fileExists(atPath: fixture.url("leaked-env").path))
+    }
+
+    @Test("debug launcher forwards diagnostic env through LaunchServices")
+    func debugLauncherForwardsDiagnosticEnvironmentThroughLaunchServices() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        let openArgsURL = fixture.url("open-args")
+        let launchedAppURL = fixture.url("launched-app")
+        let buildPath = try fixture.makeDebugBuildExecutable(
+            """
+            #!/bin/bash
+            sleep 30
+            """
+        )
+
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
+            environment: [
+                "AGENTSTUDIO_OPEN_BIN": try fixture.executable(
+                    "open",
+                    """
+                    #!/bin/bash
+                    printf "%s\\n" "$@" > "\(openArgsURL.path)"
+                    for arg in "$@"; do
+                      case "$arg" in
+                        *.app)
+                          printf "%s\\n" "$arg" > "\(launchedAppURL.path)"
+                          ;;
+                      esac
+                    done
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_PGREP_BIN": try fixture.executable(
+                    "pgrep",
+                    """
+                    #!/bin/bash
+                    if [ -f "\(launchedAppURL.path)" ]; then
+                      echo 42424
+                      exit 0
+                    fi
+                    exit 1
+                    """
+                ).path,
+                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
+                    "lsof",
+                    """
+                    #!/bin/bash
+                    app_path="$(cat "\(launchedAppURL.path)")"
+                    printf "p42424\\nftxt\\nn%s/Contents/MacOS/AgentStudio\\n" "$app_path"
+                    """
+                ).path,
+                "AGENTSTUDIO_DITTO_BIN": try fixture.executable(
+                    "ditto",
+                    """
+                    #!/bin/bash
+                    cp -R "$1" "$2"
+                    """
+                ).path,
+                "AGENTSTUDIO_CODESIGN_BIN": try fixture.executable(
+                    "codesign",
+                    """
+                    #!/bin/bash
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
+                "AGENTSTUDIO_RESTORE_TRACE": "1",
+                "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "cross-tab-move-geometry-smoke",
+            ]
+        )
+
+        #expect(result.exitCode == 0)
+        let state = try String(contentsOf: stateFile, encoding: .utf8)
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=running"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=launchservices"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_PID=42424"))
+        #expect(state.contains("/runs/debug-observability-"))
+
+        let openArgs = try String(contentsOf: openArgsURL, encoding: .utf8)
+        #expect(openArgs.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
+        #expect(openArgs.contains("AGENTSTUDIO_RESTORE_TRACE=1"))
+        #expect(openArgs.contains("AGENTSTUDIO_DATA_DIR="))
+        #expect(openArgs.contains("/runs/debug-observability-"))
     }
 
     @Test("debug launcher exposes idle preflight command")

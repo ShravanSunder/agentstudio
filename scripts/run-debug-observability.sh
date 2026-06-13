@@ -189,8 +189,8 @@ write_launch_failed_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "${debug_code:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_REASON "$reason"
     write_state_value AGENTSTUDIO_OBSERVABILITY_APP "${app_path:-}"
-    write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "${debug_root:-}"
-    write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "${debug_zmx_dir:-}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "${launch_data_root:-${debug_root:-}}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "${launch_zmx_dir:-${debug_zmx_dir:-}}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "${launch_log:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "${build_path:-}"
   } >"$state_file"
@@ -210,8 +210,8 @@ write_running_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_PID "$launched_pid"
     write_state_value AGENTSTUDIO_OBSERVABILITY_APP "$app_path"
     write_state_value AGENTSTUDIO_OBSERVABILITY_EXECUTABLE "$launched_executable"
-    write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
-    write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$launch_data_root"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$launch_zmx_dir"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "$launch_log"
     write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "$build_path"
   } >"$state_file"
@@ -555,19 +555,26 @@ trace_flush="${AGENTSTUDIO_TRACE_FLUSH:-immediate}"
 trace_backend=otlp
 trace_name="${AGENTSTUDIO_TRACE_NAME:-debug-observability-$debug_code-$(date +%s)-$$}"
 trace_dir="${AGENTSTUDIO_TRACE_DIR:-$debug_root/traces}"
+launch_data_root="${AGENTSTUDIO_DEBUG_DATA_DIR:-$debug_root}"
+if [ "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" = "cross-tab-move-geometry-smoke" ] &&
+  [ -z "${AGENTSTUDIO_DEBUG_DATA_DIR:-}" ]
+then
+  launch_data_root="$debug_root/runs/$trace_name"
+fi
+launch_zmx_dir="$launch_data_root/z"
 otlp_endpoint="$("$STACK_HELPER" collector-url)"
 otlp_protocol=http/protobuf
 
 launch_log="${AGENTSTUDIO_OBSERVABILITY_LAUNCH_LOG:-$debug_root/logs/$trace_name.log}"
-mkdir -p "$(dirname "$launch_log")" "$(dirname "$state_file")" "$trace_dir" "$debug_root"
+mkdir -p "$(dirname "$launch_log")" "$(dirname "$state_file")" "$trace_dir" "$debug_root" "$launch_data_root" "$launch_zmx_dir"
 : >"$launch_log"
 query_start="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 echo "launching debug with OTLP collector: $otlp_endpoint"
 echo "debug code: $debug_code"
 echo "app: $app_path"
-echo "data root: $debug_root"
-echo "zmx dir: $debug_zmx_dir"
+echo "data root: $launch_data_root"
+echo "zmx dir: $launch_zmx_dir"
 echo "marker: $trace_name"
 
 clean_open_env=(
@@ -582,7 +589,7 @@ clean_open_env=(
 )
 
 open_env_args=(
-    --env "AGENTSTUDIO_DATA_DIR=$debug_root" \
+    --env "AGENTSTUDIO_DATA_DIR=$launch_data_root" \
     --env "AGENTSTUDIO_TRACE_TAGS=$trace_tags" \
     --env "AGENTSTUDIO_TRACE_FLUSH=$trace_flush" \
     --env "AGENTSTUDIO_TRACE_BACKEND=$trace_backend" \
@@ -594,6 +601,9 @@ open_env_args=(
 if [ -n "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" ]; then
   open_env_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION")
 fi
+if [ -n "${AGENTSTUDIO_RESTORE_TRACE:-}" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_RESTORE_TRACE=$AGENTSTUDIO_RESTORE_TRACE")
+fi
 
 direct_launch_env=(
   /usr/bin/env
@@ -604,7 +614,7 @@ direct_launch_env=(
   "SHELL=${SHELL:-/bin/zsh}"
   "TMPDIR=${TMPDIR:-/tmp}"
   "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
-  "AGENTSTUDIO_DATA_DIR=$debug_root"
+  "AGENTSTUDIO_DATA_DIR=$launch_data_root"
   "AGENTSTUDIO_TRACE_TAGS=$trace_tags"
   "AGENTSTUDIO_TRACE_FLUSH=$trace_flush"
   "AGENTSTUDIO_TRACE_BACKEND=$trace_backend"
@@ -615,6 +625,9 @@ direct_launch_env=(
 )
 if [ -n "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" ]; then
   direct_launch_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION")
+fi
+if [ -n "${AGENTSTUDIO_RESTORE_TRACE:-}" ]; then
+  direct_launch_env+=("AGENTSTUDIO_RESTORE_TRACE=$AGENTSTUDIO_RESTORE_TRACE")
 fi
 
 launch_method=launchservices

@@ -38,6 +38,17 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(action.commandName == "commandBarRepoFilter")
     }
 
+    @Test("startup diagnostic action parses cross-tab move geometry smoke command")
+    func parsesCrossTabMoveGeometrySmokeCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: " cross-tab-move-geometry-smoke "
+            ]))
+
+        #expect(action.kind == .crossTabMoveGeometrySmoke)
+        #expect(action.commandName == "crossTabMoveGeometrySmoke")
+    }
+
     @Test("startup diagnostic action parses add watch folder command and path")
     func parsesAddWatchFolderCommandAndPath() throws {
         let action = try #require(

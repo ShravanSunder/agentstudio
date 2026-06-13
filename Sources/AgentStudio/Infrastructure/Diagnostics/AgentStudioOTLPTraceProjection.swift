@@ -52,6 +52,7 @@ enum AgentStudioOTLPTraceProjection {
     private static let allowedStringAttributeKeys: Set<String> = [
         "agentstudio.app.startup.outcome",
         "agentstudio.app.startup.phase",
+        "agentstudio.command.name",
         "agentstudio.command.source",
         "agentstudio.envelope.scope",
         "agentstudio.eventbus.consumer",
@@ -72,6 +73,8 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.runtime.action_policy",
         "agentstudio.runtime.event",
         "agentstudio.sqlite.database",
+        "agentstudio.startup_diagnostic.action",
+        "agentstudio.startup_diagnostic.skip_reason",
         "agentstudio.terminal.startup.outcome",
         "agentstudio.terminal.startup.phase",
         "agentstudio.trace.tag",
@@ -108,6 +111,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.surface.hidden",
         "agentstudio.performance.terminal.surface.has_superview",
         "agentstudio.performance.terminal.surface.has_window",
+        "agentstudio.startup_diagnostic.render_proof.succeeded",
     ]
 
     private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
