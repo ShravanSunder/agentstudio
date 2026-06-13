@@ -48,7 +48,7 @@ Do not create a second `BridgeReviewSourceProvider`, a parallel `ReviewSource` p
 ### Architecture Decisions
 
 1. `agentstudio-git` is a separate SwiftPM repository published at `https://github.com/ShravanSunder/agentstudio-git.git`; the local `/Users/shravansunder/Documents/dev/project-dev/agentstudio-git` checkout is a development workspace, not an AgentStudio package dependency.
-2. AgentStudio imports `agentstudio-git` by remote SwiftPM revision, with `Package.resolved` pinned to `6938a8470b91ef3b83ddf4848dd246839de35c8d` until a later release-tag decision replaces the revision pin.
+2. AgentStudio imports `agentstudio-git` by remote SwiftPM revision, with `Package.resolved` pinned to `90bb17da9d7030f4ae954d45cf150a0f5fe6511b` until a later release-tag decision replaces the revision pin.
 3. The package is the only runtime code that imports libgit2 modules.
 4. Public package APIs expose Swift value types only: no `OpaquePointer`, no libgit2 C structs, no SwiftGitX types.
 5. `AgentStudioGitClient` is an actor. Internal libgit2 sessions are non-Sendable and never cross actor boundaries.
@@ -1986,7 +1986,7 @@ Modify `/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start
 ```swift
 .package(
     url: "https://github.com/ShravanSunder/agentstudio-git.git",
-    revision: "6938a8470b91ef3b83ddf4848dd246839de35c8d"
+    revision: "90bb17da9d7030f4ae954d45cf150a0f5fe6511b"
 ),
 ```
 
