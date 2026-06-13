@@ -78,11 +78,13 @@ run_swift_with_timeout() {
 
   local xcb_pipe
   xcb_pipe=$(_xcb_pipe_cmd)
+  local output_file
+  output_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-test-output.XXXXXX")"
 
   # Run command piped through xcbeautify in a subshell so we track one PID.
   # Subshell inherits pipefail from parent — swift exit code propagates.
   # shellcheck disable=SC2086
-  ( "$@" 2>&1 | $xcb_pipe ) &
+  ( "$@" 2>&1 | tee "$output_file" | $xcb_pipe ) &
   local command_pid=$!
 
   while kill -0 "$command_pid" 2>/dev/null; do
@@ -104,11 +106,11 @@ run_swift_with_timeout() {
 
   if [ "$timed_out" -eq 1 ]; then
     echo "[$LOG_PREFIX] ERROR: timeout while running '$label' after ${timeout_seconds}s"
-    kill -TERM "$command_pid" 2>/dev/null || true
+    terminate_process_tree TERM "$command_pid"
     sleep 2
-    kill -KILL "$command_pid" 2>/dev/null || true
-    pkill -9 -f "swiftpm-testing-helper|swift test|swift-build|AgentStudioPackageTests" || true
+    terminate_process_tree KILL "$command_pid"
     wait "$command_pid" 2>/dev/null || true
+    rm -f "$output_file"
     return 124
   fi
 
@@ -117,7 +119,32 @@ run_swift_with_timeout() {
   local command_status=$?
   set -e
 
+  if [ "$command_status" -eq 0 ] && swift_test_output_has_failures "$output_file"; then
+    echo "[$LOG_PREFIX] ERROR: '$label' emitted Swift Testing failure output despite exit 0" >&2
+    command_status=1
+  fi
+
+  rm -f "$output_file"
   return "$command_status"
+}
+
+swift_test_output_has_failures() {
+  local output_file="$1"
+
+  grep -Eq \
+    '(^|[[:space:]])(✘|✖)[[:space:]]|recorded an issue|failed after [0-9.]+ seconds with [0-9]+ issue\(s\)|Test run with .* failed after' \
+    "$output_file"
+}
+
+terminate_process_tree() {
+  local signal="$1"
+  local root_pid="$2"
+  local child_pid
+
+  for child_pid in $(pgrep -P "$root_pid" 2>/dev/null || true); do
+    terminate_process_tree "$signal" "$child_pid"
+  done
+  kill -"$signal" "$root_pid" 2>/dev/null || true
 }
 
 run_webkit_suite_with_retry() {

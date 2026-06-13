@@ -228,8 +228,9 @@ struct WorkspaceLauncherProjectorTests {
             }
 
             let pane = store.paneAtom.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-                title: "Terminal"
+                launchDirectory: worktree.path,
+                title: "Terminal",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
             )
             store.tabLayoutAtom.appendTab(Tab(paneId: pane.id))
             atoms.repoCache.recordRecentTarget(.forWorktree(path: worktree.path, worktree: worktree, repo: repo))

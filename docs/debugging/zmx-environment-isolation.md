@@ -106,11 +106,103 @@ The daemon's `execChild` injects `ZMX_SESSION=<name>` via `putenv` and then `exe
 
 Reads as override-wins. **But Option C's empirical crash contradicts this** — see Open Questions.
 
+## Current launcher rule — bundle first, marked debug fallback
+
+`mise run run-debug-observability` builds a signed per-worktree bundle named
+`Agent Studio Debug <code>.app`, where `<code>` is a deterministic
+four-character base36 hash of the canonical worktree path. The generated bundle,
+logs, traces, and zmx root live under `~/.agentstudio-db/<code>` instead of the
+repo checkout. That matters for autonomy: if the checkout is under
+`~/Documents`, putting the runnable `.app` under repo `tmp/` can make macOS TCC
+ask the generated debug app for Documents access before the test has even
+created its own fixture workspace.
+
+The launcher first invokes LaunchServices `open` from a minimal allowlisted
+environment:
+
+```text
+HOME
+USER
+LOGNAME
+SHELL
+TMPDIR
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+```
+
+The candidate app receives only the explicit trace variables and, for debug,
+`AGENTSTUDIO_DATA_DIR`. In the LaunchServices path these are passed with
+`open --env`; in the direct debug fallback they are passed through an equivalent
+allowlisted process environment. Inherited AgentStudio/zmx/Ghostty identity
+variables are not forwarded.
+
+Effective debug identity:
+
+```text
+bundle id   com.agentstudio.app.debug.d<code>
+app name    Agent Studio Debug <code>
+data root   ~/.agentstudio-db/<code>
+zmx dir     ~/.agentstudio-db/<code>/z
+URL scheme  none
+```
+
+The debug observability bundle removes URL-handler registration entirely so it
+cannot claim stable production `agentstudio://` callbacks or deep links. Debug
+isolation comes from bundle id, bundle name, data root, and zmx root.
+
+The short code is intentionally four characters because zmx session names and
+Unix socket paths are length-sensitive. The code is not a pane/session id; it is
+only a debug worktree discriminator. Pane zmx identities still need enough
+entropy for durable uniqueness. A future compact zmx naming pass should preserve
+the current entropy budget while using a denser alphabet.
+
+`mise run run-beta-observability` keeps the normal beta identity
+(`Agent Studio Beta`, `com.agentstudio.app.beta`, `~/.agent-studio-b`) but uses
+the same clean launch environment. Local beta bundles, launcher logs, and trace
+files default to `~/.agentstudio-db/beta-observability/`; the repo keeps only
+the small state file used by `verify-beta-observability`. Both helpers require
+a healthy local collector and should be the only supported way to collect
+Victoria-stack proof from debug or beta builds. For PR-branch proof, prefer the
+isolated debug runner. For beta promotion proof, use the accepted/notarized beta
+artifact produced by the GitHub release workflow.
+
+The helpers are executed with `/bin/bash`, not Homebrew bash. Launches try
+LaunchServices `open` first so macOS sees a real app bundle and WindowServer
+creates an inspectable GUI process. If LaunchServices rejects the generated
+debug bundle, the debug launcher may fall back to direct
+`Contents/MacOS/AgentStudio` execution and records
+`AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable` in
+`tmp/debug-observability/latest-observability.env`. That fallback is valid for
+Victoria/OTLP debug proof because it keeps the same isolated data root,
+`ZMX_DIR`, and trace configuration. It is not full GUI proof.
+
+Beta is stricter. If LaunchServices returns an error such as `-10810` for beta,
+the helper writes `AGENTSTUDIO_OBSERVABILITY_STATUS=launch_failed` and exits
+non-zero; beta promotion proof must use an accepted/notarized beta bundle. A
+Developer ID signed local bundle that has not been notarized can still be
+rejected by Gatekeeper and is not the promotion proof path.
+
+The helpers invoke `open` from a minimal clean environment and pass only the
+candidate app's trace/data variables through `open --env`; inherited
+AgentStudio, Ghostty, and zmx identity variables are not forwarded. Local
+ad-hoc beta bundles may be AMFI/LaunchServices-rejected; Developer ID signed
+local bundles can still be rejected until notarized. Developer ID signing is
+opt-in for local diagnostic bundles via
+`SIGNING_IDENTITY=... mise run create-beta-app-bundle`. Use the isolated debug
+runner for branch proof and the GitHub workflow's notarized beta artifact for
+promotion proof.
+
+Both helpers refuse duplicate same-identity launches. Debug refuses if any
+process with this worktree's `com.agentstudio.app.debug.d<code>` bundle id is
+already alive, even if `AGENTSTUDIO_DEBUG_ARTIFACT_DIR` points outside the
+default artifact root. Beta refuses if any beta-channel AgentStudio process is
+already running, even from a different bundle path. This keeps proof runs from
+sharing SQLite and zmx roots through accidental duplicate app instances.
+
 ## The original bug — nested AS blast radius
 
 Setup:
 - Outer AS = `/Applications/AgentStudio.app` (release, `~/.agentstudio/z`)
-- Inner AS = `.build/debug/AgentStudio` from a worktree (debug, `~/.agentstudio-db/z`)
+- Inner AS = raw `.build/debug/AgentStudio` from a worktree
 - Inside an outer AS pane, claude is running. User asks claude to launch the debug binary.
 
 Result:
@@ -123,7 +215,7 @@ Signature analysis:
 - Daemons cannot do this to each other — they're independent processes in different sessions.
 
 What we ruled out by code audit:
-- AS's own reaper (`AppDelegate.cleanupOrphanZmxSessions`, AppDelegate.swift:114, 396) targets inner's `zmxDir` only, with explicit env override. Cannot cross to outer's dir from inner's Swift code.
+- Current AS startup reconciliation (`AppDelegate.reconcileZmxSessionAnchorsAtStartup`) is non-destructive and uses a typed, discovery-only zmx inventory boundary. It can hydrate/adopt missing stored anchors and report unmatched live sessions, but it does not call `zmx kill`.
 - No `pkill`, `killall`, or PG-wide signal in AS source.
 - No code path in AS reads `ZMX_DIR` from `ProcessInfo.processInfo.environment`.
 - Bundle id collision (both Info.plist = `com.agentstudio.app`) — AS lifecycle hooks don't kill daemons on terminate.
@@ -248,9 +340,13 @@ unsetenv("ZMX_SESSION")
 
 **Empirically broken**: see Option C Mystery below.
 
-### Option D — refuse to boot when `ZMX_SESSION` inherited
+### Option D — launcher-level debug isolation (CURRENT)
 
-Detect inheritance at AS startup. If `ZMX_SESSION` is set from the parent env, treat the launch as "I was started from inside another AS's terminal" and skip the reaper. Doesn't fix the env leak itself, but prevents the most damaging side effect of the current behavior.
+Do not rely on app startup to detect a nested Agent Studio terminal. The
+supported debug/beta observability launchers scrub the inherited process
+environment before `exec`, and the debug launcher also assigns a per-worktree
+bundle id and data root. This closes the common nested-launch case without
+mutating global process environment inside `main.swift`.
 
 ## Option C Mystery — UNRESOLVED
 
@@ -296,8 +392,7 @@ Has not yet been run (user wanted no code changes during last verification pass)
 
 ```bash
 WORKTREE="$HOME/Documents/dev/project-dev/agent-studio.fix-zmx-env-isolation"
-DEBUG_BIN="$WORKTREE/.build-agent-78406/debug/AgentStudio"
-DEBUG_DIR="$HOME/.agentstudio-db/z"
+DEBUG_STATE="$WORKTREE/tmp/debug-observability/latest-observability.env"
 
 # Which zmx will debug AS pick?
 which zmx
@@ -309,7 +404,13 @@ ls -la "$WORKTREE/vendor/zmx/zig-out/bin/zmx"
 # What env does this terminal have?
 env | grep -E "^ZMX_|^GHOSTTY_|^TERM_" | sort
 
-# Pre-launch state of debug socket dir
+# Launch through the supported helper, then source its state file.
+mise run run-debug-observability -- --detach
+mise run verify-debug-observability
+. "$DEBUG_STATE"
+DEBUG_DIR="$AGENTSTUDIO_OBSERVABILITY_ZMX_DIR"
+
+# Pre-action state of the isolated debug socket dir
 ls -la "$DEBUG_DIR/"
 ps -eo pid,ppid,stat,command | grep -E "[z]mx attach"
 
@@ -328,8 +429,7 @@ log stream \
 ### Reproduce, then capture post-crash state
 
 ```bash
-# In tab 1: launch debug AS
-"$DEBUG_BIN"
+# In tab 1: debug AS is already running from the helper above.
 
 # In debug AS UI: open new terminal pane → see "Process Exited" → cmd-Q
 # In tab 2: stop log stream (ctrl-C)
@@ -349,7 +449,7 @@ grep -Ei "zmx|attach|surface|Process|exit|fail|error|orphan|kill" /tmp/as-debug-
 
 - daemon log shutdown messages: `"shutting down daemon session_name=…"` → graceful kill via IPC
 - abrupt log truncation → SIGKILL
-- AS log lines mentioning "orphan zmx session" or "Killed orphan zmx session"
+- AS log lines mentioning boot-time `zmx kill` or "Killed orphan zmx session"
 - zmx CLI log entries showing CannotAttachToSessionInSession
 - absence of any new socket created in `$DEBUG_DIR/` for the new pane → daemon never started
 
@@ -364,15 +464,24 @@ The zmx mental model places the trust boundary at the **directory**, not the dae
   - the directory is the cohort
 ```
 
-Two AS instances of the same build flavor share `~/.agentstudio-db/z/` (debug) or `~/.agentstudio/z/` (release). Both their reaper code paths see each other's sessions. Each protects only its own persisted pane IDs; the other's sessions look like orphans. **Cross-instance reaping is a latent bug** even without the env leak, when both AS processes are debug or both are release.
+Stable and beta keep channel-level data roots (`~/.agentstudio/z` and
+`~/.agent-studio-b/z`). Debug observability launches use a per-worktree root
+(`~/.agentstudio-db/<code>/z`) so parallel debug branches do not share the same
+socket cohort by default. Because the current boot reconciliation path is
+non-destructive, shared-directory membership is safe at startup. Any future
+destructive background janitor must still treat cross-instance visibility as a
+latent data-loss risk: each instance can see another instance's sessions when
+they intentionally share a root, and `as-*` prefix membership alone is not
+ownership proof.
 
 Possible architectural fixes (each addresses a different leak point):
 
 | Fix | Closes | Cost |
 |---|---|---|
-| Per-instance subdirectory: `~/.agentstudio-db/z/<launch-nonce>/` | cross-instance reaping; isolates per process | breaks cross-launch persistence unless nonce is workspace-stable |
-| Owner-stamped session names: `as-<instanceId>-<repo>-<wt>-<pane>` | reaper filter targets only own sessions | renames the on-disk format; migration cost |
-| Reaper attribution via `zmx list` metadata (cwd/pid) | only reap when attribution is unambiguous | still fragile if two instances know about same worktree |
+| Per-worktree debug root: `~/.agentstudio-db/<code>/z` | isolates debug branches while preserving cross-launch debug persistence for the same worktree | requires explicit fixtures instead of accidentally sharing the global debug root |
+| Per-instance subdirectory: `~/.agentstudio-db/z/<launch-nonce>/` | cross-instance destructive cleanup; isolates per process | breaks cross-launch persistence unless nonce is workspace-stable |
+| Owner-stamped session names: `as-<instanceId>-<repo>-<wt>-<pane>` | janitor filter targets only own sessions | renames the on-disk format; migration cost |
+| Janitor attribution via `zmx list` metadata (cwd/pid) | only delete when attribution is unambiguous | still fragile if two instances know about same worktree |
 | Refuse boot when `ZMX_SESSION` inherited (Option D) | nested-launch case specifically | doesn't help two side-by-side AS windows |
 
 ## File reference index
@@ -397,8 +506,8 @@ Possible architectural fixes (each addresses a different leak point):
        :307   same for floating pane
     Sources/AgentStudio/App/Coordination/ZmxOrphanCleanupPlanner.swift       — protects own panes
     Sources/AgentStudio/App/Boot/AppDelegate.swift
-       :114   cleanupOrphanZmxSessions called at boot
-       :396   the reaper itself (30s budget)
+       reconcileZmxSessionAnchorsAtStartup() — boot-time, non-destructive
+       runZmxStartupSessionReconciliation(...) — discovery/hydration only
     Sources/AgentStudio/Infrastructure/ProcessExecutor.swift:93-96           — env merge override-wins
 
   zmx — vendor
@@ -428,7 +537,7 @@ Possible architectural fixes (each addresses a different leak point):
 ## Open questions
 
 1. **Why does Option C crash new-pane creation when launched from plain Ghostty.app?** All four hypotheses (H1-H4) explored, H4 ruled out. Need the env-dump diagnostic to make further progress.
-2. **What is the actual mechanism that kills outer AS daemons during nested launch?** Suspected `zmx kill`-style external loop with `ZMX_DIR` inherited from outer. Not yet localized to a specific process or call site.
+2. **What is the actual mechanism that kills outer AS daemons during nested launch?** Suspected `zmx kill`-style external loop with `ZMX_DIR` inherited from outer. Not yet localized to a specific process or call site; the current AS boot path is no longer a candidate because it has no destroy-capable startup backend.
 3. **Are there other AS code paths that spawn zmx subprocesses?** Last audit found only `ZmxBackend.executeWithRetry`. Worth re-grepping after any refactor.
 4. **Is libghostty's surface command pipeline doing anything zmx-aware that we haven't seen?** The xcframework is binary-only in this checkout; would need to rebuild Ghostty with logging or trace at runtime.
 

@@ -415,7 +415,6 @@ struct PaneInboxNotificationPopoverTests {
             metadata: PaneMetadata(
                 paneId: PaneId(uuid: parentPaneId),
                 contentType: .terminal,
-                source: .floating(launchDirectory: nil, title: nil),
                 title: "Parent"
             ),
             kind: .layout(drawer: Drawer(paneIds: [drawerPaneId]))
@@ -426,7 +425,6 @@ struct PaneInboxNotificationPopoverTests {
             metadata: PaneMetadata(
                 paneId: PaneId(uuid: drawerPaneId),
                 contentType: .terminal,
-                source: .floating(launchDirectory: nil, title: nil),
                 title: "Drawer"
             ),
             kind: .drawerChild(parentPaneId: parentPaneId)

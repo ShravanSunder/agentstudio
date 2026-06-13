@@ -192,6 +192,7 @@ jobs:
 
       - name: Benchmark tests
         run: |
+          set -o pipefail
           mise run test-benchmark 2>&1 | tee benchmark.log
           grep -E "\[PushBenchmark\]" benchmark.log > benchmark-lines.txt || true
           if [ ! -s benchmark-lines.txt ]; then

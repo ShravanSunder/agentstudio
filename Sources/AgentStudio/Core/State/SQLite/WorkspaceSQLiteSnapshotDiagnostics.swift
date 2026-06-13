@@ -119,25 +119,10 @@ struct WorkspaceSQLiteSnapshotDiagnostics: Sendable {
     }
 
     private func sourceFacetMismatches() -> [String] {
-        snapshot.panes.compactMap { pane in
-            guard
-                case .worktree(let worktreeId, let repoId, _) = pane.metadata.source,
-                pane.metadata.facets.repoId != nil || pane.metadata.facets.worktreeId != nil
-            else {
-                return nil
-            }
-
-            var parts: [String] = ["pane=\(pane.id.uuidString)"]
-            if let facetRepoId = pane.metadata.facets.repoId, facetRepoId != repoId {
-                parts.append("sourceRepo=\(repoId.uuidString)")
-                parts.append("facetRepo=\(facetRepoId.uuidString)")
-            }
-            if let facetWorktreeId = pane.metadata.facets.worktreeId, facetWorktreeId != worktreeId {
-                parts.append("sourceWorktree=\(worktreeId.uuidString)")
-                parts.append("facetWorktree=\(facetWorktreeId.uuidString)")
-            }
-            return parts.count > 1 ? parts.joined(separator: "|") : nil
-        }
+        // Source was removed as durable pane identity; facets are now the only
+        // persisted workspace location truth. Keep the empty attribute for
+        // trace schema stability, but there is no source/facet pair to compare.
+        []
     }
 
     private static func tabPaneCountSummary(_ tab: Tab) -> String {

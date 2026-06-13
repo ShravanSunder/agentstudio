@@ -18,37 +18,6 @@ func decodePaneContentRecord(
     }
 }
 
-func decodePaneSourceRecord(_ row: Row) throws -> WorkspaceCoreRepository.PaneSourceRecord {
-    let sourceKind: String = row["source_kind"]
-    let launchDirectoryPath: String? = row["launch_directory"]
-    switch sourceKind {
-    case SQLitePaneGraphStorage.sourceKindWorktree:
-        let repoIdString: String? = row["source_repo_id"]
-        let worktreeIdString: String? = row["source_worktree_id"]
-        guard repoIdString != nil, worktreeIdString != nil else {
-            return .floating(launchDirectory: launchDirectoryPath.map { URL(fileURLWithPath: $0) })
-        }
-        guard let repoIdString, let repoId = UUID(uuidString: repoIdString) else {
-            throw WorkspaceCoreRepositoryError.malformedRepoId(repoIdString ?? "")
-        }
-        guard let worktreeIdString, let worktreeId = UUID(uuidString: worktreeIdString) else {
-            throw WorkspaceCoreRepositoryError.malformedWorktreeId(worktreeIdString ?? "")
-        }
-        guard let launchDirectoryPath else {
-            throw WorkspaceCoreRepositoryError.malformedPaneContent("worktree source missing launch directory")
-        }
-        return .worktree(
-            repoId: repoId,
-            worktreeId: worktreeId,
-            launchDirectory: URL(fileURLWithPath: launchDirectoryPath)
-        )
-    case SQLitePaneGraphStorage.sourceKindFloating:
-        return .floating(launchDirectory: launchDirectoryPath.map { URL(fileURLWithPath: $0) })
-    default:
-        throw WorkspaceCoreRepositoryError.malformedPaneContent("unknown pane source kind \(sourceKind)")
-    }
-}
-
 func decodePaneResidency(_ row: Row) throws -> WorkspaceCoreRepository.PaneResidencyRecord {
     let residencyKind: String = row["residency_kind"]
     switch residencyKind {
@@ -189,7 +158,7 @@ private func decodeTerminalContent(
         let row = try Row.fetchOne(
             database,
             sql: """
-                SELECT provider, lifetime
+                SELECT provider, lifetime, zmx_session_id
                 FROM pane_content_terminal
                 WHERE pane_id = ?
                 """,
@@ -206,7 +175,8 @@ private func decodeTerminalContent(
     guard let lifetime = SessionLifetime(rawValue: lifetimeString) else {
         throw WorkspaceCoreRepositoryError.malformedPaneContent("unknown terminal lifetime \(lifetimeString)")
     }
-    return .terminal(provider: provider, lifetime: lifetime)
+    let zmxSessionId: String? = row["zmx_session_id"]
+    return .terminal(provider: provider, lifetime: lifetime, zmxSessionId: zmxSessionId)
 }
 
 private func decodeWebviewContent(

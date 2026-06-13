@@ -98,10 +98,11 @@ struct CommandSpecContractTests {
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
 
         let primaryPane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            title: "Primary"
+            launchDirectory: worktree.path,
+            title: "Primary",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
         )
-        let secondaryPane = store.createPane(source: .floating(launchDirectory: nil, title: "Secondary"))
+        let secondaryPane = store.createPane()
         var tab = Tab(paneId: primaryPane.id)
         tab.arrangements.append(
             PaneArrangement(

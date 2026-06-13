@@ -282,11 +282,11 @@ struct PaneFilesystemProjectionAtomTests {
         worktreeId: UUID,
         cwd: URL?
     ) -> Pane {
-        Pane(
+        let launchDirectory = URL(fileURLWithPath: "/tmp/worktree")
+        return Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .worktree(
-                    worktreeId: worktreeId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")),
+                launchDirectory: launchDirectory,
                 title: "Pane",
                 facets: PaneContextFacets(
                     repoId: repoId,

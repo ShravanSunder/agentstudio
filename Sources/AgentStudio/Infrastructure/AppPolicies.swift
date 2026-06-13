@@ -11,6 +11,14 @@ enum AppPolicies {
         static let contentMaxBytesPerItem: Int = 50 * 1024 * 1024
     }
 
+    enum WorkspacePersistence {
+        static let debouncedAutosaveFailureDampingThreshold: Int = 3
+    }
+
+    enum ZmxStartup {
+        static let reconciliationTimeoutNanoseconds: UInt64 = 3_000_000_000
+    }
+
     enum SelectablePopover {
         static let maxNumberedShortcuts: Int = 9
     }

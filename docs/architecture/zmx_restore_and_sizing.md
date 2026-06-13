@@ -6,9 +6,10 @@ Keep session restore reliable while ensuring restored panes get correct terminal
 
 ## Identity Source of Truth
 
-`PaneId` is the primary identity. zmx session names are deterministic derived keys.
-For UUIDv7 pane IDs, zmx uses the UUID tail segment for `pane16` to preserve entropy and avoid same-millisecond prefix collisions.
-Canonical derivation and lookup ownership live in:
+`PaneId` is the primary identity. zmx session names are deterministic
+spawn-time anchors stored on `TerminalState.zmxSessionId`. For UUIDv7 pane IDs,
+zmx uses the UUID tail segment for `pane16` to preserve entropy and avoid
+same-millisecond prefix collisions. Canonical minting and lookup ownership live in:
 [Session Lifecycle — Identity Contract (Canonical)](session_lifecycle.md#identity-contract-canonical).
 
 ## Lifecycle Facts (Ghostty + zmx)
@@ -122,27 +123,65 @@ Immediate attach during startup was tested and produced unstable behavior:
 
 Deferred attach after readiness is the stable default.
 
-## Restart Reconcile Policy (LUNA-324)
+## Startup zmx Session Reconciliation (LUNA-324)
 
-On app launch, restore flow should reconcile persisted state against live zmx daemons before surface creation:
+On app launch, restore flow reconciles persisted state against live zmx daemons
+before surface creation only when a persistent zmx pane needs anchor repair. This
+startup path is an anchor-hydration and classification pass, not a reaper.
 
-1. Run one `zmx list` snapshot (with `ZMX_DIR`) and build live session set.
-2. Classify persisted sessions:
-   - persisted + live: mark runnable and restore surface.
-   - persisted + missing: mark expired and show restart placeholder.
-3. Classify runtime-only sessions:
-   - live + not persisted: orphan candidate (grace period before kill).
-4. Start periodic health monitoring after restore.
+1. Skip live inventory entirely when every persistent zmx pane already has a
+   valid stored anchor for its pane identity.
+2. Otherwise run one `zmx list` snapshot (with `ZMX_DIR`) and build the live
+   session set.
+3. Return valid stored `TerminalState.zmxSessionId` values as source of truth.
+4. For legacy rows missing a stored anchor, or rows with an invalid/foreign
+   stored anchor, adopt a unique same-kind live zmx session that matches the
+   pane segment; otherwise fall back to deterministic legacy derivation without
+   destroying anything.
+5. Persist any hydrated anchors before restore/attach logic depends on them.
+6. Log runtime-only sessions as future janitor candidates, but never kill them
+   during boot.
+7. Start periodic health monitoring after restore.
 
 `sessionId` in this document means the zmx daemon session name, not the primary
 pane identity.
 
-## Orphan Cleanup TTL Policy
+## Debug and Beta Proof Launchers
 
-1. Orphans are never killed immediately at discovery.
-2. Apply a grace TTL (for example, 60s) before cleanup.
-3. Re-check liveness before kill at TTL expiration.
-4. Log discovery time, kill attempt time, and outcome.
+Startup reconciliation proof must use bundled app identities, not raw SwiftPM
+executables. The debug observability launcher creates
+`Agent Studio Debug <code>.app` with `AGENTSTUDIO_DATA_DIR` set to
+`~/.agentstudio-db/<code>`, where `<code>` is a deterministic four-character
+base36 worktree hash. Beta proof uses `Agent Studio Beta` and `~/.agent-studio-b`.
+Both launchers use a scrubbed environment so inherited `ZMX_DIR`, `ZMX_SESSION`,
+Ghostty resource variables, or production app identity cannot select the wrong
+socket directory. Launchers use LaunchServices `open` for app-bundle semantics;
+debug and beta diverge after a LaunchServices refusal. Debug may fall back to
+direct `Contents/MacOS/AgentStudio` execution and records
+`AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable`; that is accepted
+for Victoria/OTLP debug proof because it keeps the isolated data/zmx root, but
+it is not full GUI proof. Beta does not use this fallback: if LaunchServices
+refuses the beta bundle, the state file is marked `launch_failed` and promotion
+proof is not started. Proof comes from the per-run state marker, VictoriaLogs
+query, PID/window inspection where LaunchServices succeeds, and SQLite integrity
+checks.
+
+See [Session Lifecycle — Debug App Identity Budget](session_lifecycle.md#debug-app-identity-budget).
+
+## Future Background Janitor Policy
+
+Destructive cleanup is not part of startup. A future background janitor may
+delete runtime-only sessions only after it has stronger ownership proof than
+`as-*` prefix membership and shared `ZMX_DIR` membership.
+
+Minimum policy for that future job:
+
+1. Never run at boot.
+2. Prove instance/workspace ownership before deleting.
+3. Use a grace TTL and re-check liveness before kill.
+4. Never destroy a live session whose kind-aware pane segment matches a
+   persisted pane.
+5. Log discovery time, ownership proof, kill attempt time, and outcome.
 
 ## Test Coverage
 
@@ -153,7 +192,7 @@ pane identity.
    - protects sizing gate semantics (window + non-zero dimensions required).
 
 2. `ZmxBackendTests`
-   - validates zmx session name format, attach command shape, env handling, and kill/discover logic.
+   - validates zmx session name format, kind-aware pane matching, attach command shape, env handling, and kill/discover logic.
 
 ### Integration
 
@@ -163,8 +202,12 @@ pane identity.
 ### End-to-End
 
 1. `ZmxE2ETests`
-   - full lifecycle: create, health check, orphan discovery, kill.
-   - restore semantics: backend recreation can rediscover and kill existing live sessions.
+   - validates real-zmx anchor hydration/adoption, boot-time non-destruction, shared-`ZMX_DIR` preservation, and scrollback preservation for roamed legacy panes.
+   - validates explicit backend lifecycle operations, including create, health
+     check, orphan discovery, and explicit kill APIs outside the boot path.
+   - validates restore semantics without using boot as a reaper: backend
+     recreation can rediscover existing live sessions and attach/restore logic
+     keeps stored anchors stable.
 
 ## What Is Not Fully Automated Yet
 
@@ -175,7 +218,7 @@ The automated suites cover the attach/sizing gate policy and zmx daemon lifecycl
 ## Ticket Mapping
 
 - `LUNA-295`: `Two Attach Paths (Current + Target)` → see also [Contract 5a: Attach Readiness Policy](pane_runtime_architecture.md#contract-5a-attach-readiness-policy-luna-295)
-- `LUNA-324`: `Restart Reconcile Policy (LUNA-324)` and `Orphan Cleanup TTL Policy` → see also [Contract 5b: Restart Reconcile Policy](pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
+- `LUNA-324`: `Startup zmx Session Reconciliation (LUNA-324)` and future background janitor policy → see also [Contract 5b: Restart Reconcile Policy](pane_runtime_architecture.md#contract-5b-restart-reconcile-policy-luna-324)
 - `LUNA-342`: `Lifecycle Facts (Ghostty + zmx)` and contract wording in this document
 - `LUNA-354`: ZmxIPCClient — direct IPC replacing CLI shell-outs (spec: `docs/superpowers/specs/2026-03-30-zmx-ipc-client-design.md`)
 

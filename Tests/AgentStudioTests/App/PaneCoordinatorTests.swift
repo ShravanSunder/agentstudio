@@ -44,7 +44,7 @@ struct PaneCoordinatorTests {
         let url = URL(string: "https://example.com/\(UUID().uuidString)")!
         return store.createPane(
             content: .webview(WebviewState(url: url, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: title), title: title)
+            metadata: PaneMetadata(title: title)
         )
     }
 
@@ -270,8 +270,9 @@ struct PaneCoordinatorTests {
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!, showNavigation: true)),
             metadata: PaneMetadata(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: repoPath),
-                title: "Browser"
+                launchDirectory: repoPath,
+                title: "Browser",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: repoPath),
             )
         )
 
@@ -342,7 +343,6 @@ struct PaneCoordinatorTests {
         let metadata = PaneMetadata(
             paneId: runtimePaneId,
             contentType: .browser,
-            source: .floating(launchDirectory: nil, title: "Runtime Teardown"),
             title: "Runtime Teardown"
         )
         let runtime = WebviewRuntime(
@@ -459,7 +459,7 @@ struct PaneCoordinatorTests {
         )
 
         let primaryPane = store.createPane(
-            source: .worktree(worktreeId: primaryWorktree.id, repoId: repo.id, launchDirectory: primaryWorktree.path),
+            launchDirectory: primaryWorktree.path,
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: primaryWorktree.id,
@@ -521,9 +521,7 @@ struct PaneCoordinatorTests {
         }
 
         let tertiaryPane = store.createPane(
-            source: .worktree(
-                worktreeId: reconciledTertiaryWorktree.id, repoId: repo.id,
-                launchDirectory: reconciledTertiaryWorktree.path),
+            launchDirectory: reconciledTertiaryWorktree.path,
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: reconciledTertiaryWorktree.id,
@@ -608,7 +606,7 @@ struct PaneCoordinatorTests {
         )
 
         let primaryPane = store.createPane(
-            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
+            launchDirectory: mainWorktree.path,
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: mainWorktree.id,
@@ -683,7 +681,7 @@ struct PaneCoordinatorTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
+            launchDirectory: mainWorktree.path,
             facets: PaneContextFacets(repoId: repo.id, worktreeId: mainWorktree.id, cwd: mainWorktree.path)
         )
         let tab = Tab(paneId: pane.id)

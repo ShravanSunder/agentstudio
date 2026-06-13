@@ -216,50 +216,6 @@ final class ZmxBackendTests {
         #expect(id == "as-d--bc219f0a5b7c8d9e--a1234f00b16e1aa2")
     }
 
-    // MARK: - PaneSessionHandle Validation
-
-    @Test
-
-    func test_paneSessionHandle_hasValidId_validFormat() {
-        // Arrange
-        let handle = makePaneSessionHandle(
-            id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344"
-        )
-
-        // Assert
-        #expect(handle.hasValidId)
-    }
-
-    @Test
-
-    func test_paneSessionHandle_hasValidId_invalidPrefix() {
-        // Arrange
-        let handle = makePaneSessionHandle(id: "wrong-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
-
-        // Assert
-        #expect(!(handle.hasValidId))
-    }
-
-    @Test
-
-    func test_paneSessionHandle_hasValidId_wrongSegmentCount() {
-        // Arrange
-        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd")
-
-        // Assert
-        #expect(!(handle.hasValidId))
-    }
-
-    @Test
-
-    func test_paneSessionHandle_hasValidId_nonHexChars() {
-        // Arrange
-        let handle = makePaneSessionHandle(id: "as-gggggggggggggggg-00112233aabbccdd-aabbccdd11223344")
-
-        // Assert
-        #expect(!(handle.hasValidId))
-    }
-
     // MARK: - createPaneSession
 
     @Test
@@ -276,19 +232,22 @@ final class ZmxBackendTests {
             zmxPath: "/usr/local/bin/zmx",
             zmxDir: tempZmxDir
         )
+        let paneId = UUID()
 
         // Act
-        let handle = try await tempBackend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
+        let handle = try await tempBackend.createPaneSession(repo: repo, worktree: worktree, paneId: paneId)
 
         // Assert — no CLI calls (zmx auto-creates on attach)
         #expect(executor.calls.isEmpty)
         #expect(handle.id.hasPrefix("as-"))
         #expect(handle.id.count == 53)
-        #expect(handle.projectId == repo.id)
-        #expect(handle.worktreeId == worktree.id)
-        #expect(handle.displayName == "feature-x")
-        #expect(handle.repoPath == repo.repoPath)
-        #expect(handle.worktreePath == worktree.path)
+        #expect(
+            handle.id
+                == ZmxBackend.sessionId(
+                    repoStableKey: repo.stableKey,
+                    worktreeStableKey: worktree.stableKey,
+                    paneId: paneId
+                ))
         // Verify zmxDir was created
         #expect(FileManager.default.fileExists(atPath: tempZmxDir))
 

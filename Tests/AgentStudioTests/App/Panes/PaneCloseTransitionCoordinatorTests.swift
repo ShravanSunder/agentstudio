@@ -154,7 +154,7 @@ struct PaneCloseTransitionCoordinatorTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentPane = harness.store.createPane()
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)

@@ -51,7 +51,7 @@ final class DrawerCommandIntegrationTests {
     /// Creates a parent pane in a tab and returns the pane ID.
     @discardableResult
     private func createParentPaneInTab() -> (paneId: UUID, tabId: UUID) {
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         return (pane.id, tab.id)
@@ -410,8 +410,8 @@ final class DrawerCommandIntegrationTests {
 
     func test_closeParentPane_removesDrawerChildren() {
         // Arrange — parent with 2 drawer children in a 2-pane tab
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
         store.insertPane(

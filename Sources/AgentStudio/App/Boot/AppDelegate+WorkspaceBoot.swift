@@ -100,7 +100,7 @@ extension AppDelegate {
         case .loadUIStore:
             await bootLoadUIStore(persistor: persistor)
         case .establishRuntimeBus:
-            bootEstablishRuntimeBus(paneRuntimeBus: paneRuntimeBus, filesystemSource: &filesystemSource)
+            await bootEstablishRuntimeBus(paneRuntimeBus: paneRuntimeBus, filesystemSource: &filesystemSource)
         case .startFilesystemActor:
             bootChainPipelineStep(filesystemSource) { await $0.startFilesystemActor() }
         case .startGitProjector:
@@ -251,9 +251,9 @@ extension AppDelegate {
     private func bootEstablishRuntimeBus(
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
-    ) {
+    ) async {
         runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
-        cleanupOrphanZmxSessions()
+        await reconcileZmxSessionAnchorsAtStartup()
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
         seedSlotsForRestoredPanes()

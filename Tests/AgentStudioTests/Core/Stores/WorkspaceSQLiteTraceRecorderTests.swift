@@ -145,14 +145,14 @@ struct WorkspaceSQLiteTraceRecorderTests {
         #expect(contents.contains("source=membership_orphan"))
     }
 
-    @Test("snapshot records expose source facet mismatch diagnostics")
-    func snapshotRecordsExposeSourceFacetMismatchDiagnostics() async throws {
+    @Test("snapshot records retired source facet mismatch diagnostics as empty")
+    func snapshotRecordsRetiredSourceFacetMismatchDiagnosticsAsEmpty() async throws {
         let traceRuntime = makeTraceRuntime(tags: "persistence.snapshot")
         let recorder = WorkspaceSQLiteTraceRecorder(traceRuntime: traceRuntime)
 
         await recorder.recordSnapshot(
             .init(
-                snapshot: .snapshotWithPaneSourceFacetRepoMismatch(),
+                snapshot: .snapshotWithArrangementPaneMissingFromTab(),
                 operation: .workspaceSave,
                 phase: .stageCore,
                 outcome: .started,
@@ -162,10 +162,10 @@ struct WorkspaceSQLiteTraceRecorderTests {
         try await traceRuntime.flush()
 
         let contents = try traceContents(from: traceRuntime)
-        #expect(contents.contains("\"agentstudio.workspace.snapshot.has_source_facet_mismatch\":true"))
+        #expect(contents.contains("\"agentstudio.workspace.snapshot.has_source_facet_mismatch\":false"))
         #expect(contents.contains("\"agentstudio.workspace.snapshot.source_facet_mismatches\""))
-        #expect(contents.contains("sourceRepo="))
-        #expect(contents.contains("facetRepo="))
+        #expect(!contents.contains("sourceRepo="))
+        #expect(!contents.contains("facetRepo="))
     }
 
     private func makeTraceRuntime(tags: String) -> AgentStudioTraceRuntime {

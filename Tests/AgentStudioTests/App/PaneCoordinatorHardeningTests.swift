@@ -67,7 +67,7 @@ struct PaneCoordinatorHardeningTests {
         let url = URL(string: "https://example.com/\(UUID().uuidString)")!
         return store.createPane(
             content: .webview(WebviewState(url: url, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: title), title: title)
+            metadata: PaneMetadata(title: title)
         )
     }
 
@@ -78,9 +78,10 @@ struct PaneCoordinatorHardeningTests {
         title: String
     ) -> Pane {
         store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: title,
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
     }
 
@@ -183,9 +184,10 @@ struct PaneCoordinatorHardeningTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let targetPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Target",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: targetPane.id)
         harness.store.appendTab(tab)
@@ -214,7 +216,7 @@ struct PaneCoordinatorHardeningTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let targetPane = harness.store.createPane(
-            source: .floating(launchDirectory: worktree.path.appending(path: "nested"), title: "Target"),
+            launchDirectory: worktree.path.appending(path: "nested"),
             title: "Target",
             provider: .zmx,
             facets: PaneContextFacets(cwd: worktree.path.appending(path: "nested"))
@@ -251,7 +253,7 @@ struct PaneCoordinatorHardeningTests {
         let unknownCwd = harness.tempDir.appending(path: "outside-known-repos")
         try? FileManager.default.createDirectory(at: unknownCwd, withIntermediateDirectories: true)
         let targetPane = harness.store.createPane(
-            source: .floating(launchDirectory: unknownCwd, title: "Target"),
+            launchDirectory: unknownCwd,
             title: "Target",
             provider: .zmx,
             facets: PaneContextFacets(cwd: unknownCwd)
@@ -466,7 +468,7 @@ struct PaneCoordinatorHardeningTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -479,7 +481,7 @@ struct PaneCoordinatorHardeningTests {
         // isolate the retire behavior, drive the main-pane close via the
         // coordinator directly with a non-canonicalized closePane call for a
         // multi-pane test state.
-        let sibling = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Sibling"))
+        let sibling = harness.store.createPane()
         harness.store.insertPane(
             sibling.id,
             inTab: tab.id,
@@ -505,7 +507,7 @@ struct PaneCoordinatorHardeningTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -526,7 +528,7 @@ struct PaneCoordinatorHardeningTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -548,7 +550,7 @@ struct PaneCoordinatorHardeningTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -581,7 +583,7 @@ struct PaneCoordinatorHardeningTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)

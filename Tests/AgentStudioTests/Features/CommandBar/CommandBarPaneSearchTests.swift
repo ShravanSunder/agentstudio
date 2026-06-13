@@ -21,7 +21,7 @@ struct CommandBarPaneSearchTests {
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Shell",
             facets: PaneContextFacets(
                 repoId: repo.id,
@@ -58,7 +58,7 @@ struct CommandBarPaneSearchTests {
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Pane Shell",
             facets: PaneContextFacets(
                 repoId: repo.id,
@@ -90,7 +90,7 @@ struct CommandBarPaneSearchTests {
     @Test("$ pane scope searches pane notes")
     func paneScopeSearchesPaneNotes() {
         let store = WorkspaceStore()
-        var metadata = PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Terminal")
+        var metadata = PaneMetadata(title: "Terminal")
         metadata.updateNote("zmx lease repro")
         let pane = Pane(
             id: PaneId().uuid,
