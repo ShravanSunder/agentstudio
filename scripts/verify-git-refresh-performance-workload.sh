@@ -5,6 +5,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STACK_HELPER="${SHRAVAN_OBSERVABILITY_STACK_HELPER:-$HOME/dev/devfiles/shared/observability/observability-stack}"
 COLLECTOR_HEALTH_URL="${SHRAVAN_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
 LOGS_QUERY_URL="${SHRAVAN_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
+METRICS_QUERY_URL="${SHRAVAN_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 
 DEFAULT_PROOF_ROOT="$PROJECT_ROOT/tmp/debug-workflows/2026-06-11-agent-studio-performance-issues-cmdp-slowdown/proofs"
 DEFAULT_UI_PROOF_ROOT="/tmp/asperf"
@@ -15,8 +16,8 @@ Usage: verify-git-refresh-performance-workload.sh [--prepare-only]
 
 Creates a disposable 118-repo / 163-worktree / 14-pane AgentStudio workspace,
 launches AgentStudio through the standard per-worktree debug observability
-runner, runs five fixture git writers, and captures marker-scoped VictoriaLogs
-performance evidence.
+runner, runs five fixture git writers, and captures marker-scoped
+VictoriaMetrics performance evidence.
 
 Environment overrides:
   AGENTSTUDIO_PERF_PROOF_ROOT       Parent directory for timestamped artifacts.
@@ -30,6 +31,9 @@ Environment overrides:
                                       a full 16-stripe background refresh cycle.
   AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR
                                       Set to 0 to skip startup command-bar repo filter smoke. Default: 1.
+  AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF
+                                      Set to 1 to allow JSONL as an explicit local proof
+                                      fallback. Default: 0; standard proof requires Victoria.
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE
                                       State file passed through to the standard debug runner.
 
@@ -62,6 +66,7 @@ ACTIVE_PANE_COUNT="${AGENTSTUDIO_PERF_ACTIVE_PANES:-14}"
 WRITER_COUNT="${AGENTSTUDIO_PERF_WRITER_COUNT:-5}"
 DURATION_SECONDS="${AGENTSTUDIO_PERF_DURATION_SECONDS:-60}"
 DRIVE_COMMAND_BAR="${AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR:-1}"
+ALLOW_JSONL_PROOF="${AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF:-0}"
 if [ -n "${AGENTSTUDIO_PERF_PROOF_ROOT:-}" ]; then
   PROOF_ROOT="$AGENTSTUDIO_PERF_PROOF_ROOT"
 elif [ "$DRIVE_COMMAND_BAR" = "1" ]; then
@@ -547,6 +552,18 @@ query_victoria_logs() {
   curl "${args[@]}" "$LOGS_QUERY_URL"
 }
 
+query_victoria_metrics() {
+  local promql="$1"
+  curl \
+    --fail \
+    --silent \
+    --show-error \
+    --max-time 5 \
+    --get \
+    --data-urlencode "query=$promql" \
+    "$METRICS_QUERY_URL"
+}
+
 victoria_event_query() {
   local event_name="$1"
   printf '{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="%s"} _msg:%s' \
@@ -562,6 +579,58 @@ victoria_event_count() {
   else
     printf '%s\n' "$response" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' '
   fi
+}
+
+victoria_metric_value() {
+  local promql="$1"
+  local response
+  response="$(query_victoria_metrics "$promql" 2>/dev/null || true)"
+  if [ -z "$response" ]; then
+    printf '0\n'
+    return 0
+  fi
+  /usr/bin/python3 -c '
+import json
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    print("0")
+    raise SystemExit(0)
+
+total = 0.0
+for item in payload.get("data", {}).get("result", []):
+    try:
+        total += float(item.get("value", [0, 0])[1])
+    except Exception:
+        pass
+
+if total.is_integer():
+    print(int(total))
+else:
+    print(total)
+' <<<"$response"
+}
+
+victoria_metric_event_query() {
+  local event_name="$1"
+  printf 'agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="%s",event="%s"}' \
+    "$TRACE_NAME" "$event_name"
+}
+
+victoria_metric_event_count() {
+  local event_name="$1"
+  victoria_metric_value "$(victoria_metric_event_query "$event_name")"
+}
+
+victoria_metric_command_bar_filter_query() {
+  printf 'max_over_time(agentstudio_performance_commandbar_query_character_count{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="%s",event="performance.commandbar.filter"}[5m])' \
+    "$TRACE_NAME"
+}
+
+jsonl_proof_enabled() {
+  [ "$ALLOW_JSONL_PROOF" = "1" ]
 }
 
 jsonl_event_count() {
@@ -606,10 +675,10 @@ wait_for_trace_event() {
   local timeout_seconds="$2"
   local deadline=$((SECONDS + timeout_seconds))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if current_trace_jsonl_has_event "$event_name"; then
+    if [ "$(victoria_metric_event_count "$event_name")" -gt 0 ]; then
       return 0
     fi
-    if [ "$(victoria_event_count "$event_name")" -gt 0 ]; then
+    if jsonl_proof_enabled && current_trace_jsonl_has_event "$event_name"; then
       return 0
     fi
     sleep 1
@@ -621,18 +690,10 @@ wait_for_command_bar_repo_filter_event() {
   local timeout_seconds="$1"
   local deadline=$((SECONDS + timeout_seconds))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if current_trace_jsonl_has_command_bar_filter; then
+    if [ "$(victoria_metric_value "$(victoria_metric_command_bar_filter_query)")" != "0" ]; then
       return 0
     fi
-    local victoria_response
-    victoria_response="$(
-      query_victoria_logs \
-        "$(victoria_event_query performance.commandbar.filter) | fields _msg,agentstudio.performance.commandbar.query_character.count | limit 20" \
-        2>/dev/null || true
-    )"
-    if printf '%s\n' "$victoria_response" |
-      grep -E "\"agentstudio.performance.commandbar.query_character.count\":\"?[1-9][0-9]*\"?" >/dev/null 2>&1
-    then
+    if jsonl_proof_enabled && current_trace_jsonl_has_command_bar_filter; then
       return 0
     fi
     sleep 1
@@ -723,6 +784,7 @@ summarize_traces() {
     echo "writer_count=$WRITER_COUNT"
     echo "duration_seconds=$DURATION_SECONDS"
     echo "drive_command_bar=$DRIVE_COMMAND_BAR"
+    echo "allow_jsonl_proof=$ALLOW_JSONL_PROOF"
     echo "app_pid=$APP_PID"
     echo "debug_observability_state_file=$DEBUG_OBSERVABILITY_STATE_FILE"
     [ -f "$DEBUG_STATE_COPY" ] && echo "debug_observability_state_copy=$DEBUG_STATE_COPY"
@@ -740,11 +802,13 @@ summarize_traces() {
       performance.commandbar.items \
       performance.commandbar.filter
     do
-      local victoria_count jsonl_count
-      victoria_count="$(victoria_event_count "$event_name")"
+      local victoria_metrics_count victoria_logs_count jsonl_count
+      victoria_metrics_count="$(victoria_metric_event_count "$event_name")"
+      victoria_logs_count="$(victoria_event_count "$event_name")"
       jsonl_count="$(jsonl_event_count "$event_name" "$jsonl_file")"
-      echo "$event_name victoria_count=$victoria_count jsonl_count=$jsonl_count"
+      echo "$event_name victoria_metrics_count=$victoria_metrics_count victoria_logs_count=$victoria_logs_count jsonl_count=$jsonl_count"
     done
+    echo "performance.commandbar.filter.query_character.max=$(victoria_metric_value "$(victoria_metric_command_bar_filter_query)")"
   } | tee "$SUMMARY_FILE"
 }
 

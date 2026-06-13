@@ -53,7 +53,9 @@ mise run verify-debug-observability
 Use this path instead of raw `swift build` plus hand-written environment
 variables. The runner allocates a shared Swift build slot, creates the debug app
 identity, launches with the Victoria/OTLP environment, and records the marker
-that the verifier queries in VictoriaLogs.
+that the verifier queries in VictoriaLogs. Performance workload proof builds on
+this same runner; it must not create a separate app identity, data root, zmx
+root, build directory, trace marker, or process-discovery scheme.
 
 The debug launcher wraps the debug binary in a signed per-worktree app bundle
 named `Agent Studio Debug <code>`, where `<code>` is a deterministic
@@ -85,6 +87,22 @@ debug observability proof for the same worktree. On refusal it overwrites
 `tmp/debug-observability/latest-observability.env` with
 `AGENTSTUDIO_OBSERVABILITY_STATUS=already_running` so stale markers cannot pass
 verification.
+
+Performance workload proof path:
+
+```bash
+mise run observability:up
+mise run verify-git-refresh-performance-workload
+```
+
+This script creates disposable fixture repos/worktrees, calls
+`scripts/run-debug-observability.sh --print-identity`, preflights the standard
+debug app is idle, launches through `scripts/run-debug-observability.sh
+--detach`, and then verifies marker-scoped performance telemetry through
+VictoriaMetrics. Standard performance proof must use VictoriaMetrics when the
+shared collection exists. JSONL is only a local artifact/debug aid and must not
+be an automatic fallback; set `AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF=1` only when a
+test plan explicitly asks for JSONL proof.
 
 Local beta diagnostic path:
 
@@ -150,18 +168,19 @@ artifact. Developer ID signing is opt-in for local diagnostic bundles: set
 `SIGNING_IDENTITY` when running `mise run create-beta-app-bundle`.
 
 Debug and beta builds use a safe baseline when `AGENTSTUDIO_TRACE_TAGS` is
-unset: JSONL plus OTLP logs to `http://127.0.0.1:4318`. Stable builds stay
+unset: JSONL plus OTLP logs/metrics to `http://127.0.0.1:4318`. Stable builds stay
 disabled unless trace tags are explicit, and explicit stable tracing defaults to
 JSONL. `AGENTSTUDIO_TRACE_TAGS=off` disables the debug/beta baseline.
 
 Use `AGENTSTUDIO_TRACE_BACKEND=jsonl|otlp|both` for explicit selection.
 `OTEL_EXPORTER_OTLP_ENDPOINT` is accepted only for loopback HTTP endpoints and
-is treated as a collector base URL; AgentStudio sends logs to `/v1/logs`.
+is treated as a collector base URL; AgentStudio sends logs to `/v1/logs` and
+metrics to `/v1/metrics`.
 Collector absence or exporter failure must be fail-open for normal app startup
 and must not prevent JSONL writes.
 
-AgentStudio currently exports OTLP logs. The shared stack also runs
-VictoriaMetrics and VictoriaTraces for other local producers, and its smoke gate
+AgentStudio currently exports OTLP logs and performance metrics. The shared
+stack also runs VictoriaTraces for other local producers, and its smoke gate
 exercises all three ingestion lanes.
 
 OTLP output is source-scrubbed. Allowed resource identity is limited to safe
