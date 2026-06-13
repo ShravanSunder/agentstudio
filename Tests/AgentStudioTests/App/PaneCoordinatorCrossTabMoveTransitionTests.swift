@@ -34,21 +34,21 @@ struct PaneCoordinatorCrossTabMoveTransitionTests {
         #expect(transitions.paneIdsToReattach == [movedPane])
     }
 
-    @Test("cross-tab move does not reattach moved drawer children hidden from the destination active view")
-    func crossTabMoveTransitionsDoNotReattachHiddenMovedDrawerChildren() {
+    @Test("cross-tab move reattaches moved drawer children visible in the destination active view")
+    func crossTabMoveTransitionsReattachVisibleMovedDrawerChildren() {
         let movedParentPane = UUID()
-        let movedDrawerChildPane = UUID()
+        let visibleMovedDrawerChildPane = UUID()
         let existingDestinationPane = UUID()
 
         let transitions = PaneCoordinator.computeCrossTabMoveViewTransitions(
             sourceVisibleBefore: [movedParentPane],
             destinationVisibleBefore: [existingDestinationPane],
-            destinationVisibleAfter: [movedParentPane, existingDestinationPane],
-            movedPaneIds: [movedParentPane, movedDrawerChildPane]
+            destinationVisibleAfter: [movedParentPane, existingDestinationPane, visibleMovedDrawerChildPane],
+            movedPaneIds: [movedParentPane, visibleMovedDrawerChildPane]
         )
 
-        #expect(transitions.paneIdsToDetach == [movedParentPane, movedDrawerChildPane])
-        #expect(transitions.paneIdsToReattach == [movedParentPane])
+        #expect(transitions.paneIdsToDetach == [movedParentPane, visibleMovedDrawerChildPane])
+        #expect(transitions.paneIdsToReattach == [movedParentPane, visibleMovedDrawerChildPane])
     }
 
     @Test("cross-tab move detaches destination panes that transition from visible to hidden")
@@ -155,6 +155,85 @@ struct PaneCoordinatorCrossTabMoveTransitionTests {
             #expect(Set(surfaceManager.detachedPaneIds) == [movedPane.id, sourceLeftPane.id])
             #expect(!surfaceManager.attachedPaneIds.contains(existingDestinationPane.id))
             #expect(!surfaceManager.attachedPaneIds.contains(otherExistingDestinationPane.id))
+        }
+    }
+
+    @Test("executeMovePaneAcrossTabs reattaches moved drawer children visible in destination")
+    func executeMovePaneAcrossTabsReattachesVisibleMovedDrawerChildren() throws {
+        try withTestAtomRegistry { atoms in
+            atoms.managementLayer.deactivate()
+
+            let tempDir = FileManager.default.temporaryDirectory
+                .appending(path: "agentstudio-cross-tab-drawer-move-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+
+            let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+            store.restore()
+            let viewRegistry = ViewRegistry()
+            let surfaceManager = CrossTabMoveSurfaceManager()
+            let coordinator = PaneCoordinator(
+                store: store,
+                viewRegistry: viewRegistry,
+                runtime: SessionRuntime(store: store),
+                surfaceManager: surfaceManager,
+                runtimeRegistry: RuntimeRegistry(),
+                windowLifecycleStore: WindowLifecycleAtom()
+            )
+
+            let movedPane = store.createPane(title: "A")
+            let sourceLeftPane = store.createPane(title: "B")
+            let existingDestinationPane = store.createPane(title: "C")
+
+            let sourceTab = Tab(paneId: movedPane.id)
+            let destinationTab = Tab(paneId: existingDestinationPane.id)
+            store.appendTab(sourceTab)
+            store.appendTab(destinationTab)
+            store.setActiveTab(destinationTab.id)
+            #expect(
+                store.insertPane(
+                    sourceLeftPane.id,
+                    inTab: sourceTab.id,
+                    at: movedPane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            )
+            let drawerPane = try #require(store.addDrawerPane(to: movedPane.id))
+
+            let surfaceIdsByPaneId = [
+                movedPane.id: UUID(),
+                sourceLeftPane.id: UUID(),
+                existingDestinationPane.id: UUID(),
+                drawerPane.id: UUID(),
+            ]
+            surfaceManager.paneIdsBySurfaceId = Dictionary(
+                uniqueKeysWithValues: surfaceIdsByPaneId.map { paneId, surfaceId in
+                    (surfaceId, paneId)
+                }
+            )
+            for (paneId, surfaceId) in surfaceIdsByPaneId {
+                registerTerminalHost(
+                    viewRegistry: viewRegistry,
+                    paneId: paneId,
+                    surfaceId: surfaceId
+                )
+            }
+
+            coordinator.executeMovePaneAcrossTabs(
+                CrossTabPaneMoveRequest(
+                    paneId: movedPane.id,
+                    sourceTabId: sourceTab.id,
+                    destTabId: destinationTab.id,
+                    targetPaneId: existingDestinationPane.id,
+                    direction: .horizontal,
+                    position: .after
+                )
+            )
+
+            #expect(Set(surfaceManager.attachedPaneIds) == [movedPane.id, drawerPane.id])
+            #expect(Set(surfaceManager.detachedPaneIds) == [movedPane.id, sourceLeftPane.id, drawerPane.id])
+            #expect(!surfaceManager.attachedPaneIds.contains(existingDestinationPane.id))
         }
     }
 

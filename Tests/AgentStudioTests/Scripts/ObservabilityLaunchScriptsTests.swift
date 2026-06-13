@@ -232,9 +232,10 @@ struct ObservabilityLaunchScriptsTests {
         let stateFile = fixture.url("latest.env")
         let betaApp = try fixture.makeAppBundle(name: "AgentStudioBeta.app", releaseChannel: "beta")
         let betaAppPath = betaApp.path
+        let marker = "beta marker | fields process.pid"
         try """
         AGENTSTUDIO_OBSERVABILITY_STATUS=running
-        AGENTSTUDIO_OBSERVABILITY_MARKER=beta-marker
+        AGENTSTUDIO_OBSERVABILITY_MARKER=\(shellEscapedStateValue(marker))
         AGENTSTUDIO_OBSERVABILITY_SERVICE_VERSION=0.0.54-beta.99
         AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
         AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
@@ -283,9 +284,10 @@ struct ObservabilityLaunchScriptsTests {
         let expectedTraceQuery = [
             "service.name:AgentStudio",
             "dev.release.channel:beta",
-            "agentstudio.trace.name:beta-marker",
+            "agentstudio.trace.name:=\"beta marker | fields process.pid\"",
         ].joined(separator: " ")
         #expect(curlArgumentText.contains(expectedTraceQuery))
+        #expect(!curlArgumentText.contains("agentstudio.trace.name:beta marker | fields process.pid"))
         #expect(!curlArgumentText.contains("{service.name=\\\"AgentStudio\\\""))
     }
 
@@ -454,9 +456,10 @@ struct ObservabilityLaunchScriptsTests {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
+        let marker = "debug marker | fields process.pid"
         try """
         AGENTSTUDIO_OBSERVABILITY_STATUS=running
-        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_MARKER=\(shellEscapedStateValue(marker))
         AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
         AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
         AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
@@ -509,9 +512,10 @@ struct ObservabilityLaunchScriptsTests {
         let expectedTraceQuery = [
             "service.name:AgentStudio",
             "dev.runtime.flavor:debug",
-            "agentstudio.trace.name:debug-marker",
+            "agentstudio.trace.name:=\"debug marker | fields process.pid\"",
         ].joined(separator: " ")
         #expect(curlArgumentText.contains(expectedTraceQuery))
+        #expect(!curlArgumentText.contains("agentstudio.trace.name:debug marker | fields process.pid"))
         #expect(!curlArgumentText.contains("{service.name=\\\"AgentStudio\\\""))
     }
 
