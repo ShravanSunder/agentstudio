@@ -88,6 +88,12 @@ extension Ghostty {
             case reject(SurfaceGeometryCommitRejection)
         }
 
+        enum SurfaceGeometryCommitOperation: Equatable, Sendable {
+            case setContentScale(x: Double, y: Double)
+            case setSize(widthPx: UInt32, heightPx: UInt32)
+            case refresh
+        }
+
         enum SurfaceGeometryCoherenceUnavailableReason: Equatable, Sendable {
             case missingWindow
             case missingCommittedGeometry
@@ -172,6 +178,23 @@ extension Ghostty {
                 return .skip(geometry)
             }
             return .commit(geometry)
+        }
+
+        nonisolated static func geometryCommitOperations(
+            for plan: SurfaceGeometryCommitPlan
+        ) -> [SurfaceGeometryCommitOperation] {
+            switch plan {
+            case .commit(let geometry):
+                return [
+                    .setContentScale(x: geometry.contentScaleX, y: geometry.contentScaleY),
+                    .setSize(widthPx: geometry.widthPx, heightPx: geometry.heightPx),
+                    .refresh,
+                ]
+            case .skip:
+                return [.refresh]
+            case .reject:
+                return []
+            }
         }
 
         nonisolated static func geometryCoherenceStatus(
@@ -756,20 +779,28 @@ extension Ghostty {
                 RestoreTrace.log(
                     "Ghostty.SurfaceView.commitGeometry committed reason=\(reason) logical=\(NSStringFromSize(requestedContentSize)) backing=\(NSStringFromSize(backingSize)) requestedPx={\(geometry.widthPx),\(geometry.heightPx)} scale={\(geometry.contentScaleX),\(geometry.contentScaleY)} currentPx={\(currentSurfaceSize.width_px),\(currentSurfaceSize.height_px)} currentGrid={\(currentSurfaceSize.columns),\(currentSurfaceSize.rows)} window=\(window != nil) superview=\(superview != nil) hidden=\(isHidden) \(layerState)"
                 )
-                ghostty_surface_set_content_scale(
-                    surface,
-                    geometry.contentScaleX,
-                    geometry.contentScaleY
-                )
-                ghostty_surface_set_size(
-                    surface,
-                    geometry.widthPx,
-                    geometry.heightPx
-                )
-                lastCommittedGeometry = geometry
             }
-            ghostty_surface_refresh(surface)
+            for operation in Self.geometryCommitOperations(for: plan) {
+                applyGeometryCommitOperation(operation, to: surface)
+                if case .setSize = operation, case .commit(let geometry) = plan {
+                    lastCommittedGeometry = geometry
+                }
+            }
             logSurfaceSnapshot(reason: "commitGeometry.\(reason)")
+        }
+
+        private func applyGeometryCommitOperation(
+            _ operation: SurfaceGeometryCommitOperation,
+            to surface: ghostty_surface_t
+        ) {
+            switch operation {
+            case .setContentScale(let xScale, let yScale):
+                ghostty_surface_set_content_scale(surface, xScale, yScale)
+            case .setSize(let widthPx, let heightPx):
+                ghostty_surface_set_size(surface, widthPx, heightPx)
+            case .refresh:
+                ghostty_surface_refresh(surface)
+            }
         }
 
         private func currentBackingContentScale(backingFrame: NSRect? = nil) -> (x: Double, y: Double)? {

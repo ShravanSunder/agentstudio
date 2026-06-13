@@ -96,4 +96,10 @@ struct TerminalPaneMountViewDisplaySurfaceTests {
         #expect(plan.installsCloseCallback)
         #expect(plan.beginsRestorePresentation)
     }
+
+    @Test("display epilogue verifies geometry without repairing it first")
+    func displayEpilogueVerifiesGeometryWithoutRepairingItFirst() {
+        #expect(TerminalPaneMountView.geometryVerificationMode(for: .displayEpilogue) == .verifyOnlyAfterLayout)
+        #expect(TerminalPaneMountView.geometryVerificationMode(for: .explicitGeometrySync) == .syncThenVerify)
+    }
 }

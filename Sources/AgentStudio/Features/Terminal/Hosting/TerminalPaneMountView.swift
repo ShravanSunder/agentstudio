@@ -230,6 +230,27 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         let beginsRestorePresentation: Bool
     }
 
+    enum GeometryVerificationSource: Equatable, Sendable {
+        case displayEpilogue
+        case explicitGeometrySync
+    }
+
+    enum GeometryVerificationMode: Equatable, Sendable {
+        case verifyOnlyAfterLayout
+        case syncThenVerify
+    }
+
+    nonisolated static func geometryVerificationMode(
+        for source: GeometryVerificationSource
+    ) -> GeometryVerificationMode {
+        switch source {
+        case .displayEpilogue:
+            return .verifyOnlyAfterLayout
+        case .explicitGeometrySync:
+            return .syncThenVerify
+        }
+    }
+
     nonisolated static func shouldReuseMountedSurfaceWrapper(
         currentSurfaceMatchesIncoming: Bool,
         currentWrapperExists: Bool,
@@ -364,8 +385,27 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     private func scheduleGeometryCoherenceVerification(reason: StaticString) {
         Task { @MainActor [weak self] in
-            self?.forceGeometrySync(reason: reason)
+            await Task.yield()
+            self?.performGeometryVerification(for: .displayEpilogue, reason: reason)
         }
+    }
+
+    private func performGeometryVerification(
+        for source: GeometryVerificationSource,
+        reason: StaticString
+    ) {
+        switch Self.geometryVerificationMode(for: source) {
+        case .verifyOnlyAfterLayout:
+            verifyGeometryCoherenceAfterLayout(reason: reason)
+        case .syncThenVerify:
+            forceGeometrySync(reason: reason)
+        }
+    }
+
+    private func verifyGeometryCoherenceAfterLayout(reason: StaticString) {
+        guard let surface = ghosttySurface, window != nil else { return }
+        layoutSubtreeIfNeeded()
+        surface.verifyGeometryCoherence(reason: reason)
     }
 
     func removeSurface() {

@@ -116,6 +116,26 @@ struct GhosttySurfaceViewGeometryCommitTests {
         )
     }
 
+    @Test("geometry commit operations apply scale before size and always refresh")
+    func geometryCommitOperationsApplyScaleBeforeSizeAndAlwaysRefresh() {
+        let geometry = Ghostty.SurfaceView.SurfaceGeometry(
+            contentScaleX: 2,
+            contentScaleY: 2,
+            widthPx: 800,
+            heightPx: 600
+        )
+
+        #expect(
+            Ghostty.SurfaceView.geometryCommitOperations(for: .commit(geometry)) == [
+                .setContentScale(x: 2, y: 2),
+                .setSize(widthPx: 800, heightPx: 600),
+                .refresh,
+            ]
+        )
+        #expect(Ghostty.SurfaceView.geometryCommitOperations(for: .skip(geometry)) == [.refresh])
+        #expect(Ghostty.SurfaceView.geometryCommitOperations(for: .reject(.invalidBackingSize)).isEmpty)
+    }
+
     @Test("geometry coherence comparator accepts matching geometry within tolerance")
     func geometryCoherenceComparatorAcceptsMatchingGeometryWithinTolerance() {
         let committedGeometry = Ghostty.SurfaceView.SurfaceGeometry(
