@@ -593,18 +593,16 @@ victoria_metric_value() {
 import json
 import sys
 
+total = 0.0
 try:
     payload = json.load(sys.stdin)
+    for item in payload["data"]["result"]:
+        try:
+            total += float(item["value"][1])
+        except Exception:
+            pass
 except Exception:
-    print("0")
-    raise SystemExit(0)
-
-total = 0.0
-for item in payload.get("data", {}).get("result", []):
-    try:
-        total += float(item.get("value", [0, 0])[1])
-    except Exception:
-        pass
+    pass
 
 if total.is_integer():
     print(int(total))
