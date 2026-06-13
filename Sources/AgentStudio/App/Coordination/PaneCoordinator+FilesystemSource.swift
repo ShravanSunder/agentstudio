@@ -1,21 +1,26 @@
 import Foundation
 import os
 
-struct WorktreeFilesystemContext: Sendable, Equatable {
-    let repoId: UUID
-    let rootPath: URL
-}
-
 protocol PaneCoordinatorFilesystemSourceManaging: AnyObject, Sendable {
     func start() async
     func shutdown() async
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async
     func unregister(worktreeId: UUID) async
+    func assertTopology(_ assertion: FilesystemTopologyAssertion) async
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) async
     func setActivePaneWorktree(worktreeId: UUID?) async
 }
 
 extension FilesystemActor: PaneCoordinatorFilesystemSourceManaging {}
+
+private struct FilesystemSourceSyncWriteMetrics {
+    let unregisteredCount: Int
+    let registeredCount: Int
+    let activityWriteCount: Int
+    let activePaneWriteCount: Int
+    let topologyGeneration: UInt64
+    let filesystemSourceDuration: Duration
+}
 
 @MainActor
 extension PaneCoordinator {
@@ -23,35 +28,117 @@ extension PaneCoordinator {
         scheduleFilesystemRootAndActivitySync()
     }
 
-    func handleFilesystemEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) -> Bool {
-        switch envelope {
-        case .system:
-            return false
-        case .worktree:
-            break
-        case .pane:
+    func upsertPaneFilesystemProjectionContext(for pane: Pane) {
+        paneContextGeneration &+= 1
+        let update = paneFilesystemProjectionUpdate(for: pane, generation: paneContextGeneration)
+        paneFilesystemProjectionStore.applyPaneContextUpdate(update)
+        Task { [filesystemProjectionIndex] in
+            await filesystemProjectionIndex.applyPaneUpdate(update)
+        }
+    }
+
+    func removePaneFilesystemProjectionContext(paneId: UUID) {
+        paneContextGeneration &+= 1
+        let update = FilesystemProjectionPaneUpdate(
+            requestGeneration: paneContextGeneration,
+            kind: .remove(paneId: paneId)
+        )
+        paneFilesystemProjectionStore.applyPaneContextUpdate(update)
+        Task { [filesystemProjectionIndex] in
+            await filesystemProjectionIndex.applyPaneUpdate(update)
+        }
+    }
+
+    func handleFilesystemEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) async -> Bool {
+        guard Self.shouldProjectPaneFilesystemEnvelope(envelope) else {
             return false
         }
 
-        let derivedEnvelopes = paneFilesystemProjectionStore.consume(
-            envelope,
-            panesById: store.paneAtom.panes,
-            worktreeRootsByWorktreeId: workspaceWorktreeContextsById().mapValues(\.rootPath)
+        let clock = ContinuousClock()
+        let totalStart = clock.now
+        filesystemProjectionRequestGeneration &+= 1
+        let requestGeneration = filesystemProjectionRequestGeneration
+        let capturedPaneContextGeneration = paneContextGeneration
+        let capturedTopologyGeneration = filesystemAppliedTopologyGeneration
+
+        let indexStart = clock.now
+        let projectionResult = await filesystemProjectionIndex.projectPaneFilesystem(
+            PaneFilesystemProjectionRequest(
+                requestGeneration: requestGeneration,
+                paneContextGeneration: capturedPaneContextGeneration,
+                topologyGeneration: capturedTopologyGeneration,
+                envelope: envelope
+            )
+        )
+        let indexDuration = indexStart.duration(to: clock.now)
+
+        guard
+            projectionResult.paneContextGeneration == paneContextGeneration,
+            projectionResult.topologyGeneration == filesystemAppliedTopologyGeneration
+        else {
+            return true
+        }
+
+        let applyStart = clock.now
+        let derivedEnvelopes = projectionResult.intents.compactMap { intent in
+            paneFilesystemProjectionStore.applyProjectionIntent(intent)
+        }
+        let applyDuration = applyStart.duration(to: clock.now)
+
+        performanceTraceRecorder?.recordDuration(
+            .coordinatorWrite,
+            duration: totalStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.coordinator.phase": .string(Self.projectionPhase(for: envelope)),
+                "agentstudio.performance.coordinator.derived_envelope.count": .int(derivedEnvelopes.count),
+                "agentstudio.performance.coordinator.index_elapsed_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: indexDuration)
+                ),
+                "agentstudio.performance.coordinator.mainactor_apply_elapsed_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration)
+                ),
+                "agentstudio.performance.coordinator.pane.count": .int(projectionResult.paneCount),
+                "agentstudio.performance.coordinator.total_elapsed_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: totalStart.duration(to: clock.now))
+                ),
+                "agentstudio.performance.coordinator.worktree.count": .int(projectionResult.worktreeCount),
+            ]
         )
         if !derivedEnvelopes.isEmpty {
-            let taskId = UUID()
-            let publishTask = Task { [weak self, paneEventBus] in
-                await Self.publishDerivedFilesystemEnvelopes(
-                    derivedEnvelopes,
-                    to: paneEventBus
-                )
-                let _: Void = await MainActor.run {
-                    self?.derivedFilesystemPublishTasks.removeValue(forKey: taskId)
-                }
+            guard
+                projectionResult.paneContextGeneration == paneContextGeneration,
+                projectionResult.topologyGeneration == filesystemAppliedTopologyGeneration
+            else {
+                return true
             }
-            derivedFilesystemPublishTasks[taskId] = publishTask
+            await Self.publishDerivedFilesystemEnvelopes(
+                derivedEnvelopes,
+                to: paneEventBus
+            )
         }
         return true
+    }
+
+    nonisolated private static func shouldProjectPaneFilesystemEnvelope(_ envelope: RuntimeEnvelope) -> Bool {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return false }
+        switch worktreeEnvelope.event {
+        case .filesystem(.filesChanged), .gitWorkingDirectory(.snapshotChanged):
+            return true
+        case .filesystem, .gitWorkingDirectory, .forge, .security:
+            return false
+        }
+    }
+
+    nonisolated private static func projectionPhase(for envelope: RuntimeEnvelope) -> String {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return "unknown" }
+        switch worktreeEnvelope.event {
+        case .filesystem(.filesChanged):
+            return "filesystem_projection"
+        case .gitWorkingDirectory(.snapshotChanged):
+            return "git_snapshot_projection"
+        default:
+            return "unknown"
+        }
     }
 
     func setupFilesystemSourceSync() {
@@ -59,6 +146,7 @@ extension PaneCoordinator {
     }
 
     private func scheduleFilesystemRootAndActivitySync() {
+        filesystemSyncRequestGeneration &+= 1
         filesystemSyncRequested = true
         guard filesystemSyncTask == nil else { return }
 
@@ -76,74 +164,163 @@ extension PaneCoordinator {
     private func performFilesystemRootAndActivitySyncPass() async {
         guard !Task.isCancelled else { return }
 
-        let desiredContextsByWorktreeId = workspaceWorktreeContextsById()
-        let activityByWorktreeId = desiredContextsByWorktreeId.keys.reduce(into: [UUID: Bool]()) { result, worktreeId in
-            result[worktreeId] = store.paneAtom.paneCount(for: worktreeId) > 0
-        }
+        let clock = ContinuousClock()
+        let totalStart = clock.now
+        let requestGeneration = filesystemSyncRequestGeneration
+        let topologyEntries = filesystemProjectionTopologyEntries()
+        let paneEntries = filesystemProjectionPaneEntries()
         let activePaneWorktreeId = activePaneWorktree()
-        let existingContextsByWorktreeId = filesystemRegisteredContextsByWorktreeId
 
-        let existingWorktreeIds = Set(existingContextsByWorktreeId.keys)
-        let desiredWorktreeIds = Set(desiredContextsByWorktreeId.keys)
-        let removedWorktreeIds = existingWorktreeIds.subtracting(desiredWorktreeIds)
+        let indexStart = clock.now
+        let syncDiff = await filesystemProjectionIndex.reconcileSourceSync(
+            FilesystemSourceSyncRequest(
+                requestGeneration: requestGeneration,
+                paneContextGeneration: paneContextGeneration,
+                topologyEntries: topologyEntries,
+                paneEntries: paneEntries,
+                appliedActivityByWorktreeId: filesystemActivityByWorktreeId,
+                activePaneWorktreeId: activePaneWorktreeId,
+                appliedActivePaneWorktreeId: filesystemLastActivePaneWorktreeId
+            )
+        )
+        let indexDuration = indexStart.duration(to: clock.now)
 
-        for worktreeId in removedWorktreeIds.sorted(by: Self.sortWorktreeIds) {
-            guard !Task.isCancelled else { return }
+        guard syncDiff.requestGeneration == filesystemSyncRequestGeneration else {
+            filesystemSyncRequested = true
+            return
+        }
+
+        guard let writeMetrics = await applyFilesystemSourceWrites(syncDiff, clock: clock) else { return }
+
+        guard syncDiff.requestGeneration == filesystemSyncRequestGeneration else {
+            filesystemSyncRequested = true
+            return
+        }
+        let didCommitIndexSnapshot = await filesystemProjectionIndex.commitSourceSync(
+            requestGeneration: syncDiff.requestGeneration,
+            topologyGeneration: writeMetrics.topologyGeneration
+        )
+        guard didCommitIndexSnapshot else {
+            filesystemSyncRequested = true
+            return
+        }
+        guard !Task.isCancelled else { return }
+        let applyStart = clock.now
+        filesystemRegisteredContextsByWorktreeId = syncDiff.contextsByWorktreeId
+        filesystemActivityByWorktreeId = syncDiff.activityByWorktreeId
+        filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
+        filesystemAppliedTopologyGeneration = writeMetrics.topologyGeneration
+        paneFilesystemProjectionStore.prune(
+            validPaneIds: syncDiff.validPaneIds,
+            validWorktreeIds: syncDiff.validWorktreeIds
+        )
+        let applyDuration = applyStart.duration(to: clock.now)
+        performanceTraceRecorder?.recordDuration(
+            .coordinatorWrite,
+            duration: totalStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.coordinator.phase": .string("source_sync"),
+                "agentstudio.performance.coordinator.registered.count": .int(writeMetrics.registeredCount),
+                "agentstudio.performance.coordinator.unregistered.count": .int(writeMetrics.unregisteredCount),
+                "agentstudio.performance.coordinator.activity_write.count": .int(writeMetrics.activityWriteCount),
+                "agentstudio.performance.coordinator.active_pane_write.count": .int(
+                    writeMetrics.activePaneWriteCount
+                ),
+                "agentstudio.performance.coordinator.filesystem_source_elapsed_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: writeMetrics.filesystemSourceDuration)
+                ),
+                "agentstudio.performance.coordinator.index_elapsed_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: indexDuration)
+                ),
+                "agentstudio.performance.coordinator.mainactor_apply_elapsed_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration)
+                ),
+                "agentstudio.performance.coordinator.total_elapsed_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: totalStart.duration(to: clock.now))
+                ),
+                "agentstudio.performance.coordinator.worktree.count": .int(syncDiff.contextsByWorktreeId.count),
+            ]
+        )
+    }
+
+    private func applyFilesystemSourceWrites(
+        _ syncDiff: FilesystemSourceSyncDiff,
+        clock: ContinuousClock
+    ) async -> FilesystemSourceSyncWriteMetrics? {
+        let sourceStart = clock.now
+        var unregisteredCount = 0
+        var registeredCount = 0
+        var activityWriteCount = 0
+        var activePaneWriteCount = 0
+
+        for worktreeId in syncDiff.unregisterWorktreeIds {
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             await filesystemSource.unregister(worktreeId: worktreeId)
-            guard !Task.isCancelled else { return }
-            filesystemActivityByWorktreeId.removeValue(forKey: worktreeId)
-            if filesystemLastActivePaneWorktreeId == worktreeId {
-                filesystemLastActivePaneWorktreeId = nil
-            }
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            unregisteredCount += 1
         }
 
-        let desiredContextEntries = desiredContextsByWorktreeId.sorted { lhs, rhs in
-            Self.sortWorktreeByPriority(lhs.key, rhs.key, activePaneWorktreeId: activePaneWorktreeId)
-        }
-        for (worktreeId, desiredContext) in desiredContextEntries {
-            guard !Task.isCancelled else { return }
-            let existingContext = existingContextsByWorktreeId[worktreeId]
-            guard existingContext != desiredContext else { continue }
-            if existingContext != nil {
-                await filesystemSource.unregister(worktreeId: worktreeId)
-                guard !Task.isCancelled else { return }
+        for registration in syncDiff.registerWorktrees {
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            if filesystemRegisteredContextsByWorktreeId[registration.worktreeId] != nil {
+                await filesystemSource.unregister(worktreeId: registration.worktreeId)
+                guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+                unregisteredCount += 1
             }
             await filesystemSource.register(
-                worktreeId: worktreeId,
-                repoId: desiredContext.repoId,
-                rootPath: desiredContext.rootPath
+                worktreeId: registration.worktreeId,
+                repoId: registration.repoId,
+                rootPath: registration.rootPath
             )
-            guard !Task.isCancelled else { return }
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            registeredCount += 1
         }
 
-        let activityEntries = activityByWorktreeId.sorted { lhs, rhs in
-            Self.sortWorktreeByPriority(lhs.key, rhs.key, activePaneWorktreeId: activePaneWorktreeId)
-        }
-        for (worktreeId, isActiveInApp) in activityEntries {
-            let previousActivity = filesystemActivityByWorktreeId[worktreeId]
-            guard previousActivity != isActiveInApp else { continue }
-            guard !Task.isCancelled else { return }
-            await filesystemSource.setActivity(worktreeId: worktreeId, isActiveInApp: isActiveInApp)
-            guard !Task.isCancelled else { return }
-            filesystemActivityByWorktreeId[worktreeId] = isActiveInApp
+        for activityUpdate in syncDiff.activityUpdates {
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            await filesystemSource.setActivity(
+                worktreeId: activityUpdate.worktreeId,
+                isActiveInApp: activityUpdate.isActiveInApp
+            )
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            activityWriteCount += 1
         }
 
-        if filesystemLastActivePaneWorktreeId != activePaneWorktreeId {
-            guard !Task.isCancelled else { return }
-            await filesystemSource.setActivePaneWorktree(worktreeId: activePaneWorktreeId)
-            guard !Task.isCancelled else { return }
-            filesystemLastActivePaneWorktreeId = activePaneWorktreeId
+        if syncDiff.shouldUpdateActivePaneWorktree {
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            await filesystemSource.setActivePaneWorktree(worktreeId: syncDiff.activePaneWorktreeId)
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            activePaneWriteCount = 1
         }
 
-        guard !Task.isCancelled else { return }
-        filesystemRegisteredContextsByWorktreeId = desiredContextsByWorktreeId
-        filesystemActivityByWorktreeId = activityByWorktreeId
-        filesystemLastActivePaneWorktreeId = activePaneWorktreeId
-        let validWorktreeIds = Set(desiredContextsByWorktreeId.keys)
-        paneFilesystemProjectionStore.prune(
-            validPaneIds: Set(store.paneAtom.panes.keys),
-            validWorktreeIds: validWorktreeIds
+        guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+        filesystemTopologyAssertionGeneration &+= 1
+        let topologyGeneration = filesystemTopologyAssertionGeneration
+        await filesystemSource.assertTopology(
+            FilesystemTopologyAssertion(
+                generation: topologyGeneration,
+                contextsByWorktreeId: syncDiff.contextsByWorktreeId
+            )
         )
+        guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+
+        return FilesystemSourceSyncWriteMetrics(
+            unregisteredCount: unregisteredCount,
+            registeredCount: registeredCount,
+            activityWriteCount: activityWriteCount,
+            activePaneWriteCount: activePaneWriteCount,
+            topologyGeneration: topologyGeneration,
+            filesystemSourceDuration: sourceStart.duration(to: clock.now)
+        )
+    }
+
+    private func continueFilesystemSourceWrites(for requestGeneration: UInt64) -> Bool {
+        guard !Task.isCancelled else { return false }
+        guard requestGeneration == filesystemSyncRequestGeneration else {
+            filesystemSyncRequested = true
+            return false
+        }
+        return true
     }
 
     private func activePaneWorktree() -> UUID? {
@@ -151,21 +328,69 @@ extension PaneCoordinator {
         return store.paneAtom.pane(activePaneId)?.worktreeId
     }
 
-    private func workspaceWorktreeContextsById() -> [UUID: WorktreeFilesystemContext] {
-        var contextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
+    private func filesystemProjectionTopologyEntries() -> [FilesystemProjectionTopologyEntry] {
+        var entries: [FilesystemProjectionTopologyEntry] = []
         for repo in store.repositoryTopologyAtom.repos where !store.repositoryTopologyAtom.isRepoUnavailable(repo.id) {
             for worktree in repo.worktrees {
-                contextsByWorktreeId[worktree.id] = WorktreeFilesystemContext(
-                    repoId: repo.id,
-                    rootPath: worktree.path.standardizedFileURL.resolvingSymlinksInPath()
+                entries.append(
+                    FilesystemProjectionTopologyEntry(
+                        repoId: repo.id,
+                        worktreeId: worktree.id,
+                        rootPath: worktree.path,
+                        isUnavailable: false
+                    )
                 )
             }
         }
-        return contextsByWorktreeId
+        return entries
     }
 
-    nonisolated private static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
-        lhs.uuidString < rhs.uuidString
+    private func filesystemProjectionPaneEntries() -> [FilesystemProjectionPaneEntry] {
+        store.paneAtom.panes.values.map { pane in
+            FilesystemProjectionPaneEntry(
+                paneId: pane.id,
+                paneKind: pane.metadata.contentType,
+                repoId: pane.repoId ?? pane.metadata.repoId,
+                worktreeId: pane.worktreeId ?? pane.metadata.worktreeId,
+                cwd: pane.metadata.facets.cwd ?? pane.metadata.launchDirectory
+            )
+        }
+    }
+
+    private func paneFilesystemProjectionUpdate(
+        for pane: Pane,
+        generation: UInt64
+    ) -> FilesystemProjectionPaneUpdate {
+        guard let repoId = pane.repoId, let worktreeId = pane.worktreeId else {
+            return FilesystemProjectionPaneUpdate(
+                requestGeneration: generation,
+                kind: .remove(paneId: pane.id)
+            )
+        }
+
+        let fallbackCwd =
+            store.repositoryTopologyAtom.worktree(worktreeId)?.path
+            ?? pane.metadata.launchDirectory
+            ?? pane.metadata.cwd
+        guard let fallbackCwd else {
+            return FilesystemProjectionPaneUpdate(
+                requestGeneration: generation,
+                kind: .remove(paneId: pane.id)
+            )
+        }
+
+        return FilesystemProjectionPaneUpdate(
+            requestGeneration: generation,
+            kind: .upsert(
+                FilesystemProjectionPaneEntry(
+                    paneId: pane.id,
+                    paneKind: pane.metadata.contentType,
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    cwd: pane.metadata.cwd ?? fallbackCwd
+                )
+            )
+        )
     }
 
     @concurrent nonisolated private static func publishDerivedFilesystemEnvelopes(
@@ -181,14 +406,5 @@ extension PaneCoordinator {
                 )
             }
         }
-    }
-
-    nonisolated private static func sortWorktreeByPriority(
-        _ lhs: UUID, _ rhs: UUID, activePaneWorktreeId: UUID?
-    ) -> Bool {
-        let lhsActive = lhs == activePaneWorktreeId
-        let rhsActive = rhs == activePaneWorktreeId
-        if lhsActive != rhsActive { return lhsActive }
-        return lhs.uuidString < rhs.uuidString
     }
 }

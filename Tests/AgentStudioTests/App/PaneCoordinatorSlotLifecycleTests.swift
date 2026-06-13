@@ -41,7 +41,7 @@ struct PaneCoordinatorSlotLifecycleTests {
         let url = URL(string: "https://example.com/\(UUID().uuidString)")!
         return store.createPane(
             content: .webview(WebviewState(url: url, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: title), title: title)
+            metadata: PaneMetadata(title: title)
         )
     }
 

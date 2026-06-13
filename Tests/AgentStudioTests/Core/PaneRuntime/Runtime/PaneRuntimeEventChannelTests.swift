@@ -14,7 +14,6 @@ struct PaneRuntimeEventChannelTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .terminal,
-            source: .floating(launchDirectory: nil, title: "Test"),
             title: "Test"
         )
         let channel = PaneRuntimeEventChannel(paneEventBus: harness.bus)

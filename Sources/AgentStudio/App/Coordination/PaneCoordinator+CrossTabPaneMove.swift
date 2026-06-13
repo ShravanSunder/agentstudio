@@ -32,8 +32,8 @@ extension PaneCoordinator {
             return
         }
 
-        let sourceVisibleBefore = Set(arrangementView.activeVisiblePaneIds(forTab: sourceTabId))
-        let destinationVisibleBefore = Set(arrangementView.activeVisiblePaneIds(forTab: destTabId))
+        let sourceVisibleBefore = Set(crossTabMoveVisiblePaneIds(forTab: sourceTabId))
+        let destinationVisibleBefore = Set(crossTabMoveVisiblePaneIds(forTab: destTabId))
         let drawer = pane.drawer
         let movedPaneIds = Set([paneId] + (drawer?.paneIds ?? []))
         guard
@@ -57,7 +57,7 @@ extension PaneCoordinator {
                 sourceTabClosed: result.sourceTabClosed
             )
         )
-        let destinationVisibleAfter = Set(arrangementView.activeVisiblePaneIds(forTab: destTabId))
+        let destinationVisibleAfter = Set(crossTabMoveVisiblePaneIds(forTab: destTabId))
         let transitions = Self.computeCrossTabMoveViewTransitions(
             sourceVisibleBefore: sourceVisibleBefore,
             destinationVisibleBefore: destinationVisibleBefore,
@@ -72,6 +72,24 @@ extension PaneCoordinator {
         }
         restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
         focusVisiblePaneHost(paneId)
+    }
+
+    private func crossTabMoveVisiblePaneIds(forTab tabId: UUID) -> [UUID] {
+        var seenPaneIds: Set<UUID> = []
+        var paneIds: [UUID] = []
+        func append(_ paneId: UUID) {
+            guard seenPaneIds.insert(paneId).inserted else { return }
+            paneIds.append(paneId)
+        }
+
+        for paneId in arrangementView.activeVisiblePaneIds(forTab: tabId) {
+            append(paneId)
+            guard store.paneAtom.pane(paneId)?.drawer?.isExpanded == true else { continue }
+            for drawerPaneId in arrangementView.drawerVisiblePaneIds(forParent: paneId) {
+                append(drawerPaneId)
+            }
+        }
+        return paneIds
     }
 
     func reconcileVisiblePaneTransition(previousVisiblePaneIds: Set<UUID>, newVisiblePaneIds: Set<UUID>) {

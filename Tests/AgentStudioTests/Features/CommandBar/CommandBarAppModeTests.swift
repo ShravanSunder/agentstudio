@@ -211,7 +211,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
     @Test
     func activeTerminalTabReportsFocusRequirements() {
         let store = WorkspaceStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
@@ -294,8 +294,8 @@ struct WorkspacePaneFocusDerivedProjectionTests {
     @Test
     func drawerAndArrangementRequirementsAreReported() {
         let store = WorkspaceStore()
-        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
-        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
+        let paneA = store.createPane()
+        let paneB = store.createPane()
         var tab = Tab(paneId: paneA.id)
         let namedArrangement = PaneArrangement(
             name: "Review",
@@ -325,8 +325,8 @@ struct WorkspacePaneFocusDerivedProjectionTests {
     @Test
     func multipleTabsRequirementIsReported() {
         let store = WorkspaceStore()
-        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
-        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
+        let paneA = store.createPane()
+        let paneB = store.createPane()
         let firstTab = Tab(paneId: paneA.id)
         let secondTab = Tab(paneId: paneB.id)
         store.appendTab(firstTab)

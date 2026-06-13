@@ -29,7 +29,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
             configuration: AgentStudioTraceConfiguration.from(environment: [
                 "AGENTSTUDIO_TRACE_BACKEND": "otlp",
                 "AGENTSTUDIO_TRACE_NAME": "live-otlp-smoke",
-                "AGENTSTUDIO_TRACE_TAGS": "app.startup,runtime",
+                "AGENTSTUDIO_TRACE_TAGS": "app.startup,runtime,performance",
                 "OTEL_EXPORTER_OTLP_ENDPOINT": try collector.endpoint().absoluteString,
             ]),
             processIdentifier: 951,
@@ -52,6 +52,15 @@ struct AgentStudioOTLPBootstrapSmokeTests {
                 "agentstudio.worktree.id": .string(worktreeId.uuidString),
             ]
         )
+        await runtime.record(
+            tag: .performance,
+            body: "performance.git.status",
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(12.5),
+                "agentstudio.performance.git.pending.count": .int(7),
+                "agentstudio.performance.git.running.count": .int(3),
+            ]
+        )
         try await runtime.shutdown()
 
         let request = try #require(
@@ -65,6 +74,17 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         #expect(request.bodyContains("feature/otel-live"))
         #expect(request.bodyContains("live-otlp-smoke"))
         #expect(request.bodyContains("agentstudio.event.time_unix_nano"))
+
+        let metricsRequest = try #require(
+            await collector.waitForRequest(containing: "agentstudio_performance_events_total", timeout: .seconds(5))
+        )
+        #expect(metricsRequest.method == "POST")
+        #expect(metricsRequest.path.hasSuffix("/v1/metrics"))
+        #expect(metricsRequest.bodyByteCount > 0)
+        #expect(metricsRequest.headers["content-type"]?.contains("application/x-protobuf") == true)
+        #expect(metricsRequest.bodyContains("performance.git.status"))
+        #expect(metricsRequest.bodyContains("agentstudio_performance_event_elapsed_ms"))
+        #expect(metricsRequest.bodyContains("agentstudio_performance_git_pending_count"))
     }
 
     private static func isolatedOTLPSinkFactory() -> AgentStudioTraceSinkFactory {

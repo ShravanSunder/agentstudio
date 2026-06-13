@@ -72,12 +72,18 @@ final class TabBarAdapter {
 
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private var isObservingManagementLayer = false
     private var isObservingStore = false
 
-    init(store: WorkspaceStore, repoCache: RepoCacheAtom) {
+    init(
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+    ) {
         self.store = store
         self.repoCache = repoCache
+        self.performanceTraceRecorder = performanceTraceRecorder
         observe()
     }
 
@@ -133,6 +139,8 @@ final class TabBarAdapter {
     }
 
     private func refresh() {
+        let clock = ContinuousClock()
+        let start = clock.now
         let tabLayout = store.tabLayoutAtom
         let storeTabs = tabLayout.tabs
 
@@ -175,6 +183,15 @@ final class TabBarAdapter {
             activeTabId = tabs.last?.id
         }
         updateOverflow()
+        performanceTraceRecorder?.recordDuration(
+            .tabBarRefresh,
+            duration: start.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.tabbar.tab.count": .int(tabs.count),
+                "agentstudio.performance.tabbar.source_tab.count": .int(storeTabs.count),
+                "agentstudio.performance.tabbar.pane.count": .int(tabs.reduce(0) { $0 + $1.panes.count }),
+            ]
+        )
     }
 
     private func paneDisplayTitle(for paneId: UUID) -> String {

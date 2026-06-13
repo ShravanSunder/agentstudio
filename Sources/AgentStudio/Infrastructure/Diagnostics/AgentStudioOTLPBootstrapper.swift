@@ -1,5 +1,6 @@
 import Foundation
 import Logging
+import Metrics
 import OTel
 import ServiceLifecycle
 
@@ -26,6 +27,7 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
             "\(record.body)",
             metadata: Self.metadata(from: record.attributes)
         )
+        state.performanceMetrics.record(record)
     }
 
     func flush() async {
@@ -55,8 +57,9 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
         do {
             let configuration = Self.otelConfiguration(record: record, context: context)
             let loggingBackend = try OTel.makeLoggingBackend(configuration: configuration)
+            let metricsBackend = try OTel.makeMetricsBackend(configuration: configuration)
             let serviceGroup = ServiceGroup(
-                services: [loggingBackend.service],
+                services: [loggingBackend.service, metricsBackend.service],
                 logger: Logger(label: "agentstudio.otlp.service", factory: StreamLogHandler.standardError(label:))
             )
             let runTask = Task {
@@ -69,10 +72,14 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
             let state = AgentStudioOTLPServiceState(
                 serviceGroup: serviceGroup,
                 runTask: runTask,
-                logger: Logger(label: "agentstudio.otlp", factory: loggingBackend.factory)
+                logger: Logger(label: "agentstudio.otlp", factory: loggingBackend.factory),
+                performanceMetrics: AgentStudioOTLPPerformanceMetrics(factory: metricsBackend.factory)
             )
             self.state = state
-            Self.writeStartupDiagnostic("AgentStudio OTLP export enabled: \(Self.logsEndpoint(from: context.endpoint))")
+            Self.writeStartupDiagnostic(
+                "AgentStudio OTLP export enabled: logs=\(Self.logsEndpoint(from: context.endpoint)) "
+                    + "metrics=\(Self.metricsEndpoint(from: context.endpoint))"
+            )
             return state
         } catch {
             if !didReportBootstrapFailure {
@@ -88,7 +95,12 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
         context: AgentStudioOTLPTraceSinkContext
     ) -> OTel.Configuration {
         var configuration = OTel.Configuration.default
-        configuration.metrics.enabled = false
+        configuration.metrics.enabled = true
+        configuration.metrics.exporter = .otlp
+        configuration.metrics.otlpExporter.endpoint = Self.metricsEndpoint(from: context.endpoint)
+        configuration.metrics.otlpExporter.protocol = .httpProtobuf
+        configuration.metrics.exportInterval = .seconds(2)
+        configuration.metrics.exportTimeout = .seconds(2)
         configuration.traces.enabled = false
         configuration.logs.enabled = true
         configuration.logs.level = .trace
@@ -124,6 +136,26 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
         return components.url?.absoluteString ?? endpoint.absoluteString
     }
 
+    private static func metricsEndpoint(from endpoint: URL) -> String {
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            return endpoint.absoluteString
+        }
+
+        let path = components.path
+        guard !path.hasSuffix("/v1/metrics") else {
+            return endpoint.absoluteString
+        }
+
+        if path.isEmpty || path == "/" {
+            components.path = "/v1/metrics"
+        } else if path.hasSuffix("/") {
+            components.path = "\(path)v1/metrics"
+        } else {
+            components.path = "\(path)/v1/metrics"
+        }
+        return components.url?.absoluteString ?? endpoint.absoluteString
+    }
+
     private static func metadata(
         from attributes: [String: AgentStudioTraceValue]
     ) -> Logger.Metadata {
@@ -143,6 +175,7 @@ private struct AgentStudioOTLPServiceState: Sendable {
     let serviceGroup: ServiceGroup
     let runTask: Task<Void, Never>
     let logger: Logger
+    let performanceMetrics: AgentStudioOTLPPerformanceMetrics
 }
 
 extension Logger.Level {

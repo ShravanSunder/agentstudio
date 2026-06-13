@@ -53,12 +53,9 @@ struct WorktreePresenceTests {
             return
         }
         let pane = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "Terminal"
+            launchDirectory: storedWorktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -91,23 +88,17 @@ struct WorktreePresenceTests {
         }
 
         let paneA = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "A"
+            launchDirectory: storedWorktree.path,
+            title: "A",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         let tabA = Tab(paneId: paneA.id)
         store.appendTab(tabA)
 
         let paneB = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "B"
+            launchDirectory: storedWorktree.path,
+            title: "B",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         let tabB = Tab(paneId: paneB.id)
         store.appendTab(tabB)
@@ -138,24 +129,18 @@ struct WorktreePresenceTests {
         }
 
         let paneA = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "A"
+            launchDirectory: storedWorktree.path,
+            title: "A",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         let tab = Tab(paneId: paneA.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
         let paneB = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "B"
+            launchDirectory: storedWorktree.path,
+            title: "B",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         store.insertPane(
             paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
@@ -185,28 +170,19 @@ struct WorktreePresenceTests {
         }
 
         let paneA = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "A"
+            launchDirectory: storedWorktree.path,
+            title: "A",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         let paneB = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "B"
+            launchDirectory: storedWorktree.path,
+            title: "B",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         let paneC = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "C"
+            launchDirectory: storedWorktree.path,
+            title: "C",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         let tab = Tab(paneId: paneA.id)
         store.appendTab(tab)
@@ -233,9 +209,10 @@ struct WorktreePresenceTests {
         }
 
         _ = store.createPane(
-            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
+            launchDirectory: storedWorktree.path,
             title: "Backgrounded",
-            residency: .backgrounded
+            residency: .backgrounded,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path)
         )
 
         let presence = CommandBarDataSource.buildWorktreePresence(worktree: storedWorktree, repo: repo, store: store)
@@ -256,8 +233,9 @@ struct WorktreePresenceTests {
         }
 
         _ = store.createPane(
-            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
-            title: "Orphaned"
+            launchDirectory: storedWorktree.path,
+            title: "Orphaned",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
 
         let presence = CommandBarDataSource.buildWorktreePresence(worktree: storedWorktree, repo: repo, store: store)

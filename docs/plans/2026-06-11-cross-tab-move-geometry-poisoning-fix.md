@@ -1,6 +1,8 @@
 # Cross-Tab Move Geometry Poisoning Fix
 
-Status: implemented in `issues-with-move-render` (2026-06-12)
+Status: implemented in `issues-with-move-render` (2026-06-12);
+Plan A smoke proof refresh partially blocked by local display pipeline
+(`CVDisplayLinkCreateWithCGDisplays` sees zero displays) on 2026-06-13.
 Source: `tmp/debug-workflows/2026-06-11-agent-studio-issues-with-move-render-pane-move-zoom/debug-investigation.md`
 Branch: `issues-with-move-render`
 Companion plan: `2026-06-11-ghostty-geometry-commit-owner-and-invariants.md` (structural follow-up; depends on this plan merging first).
@@ -11,6 +13,30 @@ The PID-scoped smoke launched a separate debug app and captured the AgentStudio
 window without touching the live app; it did not automate the full drag repro,
 which remains covered by the coordinator attach/detach regression test until a
 durable drag harness exists.
+
+Smoke refresh note (2026-06-13): after the shared observability stack landed,
+an opt-in debug-only startup diagnostic for `cross-tab-move-geometry-smoke` was
+added to exercise the real `movePaneAcrossTabs` command path in an isolated
+debug PID and emit VictoriaLogs-proofable fixture-scoped counts. The diagnostic
+is launched against a per-run scratch data root so the synthetic tabs/panes do
+not contaminate the reusable worktree debug workspace. The first run under
+marker `debug-observability-6zwo-1781360811-65472` recorded
+`performance.pane_action.execution` for `movePaneAcrossTabs`, but the host could
+not satisfy the original R6 terminal-rendering proof because Ghostty surface
+creation failed before any content-scale writes:
+`CVDisplayLinkCreateWithCGDisplays error -6661 due to invalid display count (0)`
+followed by `embedded_window: error initializing surface err=error.OutOfMemory`.
+The existing `new-tab` startup diagnostic failed the same way in PID 10236, so
+the fixed diagnostic reports the command-exercised event separately from a
+blocked render-proof event when fixture surfaces are unavailable. Final marker
+`debug-observability-6zwo-1781363539-33960` recorded:
+`app.startup_diagnostic_action.command_exercised/outcome=succeeded`,
+`performance.pane_action.execution` for `movePaneAcrossTabs`, and
+`app.startup_diagnostic_action.blocked/outcome=blocked` with
+`agentstudio.startup_diagnostic.render_proof.succeeded=false`,
+`fixture.surface.count=0`, `fixture.terminal_view.count=3`, and
+`created_pane.count=4`. The missing content-scale/screenshot proof is a local
+display/CoreVideo proof blocker rather than a cross-tab diagnostic failure.
 
 ## Goal
 

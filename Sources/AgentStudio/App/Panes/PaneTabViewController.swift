@@ -87,6 +87,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let viewRegistry: ViewRegistry
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
     private let arrangementPanelPresentation: ArrangementPanelPresentationAtom
@@ -206,6 +207,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState(),
         arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState(),
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = atom(\.arrangementPanelPresentation),
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         registersAsCommandHandler: Bool = true
     ) {
         self.store = store
@@ -224,6 +226,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.copyPathHandler = copyPathHandler
         self.paneNotePresentation = paneNotePresentation
         self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.performanceTraceRecorder = performanceTraceRecorder
         self.tabRenamePopoverState = tabRenamePopoverState
         self.arrangementInlineRenameState = arrangementInlineRenameState
         self.arrangementPanelPresentation = arrangementPanelPresentation
@@ -364,6 +367,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         // Observe store for AppKit-level concerns (empty state visibility, focus management)
         updateEmptyState()
         observeForAppKitState()
+        observeForManagementLayerState()
 
         // App-owned global shortcuts route through the centralized command pipeline.
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -385,10 +389,22 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     override func viewWillLayout() {
+        let clock = ContinuousClock()
+        let layoutStart = clock.now
         super.viewWillLayout()
         syncTabContentHosts()
         updateVisibleTabHost()
         updateEmptyState()
+        performanceTraceRecorder?.recordDuration(
+            .paneTabLayout,
+            duration: layoutStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.pane_tab_layout.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_tab_layout.tab.count": .int(store.tabLayoutAtom.tabs.count),
+                "agentstudio.performance.pane_tab_layout.subview.count": .int(view.subviews.count),
+                "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
+            ]
+        )
     }
 
     private func setupNotificationObservers() {
@@ -455,11 +471,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             _ = atom(\.welcome).isChoosingFolder
             _ = atom(\.welcome).folderScanState
             _ = self.repoCache.recentTargets
-            _ = atom(\.managementLayer).isActive
         } onChange: {
             Task { @MainActor [weak self] in
                 self?.handleAppKitStateChange()
                 self?.observeForAppKitState()
+            }
+        }
+    }
+
+    private func observeForManagementLayerState() {
+        withObservationTracking {
+            _ = atom(\.managementLayer).isActive
+        } onChange: {
+            Task { @MainActor [weak self] in
+                self?.handleManagementLayerStateChange()
+                self?.observeForManagementLayerState()
             }
         }
     }
@@ -471,25 +497,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         updateEmptyState()
         prunePaneInboxPresentationState()
 
-        let isManagementLayerActive = atom(\.managementLayer).isActive
-        let didExitManagementLayer = lastManagementLayerActive && !isManagementLayerActive
-        if lastManagementLayerActive != isManagementLayerActive {
-            let transition: PaneModeFocusTrigger.Transition =
-                isManagementLayerActive ? .enteredManagementLayer : .exitedManagementLayer
-            handlePaneFocusTrigger(
-                .mode(
-                    PaneModeFocusTrigger(
-                        transition: transition,
-                        source: .command
-                    )
-                )
-            )
-        }
-
-        if !lastManagementLayerActive && isManagementLayerActive {
-            managementNavigationScope = initialWorkspaceNavigationFocusScope()
-        }
-        lastManagementLayerActive = isManagementLayerActive
         managementNavigationScope = normalizedWorkspaceNavigationFocusScope()
 
         // Focus management: only refocus when active tab or pane actually changes
@@ -511,6 +518,31 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 scheduleSelectionDrivenRefocus()
             }
         }
+    }
+
+    private func handleManagementLayerStateChange() {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let isManagementLayerActive = atom(\.managementLayer).isActive
+        let didExitManagementLayer = lastManagementLayerActive && !isManagementLayerActive
+        if lastManagementLayerActive != isManagementLayerActive {
+            let transition: PaneModeFocusTrigger.Transition =
+                isManagementLayerActive ? .enteredManagementLayer : .exitedManagementLayer
+            handlePaneFocusTrigger(
+                .mode(
+                    PaneModeFocusTrigger(
+                        transition: transition,
+                        source: .command
+                    )
+                )
+            )
+        }
+
+        if !lastManagementLayerActive && isManagementLayerActive {
+            managementNavigationScope = initialWorkspaceNavigationFocusScope()
+        }
+        lastManagementLayerActive = isManagementLayerActive
+        managementNavigationScope = normalizedWorkspaceNavigationFocusScope()
 
         // Management layer exit is intentionally a two-step sequence:
         // the mode trigger releases content interaction, then refocus chooses
@@ -518,6 +550,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         if didExitManagementLayer {
             requestPaneRefocus(.managementLayerExited)
         }
+
+        performanceTraceRecorder?.recordDuration(
+            .managementLayerAppKitState,
+            duration: start.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.management_layer.is_active": .bool(isManagementLayerActive),
+                "agentstudio.performance.management_layer.did_exit": .bool(didExitManagementLayer),
+            ]
+        )
     }
 
     private func prunePaneInboxPresentationState() {
@@ -1011,13 +1052,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
-        guard let activeTabId = store.tabLayoutAtom.activeTabId else { return }
-        let visibleTerminalViews =
-            store.tabLayoutAtom.tab(activeTabId)?.paneIds.compactMap {
-                viewRegistry.terminalView(for: $0)
-            }.filter { terminalView in
-                terminalView.window != nil && !terminalView.isHidden
-            } ?? []
+        let traceClock = performanceTraceRecorder?.isEnabled == true ? ContinuousClock() : nil
+        let syncStart = traceClock?.now
+        let visibleTerminalViews = visibleTerminalPaneIdsForActiveTab().compactMap {
+            viewRegistry.terminalView(for: $0)
+        }.filter { terminalView in
+            terminalView.window != nil && !terminalView.isHidden
+        }
         guard !visibleTerminalViews.isEmpty else { return }
         RestoreTrace.log(
             "PaneTabViewController.syncVisibleTerminalGeometry reason=\(reason) count=\(visibleTerminalViews.count)"
@@ -1025,6 +1066,40 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         for terminalView in visibleTerminalViews {
             terminalView.forceGeometrySync(reason: reason)
         }
+        guard let traceClock, let syncStart else { return }
+        performanceTraceRecorder?.recordDuration(
+            .terminalGeometrySync,
+            duration: syncStart.duration(to: traceClock.now),
+            attributes: [
+                "agentstudio.performance.terminal.geometry.reason": .string("\(reason)"),
+                "agentstudio.performance.terminal.geometry.visible_terminal.count": .double(
+                    Double(visibleTerminalViews.count)),
+            ]
+        )
+    }
+
+    func visibleTerminalPaneIdsForActiveTab() -> [UUID] {
+        guard let activeTabId = store.tabLayoutAtom.activeTabId,
+            let tab = store.tabLayoutAtom.tab(activeTabId)
+        else { return [] }
+
+        var seenPaneIds: Set<UUID> = []
+        var paneIds: [UUID] = []
+        func append(_ candidatePaneId: UUID) {
+            guard seenPaneIds.insert(candidatePaneId).inserted else { return }
+            paneIds.append(candidatePaneId)
+        }
+
+        for paneId in tab.activeArrangement.layout.paneIds {
+            append(paneId)
+            guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else { continue }
+            guard let drawerView = tab.activeArrangement.drawerViews[drawer.drawerId] else { continue }
+            for drawerPaneId in drawerView.layout.paneIds where !drawerView.minimizedPaneIds.contains(drawerPaneId) {
+                append(drawerPaneId)
+            }
+        }
+
+        return paneIds
     }
 
     func geometryHierarchySnapshot(reason: StaticString) -> String {
@@ -2323,6 +2398,23 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func handleManagementCommand(_ command: AppCommand) -> Bool {
+        guard isManagementCommand(command) else { return false }
+
+        let clock = ContinuousClock()
+        let commandStart = clock.now
+        defer {
+            performanceTraceRecorder?.recordDuration(
+                .managementLayerCommand,
+                duration: commandStart.duration(to: clock.now),
+                attributes: [
+                    "agentstudio.performance.management_layer.command": .string(command.rawValue),
+                    "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
+                    "agentstudio.performance.management_layer.pane.count": .int(store.paneAtom.panes.count),
+                    "agentstudio.performance.management_layer.tab.count": .int(store.tabLayoutAtom.tabs.count),
+                ]
+            )
+        }
+
         switch command {
         case .toggleManagementLayer:
             let wasManagementLayerActive = atom(\.managementLayer).isActive
@@ -2364,6 +2456,23 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             atom(\.managementLayer).deactivate()
             return true
 
+        default:
+            return false
+        }
+    }
+
+    private func isManagementCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .toggleManagementLayer,
+            .managementLayerFocusLeft,
+            .managementLayerFocusRight,
+            .managementLayerEnterDrawer,
+            .managementLayerExitDrawer,
+            .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser,
+            .managementLayerExit:
+            return true
         default:
             return false
         }

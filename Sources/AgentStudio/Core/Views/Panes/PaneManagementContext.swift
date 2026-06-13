@@ -68,9 +68,7 @@ struct PaneManagementContext: Equatable {
                 branchStatus: branchStatus,
                 notificationCount: notificationCountForWorktree(worktreeId)
             )
-        } else if let resolvedWorktreeId =
-            workspaceLookup.repoAndWorktree(containing: pane?.metadata.cwd)?.worktree.id
-        {
+        } else if let resolvedWorktreeId = resolvedContext?.worktree.id {
             let branchStatus = RepoExplorerView.branchStatus(
                 enrichment: repoCache.worktreeEnrichmentByWorktreeId[resolvedWorktreeId],
                 pullRequestCount: repoCache.pullRequestCountByWorktreeId[resolvedWorktreeId]

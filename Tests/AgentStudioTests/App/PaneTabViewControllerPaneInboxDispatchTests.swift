@@ -22,7 +22,7 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
                 CommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
-                let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+                let parentPane = harness.store.createPane()
                 let tab = Tab(paneId: parentPane.id)
                 harness.store.appendTab(tab)
                 harness.store.setActiveTab(tab.id)
@@ -52,7 +52,7 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
                     CommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
-                    let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+                    let parentPane = harness.store.createPane()
                     let tab = Tab(paneId: parentPane.id)
                     harness.store.appendTab(tab)
                     harness.store.setActiveTab(tab.id)

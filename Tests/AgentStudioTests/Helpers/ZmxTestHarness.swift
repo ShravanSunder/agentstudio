@@ -178,6 +178,34 @@ final class ZmxTestHarness: @unchecked Sendable {
         return process
     }
 
+    func sessionHistory(sessionId: String) async throws -> String {
+        guard let zmxPath else { return "" }
+        let result = try await executor.execute(
+            command: zmxPath,
+            args: ["history", sessionId],
+            cwd: nil,
+            environment: ["ZMX_DIR": zmxDir]
+        )
+        return result.stdout
+    }
+
+    func waitForSessionHistory(
+        sessionId: String,
+        containing expectedContent: String,
+        timeout: Duration = .seconds(5)
+    ) async -> Bool {
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if let history = try? await sessionHistory(sessionId: sessionId),
+                history.contains(expectedContent)
+            {
+                return true
+            }
+            try? await clock.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
     private func awaitSessionSocketEvent(
         fileDescriptor: Int32,
         sessionSocketPath: String,

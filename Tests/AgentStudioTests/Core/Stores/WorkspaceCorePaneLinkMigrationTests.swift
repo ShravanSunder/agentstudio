@@ -244,18 +244,17 @@ struct WorkspaceCorePaneLinkMigrationTests {
         try database.execute(
             sql: """
                 INSERT INTO pane(
-                    id, workspace_id, content_type, execution_backend, source_kind,
+                    id, workspace_id, content_type, execution_backend,
                     launch_directory, title, cwd, residency_kind, kind, parent_pane_id,
                     created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
             arguments: [
                 paneId,
                 workspaceId,
                 SQLitePaneContentTypeStorage.storageValue(for: .terminal),
                 "zmx",
-                "workspace",
                 "/tmp",
                 "Terminal",
                 "/tmp",

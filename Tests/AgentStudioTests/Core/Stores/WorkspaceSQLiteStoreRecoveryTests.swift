@@ -499,7 +499,6 @@ private func makeRecoveryTestPane(title: String) -> Pane {
         content: .terminal(.init(provider: .zmx, lifetime: .persistent)),
         metadata: PaneMetadata(
             paneId: PaneId(uuid: paneId),
-            source: .floating(launchDirectory: nil, title: title),
             createdAt: Date(timeIntervalSince1970: 1_700_000_304),
             title: title
         )

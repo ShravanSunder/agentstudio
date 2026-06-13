@@ -13,6 +13,7 @@ struct WindowLifecycleAtomTests {
         #expect(atom.registeredWindowIds.isEmpty)
         #expect(atom.keyWindowId == nil)
         #expect(atom.focusedWindowId == nil)
+        #expect(atom.preferredWorkspaceWindowId == nil)
         #expect(atom.terminalContainerBounds == .zero)
         #expect(atom.isLaunchLayoutSettled == false)
         #expect(atom.isReadyForLaunchRestore == false)
@@ -29,6 +30,31 @@ struct WindowLifecycleAtomTests {
         #expect(atom.registeredWindowIds == [windowId])
         #expect(atom.keyWindowId == windowId)
         #expect(atom.focusedWindowId == windowId)
+        #expect(atom.preferredWorkspaceWindowId == windowId)
+    }
+
+    @Test("preferred workspace window falls back to single registered window")
+    func test_preferredWorkspaceWindowId_fallsBackToSingleRegisteredWindow() {
+        let atom = WindowLifecycleAtom()
+        let windowId = UUID()
+
+        atom.recordWindowRegistered(windowId)
+
+        #expect(atom.keyWindowId == nil)
+        #expect(atom.focusedWindowId == nil)
+        #expect(atom.preferredWorkspaceWindowId == windowId)
+    }
+
+    @Test("preferred workspace window refuses ambiguous registered windows")
+    func test_preferredWorkspaceWindowId_refusesAmbiguousRegisteredWindows() {
+        let atom = WindowLifecycleAtom()
+
+        atom.recordWindowRegistered(UUID())
+        atom.recordWindowRegistered(UUID())
+
+        #expect(atom.keyWindowId == nil)
+        #expect(atom.focusedWindowId == nil)
+        #expect(atom.preferredWorkspaceWindowId == nil)
     }
 
     @Test("recordTerminalContainerBounds updates bounds")

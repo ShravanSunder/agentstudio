@@ -18,13 +18,13 @@ final class PaneRemovalCascadeTests {
     // MARK: - Helpers
 
     private func createTabWithPanes(_ count: Int) -> (Tab, [UUID]) {
-        let first = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let first = store.createPane()
         let tab = Tab(paneId: first.id)
         store.appendTab(tab)
 
         var paneIds = [first.id]
         for _ in 1..<count {
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let pane = store.createPane()
             store.insertPane(
                 pane.id, inTab: tab.id, at: paneIds.last!,
                 direction: .horizontal, position: .after, sizingMode: .halveTarget
@@ -38,9 +38,9 @@ final class PaneRemovalCascadeTests {
 
     @Test
     func test_removePaneFromLayout_redistributesRemainingRatiosProportionally() {
-        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let paneC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneA = store.createPane()
+        let paneB = store.createPane()
+        let paneC = store.createPane()
         let layout = Layout(
             panes: [
                 .init(paneId: paneA.id, ratio: 0.5),
@@ -94,9 +94,9 @@ final class PaneRemovalCascadeTests {
 
     @Test
     func test_removePane_globalRepairPath_usesAdjacentAbsorb() {
-        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let paneC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneA = store.createPane()
+        let paneB = store.createPane()
+        let paneC = store.createPane()
         let layout = Layout(
             panes: [
                 .init(paneId: paneA.id, ratio: 0.4),
@@ -241,8 +241,8 @@ final class PaneRemovalCascadeTests {
 
     @Test
     func test_removePaneFromLayout_whenActiveArrangementBecomesEmpty_switchesBackToDefault() {
-        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let firstPane = store.createPane()
+        let secondPane = store.createPane()
         let defaultArrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -323,7 +323,7 @@ final class PaneRemovalCascadeTests {
     @Test
 
     func test_removePane_withDrawer_removesEverything() {
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -331,7 +331,7 @@ final class PaneRemovalCascadeTests {
         _ = store.addDrawerPane(to: pane.id)
 
         // Extra pane so tab doesn't get removed
-        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store.createPane()
         store.insertPane(
             pane2.id, inTab: tab.id, at: pane.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
@@ -389,9 +389,9 @@ final class PaneRemovalCascadeTests {
     @Test
 
     func test_removePane_cleanedFromMultipleTabs() {
-        let pane1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let pane3 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane1 = store.createPane()
+        let pane2 = store.createPane()
+        let pane3 = store.createPane()
 
         let tab1 = Tab(paneId: pane1.id)
         store.appendTab(tab1)

@@ -32,10 +32,7 @@ extension PaneCoordinator {
             return (
                 PaneMetadata(
                     contentType: .browser,
-                    source: .worktree(
-                        worktreeId: worktree.id, repoId: repo.id,
-                        launchDirectory: worktree.path
-                    ),
+                    launchDirectory: worktree.path,
                     title: fallbackTitle,
                     facets: PaneContextFacets(
                         repoId: repo.id,
@@ -54,10 +51,7 @@ extension PaneCoordinator {
             return (
                 PaneMetadata(
                     contentType: .browser,
-                    source: .worktree(
-                        worktreeId: resolved.worktree.id, repoId: resolved.repo.id,
-                        launchDirectory: resolved.worktree.path
-                    ),
+                    launchDirectory: resolved.worktree.path,
                     title: fallbackTitle,
                     facets: PaneContextFacets(
                         repoId: resolved.repo.id,
@@ -75,7 +69,6 @@ extension PaneCoordinator {
         return (
             PaneMetadata(
                 contentType: .browser,
-                source: .floating(launchDirectory: nil, title: fallbackTitle),
                 title: fallbackTitle
             ),
             nil,
@@ -135,6 +128,8 @@ extension PaneCoordinator {
     }
 
     func restoreVisiblePaneIfNeeded(_ paneId: UUID, forceWhenBoundsExist: Bool = false) {
+        let clock = ContinuousClock()
+        let restoreStart = clock.now
         guard let activeTab = store.tabLayoutAtom.activeTab else { return }
         if !windowLifecycleStore.isLaunchLayoutSettled {
             let hasPreparingPlaceholder =
@@ -160,6 +155,7 @@ extension PaneCoordinator {
             return
         }
 
+        let hadPlaceholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) != nil
         if let placeholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) {
             guard placeholder.shouldRetryCreationWhenBoundsChange else { return }
         } else if viewRegistry.view(for: paneId) != nil {
@@ -171,6 +167,16 @@ extension PaneCoordinator {
             pane: pane,
             initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
             treatAsRestoredSessionStart: true
+        )
+        performanceTraceRecorder?.recordDuration(
+            .paneViewRestoreVisible,
+            duration: restoreStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.pane_view_restore.force_when_bounds_exist": .bool(forceWhenBoundsExist),
+                "agentstudio.performance.pane_view_restore.had_placeholder": .bool(hadPlaceholder),
+                "agentstudio.performance.pane_view_restore.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_view_restore.tab.count": .int(store.tabLayoutAtom.tabs.count),
+            ]
         )
     }
 

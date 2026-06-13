@@ -26,17 +26,17 @@ struct PaneCoordinatorRuntimeDispatchNonTerminalTests {
 
         let webviewPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/non-terminal-webview")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Webview"), title: "Webview")
+            metadata: PaneMetadata(title: "Webview")
         )
         let bridgePane = store.createPane(
             content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Bridge"), title: "Bridge")
+            metadata: PaneMetadata(title: "Bridge")
         )
         let codePane = store.createPane(
             content: .codeViewer(
                 CodeViewerState(filePath: URL(fileURLWithPath: "/tmp/non-terminal.swift"), scrollToLine: nil)
             ),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Code"), title: "Code")
+            metadata: PaneMetadata(title: "Code")
         )
 
         store.appendTab(Tab(paneId: webviewPane.id))
@@ -105,7 +105,6 @@ private final class FakePaneRuntimeNonTerminal: PaneRuntime {
         self.metadata = PaneMetadata(
             paneId: paneId,
             contentType: contentType,
-            source: .floating(launchDirectory: nil, title: "Fake"),
             title: "Fake"
         )
         self.capabilities = capabilities

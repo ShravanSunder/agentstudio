@@ -276,7 +276,6 @@ struct TabGraphMembershipValidationTests {
             id: id,
             content: .terminal(provider: .zmx, lifetime: .persistent),
             metadata: .init(
-                source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/tab-membership")),
                 executionBackend: .local,
                 createdAt: Date(timeIntervalSince1970: 300),
                 title: "Pane",

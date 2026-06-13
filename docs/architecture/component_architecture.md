@@ -56,8 +56,8 @@ Configuration injection pattern: prefer constructor injection with defaults over
 │  └─────────────┘                │ |undoStack      │                  │
 │                                 └─────────────────┘                  │
 │  ┌─────────────┐  ┌────────────┐  ┌──────────────┐                  │
-│  │TabBarAdapter│  │ Persistor  │  │WorktrunkSvc  │                  │
-│  │(derived UI) │  │ (JSON I/O) │  │(git worktree)│                  │
+│  │TabBarAdapter│  │SQLite Data │  │WorktrunkSvc  │                  │
+│  │(derived UI) │  │ core/local │  │(git worktree)│                  │
 │  └─────────────┘  └────────────┘  └──────────────┘                  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -154,7 +154,7 @@ The **primary entity** in the window system. Stable identity for any content typ
 - `.drawerChild(parentPaneId: UUID)` — Child pane inside a drawer. Cannot have a sub-drawer.
 
 **`PaneContent`** — Discriminated union for the content type held by a pane. Each pane holds exactly one content type, fixed at creation. Uses custom `Codable` with a `type` discriminator for forward-compatible deserialization:
-- `.terminal(TerminalState)` — Terminal emulator (Ghostty or zmx-backed). `TerminalState` contains `provider: SessionProvider` and `lifetime: SessionLifetime`.
+- `.terminal(TerminalState)` — Terminal emulator (Ghostty or zmx-backed). `TerminalState` contains `provider: SessionProvider`, `lifetime: SessionLifetime`, and the frozen `zmxSessionId` anchor for persistent zmx panes.
 - `.webview(WebviewState)` — Embedded web content. `WebviewState` contains `url`, `title`, `showNavigation`.
 - `.bridgePanel(BridgePaneState)` — Bridge-backed React panel (e.g., diff viewer). `BridgePaneState` contains `panelKind: BridgePanelKind` and optional `source`.
 - `.codeViewer(CodeViewerState)` — Source code viewer. `CodeViewerState` contains `filePath` and optional `scrollToLine`.
@@ -166,7 +166,7 @@ The **primary entity** in the window system. Stable identity for any content typ
 |-------|-----------|------|-------|
 | `paneId` | immutable | `PaneId` | Mirrors `Pane.id`, enforced equal on decode |
 | `contentType` | immutable | `PaneContentType` | `.terminal`, `.browser`, `.diff`, `.codeViewer`, `.plugin(String)` |
-| `source` | immutable | `PaneMetadataSource` | `.worktree(worktreeId, repoId, launchDirectory)` or `.floating(launchDirectory, title)` |
+| `launchDirectory` | immutable | `URL?` | Cold-spawn directory for terminal/session creation and legacy restore fallback |
 | `executionBackend` | immutable | `ExecutionBackend` | `.local`, `.docker(image)`, `.gondolin(policyId)`, `.remote(host)` |
 | `createdAt` | immutable | `Date` | Creation timestamp |
 | `title` | live | `String` | Display title (updated from shell) |
@@ -174,12 +174,14 @@ The **primary entity** in the window system. Stable identity for any content typ
 | `checkoutRef` | live | `String?` | Current git checkout ref |
 | `note` | live | `String?` | User/agent-authored main-pane label. Trimmed on write; blank values are stored as nil. |
 
-`source` is launch provenance and does not change when a shell cds. `facets`
-is live identity and follows cwd via `PaneCoordinator` updates from runtime and
-surface cwd events. Main-pane notes live alongside metadata so minimized labels,
-persistence, and `$` pane search read the same field. Drawer child panes keep
-their own metadata for runtime facts, but note editing is exposed only for main
-layout panes.
+`launchDirectory` is cold-spawn metadata, not pane/worktree ownership.
+`facets` are the live pane location and grouping identity; they follow cwd via
+`PaneCoordinator` updates from runtime and surface cwd events. Command-bar
+classification, dynamic views, and `RuntimeRegistry.findPaneWithWorktree` read
+live facets rather than any creation-time binding. Main-pane notes live alongside
+metadata so minimized labels, persistence, and `$` pane search read the same
+field. Drawer child panes keep their own metadata for runtime facts, but note
+editing is exposed only for main layout panes.
 
 **`SessionProvider`** — Backend type for terminal panes:
 - `.ghostty` — Direct Ghostty surface, no session multiplexer
@@ -205,7 +207,7 @@ layout panes.
 | `isExpanded` | `Bool` | Whether the drawer panel is visible or collapsed |
 | `minimizedPaneIds` | `Set<UUID>` | Transient — not persisted |
 
-> **Files:** `Core/Models/Pane.swift`, `Core/Models/PaneContent.swift`, `Core/RuntimeEventSystem/Contracts/PaneMetadata.swift`, `Core/RuntimeEventSystem/Contracts/PaneId.swift`, `Core/Models/Drawer.swift`, `Core/Models/TerminalSource.swift`, `Core/Models/SessionLifetime.swift`, `Core/Models/SessionResidency.swift`
+> **Files:** `Core/Models/Pane.swift`, `Core/Models/PaneContent.swift`, `Core/RuntimeEventSystem/Contracts/PaneMetadata.swift`, `Core/RuntimeEventSystem/Contracts/PaneId.swift`, `Core/Models/Drawer.swift`, `Core/Models/SessionLifetime.swift`, `Core/Models/SessionResidency.swift`
 
 ### 2.4 DynamicView
 
@@ -412,7 +414,7 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 - forwarding mutation methods that belong to the owning atom or coordinator
 
 **Persistence:**
-- `restore()` — Load from disk via `WorkspacePersistor`, hydrate workspace atoms through `WorkspacePersistenceTransformer`
+- `restore()` — Load the canonical SQLite snapshot, hydrate workspace atoms, and import legacy JSON only through the explicit legacy importer path
 - `WorkspaceStore+LegacySQLiteImport` — Thin SQLite cutover call site. It builds importer input from the current atoms, invokes `WorkspaceLegacySQLiteImporter`, and applies the returned enum outcome by hydrating either the selected imported workspace or the pre-import SQLite state.
 - `WorkspaceLegacySQLiteImporter` — Owns only legacy `workspace.state.json` import policy: scanning, corrupt-file quarantine, pending-status filtering, retry behavior, and active-workspace selection for first boot or incomplete initial import. It returns `WorkspaceLegacySQLiteImportOutcome` instead of booleans so every caller handles `noLegacyFiles`, `noPendingFilesKeepingSelection`, `importedInitialActive`, `retriedWithoutSelectionChange`, `failedButImportedSome`, and `failedNoUsableImport` explicitly.
 - `flush()` — Cancel pending debounce, persist immediately
@@ -532,12 +534,13 @@ Derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Brid
 
 > **File:** `App/Panes/TabBar/TabBarAdapter.swift`
 
-### 3.9 WorkspacePersistor
+### 3.9 Legacy WorkspacePersistor
 
-Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No business logic.
+Legacy JSON persistence/import I/O. It is not the live workspace graph store;
+the live path commits through SQLite.
 
-- `PersistableState` — Codable struct mirroring workspace fields
-- `save(state)` / `load()` — JSON serialization to `~/.agentstudio/workspaces/`
+- `PersistableState` — legacy Codable struct mirroring workspace fields
+- `save(state)` / `load()` — JSON serialization for fallback/import paths under `~/.agentstudio/workspaces/`
 - `ensureDirectory()`, `hasWorkspaceFiles()`, `delete()`
 
 > **File:** `Core/State/MainActor/Persistence/WorkspacePersistor.swift`
@@ -933,7 +936,7 @@ sequenceDiagram
     Store-->>PaneTabViewController: SwiftUI re-renders
     Store->>Store: markDirty()
     Note over Store: debounced 500ms
-    Store->>Store: persistNow() → JSON
+    Store->>Store: persistNow() → core.sqlite + local.sqlite
 
     alt Surface creation needed
         PC->>SM: createSurface() + attach()
@@ -952,15 +955,15 @@ sequenceDiagram
 sequenceDiagram
     participant AD as AppDelegate
     participant Store as WorkspaceStore
-    participant P as WorkspacePersistor
+    participant DB as WorkspaceSQLiteDatastore
     participant Coord as PaneCoordinator
     participant RT as SessionRuntime
     participant SM as SurfaceManager
     participant VR as ViewRegistry
 
     AD->>Store: restore()
-    Store->>P: load()
-    P-->>Store: PersistableState (JSON)
+    Store->>DB: load()
+    DB-->>Store: WorkspaceSQLiteSnapshot
     Store->>Store: filter temporary panes
     Store->>Store: prune orphaned pane references
     Store->>Store: prune invalid layout pane IDs
@@ -1028,7 +1031,7 @@ All mutations call `markDirty()`, which:
 1. Sets `isDirty = true`
 2. Calls `ProcessInfo.disableSuddenTermination()` (prevents macOS kill during write)
 3. Schedules debounced save (500ms window, cancels previous)
-4. After 500ms with no new mutations: `persistNow()` → JSON to disk
+4. After 500ms with no new mutations: `persistNow()` → SQLite snapshot commit
 5. Resets `isDirty`, re-enables sudden termination
 
 **On app termination:** `flush()` cancels any pending debounce and persists immediately.
@@ -1047,9 +1050,9 @@ Before writing to disk:
 ### 5.3 Restore Filtering
 
 On app launch:
-1. Load JSON from disk
+1. Load the canonical SQLite snapshot, importing legacy JSON only when the SQLite lane is uninitialized or explicitly pending import
 2. Filter out `.temporary` panes
-3. Remove panes whose worktree no longer exists on disk
+3. Preserve panes whose live facet worktree no longer exists; normalize dangling facet refs to NULL and/or mark residency `.orphaned`
 4. Prune dangling pane IDs from all tab layouts
 5. Remove empty tabs, fix `activeTabId` pointers
 
@@ -1068,7 +1071,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 7. **No NSView in model** — No model type holds `NSView` references
 8. **Persistence safety** — `disableSuddenTermination()` while dirty; `flush()` on quit
 9. **Drawer consistency** — Drawer child panes always have `kind == .drawerChild(parentPaneId:)` referencing the owning layout pane. A drawer child cannot have a sub-drawer.
-10. **Worktree/repo references are metadata** — `PaneMetadata.source` may reference a worktree or repo that no longer exists on disk. The pane survives; UI shows fallback text. Orphan detection uses `SessionResidency.orphaned`.
+10. **Worktree/repo references are live facets** — `PaneMetadata.facets` may reference a worktree or repo that no longer exists on disk or has moved out from under the pane. Persistence normalizes dangling facet refs to NULL instead of rejecting the save. The pane survives; UI shows fallback text and topology changes can use `SessionResidency.orphaned` for restore behavior.
 
 ---
 
@@ -1078,7 +1081,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 |------|---------|
 | **Core/Models** | |
 | `Core/Models/Pane.swift` | `Pane` — primary entity: id, content, metadata, residency, kind |
-| `Core/Models/TerminalSource.swift` | `TerminalSource` discriminated union (`.worktree` / `.floating`) |
+| `Core/Models/PaneContent.swift` | `PaneContent`, `TerminalState`, terminal provider/lifetime, and stored zmx session anchors |
 | `Core/Models/SessionLifetime.swift` | `.persistent` / `.temporary` |
 | `Core/Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` / `.orphaned` |
 | `Core/Models/Layout.swift` | Pure value-type flat pane strip, `FocusDirection` |
@@ -1113,7 +1116,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/WorkspacePaneFocusDerived.swift` | Shared app-wide pane focus reader for command visibility and status UI |
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
 | `Core/State/MainActor/Persistence/WorkspaceStore+LegacySQLiteImport.swift` | Thin `WorkspaceStore` call site plus `WorkspaceLegacySQLiteImporter` legacy JSON import policy and enum outcomes |
-| `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |
+| `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | Legacy JSON persistence/import I/O |
 | `Core/State/SQLite/WorkspaceSQLiteRecoveryClassifier.swift` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths; no repository or atom ownership |
 | `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift` | Product-specific SQLite backend bootstrap, core migration, core sidecar quarantine, and local repository construction |
 | `Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift` | `core.sqlite` migration identifiers and durable workspace schema DDL |
@@ -1150,7 +1153,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift` | Typed event discriminated union + per-kind enums |
 | `Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift` | 3-tier event envelope (SystemEnvelope, WorktreeEnvelope, PaneEnvelope) |
 | `Core/RuntimeEventSystem/Contracts/RuntimeCommand.swift` | Runtime-level command enum + per-kind command enums |
-| `Core/RuntimeEventSystem/Contracts/PaneMetadata.swift` | Rich pane identity (contentType, source, execution backend) |
+| `Core/RuntimeEventSystem/Contracts/PaneMetadata.swift` | Rich pane identity (contentType, launch directory, live facets, execution backend) |
 | `Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift` | Workspace-level activity events |
 | `Core/RuntimeEventSystem/Runtime/PaneRuntimeEventChannel.swift` | Per-pane event channel for runtime communication |
 | `Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift` | Swift-side pane runtime implementation |
