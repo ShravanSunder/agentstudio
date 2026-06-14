@@ -38,6 +38,19 @@ struct AtomEntityMapObservationTests {
     }
 
     @Test
+    func replaceAllInsertedValueIsReadableThroughKeyedSlot() {
+        let aggregateRevision = AtomRevision()
+        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let mutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+
+        map.replaceAll(["repo-a": 1], mutation: mutation)
+        mutation.commit()
+
+        #expect(map.value(for: "repo-a") == 1)
+        #expect(map.storageSlotCount == 1)
+    }
+
+    @Test
     func keyedReadersWakeOnlyForTouchedKey() {
         let aggregateRevision = AtomRevision()
         let map = AtomEntityMap<String, Int>(isContentEqual: ==)
@@ -151,6 +164,27 @@ struct AtomEntityMapObservationTests {
     }
 
     @Test
+    func removingMissingObservedKeyInvalidatesBeforePruningSlot() {
+        let aggregateRevision = AtomRevision()
+        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let removalCounter = AtomEntityMapObservationCounter()
+
+        withObservationTracking {
+            _ = map.value(for: "repo-a")
+        } onChange: {
+            removalCounter.record()
+        }
+
+        let removeMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.removeValue(for: "repo-a", mutation: removeMutation)
+        removeMutation.commit()
+
+        #expect(removalCounter.count == 1)
+        #expect(map.storageSlotCount == 0)
+        #expect(aggregateRevision.value == 0)
+    }
+
+    @Test
     func replaceAllPrunesRemovedSlots() {
         let aggregateRevision = AtomRevision()
         let map = AtomEntityMap<String, Int>(isContentEqual: ==)
@@ -193,6 +227,24 @@ struct AtomEntityMapObservationTests {
 
         #expect(map.storageSlotCount == 0)
         #expect(aggregateRevision.value == 0)
+    }
+
+    @Test
+    func pruneNilSlotsInvalidatesObservedMissingKeysBeforeRemovingSlots() {
+        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let pruneCounter = AtomEntityMapObservationCounter()
+
+        withObservationTracking {
+            _ = map.value(for: "repo-a")
+        } onChange: {
+            pruneCounter.record()
+        }
+
+        let prunedCount = map.pruneNilSlots(excluding: [])
+
+        #expect(prunedCount == 1)
+        #expect(pruneCounter.count == 1)
+        #expect(map.storageSlotCount == 0)
     }
 
     @Test

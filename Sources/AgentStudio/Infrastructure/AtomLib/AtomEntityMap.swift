@@ -3,14 +3,29 @@ import Observation
 @MainActor
 @Observable
 private final class AtomEntitySlot<Value> {
+    private var removalRevision = 0
     private(set) var value: Value?
 
     init(value: Value? = nil) {
         self.value = value
     }
 
+    func readValue() -> Value? {
+        _ = removalRevision
+        return value
+    }
+
     func setValue(_ newValue: Value?) {
+        guard value != nil || newValue != nil else { return }
         value = newValue
+    }
+
+    func invalidateBeforeRemoval() {
+        if value == nil {
+            removalRevision += 1
+        } else {
+            value = nil
+        }
     }
 }
 
@@ -31,7 +46,7 @@ final class AtomEntityMap<Key: Hashable, Value> {
 
     func value(for key: Key) -> Value? {
         let hadCachedValue = cachedValues[key] != nil
-        let value = slot(for: key).value
+        let value = slot(for: key).readValue()
         AtomPerformanceTelemetry.shared.recordRead(
             kind: "entity_map",
             operation: "value",
@@ -98,6 +113,7 @@ final class AtomEntityMap<Key: Hashable, Value> {
     func removeValue(for key: Key, mutation: AtomMutationContext) {
         mutation.assertMutable()
         guard cachedValues.removeValue(forKey: key) != nil else {
+            slots[key]?.invalidateBeforeRemoval()
             slots.removeValue(forKey: key)
             AtomPerformanceTelemetry.shared.recordMutation(
                 kind: "entity_map",
@@ -108,7 +124,7 @@ final class AtomEntityMap<Key: Hashable, Value> {
             )
             return
         }
-        slots[key]?.setValue(nil)
+        slots[key]?.invalidateBeforeRemoval()
         slots.removeValue(forKey: key)
         mutation.recordAcceptedChange()
         membershipRevision.bump()
@@ -130,7 +146,7 @@ final class AtomEntityMap<Key: Hashable, Value> {
 
         for removedKey in previousSlotKeys.subtracting(newKeys) {
             let removedCachedValue = cachedValues.removeValue(forKey: removedKey)
-            slots[removedKey]?.setValue(nil)
+            slots[removedKey]?.invalidateBeforeRemoval()
             slots.removeValue(forKey: removedKey)
             if removedCachedValue != nil {
                 hasAcceptedChange = true
@@ -170,7 +186,7 @@ final class AtomEntityMap<Key: Hashable, Value> {
         let keysToRemove = Array(slots.keys)
         cachedValues.removeAll()
         for key in keysToRemove {
-            slots[key]?.setValue(nil)
+            slots[key]?.invalidateBeforeRemoval()
             slots.removeValue(forKey: key)
         }
         if hadCachedValues {
@@ -192,6 +208,7 @@ final class AtomEntityMap<Key: Hashable, Value> {
             cachedValues[key] == nil && !retainedKeys.contains(key)
         }
         for key in keysToPrune {
+            slots[key]?.invalidateBeforeRemoval()
             slots.removeValue(forKey: key)
         }
         if !keysToPrune.isEmpty {
@@ -210,7 +227,7 @@ final class AtomEntityMap<Key: Hashable, Value> {
         if let existingSlot = slots[key] {
             return existingSlot
         }
-        let createdSlot = AtomEntitySlot<Value>()
+        let createdSlot = AtomEntitySlot<Value>(value: cachedValues[key])
         slots[key] = createdSlot
         return createdSlot
     }
