@@ -109,6 +109,7 @@ echo "--- swiftlint ---"
 swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"; exit 1; }
 echo "--- architecture boundary checks ---"
 bash scripts/check-core-boundary-imports.sh
+bash scripts/check-atomlib-boundaries.sh
 echo "--- release script checks ---"
 /bin/bash scripts/verify-release-scripts.sh
 """

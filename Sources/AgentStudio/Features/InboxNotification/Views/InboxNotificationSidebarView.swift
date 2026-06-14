@@ -68,9 +68,13 @@ struct InboxNotificationSidebarView: View {
         self.repoCache = repoCache
         self.dispatcher = dispatcher
         self.onRefocusActivePane = onRefocusActivePane
+        let initialRepoEnrichmentByRepoId = Self.repoEnrichmentByRepoId(
+            repos: workspaceRepositoryTopologyAtom.repos,
+            repoCache: repoCache
+        )
         let initialRepoPresentationByRepoId = Self.repoPresentationByRepoId(
             repos: workspaceRepositoryTopologyAtom.repos,
-            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+            repoEnrichmentByRepoId: initialRepoEnrichmentByRepoId,
             checkoutColors: sidebarCache.checkoutColors
         )
         let initialKey = InboxNotificationListModelKey(
@@ -158,7 +162,10 @@ struct InboxNotificationSidebarView: View {
     private var repoPresentationByRepoId: [UUID: InboxNotificationRepoGroupPresentation] {
         Self.repoPresentationByRepoId(
             repos: workspaceRepositoryTopologyAtom.repos,
-            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+            repoEnrichmentByRepoId: Self.repoEnrichmentByRepoId(
+                repos: workspaceRepositoryTopologyAtom.repos,
+                repoCache: repoCache
+            ),
             checkoutColors: sidebarCache.checkoutColors
         )
     }
@@ -257,6 +264,17 @@ struct InboxNotificationSidebarView: View {
             }
         }
         return presentationsByRepoId
+    }
+
+    private static func repoEnrichmentByRepoId(
+        repos: [Repo],
+        repoCache: RepoCacheAtom
+    ) -> [UUID: RepoEnrichment] {
+        Dictionary(
+            uniqueKeysWithValues: repos.compactMap { repo in
+                repoCache.repoEnrichment(for: repo.id).map { (repo.id, $0) }
+            }
+        )
     }
 
     static func repoPresentationFingerprint(

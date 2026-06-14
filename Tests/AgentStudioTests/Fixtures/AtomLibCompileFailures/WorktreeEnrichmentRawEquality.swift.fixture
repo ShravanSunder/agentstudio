@@ -1,0 +1,6 @@
+import AgentStudio
+
+let value = AtomValue<WorktreeEnrichment>(
+    initialValue: WorktreeEnrichment.empty,
+    isContentEqual: ==
+)

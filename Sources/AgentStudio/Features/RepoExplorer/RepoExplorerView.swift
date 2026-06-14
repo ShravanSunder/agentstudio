@@ -108,8 +108,16 @@ struct RepoExplorerView: View {
     private var sidebarSnapshot: RepoExplorerSnapshot {
         RepoExplorerSnapshot(
             repos: sidebarRepos,
-            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+            repoEnrichmentByRepoId: sidebarRepoEnrichmentByRepoId,
             query: debouncedQuery
+        )
+    }
+
+    private var sidebarRepoEnrichmentByRepoId: [UUID: RepoEnrichment] {
+        Dictionary(
+            uniqueKeysWithValues: sidebarRepos.compactMap { repo in
+                repoCache.repoEnrichment(for: repo.id).map { (repo.id, $0) }
+            }
         )
     }
 
@@ -164,9 +172,14 @@ struct RepoExplorerView: View {
     }
 
     private var worktreeStatusById: [UUID: GitBranchStatus] {
-        Self.mergeBranchStatuses(
-            worktreeEnrichmentsByWorktreeId: repoCache.worktreeEnrichmentByWorktreeId,
-            pullRequestCountsByWorktreeId: repoCache.pullRequestCountByWorktreeId
+        let factsByWorktreeId = Dictionary(
+            uniqueKeysWithValues: sidebarRepos.flatMap(\.worktrees).compactMap { worktree in
+                repoCache.worktreeFacts(for: worktree.id).map { (worktree.id, $0) }
+            }
+        )
+        return Self.mergeBranchStatuses(
+            worktreeEnrichmentsByWorktreeId: factsByWorktreeId.compactMapValues { $0.enrichment },
+            pullRequestCountsByWorktreeId: factsByWorktreeId.compactMapValues { $0.pullRequestCount }
         )
     }
 
@@ -463,7 +476,7 @@ struct RepoExplorerView: View {
     private func branchName(for worktree: Worktree) -> String {
         atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
-            enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+            enrichment: repoCache.worktreeEnrichment(for: worktree.id)
         )
     }
 

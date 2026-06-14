@@ -111,7 +111,11 @@ final class TabBarAdapter {
             _ = self.store.tabLayoutAtom.tabs
             _ = self.store.tabLayoutAtom.activeTabId
             _ = self.store.paneAtom.panes
-            _ = self.repoCache.worktreeEnrichmentByWorktreeId
+            for pane in self.store.paneAtom.panes.values {
+                if let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId {
+                    _ = self.repoCache.worktreeEnrichment(for: worktreeId)
+                }
+            }
         } onChange: { [weak self] in
             guard let self else { return }
             Task { @MainActor in
@@ -210,7 +214,7 @@ final class TabBarAdapter {
             let repoName = pane.metadata.repoName ?? repo.name
             let branchName = atom(\.paneDisplay).resolvedBranchName(
                 worktree: worktree,
-                enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+                enrichment: repoCache.worktreeEnrichment(for: worktree.id)
             )
             return "\(repoName) | \(branchName) | \(worktree.path.lastPathComponent)"
         }

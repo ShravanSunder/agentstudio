@@ -1,12 +1,34 @@
 import Foundation
+import Observation
 
 @MainActor
+@Observable
 final class CommandBarResultSession {
-    private let store: WorkspaceStore
-    private let repoCache: RepoCacheAtom
-    private let dispatcher: CommandDispatcher
-    private let notificationInboxCommands: InboxNotificationCommands?
-    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    private struct RootItemSnapshotCacheIdentity: Equatable {
+        let scope: CommandBarScope
+        let focus: WorkspacePaneFocus
+        let rootSessionGeneration: Int
+    }
+
+    private struct CachedRootItemSnapshot {
+        let identity: RootItemSnapshotCacheIdentity
+        let snapshot: CommandBarItemSnapshot
+    }
+
+    @ObservationIgnored private let store: WorkspaceStore
+    @ObservationIgnored private let repoCache: RepoCacheAtom
+    @ObservationIgnored private let dispatcher: CommandDispatcher
+    @ObservationIgnored private let notificationInboxCommands: InboxNotificationCommands?
+    @ObservationIgnored private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    @ObservationIgnored private var cachedRootItemSnapshot: CachedRootItemSnapshot?
+    @ObservationIgnored private var isRootItemSnapshotInvalidated = false
+    @ObservationIgnored private var rootItemSnapshotObservationGeneration = 0
+    private(set) var rootItemSnapshotInvalidationRevision = 0
+
+    @ObservationIgnored
+    private(set) var rootItemSnapshotBuildCount = 0
+    @ObservationIgnored
+    private(set) var rootItemSnapshotCacheHitCount = 0
 
     init(
         store: WorkspaceStore,
@@ -23,6 +45,7 @@ final class CommandBarResultSession {
     }
 
     func snapshot(state: CommandBarState) -> CommandBarResultSnapshot {
+        _ = rootItemSnapshotInvalidationRevision
         let currentContext = currentContext()
         let canOpenWorktreeInCurrentTab = canOpenWorktreeInCurrentTab()
         let itemSnapshot = buildItemSnapshot(state: state, focus: currentContext)
@@ -77,19 +100,57 @@ final class CommandBarResultSession {
             )
         }
 
-        return CommandBarItemSnapshot(
+        let identity = RootItemSnapshotCacheIdentity(
             scope: state.activeScope,
-            isNested: false,
-            items: CommandBarDataSource.items(
-                scope: state.activeScope,
-                store: store,
-                repoCache: repoCache,
-                dispatcher: dispatcher,
-                focus: focus,
-                notificationInboxCommands: notificationInboxCommands,
-                performanceTraceRecorder: performanceTraceRecorder
-            )
+            focus: focus,
+            rootSessionGeneration: state.rootSessionGeneration
         )
+        if let cachedRootItemSnapshot,
+            cachedRootItemSnapshot.identity == identity,
+            !isRootItemSnapshotInvalidated
+        {
+            rootItemSnapshotCacheHitCount += 1
+            return cachedRootItemSnapshot.snapshot
+        }
+
+        let snapshot = trackedRootItemSnapshot(scope: state.activeScope, focus: focus)
+        cachedRootItemSnapshot = CachedRootItemSnapshot(identity: identity, snapshot: snapshot)
+        isRootItemSnapshotInvalidated = false
+        rootItemSnapshotBuildCount += 1
+        return snapshot
+    }
+
+    private func trackedRootItemSnapshot(
+        scope: CommandBarScope,
+        focus: WorkspacePaneFocus
+    ) -> CommandBarItemSnapshot {
+        rootItemSnapshotObservationGeneration += 1
+        let observationGeneration = rootItemSnapshotObservationGeneration
+        return withObservationTracking {
+            CommandBarItemSnapshot(
+                scope: scope,
+                isNested: false,
+                items: CommandBarDataSource.items(
+                    scope: scope,
+                    store: store,
+                    repoCache: repoCache,
+                    dispatcher: dispatcher,
+                    focus: focus,
+                    notificationInboxCommands: notificationInboxCommands,
+                    performanceTraceRecorder: performanceTraceRecorder
+                )
+            )
+        } onChange: { [weak self] in
+            MainActor.assumeIsolated {
+                self?.invalidateRootItemSnapshot(observationGeneration: observationGeneration)
+            }
+        }
+    }
+
+    private func invalidateRootItemSnapshot(observationGeneration: Int) {
+        guard rootItemSnapshotObservationGeneration == observationGeneration else { return }
+        isRootItemSnapshotInvalidated = true
+        rootItemSnapshotInvalidationRevision += 1
     }
 
     private func dimmedItemIds(for displayedItems: [CommandBarItem]) -> Set<String> {

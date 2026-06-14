@@ -80,7 +80,7 @@ actor AgentStudioTraceIdentityStore {
         resource["dev.repo.hash"] = identity.repoHash
         resource["dev.worktree.hash"] = identity.worktreeHash
         if let branch = identity.branch {
-            resource["git.branch"] = branch
+            resource["dev.branch.name"] = branch
         }
         return resource
     }

@@ -84,6 +84,9 @@ let package = Package(
                 .product(name: "AgentStudioGit", package: "agentstudio-git"),
             ],
             path: "Tests/AgentStudioTests",
+            exclude: [
+                "Fixtures/AtomLibCompileFailures"
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

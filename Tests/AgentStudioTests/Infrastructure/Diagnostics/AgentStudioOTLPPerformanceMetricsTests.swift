@@ -49,6 +49,48 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func atomPerformanceRecordProjectsAtomCounters() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 456,
+            severityText: .info,
+            body: "performance.atom.read",
+            traceID: nil,
+            spanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.atom.kind": .string("entity_map"),
+                "agentstudio.performance.atom.operation": .string("value"),
+                "agentstudio.performance.atom.slot.count": .int(2),
+                "agentstudio.performance.atom.cached_key.count": .int(1),
+                "agentstudio.performance.atom.cache_hit": .bool(false),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.eventName == "performance.atom.read")
+        #expect(
+            metricEvent.samples == [
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.atom.read",
+                    label: "agentstudio_performance_atom_cache_hit",
+                    value: 0
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.atom.read",
+                    label: "agentstudio_performance_atom_cached_key_count",
+                    value: 1
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.atom.read",
+                    label: "agentstudio_performance_atom_slot_count",
+                    value: 2
+                ),
+            ])
+    }
+
+    @Test
     func nonPerformanceRecordsDoNotProducePerformanceMetrics() {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 123,

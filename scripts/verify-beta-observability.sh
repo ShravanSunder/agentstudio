@@ -7,7 +7,40 @@ STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/beta-obser
 CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
 
+fail_on_legacy_observability_env() {
+  local legacy_prefix="SHRAVAN_""OBSERVABILITY_"
+  local env_name
+  while IFS='=' read -r env_name _; do
+    case "$env_name" in
+      "$legacy_prefix"*)
+        echo "Legacy observability env prefix is no longer supported; use AI_TOOLS_OBSERVABILITY_* instead of $env_name" >&2
+        exit 2
+        ;;
+    esac
+  done < <(env)
+}
+
+fail_on_legacy_observability_env
+
+validate_loopback_url() {
+  local url_name="${1:?missing url name}"
+  local url_value="${2:?missing url value}"
+  /usr/bin/python3 - "$url_name" "$url_value" <<'PY'
+import sys
+from urllib.parse import urlparse
+
+name, value = sys.argv[1], sys.argv[2]
+parsed = urlparse(value)
+if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+    print(f"{name} must be a loopback http URL: {value}", file=sys.stderr)
+    sys.exit(2)
+PY
+}
+
+validate_loopback_url AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL "$LOGS_QUERY_URL"
+
 state_marker=""
+state_proof_token=""
 state_service_version=""
 state_query_start=""
 state_status=""
@@ -31,6 +64,9 @@ PY
     case "$key" in
       AGENTSTUDIO_OBSERVABILITY_MARKER)
         state_marker="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN)
+        state_proof_token="$decoded_value"
         ;;
       AGENTSTUDIO_OBSERVABILITY_SERVICE_VERSION)
         state_service_version="$decoded_value"
@@ -179,19 +215,32 @@ portable_utc_time() {
     date -u -d "$gnu_offset" +"%Y-%m-%dT%H:%M:%SZ"
 }
 
-logsql_exact_value_filter() {
-  local field="${1:?missing LogSQL field}"
-  local value="${2:-}"
-  local escaped_value="${value//\\/\\\\}"
-  escaped_value="${escaped_value//\"/\\\"}"
-  printf '%s:="%s"' "$field" "$escaped_value"
+logsql_escape_exact_value() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  printf '%s' "$value"
+}
+
+logsql_exact_filter() {
+  local field_name="$1"
+  local field_value="$2"
+  printf '%s:="%s"' "$field_name" "$(logsql_escape_exact_value "$field_value")"
 }
 
 QUERY_START="${AGENTSTUDIO_OBSERVABILITY_QUERY_START:-${state_query_start:-$(portable_utc_time -4H '4 hours ago')}}"
 QUERY_END="${AGENTSTUDIO_OBSERVABILITY_QUERY_END:-$(portable_utc_time +5M '5 minutes')}"
 
-marker_filter="$(logsql_exact_value_filter agentstudio.trace.name "$MARKER")"
-query="service.name:AgentStudio dev.release.channel:beta $marker_filter"
+stream_query="{service.name=\"AgentStudio\",dev.release.channel=\"beta\"}"
+marker_query="$(logsql_exact_filter "agent.proof.marker" "$MARKER")"
+query="$stream_query $marker_query"
+if [ -n "$state_proof_token" ]; then
+  proof_token_query="$(logsql_exact_filter "agent.proof.launch" "$state_proof_token")"
+  query="$query $proof_token_query"
+fi
+startup_event_query="$(logsql_exact_filter "_msg" "app.zmx_startup_reconciliation.completed")"
 
 query_logs() {
   local logsql="$1"
@@ -215,7 +264,7 @@ fi
 
 startup_response="$(
   query_logs \
-    "$query _msg:app.zmx_startup_reconciliation.completed | fields _msg,agentstudio.zmx.startup.inventory_outcome,agentstudio.zmx.startup.live_session_count,agentstudio.zmx.startup.hydrated_anchor_count,agentstudio.zmx.startup.protected_session_count,agentstudio.zmx.startup.unresolved_candidate_count,agentstudio.zmx.startup.unmatched_live_session_count | limit 5"
+    "$query $startup_event_query | fields _msg,agentstudio.zmx.startup.inventory_outcome,agentstudio.zmx.startup.live_session_count,agentstudio.zmx.startup.hydrated_anchor_count,agentstudio.zmx.startup.protected_session_count,agentstudio.zmx.startup.unresolved_candidate_count,agentstudio.zmx.startup.unmatched_live_session_count | limit 5"
 )"
 if [ -z "$startup_response" ]; then
   echo "no startup zmx reconciliation record found in VictoriaLogs for marker $MARKER" >&2
@@ -252,7 +301,7 @@ sensitive_fields=(
   agentstudio.repo.id
   agentstudio.sqlite.database_path
   agentstudio.surface.id
-  agentstudio.trace.name.raw
+  agent.proof.marker.raw
   agentstudio.worktree.id
   agentstudio.workspace.id
   agentstudio.zmx.session_id

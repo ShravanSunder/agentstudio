@@ -2,7 +2,8 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STACK_HELPER="${AI_TOOLS_OBSERVABILITY_STACK_HELPER:-$HOME/dev/ai-tools/observability/observability-stack}"
+DEFAULT_STACK_HELPER="$HOME/dev/ai-tools/observability/observability-stack"
+STACK_HELPER="${AI_TOOLS_OBSERVABILITY_STACK_HELPER:-$DEFAULT_STACK_HELPER}"
 COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
 OPEN_BIN="${AGENTSTUDIO_OPEN_BIN:-/usr/bin/open}"
 PGREP_BIN="${AGENTSTUDIO_PGREP_BIN:-/usr/bin/pgrep}"
@@ -10,6 +11,53 @@ LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
 CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 DITTO_BIN="${AGENTSTUDIO_DITTO_BIN:-/usr/bin/ditto}"
 CODESIGN_BIN="${AGENTSTUDIO_CODESIGN_BIN:-/usr/bin/codesign}"
+
+fail_on_legacy_observability_env() {
+  local legacy_prefix="SHRAVAN_""OBSERVABILITY_"
+  local env_name
+  while IFS='=' read -r env_name _; do
+    case "$env_name" in
+      "$legacy_prefix"*)
+        echo "Legacy observability env prefix is no longer supported; use AI_TOOLS_OBSERVABILITY_* instead of $env_name" >&2
+        exit 2
+        ;;
+    esac
+  done < <(env)
+}
+
+fail_on_legacy_observability_env
+
+canonical_path() {
+  /usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
+validate_loopback_url() {
+  local url_name="${1:?missing url name}"
+  local url_value="${2:?missing url value}"
+  /usr/bin/python3 - "$url_name" "$url_value" <<'PY'
+import sys
+from urllib.parse import urlparse
+
+name, value = sys.argv[1], sys.argv[2]
+parsed = urlparse(value)
+if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+    print(f"{name} must be a loopback http URL: {value}", file=sys.stderr)
+    sys.exit(2)
+PY
+}
+
+validate_observability_controls() {
+  validate_loopback_url AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL "$COLLECTOR_HEALTH_URL"
+  if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES:-0}" = "1" ]; then
+    return
+  fi
+  if [ "$(canonical_path "$STACK_HELPER")" != "$(canonical_path "$DEFAULT_STACK_HELPER")" ]; then
+    echo "AI_TOOLS_OBSERVABILITY_STACK_HELPER must point to the trusted ai-tools helper: $DEFAULT_STACK_HELPER" >&2
+    exit 2
+  fi
+}
+
+validate_observability_controls
 
 usage() {
   cat <<'USAGE'
@@ -217,6 +265,7 @@ write_running_state() {
   {
     write_state_value AGENTSTUDIO_OBSERVABILITY_STATUS running
     write_state_value AGENTSTUDIO_OBSERVABILITY_MARKER "$trace_name"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN "$trace_proof_token"
     write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR debug
     write_state_value AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE "$debug_code"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD "$launch_method"
@@ -565,6 +614,7 @@ trace_tags="${AGENTSTUDIO_TRACE_TAGS:-*}"
 trace_flush="${AGENTSTUDIO_TRACE_FLUSH:-immediate}"
 trace_backend=otlp
 trace_name="${AGENTSTUDIO_TRACE_NAME:-debug-observability-$debug_code-$(date +%s)-$$}"
+trace_proof_token="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}"
 if ! trace_name_is_safe_path_component "$trace_name"; then
   mkdir -p "$(dirname "$state_file")"
@@ -584,7 +634,7 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
   launch_data_root="$debug_root/runs/$trace_name"
 fi
 launch_zmx_dir="$launch_data_root/z"
-otlp_endpoint="$("$STACK_HELPER" collector-url)"
+otlp_endpoint="$(/usr/bin/env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$STACK_HELPER" collector-url)"
 otlp_protocol=http/protobuf
 
 launch_log="${AGENTSTUDIO_OBSERVABILITY_LAUNCH_LOG:-$debug_root/logs/$trace_name.log}"
@@ -616,6 +666,7 @@ open_env_args=(
     --env "AGENTSTUDIO_TRACE_FLUSH=$trace_flush" \
     --env "AGENTSTUDIO_TRACE_BACKEND=$trace_backend" \
     --env "AGENTSTUDIO_TRACE_NAME=$trace_name" \
+    --env "AGENTSTUDIO_TRACE_PROOF_TOKEN=$trace_proof_token" \
     --env "AGENTSTUDIO_TRACE_DIR=$trace_dir" \
     --env "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint" \
     --env "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
@@ -641,6 +692,7 @@ direct_launch_env=(
   "AGENTSTUDIO_TRACE_FLUSH=$trace_flush"
   "AGENTSTUDIO_TRACE_BACKEND=$trace_backend"
   "AGENTSTUDIO_TRACE_NAME=$trace_name"
+  "AGENTSTUDIO_TRACE_PROOF_TOKEN=$trace_proof_token"
   "AGENTSTUDIO_TRACE_DIR=$trace_dir"
   "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint"
   "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"

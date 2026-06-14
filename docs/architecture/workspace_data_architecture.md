@@ -180,7 +180,8 @@ struct WorktreeEnrichment: Codable, Sendable, Equatable {
     var gitSnapshot: GitWorkingTreeSnapshot?  // changed/staged/untracked counts
 }
 
-/// Top-level cache container. Persisted as single JSON file.
+/// Cache projection shape. Live storage is local SQLite when available;
+/// legacy JSON remains an import/recovery source.
 struct WorkspaceCacheState: Codable {
     var workspaceId: UUID
     var sourceRevision: UInt64          // monotonic, incremented on any cache write
@@ -194,6 +195,26 @@ struct WorkspaceCacheState: Codable {
     // in the cache tier. The bell pill reads directly from the atom.
 }
 ```
+
+The live `RepoEnrichmentCacheAtom` does not expose those dictionaries as the
+hot observation surface. It owns each repo-cache lane through keyed
+`AtomEntityMap` slots:
+
+```swift
+AtomEntityMap<UUID, RepoEnrichment>       // keyed by CanonicalRepo.id
+AtomEntityMap<UUID, WorktreeEnrichment>   // keyed by CanonicalWorktree.id
+AtomEntityMap<UUID, Int>                  // pull request count keyed by CanonicalWorktree.id
+```
+
+`RepoWorktreeCacheFacts` is a composed read result for surfaces that really need
+both `WorktreeEnrichment?` and `pullRequestCount?`, such as status chips. Branch
+labels, trace identity, tab titles, and command-bar rows should read
+`worktreeEnrichment(for:)` so PR-count changes do not wake branch-only readers.
+Dictionary-shaped snapshots remain available for SQLite/legacy persistence,
+boot pruning, and cold batch projection. Hot UI code should prefer
+`repoEnrichment(for:)`, `worktreeEnrichment(for:)`, `pullRequestCount(for:)`, or
+`worktreeFacts(for:)` unless a broader snapshot path is explicitly measured and
+justified.
 
 ### Tier C: Sidebar Local UX Memory
 
@@ -306,7 +327,8 @@ PaneCoordinator (ordered post-topology effects)
       │
       ▼
 RepoEnrichmentCacheAtom + RecentWorkspaceTargetAtom (@Observable, passive)
-  → persisted to cache file on debounced schedule
+  → keyed atom slots for hot UI reads
+  → snapshot bridges persisted to local SQLite or legacy cache JSON
       │
       ▼
 SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + WorkspaceSidebarState)
@@ -618,7 +640,12 @@ Two distinct, complementary replay layers:
 
 Every cache write is a "set to latest value" operation, not a delta. Writing the same `WorktreeEnrichment.branch = "feat-1"` twice is a no-op. The entire enrichment pipeline is naturally idempotent by design.
 
-Cache coordinator uses value-equality check: if the incoming snapshot matches what's already in the cache store, the write is skipped. `sourceRevision` on `WorkspaceCacheState` increments on any actual cache change. On boot, if cache is missing/corrupt/stale, coordinator sets `needsFullRebuild` and treats all events from initial scan as new.
+Cache coordinator and cache atoms use value-equality checks: if the incoming
+fact matches the existing cached content, the write is skipped and no atom
+invalidation is fired. `RepoEnrichment` cache equality ignores timestamp-only
+refreshes. `sourceRevision` on `WorkspaceCacheState` increments on actual cache
+changes. On boot, if cache is missing/corrupt/stale, coordinator sets
+`needsFullRebuild` and treats all events from initial scan as new.
 
 ---
 
