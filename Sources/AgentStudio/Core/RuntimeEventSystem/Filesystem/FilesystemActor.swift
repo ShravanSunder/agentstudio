@@ -8,75 +8,19 @@ import os
 actor FilesystemActor {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemActor")
     static let maxPathsPerFilesChangedEvent = 256
-
-    private struct SchedulingClock: Sendable {
-        let now: @Sendable () -> Duration
-        let sleep: @Sendable (Duration) async throws -> Void
-
-        static func continuous() -> Self {
-            let clock = ContinuousClock()
-            let origin = clock.now
-            return Self(
-                now: { origin.duration(to: clock.now) },
-                sleep: { duration in
-                    try await AsyncDelay.taskSleep.wait(duration)
-                }
-            )
-        }
-
-        static func make<C: Clock>(clock: C) -> Self where C.Duration == Duration, C: Sendable {
-            let origin = clock.now
-            let delay = AsyncDelay.clock(clock)
-            return Self(
-                now: { origin.duration(to: clock.now) },
-                sleep: { duration in
-                    try await delay.wait(duration)
-                }
-            )
-        }
-    }
-
-    private struct RootState: Sendable {
-        let repoId: UUID
-        let rootPath: URL
-        let canonicalRootPath: String
-        var isActiveInApp: Bool
-        var nextBatchSeq: UInt64
-        var pathFilter: FilesystemPathFilter
-    }
-
-    private struct PendingWorktreeChanges: Sendable {
-        var projectedPaths: Set<String> = []
-        var containsGitInternalChanges = false
-        var suppressedIgnoredPathCount = 0
-        var suppressedGitInternalPathCount = 0
-        var firstPendingTimestamp: Duration?
-        var lastPendingTimestamp: Duration?
-
-        var hasPendingChanges: Bool {
-            !projectedPaths.isEmpty
-                || containsGitInternalChanges
-                || suppressedGitInternalPathCount > 0
-        }
-
-        mutating func recordPendingChange(at timestamp: Duration) {
-            if firstPendingTimestamp == nil {
-                firstPendingTimestamp = timestamp
-            }
-            lastPendingTimestamp = timestamp
-        }
-    }
+    typealias PathFilterLoader = @Sendable (URL) async -> FilesystemPathFilter
 
     private let runtimeBus: EventBus<RuntimeEnvelope>
     private let fseventStreamClient: any FSEventStreamClient
     private let envelopeClock = ContinuousClock()
-    private let schedulingClock: SchedulingClock
+    private let schedulingClock: FilesystemActorSchedulingClock
     private let groupedWatchedFolderScanner: @Sendable (URL) -> [RepoScanner.RepoScanGroup]
+    private let pathFilterLoader: PathFilterLoader
     private let debounceWindow: Duration
     private let maxFlushLatency: Duration
 
-    private var roots: [UUID: RootState] = [:]
-    private var pendingChangesByWorktreeId: [UUID: PendingWorktreeChanges] = [:]
+    private var roots: [UUID: FilesystemActorRootState] = [:]
+    private var pendingChangesByWorktreeId: [UUID: FilesystemActorPendingWorktreeChanges] = [:]
     private var activePaneWorktreeId: UUID?
     private var nextEnvelopeSequence: UInt64 = 0
 
@@ -87,6 +31,9 @@ actor FilesystemActor {
     private var ingressTask: Task<Void, Never>?
     private var drainTask: Task<Void, Never>?
     private var hasShutdown = false
+    private var pendingRegistrationGenerationByWorktreeId: [UUID: UInt64] = [:]
+    private var nextRegistrationGeneration: UInt64 = 0
+    private var pathFilterReloadTasksByWorktreeId: [UUID: FilesystemActorPathFilterReloadState] = [:]
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -94,12 +41,16 @@ actor FilesystemActor {
         groupedWatchedFolderScanner: @escaping @Sendable (URL) -> [RepoScanner.RepoScanGroup] = {
             RepoScanner().scanForGitReposGrouped(in: $0)
         },
+        pathFilterLoader: @escaping PathFilterLoader = { rootPath in
+            await FilesystemPathFilter.loadOffExecutor(forRootPath: rootPath)
+        },
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
     ) {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
         self.groupedWatchedFolderScanner = groupedWatchedFolderScanner
+        self.pathFilterLoader = pathFilterLoader
         schedulingClock = .continuous()
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
@@ -111,6 +62,9 @@ actor FilesystemActor {
         groupedWatchedFolderScanner: @escaping @Sendable (URL) -> [RepoScanner.RepoScanGroup] = {
             RepoScanner().scanForGitReposGrouped(in: $0)
         },
+        pathFilterLoader: @escaping PathFilterLoader = { rootPath in
+            await FilesystemPathFilter.loadOffExecutor(forRootPath: rootPath)
+        },
         sleepClock: C,
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
@@ -118,6 +72,7 @@ actor FilesystemActor {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
         self.groupedWatchedFolderScanner = groupedWatchedFolderScanner
+        self.pathFilterLoader = pathFilterLoader
         schedulingClock = .make(clock: sleepClock)
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
@@ -126,19 +81,33 @@ actor FilesystemActor {
     isolated deinit {
         ingressTask?.cancel()
         drainTask?.cancel()
+        for reloadState in pathFilterReloadTasksByWorktreeId.values {
+            reloadState.task.cancel()
+        }
         if !hasShutdown {
             Self.logger.warning("FilesystemActor deinitialized without explicit shutdown()")
         }
     }
 
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL) async {
+        guard !hasShutdown else { return }
+        let registrationGeneration = nextRegistrationGeneration
+        nextRegistrationGeneration &+= 1
+        pendingRegistrationGenerationByWorktreeId[worktreeId] = registrationGeneration
         startIngressTaskIfNeeded()
 
         let canonicalRootPath = FilesystemRootOwnership.canonicalRootPath(for: rootPath)
         let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: rootPath)
 
+        guard !hasShutdown,
+            pendingRegistrationGenerationByWorktreeId[worktreeId] == registrationGeneration
+        else {
+            return
+        }
+        pendingRegistrationGenerationByWorktreeId.removeValue(forKey: worktreeId)
+
         let existing = roots[worktreeId]
-        roots[worktreeId] = RootState(
+        roots[worktreeId] = FilesystemActorRootState(
             repoId: repoId,
             rootPath: rootPath,
             canonicalRootPath: canonicalRootPath,
@@ -146,7 +115,8 @@ actor FilesystemActor {
             nextBatchSeq: existing?.nextBatchSeq ?? 0,
             pathFilter: pathFilter
         )
-        pendingChangesByWorktreeId[worktreeId] = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
+        pendingChangesByWorktreeId[worktreeId] =
+            pendingChangesByWorktreeId[worktreeId] ?? FilesystemActorPendingWorktreeChanges()
         fseventStreamClient.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await emitFilesystemEvent(
             worktreeId: worktreeId,
@@ -155,9 +125,12 @@ actor FilesystemActor {
             rootPathHint: rootPath,
             event: .worktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         )
+        await applyPathFilterReload(worktreeId: worktreeId, rootPath: rootPath)
     }
 
     func unregister(worktreeId: UUID) async {
+        pendingRegistrationGenerationByWorktreeId.removeValue(forKey: worktreeId)
+        pathFilterReloadTasksByWorktreeId.removeValue(forKey: worktreeId)?.task.cancel()
         let removedRoot = roots.removeValue(forKey: worktreeId)
         pendingChangesByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
@@ -230,6 +203,9 @@ actor FilesystemActor {
         drainTask = nil
         fallbackRescanTask?.cancel()
         fallbackRescanTask = nil
+        for reloadState in pathFilterReloadTasksByWorktreeId.values {
+            reloadState.task.cancel()
+        }
 
         if let activeIngressTask {
             await activeIngressTask.value
@@ -243,6 +219,8 @@ actor FilesystemActor {
 
         roots.removeAll(keepingCapacity: false)
         pendingChangesByWorktreeId.removeAll(keepingCapacity: false)
+        pendingRegistrationGenerationByWorktreeId.removeAll(keepingCapacity: false)
+        pathFilterReloadTasksByWorktreeId.removeAll(keepingCapacity: false)
         watchedFolderIds.removeAll(keepingCapacity: false)
         watchedFolderRepoGroupsByRoot.removeAll(keepingCapacity: false)
         activePaneWorktreeId = nil
@@ -271,22 +249,23 @@ actor FilesystemActor {
                 continue
             }
 
-            guard let root = roots[ownedPath.worktreeId] else { continue }
+            guard roots[ownedPath.worktreeId] != nil else { continue }
 
             if Self.isGitIgnoreReloadPath(rawPath: rawPath, relativePath: ownedPath.relativePath) {
-                let pathFilter = await FilesystemPathFilter.loadOffExecutor(forRootPath: root.rootPath)
-                guard var latestRoot = roots[ownedPath.worktreeId] else { continue }
-                latestRoot.pathFilter = pathFilter
-                roots[ownedPath.worktreeId] = latestRoot
-
-                var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
-                pendingChanges.containsGitInternalChanges = true
-                pendingChanges.recordPendingChange(at: schedulingClock.now())
-                pendingChangesByWorktreeId[ownedPath.worktreeId] = pendingChanges
+                guard let rootPath = roots[ownedPath.worktreeId]?.rootPath else { continue }
+                await applyPathFilterReload(worktreeId: ownedPath.worktreeId, rootPath: rootPath)
+                var currentPendingChanges =
+                    pendingChangesByWorktreeId[ownedPath.worktreeId] ?? FilesystemActorPendingWorktreeChanges()
+                currentPendingChanges.containsGitInternalChanges = true
+                currentPendingChanges.recordPendingChange(at: schedulingClock.now())
+                pendingChangesByWorktreeId[ownedPath.worktreeId] = currentPendingChanges
                 continue
             }
 
-            var pendingChanges = pendingChangesByWorktreeId[ownedPath.worktreeId] ?? PendingWorktreeChanges()
+            await awaitPendingPathFilterReloadIfNeeded(worktreeId: ownedPath.worktreeId)
+            guard let root = roots[ownedPath.worktreeId] else { continue }
+            var pendingChanges =
+                pendingChangesByWorktreeId[ownedPath.worktreeId] ?? FilesystemActorPendingWorktreeChanges()
             switch root.pathFilter.classify(relativePath: ownedPath.relativePath) {
             case .projected:
                 pendingChanges.projectedPaths.insert(ownedPath.relativePath)
@@ -310,6 +289,10 @@ actor FilesystemActor {
             for await batch in stream {
                 guard !Task.isCancelled else { break }
                 guard let self else { break }
+                if batch.didOverflow {
+                    await self.reloadPathFiltersAfterIngressOverflow(sourceWorktreeId: batch.worktreeId)
+                }
+                guard !batch.paths.isEmpty else { continue }
                 if await self.isWatchedFolderBatch(batch.worktreeId) {
                     await self.handleWatchedFolderFSEvent(batch)
                 } else {
@@ -439,7 +422,7 @@ actor FilesystemActor {
         return 2
     }
 
-    private func isFlushDue(_ pendingChanges: PendingWorktreeChanges, now: Duration) -> Bool {
+    private func isFlushDue(_ pendingChanges: FilesystemActorPendingWorktreeChanges, now: Duration) -> Bool {
         guard let firstPendingTimestamp = pendingChanges.firstPendingTimestamp,
             let lastPendingTimestamp = pendingChanges.lastPendingTimestamp
         else {
@@ -451,7 +434,7 @@ actor FilesystemActor {
         return now >= debounceDeadline || now >= maxLatencyDeadline
     }
 
-    private func flushDeadline(for pendingChanges: PendingWorktreeChanges) -> Duration? {
+    private func flushDeadline(for pendingChanges: FilesystemActorPendingWorktreeChanges) -> Duration? {
         guard let firstPendingTimestamp = pendingChanges.firstPendingTimestamp,
             let lastPendingTimestamp = pendingChanges.lastPendingTimestamp
         else {
@@ -471,7 +454,7 @@ actor FilesystemActor {
             return
         }
 
-        pendingChangesByWorktreeId[worktreeId] = PendingWorktreeChanges()
+        pendingChangesByWorktreeId[worktreeId] = FilesystemActorPendingWorktreeChanges()
 
         let orderedPaths = pendingChanges.projectedPaths.sorted()
         let pathChunks =
@@ -669,12 +652,7 @@ actor FilesystemActor {
         watchedFolderScanner(folderPath)
     }
 
-    private struct WatchedFolderRefreshScanResult {
-        let summary: WatchedFolderRefreshSummary
-        let removedClonePaths: Set<URL>
-    }
-
-    private func rescanAllWatchedFolders() async -> WatchedFolderRefreshScanResult {
+    private func rescanAllWatchedFolders() async -> FilesystemActorWatchedFolderRefreshScanResult {
         var removedClonePaths = Set<URL>()
         var repoPathsByWatchedFolder: [URL: [URL]] = [:]
         for (folderPath, _) in watchedFolderIds {
@@ -682,18 +660,13 @@ actor FilesystemActor {
             repoPathsByWatchedFolder[folderPath] = refreshResult.repoPaths
             removedClonePaths.formUnion(refreshResult.removedClonePaths)
         }
-        return WatchedFolderRefreshScanResult(
+        return FilesystemActorWatchedFolderRefreshScanResult(
             summary: WatchedFolderRefreshSummary(repoPathsByWatchedFolder: repoPathsByWatchedFolder),
             removedClonePaths: removedClonePaths
         )
     }
 
-    private struct WatchedFolderRefreshResult {
-        let repoPaths: [URL]
-        let removedClonePaths: Set<URL>
-    }
-
-    private func refreshWatchedFolder(_ folderPath: URL) async -> WatchedFolderRefreshResult {
+    private func refreshWatchedFolder(_ folderPath: URL) async -> FilesystemActorWatchedFolderRefreshResult {
         let currentRepoGroups = Self.normalizeRepoScanGroups(
             await Self.scanFolder(folderPath, using: groupedWatchedFolderScanner)
         )
@@ -743,7 +716,7 @@ actor FilesystemActor {
         }
         await emitReposDiscovered(parentPath: folderPath, repositories: discoveredRepositories)
 
-        return WatchedFolderRefreshResult(
+        return FilesystemActorWatchedFolderRefreshResult(
             repoPaths: currentRepoGroups.map(\.clonePath).sorted(by: Self.sortByPath),
             removedClonePaths: removedClonePaths
         )
@@ -895,5 +868,80 @@ actor FilesystemActor {
         case .worktreeRegistered, .worktreeUnregistered, .filesChanged:
             preconditionFailure("Unsupported filesystem event for git working directory projection")
         }
+    }
+}
+
+extension FilesystemActor {
+    fileprivate func reloadPathFiltersAfterIngressOverflow(sourceWorktreeId: UUID) async {
+        let rootSnapshot = roots.mapValues(\.rootPath)
+        for (worktreeId, rootPath) in rootSnapshot {
+            await applyPathFilterReload(worktreeId: worktreeId, rootPath: rootPath)
+        }
+        recordOverflowResync(worktreeId: sourceWorktreeId)
+    }
+
+    fileprivate func startPathFilterReload(
+        worktreeId: UUID,
+        rootPath: URL
+    ) -> Task<FilesystemPathFilter, Never> {
+        if let reloadState = pathFilterReloadTasksByWorktreeId[worktreeId],
+            reloadState.rootPath == rootPath
+        {
+            return reloadState.task
+        }
+
+        pathFilterReloadTasksByWorktreeId.removeValue(forKey: worktreeId)?.task.cancel()
+        let loader = pathFilterLoader
+        let task = Task<FilesystemPathFilter, Never> {
+            await loader(rootPath)
+        }
+        pathFilterReloadTasksByWorktreeId[worktreeId] = FilesystemActorPathFilterReloadState(
+            rootPath: rootPath, task: task)
+        return task
+    }
+
+    fileprivate func applyPathFilterReload(worktreeId: UUID, rootPath: URL) async {
+        let task = startPathFilterReload(worktreeId: worktreeId, rootPath: rootPath)
+        let loadedFilter = await task.value
+        guard var currentRoot = roots[worktreeId],
+            currentRoot.rootPath == rootPath
+        else {
+            if pathFilterReloadTasksByWorktreeId[worktreeId]?.rootPath == rootPath {
+                pathFilterReloadTasksByWorktreeId.removeValue(forKey: worktreeId)
+            }
+            return
+        }
+        currentRoot.pathFilter = loadedFilter
+        roots[worktreeId] = currentRoot
+        if pathFilterReloadTasksByWorktreeId[worktreeId]?.rootPath == rootPath {
+            pathFilterReloadTasksByWorktreeId.removeValue(forKey: worktreeId)
+        }
+    }
+
+    fileprivate func awaitPendingPathFilterReloadIfNeeded(worktreeId: UUID) async {
+        guard let reloadState = pathFilterReloadTasksByWorktreeId[worktreeId] else { return }
+        let loadedFilter = await reloadState.task.value
+        guard var currentRoot = roots[worktreeId],
+            currentRoot.rootPath == reloadState.rootPath
+        else {
+            if pathFilterReloadTasksByWorktreeId[worktreeId]?.rootPath == reloadState.rootPath {
+                pathFilterReloadTasksByWorktreeId.removeValue(forKey: worktreeId)
+            }
+            return
+        }
+        currentRoot.pathFilter = loadedFilter
+        roots[worktreeId] = currentRoot
+        if pathFilterReloadTasksByWorktreeId[worktreeId]?.rootPath == reloadState.rootPath {
+            pathFilterReloadTasksByWorktreeId.removeValue(forKey: worktreeId)
+        }
+    }
+
+    fileprivate func recordOverflowResync(worktreeId: UUID) {
+        guard roots[worktreeId] != nil else { return }
+        var pendingChanges = pendingChangesByWorktreeId[worktreeId] ?? FilesystemActorPendingWorktreeChanges()
+        pendingChanges.projectedPaths.insert(".")
+        pendingChanges.recordPendingChange(at: schedulingClock.now())
+        pendingChangesByWorktreeId[worktreeId] = pendingChanges
+        scheduleDrainIfNeeded()
     }
 }

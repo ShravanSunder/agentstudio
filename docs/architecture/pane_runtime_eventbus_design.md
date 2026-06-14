@@ -111,6 +111,18 @@ All topology events (`.repoDiscovered`, `.repoRemoved`) and enrichment events (`
 
 > **Files:** `Core/RuntimeEventSystem/Events/EventChannels.swift` defines `PaneRuntimeEventBus`. `App/Events/` defines `AppEvent` and `AppEventBus`.
 
+## Buffering Policies
+
+Runtime streams declare an explicit buffering policy at their producer or subscription boundary. Loss-tolerant streams use newest-buffered queues because events are triggers for recomputing current facts, not a canonical event log.
+
+| Stream | Policy | Rationale |
+|--------|--------|-----------|
+| `DarwinFSEventStreamClient.events()` | `.bufferingNewest(256)` | FSEvents trigger filesystem/git recomputation from disk. Extreme overflow may delay a root event, but state is not accumulated from deltas; watched-folder discovery also has a 300s fallback rescan. |
+| `EventBus.subscribe()` default | `.bufferingNewest(256)` | Independent consumers should not let a stalled subscriber grow memory without bound. Producers receive drop counts for observability. |
+| `GitWorkingDirectoryProjector` bus subscription | `.bufferingNewest(256)` | Git snapshots are rebuildable current-state projections; rapid filesystem bursts coalesce through the projector's explicit coalescing window. |
+| `ForgeActor` bus subscription | `.bufferingNewest(256)` | Forge refreshes are rebuildable enrichment facts and also have command/poll fallback paths. |
+| `PaneRuntimeEventChannel` outbound bus queue | `.bufferingNewest(128)` | Pane runtime bus posts are fan-out coordination facts; individual panes retain their own replay buffer for pane-scoped history. |
+
 ## Direct Commands Use Capability Protocols
 
 The bus is the event-plane coordination mechanism. Direct commands still exist,

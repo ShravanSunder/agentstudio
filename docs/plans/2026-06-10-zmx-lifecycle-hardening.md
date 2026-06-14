@@ -90,35 +90,52 @@ Read-only context:
 
 ## Task Sequence
 
-1. **Planner: per-session skip.** Change `ZmxOrphanCleanupPlan` to carry
-   `knownSessionIds` + `unresolvableCount` and drop `shouldSkipCleanup`.
-   Cleanup proceeds, but `discoverOrphanSessions(excluding:)` keeps its
-   conservative exclusion set; log the unresolvable count. Rationale: an
-   unresolvable pane cannot name its session ID, so it cannot protect it — but
-   sessions follow a deterministic naming scheme, so any session matching the
-   scheme for a *resolvable* pane set is safely classifiable. Add a
-   conservative guard: if `unresolvableCount > 0`, only destroy sessions whose
-   IDs match the app's session-ID prefix format AND are not in the known set
-   AND are older than a safety age (from zmx metadata if available; otherwise
-   keep skip behavior for that launch and log loudly). Update planner tests for
-   both branches.
+1. **Planner: per-session protection by paneId segment.** Change
+   `ZmxOrphanCleanupPlan` to carry `knownSessionIds` +
+   `protectedPaneSegments` and drop `shouldSkipCleanup`. Grounding (verified):
+   every session-ID format embeds a 16-hex pane segment —
+   `sessionId(repoStableKey:worktreeStableKey:paneId:)` ends with
+   `paneSessionSegment(paneId)`, and `floatingSessionId`/`drawerSessionId`
+   embed pane segments too (`ZmxBackend.swift:165-192`). So even when a main
+   pane's repo/worktree stable keys are unresolvable, its `paneId` is always
+   known: protect any discovered session whose ID contains that pane's
+   segment. Destroy only sessions that (a) match the app's session-ID prefix
+   format, (b) are not in the known set, and (c) contain no protected pane
+   segment. zmx exposes no session age metadata (verified: `zmx list`
+   parsing extracts names only), so no age-based guard is possible — the
+   paneId-segment guard replaces it entirely. Log the full session ID before
+   every destroy (destroyed sessions are unrecoverable; the log line is the
+   only forensic trail). Update planner tests: resolvable-only set,
+   unresolvable pane whose segment protects its session, foreign
+   (non-app-prefix) sessions never destroyed.
 2. **Own the cleanup task.** Store the cleanup `Task` handle on `AppDelegate`,
    cancel it in `isolated deinit` and before
    `flushApplicationStateBeforeTermination` returns. Replace the raw
    `Task.sleep(nanoseconds:)` timeout with the injected `Delay`/clock pattern
    already used by `SessionRuntime` so tests can drive it.
-3. **Sequence cleanup vs restore.** Either await cleanup completion before
-   `restoreAllViews` begins, or (preferred, smaller) start cleanup only *after*
-   launch restore completes — the protected-session set is identical, and this
-   removes the kill-vs-attach race window outright. Document the ordering in
-   `session_lifecycle.md`.
+3. **Sequence cleanup vs restore.** Decision: start cleanup only *after*
+   launch restore completes (option b). Two corrections this requires:
+   (a) the known-set/protected-segments must be computed **inside the cleanup
+   task immediately before discovery**, not at `AppDelegate` entry — restore
+   mutates `paneAtom` and a set sampled at boot would be stale; (b)
+   coordination with the restore-performance plan
+   (`2026-06-10-terminal-restore-and-startup-performance.md` task 2 defers
+   `zmx list` discovery off the restore critical path) — cleanup-after-restore
+   is compatible with that deferral and must not block visible-pane restore
+   start; do not choose await-before-restore, which would conflict. Document
+   the ordering contract in `session_lifecycle.md`.
 4. **Async `SessionConfiguration.detect()`.** Add
    `static func detect() async -> SessionConfiguration` running the probes via
    the existing process-executor seam off the main actor (`@concurrent
-   nonisolated` per SE-0461). Boot resolves it once during
-   `bootWorkspaceServices` and hands the value to `PaneCoordinator` (replace
-   the `lazy var`). Keep a synchronous accessor only for the already-resolved
-   cached value.
+   nonisolated` — SE-0461 confirmed: without it, a nonisolated async function
+   inherits the caller's actor in Swift 6.2; the attribute is async-only and
+   incompatible with actor-isolation annotations). Boot resolves it once
+   during `bootWorkspaceServices` and hands the value to `PaneCoordinator`
+   (replace the `lazy var` with a constructor/assignment handoff). Ordering
+   verification step: confirm `PaneCoordinator` is constructed after the
+   await resolves, or that every `sessionConfig` consumer tolerates
+   late-resolution — trace the boot sequence before editing. Keep a
+   synchronous accessor only for the already-resolved cached value.
 5. **Bounded health checks.** Wrap each `backend.isAlive(pane:)` in a timeout
    (injected clock, ~5s, < interval) using a task-group race; mark
    `.unhealthy` on timeout instead of stalling the loop. Keep iteration serial
@@ -129,10 +146,13 @@ Read-only context:
 ## Proof Gates
 
 - Red/green: new planner tests (unresolvable pane no longer blanket-skips;
-  protected set unchanged), cleanup-ordering test (restore completes before
-  any destroy issued, or cleanup awaited — match chosen design), health-check
-  timeout test with a hung fake backend (pane marked unhealthy within bound,
-  loop proceeds to next pane).
+  its session protected via paneId segment; foreign sessions untouched),
+  cleanup-ordering test via a recording fake backend that captures the call
+  sequence (`destroySessionById` timestamps strictly after the
+  restore-completion signal — the fake records call order, no wall-clock
+  assertions), health-check timeout test with a hung fake backend gated on a
+  test-controlled continuation (pane marked unhealthy within the injected
+  clock bound, loop proceeds to next pane).
 - Focused validation: `mise run test -- --filter "ZmxOrphanCleanupPlanner"`,
   `mise run test -- --filter "SessionRuntime"`,
   `mise run test -- --filter "ZmxBackend"`.
@@ -144,9 +164,9 @@ Read-only context:
 
 ## Stop Conditions
 
-- Stop if zmx session metadata cannot distinguish app-created sessions from
-  user sessions safely — fall back to keeping skip semantics for unresolvable
-  launches and report.
+- Stop if verification shows any live session-ID format does NOT embed the
+  pane segment (the protection guard depends on it) — fall back to keeping
+  skip semantics for unresolvable launches and report.
 - Stop if making `detect()` async forces a boot-sequence reordering beyond
   `bootWorkspaceServices` (e.g. window presentation depends on it) — report
   before restructuring boot.
@@ -155,8 +175,9 @@ Read-only context:
 ## Risks
 
 - Aggressive cleanup destroying a user's own zmx sessions: mitigated by
-  prefix-format matching + known-set exclusion + safety-age guard, and by the
-  conservative branch when unresolvable panes exist.
+  prefix-format matching + known-set exclusion + pane-id segment protection for
+  unresolvable panes. zmx exposes no age metadata, so there is no safety-age
+  guard in this design.
 - Async detect changing first-terminal-open latency: config now resolves at
   boot (earlier, off-main), so first open should be faster, but verify the
   PaneCoordinator path never sees a nil config.

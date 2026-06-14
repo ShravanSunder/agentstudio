@@ -86,8 +86,8 @@ struct InboxPromoterTraceTests {
         #expect(record.attributes["terminal.activity.source"] == .string("scrollbar"))
     }
 
-    @Test("observed small activity suppression emits exact inbox promote trace contract")
-    func observedSmallActivitySuppressionEmitsExactInboxPromoteTraceContract() async throws {
+    @Test("attended small activity suppression emits exact inbox promote trace contract")
+    func attendedSmallActivitySuppressionEmitsExactInboxPromoteTraceContract() async throws {
         let paneId = UUID()
         let activityId = UUID()
         let atom = InboxNotificationAtom()
@@ -97,7 +97,7 @@ struct InboxPromoterTraceTests {
             autoClearPolicy: .init(),
             policySnapshot: {
                 .init(
-                    attendedPaneId: nil,
+                    attendedPaneId: paneId,
                     observedPaneIds: [paneId],
                     pinnedToBottomByPaneId: [paneId: true]
                 )
@@ -116,7 +116,7 @@ struct InboxPromoterTraceTests {
         #expect(atom.notifications.isEmpty)
         let record = try #require(try traceRecords(from: traceRuntime).first { $0.body == "inbox.promote" })
         #expect(record.attributes["agentstudio.inbox.decision"] == .string("suppress"))
-        #expect(record.attributes["agentstudio.inbox.reason"] == .string("observed_small_activity"))
+        #expect(record.attributes["agentstudio.inbox.reason"] == .string("attended_small_activity"))
         #expect(record.attributes["agentstudio.inbox.kind"] == .string(InboxNotificationKind.unseenActivity.rawValue))
         #expect(record.attributes["agentstudio.inbox.claim.lane"] == nil)
         #expect(record.attributes["agentstudio.inbox.notification.coalesced"] == .bool(false))

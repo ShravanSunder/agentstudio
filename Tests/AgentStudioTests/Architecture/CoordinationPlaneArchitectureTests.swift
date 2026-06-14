@@ -9,6 +9,8 @@ struct CoordinationPlaneArchitectureTests {
         let appDelegateRoutingSource: String
         let splitViewControllerSource: String
         let paneTabViewControllerSource: String
+        let tabContentHostControllerSource: String
+        let managementLayerCommandControllerSource: String
         let activeTabContentSource: String
         let singleTabContentSource: String
         let flatTabStripContainerSource: String
@@ -25,97 +27,56 @@ struct CoordinationPlaneArchitectureTests {
         let windowLifecycleStoreSource: String
     }
 
+    private func readProjectSource(projectRoot: URL, path: String) throws -> String {
+        try String(contentsOf: projectRoot.appending(path: path), encoding: .utf8)
+    }
+
     private func loadLifecycleCompositionSources(projectRoot: URL) throws -> LifecycleCompositionSources {
         try LifecycleCompositionSources(
-            appDelegateSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
-                encoding: .utf8
-            ),
-            appDelegateWorkspaceBootSource: String(
-                contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
-                encoding: .utf8
-            ),
-            appDelegateRoutingSource: String(
-                contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/App/Boot/AppDelegate+LifecycleRouting.swift"),
-                encoding: .utf8
-            ),
-            splitViewControllerSource: String(
-                contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/App/Windows/MainSplitViewController.swift"),
-                encoding: .utf8
-            ),
-            paneTabViewControllerSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/PaneTabViewController.swift"),
-                encoding: .utf8
-            ),
-            activeTabContentSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/ActiveTabContent.swift"),
-                encoding: .utf8
-            ),
-            singleTabContentSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/SingleTabContent.swift"),
-                encoding: .utf8
-            ),
-            flatTabStripContainerSource: String(
-                contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Panes/FlatTabStripContainer.swift"),
-                encoding: .utf8
-            ),
-            flatPaneStripContentSource: String(
-                contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Panes/FlatPaneStripContent.swift"),
-                encoding: .utf8
-            ),
-            mainWindowControllerSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Windows/MainWindowController.swift"),
-                encoding: .utf8
-            ),
-            paneLeafContainerSource: String(
-                contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift"),
-                encoding: .utf8
-            ),
-            drawerPanelOverlaySource: String(
-                contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift"),
-                encoding: .utf8
-            ),
-            drawerPanelSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift"),
-                encoding: .utf8
-            ),
-            viewRegistrySource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/ViewRegistry.swift"),
-                encoding: .utf8
-            ),
-            paneActionDispatchingSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Actions/PaneActionDispatching.swift"),
-                encoding: .utf8
-            ),
-            paneTabActionDispatcherSource: String(
-                contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/Actions/PaneTabActionDispatcher.swift"
-                ),
-                encoding: .utf8
-            ),
-            ghosttySource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift"),
-                encoding: .utf8
-            ),
-            appLifecycleStoreSource: String(
-                contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/State/MainActor/Atoms/AppLifecycleAtom.swift"
-                ),
-                encoding: .utf8
-            ),
-            windowLifecycleStoreSource: String(
-                contentsOf: projectRoot.appending(
-                    path: "Sources/AgentStudio/Core/State/MainActor/Atoms/WindowLifecycleAtom.swift"
-                ),
-                encoding: .utf8
-            )
+            appDelegateSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+            appDelegateWorkspaceBootSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            appDelegateRoutingSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/App/Boot/AppDelegate+LifecycleRouting.swift"),
+            splitViewControllerSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/App/Windows/MainSplitViewController.swift"),
+            paneTabViewControllerSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/App/Panes/PaneTabViewController.swift"),
+            tabContentHostControllerSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/App/Panes/TabContentHostController.swift"),
+            managementLayerCommandControllerSource: readProjectSource(
+                projectRoot: projectRoot,
+                path: "Sources/AgentStudio/App/Panes/ManagementLayerCommandController.swift"),
+            activeTabContentSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Core/Views/Panes/ActiveTabContent.swift"),
+            singleTabContentSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Core/Views/Panes/SingleTabContent.swift"),
+            flatTabStripContainerSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Core/Views/Panes/FlatTabStripContainer.swift"),
+            flatPaneStripContentSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Core/Views/Panes/FlatPaneStripContent.swift"),
+            mainWindowControllerSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/App/Windows/MainWindowController.swift"),
+            paneLeafContainerSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift"),
+            drawerPanelOverlaySource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift"),
+            drawerPanelSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift"),
+            viewRegistrySource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/App/Panes/ViewRegistry.swift"),
+            paneActionDispatchingSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Core/Actions/PaneActionDispatching.swift"),
+            paneTabActionDispatcherSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Core/Actions/PaneTabActionDispatcher.swift"),
+            ghosttySource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift"),
+            appLifecycleStoreSource: readProjectSource(
+                projectRoot: projectRoot, path: "Sources/AgentStudio/Core/State/MainActor/Atoms/AppLifecycleAtom.swift"),
+            windowLifecycleStoreSource: readProjectSource(
+                projectRoot: projectRoot,
+                path: "Sources/AgentStudio/Core/State/MainActor/Atoms/WindowLifecycleAtom.swift")
         )
     }
 
@@ -176,7 +137,8 @@ struct CoordinationPlaneArchitectureTests {
             )
         )
         #expect(!sources.paneTabViewControllerSource.contains("replaceSplitContentView()"))
-        #expect(sources.paneTabViewControllerSource.contains("tabContentHosts"))
+        #expect(sources.tabContentHostControllerSource.contains("tabContentHosts"))
+        #expect(sources.managementLayerCommandControllerSource.contains("handleManagementCreateTerminal"))
         #expect(sources.paneTabViewControllerSource.contains("PaneTabActionDispatcher"))
         #expect(sources.mainWindowControllerSource.contains("appLifecycleStore: AppLifecycleAtom"))
         #expect(sources.splitViewControllerSource.contains("appLifecycleStore: AppLifecycleAtom"))

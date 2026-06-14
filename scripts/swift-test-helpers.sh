@@ -33,12 +33,14 @@ run_non_serialized_swift_tests() {
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --parallel --num-workers "$SWIFT_TEST_WORKERS" \
+      --skip AgentStudioOTLPBootstrapSmokeTests \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial $label" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --skip AgentStudioOTLPBootstrapSmokeTests \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   fi
 }
@@ -62,6 +64,15 @@ run_webkit_suites() {
     [ -n "$filter" ] || continue
     run_webkit_suite_with_retry "$filter" || return $?
   done < <(webkit_suite_filters)
+}
+
+run_otlp_bootstrap_smoke() {
+  echo "--- OTLP bootstrap smoke (isolated) ---"
+  run_swift_with_timeout \
+    "AgentStudioOTLPBootstrapSmokeTests" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
+      --skip-build --filter AgentStudioOTLPBootstrapSmokeTests --build-path "$BUILD_PATH"
 }
 
 run_swift_with_timeout() {
@@ -176,9 +187,9 @@ run_webkit_suite_with_retry() {
       return 124
     fi
 
-    if [ "$command_status" -ne 124 ] && echo "$output" | grep -Eq "unexpected signal code [0-9]+"; then
+    if [ "$command_status" -ne 124 ] && grep -Eq "unexpected signal code [0-9]+" <<<"$output"; then
       local signal_code
-      signal_code=$(echo "$output" | grep -Eo "unexpected signal code [0-9]+" | grep -Eo "[0-9]+" | tail -n 1)
+      signal_code=$(grep -Eo "unexpected signal code [0-9]+" <<<"$output" | grep -Eo "[0-9]+" | tail -n 1)
       if [ -z "$signal_code" ]; then
         signal_code="unknown"
       fi

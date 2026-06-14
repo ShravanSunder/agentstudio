@@ -28,6 +28,78 @@ struct GhosttyActionRouterTests {
         }
     }
 
+    @Test("explicitly routed Ghostty action tags all produce a routing decision")
+    func explicitlyRoutedTags_allProduceRoutingDecision() {
+        let appTarget = ghostty_target_s(tag: GHOSTTY_TARGET_APP, target: ghostty_target_u())
+        let routingLookup = FakeActionRoutingLookup()
+
+        for actionTag in Ghostty.ActionRouter.explicitlyRoutedTags {
+            let action = ghostty_action_s(
+                tag: ghostty_action_tag_e(rawValue: actionTag.rawValue),
+                action: ghostty_action_u()
+            )
+
+            let routingDecision = Ghostty.ActionRouter.routingDecision(
+                for: actionTag,
+                rawActionTag: actionTag.rawValue,
+                target: appTarget,
+                action: action,
+                routingLookupProvider: { routingLookup }
+            )
+
+            #expect(routingDecision != nil, "Expected \(actionTag) to produce an explicit routing decision")
+        }
+    }
+
+    @Test("missing routing decisions fail closed instead of falling back to Ghostty default")
+    func missingRoutingDecision_failsClosed() async throws {
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router-missing-decision",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
+            ]),
+            processIdentifier: 253,
+            sessionID: "ghostty-session",
+            timeUnixNano: { 1201 }
+        )
+        let appTarget = ghostty_target_s(tag: GHOSTTY_TARGET_APP, target: ghostty_target_u())
+        let routingLookup = FakeActionRoutingLookup()
+
+        Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
+        defer {
+            Ghostty.ActionRouter.bindTraceRuntime(nil)
+        }
+
+        let handled = Ghostty.ActionRouter.fallbackUnhandledKnownAction(
+            actionTag: GhosttyActionTag.newTab,
+            rawActionTag: GhosttyActionTag.newTab.rawValue,
+            target: appTarget,
+            routingLookupProvider: { routingLookup }
+        )
+
+        #expect(handled)
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
+
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.ghostty.action.name\":\"newTab\""))
+        #expect(contents.contains("\"agentstudio.ghostty.route.reason\":\"missing_routing_decision\""))
+        #expect(contents.contains("\"agentstudio.ghostty.route.result\":true"))
+        #expect(contents.contains("\"agentstudio.ghostty.signal.class\":\"unhandled\""))
+    }
+
+    @Test("known Ghostty action tags are exhaustively classified")
+    func knownGhosttyActionTagsAreExhaustivelyClassified() {
+        let classifiedTags = Ghostty.ActionRouter.explicitlyRoutedTags
+            .union(Ghostty.ActionRouter.interceptedTags)
+            .union(Ghostty.ActionRouter.deferredTags)
+
+        #expect(classifiedTags == Set(GhosttyActionTag.allCases))
+    }
+
     @Test(
         "routing with resolved surface object identifier returns false when surface is unknown"
     )
@@ -386,10 +458,7 @@ struct GhosttyActionRouterTests {
         )
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("Ghostty action router should write translation trace") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"ghostty.action.translated\"") == true
-        }
+        await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
 
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.ghostty.action.name\":\"desktopNotification\""))

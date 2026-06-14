@@ -111,11 +111,11 @@ final class InboxPromoter {
     ) -> InboxPromotionOutcome {
         let snapshot = policySnapshot()
         let isPinnedToBottom = activity.isPinnedToBottom || snapshot.isPanePinnedToBottom(paneId)
-        if snapshot.isPaneObserved(paneId),
-            isPinnedToBottom,
+        let isAttendedAtBottom = snapshot.isPaneAttended(paneId) && isPinnedToBottom
+        if isAttendedAtBottom,
             activity.rowsAdded < activity.thresholdRows
         {
-            let reason = "observed_small_activity"
+            let reason = "attended_small_activity"
             tracePromotion(
                 .init(
                     decision: "suppress",
@@ -133,9 +133,7 @@ final class InboxPromoter {
         }
 
         let sessionId = resolveActivitySessionId(for: paneId, snapshot: snapshot)
-        let shouldAppendReadDismissed =
-            snapshot.isPaneAttended(paneId)
-            || (snapshot.isPaneObserved(paneId) && isPinnedToBottom)
+        let shouldAppendReadDismissed = isAttendedAtBottom
         let claimKey = InboxNotificationClaimKey(
             paneId: paneId,
             lane: .activity,
@@ -264,13 +262,11 @@ final class InboxPromoter {
                 return false
             }
             let isUnreadActiveClaim = !notification.isRead && !notification.isDismissedFromPaneInbox
-            let isObservedAtBottom =
-                snapshot.isPaneAttended(paneId)
-                || (snapshot.isPaneObserved(paneId) && snapshot.isPanePinnedToBottom(paneId))
+            let isAttendedAtBottom = snapshot.isPaneAttended(paneId) && snapshot.isPanePinnedToBottom(paneId)
             let isObservedHistoryClaim =
                 notification.isRead
                 && notification.isDismissedFromPaneInbox
-                && isObservedAtBottom
+                && isAttendedAtBottom
                 && notification.timestamp >= sessionActivityCutoff
             guard isUnreadActiveClaim || isObservedHistoryClaim else { return false }
             return claimKey.sessionId != nil
@@ -400,10 +396,9 @@ final class InboxPromoter {
                 isSourcePanePinnedToBottom: true
             ) == .clear
         guard isAutoClearable else { return false }
-        guard !snapshot.isPaneAttended(paneId) else { return true }
         return autoClearPolicy.decision(
             notification: notification,
-            isSourcePaneAttended: snapshot.isPaneObserved(paneId),
+            isSourcePaneAttended: snapshot.isPaneAttended(paneId),
             isSourcePanePinnedToBottom: snapshot.isPanePinnedToBottom(paneId)
         ) == .clear
     }

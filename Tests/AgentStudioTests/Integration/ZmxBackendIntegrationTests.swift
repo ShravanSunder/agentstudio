@@ -115,9 +115,9 @@ extension E2ESerializedTests {
         // MARK: - zmx Binary Path Resolution
 
         @Test
-        func test_zmxBinaryPath_resolved() {
+        func test_zmxBinaryPath_resolved() async {
             // Act
-            let config = SessionConfiguration.detect()
+            let config = await SessionConfiguration.detect()
 
             // Assert — zmxPath should be resolved (zmx may or may not be installed)
             if let path = config.zmxPath {

@@ -5,6 +5,11 @@ import Foundation
 /// Stores report this without knowing how the app will surface it. The App
 /// composition layer turns it into user-visible UI.
 struct PersistenceRecoveryEvent: Sendable, Equatable {
+    struct LocalStateResetSummary: Sendable, Equatable {
+        let drawersCollapsed: Int
+        let cursorsDefaulted: Int
+    }
+
     enum Store: String, Sendable, Codable, Equatable {
         case workspace
         case repoCache
@@ -28,17 +33,20 @@ struct PersistenceRecoveryEvent: Sendable, Equatable {
     let workspaceId: UUID?
     let recovery: Recovery
     let quarantinedFilename: String?
+    let localStateResetSummary: LocalStateResetSummary?
 
     init(
         store: Store,
         workspaceId: UUID?,
         recovery: Recovery,
-        quarantinedFilename: String? = nil
+        quarantinedFilename: String? = nil,
+        localStateResetSummary: LocalStateResetSummary? = nil
     ) {
         self.store = store
         self.workspaceId = workspaceId
         self.recovery = recovery
         self.quarantinedFilename = quarantinedFilename
+        self.localStateResetSummary = localStateResetSummary
     }
 }
 

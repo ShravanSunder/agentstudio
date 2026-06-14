@@ -82,6 +82,21 @@ Each AppKit controller that hosts SwiftUI creates NSHostingView(s) **once** at s
 | `arrangementButtonHostingView` | `ArrangementFloatingButton` | Floating arrangement button |
 | _(pure AppKit)_ | `emptyStateView` | Empty state when no tabs exist |
 
+`PaneTabViewController` remains the `WorkspaceCommandHandling` surface for
+pane, drawer, focus, layout, and workspace commands. It owns AppKit host
+lifecycle, tab-content hosts, and command routing, but delegates the two
+highest-churn interaction domains:
+
+- `WorkspaceFocusController` owns focus trigger handling, focus owner
+  normalization, selection-refocus suppression, and `PaneFocusExecutor`
+  construction.
+- `TabBarInteractionController` owns `CustomTabBar` closure wiring, tab context
+  commands, drag/reorder/drop helpers, and tab rename popover lifecycle.
+
+Worktree tab-reuse policy lives in `WorkspaceCommandResolver`; `PaneCoordinator`
+only sequences the resolved decision by activating an existing tab or creating a
+new terminal tab.
+
 **MainSplitViewController**:
 | NSHostingController | SwiftUI Root | Purpose |
 |---|---|---|
@@ -116,6 +131,8 @@ AppDelegate
 └── MainWindowController
     └── MainSplitViewController
         └── PaneTabViewController
+            ├── WorkspaceFocusController
+            └── TabBarInteractionController
 ```
 
 ### Embedded Ghostty Host Boundary
@@ -147,6 +164,10 @@ thin Ghostty.App
 The main pane area keeps one persistent AppKit content host per tab.
 
 - `PaneTabViewController` owns the tab-host lifecycle
+- `WorkspaceFocusController` owns pane focus state transitions and focus owner
+  application
+- `TabBarInteractionController` owns tab-bar interactions and tab rename
+  popovers
 - each tab host contains one `NSHostingView<SingleTabContent>`
 - inactive tabs are hidden at the AppKit level, not removed from the SwiftUI tree
 - pane actions and drop routing flow through stable dispatcher references instead of fresh closures in the visible tab subtree

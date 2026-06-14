@@ -1,11 +1,16 @@
 import Foundation
 
+struct WorkspaceSQLiteCompletedSnapshotLoad: Sendable {
+    let snapshot: WorkspaceSQLiteSnapshot
+    let localStateResetSummary: PersistenceRecoveryEvent.LocalStateResetSummary?
+}
+
 extension WorkspaceSQLiteStoreBackend {
     func loadCompletedSnapshot(
         preferredWorkspaceId: UUID,
         localRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository,
         repairLocalRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository
-    ) async throws -> WorkspaceSQLiteSnapshot {
+    ) async throws -> WorkspaceSQLiteCompletedSnapshotLoad {
         let workspaceId =
             try coreRepository.fetchActiveOrPreferredRecoverableStagedWorkspaceId(
                 preferredWorkspaceId: preferredWorkspaceId
@@ -46,14 +51,21 @@ extension WorkspaceSQLiteStoreBackend {
         let cursorState: WorkspaceLocalRepository.CursorStateRecord
         let windowState: WorkspaceLocalRepository.WindowStateRecord?
         let localSnapshotIsUsable: Bool
+        let localStateResetSummary: PersistenceRecoveryEvent.LocalStateResetSummary?
         switch readLocalSnapshot(localRepository, matching: snapshotToken) {
         case .matched(let restoredCursorState, let restoredWindowState):
             cursorState = restoredCursorState
             windowState = restoredWindowState
             localSnapshotIsUsable = true
+            localStateResetSummary = nil
         case .needsDefaultLocalState, .unavailable:
             cursorState = WorkspaceSQLiteStateBridge.defaultCursorState(tabShells: tabShells, tabGraph: tabGraph)
             windowState = nil
+            localStateResetSummary = Self.localStateResetSummary(
+                paneGraph: paneGraph,
+                tabShells: tabShells,
+                tabGraph: tabGraph
+            )
             var didRepairLocalSnapshot = false
             if localRepairDisposition == .repairAllowed {
                 didRepairLocalSnapshot = await repairLocalSnapshotIfPossible(
@@ -84,7 +96,10 @@ extension WorkspaceSQLiteStoreBackend {
                 windowState: windowState
             )
         )
-        return WorkspacePersistenceTransformer.sqliteSnapshot(from: state)
+        return .init(
+            snapshot: WorkspacePersistenceTransformer.sqliteSnapshot(from: state),
+            localStateResetSummary: localStateResetSummary
+        )
     }
 
     func hasCompletedSnapshot(workspaceId: UUID, localRepository: WorkspaceLocalRepository) throws -> Bool {
@@ -114,5 +129,32 @@ extension WorkspaceSQLiteStoreBackend {
         } catch {
             return false
         }
+    }
+
+    private static func localStateResetSummary(
+        paneGraph: WorkspaceCoreRepository.PaneGraphRecord,
+        tabShells: [WorkspaceCoreRepository.TabShellRecord],
+        tabGraph: WorkspaceCoreRepository.TabGraphRecord
+    ) -> PersistenceRecoveryEvent.LocalStateResetSummary {
+        let drawersCollapsed = paneGraph.panes.filter { $0.drawer != nil }.count
+        let activeTabCursorDefaulted = tabShells.isEmpty && tabGraph.tabs.isEmpty ? 0 : 1
+        let activeArrangementCursorsDefaulted = tabGraph.tabs.count
+        let activePaneCursorsDefaulted = tabGraph.tabs.reduce(0) { partialResult, tabState in
+            partialResult + tabState.arrangements.count
+        }
+        let activeDrawerChildCursorsDefaulted = tabGraph.tabs.reduce(0) { partialResult, tabState in
+            partialResult
+                + tabState.arrangements.reduce(0) { arrangementPartialResult, arrangementState in
+                    arrangementPartialResult + arrangementState.drawerViews.count
+                }
+        }
+
+        return .init(
+            drawersCollapsed: drawersCollapsed,
+            cursorsDefaulted: activeTabCursorDefaulted
+                + activeArrangementCursorsDefaulted
+                + activePaneCursorsDefaulted
+                + activeDrawerChildCursorsDefaulted
+        )
     }
 }

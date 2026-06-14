@@ -50,9 +50,9 @@ final class PaneCoordinator {
     let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
     let windowLifecycleStore: WindowLifecycleAtom
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let sessionConfig: SessionConfiguration
     var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
-    lazy var sessionConfig = SessionConfiguration.detect()
-    lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
+    var terminalRestoreRuntime: TerminalRestoreRuntime
     private var cwdChangesTask: Task<Void, Never>?
     private var paneEventIngressTask: Task<Void, Never>?
     private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]
@@ -120,6 +120,10 @@ final class PaneCoordinator {
         filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
         filesystemProjectionIndex: (any PaneCoordinatorFilesystemProjectionIndexing)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
+        sessionConfiguration: SessionConfiguration = SessionConfiguration.resolved(
+            environment: ProcessInfo.processInfo.environment,
+            zmxPath: nil
+        ),
         windowLifecycleStore: WindowLifecycleAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
@@ -148,6 +152,8 @@ final class PaneCoordinator {
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
         self.windowLifecycleStore = windowLifecycleStore
         self.performanceTraceRecorder = performanceTraceRecorder
+        sessionConfig = sessionConfiguration
+        terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfiguration)
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()
         setupPrePersistHook()

@@ -43,11 +43,6 @@ private final class RestoreAwareTerminalContainerView: NSView {
     }
 }
 
-struct SplitDropCommitDestination: Equatable {
-    let paneId: UUID
-    let drawerParentPaneId: UUID?
-}
-
 private struct PaneInboxCommandTarget {
     let parentPaneId: UUID
     let paneIds: [UUID]
@@ -107,6 +102,22 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             managementLayerAtom: atom(\.managementLayer)
         )
     }
+    private lazy var splitDropInteractionController = SplitDropInteractionController(
+        store: store,
+        visiblePaneIdsProvider: { [weak self] tab in
+            guard let self else { return [] }
+            return self.arrangementView.activeVisiblePaneIds(forTab: tab.id)
+        },
+        drawerParentByPaneIdProvider: { [weak self] in
+            self?.drawerParentByPaneId() ?? [:]
+        },
+        drawerLayoutByParentPaneIdProvider: { [weak self] in
+            self?.drawerLayoutByParentPaneId() ?? [:]
+        },
+        dispatchAction: { [weak self] action in
+            self?.dispatchAction(action)
+        }
+    )
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
             guard let self else {
@@ -122,7 +133,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 RestoreTrace.log("PaneTabActionDispatcher.shouldHandleSplitDragPayload dropped ownerReleased")
                 return false
             }
-            return self.shouldHandleSplitDragPayload(payload)
+            return self.splitDropInteractionController.shouldHandleSplitDragPayload(payload)
         },
         shouldAcceptDrop: { [weak self] payload, destPaneId, zone, sizingMode in
             guard let self else {
@@ -1121,21 +1132,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         zone: DropZoneSide,
         sizingMode: DropSizingMode
     ) -> Bool {
-        guard shouldHandleSplitDragPayload(payload) else {
-            return false
-        }
-        let snapshot = dragDropSnapshot()
-        return Self.splitDropCommitPlan(
+        splitDropInteractionController.shouldAcceptDrop(
             payload: payload,
-            destination: SplitDropCommitDestination(
-                paneId: destPaneId,
-                drawerParentPaneId: store.paneAtom.pane(destPaneId)?.parentPaneId
-            ),
+            destPaneId: destPaneId,
             zone: zone,
-            sizingMode: sizingMode,
-            activeTabId: store.tabLayoutAtom.activeTabId,
-            state: snapshot
-        ) != nil
+            sizingMode: sizingMode
+        )
     }
 
     /// Handle a completed drop on a split pane.
@@ -1145,100 +1147,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         zone: DropZoneSide,
         sizingMode: DropSizingMode
     ) {
-        guard shouldHandleSplitDragPayload(payload) else {
-            return
-        }
-        let snapshot = dragDropSnapshot()
-        guard
-            let plan = Self.splitDropCommitPlan(
-                payload: payload,
-                destination: SplitDropCommitDestination(
-                    paneId: destPaneId,
-                    drawerParentPaneId: store.paneAtom.pane(destPaneId)?.parentPaneId
-                ),
-                zone: zone,
-                sizingMode: sizingMode,
-                activeTabId: store.tabLayoutAtom.activeTabId,
-                state: snapshot
-            )
-        else {
-            return
-        }
-        executeDropCommitPlan(plan)
-    }
-
-    private func dragDropSnapshot() -> ActionStateSnapshot {
-        WorkspaceCommandResolver.snapshot(
-            from: store.tabLayoutAtom.tabs,
-            activeTabId: store.tabLayoutAtom.activeTabId,
-            isManagementLayerActive: atom(\.managementLayer).isActive,
-            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
-            drawerParentByPaneId: drawerParentByPaneId(),
-            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
-            visiblePaneIds: { [arrangementView] tab in
-                arrangementView.activeVisiblePaneIds(forTab: tab.id)
-            }
-        )
-    }
-
-    private func executeDropCommitPlan(_ plan: DropCommitPlan) {
-        switch plan {
-        case .paneAction(let action):
-            dispatchAction(action)
-        case .moveTab(let tabId, let toIndex):
-            dispatchAction(.reorderTab(tabId: tabId, newIndex: toIndex))
-        case .extractPaneToTabThenMove(let paneId, let sourceTabId, let toIndex):
-            let tabCountBefore = store.tabLayoutAtom.tabs.count
-            dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
-            guard
-                store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
-                let extractedTabId = store.tabLayoutAtom.activeTabId
-            else {
-                return
-            }
-            dispatchAction(.reorderTab(tabId: extractedTabId, newIndex: toIndex))
-        }
-    }
-
-    nonisolated static func splitDropCommitPlan(
-        payload: SplitDropPayload,
-        destination: SplitDropCommitDestination,
-        zone: DropZoneSide,
-        sizingMode: DropSizingMode,
-        activeTabId: UUID?,
-        state: ActionStateSnapshot
-    ) -> DropCommitPlan? {
-        guard let activeTabId else {
-            return nil
-        }
-        let paneDropDestination = PaneDropDestination.split(
-            targetPaneId: destination.paneId,
-            targetTabId: activeTabId,
-            direction: splitDirection(for: zone),
-            sizingMode: sizingMode,
-            targetDrawerParentPaneId: destination.drawerParentPaneId
-        )
-        let decision = PaneDropPlanner.previewDecision(
+        splitDropInteractionController.handleDrop(
             payload: payload,
-            destination: paneDropDestination,
-            state: state
+            destPaneId: destPaneId,
+            zone: zone,
+            sizingMode: sizingMode
         )
-        if case .eligible(let plan) = decision {
-            return plan
-        }
-        return nil
-    }
-
-    private func shouldHandleSplitDragPayload(_ payload: SplitDropPayload) -> Bool {
-        switch payload.kind {
-        case .existingPane(let sourcePaneId, _):
-            guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return false }
-            return sourcePane.parentPaneId == nil
-        case .newTerminal:
-            return true
-        case .existingTab:
-            return false
-        }
     }
 
     // MARK: - Empty State
@@ -3291,8 +3205,26 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
         paneNotePopover = popover
 
-        let anchorView = viewRegistry.view(for: paneId) ?? view
+        let anchorView = Self.resolvedPaneNoteAnchorView(
+            for: paneId,
+            viewRegistry: viewRegistry,
+            fallbackAnchorView: view
+        )
         popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+    }
+
+    static func resolvedPaneNoteAnchorView(
+        for paneId: UUID,
+        viewRegistry: ViewRegistry,
+        fallbackAnchorView: NSView
+    ) -> NSView {
+        guard let paneAnchorView = viewRegistry.view(for: paneId),
+            paneAnchorView.window != nil
+        else {
+            return fallbackAnchorView
+        }
+
+        return paneAnchorView
     }
 
     private func closePaneNotePopover() {

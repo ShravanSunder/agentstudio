@@ -16,7 +16,14 @@ struct FilesystemPathFilter: Sendable {
     fileprivate static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemPathFilter")
     private let ignoredRules: [GitIgnoreRule]
 
-    static func load(forRootPath rootPath: URL) -> Self {
+    static var permissive: Self {
+        Self(ignoredRules: [])
+    }
+
+    @concurrent
+    nonisolated
+        static func load(forRootPath rootPath: URL) async -> Self
+    {
         let gitIgnorePath = rootPath.appending(path: ".gitignore")
         let fileContents: String
         do {
@@ -40,7 +47,7 @@ struct FilesystemPathFilter: Sendable {
     }
 
     @concurrent nonisolated static func loadOffExecutor(forRootPath rootPath: URL) async -> Self {
-        load(forRootPath: rootPath)
+        await load(forRootPath: rootPath)
     }
 
     func classify(relativePath: String) -> FilesystemPathDisposition {

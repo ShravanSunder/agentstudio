@@ -532,6 +532,55 @@ final class ActionExecutorTests {
         #expect(store.activeTabId == tab.id)
     }
 
+    @Test
+    func test_openTerminal_existingPaneInInactiveArrangement_revealsMatchingPane() {
+        // Arrange
+        let worktreeId = UUID()
+        let repoId = UUID()
+        let worktree = makeWorktree(id: worktreeId)
+        let repo = makeRepo(id: repoId)
+        let visiblePane = store.createPane(
+            launchDirectory: nil,
+            title: "Visible"
+        )
+        let hiddenWorktreePane = store.createPane(
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            title: "Hidden Worktree",
+            facets: PaneContextFacets(
+                repoId: repoId,
+                worktreeId: worktreeId,
+                cwd: URL(fileURLWithPath: "/tmp/worktree")
+            )
+        )
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: visiblePane.id),
+            activePaneId: visiblePane.id
+        )
+        let worktreeArrangement = PaneArrangement(
+            name: "Worktree",
+            isDefault: false,
+            layout: Layout(paneId: hiddenWorktreePane.id),
+            activePaneId: hiddenWorktreePane.id
+        )
+        let tab = Tab(
+            panes: [visiblePane.id, hiddenWorktreePane.id],
+            arrangements: [defaultArrangement, worktreeArrangement],
+            activeArrangementId: defaultArrangement.id
+        )
+        store.appendTab(tab)
+
+        // Act
+        let result = executor.openTerminal(for: worktree, in: repo)
+
+        // Assert
+        #expect(result == nil)
+        #expect(store.activeTabId == tab.id)
+        #expect(store.activeTab?.activeArrangementId == worktreeArrangement.id)
+        #expect(store.activeTab?.activePaneId == hiddenWorktreePane.id)
+    }
+
     // MARK: - Undo GC
 
     @Test

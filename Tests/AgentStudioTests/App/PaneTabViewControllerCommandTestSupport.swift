@@ -42,14 +42,16 @@ func makeHarness(
     closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
     arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom(),
     windowLifecycleStore: WindowLifecycleAtom? = nil,
-    workspaceWindowId: UUID? = nil
+    workspaceWindowId: UUID? = nil,
+    paneNotePresentationEnabled: Bool = true
 ) -> Harness {
     makePaneTabViewControllerCommandHarness(
         createSurfaceResult: createSurfaceResult,
         closeTransitionCoordinator: closeTransitionCoordinator,
         arrangementPanelPresentation: arrangementPanelPresentation,
         windowLifecycleStore: windowLifecycleStore,
-        workspaceWindowId: workspaceWindowId
+        workspaceWindowId: workspaceWindowId,
+        paneNotePresentationEnabled: paneNotePresentationEnabled
     )
 }
 
@@ -59,7 +61,8 @@ func makePaneTabViewControllerCommandHarness(
     closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
     arrangementPanelPresentation: ArrangementPanelPresentationAtom = ArrangementPanelPresentationAtom(),
     windowLifecycleStore injectedWindowLifecycleStore: WindowLifecycleAtom? = nil,
-    workspaceWindowId: UUID? = nil
+    workspaceWindowId: UUID? = nil,
+    paneNotePresentationEnabled: Bool = true
 ) -> PaneTabViewControllerCommandHarness {
     // Command execution still reads the app-global management-layer atom for
     // visibility and shortcut policy. Reset it so parallel suites cannot leak
@@ -79,6 +82,10 @@ func makePaneTabViewControllerCommandHarness(
     let arrangementInlineRenameState = ArrangementInlineRenameState()
     let paneInboxPresenter = PaneInboxNotificationPresenter()
     let launchRecorder = PaneTabViewControllerCommandLaunchRecorder()
+    let paneNotePresentation = makePaneTabViewControllerCommandPaneNotePresentation(
+        enabled: paneNotePresentationEnabled,
+        launchRecorder: launchRecorder
+    )
     let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
         appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: windowLifecycleStore
@@ -136,12 +143,7 @@ func makePaneTabViewControllerCommandHarness(
         copyPathHandler: { path in
             launchRecorder.copiedPaths.append(path)
         },
-        paneNotePresentation: PaneNotePresentation(
-            present: { paneId in
-                launchRecorder.paneNoteRequests.append(paneId)
-            },
-            editorContent: { _, _ in AnyView(EmptyView()) }
-        ),
+        paneNotePresentation: paneNotePresentation,
         closeTransitionCoordinator: closeTransitionCoordinator,
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,
@@ -164,6 +166,20 @@ func makePaneTabViewControllerCommandHarness(
         arrangementPanelPresentation: arrangementPanelPresentation,
         paneInboxPresenter: paneInboxPresenter,
         launchRecorder: launchRecorder
+    )
+}
+
+@MainActor
+private func makePaneTabViewControllerCommandPaneNotePresentation(
+    enabled: Bool,
+    launchRecorder: PaneTabViewControllerCommandLaunchRecorder
+) -> PaneNotePresentation? {
+    guard enabled else { return nil }
+    return PaneNotePresentation(
+        present: { paneId in
+            launchRecorder.paneNoteRequests.append(paneId)
+        },
+        editorContent: { _, _ in AnyView(EmptyView()) }
     )
 }
 

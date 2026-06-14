@@ -80,21 +80,31 @@ Read-only context:
 ## Task Sequence
 
 1. **Buffering policy.** Set `.bufferingNewest(256)` on the FSEvents ingress
-   stream (matching EventBus precedent; batches are coalesced downstream by
-   the 500ms debounce so dropping oldest under storm pressure is safe — the
-   fallback rescan recovers anything missed). Add a comment stating the
-   drop-tolerance rationale.
+   stream (matching EventBus precedent). Drop-tolerance rationale — state it
+   precisely, not loosely: dropped batches are tolerable because per-path
+   facts are recomputed from disk on the next event for that root (events are
+   triggers, not accumulated deltas) and the git projector has a periodic
+   refresh; the 300s fallback rescan covers watched-folder discovery
+   specifically. Verification step: read `startFallbackRescan` and confirm
+   its scope (watched folders vs all registered roots) before writing the
+   comment — do not claim "recovers anything missed" unless the code shows
+   it. Add the verified rationale as the code comment.
 2. **Async path-filter load.** Mark `FilesystemPathFilter.load` as
    `@concurrent nonisolated` async; update the `FilesystemActor` call site to
    `await`. Confirm no actor-state mutation occurs across the new suspension
    point (re-read `ingestRawPaths` for reentrancy: capture `root` state before
    the await, validate the root still exists after).
-3. **Projector default.** Make `coalescingWindow` a required parameter (hard
-   cutover — repo convention) and update the two call sites (pipeline + tests)
-   to pass values explicitly.
+3. **Projector default.** Pre-flight: `grep -rn
+   "GitWorkingDirectoryProjector(" --include="*.swift"` to confirm the full
+   call-site set (expected: pipeline + tests only). Then make
+   `coalescingWindow` a required parameter (hard cutover — repo convention)
+   and update every call site to pass values explicitly.
 4. **Tests.** (a) Storm test: yield 10k synthetic batches with no consumer,
    assert bounded memory/no hang via the buffering policy; (b) gitignore
-   reload test with a slow-filter fake proving the drain loop continues; (c)
+   reload test with a slow-filter fake (gated on a test-controlled
+   continuation, no sleeps) proving the drain loop continues; (b2) reentrancy
+   test: unregister the root while its filter load is suspended — assert no
+   crash and the loaded filter is discarded, not applied to a dead root; (c)
    projector test asserting one `git status` per coalescing window under
    rapid changesets (using injected clock).
 5. **Docs.** Add the buffering-policy table (who buffers what, and why) to

@@ -45,6 +45,7 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
     }
 
     private static let defaultLatency: CFTimeInterval = 0.1
+    static let ingressBufferLimit = 256
 
     private let lifecycleLock = NSLock()
     private var hasShutdown = false
@@ -54,7 +55,13 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
     private let eventsContinuation: AsyncStream<FSEventBatch>.Continuation
 
     init() {
-        let (stream, continuation) = AsyncStream.makeStream(of: FSEventBatch.self)
+        // FSEvents are triggers for recomputing filesystem/git facts from disk, not
+        // accumulated deltas. AsyncStream buffer overflow is surfaced immediately
+        // as a marker batch so the actor can refresh control-plane policy and resync.
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: FSEventBatch.self,
+            bufferingPolicy: .bufferingNewest(Self.ingressBufferLimit)
+        )
         self.eventsStream = stream
         self.eventsContinuation = continuation
     }
@@ -197,7 +204,25 @@ final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked Sendable 
         lifecycleLock.unlock()
         guard shouldEmit else { return }
 
-        eventsContinuation.yield(FSEventBatch(worktreeId: worktreeId, paths: paths))
+        let yieldResult = eventsContinuation.yield(
+            FSEventBatch(worktreeId: worktreeId, paths: paths, didOverflow: false)
+        )
+        emitOverflowMarkerIfNeeded(yieldResult)
+    }
+
+    private func emitOverflowMarkerIfNeeded(_ yieldResult: AsyncStream<FSEventBatch>.Continuation.YieldResult) {
+        guard case .dropped(let droppedBatch) = yieldResult else { return }
+        guard !droppedBatch.didOverflow else { return }
+
+        let overflowWorktreeId = droppedBatch.worktreeId
+        lifecycleLock.lock()
+        let shouldEmit = !hasShutdown && streamByWorktreeId[overflowWorktreeId] != nil
+        lifecycleLock.unlock()
+        guard shouldEmit else { return }
+
+        _ = eventsContinuation.yield(
+            FSEventBatch(worktreeId: overflowWorktreeId, paths: [], didOverflow: true)
+        )
     }
 
     private static func teardown(_ registration: StreamRegistration) {
