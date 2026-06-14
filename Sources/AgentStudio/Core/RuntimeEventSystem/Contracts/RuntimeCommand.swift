@@ -58,8 +58,6 @@ enum BrowserCommand: Sendable {
 
 enum DiffCommand: Sendable {
     case loadDiff(DiffArtifact)
-    case approveHunk(hunkId: String)
-    case rejectHunk(hunkId: String, reason: String?)
 }
 
 enum EditorCommand: Sendable {

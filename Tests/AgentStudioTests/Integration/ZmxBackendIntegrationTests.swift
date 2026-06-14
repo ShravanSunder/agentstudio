@@ -49,7 +49,7 @@ extension E2ESerializedTests {
                 // Assert — handle is valid (no zmx session actually started, that happens on attach)
                 #expect(handle.id.hasPrefix("as-"))
                 #expect(handle.id.count == 53)
-                #expect(handle.hasValidId)
+                #expect(handle.id.split(separator: "-").count == 4)
             }
         }
 

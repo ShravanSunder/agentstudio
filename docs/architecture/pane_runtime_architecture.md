@@ -825,7 +825,7 @@ struct PaneMetadata: Sendable {
     // ── Fixed-at-creation identity ──
     let paneId: PaneId
     let contentType: PaneContentType
-    let source: PaneMetadataSource
+    let launchDirectory: URL?
     let executionBackend: ExecutionBackend
     let createdAt: Date
 
@@ -859,11 +859,6 @@ enum PaneContentType: Hashable, Sendable {
     case agent
     case codeViewer
     case plugin(String)
-}
-
-enum PaneMetadataSource: Sendable {
-    case worktree(worktreeId: UUID, repoId: UUID)
-    case floating(workingDirectory: URL?, title: String?)
 }
 
 /// Capabilities are a closed built-in set with a plugin extension case.
@@ -1505,7 +1500,10 @@ struct BackgroundPrewarmAttachPolicy: Sendable {
 
 ### Contract 5b: Restart Reconcile Policy (LUNA-324)
 
-On app launch, the restore flow reconciles persisted workspace state against live zmx daemons before creating any Ghostty surfaces. This prevents stale sessions from consuming resources and ensures orphaned zmx processes are cleaned up.
+On app launch, the restore flow reconciles persisted workspace state against
+live zmx daemons before creating any Ghostty surfaces. Startup reconciliation
+hydrates legacy missing anchors, protects known sessions, and reports
+runtime-only sessions. It does not destroy zmx sessions.
 
 #### Reconcile Sequence
 
@@ -1513,97 +1511,90 @@ On app launch, the restore flow reconciles persisted workspace state against liv
 /// Executed once during AppDelegate.applicationDidFinishLaunching,
 /// BEFORE surface creation or pane restoration.
 ///
-/// Input:
-///   - persisted: Set<SessionId> from WorkspacePersistor (last saved state)
-///   - live: Set<SessionId> from `zmx list` with ZMX_DIR environment
+/// Dependencies:
+///   - inventory: discovery-only zmx session inventory
+///   - terminalRestoreRuntime: stored-first zmx session anchor resolver
+///   - store: WorkspaceStore for reading panes and persisting hydrated anchors
 ///
-/// Dependencies (injected on the owning coordinator/service):
-///   - zmxBackend: ZmxBackend instance for session discovery
-///   - persistor: WorkspacePersistor for retrieving persisted state
-///   - clock: any Clock<Duration> for orphan discovery timestamps
+/// The reconcile hydrates missing legacy anchors and produces diagnostic
+/// classification for unprotected runtime-only sessions.
 ///
-/// The reconcile produces a classification for every known session.
-/// Surface creation and attach proceed only for runnable sessions.
-///
-/// This is a SYNCHRONOUS operation — no surfaces exist yet, no races.
+/// This path is non-destructive. It must not hold a kill-capable backend.
 
-enum RestoreClassification: Sendable {
-    /// Persisted AND live in zmx → safe to restore.
-    /// Action: create surface, apply attach readiness policy.
-    case runnable
-
-    /// Persisted but NOT live in zmx → session died while app was closed.
-    /// Action: show restart placeholder in the pane slot. User can
-    /// restart manually or the pane can be auto-removed after confirmation.
-    case expired(reason: String)
-
-    /// Live in zmx but NOT persisted or protected → orphan from a previous
-    /// crash or incomplete shutdown.
-    case orphan
+protocol ZmxStartupSessionInventory: Sendable {
+    func discoverLiveSessionInventory() async -> ZmxSessionInventorySnapshot
 }
 
-struct ReconcileResult: Sendable {
-    let runnable: [SessionId: PersistedSessionState]
-    let expired: [SessionId: String]  // sessionId → reason
-    let orphans: Set<SessionId>
+struct StartupReconciliationResult: Sendable {
+    let inventoryOutcome: ZmxSessionInventoryOutcome
+    let liveSessionCount: Int
+    let hydratedAnchorCount: Int
+    let protectedSessionCount: Int
+    let unresolvedCandidateCount: Int
+    let unmatchedLiveSessionCount: Int
 }
 
 @MainActor
-func reconcileOnLaunch(
-    persisted: Set<SessionId>,
-    zmxDir: URL
-) async -> ReconcileResult {
-    // 1. Snapshot live sessions (single zmx list call)
-    let live = await zmxBackend.listSessions(zmxDir: zmxDir)
-    let liveSet = Set(live.map(\.sessionId))
-
-    // 2. Classify persisted sessions
-    var runnable: [SessionId: PersistedSessionState] = [:]
-    var expired: [SessionId: String] = [:]
-    for sessionId in persisted {
-        if liveSet.contains(sessionId) {
-            runnable[sessionId] = persistor.state(for: sessionId)
-        } else {
-            expired[sessionId] = "zmx session not found on launch"
-        }
+func reconcileZmxSessionAnchorsAtStartup(
+    inventory: any ZmxStartupSessionInventory,
+    terminalRestoreRuntime: TerminalRestoreRuntime
+) async throws -> StartupReconciliationResult {
+    let liveInventory = await inventory.discoverLiveSessionInventory()
+    let candidates = zmxOrphanCleanupCandidates(terminalRestoreRuntime: terminalRestoreRuntime)
+    guard case .complete = liveInventory.outcome else {
+        let unavailableSummary = ZmxOrphanCleanupPlanner.unavailableInventorySummary(
+            candidates: candidates
+        )
+        return StartupReconciliationResult(
+            inventoryOutcome: liveInventory.outcome,
+            liveSessionCount: 0,
+            hydratedAnchorCount: 0,
+            protectedSessionCount: unavailableSummary.protectedSessionCount,
+            unresolvedCandidateCount: unavailableSummary.unresolvedCandidateCount,
+            unmatchedLiveSessionCount: 0
+        )
     }
-
-    // 3. Classify runtime-only sessions (orphans)
-    let orphans = liveSet.subtracting(persisted)
-
-    return ReconcileResult(
-        runnable: runnable,
-        expired: expired,
-        orphans: orphans
+    let plan = ZmxOrphanCleanupPlanner.plan(
+        candidates: candidates,
+        liveSessionIds: liveInventory.sessionIds
+    )
+    await persistHydratedZmxSessionAnchors(plan.sessionIdsToPersistByPaneId)
+    let unmatchedLiveSessionIds = plan.cleanupPlan.destroyableOrphanSessionIds(
+        from: liveInventory.sessionIds
+    )
+    return StartupReconciliationResult(
+        inventoryOutcome: liveInventory.outcome,
+        liveSessionCount: liveInventory.sessionIds.count,
+        hydratedAnchorCount: plan.sessionIdsToPersistByPaneId.count,
+        protectedSessionCount: plan.cleanupPlan.knownSessionIds.count,
+        unresolvedCandidateCount: plan.cleanupPlan.unresolvedCandidateCount,
+        unmatchedLiveSessionCount: unmatchedLiveSessionIds.count
     )
 }
 ```
 
-#### Orphan Cleanup Safety Policy
+#### Future Background Janitor Policy
 
 ```swift
-/// Orphans are destroyed only after launch restore completes and after the
-/// restored pane graph has been sampled for exact known IDs and unresolved
-/// pane-segment protection.
+/// Destructive cleanup is not part of startup reconciliation.
 ///
 /// Rules:
-///   1. Resolvable restored panes protect their exact derived zmx session IDs.
-///   2. Unresolvable restored main panes protect any app session ID containing
-///      their embedded 16-hex paneId segment.
-///   3. Destroy only Agent Studio-prefixed session IDs outside both sets.
-///   4. Log the full session ID before every destroy attempt.
+///   1. Never run at boot.
+///   2. Prove durable instance/workspace ownership before kill.
+///   3. Grace TTL from discovery time.
+///   4. Re-check liveness and ownership before kill.
+///   5. Never kill a session whose kind-aware pane segment matches a persisted pane.
+///   6. Log discovery, ownership proof, kill attempt, and outcome.
 ///
-/// `zmx list` exposes session names but no age metadata, so there is no
-/// TTL/safety-age gate in this path.
+/// This policy requires a separate background job and datastore-backed
+/// ownership model. Shared `ZMX_DIR` and `as-*` prefix are not enough proof.
 
-struct OrphanCleanupPolicy: Sendable {
-    let knownSessionIds: Set<SessionId>
-    let protectedPaneSegments: Set<String>
+struct ZmxJanitorPolicy: Sendable {
+    let graceTTL: Duration  // default: .seconds(60)
+    let clock: any Clock<Duration>
 
-    func shouldDestroy(_ sessionId: SessionId) -> Bool {
-        isAgentStudioSessionId(sessionId)
-            && !knownSessionIds.contains(sessionId)
-            && !protectedPaneSegments.contains { sessionId.contains($0) }
+    func mayDelete(candidate: ZmxRuntimeOnlySession) -> Bool {
+        candidate.hasDurableOwnershipProof && candidate.age >= graceTTL
     }
 }
 ```
@@ -1617,22 +1608,22 @@ struct OrphanCleanupPolicy: Sendable {
 /// Rules:
 ///   1. Health check interval: 30 seconds (injectable).
 ///   2. Health check method: `zmx list` filtered to known sessions.
-///   3. Each pane's backend call is bounded by an injected timeout
-///      (default 5s). A timeout marks only that pane unhealthy and the
-///      health-check pass continues to later panes.
-///   4. If a previously-runnable session disappears from zmx list:
-///      mark the pane unhealthy, then route follow-up lifecycle handling
-///      through the coordinator/runtime event path.
-///   5. Health monitoring stops when the pane reaches .terminated.
+///   3. If a previously-runnable session disappears from zmx list:
+///      emit PaneRuntimeEvent.lifecycle(.sessionLost(paneId))
+///      → coordinator transitions pane to .draining → .terminated
+///      → show restart placeholder
+///   4. Health monitoring stops when the pane reaches .terminated.
 ```
 
 #### Restart Reconcile Invariants
 
-1. **Launch restore before cleanup.** Orphan cleanup starts after launch restore completes so visible-pane restore is not blocked by `zmx list`, and the protected set is sampled from restored pane state.
-2. **Single zmx list snapshot.** Reconcile calls `zmx list` exactly once at startup. Individual session health is checked during the health monitoring phase, not during reconcile.
-3. **Unresolvable panes still protect sessions.** If a restored main pane cannot resolve repo/worktree stable keys, its embedded paneId segment protects matching app session IDs from cleanup.
-4. **Destroy attempts are logged first.** zmx destroys are unrecoverable, so the full session ID is logged before every destroy attempt.
-5. **ZMX_DIR scoping.** All zmx operations during reconcile use the same `ZMX_DIR` as session creation. This ensures reconcile only discovers sessions owned by this Agent Studio instance, not sessions from other installations.
+1. **Reconcile before surface creation when needed.** Hydrate missing or invalid legacy anchors before restore/attach code depends on them.
+2. **Conditional live inventory snapshot.** Startup skips live inventory when every persistent zmx pane has a valid stored anchor; otherwise it gets one live session set from the discovery-only inventory boundary.
+3. **Valid stored anchors win.** `TerminalState.zmxSessionId` is the source of truth once present and valid for its pane; legacy derivation is a fallback only.
+4. **Unavailable inventory is still classified locally.** When live inventory is unavailable, valid stored anchors count as protected and only panes without a valid stored anchor count as unresolved; no anchors are hydrated from guesses.
+5. **Boot is non-destructive.** Startup reconciliation must not hold a kill-capable backend and must not call `zmx kill`.
+6. **Runtime-only sessions are diagnostic candidates.** They are logged for a future background janitor, not deleted during startup.
+7. **Shared `ZMX_DIR` is not ownership proof.** Another workspace or app instance may have live sessions in the same directory; prefix membership alone is insufficient for destructive cleanup.
 
 ### Contract 6: Filesystem Batching
 
@@ -1670,8 +1661,8 @@ struct OrphanCleanupPolicy: Sendable {
 /// in the payload is DOMAIN DATA ("which worktree this changeset covers"),
 /// while envelope source + facets carry ROUTING IDENTITY.
 ///
-/// In practice, FileChangeset.worktreeId == envelope.source.worktreeId
-/// always. If they ever diverge, envelope.source is authoritative.
+/// In practice, FileChangeset.worktreeId == envelope.sourceFacets.worktreeId
+/// always. If they ever diverge, envelope.sourceFacets is authoritative.
 struct FileChangeset: Sendable {
     let worktreeId: WorktreeId       // denormalized from envelope.source (domain data)
     let rootPath: URL
@@ -2949,7 +2940,7 @@ The historical codebase used `NotificationCenter` and `DispatchQueue.main.async`
 2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope). See [migration spec](../plans/2026-02-22-swift6-language-mode-migration.md) and [mapping doc](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#luna-342-implementation-record) for details.
 3. **LUNA-325 (in progress):** `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`, and runtime command dispatch scaffolding are landed. Migrated split/tab action families are now routed through typed runtime events (no dual-path NotificationCenter posts for migrated actions). Remaining full-contract parity is tracked through the LUNA-325/LUNA-345 closure gate.
 4. **LUNA-295 (attach orchestration):** Build attach readiness policies and visibility-tier scheduling. Consumes the event stream infrastructure from LUNA-325.
-5. **LUNA-324 (restart reconcile):** Build startup reconcile classification, identity-guarded orphan cleanup, and post-restore health monitoring (Contract 5b).
+5. **LUNA-324 (restart reconcile):** Build startup anchor reconciliation, non-destructive runtime-only classification, and post-restore health monitoring (Contract 5b).
 
 ### Migration Invariant
 
@@ -3090,7 +3081,7 @@ You **accept** the discipline of classifying every event kind (critical vs lossy
 | Ticket | Relationship | Contracts Owned |
 |--------|-------------|-----------------|
 | **LUNA-295** (Pane Attach Orchestration) | Attach readiness policies, visibility-tier scheduling, anti-flicker. Consumes event stream from LUNA-325. | Contract 5a (Attach Readiness), Contract 12a (Visibility-Tier Scheduling), LUNA-295 attach lifecycle diagram |
-| **LUNA-324** (Restart Reconcile) | zmx session reconcile on app launch, orphan cleanup, health monitoring. | Contract 5b (Restart Reconcile Policy) |
+| **LUNA-324** (Restart Reconcile) | zmx session reconcile on app launch, non-destructive startup classification, health monitoring, and future background janitor boundary. | Contract 5b (Restart Reconcile Policy) |
 | **LUNA-325** (Bridge Pattern + Surface State Refactor) | Implements terminal runtime + Ghostty adapter + GhosttyEvent enum + surface registry. Primary implementation ticket. | Contract 1, 2, 3, 4, 7, 7a, 8, 10, 11, 12, 14 |
 | **LUNA-326** (Native Scrollbar) | Consumes the terminal runtime contract. Scrollbar behavior binds to `TerminalRuntime.scrollbarState` via @Observable. Does not invent new transport. | None (consumer only) |
 | **LUNA-327** (State Ownership + Observable Migration) | The current branch. Establishes @Observable store pattern, PaneCoordinator consolidation, `private(set)` unidirectional flow, and `DispatchQueue.main.async` → `MainActor` migration. | D1, D5, Swift 6 invariants, Migration section |

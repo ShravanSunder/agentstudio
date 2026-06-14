@@ -153,6 +153,7 @@ actor WorkspaceSQLiteDatastore {
                 workspaceId: snapshot.id,
                 database: .core
             )
+            await recordProbe(.saveWorkspaceSnapshotSucceeded)
         } catch {
             await recordWorkspaceSaveFailure(
                 snapshot: snapshot,
@@ -160,6 +161,7 @@ actor WorkspaceSQLiteDatastore {
                 database: failureDatabase,
                 error: error
             )
+            await recordProbe(.saveWorkspaceSnapshotFailed)
             throw error
         }
     }

@@ -120,7 +120,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
     private func makeSubscribedPaneId(in store: WorkspaceStore) -> UUID {
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Terminal"), title: "Terminal")
+            metadata: PaneMetadata(title: "Terminal")
         )
         store.appendTab(Tab(paneId: pane.id))
         return pane.id
@@ -234,7 +234,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let pane = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Solo"), title: "Solo")
+            metadata: PaneMetadata(title: "Solo")
         )
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
@@ -254,7 +254,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let parentPane = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Parent"), title: "Parent")
+            metadata: PaneMetadata(title: "Parent")
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
@@ -280,15 +280,15 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
         let paneA = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/a-\(UUID().uuidString)")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "A"), title: "A")
+            metadata: PaneMetadata(title: "A")
         )
         let paneB = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/b-\(UUID().uuidString)")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "B"), title: "B")
+            metadata: PaneMetadata(title: "B")
         )
         let minimizedPane = harness.store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/c-\(UUID().uuidString)")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Minimized"), title: "Minimized")
+            metadata: PaneMetadata(title: "Minimized")
         )
 
         let tab = Tab(paneId: paneA.id)

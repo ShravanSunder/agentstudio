@@ -43,6 +43,11 @@ private final class RestoreAwareTerminalContainerView: NSView {
     }
 }
 
+private struct PaneInboxCommandTarget {
+    let parentPaneId: UUID
+    let paneIds: [UUID]
+}
+
 /// Tab-based terminal controller with custom Ghostty-style tab bar.
 ///
 /// PaneTabViewController is a composition-oriented controller in `App/`. It reads
@@ -59,6 +64,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneTabViewController")
     private static let genericGitHubURL = URL(string: "https://github.com")!
 
+    private enum WorkspaceNavigationFocusScope: Equatable {
+        case mainRow
+        case drawer(parentPaneId: UUID)
+    }
+
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
@@ -72,10 +82,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let viewRegistry: ViewRegistry
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
     private let arrangementPanelPresentation: ArrangementPanelPresentationAtom
     private let registersAsCommandHandler: Bool
+    private var tabRenamePopover: NSPopover?
+    private var paneNotePopover: NSPopover?
+    private var tabRenameTransientSurfaceToken: TransientKeyboardSurfaceToken?
     private let installedEditorTargetsProvider: @MainActor () -> [ExternalEditorTarget]
     private let openEditorHandler: OpenEditorHandler
     private let openFinderHandler: @MainActor (URL) -> Bool
@@ -104,7 +118,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             self?.dispatchAction(action)
         }
     )
-    private var tabContentHostControllerStorage: TabContentHostController?
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
             guard let self else {
@@ -129,7 +142,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 )
                 return false
             }
-            return self.splitDropInteractionController.shouldAcceptDrop(
+            return self.evaluateDropAcceptance(
                 payload: payload,
                 destPaneId: destPaneId,
                 zone: zone,
@@ -143,16 +156,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 )
                 return
             }
-            self.splitDropInteractionController.handleDrop(
-                payload: payload,
-                destPaneId: destPaneId,
-                zone: zone,
-                sizingMode: sizingMode
-            )
+            self.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone, sizingMode: sizingMode)
         }
     )
-
-    private var paneAuxiliaryCommandControllerStorage: PaneAuxiliaryCommandController?
 
     // MARK: - View State
 
@@ -160,6 +166,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private var terminalContainer: RestoreAwareTerminalContainerView!
     private var emptyStateView: NSHostingView<WorkspaceEmptyStateView>?
     private var lastEmptyStateModel: WorkspaceEmptyStateModel?
+    private var tabContentHosts: [UUID: PersistentTabHostView] = [:]
     #if DEBUG
         private(set) var paneRepresentableDismantleCount = 0
     #endif
@@ -167,144 +174,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     /// Local event monitor for arrangement bar keyboard shortcut
     private var arrangementBarEventMonitor: Any?
     private var notificationTasks: [Task<Void, Never>] = []
+    private var pendingVisibleViewRestoreTask: Task<Void, Never>?
 
-    private lazy var workspaceFocusController = WorkspaceFocusController(
-        store: store,
-        executor: executor,
-        viewRegistry: viewRegistry,
-        windowProvider: { [weak self] in
-            self?.view.window
-        }
-    )
-
-    private lazy var managementLayerCommandController = ManagementLayerCommandController(
-        store: store,
-        repoCache: repoCache,
-        executor: executor,
-        workspaceFocusController: workspaceFocusController,
-        arrangementViewProvider: { [store] in
-            WorkspaceArrangementViewDerived(
-                tabLayoutAtom: store.tabLayoutAtom,
-                paneAtom: store.paneAtom,
-                managementLayerAtom: atom(\.managementLayer)
-            )
-        },
-        dispatchAction: { [weak self] action in
-            self?.dispatchAction(action)
-        },
-        executeCommand: { [weak self] command in
-            self?.execute(command)
-        },
-        canExecuteCommand: { [weak self] command in
-            self?.canExecute(command) ?? false
-        },
-        handlePaneFocusTrigger: { [weak self] trigger in
-            self?.handlePaneFocusTrigger(trigger)
-        },
-        openGitHubWebview: { [weak self] paneId in
-            self?.openGitHubWebview(for: paneId)
-        },
-        focusTargetedDrawerPane: { [weak self] parentPaneId, drawerPaneId in
-            self?.focusTargetedDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
-        }
-    )
-
-    private lazy var tabBarInteractionController = TabBarInteractionController(
-        store: store,
-        tabBarAdapter: tabBarAdapter,
-        arrangementInlineRenameState: arrangementInlineRenameState,
-        tabRenamePopoverState: tabRenamePopoverState,
-        windowLifecycleStore: windowLifecycleStore,
-        workspaceWindowId: workspaceWindowId,
-        dispatchAction: { [weak self] action in
-            self?.dispatchAction(action)
-        },
-        handlePaneFocusTrigger: { [weak self] trigger in
-            self?.handlePaneFocusTrigger(trigger)
-        },
-        addNewTab: { [weak self] in
-            self?.addNewTab()
-        },
-        openGitHubWebview: { [weak self] in
-            self?.openGitHubWebview()
-        }
-    )
-
-    private func ensureTabContentHostController() -> TabContentHostController {
-        if let controller = tabContentHostControllerStorage {
-            return controller
-        }
-
-        let controller = TabContentHostController(
-            store: store,
-            repoCache: repoCache,
-            viewRegistry: viewRegistry,
-            appLifecycleStore: appLifecycleStore,
-            closeTransitionCoordinator: closeTransitionCoordinator,
-            actionDispatcher: actionDispatcher,
-            executor: executor,
-            paneInboxPresentation: paneInboxPresentation,
-            workspaceWindowId: workspaceWindowId,
-            terminalContainerProvider: { [weak self] in
-                self?.terminalContainer
-            },
-            rootViewProvider: { [weak self] in
-                guard let self, self.isViewLoaded else { return nil }
-                return self.view
-            },
-            tabBarHostingViewProvider: { [weak self] in
-                self?.tabBarHostingView
-            },
-            handlePaneFocusTrigger: { [weak self] trigger in
-                self?.handlePaneFocusTrigger(trigger)
-            },
-            openPaneGitHub: { [weak self] paneId in
-                self?.openGitHubWebview(for: paneId)
-            }
-        )
-        tabContentHostControllerStorage = controller
-        return controller
-    }
-
-    private func ensurePaneAuxiliaryCommandController() -> PaneAuxiliaryCommandController {
-        if let controller = paneAuxiliaryCommandControllerStorage {
-            return controller
-        }
-
-        let controller = PaneAuxiliaryCommandController(
-            store: store,
-            windowLifecycleStore: windowLifecycleStore,
-            workspaceWindowId: workspaceWindowId,
-            viewRegistry: viewRegistry,
-            paneInboxPresentation: paneInboxPresentation,
-            paneNotePresentation: paneNotePresentation,
-            installedEditorTargetsProvider: installedEditorTargetsProvider,
-            openEditorHandler: openEditorHandler,
-            openFinderHandler: openFinderHandler,
-            copyPathHandler: copyPathHandler,
-            activeMainPaneIdProvider: { [weak self] in
-                self?.activeMainPaneId()
-            },
-            visibleActiveDrawerPaneIdProvider: { [weak self] parentPaneId in
-                self?.visibleActiveDrawerPaneId(for: parentPaneId)
-            },
-            workspaceFocusOwnerProvider: { [weak self] in
-                self?.normalizedWorkspaceNavigationScopeState() ?? .mainPane(paneId: nil)
-            },
-            focusTargetedPane: { [weak self] paneId in
-                self?.focusTargetedPane(paneId)
-            },
-            fallbackAnchorViewProvider: { [weak self] in
-                guard let self, self.isViewLoaded else { return nil }
-                return self.view
-            },
-            popoverDelegateProvider: { [weak self] in
-                self
-            }
-        )
-        paneAuxiliaryCommandControllerStorage = controller
-        return controller
-    }
+    /// Focus tracking — only refocus when the active tab or pane actually changes
+    private var lastFocusedTabId: UUID?
+    private var lastFocusedPaneId: UUID?
+    private var suppressedSelectionDrivenRefocus: (tabId: UUID?, paneId: UUID?)?
+    private var lastManagementLayerActive = false
+    private var managementNavigationScope: WorkspaceNavigationFocusScope = .mainRow
+    private lazy var paneFocusExecutor = makePaneFocusExecutor()
 
     // MARK: - Init
 
@@ -340,6 +218,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState(),
         arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState(),
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = atom(\.arrangementPanelPresentation),
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         registersAsCommandHandler: Bool = true
     ) {
         self.store = store
@@ -358,6 +237,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.copyPathHandler = copyPathHandler
         self.paneNotePresentation = paneNotePresentation
         self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.performanceTraceRecorder = performanceTraceRecorder
         self.tabRenamePopoverState = tabRenamePopoverState
         self.arrangementInlineRenameState = arrangementInlineRenameState
         self.arrangementPanelPresentation = arrangementPanelPresentation
@@ -395,7 +275,61 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         containerView.addSubview(terminalContainer)
 
         // Create custom tab bar AFTER (so it's on top visually)
-        tabBarHostingView = tabBarInteractionController.makeTabBarHostingView(popoverDelegate: self)
+        let tabBar = CustomTabBar(
+            adapter: tabBarAdapter,
+            arrangementInlineRenameState: arrangementInlineRenameState,
+            onSelect: { [weak self] tabId in
+                self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
+            },
+            onClose: { [weak self] tabId in
+                self?.dispatchAction(.closeTab(tabId: tabId))
+            },
+            onCommand: { [weak self] command, tabId in
+                self?.handleTabCommand(command, tabId: tabId)
+            },
+            onTabFramesChanged: { [weak self] frames in
+                self?.tabBarHostingView?.updateTabFrames(frames)
+            },
+            onAdd: { [weak self] in
+                self?.addNewTab()
+            },
+            onOpenGitHub: { [weak self] in
+                self?.openGitHubWebview()
+            },
+            onPaneAction: { [weak self] action in
+                self?.dispatchAction(action)
+            },
+            onSaveArrangement: { [weak self] tabId in
+                guard let self, let tab = self.store.tabLayoutAtom.tab(tabId) else { return }
+                let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
+                self.dispatchAction(.createArrangement(tabId: tabId, name: name))
+            },
+            onOpenRepoInTab: {
+                CommandDispatcher.shared.dispatch(.showCommandBarRepos)
+            },
+            workspaceWindowId: workspaceWindowId
+        )
+        tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
+        tabBarHostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
+            self?.handleTabReorder(fromId: fromId, toIndex: toIndex)
+        }
+        tabBarHostingView.dragPayloadProvider = { [weak self] tabId in
+            self?.createDragPayload(for: tabId)
+        }
+        tabBarHostingView.onSelect = { [weak self] tabId in
+            self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
+        }
+        tabBarHostingView.expandedDrawerParentIdForTab = { [weak self] tabId in
+            guard let self else { return nil }
+            return DrawerDragOwnershipPolicy.expandedDrawerParentPaneId(
+                tabId: tabId,
+                tabLayoutAtom: self.store.tabLayoutAtom,
+                paneAtom: self.store.paneAtom
+            )
+        }
+        tabBarHostingView.onAutoDismissDrawerForDrag = { [weak self] _, drawerParentPaneId in
+            self?.dispatchAction(.toggleDrawer(paneId: drawerParentPaneId))
+        }
         tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
         tabBarHostingView.wantsLayer = true
         containerView.addSubview(tabBarHostingView)
@@ -438,13 +372,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             CommandDispatcher.shared.handler = self
         }
 
-        let tabContentHostController = ensureTabContentHostController()
-        tabContentHostController.syncTabContentHosts()
-        tabContentHostController.updateVisibleTabHost()
+        syncTabContentHosts()
+        updateVisibleTabHost()
 
         // Observe store for AppKit-level concerns (empty state visibility, focus management)
         updateEmptyState()
         observeForAppKitState()
+        observeForManagementLayerState()
 
         // App-owned global shortcuts route through the centralized command pipeline.
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -466,11 +400,22 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     override func viewWillLayout() {
+        let clock = ContinuousClock()
+        let layoutStart = clock.now
         super.viewWillLayout()
-        let tabContentHostController = ensureTabContentHostController()
-        tabContentHostController.syncTabContentHosts()
-        tabContentHostController.updateVisibleTabHost()
+        syncTabContentHosts()
+        updateVisibleTabHost()
         updateEmptyState()
+        performanceTraceRecorder?.recordDuration(
+            .paneTabLayout,
+            duration: layoutStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.pane_tab_layout.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_tab_layout.tab.count": .int(store.tabLayoutAtom.tabs.count),
+                "agentstudio.performance.pane_tab_layout.subview.count": .int(view.subviews.count),
+                "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
+            ]
+        )
     }
 
     private func setupNotificationObservers() {
@@ -497,7 +442,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func shutdown() {
-        tabContentHostControllerStorage?.shutdown()
+        pendingVisibleViewRestoreTask?.cancel()
+        pendingVisibleViewRestoreTask = nil
         if let monitor = arrangementBarEventMonitor {
             NSEvent.removeMonitor(monitor)
             arrangementBarEventMonitor = nil
@@ -509,9 +455,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     isolated deinit {
-        tabContentHostControllerStorage?.shutdown()
         let monitor = arrangementBarEventMonitor
         let tasks = notificationTasks
+        let pendingVisibleViewRestoreTask = pendingVisibleViewRestoreTask
+        pendingVisibleViewRestoreTask?.cancel()
         Task { @MainActor in
             if let monitor {
                 NSEvent.removeMonitor(monitor)
@@ -535,7 +482,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             _ = atom(\.welcome).isChoosingFolder
             _ = atom(\.welcome).folderScanState
             _ = self.repoCache.recentTargets
-            _ = atom(\.managementLayer).isActive
         } onChange: {
             Task { @MainActor [weak self] in
                 self?.handleAppKitStateChange()
@@ -544,15 +490,86 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
+    private func observeForManagementLayerState() {
+        withObservationTracking {
+            _ = atom(\.managementLayer).isActive
+        } onChange: {
+            Task { @MainActor [weak self] in
+                self?.handleManagementLayerStateChange()
+                self?.observeForManagementLayerState()
+            }
+        }
+    }
+
     private func handleAppKitStateChange() {
-        let tabContentHostController = ensureTabContentHostController()
-        tabContentHostController.syncTabContentHosts()
-        tabContentHostController.updateVisibleTabHost()
+        syncTabContentHosts()
+        updateVisibleTabHost()
         rebuildEmptyStateView()
         updateEmptyState()
         prunePaneInboxPresentationState()
 
-        workspaceFocusController.handleAppKitStateChange()
+        managementNavigationScope = normalizedWorkspaceNavigationFocusScope()
+
+        // Focus management: only refocus when active tab or pane actually changes
+        let currentTabId = store.tabLayoutAtom.activeTabId
+        let currentPaneId = preferredVisibleFocusPaneId()
+        let selectionChanged = currentTabId != lastFocusedTabId || currentPaneId != lastFocusedPaneId
+        let activePaneViewMissing = currentPaneId.map { viewRegistry.view(for: $0) == nil } ?? false
+
+        if selectionChanged || activePaneViewMissing {
+            executor.restoreVisibleViewsForActiveTabIfNeeded()
+        }
+
+        if selectionChanged {
+            lastFocusedTabId = currentTabId
+            lastFocusedPaneId = currentPaneId
+            if shouldSkipSelectionDrivenRefocus(currentTabId: currentTabId, currentPaneId: currentPaneId) {
+                suppressedSelectionDrivenRefocus = nil
+            } else {
+                scheduleSelectionDrivenRefocus()
+            }
+        }
+    }
+
+    private func handleManagementLayerStateChange() {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let isManagementLayerActive = atom(\.managementLayer).isActive
+        let didExitManagementLayer = lastManagementLayerActive && !isManagementLayerActive
+        if lastManagementLayerActive != isManagementLayerActive {
+            let transition: PaneModeFocusTrigger.Transition =
+                isManagementLayerActive ? .enteredManagementLayer : .exitedManagementLayer
+            handlePaneFocusTrigger(
+                .mode(
+                    PaneModeFocusTrigger(
+                        transition: transition,
+                        source: .command
+                    )
+                )
+            )
+        }
+
+        if !lastManagementLayerActive && isManagementLayerActive {
+            managementNavigationScope = initialWorkspaceNavigationFocusScope()
+        }
+        lastManagementLayerActive = isManagementLayerActive
+        managementNavigationScope = normalizedWorkspaceNavigationFocusScope()
+
+        // Management layer exit is intentionally a two-step sequence:
+        // the mode trigger releases content interaction, then refocus chooses
+        // the pane-specific responder target once the mode change has landed.
+        if didExitManagementLayer {
+            requestPaneRefocus(.managementLayerExited)
+        }
+
+        performanceTraceRecorder?.recordDuration(
+            .managementLayerAppKitState,
+            duration: start.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.management_layer.is_active": .bool(isManagementLayerActive),
+                "agentstudio.performance.management_layer.did_exit": .bool(didExitManagementLayer),
+            ]
+        )
     }
 
     private func prunePaneInboxPresentationState() {
@@ -565,59 +582,577 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         paneInboxPresentation.pruneFilterModes(retainedParentPaneIds)
     }
 
+    private func preferredVisibleFocusPaneId() -> UUID? {
+        switch normalizedWorkspaceNavigationScopeState() {
+        case .drawerPane(_, let drawerPaneId):
+            return drawerPaneId
+        case .emptyDrawer:
+            return nil
+        case .mainPane(let paneId):
+            return paneId
+        }
+    }
+
+    private func scheduleSelectionDrivenRefocus() {
+        // Tab host visibility changes land after the active-tab mutation, so
+        // refocus on the next main-actor turn instead of racing the hidden host.
+        Task { @MainActor [weak self] in
+            self?.requestPaneRefocus(.explicit)
+        }
+    }
+
+    private func makePaneFocusExecutor() -> PaneFocusExecutor {
+        PaneFocusExecutor(
+            hostViewProvider: { [weak self] paneId in
+                self?.viewRegistry.view(for: paneId)
+            },
+            hostViewsProvider: { [weak self] in
+                guard let self else { return [] }
+                return self.viewRegistry.registeredPaneIds.compactMap { self.viewRegistry.view(for: $0) }
+            },
+            selectTab: { [weak self] tabId in
+                guard let self else { return }
+                self.selectTabAndRestoreVisibleViews(tabId)
+                self.restoreFocusOwnerForSelectedTab()
+            },
+            selectPane: { [weak self] tabId, paneId in
+                guard let self else { return }
+                self.recordSelectionDrivenRefocusSuppression(tabId: tabId, paneId: paneId)
+                if self.store.tabLayoutAtom.activeTabId != tabId {
+                    self.selectTabAndRestoreVisibleViews(tabId)
+                }
+                self.revealArrangementContainingPane(tabId: tabId, paneId: paneId)
+                if let tab = self.store.tabLayoutAtom.tab(tabId),
+                    tab.activeMinimizedPaneIds.contains(paneId)
+                {
+                    self.executor.execute(.expandPane(tabId: tabId, paneId: paneId))
+                }
+                self.store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
+                atom(\.workspaceFocusOwner).focusMainPane(paneId)
+                self.managementNavigationScope = .mainRow
+            },
+            selectDrawerPane: { [weak self] parentPaneId, drawerPaneId in
+                guard let self else { return }
+                self.recordSelectionDrivenRefocusSuppression(
+                    tabId: self.store.tabLayoutAtom.activeTabId,
+                    paneId: drawerPaneId
+                )
+                if let tabId = self.store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+                    let drawerId = self.store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
+                {
+                    self.store.tabArrangementAtom.setActiveDrawerPane(drawerPaneId, drawerId: drawerId, inTab: tabId)
+                }
+                atom(\.workspaceFocusOwner).focusDrawerPane(
+                    parentPaneId: parentPaneId,
+                    paneId: drawerPaneId
+                )
+                self.managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            },
+            selectEmptyDrawer: { [weak self] parentPaneId in
+                guard let self else { return }
+                atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
+                self.managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+                _ = self.clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
+            },
+            syncRuntimeFocus: { surfaceId in
+                SurfaceManager.shared.syncFocus(activeSurfaceId: surfaceId)
+            }
+        )
+    }
+
+    private func selectTabAndRestoreVisibleViews(_ tabId: UUID) {
+        store.tabLayoutAtom.setActiveTab(tabId)
+        executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
+    }
+
+    private func restoreFocusOwnerForSelectedTab() {
+        guard let parentPaneId = activeMainPaneId() else {
+            applyWorkspaceFocusOwner(.mainPane(paneId: nil))
+            return
+        }
+
+        let requestedFocusOwner: WorkspaceFocusOwner =
+            if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true {
+                .emptyDrawer(parentPaneId: parentPaneId)
+            } else {
+                .mainPane(paneId: parentPaneId)
+            }
+
+        applyWorkspaceFocusOwner(
+            WorkspaceFocusOwnerNormalizer.normalize(
+                requested: requestedFocusOwner,
+                context: currentWorkspaceFocusOwnerContext()
+            )
+        )
+    }
+
+    private func applyWorkspaceFocusOwner(_ owner: WorkspaceFocusOwner) {
+        switch owner {
+        case .mainPane(let paneId):
+            atom(\.workspaceFocusOwner).focusMainPane(paneId)
+            managementNavigationScope = .mainRow
+        case .drawerPane(let parentPaneId, let drawerPaneId):
+            atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPaneId, paneId: drawerPaneId)
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+        case .emptyDrawer(let parentPaneId):
+            atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            _ = clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
+        }
+    }
+
+    private func recordSelectionDrivenRefocusSuppression(tabId: UUID?, paneId: UUID?) {
+        suppressedSelectionDrivenRefocus = (tabId, paneId)
+    }
+
+    private func shouldSkipSelectionDrivenRefocus(currentTabId: UUID?, currentPaneId: UUID?) -> Bool {
+        suppressedSelectionDrivenRefocus?.tabId == currentTabId
+            && suppressedSelectionDrivenRefocus?.paneId == currentPaneId
+    }
+
     func handlePaneFocusTrigger(_ trigger: PaneFocusTrigger) {
-        workspaceFocusController.handlePaneFocusTrigger(trigger)
+        guard let context = makePaneFocusContext(for: trigger) else {
+            Self.logger.warning(
+                "Pane focus trigger dropped because context assembly failed trigger=\(String(describing: trigger), privacy: .public)"
+            )
+            return
+        }
+        let decision = PaneFocusOrchestrator.decide(trigger: trigger, context: context)
+        if !paneFocusExecutor.apply(decision) {
+            Self.logger.warning(
+                "Pane focus apply returned false for trigger \(String(describing: trigger), privacy: .public)")
+        }
     }
 
     func requestPaneRefocus(_ reason: PaneRefocusRequestTrigger.Reason = .explicit) {
-        workspaceFocusController.requestPaneRefocus(reason)
+        handlePaneFocusTrigger(.refocusRequest(PaneRefocusRequestTrigger(reason: reason)))
+    }
+
+    private func makePaneFocusContext(for trigger: PaneFocusTrigger) -> PaneFocusContext? {
+        let activeTabId = store.tabLayoutAtom.activeTabId
+        let activePaneId = preferredVisibleFocusPaneId()
+        let targetTabId = paneFocusTargetTabId(for: trigger, activeTabId: activeTabId)
+        let targetPaneId = paneFocusTargetPaneId(
+            for: trigger,
+            targetTabId: targetTabId,
+            activePaneId: activePaneId
+        )
+        guard targetPaneId == nil || targetTabId != nil else {
+            return nil
+        }
+        let targetPaneKind = PaneFocusContext.PaneKind(
+            content: targetPaneId.flatMap { store.paneAtom.pane($0)?.content }
+        )
+        let targetMountedContent =
+            targetPaneId
+            .flatMap { viewRegistry.view(for: $0)?.mountedContentStateForPaneFocus }
+            ?? .unmounted
+        let activeDrawerParentPaneId = activeMainPaneId()
+
+        return PaneFocusContext(
+            activeTabId: activeTabId,
+            activePaneId: activePaneId,
+            activeDrawer: activeDrawerParentPaneId.map {
+                .init(
+                    parentPaneId: $0,
+                    paneId: visibleActiveDrawerPaneId(for: $0),
+                    isEmpty: store.paneAtom.pane($0)?.drawer?.paneIds.isEmpty == true
+                )
+            },
+            targetPaneId: targetPaneId,
+            targetTabId: targetTabId,
+            targetPaneKind: targetPaneKind,
+            targetPaneIsAlreadyActive: paneFocusTargetIsAlreadyActive(
+                trigger: trigger,
+                targetPaneId: targetPaneId,
+                activePaneId: activePaneId,
+                activeTabId: activeTabId
+            ),
+            targetMountedContent: targetMountedContent,
+            managementLayer: atom(\.managementLayer).isActive
+                ? .active(scope: paneFocusManagementScope)
+                : .inactive,
+            windowState: paneFocusWindowState(for: targetPaneId)
+        )
+    }
+
+    private var paneFocusManagementScope: PaneManagementFocusScope {
+        switch managementNavigationScope {
+        case .mainRow:
+            return .mainRow
+        case .drawer(let parentPaneId):
+            return .drawer(parentPaneId: parentPaneId)
+        }
+    }
+
+    private func paneFocusTargetTabId(for trigger: PaneFocusTrigger, activeTabId: UUID?) -> UUID? {
+        switch trigger {
+        case .contentClick(let trigger):
+            return store.tabLayoutAtom.tabs.first { $0.paneIds.contains(trigger.targetPaneId) }?.id
+        case .tabClick(let trigger):
+            return trigger.targetTabId
+        case .drawer:
+            return activeTabId
+        case .keyboard(let trigger):
+            switch trigger {
+            case .moveToPane(let tabId, _, _):
+                return tabId
+            }
+        case .mode, .refocusRequest:
+            return activeTabId
+        case .command(let trigger):
+            switch trigger {
+            case .focusPane(let tabId, _):
+                return tabId
+            case .selectTab(let tabId):
+                return tabId
+            case .paneCreated:
+                return activeTabId
+            }
+        }
+    }
+
+    private func paneFocusTargetPaneId(
+        for trigger: PaneFocusTrigger,
+        targetTabId: UUID?,
+        activePaneId: UUID?
+    ) -> UUID? {
+        switch trigger {
+        case .contentClick(let trigger):
+            return trigger.targetPaneId
+        case .tabClick:
+            return targetTabId.flatMap { store.tabLayoutAtom.tab($0) }?.activePaneId
+        case .drawer(let trigger):
+            switch trigger {
+            case .selectPane(_, let drawerPaneId):
+                return drawerPaneId
+            case .toggle(let parentPaneId):
+                return parentPaneId
+            }
+        case .keyboard(let trigger):
+            switch trigger {
+            case .moveToPane(_, let paneId, _):
+                return paneId
+            }
+        case .mode:
+            return activePaneId
+        case .refocusRequest:
+            return activePaneId
+        case .command(let trigger):
+            switch trigger {
+            case .focusPane(_, let paneId), .paneCreated(let paneId, _):
+                return paneId
+            case .selectTab(let tabId):
+                return store.tabLayoutAtom.tab(tabId)?.activePaneId
+            }
+        }
+    }
+
+    private func paneFocusTargetIsAlreadyActive(
+        trigger: PaneFocusTrigger,
+        targetPaneId: UUID?,
+        activePaneId: UUID?,
+        activeTabId: UUID?
+    ) -> Bool {
+        switch trigger {
+        case .tabClick(let trigger):
+            return activeTabId == trigger.targetTabId
+        case .drawer(let trigger):
+            switch trigger {
+            case .selectPane(_, let drawerPaneId):
+                return activeMainPaneId().flatMap { visibleActiveDrawerPaneId(for: $0) } == drawerPaneId
+            case .toggle(let parentPaneId):
+                return activePaneId == parentPaneId
+            }
+        default:
+            return activePaneId == targetPaneId
+        }
+    }
+
+    private func paneFocusWindowState(for paneId: UUID?) -> PaneFocusContext.WindowState {
+        let window = paneId.flatMap { viewRegistry.view(for: $0)?.window } ?? view.window
+        guard let window else { return .background }
+        if window.isKeyWindow {
+            return .key
+        }
+        if window.isMainWindow {
+            return .focused
+        }
+        return .background
     }
 
     private func normalizedWorkspaceNavigationFocusScope() -> WorkspaceNavigationFocusScope {
-        workspaceFocusController.normalizedWorkspaceNavigationFocusScope()
+        guard case .drawer(let parentPaneId) = managementNavigationScope else {
+            return managementNavigationScope
+        }
+        guard
+            let activeTabId = store.tabLayoutAtom.activeTabId,
+            let activePaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId,
+            activePaneId == parentPaneId,
+            let drawer = store.paneAtom.pane(parentPaneId)?.drawer,
+            drawer.isExpanded
+        else {
+            return .mainRow
+        }
+        return managementNavigationScope
     }
 
     private func normalizedWorkspaceNavigationScopeState() -> WorkspaceFocusOwner {
-        workspaceFocusController.normalizedWorkspaceNavigationScopeState()
+        WorkspaceFocusOwnerNormalizer.normalize(
+            requested: atom(\.workspaceFocusOwner).owner,
+            context: currentWorkspaceFocusOwnerContext()
+        )
     }
 
     @discardableResult
     private func clearFirstResponderToWindowContentForDrawer(parentPaneId: UUID) -> Bool {
-        workspaceFocusController.clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
+        let window = viewRegistry.view(for: parentPaneId)?.window ?? view.window ?? NSApp.keyWindow
+        guard let window, let contentView = window.contentView else { return false }
+        return window.makeFirstResponder(contentView)
+    }
+
+    private func currentWorkspaceFocusOwnerContext() -> WorkspaceFocusOwnerNormalizer.Context {
+        let activeMainPaneId = activeMainPaneId()
+        let drawer = activeMainPaneId.flatMap { store.paneAtom.pane($0)?.drawer }
+        let drawerView = activeMainPaneId.flatMap { arrangementView.drawerView(forParent: $0) }
+        return .init(
+            activeMainPaneId: activeMainPaneId,
+            expandedDrawerParentPaneId: drawer?.isExpanded == true ? activeMainPaneId : nil,
+            paneIds: drawer?.paneIds ?? [],
+            activeDrawerPaneId: drawerView?.activeChildId,
+            minimizedDrawerPaneIds: drawerView?.minimizedPaneIds ?? []
+        )
     }
 
     private func syncFocusOwnerAfterDrawerMutation(parentPaneId: UUID) {
-        workspaceFocusController.syncFocusOwnerAfterDrawerMutation(parentPaneId: parentPaneId)
+        guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return }
+
+        if drawer.isExpanded {
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            let drawerView = arrangementView.drawerView(forParent: parentPaneId)
+            if let drawerPaneId = drawerView?.activeChildId,
+                drawerView?.minimizedPaneIds.contains(drawerPaneId) == false
+            {
+                atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPaneId, paneId: drawerPaneId)
+            } else {
+                atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
+                _ = clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
+            }
+        } else {
+            managementNavigationScope = .mainRow
+            atom(\.workspaceFocusOwner).focusMainPane(parentPaneId)
+        }
     }
 
     private func drawerParentByPaneId() -> [UUID: UUID] {
-        workspaceFocusController.drawerParentByPaneId()
+        Dictionary(
+            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
+                guard let parentPaneId = pane.parentPaneId else { return nil }
+                return (pane.id, parentPaneId)
+            }
+        )
     }
 
     private func drawerLayoutByParentPaneId() -> [UUID: DrawerGridLayout] {
-        workspaceFocusController.drawerLayoutByParentPaneId()
+        Dictionary(
+            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
+                guard pane.drawer != nil, let drawerView = arrangementView.drawerView(forParent: pane.id) else {
+                    return nil
+                }
+                return (pane.id, drawerView.layout)
+            }
+        )
     }
 
     private func visibleActiveDrawerPaneId(for parentPaneId: UUID) -> UUID? {
-        workspaceFocusController.visibleActiveDrawerPaneId(for: parentPaneId)
+        guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return nil }
+        guard drawer.isExpanded else { return nil }
+        guard let drawerView = arrangementView.drawerView(forParent: parentPaneId),
+            let drawerPaneId = drawerView.activeChildId
+        else { return nil }
+        guard !drawerView.minimizedPaneIds.contains(drawerPaneId) else { return nil }
+        return drawerPaneId
     }
 
     // MARK: - Tab Content Hosts
 
+    private func buildTabContentHost(for tabId: UUID) -> PersistentTabHostView {
+        let contentView = SingleTabContent(
+            tabId: tabId,
+            store: store,
+            repoCache: repoCache,
+            viewRegistry: viewRegistry,
+            appLifecycleStore: appLifecycleStore,
+            closeTransitionCoordinator: closeTransitionCoordinator,
+            actionDispatcher: actionDispatcher,
+            onPaneFocusTrigger: { [weak self] trigger in
+                self?.handlePaneFocusTrigger(trigger)
+            },
+            paneInboxPresentation: paneInboxPresentation,
+            onOpenPaneGitHub: { [weak self] paneId in
+                self?.openGitHubWebview(for: paneId)
+            },
+            notificationCountForWorktree: { worktreeId in
+                WorkspaceNotificationCountProjection.unreadCount(
+                    worktreeId: worktreeId,
+                    inboxAtom: atom(\.inboxNotification)
+                )
+            },
+            workspaceWindowId: workspaceWindowId
+        )
+
+        return PersistentTabHostView(tabId: tabId, rootView: contentView)
+    }
+
+    private func syncTabContentHosts() {
+        for paneId in store.paneAtom.panes.keys {
+            viewRegistry.ensureSlot(for: paneId)
+        }
+
+        let liveTabIds = Set(store.tabLayoutAtom.tabs.map(\.id))
+        guard liveTabIds != Set(tabContentHosts.keys) else { return }
+
+        for tab in store.tabLayoutAtom.tabs where tabContentHosts[tab.id] == nil {
+            let host = buildTabContentHost(for: tab.id)
+            terminalContainer.addSubview(host)
+            NSLayoutConstraint.activate([
+                host.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
+                host.leadingAnchor.constraint(equalTo: terminalContainer.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
+                host.bottomAnchor.constraint(equalTo: terminalContainer.bottomAnchor),
+            ])
+            tabContentHosts[tab.id] = host
+        }
+
+        for (tabId, host) in tabContentHosts where !liveTabIds.contains(tabId) {
+            host.removeFromSuperview()
+            tabContentHosts.removeValue(forKey: tabId)
+        }
+    }
+
+    private func updateVisibleTabHost() {
+        let activeTabId = store.tabLayoutAtom.activeTabId
+        for (tabId, host) in tabContentHosts {
+            host.isHidden = tabId != activeTabId
+        }
+    }
+
     private func activeTabHost() -> PersistentTabHostView? {
-        ensureTabContentHostController().activeTabHost()
+        guard let activeTabId = store.tabLayoutAtom.activeTabId else { return nil }
+        return tabContentHosts[activeTabId]
     }
 
     private func handleTerminalContainerBoundsChanged(reason: StaticString) {
-        ensureTabContentHostController().handleTerminalContainerBoundsChanged(reason: reason)
+        let terminalContainerBounds = terminalContainer?.bounds ?? .zero
+        RestoreTrace.log(
+            "PaneTabViewController terminalContainerBoundsChanged reason=\(reason) bounds=\(NSStringFromRect(terminalContainerBounds))"
+        )
+        RestoreTrace.log(geometryHierarchySnapshot(reason: reason))
+        scheduleVisibleViewRestoreAfterLayout(reason: reason)
+    }
+
+    private func scheduleVisibleViewRestoreAfterLayout(reason: StaticString) {
+        pendingVisibleViewRestoreTask?.cancel()
+        pendingVisibleViewRestoreTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            self.executor.restoreVisibleViewsForActiveTabIfNeeded()
+            self.syncVisibleTerminalGeometry(reason: reason)
+            self.pendingVisibleViewRestoreTask = nil
+        }
     }
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
-        ensureTabContentHostController().syncVisibleTerminalGeometry(reason: reason)
+        let traceClock = performanceTraceRecorder?.isEnabled == true ? ContinuousClock() : nil
+        let syncStart = traceClock?.now
+        let visibleTerminalViews = visibleTerminalPaneIdsForActiveTab().compactMap {
+            viewRegistry.terminalView(for: $0)
+        }.filter { terminalView in
+            terminalView.window != nil && !terminalView.isHidden
+        }
+        guard !visibleTerminalViews.isEmpty else { return }
+        RestoreTrace.log(
+            "PaneTabViewController.syncVisibleTerminalGeometry reason=\(reason) count=\(visibleTerminalViews.count)"
+        )
+        for terminalView in visibleTerminalViews {
+            terminalView.forceGeometrySync(reason: reason)
+        }
+        guard let traceClock, let syncStart else { return }
+        performanceTraceRecorder?.recordDuration(
+            .terminalGeometrySync,
+            duration: syncStart.duration(to: traceClock.now),
+            attributes: [
+                "agentstudio.performance.terminal.geometry.reason": .string("\(reason)"),
+                "agentstudio.performance.terminal.geometry.visible_terminal.count": .double(
+                    Double(visibleTerminalViews.count)),
+            ]
+        )
+    }
+
+    func visibleTerminalPaneIdsForActiveTab() -> [UUID] {
+        guard let activeTabId = store.tabLayoutAtom.activeTabId,
+            let tab = store.tabLayoutAtom.tab(activeTabId)
+        else { return [] }
+
+        var seenPaneIds: Set<UUID> = []
+        var paneIds: [UUID] = []
+        func append(_ candidatePaneId: UUID) {
+            guard seenPaneIds.insert(candidatePaneId).inserted else { return }
+            paneIds.append(candidatePaneId)
+        }
+
+        for paneId in tab.activeArrangement.layout.paneIds {
+            append(paneId)
+            guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else { continue }
+            guard let drawerView = tab.activeArrangement.drawerViews[drawer.drawerId] else { continue }
+            for drawerPaneId in drawerView.layout.paneIds where !drawerView.minimizedPaneIds.contains(drawerPaneId) {
+                append(drawerPaneId)
+            }
+        }
+
+        return paneIds
     }
 
     func geometryHierarchySnapshot(reason: StaticString) -> String {
-        ensureTabContentHostController().geometryHierarchySnapshot(reason: reason)
+        let rootFrame = isViewLoaded ? NSStringFromRect(view.frame) : "nil"
+        let rootBounds = isViewLoaded ? NSStringFromRect(view.bounds) : "nil"
+        let terminalFrame = terminalContainer.map { NSStringFromRect($0.frame) } ?? "nil"
+        let terminalBounds = terminalContainer.map { NSStringFromRect($0.bounds) } ?? "nil"
+        let hostingFrame = activeTabHost().map { NSStringFromRect($0.frame) } ?? "nil"
+        let hostingBounds = activeTabHost().map { NSStringFromRect($0.bounds) } ?? "nil"
+        let tabBarFrame = tabBarHostingView.map { NSStringFromRect($0.frame) } ?? "nil"
+        return
+            "PaneTabViewController.geometry reason=\(reason) viewFrame=\(rootFrame) viewBounds=\(rootBounds) terminalFrame=\(terminalFrame) terminalBounds=\(terminalBounds) hostingFrame=\(hostingFrame) hostingBounds=\(hostingBounds) tabBarFrame=\(tabBarFrame)"
+    }
+
+    /// Evaluate whether a drop is acceptable at the given pane and zone.
+    private func evaluateDropAcceptance(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode
+    ) -> Bool {
+        splitDropInteractionController.shouldAcceptDrop(
+            payload: payload,
+            destPaneId: destPaneId,
+            zone: zone,
+            sizingMode: sizingMode
+        )
+    }
+
+    /// Handle a completed drop on a split pane.
+    private func handleSplitDrop(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode
+    ) {
+        splitDropInteractionController.handleDrop(
+            payload: payload,
+            destPaneId: destPaneId,
+            zone: zone,
+            sizingMode: sizingMode
+        )
     }
 
     // MARK: - Empty State
@@ -732,7 +1267,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func activeMainPaneId() -> UUID? {
-        workspaceFocusController.activeMainPaneId()
+        store.tabLayoutAtom.activeTabId
+            .flatMap { store.tabLayoutAtom.tab($0) }?
+            .activePaneId
     }
 
     func handleAppOwnedKeyEvent(
@@ -997,6 +1534,265 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return !(responder is NSText)
     }
 
+    private func managementLayerParentPaneId() -> UUID? {
+        switch normalizedWorkspaceNavigationFocusScope() {
+        case .mainRow:
+            return activeMainPaneId()
+        case .drawer(let parentPaneId):
+            return parentPaneId
+        }
+    }
+
+    private func initialWorkspaceNavigationFocusScope() -> WorkspaceNavigationFocusScope {
+        if let parentPaneId = activeMainPaneId(),
+            store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
+        {
+            return .drawer(parentPaneId: parentPaneId)
+        }
+
+        return .mainRow
+    }
+
+    private func managementLayerCreationScope() -> WorkspaceNavigationFocusScope {
+        // Intentional: creation follows the normalized navigation scope first,
+        // then upgrades main-row scope to an already-expanded drawer so
+        // management-layer create commands act in visible drawer context.
+        let navigationScope = normalizedWorkspaceNavigationFocusScope()
+
+        if case .drawer = navigationScope {
+            return navigationScope
+        }
+
+        return initialWorkspaceNavigationFocusScope()
+    }
+
+    private func visibleDrawerPaneIds(for parentPaneId: UUID) -> [UUID] {
+        arrangementView.drawerVisiblePaneIds(forParent: parentPaneId)
+    }
+
+    private func focusSiblingDrawerPane(in parentPaneId: UUID, delta: Int) {
+        let visiblePaneIds = visibleDrawerPaneIds(for: parentPaneId)
+        guard !visiblePaneIds.isEmpty else { return }
+
+        let currentPaneId = visibleActiveDrawerPaneId(for: parentPaneId) ?? visiblePaneIds.first!
+        guard let currentIndex = visiblePaneIds.firstIndex(of: currentPaneId) else { return }
+
+        let nextIndex = (currentIndex + delta + visiblePaneIds.count) % visiblePaneIds.count
+        let nextPaneId = visiblePaneIds[nextIndex]
+        managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+        handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: nextPaneId)))
+    }
+
+    private func handleManagementMoveLeft() {
+        switch normalizedWorkspaceNavigationFocusScope() {
+        case .mainRow:
+            execute(.focusPaneLeft)
+        case .drawer(let parentPaneId):
+            focusSiblingDrawerPane(in: parentPaneId, delta: -1)
+        }
+    }
+
+    private func handleManagementMoveRight() {
+        switch normalizedWorkspaceNavigationFocusScope() {
+        case .mainRow:
+            execute(.focusPaneRight)
+        case .drawer(let parentPaneId):
+            focusSiblingDrawerPane(in: parentPaneId, delta: 1)
+        }
+    }
+
+    private func handleManagementMoveDown() {
+        guard case .drawer(let parentPaneId) = normalizedWorkspaceNavigationFocusScope() else {
+            return
+        }
+        managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+        if let drawerPaneId = visibleActiveDrawerPaneId(for: parentPaneId) {
+            handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
+        }
+    }
+
+    private func handleManagementOpenDrawer() {
+        guard let parentPaneId = activeMainPaneId() else {
+            Self.logger.warning("management open drawer ignored because active main pane is unavailable")
+            return
+        }
+        let drawerIsExpanded = store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
+        if !drawerIsExpanded {
+            dispatchAction(.toggleDrawer(paneId: parentPaneId))
+            handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parentPaneId)))
+        }
+
+        managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+
+        if let drawerPaneId = visibleActiveDrawerPaneId(for: parentPaneId) {
+            handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
+        }
+    }
+
+    private func handleManagementMoveUp() {
+        guard case .drawer(let parentPaneId) = normalizedWorkspaceNavigationFocusScope() else { return }
+        if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true {
+            dispatchAction(.toggleDrawer(paneId: parentPaneId))
+            handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parentPaneId)))
+        }
+        managementNavigationScope = .mainRow
+    }
+
+    private func enterDrawerFromActivePane() {
+        guard
+            let activeTabId = store.tabLayoutAtom.activeTabId,
+            let parentPaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId
+        else { return }
+
+        if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == false {
+            dispatchAction(.toggleDrawer(paneId: parentPaneId))
+        }
+
+        if let drawerPaneId = arrangementView.drawerView(forParent: parentPaneId)?.activeChildId {
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
+        } else {
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
+            _ = clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
+        }
+    }
+
+    private func moveDrawerFocus(_ command: AppCommand) {
+        guard let target = drawerFocusNeighbor(for: command) else { return }
+        handlePaneFocusTrigger(
+            .drawer(.selectPane(parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId)))
+    }
+
+    private func drawerFocusNeighbor(for command: AppCommand) -> (parentPaneId: UUID, drawerPaneId: UUID)? {
+        guard case .drawerPane(let parentPaneId, let drawerPaneId) = normalizedWorkspaceNavigationScopeState() else {
+            return nil
+        }
+
+        let direction: FocusDirection
+        switch command {
+        case .focusDrawerPaneUp:
+            direction = .up
+        case .focusDrawerPaneLeft:
+            direction = .left
+        case .focusDrawerPaneDown:
+            direction = .down
+        case .focusDrawerPaneRight:
+            direction = .right
+        default:
+            return nil
+        }
+
+        guard
+            let drawerView = arrangementView.drawerView(forParent: parentPaneId),
+            let targetPaneId = drawerView.layout.neighbor(of: drawerPaneId, direction: direction)
+        else { return nil }
+
+        return (parentPaneId, targetPaneId)
+    }
+
+    private func focusDrawerPaneOrdinal(command: AppCommand) -> Bool {
+        guard let target = resolveDrawerPaneOrdinalTarget(for: command) else { return false }
+        if target.drawerView.minimizedPaneIds.contains(target.drawerPaneId) {
+            dispatchAction(.expandDrawerPane(parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId))
+        }
+        focusTargetedDrawerPane(parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId)
+        return true
+    }
+
+    private func resolveDrawerPaneOrdinalTarget(for command: AppCommand) -> (
+        parentPaneId: UUID,
+        drawerView: DrawerView,
+        drawerPaneId: UUID
+    )? {
+        guard
+            let ordinal = drawerPaneOrdinal(for: command),
+            let parentPaneId = activeMainPaneId(),
+            let drawerView = arrangementView.drawerView(forParent: parentPaneId),
+            let drawerPaneId = PaneOrdinalMap(orderedPaneIds: drawerView.layout.paneIds).paneId(forOrdinal: ordinal)
+        else {
+            return nil
+        }
+        return (parentPaneId, drawerView, drawerPaneId)
+    }
+
+    private func drawerPaneOrdinal(for command: AppCommand) -> Int? {
+        AppCommand.focusDrawerPaneCommands.firstIndex(of: command).map { $0 + 1 }
+    }
+
+    private func handleManagementCreateTerminal() {
+        switch managementLayerCreationScope() {
+        case .mainRow:
+            managementNavigationScope = .mainRow
+            execute(.newTerminalInTab)
+        case .drawer(let parentPaneId):
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            dispatchAction(.addDrawerPane(parentPaneId: parentPaneId))
+        }
+    }
+
+    private func handleManagementCreateBrowser() {
+        switch managementLayerCreationScope() {
+        case .mainRow:
+            managementNavigationScope = .mainRow
+            guard let paneId = activeMainPaneId() else {
+                Self.logger.warning("management create browser ignored because active main pane is unavailable")
+                return
+            }
+            openGitHubWebview(for: paneId)
+        case .drawer(let parentPaneId):
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            let url = GitHubWebviewLaunchResolver.url(
+                for: parentPaneId,
+                store: store,
+                repoCache: repoCache
+            )
+            _ = executor.openContextualWebviewInDrawer(
+                parentPaneId: parentPaneId,
+                url: url
+            )
+        }
+    }
+
+    private func canExecuteManagementCommand(_ command: AppCommand) -> Bool {
+        let navigationScope = normalizedWorkspaceNavigationFocusScope()
+
+        switch command {
+        case .managementLayerFocusLeft:
+            switch navigationScope {
+            case .mainRow:
+                return canExecute(.focusPaneLeft)
+            case .drawer(let parentPaneId):
+                return visibleDrawerPaneIds(for: parentPaneId).count > 1
+            }
+        case .managementLayerFocusRight:
+            switch navigationScope {
+            case .mainRow:
+                return canExecute(.focusPaneRight)
+            case .drawer(let parentPaneId):
+                return visibleDrawerPaneIds(for: parentPaneId).count > 1
+            }
+        case .managementLayerEnterDrawer, .managementLayerOpenDrawer:
+            return activeMainPaneId() != nil
+        case .managementLayerExitDrawer, .managementLayerExit:
+            if case .drawer = navigationScope {
+                return true
+            }
+            return command == .managementLayerExit
+        case .managementLayerCreateTerminal:
+            switch managementLayerCreationScope() {
+            case .mainRow:
+                return canExecute(.newTerminalInTab)
+            case .drawer(let parentPaneId):
+                return store.paneAtom.pane(parentPaneId)?.drawer != nil
+            }
+        case .managementLayerCreateBrowser:
+            return managementLayerCreationScope() != .mainRow || activeMainPaneId() != nil
+        default:
+            return false
+        }
+    }
+
     private func canExecuteContextualCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .addDrawerPane, .toggleDrawer:
@@ -1101,7 +1897,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             .expandDrawerPane(let parentPaneId, _):
             syncFocusOwnerAfterDrawerMutation(parentPaneId: parentPaneId)
         case .detachDrawerPane:
-            workspaceFocusController.setNavigationScope(.mainRow)
+            managementNavigationScope = .mainRow
             atom(\.workspaceFocusOwner).focusMainPane(activeMainPaneId())
         default:
             break
@@ -1111,15 +1907,172 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - Tab Commands
 
     func executeTabContextMenuCommand(_ command: AppCommand, tabId: UUID) {
-        tabBarInteractionController.handleTabCommand(command, tabId: tabId)
+        handleTabCommand(command, tabId: tabId)
     }
 
-    func popoverDidClose(_ notification: Notification) {
-        if paneAuxiliaryCommandControllerStorage?.handlePopoverDidClose(notification) == true {
+    /// Route tab context menu commands through the validated pipeline.
+    private func handleTabCommand(_ command: AppCommand, tabId: UUID) {
+        if command == .renameTab {
+            guard store.tabLayoutAtom.tab(tabId) != nil else {
+                Self.logger.warning("renameTab context menu command ignored: tab \(tabId) not found")
+                return
+            }
+            requestTabRenamePresentation(for: tabId)
             return
         }
 
-        _ = tabBarInteractionController.handlePopoverDidClose(notification)
+        let action: PaneActionCommand?
+
+        switch command {
+        case .closeTab:
+            action = .closeTab(tabId: tabId)
+        case .breakUpTab:
+            action = .breakUpTab(tabId: tabId)
+        case .equalizePanes:
+            action = .equalizePanes(tabId: tabId)
+        case .splitRight, .splitLeft:
+            // Resolve split direction using the target tab's active pane
+            guard let tab = store.tabLayoutAtom.tab(tabId),
+                let paneId = tab.activePaneId
+            else { return }
+            let direction: SplitNewDirection = {
+                switch command {
+                case .splitRight: return .right
+                case .splitLeft: return .left
+                default: return .right
+                }
+            }()
+            action = .insertPane(
+                source: .newTerminal,
+                targetTabId: tabId,
+                targetPaneId: paneId,
+                direction: direction,
+                sizingMode: .halveTarget
+            )
+        case .newFloatingTerminal:
+            action = nil
+        case .switchArrangement, .deleteArrangement, .renameArrangement:
+            // Arrangement management now handled through the arrangement panel popover
+            // in the tab bar. Context menu entries still work as no-ops here.
+            action = nil
+        case .saveArrangement:
+            // Direct action — save current layout as a new arrangement
+            guard let tab = store.tabLayoutAtom.tab(tabId) else { return }
+            let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
+            action = .createArrangement(tabId: tabId, name: name)
+        default:
+            action = nil
+        }
+
+        if let action {
+            dispatchAction(action)
+        }
+    }
+
+    private func requestTabRenamePresentation(for tabId: UUID) {
+        guard store.tabLayoutAtom.tab(tabId) != nil else {
+            Self.logger.warning("renameTab presentation ignored: tab \(tabId) not found")
+            return
+        }
+        if store.tabLayoutAtom.activeTabId != tabId {
+            dispatchAction(.selectTab(tabId: tabId))
+        }
+
+        tabRenamePopoverState.dismiss()
+
+        // Context menus and command-bar dispatch both run while another transient
+        // AppKit surface is unwinding. Move the editor presentation to default
+        // run-loop mode and let the controller own the AppKit popover anchor.
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.presentTabRenamePopover(for: tabId)
+            }
+        }
+    }
+
+    private func presentTabRenamePopover(for tabId: UUID) {
+        guard let tab = store.tabLayoutAtom.tab(tabId) else {
+            Self.logger.warning("renameTab presentation ignored after defer: tab \(tabId) not found")
+            return
+        }
+
+        closeTabRenamePopover(updateState: false)
+        tabRenamePopoverState.present(for: tabId)
+
+        guard isViewLoaded, let tabBarHostingView, tabBarHostingView.window != nil else {
+            return
+        }
+
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.delegate = self
+        popover.contentViewController = NSHostingController(
+            rootView: TabRenamePopover(
+                currentTitle: tabBarAdapter.tabs.first(where: { $0.id == tabId })?.displayTitle ?? tab.name,
+                onCommit: { [weak self] name in
+                    guard let self else { return }
+                    self.dispatchAction(.renameTab(tabId: tabId, name: name))
+                    self.closeTabRenamePopover()
+                },
+                onCancel: { [weak self] in
+                    self?.closeTabRenamePopover()
+                }
+            )
+        )
+        tabRenamePopover = popover
+        if let workspaceWindowId = workspaceWindowId ?? windowLifecycleStore.focusedWindowId
+            ?? windowLifecycleStore.keyWindowId
+        {
+            tabRenameTransientSurfaceToken = atom(\.transientKeyboardSurface).present(
+                .tabRename(tabId: tabId),
+                workspaceWindowId: workspaceWindowId
+            )
+        }
+
+        let anchorRect = tabBarHostingView.tabFrameInView(for: tabId) ?? tabBarHostingView.bounds
+        popover.show(relativeTo: anchorRect, of: tabBarHostingView, preferredEdge: .minY)
+    }
+
+    private func closeTabRenamePopover(updateState: Bool = true) {
+        dismissTabRenameTransientSurface()
+        let popover = tabRenamePopover
+        tabRenamePopover = nil
+        popover?.delegate = nil
+        popover?.close()
+        if updateState {
+            tabRenamePopoverState.dismiss()
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        if notification.object as? NSPopover === paneNotePopover {
+            paneNotePopover = nil
+            return
+        }
+
+        guard notification.object as? NSPopover === tabRenamePopover else { return }
+        dismissTabRenameTransientSurface()
+        tabRenamePopover = nil
+        tabRenamePopoverState.dismiss()
+    }
+
+    private func dismissTabRenameTransientSurface() {
+        guard let tabRenameTransientSurfaceToken else { return }
+        atom(\.transientKeyboardSurface).dismiss(tabRenameTransientSurfaceToken)
+        self.tabRenameTransientSurfaceToken = nil
+    }
+
+    // MARK: - Tab Reordering
+
+    private func handleTabReorder(fromId: UUID, toIndex: Int) {
+        dispatchAction(.reorderTab(tabId: fromId, newIndex: toIndex))
+    }
+
+    // MARK: - Drag Payload
+
+    private func createDragPayload(for tabId: UUID) -> TabDragPayload? {
+        guard store.tabLayoutAtom.tab(tabId) != nil else { return nil }
+        return TabDragPayload(tabId: tabId)
     }
 
     // MARK: - Process Termination
@@ -1154,18 +2107,68 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
-        tabBarInteractionController.handleExtractPaneRequested(
-            tabId: tabId,
-            paneId: paneId,
-            targetTabIndex: targetTabIndex
-        )
+        // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
+        // so "single pane move ability" still works.
+        if let sourceTab = store.tabLayoutAtom.tab(tabId),
+            sourceTab.activePaneIds.count == 1
+        {
+            if let targetTabIndex {
+                dispatchAction(.reorderTab(tabId: tabId, newIndex: targetTabIndex))
+            }
+            return
+        }
+
+        let tabCountBefore = store.tabLayoutAtom.tabs.count
+        dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
+
+        // For tab-bar drops, place the newly extracted tab at the drop insertion index.
+        guard let targetTabIndex,
+            store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
+            let extractedTabId = store.tabLayoutAtom.activeTabId
+        else {
+            return
+        }
+
+        dispatchAction(.reorderTab(tabId: extractedTabId, newIndex: targetTabIndex))
     }
 
     private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
-        tabBarInteractionController.dispatchMovePaneToTab(
-            sourcePaneId: sourcePaneId,
-            sourceTabId: sourceTabId,
-            targetTabId: targetTabId
+        guard
+            let action = makeMovePaneToTabAction(
+                sourcePaneId: sourcePaneId,
+                sourceTabId: sourceTabId,
+                targetTabId: targetTabId
+            )
+        else { return }
+        dispatchAction(action)
+    }
+
+    private func makeMovePaneToTabAction(
+        sourcePaneId: UUID,
+        sourceTabId: UUID?,
+        targetTabId: UUID
+    ) -> PaneActionCommand? {
+        let resolvedSourceTabId: UUID? =
+            if let sourceTabId, store.tabLayoutAtom.tab(sourceTabId)?.activePaneIds.contains(sourcePaneId) == true {
+                sourceTabId
+            } else {
+                store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(sourcePaneId) })?.id
+            }
+
+        guard let resolvedSourceTabId else { return nil }
+        guard resolvedSourceTabId != targetTabId else { return nil }
+        guard let targetTab = store.tabLayoutAtom.tab(targetTabId) else { return nil }
+        guard let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first else { return nil }
+
+        return .movePaneAcrossTabs(
+            CrossTabPaneMoveRequest(
+                paneId: sourcePaneId,
+                sourceTabId: resolvedSourceTabId,
+                destTabId: targetTabId,
+                targetPaneId: targetPaneId,
+                direction: .horizontal,
+                position: .after
+            )
         )
     }
 
@@ -1309,15 +2312,91 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func handleManagementCommand(_ command: AppCommand) -> Bool {
-        managementLayerCommandController.handleManagementCommand(command)
+        guard isManagementCommand(command) else { return false }
+
+        let clock = ContinuousClock()
+        let commandStart = clock.now
+        defer {
+            performanceTraceRecorder?.recordDuration(
+                .managementLayerCommand,
+                duration: commandStart.duration(to: clock.now),
+                attributes: [
+                    "agentstudio.performance.management_layer.command": .string(command.rawValue),
+                    "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
+                    "agentstudio.performance.management_layer.pane.count": .int(store.paneAtom.panes.count),
+                    "agentstudio.performance.management_layer.tab.count": .int(store.tabLayoutAtom.tabs.count),
+                ]
+            )
+        }
+
+        switch command {
+        case .toggleManagementLayer:
+            let wasManagementLayerActive = atom(\.managementLayer).isActive
+            atom(\.managementLayer).toggle()
+            if !wasManagementLayerActive {
+                managementNavigationScope = initialWorkspaceNavigationFocusScope()
+            }
+            return true
+
+        case .managementLayerFocusLeft:
+            handleManagementMoveLeft()
+            return true
+
+        case .managementLayerFocusRight:
+            handleManagementMoveRight()
+            return true
+
+        case .managementLayerEnterDrawer:
+            handleManagementMoveDown()
+            return true
+
+        case .managementLayerExitDrawer:
+            handleManagementMoveUp()
+            return true
+
+        case .managementLayerOpenDrawer:
+            handleManagementOpenDrawer()
+            return true
+
+        case .managementLayerCreateTerminal:
+            handleManagementCreateTerminal()
+            return true
+
+        case .managementLayerCreateBrowser:
+            handleManagementCreateBrowser()
+            return true
+
+        case .managementLayerExit:
+            atom(\.managementLayer).deactivate()
+            return true
+
+        default:
+            return false
+        }
+    }
+
+    private func isManagementCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .toggleManagementLayer,
+            .managementLayerFocusLeft,
+            .managementLayerFocusRight,
+            .managementLayerEnterDrawer,
+            .managementLayerExitDrawer,
+            .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser,
+            .managementLayerExit:
+            return true
+        default:
+            return false
+        }
     }
 
     private func handleDirectCommand(_ command: AppCommand) {
-        let paneAuxiliaryCommandController = ensurePaneAuxiliaryCommandController()
-        if paneAuxiliaryCommandController.handlePaneLocationCommand(command) {
+        if handlePaneLocationCommand(command) {
             return
         }
-        if paneAuxiliaryCommandController.handlePaneInboxCommand(command) {
+        if handlePaneInboxCommand(command) {
             return
         }
 
@@ -1329,7 +2408,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             handleUndoCloseTab()
         case .renameTab:
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
-            tabBarInteractionController.requestTabRenamePresentation(for: activeTabId)
+            requestTabRenamePresentation(for: activeTabId)
         case .watchFolder, .toggleSidebar, .filterSidebar,
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
@@ -1337,9 +2416,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             .signInGitHub, .signInGoogle:
             break
         case .enterDrawer:
-            managementLayerCommandController.enterDrawerFromActivePane()
+            enterDrawerFromActivePane()
         case .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown, .focusDrawerPaneRight:
-            managementLayerCommandController.moveDrawerFocus(command)
+            moveDrawerFocus(command)
         case .addDrawerPane:
             guard let tabId = store.tabLayoutAtom.activeTabId,
                 let tab = store.tabLayoutAtom.tab(tabId),
@@ -1418,11 +2497,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
-        if ensurePaneAuxiliaryCommandController().handleTargetedPaneInboxCommand(
-            command,
-            target: target,
-            targetType: targetType
-        ) {
+        if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
+            handleTargetedPaneInboxCommand(command, target: target, targetType: targetType)
             return
         }
 
@@ -1447,7 +2523,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 Self.logger.warning("renameTab targeted command ignored: tab \(target) not found")
                 return
             }
-            tabBarInteractionController.requestTabRenamePresentation(for: target)
+            requestTabRenamePresentation(for: target)
         case (.renameArrangement, .tab):
             guard
                 let tab = store.tabLayoutAtom.tabs.first(where: { tab in
@@ -1579,7 +2655,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
             .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
             .focusDrawerPane9:
-            return managementLayerCommandController.focusDrawerPaneOrdinal(command: command)
+            return focusDrawerPaneOrdinal(command: command)
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane:
             guard let trigger = makePaneKeyboardFocusTrigger(for: command) else { return false }
             handlePaneFocusTrigger(.keyboard(trigger))
@@ -1726,7 +2802,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 let activeTabId = store.tabLayoutAtom.activeTabId,
                 let activePaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId
             else { return nil }
-            return tabBarInteractionController.makeMovePaneToTabAction(
+            return makeMovePaneToTabAction(
                 sourcePaneId: activePaneId,
                 sourceTabId: activeTabId,
                 targetTabId: target
@@ -1796,12 +2872,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
-        if let canExecute = ensurePaneAuxiliaryCommandController().canExecuteTargetedPaneInboxCommand(
-            command,
-            target: target,
-            targetType: targetType
-        ) {
-            return canExecute
+        if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
+            return paneInboxPresentation != nil && paneInboxTarget(anchorPaneId: target) != nil
         }
 
         if canExecuteTargetedTerminalRuntimeCommand(command, target: target),
@@ -1848,23 +2920,19 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func canExecute(_ command: AppCommand) -> Bool {
-        if let canExecute = ensurePaneAuxiliaryCommandController().canExecuteDirectCommand(command) {
-            return canExecute
-        }
-
         switch command {
         case .managementLayerFocusLeft, .managementLayerFocusRight, .managementLayerEnterDrawer,
             .managementLayerExitDrawer, .managementLayerOpenDrawer,
             .managementLayerCreateTerminal, .managementLayerCreateBrowser, .managementLayerExit:
-            return managementLayerCommandController.canExecuteManagementCommand(command)
+            return canExecuteManagementCommand(command)
         case .enterDrawer:
             return activeMainPaneId() != nil
         case .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown, .focusDrawerPaneRight:
-            return managementLayerCommandController.canExecuteDrawerFocusCommand(command)
+            return drawerFocusNeighbor(for: command) != nil
         case .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
             .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
             .focusDrawerPane9:
-            return managementLayerCommandController.canExecuteDrawerOrdinalCommand(command)
+            return resolveDrawerPaneOrdinalTarget(for: command) != nil
         case .navigateDrawerPane:
             guard let parentPaneId = activeMainPaneId() else { return false }
             return !(store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.isEmpty ?? true)
@@ -1898,6 +2966,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return focusedTerminalCommandTargetPaneId() != nil
         case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
             return canExecuteContextualCommand(command)
+        case .showPaneInboxNotifications, .clearPaneInboxNotifications:
+            return paneInboxPresentation != nil && activePaneInboxTarget() != nil
+        case .openPaneLocationInBookmarkedEditor,
+            .openPaneLocationInFinder,
+            .openPaneLocationInEditorMenu:
+            return selectedPaneManagementContext()?.targetPath != nil
+        case .editPaneNote:
+            return activeMainPaneCommandTarget() != nil
+        case .copyCurrentPanePath:
+            return activeMainPanePath() != nil
         default:
             break
         }
@@ -1931,6 +3009,256 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return true
     }
 
+    private func handlePaneLocationCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .openPaneLocationInBookmarkedEditor:
+            guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
+            let installedTargets = installedEditorTargetsProvider()
+            var resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
+                bookmarkedEditorId: atom(\.editorChooser).bookmarkedEditorId,
+                installedTargets: installedTargets
+            )
+            if case .bookmarkedEditorNotInstalled = resolution {
+                // A saved bookmark that is no longer installed should heal back to
+                // the implicit default launch order on the same key press.
+                atom(\.editorChooser).setBookmarkedEditor(nil)
+                resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
+                    bookmarkedEditorId: nil,
+                    installedTargets: installedTargets
+                )
+            }
+            guard case .resolved(let target) = resolution else { return false }
+            return openEditorHandler(target.id, targetPath, installedTargets)
+        case .openPaneLocationInFinder:
+            guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
+            return openFinderHandler(targetPath)
+        case .openPaneLocationInEditorMenu:
+            guard let activePaneId = activePaneIdForChooserRequest() else { return false }
+            if atom(\.editorChooser).openForPaneId == activePaneId {
+                atom(\.editorChooser).setOpenEditorPane(nil)
+                return true
+            }
+            atom(\.editorChooser).setAvailableTargets(installedEditorTargetsProvider())
+            atom(\.editorChooser).setOpenEditorPane(activePaneId)
+            return true
+        case .editPaneNote:
+            guard let paneId = activeMainPaneCommandTarget() else { return false }
+            if let paneNotePresentation {
+                paneNotePresentation.present(paneId)
+            } else {
+                requestPaneNotePresentation(for: paneId)
+            }
+            return true
+        case .copyCurrentPanePath:
+            guard let path = activeMainPanePath() else { return false }
+            copyPathHandler(path)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handlePaneInboxCommand(_ command: AppCommand) -> Bool {
+        guard let paneInboxPresentation, let target = activePaneInboxTarget() else { return false }
+        switch command {
+        case .showPaneInboxNotifications:
+            paneInboxPresentation.toggle(target.parentPaneId, target.paneIds)
+            return true
+        case .clearPaneInboxNotifications:
+            paneInboxPresentation.clear(target.parentPaneId, target.paneIds)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleTargetedPaneInboxCommand(
+        _ command: AppCommand,
+        target targetId: UUID,
+        targetType: SearchItemType
+    ) {
+        guard isPaneInboxCommand(command), isPaneInboxTargetType(targetType) else { return }
+        guard let paneInboxPresentation, let target = paneInboxTarget(anchorPaneId: targetId) else { return }
+
+        switch command {
+        case .showPaneInboxNotifications:
+            focusTargetedPane(targetId)
+            paneInboxPresentation.toggle(target.parentPaneId, target.paneIds)
+        case .clearPaneInboxNotifications:
+            paneInboxPresentation.clear(target.parentPaneId, target.paneIds)
+        default:
+            return
+        }
+    }
+
+    private func activePaneInboxTarget() -> PaneInboxCommandTarget? {
+        guard let parentPaneId = activePaneInboxParentPaneId() else { return nil }
+        return paneInboxTarget(anchorPaneId: parentPaneId)
+    }
+
+    private func paneInboxTarget(anchorPaneId: UUID) -> PaneInboxCommandTarget? {
+        guard store.paneAtom.pane(anchorPaneId) != nil else { return nil }
+        let scope = PaneInboxScopeResolver.resolve(
+            anchorPaneId: anchorPaneId,
+            pane: { store.paneAtom.pane($0) }
+        )
+        guard store.tabLayoutAtom.tabContaining(paneId: scope.parentPaneId) != nil else {
+            return nil
+        }
+        return PaneInboxCommandTarget(parentPaneId: scope.parentPaneId, paneIds: scope.paneIds)
+    }
+
+    private func isPaneInboxCommand(_ command: AppCommand) -> Bool {
+        command == .showPaneInboxNotifications || command == .clearPaneInboxNotifications
+    }
+
+    private func isPaneInboxTargetType(_ targetType: SearchItemType) -> Bool {
+        targetType == .pane || targetType == .floatingTerminal
+    }
+
+    private func activePaneInboxParentPaneId() -> UUID? {
+        guard let activePaneId = activeMainPaneId(),
+            let activePane = store.paneAtom.pane(activePaneId)
+        else {
+            return nil
+        }
+
+        return activePane.parentPaneId ?? activePane.id
+    }
+
+    private func selectedPaneManagementContext() -> PaneManagementContext? {
+        guard let paneId = selectedPaneIdForLocationCommands() else {
+            return nil
+        }
+
+        return PaneManagementContext.project(
+            paneId: paneId,
+            store: store,
+            notificationCountForWorktree: { worktreeId in
+                WorkspaceNotificationCountProjection.unreadCount(
+                    worktreeId: worktreeId,
+                    inboxAtom: atom(\.inboxNotification)
+                )
+            }
+        )
+    }
+
+    private func activeMainPaneCommandTarget() -> UUID? {
+        guard case .mainPane(let paneId) = normalizedWorkspaceNavigationScopeState(),
+            let activePaneId = paneId ?? activeMainPaneId(),
+            let pane = store.paneAtom.pane(activePaneId),
+            pane.parentPaneId == nil
+        else {
+            return nil
+        }
+
+        return activePaneId
+    }
+
+    private func requestPaneNotePresentation(for paneId: UUID) {
+        guard store.paneAtom.pane(paneId) != nil else {
+            Self.logger.warning("editPaneNote presentation ignored: pane \(paneId) not found")
+            return
+        }
+
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.presentPaneNotePopover(for: paneId)
+            }
+        }
+    }
+
+    private func presentPaneNotePopover(for paneId: UUID) {
+        guard let pane = store.paneAtom.pane(paneId) else {
+            Self.logger.warning("editPaneNote presentation ignored after defer: pane \(paneId) not found")
+            return
+        }
+
+        closePaneNotePopover()
+        guard isViewLoaded else { return }
+
+        let resolvedWindowId =
+            workspaceWindowId ?? windowLifecycleStore.focusedWindowId
+            ?? windowLifecycleStore.keyWindowId
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.delegate = self
+        popover.contentViewController = NSHostingController(
+            rootView: PaneNotePopover(
+                currentNote: pane.metadata.note,
+                onCommit: { [weak self] note in
+                    guard let self else { return }
+                    self.store.paneAtom.updatePaneNote(paneId, note: note)
+                    self.closePaneNotePopover()
+                },
+                onCancel: { [weak self] in
+                    self?.closePaneNotePopover()
+                }
+            )
+            .transientKeyboardSurface(
+                .paneNote(paneId: paneId),
+                workspaceWindowId: resolvedWindowId,
+                onDismiss: { [weak self] in
+                    self?.closePaneNotePopover()
+                }
+            )
+        )
+        paneNotePopover = popover
+
+        let anchorView = Self.resolvedPaneNoteAnchorView(
+            for: paneId,
+            viewRegistry: viewRegistry,
+            fallbackAnchorView: view
+        )
+        popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+    }
+
+    static func resolvedPaneNoteAnchorView(
+        for paneId: UUID,
+        viewRegistry: ViewRegistry,
+        fallbackAnchorView: NSView
+    ) -> NSView {
+        guard let paneAnchorView = viewRegistry.view(for: paneId),
+            paneAnchorView.window != nil
+        else {
+            return fallbackAnchorView
+        }
+
+        return paneAnchorView
+    }
+
+    private func closePaneNotePopover() {
+        let popover = paneNotePopover
+        paneNotePopover = nil
+        popover?.delegate = nil
+        popover?.close()
+    }
+
+    private func activeMainPanePath() -> URL? {
+        guard let paneId = activeMainPaneCommandTarget(),
+            let pane = store.paneAtom.pane(paneId)
+        else {
+            return nil
+        }
+
+        return pane.metadata.cwd ?? pane.metadata.launchDirectory
+    }
+
+    private func activePaneIdForChooserRequest() -> UUID? {
+        selectedPaneIdForLocationCommands()
+    }
+
+    private func selectedPaneIdForLocationCommands() -> UUID? {
+        guard let parentPaneId = activeMainPaneId() else {
+            return nil
+        }
+
+        if let drawerPaneId = visibleActiveDrawerPaneId(for: parentPaneId) {
+            return drawerPaneId
+        }
+
+        return parentPaneId
+    }
 }
 
 #if DEBUG
@@ -1938,16 +3266,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         var splitHostingViewForTesting: NSView? { activeTabHost()?.hostingView }
         var appLifecycleStoreForTesting: AppLifecycleAtom { appLifecycleStore }
         func tabHostViewForTesting(tabId: UUID) -> NSView? {
-            ensureTabContentHostController().tabHostViewForTesting(tabId: tabId)
+            tabContentHosts[tabId]
         }
         var paneRepresentableDismantleCountForTesting: Int {
             paneRepresentableDismantleCount
         }
         var managementNavigationScopeDescriptionForTesting: String {
-            workspaceFocusController.navigationScopeDescriptionForTesting
+            switch managementNavigationScope {
+            case .mainRow:
+                return "mainRow"
+            case .drawer(let parentPaneId):
+                return "drawer:\(parentPaneId.uuidString)"
+            }
         }
         func setManagementNavigationScopeToDrawerForTesting(parentPaneId: UUID) {
-            workspaceFocusController.setNavigationScopeToDrawerForTesting(parentPaneId: parentPaneId)
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
         }
     }
 #endif

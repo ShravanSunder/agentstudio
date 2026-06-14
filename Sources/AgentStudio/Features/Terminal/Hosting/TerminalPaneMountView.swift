@@ -40,6 +40,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     private let fallbackTitle: String
     private let showsRestorePresentationDuringStartup: Bool
     private let startupGraceDuration: Duration
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private var startupPresentationTask: Task<Void, Never>?
     private var startupPresentationActive = false
     private(set) var shouldSuppressProcessExitedOverlayAfterTermination = false
@@ -63,7 +64,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         restoredSurfaceId: UUID,
         paneId: UUID,
         showsRestorePresentationDuringStartup: Bool = false,
-        startupGraceDuration: Duration = .milliseconds(100)
+        startupGraceDuration: Duration = .milliseconds(100),
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.paneId = paneId
         self.worktree = worktree
@@ -72,6 +74,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         self.fallbackTitle = worktree.name
         self.showsRestorePresentationDuringStartup = showsRestorePresentationDuringStartup
         self.startupGraceDuration = startupGraceDuration
+        self.performanceTraceRecorder = performanceTraceRecorder
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         setupMountView()
 
@@ -87,7 +90,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         paneId: UUID,
         title: String = "Terminal",
         showsRestorePresentationDuringStartup: Bool = false,
-        startupGraceDuration: Duration = .milliseconds(100)
+        startupGraceDuration: Duration = .milliseconds(100),
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.paneId = paneId
         self.worktree = nil
@@ -96,6 +100,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         self.fallbackTitle = title
         self.showsRestorePresentationDuringStartup = showsRestorePresentationDuringStartup
         self.startupGraceDuration = startupGraceDuration
+        self.performanceTraceRecorder = performanceTraceRecorder
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         setupMountView()
 
@@ -106,7 +111,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     /// Placeholder-only initializer used before a surface exists.
     init(
         paneId: UUID,
-        title: String
+        title: String,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.paneId = paneId
         self.worktree = nil
@@ -115,6 +121,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         self.fallbackTitle = title
         self.showsRestorePresentationDuringStartup = false
         self.startupGraceDuration = .milliseconds(100)
+        self.performanceTraceRecorder = performanceTraceRecorder
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         setupMountView()
     }
@@ -158,16 +165,26 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         guard let surface = ghosttySurface, bounds.size.width > 0, bounds.size.height > 0 else { return }
         let currentSize = measuredSurfaceSize(for: surface)
         guard currentSize != lastReportedSurfaceSize else { return }
+        let traceClock = performanceTraceRecorder?.isEnabled == true ? ContinuousClock() : nil
+        let layoutStart = traceClock?.now
         lastReportedSurfaceSize = currentSize
         RestoreTrace.log(
             "TerminalPaneMountView.layout pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
         )
         surface.sizeDidChange(currentSize, source: "mountView.layout")
+        guard let traceClock, let layoutStart else { return }
+        performanceTraceRecorder?.recordDuration(
+            .terminalMountLayout,
+            duration: layoutStart.duration(to: traceClock.now),
+            attributes: terminalGeometryAttributes(reason: "mountView.layout")
+        )
     }
 
     func forceGeometrySync(reason: StaticString) {
         guard let surface = ghosttySurface, window != nil else { return }
         guard bounds.size.width > 0, bounds.size.height > 0 else { return }
+        let traceClock = performanceTraceRecorder?.isEnabled == true ? ContinuousClock() : nil
+        let syncStart = traceClock?.now
         layoutSubtreeIfNeeded()
         let actualSurfaceSize = measuredSurfaceSize(for: surface)
         guard actualSurfaceSize.width > 0, actualSurfaceSize.height > 0 else { return }
@@ -176,6 +193,19 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
             "TerminalPaneMountView.forceGeometrySync pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") reason=\(reason) paneBounds=\(NSStringFromRect(bounds)) surfaceBounds=\(NSStringFromRect(surface.bounds)) surfaceMetrics={\(surface.metricsSnapshotDescription())}"
         )
         surface.sizeDidChange(actualSurfaceSize, source: "forceGeometrySync")
+        surface.verifyGeometryCoherence(reason: reason)
+        guard let traceClock, let syncStart else { return }
+        performanceTraceRecorder?.recordDuration(
+            .terminalForceGeometrySync,
+            duration: syncStart.duration(to: traceClock.now),
+            attributes: terminalGeometryAttributes(reason: "\(reason)")
+        )
+    }
+
+    private func terminalGeometryAttributes(reason: String) -> [String: AgentStudioTraceValue] {
+        [
+            "agentstudio.performance.terminal.geometry.reason": .string(reason)
+        ]
     }
 
     /// During the first layout tick after mount, AppKit can call through before
@@ -189,8 +219,104 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     // MARK: - Surface Display
 
-    func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
+    struct SurfaceDisplayPlan: Equatable {
+        let reusesMountedWrapper: Bool
+        let resetsGeometryReportDedup: Bool
+        let resetsTerminationFlags: Bool
+        let observesRuntime: Bool
+        let appliesRuntimeSnapshot: Bool
+        let bindsRuntimeToSurface: Bool
+        let installsCloseCallback: Bool
+        let beginsRestorePresentation: Bool
+    }
+
+    enum GeometryVerificationSource: Equatable, Sendable {
+        case displayEpilogue
+        case explicitGeometrySync
+    }
+
+    enum GeometryVerificationMode: Equatable, Sendable {
+        case verifyOnlyAfterLayout
+        case syncThenVerify
+    }
+
+    nonisolated static func geometryVerificationMode(
+        for source: GeometryVerificationSource
+    ) -> GeometryVerificationMode {
+        switch source {
+        case .displayEpilogue:
+            return .verifyOnlyAfterLayout
+        case .explicitGeometrySync:
+            return .syncThenVerify
+        }
+    }
+
+    nonisolated static func shouldReuseMountedSurfaceWrapper(
+        currentSurfaceMatchesIncoming: Bool,
+        currentWrapperExists: Bool,
+        currentWrapperIsMounted: Bool
+    ) -> Bool {
+        currentSurfaceMatchesIncoming && currentWrapperExists && currentWrapperIsMounted
+    }
+
+    nonisolated static func surfaceDisplayPlan(
+        currentSurfaceMatchesIncoming: Bool,
+        currentWrapperExists: Bool,
+        currentWrapperIsMounted: Bool,
+        hasBoundRuntime: Bool,
+        observedRuntimeMatchesBoundRuntime: Bool,
+        runtimeBoundToDisplayedSurfaceMatchesBoundRuntime: Bool
+    ) -> SurfaceDisplayPlan {
+        let reusesMountedWrapper = shouldReuseMountedSurfaceWrapper(
+            currentSurfaceMatchesIncoming: currentSurfaceMatchesIncoming,
+            currentWrapperExists: currentWrapperExists,
+            currentWrapperIsMounted: currentWrapperIsMounted
+        )
+        return SurfaceDisplayPlan(
+            reusesMountedWrapper: reusesMountedWrapper,
+            resetsGeometryReportDedup: true,
+            resetsTerminationFlags: !reusesMountedWrapper,
+            observesRuntime: hasBoundRuntime && !observedRuntimeMatchesBoundRuntime,
+            appliesRuntimeSnapshot: hasBoundRuntime,
+            bindsRuntimeToSurface: hasBoundRuntime
+                && (!runtimeBoundToDisplayedSurfaceMatchesBoundRuntime || !currentSurfaceMatchesIncoming),
+            installsCloseCallback: true,
+            beginsRestorePresentation: !reusesMountedWrapper
+        )
+    }
+
+    func displaySurface(
+        _ surfaceView: Ghostty.SurfaceView,
+        geometryVerificationReason: StaticString = "displaySurface"
+    ) {
         let previouslyDisplayedSurface = ghosttySurface
+        surfaceView.performanceTraceRecorder = performanceTraceRecorder
+        let currentWrapper = surfaceScrollView
+        let displayPlan = Self.surfaceDisplayPlan(
+            currentSurfaceMatchesIncoming: previouslyDisplayedSurface === surfaceView,
+            currentWrapperExists: currentWrapper != nil,
+            currentWrapperIsMounted: currentWrapper.map { ghosttyMountView.mountedView === $0 } ?? false,
+            hasBoundRuntime: boundRuntime != nil,
+            observedRuntimeMatchesBoundRuntime: observedRuntime === boundRuntime,
+            runtimeBoundToDisplayedSurfaceMatchesBoundRuntime: runtimeBoundToDisplayedSurface === boundRuntime
+        )
+        if displayPlan.reusesMountedWrapper {
+            if displayPlan.resetsGeometryReportDedup {
+                self.lastReportedSurfaceSize = .zero
+            }
+            clearPlaceholder()
+            self.ghosttySurface = surfaceView
+            RestoreTrace.log(
+                "TerminalPaneMountView.displaySurface reusedMountedWrapper pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame)) incomingSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
+            )
+            finishSurfaceDisplay(
+                surfaceView,
+                displayPlan: displayPlan,
+                geometryVerificationReason: geometryVerificationReason
+            )
+            return
+        }
+
         // Remove existing surface if any
         ghosttySurface?.onCloseRequested = nil
         ghosttyMountView.unmountCurrentView()
@@ -205,33 +331,81 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
         self.ghosttySurface = surfaceView
         self.surfaceScrollView = wrappedScrollView
-        self.lastReportedSurfaceSize = .zero
-        self.shouldSuppressProcessExitedOverlayAfterTermination = false
-        self.hasObservedEffectiveTerminationDelivery = false
+        if displayPlan.resetsGeometryReportDedup {
+            self.lastReportedSurfaceSize = .zero
+        }
+        if displayPlan.resetsTerminationFlags {
+            self.shouldSuppressProcessExitedOverlayAfterTermination = false
+            self.hasObservedEffectiveTerminationDelivery = false
+        }
         RestoreTrace.log(
             "TerminalPaneMountView.displaySurface mounted pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") mountedSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
 
+        finishSurfaceDisplay(
+            surfaceView,
+            displayPlan: displayPlan,
+            geometryVerificationReason: geometryVerificationReason
+        )
+    }
+
+    private func finishSurfaceDisplay(
+        _ surfaceView: Ghostty.SurfaceView,
+        displayPlan: SurfaceDisplayPlan,
+        geometryVerificationReason: StaticString
+    ) {
         // Make this view layer-backed AFTER the surface is created
         self.wantsLayer = true
         self.layer?.backgroundColor = NSColor.clear.cgColor
 
-        beginRestorePresentationIfNeeded()
+        if displayPlan.beginsRestorePresentation {
+            beginRestorePresentationIfNeeded()
+        }
         ensureScrollToBottomIndicator()
         if let boundRuntime {
-            if observedRuntime !== boundRuntime {
+            if displayPlan.observesRuntime {
                 observedRuntime = boundRuntime
                 observeRuntimeState(runtime: boundRuntime)
             }
-            applyRuntimeStateSnapshot(boundRuntime)
-            if runtimeBoundToDisplayedSurface !== boundRuntime || previouslyDisplayedSurface !== surfaceView {
+            if displayPlan.appliesRuntimeSnapshot {
+                applyRuntimeStateSnapshot(boundRuntime)
+            }
+            if displayPlan.bindsRuntimeToSurface {
                 surfaceView.bindRuntime(boundRuntime)
                 runtimeBoundToDisplayedSurface = boundRuntime
             }
         }
-        surfaceView.onCloseRequested = { [weak self] processAlive in
-            self?.handleSurfaceClose(processAlive: processAlive)
+        if displayPlan.installsCloseCallback {
+            surfaceView.onCloseRequested = { [weak self] processAlive in
+                self?.handleSurfaceClose(processAlive: processAlive)
+            }
         }
+        scheduleGeometryCoherenceVerification(reason: geometryVerificationReason)
+    }
+
+    private func scheduleGeometryCoherenceVerification(reason: StaticString) {
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.performGeometryVerification(for: .displayEpilogue, reason: reason)
+        }
+    }
+
+    private func performGeometryVerification(
+        for source: GeometryVerificationSource,
+        reason: StaticString
+    ) {
+        switch Self.geometryVerificationMode(for: source) {
+        case .verifyOnlyAfterLayout:
+            verifyGeometryCoherenceAfterLayout(reason: reason)
+        case .syncThenVerify:
+            forceGeometrySync(reason: reason)
+        }
+    }
+
+    private func verifyGeometryCoherenceAfterLayout(reason: StaticString) {
+        guard let surface = ghosttySurface, window != nil else { return }
+        layoutSubtreeIfNeeded()
+        surface.verifyGeometryCoherence(reason: reason)
     }
 
     func removeSurface() {

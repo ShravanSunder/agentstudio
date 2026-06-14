@@ -30,7 +30,7 @@ struct TabDisplayDerivedTests {
             )
 
             let pane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+                launchDirectory: worktree.path,
                 title: "Ignored",
                 facets: PaneContextFacets(
                     repoId: repo.id,
@@ -69,8 +69,9 @@ struct TabDisplayDerivedTests {
             )
             store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
             let pane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-                title: "Ignored"
+                launchDirectory: worktree.path,
+                title: "Ignored",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
             )
 
             let title = atom(\.tabDisplay).title(

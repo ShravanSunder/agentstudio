@@ -43,12 +43,13 @@ struct TerminalTemplate: Codable, Identifiable, Hashable {
                     lifetime: .persistent
                 )),
             metadata: PaneMetadata(
-                source: .worktree(
-                    worktreeId: worktreeId,
+                launchDirectory: launchDirectory,
+                title: title,
+                facets: PaneContextFacets(
                     repoId: repoId,
-                    launchDirectory: launchDirectory
+                    worktreeId: worktreeId,
+                    cwd: launchDirectory
                 ),
-                title: title
             )
         )
     }

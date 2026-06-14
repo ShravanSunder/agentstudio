@@ -28,6 +28,8 @@ final class DiffState {
     private(set) var error: String?
     private(set) var epoch: Int = 0
     private(set) var files: [String: FileManifest] = [:]
+    private(set) var packageMetadata: BridgeReviewPackage?
+    private(set) var packageDelta: BridgeReviewDelta?
 
     func setStatus(_ status: DiffStatus, error: String? = nil) {
         self.status = status
@@ -49,6 +51,14 @@ final class DiffState {
 
     func replaceFiles(_ files: [String: FileManifest]) {
         self.files = files
+    }
+
+    func setPackageMetadata(_ packageMetadata: BridgeReviewPackage?) {
+        self.packageMetadata = packageMetadata
+    }
+
+    func setPackageDelta(_ packageDelta: BridgeReviewDelta?) {
+        self.packageDelta = packageDelta
     }
 
     func setFile(_ file: FileManifest) {

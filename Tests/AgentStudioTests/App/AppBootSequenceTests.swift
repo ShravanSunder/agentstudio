@@ -352,8 +352,8 @@ struct AppBootSequenceTests {
         #expect(terminationSource.contains("workspaceSettingsStore.flush(for: store.identityAtom.workspaceId)"))
     }
 
-    @Test("zmx orphan cleanup is owned and cancellation driven")
-    func zmxOrphanCleanupIsOwnedAndCancellationDriven() throws {
+    @Test("startup zmx reconciliation is non-destructive and not termination-owned")
+    func startupZmxReconciliationIsNonDestructiveAndNotTerminationOwned() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appDelegateSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
@@ -364,13 +364,14 @@ struct AppBootSequenceTests {
             encoding: .utf8
         )
 
-        #expect(appDelegateSource.contains("orphanZmxCleanupTask"))
-        #expect(!appDelegateSource.contains("Task.sleep(nanoseconds: 30_000_000_000)"))
-        #expect(terminationSource.contains("cancelOrphanZmxCleanupTask()"))
+        #expect(appDelegateSource.contains("func reconcileZmxSessionAnchorsAtStartup("))
+        #expect(appDelegateSource.contains("it must never kill zmx sessions"))
+        #expect(!appDelegateSource.contains("destroySessionById"))
+        #expect(!terminationSource.contains("cancelOrphanZmxCleanupTask()"))
     }
 
-    @Test("zmx orphan cleanup starts after launch restore and samples panes inside the task")
-    func zmxOrphanCleanupStartsAfterLaunchRestoreAndSamplesPanesInsideTask() throws {
+    @Test("startup zmx reconciliation happens before pane coordination, not after launch restore")
+    func startupZmxReconciliationHappensBeforePaneCoordinationNotAfterLaunchRestore() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let workspaceBootSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
@@ -386,25 +387,30 @@ struct AppBootSequenceTests {
         )
 
         #expect(!workspaceBootSource.contains("cleanupOrphanZmxSessions()"))
+        #expect(!launchRestoreSource.contains("cleanupOrphanZmxSessions()"))
+        #expect(!appDelegateSource.contains("orphanZmxCleanupTask"))
+
+        let reconciliationIndex = try #require(
+            workspaceBootSource.range(of: "await reconcileZmxSessionAnchorsAtStartup")?.lowerBound
+        )
+        let coordinatorIndex = try #require(
+            workspaceBootSource.range(
+                of: "paneCoordinator = PaneCoordinator(",
+                range: reconciliationIndex..<workspaceBootSource.endIndex
+            )?.lowerBound
+        )
+        #expect(reconciliationIndex < coordinatorIndex)
 
         let restoreViewsIndex = try #require(
             launchRestoreSource.range(of: "await paneCoordinator.restoreAllViews")?.lowerBound
         )
-        let cleanupIndex = try #require(
+        let completeIndex = try #require(
             launchRestoreSource.range(
-                of: "completeLaunchRestoreAndStartOrphanCleanup()",
+                of: "completeLaunchRestore()",
                 range: restoreViewsIndex..<launchRestoreSource.endIndex
             )?.lowerBound
         )
-        #expect(restoreViewsIndex < cleanupIndex)
-
-        let cleanupTaskIndex = try #require(
-            appDelegateSource.range(of: "orphanZmxCleanupTask = Task")?.lowerBound
-        )
-        let candidateSamplingIndex = try #require(
-            appDelegateSource.range(of: "let plan = currentZmxOrphanCleanupPlan()")?.lowerBound
-        )
-        #expect(cleanupTaskIndex < candidateSamplingIndex)
+        #expect(restoreViewsIndex < completeIndex)
     }
 
     @Test("launch restore observation is single-flight while restore is in progress")

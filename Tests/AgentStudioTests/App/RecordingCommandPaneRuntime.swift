@@ -29,7 +29,6 @@ final class RecordingCommandPaneRuntime: PaneRuntime {
         self.metadata = PaneMetadata(
             paneId: paneId,
             contentType: .terminal,
-            source: .floating(launchDirectory: nil, title: "Fake"),
             title: "Fake"
         )
         let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)

@@ -52,7 +52,7 @@ struct WorkspaceFocusControllerTests {
             ownerWindow.makeFirstResponder(focusableView)
             distractorWindow.makeKeyAndOrderFront(nil)
 
-            let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+            let parentPane = store.createPane(launchDirectory: nil, title: "Parent")
             let focusController = WorkspaceFocusController(
                 store: store,
                 executor: ActionExecutor(coordinator: coordinator, store: store),

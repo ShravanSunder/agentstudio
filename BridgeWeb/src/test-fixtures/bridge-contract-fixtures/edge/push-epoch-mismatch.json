@@ -1,0 +1,10 @@
+{
+  "__v": 1,
+  "__pushId": "push_00000000-0000-0000-0000-000000000005",
+  "__revision": 1,
+  "__epoch": 2,
+  "store": "diff",
+  "op": "replace",
+  "level": "cold",
+  "data": { "status": "idle", "error": null, "epoch": 2 }
+}

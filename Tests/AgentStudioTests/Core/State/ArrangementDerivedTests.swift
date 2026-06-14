@@ -27,12 +27,12 @@ final class ArrangementDerivedTests {
     @Test
     func paneVisibilityItems_returnsAllPanesWithMinimizedState() {
         AtomScope.$override.withValue(registry) {
-            let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let firstPane = store.createPane()
             let tab = Tab(paneId: firstPane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let secondPane = store.createPane()
             _ = store.insertPane(
                 secondPane.id,
                 inTab: tab.id,
@@ -56,7 +56,7 @@ final class ArrangementDerivedTests {
     @Test
     func arrangementItems_returnsArrangementsWithActiveState() {
         AtomScope.$override.withValue(registry) {
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let pane = store.createPane()
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
@@ -83,8 +83,8 @@ final class ArrangementDerivedTests {
     @Test
     func arrangementItems_marksOnlyActiveArrangement() throws {
         try AtomScope.$override.withValue(registry) {
-            let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-            let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let firstPane = store.createPane()
+            let secondPane = store.createPane()
             let tab = Tab(paneId: firstPane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
@@ -114,7 +114,7 @@ final class ArrangementDerivedTests {
     @Test
     func nextCustomArrangementName_startsAtLayoutOne() {
         AtomScope.$override.withValue(registry) {
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let pane = store.createPane()
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
 
@@ -126,12 +126,12 @@ final class ArrangementDerivedTests {
     @Test
     func nextCustomArrangementName_skipsUsedIndexes() throws {
         try AtomScope.$override.withValue(registry) {
-            let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let firstPane = store.createPane()
             let tab = Tab(paneId: firstPane.id)
             store.appendTab(tab)
 
-            let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-            let thirdPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let secondPane = store.createPane()
+            let thirdPane = store.createPane()
             _ = store.insertPane(
                 secondPane.id,
                 inTab: tab.id,
@@ -168,13 +168,13 @@ final class ArrangementDerivedTests {
     @Test
     func paneVisibilityItems_restoresMinimizedStateWhenSwitchingBackToArrangement() throws {
         try AtomScope.$override.withValue(registry) {
-            let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let firstPane = store.createPane()
             let tab = Tab(paneId: firstPane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-            let thirdPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let secondPane = store.createPane()
+            let thirdPane = store.createPane()
             _ = store.insertPane(
                 secondPane.id,
                 inTab: tab.id,
@@ -223,12 +223,12 @@ final class ArrangementDerivedTests {
         )
 
         let secondPaneId = AtomScope.$override.withValue(firstRegistry) {
-            let firstPane = firstStore.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let firstPane = firstStore.createPane()
             let tab = Tab(paneId: firstPane.id)
             firstStore.appendTab(tab)
             firstStore.setActiveTab(tab.id)
 
-            let secondPane = firstStore.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let secondPane = firstStore.createPane()
             _ = firstStore.insertPane(
                 secondPane.id,
                 inTab: tab.id,

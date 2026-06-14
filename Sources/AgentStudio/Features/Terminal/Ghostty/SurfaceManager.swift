@@ -99,6 +99,8 @@ final class SurfaceManager {
     /// Checkpoint file URL
     private let checkpointURL: URL
 
+    private weak var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+
     // MARK: - Initialization
 
     private init(
@@ -128,6 +130,10 @@ final class SurfaceManager {
 
     var surfaceCWDChanges: AsyncStream<SurfaceCWDChangeEvent> {
         cwdChangeStream
+    }
+
+    func setPerformanceTraceRecorder(_ recorder: AgentStudioPerformanceTraceRecorder?) {
+        performanceTraceRecorder = recorder
     }
 
     // MARK: - Surface Creation
@@ -166,7 +172,11 @@ final class SurfaceManager {
             }
 
             // Create surface view using Ghostty.App (not ghostty_app_t)
-            let surfaceView = Ghostty.SurfaceView(app: Ghostty.shared, config: mutableConfig)
+            let surfaceView = Ghostty.SurfaceView(
+                app: Ghostty.shared,
+                config: mutableConfig,
+                performanceTraceRecorder: performanceTraceRecorder
+            )
 
             // Verify surface was created successfully
             guard surfaceView.surface != nil else {
@@ -753,6 +763,8 @@ extension SurfaceManager {
 
     private func updateHealth(_ id: UUID, _ health: SurfaceHealth) {
         let previousHealth = surfaceHealth[id]
+        guard previousHealth != health else { return }
+
         surfaceHealth[id] = health
 
         // Update managed surface
@@ -764,15 +776,12 @@ extension SurfaceManager {
             hiddenSurfaces[id] = managed
         }
 
-        // Only notify on change
-        if previousHealth != health {
-            notifyHealthDelegates(id, healthChanged: health)
-            logger.info("Surface \(id) health changed: \(String(describing: health))")
+        notifyHealthDelegates(id, healthChanged: health)
+        logger.info("Surface \(id) health changed: \(String(describing: health))")
 
-            // Handle dead surfaces
-            if case .dead = health {
-                handleDeadSurface(id)
-            }
+        // Handle dead surfaces
+        if case .dead = health {
+            handleDeadSurface(id)
         }
     }
 

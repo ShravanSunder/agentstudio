@@ -74,8 +74,9 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let worktree = try #require(repo.worktrees.first)
 
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         _ = harness.coordinator.createView(
@@ -96,7 +97,7 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Floating"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
 
@@ -116,7 +117,6 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: nil),
             provider: .zmx
         )
 
@@ -138,12 +138,14 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
@@ -178,12 +180,14 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
@@ -223,12 +227,14 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
@@ -274,8 +280,9 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
@@ -321,8 +328,9 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: pane.id, name: "Visible")
         harness.store.appendTab(tab)
@@ -353,12 +361,14 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
@@ -403,12 +413,14 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
@@ -445,12 +457,14 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let hiddenParentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .ghostty
+            launchDirectory: worktree.path,
+            provider: .ghostty,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
@@ -492,12 +506,14 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let hiddenParentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
@@ -537,8 +553,9 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let tab = Tab(paneId: pane.id, name: "Visible")
@@ -566,8 +583,9 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let tab = Tab(paneId: pane.id, name: "Visible")
@@ -594,12 +612,14 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let firstPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let secondPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let tab = Tab(paneId: firstPane.id, name: "Minimized")
@@ -635,8 +655,9 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let existingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: existingPane.id, name: "Split")
         harness.store.appendTab(tab)
@@ -805,8 +826,9 @@ struct PaneCoordinatorTerminalRestoreIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            provider: .zmx
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
 
         let view = harness.coordinator.createViewForContentUsingCurrentGeometry(pane: pane)

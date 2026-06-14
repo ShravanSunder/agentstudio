@@ -19,17 +19,21 @@ typealias CommandBarPathActionFailureHandler = @MainActor @Sendable (CommandBarP
 @MainActor
 extension CommandBarDataSource {
     static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
-        store.repositoryTopologyAtom.repos
+        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
+        return store.repositoryTopologyAtom.repos
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { repo in
-                repoRootItem(repo: repo, store: store)
+                repoRootItem(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
             }
     }
 
     static func everythingWorktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
-        store.repositoryTopologyAtom.repos.flatMap { repo in
+        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
+        return store.repositoryTopologyAtom.repos.flatMap { repo in
             repo.worktrees.map { worktree in
-                let presence = buildWorktreePresence(worktree: worktree, repo: repo, store: store)
+                let presence =
+                    presenceByWorktreeId[worktree.id]
+                    ?? emptyWorktreePresence(worktree: worktree, repo: repo)
                 return unifiedWorktreeItem(
                     worktree: worktree,
                     repo: repo,
@@ -63,11 +67,20 @@ extension CommandBarDataSource {
     }
 
     static func repoRootItem(repo: Repo, store: WorkspaceStore) -> CommandBarItem {
-        let level = buildRepoLevel(repo: repo, store: store)
+        let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
+        return repoRootItem(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
+    }
+
+    static func repoRootItem(
+        repo: Repo,
+        store: WorkspaceStore,
+        presenceByWorktreeId: [UUID: WorktreePresence]
+    ) -> CommandBarItem {
+        let level = buildRepoLevel(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
         return CommandBarItem(
             id: "repo-\(repo.id.uuidString)",
             title: repo.name,
-            subtitle: repoRootSubtitle(repo: repo, store: store),
+            subtitle: repoRootSubtitle(repo: repo, presenceByWorktreeId: presenceByWorktreeId),
             icon: .system(.folder),
             group: "Repos",
             groupPriority: 0,
@@ -85,9 +98,11 @@ extension CommandBarDataSource {
     }
 
     static func repoRootSubtitle(repo: Repo, store: WorkspaceStore) -> String? {
-        let openPanes = repo.worktrees.flatMap { worktree in
-            buildWorktreePresence(worktree: worktree, repo: repo, store: store).openPanes
-        }
+        repoRootSubtitle(repo: repo, presenceByWorktreeId: buildWorktreePresenceByWorktreeId(store: store))
+    }
+
+    static func repoRootSubtitle(repo: Repo, presenceByWorktreeId: [UUID: WorktreePresence]) -> String? {
+        let openPanes = repo.worktrees.flatMap { presenceByWorktreeId[$0.id]?.openPanes ?? [] }
         let openPaneCount = openPanes.count
         let worktreeCount = repo.worktrees.count
 
@@ -106,6 +121,35 @@ extension CommandBarDataSource {
         }
 
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    static func buildWorktreePresenceByWorktreeId(store: WorkspaceStore) -> [UUID: WorktreePresence] {
+        let workspaceTab = WorkspaceTabLayoutDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        let locationsByWorktreeId = atom(\.workspaceLookup).paneLocationsByWorktreeId(
+            workspacePane: store.paneAtom,
+            workspaceTab: workspaceTab
+        )
+
+        return Dictionary(
+            uniqueKeysWithValues: store.repositoryTopologyAtom.repos.flatMap { repo in
+                repo.worktrees.map { worktree in
+                    (
+                        worktree.id,
+                        WorktreePresence(
+                            worktreeId: worktree.id,
+                            repoId: repo.id,
+                            worktreeName: worktree.name,
+                            repoName: repo.name,
+                            isMainWorktree: worktree.isMainWorktree,
+                            openPanes: locationsByWorktreeId[worktree.id] ?? []
+                        )
+                    )
+                }
+            }
+        )
     }
 
     static func buildWorktreePresence(
@@ -134,6 +178,18 @@ extension CommandBarDataSource {
     }
 
     static func buildRepoLevel(repo: Repo, store: WorkspaceStore) -> CommandBarLevel {
+        buildRepoLevel(
+            repo: repo,
+            store: store,
+            presenceByWorktreeId: buildWorktreePresenceByWorktreeId(store: store)
+        )
+    }
+
+    static func buildRepoLevel(
+        repo: Repo,
+        store: WorkspaceStore,
+        presenceByWorktreeId: [UUID: WorktreePresence]
+    ) -> CommandBarLevel {
         let defaultWorktree = repo.worktrees.first(where: \.isMainWorktree) ?? repo.worktrees.first
         var items: [CommandBarItem] = []
 
@@ -161,7 +217,9 @@ extension CommandBarDataSource {
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
                 .map { worktree in
-                    let presence = buildWorktreePresence(worktree: worktree, repo: repo, store: store)
+                    let presence =
+                        presenceByWorktreeId[worktree.id]
+                        ?? emptyWorktreePresence(worktree: worktree, repo: repo)
                     let level = buildWorktreeActionsLevel(
                         worktree: worktree,
                         presence: presence,
@@ -188,6 +246,17 @@ extension CommandBarDataSource {
             parentLabel: "Repos",
             scopeLabel: "Repo",
             items: items
+        )
+    }
+
+    private static func emptyWorktreePresence(worktree: Worktree, repo: Repo) -> WorktreePresence {
+        WorktreePresence(
+            worktreeId: worktree.id,
+            repoId: repo.id,
+            worktreeName: worktree.name,
+            repoName: repo.name,
+            isMainWorktree: worktree.isMainWorktree,
+            openPanes: []
         )
     }
 

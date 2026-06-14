@@ -16,7 +16,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -33,7 +33,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -51,7 +51,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -78,7 +78,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -105,7 +105,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -121,7 +121,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -138,7 +138,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -166,7 +166,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -195,7 +195,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -214,7 +214,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -237,8 +237,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let left = harness.store.createPane()
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -274,7 +274,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         configureMainWindowKeyboardOwner(windowLifecycleStore: harness.windowLifecycleStore)
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -307,7 +307,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         configureMainWindowKeyboardOwner(windowLifecycleStore: harness.windowLifecycleStore)
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -339,8 +339,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         configureMainWindowKeyboardOwner(windowLifecycleStore: harness.windowLifecycleStore)
 
-        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let left = harness.store.createPane()
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -375,7 +375,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -438,8 +438,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         configureMainWindowKeyboardOwner(windowLifecycleStore: harness.windowLifecycleStore)
 
-        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let left = harness.store.createPane()
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -487,8 +487,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         configureMainWindowKeyboardOwner(windowLifecycleStore: harness.windowLifecycleStore)
 
-        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let left = harness.store.createPane()
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -536,8 +536,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let left = harness.store.createPane()
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -560,8 +560,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let left = harness.store.createPane()
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -584,8 +584,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let left = harness.store.createPane()
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -622,7 +622,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -639,7 +639,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -656,7 +656,6 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
@@ -699,7 +698,6 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
@@ -747,7 +745,6 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
@@ -781,7 +778,6 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
@@ -822,7 +818,6 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
@@ -859,7 +854,6 @@ struct PaneTabViewControllerDrawerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
@@ -896,7 +890,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         in harness: PaneTabViewControllerCommandHarness,
         paneCount: Int
     ) throws -> (parent: Pane, drawerPanes: [Pane]) {
-        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parent = harness.store.createPane()
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)

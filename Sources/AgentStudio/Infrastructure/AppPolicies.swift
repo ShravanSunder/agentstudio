@@ -6,6 +6,96 @@ enum AppPolicies {
         static let traceEventQueueBufferLimit: Int = 4096
     }
 
+    enum Bridge {
+        static let contentCacheMaxBytes: Int = 50 * 1024 * 1024
+        static let contentMaxBytesPerItem: Int = 50 * 1024 * 1024
+    }
+
+    enum WorkspacePersistence {
+        static let debouncedAutosaveFailureDampingThreshold: Int = 3
+    }
+
+    enum GitRefresh {
+        static let defaultPolicy = Policy()
+
+        struct Policy: Equatable, Sendable {
+            let activeCadence: Duration
+            let backgroundStripeCount: Int
+            let maxConcurrentStatusComputes: Int
+            let oldestStaleReservedSlots: Int
+            let suppressedWorktreeTombstoneLimit: Int
+            let maxNilStatusRetries: Int
+            let nilStatusRetryDelay: Duration
+
+            init(
+                activeCadence: Duration = .seconds(15),
+                backgroundStripeCount: Int = 16,
+                maxConcurrentStatusComputes: Int = 4,
+                oldestStaleReservedSlots: Int = 1,
+                suppressedWorktreeTombstoneLimit: Int = 1024,
+                maxNilStatusRetries: Int = 1,
+                nilStatusRetryDelay: Duration = .seconds(5)
+            ) {
+                precondition(backgroundStripeCount > 0)
+                precondition(maxConcurrentStatusComputes > 0)
+                precondition(oldestStaleReservedSlots >= 0)
+                precondition(suppressedWorktreeTombstoneLimit > 0)
+                precondition(maxNilStatusRetries >= 0)
+
+                self.activeCadence = activeCadence
+                self.backgroundStripeCount = backgroundStripeCount
+                self.maxConcurrentStatusComputes = maxConcurrentStatusComputes
+                self.oldestStaleReservedSlots = oldestStaleReservedSlots
+                self.suppressedWorktreeTombstoneLimit = suppressedWorktreeTombstoneLimit
+                self.maxNilStatusRetries = maxNilStatusRetries
+                self.nilStatusRetryDelay = nilStatusRetryDelay
+            }
+
+            var backgroundCadence: Duration {
+                Self.scaled(activeCadence, by: backgroundStripeCount)
+            }
+
+            func backgroundStripe(for worktreeId: UUID) -> Int {
+                Int(Self.stableHash(for: worktreeId) % UInt64(backgroundStripeCount))
+            }
+
+            func isBackgroundWorktreeDue(_ worktreeId: UUID, tick: UInt64) -> Bool {
+                let currentStripe = Int(tick % UInt64(backgroundStripeCount))
+                return backgroundStripe(for: worktreeId) == currentStripe
+            }
+
+            private static func scaled(_ duration: Duration, by multiplier: Int) -> Duration {
+                var scaledDuration = Duration.zero
+                for _ in 0..<multiplier {
+                    scaledDuration += duration
+                }
+                return scaledDuration
+            }
+
+            private static func stableHash(for worktreeId: UUID) -> UInt64 {
+                var hash: UInt64 = 14_695_981_039_346_656_037
+                let prime: UInt64 = 1_099_511_628_211
+
+                withUnsafeBytes(of: worktreeId.uuid) { bytes in
+                    for byte in bytes {
+                        hash ^= UInt64(byte)
+                        hash &*= prime
+                    }
+                }
+
+                return hash
+            }
+        }
+    }
+
+    enum ZmxStartup {
+        static let reconciliationTimeout: Duration = .seconds(3)
+    }
+
+    enum StartupDiagnostic {
+        static let launchRestoreBoundsTimeout: Duration = .seconds(3)
+    }
+
     enum SelectablePopover {
         static let maxNumberedShortcuts: Int = 9
     }

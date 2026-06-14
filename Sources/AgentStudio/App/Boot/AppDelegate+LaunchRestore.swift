@@ -15,7 +15,7 @@ extension AppDelegate {
             launchRestoreLogger.error(
                 "Launch restore attempted with empty bounds source=\(source, privacy: .public) storeBounds=\(NSStringFromRect(self.windowLifecycleStore.terminalContainerBounds), privacy: .public)"
             )
-            completeLaunchRestoreAndStartOrphanCleanup()
+            completeLaunchRestore()
             return
         }
 
@@ -24,14 +24,13 @@ extension AppDelegate {
         )
         await paneCoordinator.restoreAllViews(in: restoreBounds)
         mainWindowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
-        completeLaunchRestoreAndStartOrphanCleanup()
+        completeLaunchRestore()
         RestoreTrace.log("launchRestore end registeredViews=\(viewRegistry.registeredPaneIds.count)")
     }
 
-    private func completeLaunchRestoreAndStartOrphanCleanup() {
+    private func completeLaunchRestore() {
         guard !launchRestoreObservationState.didComplete else { return }
         launchRestoreObservationState.complete()
-        cleanupOrphanZmxSessions()
     }
 
     func observeLaunchRestoreReadiness() {

@@ -42,16 +42,17 @@ func makeRepo(
 
 func makePane(
     id: UUID = UUIDv7.generate(),
-    source: TerminalSource = .floating(launchDirectory: nil, title: nil),
+    launchDirectory: URL? = nil,
     title: String = "Terminal",
     provider: SessionProvider = .zmx,
     lifetime: SessionLifetime = .persistent,
-    residency: SessionResidency = .active
+    residency: SessionResidency = .active,
+    facets: PaneContextFacets = .empty
 ) -> Pane {
     Pane(
         id: id,
         content: .terminal(TerminalState(provider: provider, lifetime: lifetime)),
-        metadata: PaneMetadata(source: .init(source), title: title),
+        metadata: PaneMetadata(launchDirectory: launchDirectory, title: title, facets: facets),
         residency: residency
     )
 }
@@ -112,23 +113,7 @@ func makeSurfaceMetadata(
 // MARK: - PaneSessionHandle Factory
 
 func makePaneSessionHandle(
-    id: String = "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-a1b2c3d4e5f6a7b8",
-    paneId: UUID = UUID(),
-    projectId: UUID = UUID(),
-    worktreeId: UUID = UUID(),
-    repoPath: String = "/tmp/test-repo",
-    worktreePath: String = "/tmp/test-repo/feature-branch",
-    displayName: String = "test",
-    launchDirectory: String = "/tmp/test-repo/feature-branch"
+    id: String = "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-a1b2c3d4e5f6a7b8"
 ) -> PaneSessionHandle {
-    PaneSessionHandle(
-        id: id,
-        paneId: paneId,
-        projectId: projectId,
-        worktreeId: worktreeId,
-        repoPath: URL(fileURLWithPath: repoPath),
-        worktreePath: URL(fileURLWithPath: worktreePath),
-        displayName: displayName,
-        launchDirectory: URL(fileURLWithPath: launchDirectory)
-    )
+    PaneSessionHandle(id: id)
 }

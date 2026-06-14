@@ -26,18 +26,17 @@ struct WorkspaceCoreTopologyRepositoryFixture {
             try database.execute(
                 sql: """
                     INSERT INTO pane(
-                        id, workspace_id, content_type, execution_backend, source_kind,
-                        source_repo_id, source_worktree_id, launch_directory, title, cwd,
+                        id, workspace_id, content_type, execution_backend,
+                        facet_repo_id, facet_worktree_id, launch_directory, title, cwd,
                         residency_kind, kind, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [
                     paneId.uuidString,
                     workspaceId.uuidString,
                     SQLitePaneContentTypeStorage.storageValue(for: .terminal),
                     "zmx",
-                    "workspace",
                     sourceRepoId.uuidString,
                     sourceWorktreeId.uuidString,
                     "/tmp",
@@ -58,7 +57,7 @@ struct WorkspaceCoreTopologyRepositoryFixture {
                 let row = try Row.fetchOne(
                     database,
                     sql: """
-                        SELECT source_repo_id, source_worktree_id
+                        SELECT facet_repo_id, facet_worktree_id
                         FROM pane
                         WHERE id = ?
                         """,
@@ -67,8 +66,8 @@ struct WorkspaceCoreTopologyRepositoryFixture {
             else {
                 return nil
             }
-            let repoIdString: String? = row["source_repo_id"]
-            let worktreeIdString: String? = row["source_worktree_id"]
+            let repoIdString: String? = row["facet_repo_id"]
+            let worktreeIdString: String? = row["facet_worktree_id"]
             return .init(
                 repoId: repoIdString.flatMap(UUID.init(uuidString:)),
                 worktreeId: worktreeIdString.flatMap(UUID.init(uuidString:))

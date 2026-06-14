@@ -88,7 +88,7 @@ private func makeRoundTripFixture(updatedAt: Date) throws -> DrawerRoundTripFixt
             workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         )
     )
-    let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+    let parentPane = store.createPane()
     store.appendTab(Tab(paneId: parentPane.id))
     let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
     let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))

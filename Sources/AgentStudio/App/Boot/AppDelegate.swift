@@ -2,11 +2,26 @@ import AppKit
 import SwiftUI
 import os.log
 
-let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
-
-private enum ZmxOrphanCleanupTaskError: Error {
-    case timedOut
+protocol ZmxStartupSessionInventory: Sendable {
+    func discoverLiveSessionInventory() async -> ZmxSessionInventorySnapshot
 }
+
+extension ZmxBackend: ZmxStartupSessionInventory {
+    func discoverLiveSessionInventory() async -> ZmxSessionInventorySnapshot {
+        await discoverAgentStudioSessions()
+    }
+}
+
+struct ZmxStartupReconciliationSummary: Equatable, Sendable {
+    let inventoryOutcome: ZmxSessionInventoryOutcome
+    let liveSessionCount: Int
+    let hydratedAnchorCount: Int
+    let protectedSessionCount: Int
+    let unresolvedCandidateCount: Int
+    let unmatchedLiveSessionCount: Int
+}
+
+let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
@@ -26,6 +41,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var canArchiveLegacyInboxFile = true
     var terminalActivityRouter: TerminalActivityRouter!
     var traceRuntime: AgentStudioTraceRuntime!
+    var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!
     var repoCacheStore: RepoCacheStore!
     var sidebarCacheStore: SidebarCacheStore!
@@ -52,9 +68,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var filesystemPipelineBootTask: Task<Void, Never>?
     var initialTopologySyncTask: Task<Void, Never>?
     var persistenceObservationBootTask: Task<Void, Never>?
-    var orphanZmxCleanupTask: Task<Void, Never>?
-    var orphanZmxCleanupDelay: AsyncDelay = .taskSleep
-    var orphanZmxCleanupTimeout: Duration = .seconds(30)
     var isObservingTraceIdentityInputs = false
     private var terminationDrainTask: Task<Void, Never>?
     var launchRestoreObservationTask: Task<Void, Never>?
@@ -74,6 +87,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         startupTraceRecorder: AgentStudioStartupTraceRecorder
     ) {
         self.traceRuntime = traceRuntime
+        self.performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         self.startupTraceRecorder = startupTraceRecorder
         super.init()
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
@@ -141,6 +155,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             inboxPrefsAtom: atomStore.inboxNotificationPrefs,
             inboxSidebarState: atomStore.inboxSidebarState,
             paneInboxPresenter: paneInboxNotificationPresenter,
+            performanceTraceRecorder: performanceTraceRecorder,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         mainWindowController?.prepareLaunchMaximizeAndRestore()
@@ -166,7 +181,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         filesystemPipelineBootTask?.cancel()
         initialTopologySyncTask?.cancel()
         persistenceObservationBootTask?.cancel()
-        orphanZmxCleanupTask?.cancel()
         launchRestoreObservationTask?.cancel()
         launchRestoreObservationState.cancelDiagnostics()
     }
@@ -219,126 +233,268 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    // MARK: - Orphan Cleanup
+    // MARK: - Startup zmx Session Reconciliation
 
-    private func currentZmxOrphanCleanupCandidates() -> [ZmxOrphanCleanupCandidate] {
-        store.paneAtom.panes.values
-            .filter { $0.provider == .zmx }
-            .map { pane in
-                if let parentPaneId = pane.parentPaneId {
-                    return .drawer(parentPaneId: parentPaneId, paneId: pane.id)
-                }
-                let resolvedKeys: (repoStableKey: String?, worktreeStableKey: String?)
-                if let worktreeId = pane.worktreeId,
-                    let repo = store.repositoryTopologyAtom.repo(containing: worktreeId),
-                    let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
-                {
-                    resolvedKeys = (repo.stableKey, worktree.stableKey)
-                } else if let cwd = pane.metadata.facets.cwd {
-                    let stableKey = StableKey.fromPath(cwd)
-                    resolvedKeys = (stableKey, stableKey)
-                } else {
-                    resolvedKeys = (nil, nil)
-                }
-                return .main(
-                    paneId: pane.id,
-                    repoStableKey: resolvedKeys.repoStableKey,
-                    worktreeStableKey: resolvedKeys.worktreeStableKey
-                )
-            }
-    }
-
-    private func currentZmxOrphanCleanupPlan() -> ZmxOrphanCleanupPlan {
-        ZmxOrphanCleanupPlanner.plan(candidates: currentZmxOrphanCleanupCandidates())
-    }
-
-    private func isCurrentlyProtectedZmxSession(_ sessionId: String) -> Bool {
-        currentZmxOrphanCleanupPlan().protects(sessionId: sessionId)
-    }
-
-    /// Kill zmx daemons that aren't tracked by any persisted session.
-    /// Runs once at startup to prevent accumulation across app restarts.
+    /// Hydrate legacy zmx session anchors from live inventory at startup.
+    /// This path is intentionally non-destructive: boot may classify and
+    /// persist, but it must never kill zmx sessions.
     /// Called from `applicationDidFinishLaunching` (always main thread).
     @MainActor
-    func cleanupOrphanZmxSessions() {
-        let config = sessionConfiguration!
-        guard let zmxPath = config.zmxPath else {
-            appLogger.debug("zmx not found — skipping orphan cleanup")
+    func reconcileZmxSessionAnchorsAtStartup(
+        sessionConfiguration: SessionConfiguration,
+        makeInventory: (SessionConfiguration) -> (any ZmxStartupSessionInventory)? =
+            AppDelegate.makeZmxStartupSessionInventory
+    ) async {
+        guard needsStartupZmxAnchorHydration() else {
+            appLogger.debug("Skipping startup zmx session reconciliation: all persistent zmx panes have stored anchors")
+            recordZmxStartupReconciliation(
+                .init(
+                    inventoryOutcome: .skipped("no legacy zmx panes missing stored anchors"),
+                    liveSessionCount: 0,
+                    hydratedAnchorCount: 0,
+                    protectedSessionCount: 0,
+                    unresolvedCandidateCount: 0,
+                    unmatchedLiveSessionCount: 0
+                )
+            )
             return
         }
 
-        let backend = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
-        let cleanupDelay = orphanZmxCleanupDelay
-        let cleanupTimeout = orphanZmxCleanupTimeout
+        let config = sessionConfiguration
+        guard let zmxPath = config.zmxPath else {
+            appLogger.debug("zmx not found — skipping startup zmx session reconciliation")
+            recordZmxStartupReconciliation(
+                .init(
+                    inventoryOutcome: .unavailable("zmx not found"),
+                    liveSessionCount: 0,
+                    hydratedAnchorCount: 0,
+                    protectedSessionCount: 0,
+                    unresolvedCandidateCount: 0,
+                    unmatchedLiveSessionCount: 0
+                )
+            )
+            return
+        }
 
-        cancelOrphanZmxCleanupTask()
-        orphanZmxCleanupTask = Task { @MainActor [weak self, cleanupDelay, cleanupTimeout] in
-            guard let self else { return }
+        let terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: config)
+        guard let inventory = makeInventory(config) else {
+            appLogger.warning("Startup zmx session reconciliation skipped because inventory could not be created")
+            recordZmxStartupReconciliation(
+                .init(
+                    inventoryOutcome: .unavailable("inventory unavailable for \(zmxPath)"),
+                    liveSessionCount: 0,
+                    hydratedAnchorCount: 0,
+                    protectedSessionCount: 0,
+                    unresolvedCandidateCount: 0,
+                    unmatchedLiveSessionCount: 0
+                )
+            )
+            return
+        }
+
+        let reconciliationTask = Task { @MainActor () -> Result<ZmxStartupReconciliationSummary, any Error> in
             do {
-                // Sample panes after launch restore has had a chance to mutate paneAtom.
-                let plan = currentZmxOrphanCleanupPlan()
-
-                if !plan.knownSessionIds.isEmpty {
-                    appLogger.info(
-                        "Orphan cleanup: protecting \(plan.knownSessionIds.count) known persisted zmx session(s)")
-                }
-                if !plan.protectedPaneSegments.isEmpty {
-                    appLogger.info(
-                        "Orphan cleanup: protecting \(plan.protectedPaneSegments.count) unresolved zmx pane segment(s)"
-                    )
-                }
-
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    group.addTask {
-                        let orphans = await backend.discoverOrphanSessions(excluding: plan.knownSessionIds)
-                        let destroyableOrphans = plan.destroyableSessionIds(from: orphans)
-                        if !destroyableOrphans.isEmpty {
-                            appLogger.info("Found \(destroyableOrphans.count) orphan zmx session(s) — cleaning up")
-                            for orphanId in destroyableOrphans {
-                                try Task.checkCancellation()
-                                let isProtectedNow = await MainActor.run {
-                                    self.isCurrentlyProtectedZmxSession(orphanId)
-                                }
-                                guard !isProtectedNow else {
-                                    appLogger.info(
-                                        "Skipping zmx session that became protected before destroy: \(orphanId)"
-                                    )
-                                    continue
-                                }
-                                do {
-                                    appLogger.info("Destroying orphan zmx session: \(orphanId)")
-                                    try await backend.destroySessionById(orphanId)
-                                    appLogger.debug("Killed orphan zmx session: \(orphanId)")
-                                } catch is CancellationError {
-                                    throw CancellationError()
-                                } catch {
-                                    appLogger.warning(
-                                        "Failed to kill orphan zmx session \(orphanId): \(error.localizedDescription)")
-                                }
-                            }
-                        }
-                    }
-                    group.addTask {
-                        try await cleanupDelay.wait(cleanupTimeout)
-                        throw ZmxOrphanCleanupTaskError.timedOut
-                    }
-                    // Wait for whichever finishes first, cancel the other
-                    try await group.next()
-                    group.cancelAll()
-                }
-            } catch is CancellationError {
-                appLogger.info("Orphan zmx cleanup cancelled")
-            } catch ZmxOrphanCleanupTaskError.timedOut {
-                appLogger.warning("Orphan zmx cleanup timed out after \(cleanupTimeout.description)")
+                let summary = try await self.runZmxStartupSessionReconciliation(
+                    inventory: inventory,
+                    terminalRestoreRuntime: terminalRestoreRuntime
+                )
+                return .success(summary)
             } catch {
-                appLogger.warning("Orphan zmx cleanup failed: \(error.localizedDescription)")
+                return .failure(error)
             }
+        }
+        let timeoutTask = Task {
+            do {
+                try await Task.sleep(nanoseconds: AppPolicies.ZmxStartup.reconciliationTimeout.nanosecondsForTaskSleep)
+                reconciliationTask.cancel()
+            } catch {}
+        }
+        defer {
+            timeoutTask.cancel()
+        }
+
+        do {
+            switch await reconciliationTask.value {
+            case .success(let summary):
+                recordZmxStartupReconciliation(summary)
+            case .failure(let reconciliationError):
+                throw reconciliationError
+            }
+        } catch is CancellationError {
+            appLogger.warning("Startup zmx session reconciliation timed out")
+            recordZmxStartupReconciliation(
+                unavailableStartupReconciliationSummary(
+                    reason: "startup reconciliation timeout",
+                    terminalRestoreRuntime: terminalRestoreRuntime
+                )
+            )
+        } catch {
+            appLogger.warning("Startup zmx session reconciliation failed: \(error.localizedDescription)")
+            recordZmxStartupReconciliation(
+                unavailableStartupReconciliationSummary(
+                    reason: "startup reconciliation failed",
+                    terminalRestoreRuntime: terminalRestoreRuntime
+                )
+            )
         }
     }
 
-    func cancelOrphanZmxCleanupTask() {
-        orphanZmxCleanupTask?.cancel()
-        orphanZmxCleanupTask = nil
+    private func unavailableStartupReconciliationSummary(
+        reason: String,
+        terminalRestoreRuntime: TerminalRestoreRuntime
+    ) -> ZmxStartupReconciliationSummary {
+        let candidates = zmxOrphanCleanupCandidates(terminalRestoreRuntime: terminalRestoreRuntime)
+        let unavailableSummary = ZmxOrphanCleanupPlanner.unavailableInventorySummary(candidates: candidates)
+        return .init(
+            inventoryOutcome: .unavailable(reason),
+            liveSessionCount: 0,
+            hydratedAnchorCount: 0,
+            protectedSessionCount: unavailableSummary.protectedSessionCount,
+            unresolvedCandidateCount: unavailableSummary.unresolvedCandidateCount,
+            unmatchedLiveSessionCount: 0
+        )
+    }
+
+    nonisolated static func makeZmxStartupSessionInventory(
+        sessionConfiguration config: SessionConfiguration
+    ) -> (any ZmxStartupSessionInventory)? {
+        guard let zmxPath = config.zmxPath else { return nil }
+        let inventory: any ZmxStartupSessionInventory = ZmxBackend(zmxPath: zmxPath, zmxDir: config.zmxDir)
+        return inventory
+    }
+
+    func runZmxStartupSessionReconciliation(
+        inventory: any ZmxStartupSessionInventory,
+        terminalRestoreRuntime: TerminalRestoreRuntime
+    ) async throws -> ZmxStartupReconciliationSummary {
+        let liveInventory = await inventory.discoverLiveSessionInventory()
+        let candidates = zmxOrphanCleanupCandidates(terminalRestoreRuntime: terminalRestoreRuntime)
+
+        switch liveInventory.outcome {
+        case .complete:
+            break
+        case .unavailable(let reason), .skipped(let reason):
+            appLogger.warning("Startup zmx session inventory unavailable: \(reason)")
+            let unavailableSummary = ZmxOrphanCleanupPlanner.unavailableInventorySummary(candidates: candidates)
+            return .init(
+                inventoryOutcome: liveInventory.outcome,
+                liveSessionCount: 0,
+                hydratedAnchorCount: 0,
+                protectedSessionCount: unavailableSummary.protectedSessionCount,
+                unresolvedCandidateCount: unavailableSummary.unresolvedCandidateCount,
+                unmatchedLiveSessionCount: 0
+            )
+        }
+
+        let liveSessionIds = liveInventory.sessionIds
+        let hydrationPlan = ZmxOrphanCleanupPlanner.plan(
+            candidates: candidates,
+            liveSessionIds: liveSessionIds
+        )
+        let reconciliationPlan = hydrationPlan.cleanupPlan
+
+        guard await persistHydratedZmxSessionAnchors(hydrationPlan.sessionIdsToPersistByPaneId) else {
+            return .init(
+                inventoryOutcome: liveInventory.outcome,
+                liveSessionCount: liveSessionIds.count,
+                hydratedAnchorCount: 0,
+                protectedSessionCount: reconciliationPlan.knownSessionIds.count,
+                unresolvedCandidateCount: reconciliationPlan.unresolvedCandidateCount,
+                unmatchedLiveSessionCount: 0
+            )
+        }
+
+        if reconciliationPlan.shouldSkipCleanup {
+            appLogger.warning(
+                "Startup zmx session reconciliation found one or more unresolved persisted zmx pane session IDs"
+            )
+        }
+        if !reconciliationPlan.knownSessionIds.isEmpty {
+            appLogger.info(
+                "Startup zmx session reconciliation: protecting \(reconciliationPlan.knownSessionIds.count) known persisted zmx session(s)"
+            )
+        }
+
+        let unmatchedLiveSessionIds = reconciliationPlan.destroyableOrphanSessionIds(from: liveSessionIds)
+        if !unmatchedLiveSessionIds.isEmpty {
+            appLogger.info(
+                "Startup zmx session reconciliation observed \(unmatchedLiveSessionIds.count) unmatched live zmx session(s); boot is non-destructive"
+            )
+        }
+
+        return .init(
+            inventoryOutcome: liveInventory.outcome,
+            liveSessionCount: liveSessionIds.count,
+            hydratedAnchorCount: hydrationPlan.sessionIdsToPersistByPaneId.count,
+            protectedSessionCount: reconciliationPlan.knownSessionIds.count,
+            unresolvedCandidateCount: reconciliationPlan.unresolvedCandidateCount,
+            unmatchedLiveSessionCount: unmatchedLiveSessionIds.count
+        )
+    }
+
+    func recordZmxStartupReconciliation(_ summary: ZmxStartupReconciliationSummary) {
+        startupTraceRecorder.recordZmxStartupReconciliation(summary)
+    }
+
+    func zmxOrphanCleanupCandidates(
+        terminalRestoreRuntime: TerminalRestoreRuntime
+    ) -> [ZmxOrphanCleanupCandidate] {
+        store.paneAtom.panes.values.compactMap { pane in
+            guard pane.provider == .zmx else { return nil }
+            let storedSessionId = pane.terminalState?.zmxSessionId
+            let derivedSessionId = terminalRestoreRuntime.legacyZmxSessionId(for: pane, store: store)
+            if let parentPaneId = pane.parentPaneId {
+                return .drawer(
+                    parentPaneId: parentPaneId,
+                    paneId: pane.id,
+                    storedSessionId: storedSessionId,
+                    derivedSessionId: derivedSessionId
+                )
+            }
+            return .main(
+                paneId: pane.id,
+                storedSessionId: storedSessionId,
+                derivedSessionId: derivedSessionId
+            )
+        }
+    }
+
+    func needsStartupZmxAnchorHydration() -> Bool {
+        store.paneAtom.panes.values.contains { pane in
+            guard pane.provider == .zmx else { return false }
+            guard let storedSessionId = pane.terminalState?.zmxSessionId else { return true }
+            if let parentPaneId = pane.parentPaneId {
+                return !ZmxBackend.isValidStoredDrawerSessionId(
+                    storedSessionId,
+                    parentPaneId: parentPaneId,
+                    drawerPaneId: pane.id
+                )
+            }
+            return !ZmxBackend.isValidStoredLayoutPaneSessionId(storedSessionId, paneId: pane.id)
+        }
+    }
+
+    func persistHydratedZmxSessionAnchors(_ sessionIdsByPaneId: [UUID: String]) async -> Bool {
+        guard !sessionIdsByPaneId.isEmpty else { return true }
+        let sortedAnchors = sessionIdsByPaneId.sorted { lhs, rhs in
+            lhs.key.uuidString < rhs.key.uuidString
+        }
+        var didChange = false
+        for (paneId, sessionId) in sortedAnchors {
+            if store.paneAtom.setTerminalZmxSessionId(paneId, sessionId: sessionId) {
+                didChange = true
+            }
+        }
+        guard didChange else { return true }
+
+        let flushOutcome = await store.flushAsync()
+        guard flushOutcome.succeeded else {
+            appLogger.warning("Startup zmx session reconciliation failed to persist hydrated zmx session anchors")
+            return false
+        }
+        appLogger.info(
+            "Persisted \(sessionIdsByPaneId.count) hydrated zmx session anchor(s) during startup reconciliation")
+        return true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -368,6 +524,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 inboxPrefsAtom: atomStore.inboxNotificationPrefs,
                 inboxSidebarState: atomStore.inboxSidebarState,
                 paneInboxPresenter: paneInboxNotificationPresenter,
+                performanceTraceRecorder: performanceTraceRecorder,
                 closeTransitionCoordinator: closeTransitionCoordinator
             )
             mainWindowController?.showWindow(nil)
@@ -644,11 +801,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let normalizedRoot = rootURL.standardizedFileURL.path
             await PaneRuntimeEventBus.shared.waitForFirst { envelope -> Void? in
                 guard case .system(let sys) = envelope,
-                    case .topology(.repoDiscovered(let repoPath, let parentPath, _)) = sys.event,
-                    parentPath.standardizedFileURL.path == normalizedRoot
-                        || repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
-                else { return nil }
-                return ()
+                    case .topology(let topologyEvent) = sys.event
+                else {
+                    return nil
+                }
+                switch topologyEvent {
+                case .repoDiscovered(let repoPath, let parentPath, _):
+                    guard
+                        parentPath.standardizedFileURL.path == normalizedRoot
+                            || repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
+                    else { return nil }
+                    return ()
+                case .reposDiscovered(let parentPath, let repositories):
+                    guard
+                        parentPath.standardizedFileURL.path == normalizedRoot
+                            || repositories.contains(where: {
+                                $0.repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
+                            })
+                    else { return nil }
+                    return ()
+                case .repoRemoved, .worktreeRegistered, .worktreeUnregistered:
+                    return nil
+                }
             }
             self.mainWindowController?.expandSidebar()
         }

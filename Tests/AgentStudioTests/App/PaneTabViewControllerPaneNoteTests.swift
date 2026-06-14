@@ -34,13 +34,12 @@ struct PaneTabViewControllerPaneNoteTests {
         harness.controller.execute(.editPaneNote)
         drainPaneNoteRunLoop()
 
-        let auxiliaryController = try #require(paneAuxiliaryCommandController(from: harness.controller))
-        let popover = try #require(paneNotePopover(from: auxiliaryController))
+        let popover = try #require(paneNotePopover(from: harness.controller))
         #expect(popover.delegate === harness.controller)
 
         harness.controller.popoverDidClose(Notification(name: NSPopover.didCloseNotification, object: popover))
 
-        #expect(paneNotePopover(from: auxiliaryController) == nil)
+        #expect(paneNotePopover(from: harness.controller) == nil)
     }
 
     @Test("pane note popover uses fallback anchor when registered host is detached")
@@ -52,7 +51,7 @@ struct PaneTabViewControllerPaneNoteTests {
         let fallbackAnchorView = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
         harness.viewRegistry.register(detachedHost, for: pane.id)
 
-        let anchorView = PaneAuxiliaryCommandController.resolvedPaneNoteAnchorView(
+        let anchorView = PaneTabViewController.resolvedPaneNoteAnchorView(
             for: pane.id,
             viewRegistry: harness.viewRegistry,
             fallbackAnchorView: fallbackAnchorView
@@ -71,7 +70,7 @@ struct PaneTabViewControllerPaneNoteTests {
         let fallbackAnchorView = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
         let attachedHost = try attachPaneHost(paneId: pane.id, in: harness, to: window)
 
-        let anchorView = PaneAuxiliaryCommandController.resolvedPaneNoteAnchorView(
+        let anchorView = PaneTabViewController.resolvedPaneNoteAnchorView(
             for: pane.id,
             viewRegistry: harness.viewRegistry,
             fallbackAnchorView: fallbackAnchorView
@@ -80,19 +79,19 @@ struct PaneTabViewControllerPaneNoteTests {
         #expect(anchorView === attachedHost)
     }
 
-    @Test("tab bar popover close does not initialize pane auxiliary controller")
-    func tabBarPopoverClose_doesNotInitializePaneAuxiliaryController() {
+    @Test("tab bar popover close leaves pane note popover untouched")
+    func tabBarPopoverClose_leavesPaneNotePopoverUntouched() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
         defer { window.orderOut(nil) }
 
-        #expect(paneAuxiliaryCommandController(from: harness.controller) == nil)
+        #expect(paneNotePopover(from: harness.controller) == nil)
 
         let popover = NSPopover()
         harness.controller.popoverDidClose(Notification(name: NSPopover.didCloseNotification, object: popover))
 
-        #expect(paneAuxiliaryCommandController(from: harness.controller) == nil)
+        #expect(paneNotePopover(from: harness.controller) == nil)
     }
 
     @Test("copyCurrentPanePath copies active main pane cwd")
@@ -162,7 +161,7 @@ struct PaneTabViewControllerPaneNoteTests {
         launchDirectory: URL? = nil
     ) -> Pane {
         let pane = harness.store.createPane(
-            source: .floating(launchDirectory: launchDirectory, title: "Terminal"),
+            launchDirectory: launchDirectory,
             title: "Terminal",
             provider: .zmx
         )
@@ -174,17 +173,7 @@ struct PaneTabViewControllerPaneNoteTests {
     }
 }
 
-private func paneAuxiliaryCommandController(
-    from controller: PaneTabViewController
-) -> PaneAuxiliaryCommandController? {
-    for child in Mirror(reflecting: controller).children {
-        guard child.label?.contains("paneAuxiliaryCommandController") == true else { continue }
-        return unwrapOptional(child.value) as? PaneAuxiliaryCommandController
-    }
-    return nil
-}
-
-private func paneNotePopover(from controller: PaneAuxiliaryCommandController) -> NSPopover? {
+private func paneNotePopover(from controller: PaneTabViewController) -> NSPopover? {
     for child in Mirror(reflecting: controller).children {
         guard child.label == "paneNotePopover" else { continue }
         return unwrapOptional(child.value) as? NSPopover

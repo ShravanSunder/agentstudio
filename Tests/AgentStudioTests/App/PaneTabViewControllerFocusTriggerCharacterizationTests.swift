@@ -40,8 +40,8 @@ struct PaneFocusTriggerCharacterizationTests {
     func tabClick_selectsTabAndRestoresMainPaneFocusOwner() throws {
         try withIsolatedFocusHarness { harness in
 
-            let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-            let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+            let firstPane = harness.store.createPane(launchDirectory: nil, title: "First")
+            let secondPane = harness.store.createPane(launchDirectory: nil, title: "Second")
             let firstTab = Tab(paneId: firstPane.id, name: "First")
             let secondTab = Tab(paneId: secondPane.id, name: "Second")
             harness.store.appendTab(firstTab)
@@ -66,7 +66,7 @@ struct PaneFocusTriggerCharacterizationTests {
     func drawerSelectPane_updatesDrawerCursorOwnerResponderAndScope() throws {
         try withIsolatedFocusHarness { harness in
 
-            let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+            let parentPane = harness.store.createPane(launchDirectory: nil, title: "Parent")
             let tab = Tab(paneId: parentPane.id)
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
@@ -114,7 +114,7 @@ struct PaneFocusTriggerCharacterizationTests {
     func modeEnteredManagementLayer_terminalClearsResponderToWindowContent() throws {
         try withIsolatedFocusHarness { harness in
 
-            let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Terminal"))
+            let pane = harness.store.createPane(launchDirectory: nil, title: "Terminal")
             let tab = Tab(paneId: pane.id)
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
@@ -143,7 +143,7 @@ struct PaneFocusTriggerCharacterizationTests {
     func refocusRequest_focusesActivePaneHost() throws {
         try withIsolatedFocusHarness { harness in
 
-            let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Terminal"))
+            let pane = harness.store.createPane(launchDirectory: nil, title: "Terminal")
             let tab = Tab(paneId: pane.id)
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
@@ -182,8 +182,8 @@ struct PaneFocusTriggerCharacterizationTests {
     func commandSelectTab_restoresSelectedTabFocusOwner() throws {
         try withIsolatedFocusHarness { harness in
 
-            let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-            let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+            let firstPane = harness.store.createPane(launchDirectory: nil, title: "First")
+            let secondPane = harness.store.createPane(launchDirectory: nil, title: "Second")
             let firstTab = Tab(paneId: firstPane.id, name: "First")
             let secondTab = Tab(paneId: secondPane.id, name: "Second")
             harness.store.appendTab(firstTab)
@@ -240,8 +240,8 @@ extension PaneTabViewControllerCommandHarness {
 private func makeTwoPaneFixture(
     in harness: PaneTabViewControllerCommandHarness
 ) throws -> PaneTabFocusTriggerFixture {
-    let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-    let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+    let firstPane = harness.store.createPane(launchDirectory: nil, title: "First")
+    let secondPane = harness.store.createPane(launchDirectory: nil, title: "Second")
     let tab = Tab(paneId: firstPane.id)
     harness.store.appendTab(tab)
     harness.store.insertPane(

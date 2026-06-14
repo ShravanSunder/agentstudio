@@ -78,8 +78,9 @@ cohesive by lifecycle.
 | `Pane` | `PaneGraphState` in `WorkspacePaneGraphAtom` | `Pane` from `WorkspacePaneDerived` | `LegacyPanePayload` | `pane`, `pane_content_*`, `pane_tag` |
 | `Drawer` identity and membership | `DrawerGraphState` in `WorkspacePaneGraphAtom` | `Drawer` from `WorkspacePaneDerived` | `LegacyDrawerPayload` | `drawer`, `drawer_pane` |
 | `Drawer.isExpanded` | `WorkspaceDrawerCursorAtom` | `Drawer` from `WorkspacePaneDerived` | `LegacyDrawerPayload` | `local_drawer_cursor.is_expanded` |
-| `PaneMetadata` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneMetadataPayload` | pane source, cwd, checkout, title, note, tag columns |
-| `PaneContextFacets` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneContextFacetsPayload` | repo id, worktree id, cwd, tags |
+| `PaneMetadata` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneMetadataPayload` | pane launch directory, title, checkout, note, and tag columns |
+| `PaneContextFacets` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneContextFacetsPayload` | `facet_repo_id`, `facet_worktree_id`, cwd, tags |
+| `TerminalState.zmxSessionId` | `PaneGraphState.content` | `Pane` from `WorkspacePaneDerived` | legacy rows hydrate via boot cleanup / restore fallback | `pane_content_terminal.zmx_session_id` |
 | `PaneContextFacets` display fields | none | `WorkspacePaneDerived` from topology plus `RepoEnrichmentCacheAtom` | decoded only for legacy compatibility; cache import/rebuild supplies live values | `cache_repo_enrichment`, `cache_worktree_enrichment` |
 | `Tab` shell | `WorkspaceTabShellAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `LegacyTabPayload` | `tab_shell` |
 | `Tab.activeArrangementId` | `WorkspaceArrangementCursorAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `LegacyTabPayload` | `local_tab_cursor.active_arrangement_id` |

@@ -144,9 +144,7 @@ final class SessionRuntimeTests {
         store.restore()
         let runtime = makeRuntime(store: store)
 
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
 
         runtime.syncWithStore()
 
@@ -187,7 +185,6 @@ final class SessionRuntimeTests {
         let backend = MockSessionRuntimeBackend(provider: .zmx)
         runtime.registerBackend(backend)
         let pane = makePane(
-            source: .floating(launchDirectory: nil, title: "Terminal"),
             provider: .zmx
         )
 
@@ -204,7 +201,6 @@ final class SessionRuntimeTests {
     func test_startSession_withoutBackend_marksExited() async throws {
         let runtime = makeRuntime()
         let pane = makePane(
-            source: .floating(launchDirectory: nil, title: nil),
             provider: .ghostty
         )
 
@@ -223,7 +219,6 @@ final class SessionRuntimeTests {
         runtime.registerBackend(backend)
 
         let pane = makePane(
-            source: .floating(launchDirectory: nil, title: nil),
             provider: .zmx
         )
 
@@ -240,7 +235,6 @@ final class SessionRuntimeTests {
     func test_restoreSession_withoutBackend_marksExited() async {
         let runtime = makeRuntime()
         let pane = makePane(
-            source: .floating(launchDirectory: nil, title: nil),
             provider: .ghostty
         )
 
@@ -260,7 +254,6 @@ final class SessionRuntimeTests {
         runtime.registerBackend(backend)
 
         let pane = makePane(
-            source: .floating(launchDirectory: nil, title: nil),
             provider: .zmx
         )
 
@@ -280,7 +273,6 @@ final class SessionRuntimeTests {
         runtime.registerBackend(backend)
 
         let pane = makePane(
-            source: .floating(launchDirectory: nil, title: nil),
             provider: .zmx
         )
 
@@ -299,7 +291,6 @@ final class SessionRuntimeTests {
         runtime.registerBackend(backend)
 
         let pane = makePane(
-            source: .floating(launchDirectory: nil, title: nil),
             provider: .zmx
         )
         runtime.markRunning(pane.id)
@@ -316,7 +307,6 @@ final class SessionRuntimeTests {
     func test_terminateSession_withoutBackend_marksExited() async {
         let runtime = makeRuntime()
         let pane = makePane(
-            source: .floating(launchDirectory: nil, title: nil),
             provider: .ghostty
         )
         runtime.markRunning(pane.id)
@@ -346,11 +336,13 @@ final class SessionRuntimeTests {
         runtime.registerBackend(backend)
 
         let hungPane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Hung"),
+            launchDirectory: nil,
+            title: "Hung",
             provider: .zmx
         )
         let healthyPane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Healthy"),
+            launchDirectory: nil,
+            title: "Healthy",
             provider: .zmx
         )
         backend.hungPaneIds = [hungPane.id]

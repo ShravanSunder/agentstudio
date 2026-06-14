@@ -18,8 +18,6 @@ private final class TerminationDrainCompletion: @unchecked Sendable {
 
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
-        cancelOrphanZmxCleanupTask()
-
         do {
             try await repoCacheStore.flushAsync(for: store.identityAtom.workspaceId)
         } catch {
@@ -61,6 +59,9 @@ extension AppDelegate {
         }
         await runTerminationDrain("startup trace") { [weak self] in
             try? await self?.startupTraceRecorder?.drain()
+        }
+        await runTerminationDrain("performance trace") { [weak self] in
+            try? await self?.performanceTraceRecorder?.drain()
         }
 
         // Always flush on quit — the pre-persist hook syncs runtime webview state

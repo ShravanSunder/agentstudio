@@ -25,6 +25,12 @@ final class RepoEnrichmentCacheAtom {
     }
 
     func setWorktreeEnrichment(_ enrichment: WorktreeEnrichment) {
+        if let existing = worktreeEnrichmentByWorktreeId[enrichment.worktreeId],
+            existing.hasSameCacheContent(as: enrichment)
+        {
+            return
+        }
+
         var updated = worktreeEnrichmentByWorktreeId
         updated[enrichment.worktreeId] = enrichment
         worktreeEnrichmentByWorktreeId = updated

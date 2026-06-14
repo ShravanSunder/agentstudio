@@ -16,7 +16,6 @@ func validatePaneGraph(
         if let drawer = pane.drawer {
             try validateExistingDrawerBelongsToWorkspace(database, workspaceId: workspaceId, drawerId: drawer.drawerId)
         }
-        try validatePaneSource(database, workspaceId: workspaceId, pane: pane)
         try validatePaneContentRoute(pane)
         try validatePaneContentTypeIsStable(database, workspaceId: workspaceId, pane: pane)
         try validatePanePlacement(pane, panesById: panesById, drawerMemberships: drawerMemberships)
@@ -35,63 +34,6 @@ private func validateUniqueDrawerIds(_ panes: [WorkspaceCoreRepository.PaneRecor
     var seenIds = Set<UUID>()
     for drawer in panes.compactMap(\.drawer) where !seenIds.insert(drawer.drawerId).inserted {
         throw WorkspaceCoreRepositoryError.duplicateDrawerId(drawer.drawerId)
-    }
-}
-
-private func validatePaneSource(
-    _ database: Database,
-    workspaceId: UUID,
-    pane: WorkspaceCoreRepository.PaneRecord
-) throws {
-    switch pane.metadata.source {
-    case .worktree(let repoId, let worktreeId, _):
-        try validateWorktreeSourceFacets(pane: pane, repoId: repoId, worktreeId: worktreeId)
-        try requireRepoExists(database, repoId: repoId, workspaceId: workspaceId)
-        let actualRepoId = try requireWorktreeExists(database, worktreeId: worktreeId, workspaceId: workspaceId)
-        guard actualRepoId == repoId else {
-            throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(
-                worktreeId: worktreeId,
-                expectedRepoId: repoId,
-                actualRepoId: actualRepoId
-            )
-        }
-    case .floating:
-        let sourceIds = SQLitePaneGraphStorage.sourceIds(pane: pane)
-
-        if let repoId = sourceIds.repoId {
-            try requireRepoExists(database, repoId: repoId, workspaceId: workspaceId)
-        }
-        if let worktreeId = sourceIds.worktreeId {
-            let actualRepoId = try requireWorktreeExists(database, worktreeId: worktreeId, workspaceId: workspaceId)
-            if let repoId = sourceIds.repoId, actualRepoId != repoId {
-                throw WorkspaceCoreRepositoryError.worktreeRepoMismatch(
-                    worktreeId: worktreeId,
-                    expectedRepoId: repoId,
-                    actualRepoId: actualRepoId
-                )
-            }
-        }
-    }
-}
-
-private func validateWorktreeSourceFacets(
-    pane: WorkspaceCoreRepository.PaneRecord,
-    repoId: UUID,
-    worktreeId: UUID
-) throws {
-    if let facetRepoId = pane.metadata.durableFacets.repoId, facetRepoId != repoId {
-        throw WorkspaceCoreRepositoryError.paneSourceFacetRepoMismatch(
-            paneId: pane.id,
-            sourceRepoId: repoId,
-            facetRepoId: facetRepoId
-        )
-    }
-    if let facetWorktreeId = pane.metadata.durableFacets.worktreeId, facetWorktreeId != worktreeId {
-        throw WorkspaceCoreRepositoryError.paneSourceFacetWorktreeMismatch(
-            paneId: pane.id,
-            sourceWorktreeId: worktreeId,
-            facetWorktreeId: facetWorktreeId
-        )
     }
 }
 
@@ -288,31 +230,6 @@ private func fetchDrawerWorkspaceId(_ database: Database, drawerId: UUID) throws
         throw WorkspaceCoreRepositoryError.malformedWorkspaceId(workspaceIdString)
     }
     return workspaceId
-}
-
-private func requireWorktreeExists(
-    _ database: Database,
-    worktreeId: UUID,
-    workspaceId: UUID
-) throws -> UUID {
-    guard
-        let repoIdString = try String.fetchOne(
-            database,
-            sql: """
-                SELECT repo_id
-                FROM worktree
-                WHERE id = ?
-                AND workspace_id = ?
-                """,
-            arguments: [worktreeId.uuidString, workspaceId.uuidString]
-        )
-    else {
-        throw WorkspaceCoreRepositoryError.worktreeNotFoundInWorkspace(worktreeId, workspaceId)
-    }
-    guard let repoId = UUID(uuidString: repoIdString) else {
-        throw WorkspaceCoreRepositoryError.malformedRepoId(repoIdString)
-    }
-    return repoId
 }
 
 private func isPayloadBackedContentType(_ contentType: PaneContentType) -> Bool {

@@ -80,9 +80,10 @@ struct PaneTabViewControllerEditorChooserCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Parent",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
@@ -101,9 +102,10 @@ struct PaneTabViewControllerEditorChooserCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Parent",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)

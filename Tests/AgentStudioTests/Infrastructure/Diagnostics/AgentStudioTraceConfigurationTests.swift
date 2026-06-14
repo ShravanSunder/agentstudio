@@ -125,6 +125,15 @@ struct AgentStudioTraceConfigurationTests {
     }
 
     @Test
+    func performanceTraceTagParsesAsExplicitOptInLane() {
+        let selection = AgentStudioTraceTag.parseSelection("performance")
+
+        #expect(selection.tags == [.performance])
+        #expect(selection.unknownSelectors.isEmpty)
+        #expect(!AgentStudioTraceConfiguration.safeDefaultTags.contains(.performance))
+    }
+
+    @Test
     func tagSelectionKeepsMixedKnownAndUnknownSelectors() {
         let selection = AgentStudioTraceTag.parseSelection(" Runtime, paneInbox, missing.tag ")
 

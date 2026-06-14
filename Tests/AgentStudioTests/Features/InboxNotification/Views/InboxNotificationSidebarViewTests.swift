@@ -798,7 +798,6 @@ struct InboxSidebarFocusActivationTests {
                 metadata: PaneMetadata(
                     paneId: paneId,
                     contentType: .terminal,
-                    source: .floating(launchDirectory: nil, title: nil),
                     title: "Pane"
                 )
             )
@@ -833,7 +832,6 @@ struct InboxSidebarFocusActivationTests {
             metadata: PaneMetadata(
                 paneId: PaneId(uuid: parentPaneId),
                 contentType: .terminal,
-                source: .floating(launchDirectory: nil, title: nil),
                 title: "Parent"
             ),
             kind: .layout(drawer: Drawer(paneIds: [drawerPaneId]))
@@ -844,7 +842,6 @@ struct InboxSidebarFocusActivationTests {
             metadata: PaneMetadata(
                 paneId: PaneId(uuid: drawerPaneId),
                 contentType: .terminal,
-                source: .floating(launchDirectory: nil, title: nil),
                 title: "Drawer"
             ),
             kind: .drawerChild(parentPaneId: parentPaneId)

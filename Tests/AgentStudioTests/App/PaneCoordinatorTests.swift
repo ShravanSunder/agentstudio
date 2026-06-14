@@ -44,7 +44,7 @@ struct PaneCoordinatorTests {
         let url = URL(string: "https://example.com/\(UUID().uuidString)")!
         return store.createPane(
             content: .webview(WebviewState(url: url, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: title), title: title)
+            metadata: PaneMetadata(title: title)
         )
     }
 
@@ -270,8 +270,9 @@ struct PaneCoordinatorTests {
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!, showNavigation: true)),
             metadata: PaneMetadata(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: repoPath),
-                title: "Browser"
+                launchDirectory: repoPath,
+                title: "Browser",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: repoPath),
             )
         )
 
@@ -281,6 +282,34 @@ struct PaneCoordinatorTests {
 
         coordinator.teardownView(for: pane.id)
         #expect(paneFilesystemProjectionStore.context(for: pane.id) == nil)
+    }
+
+    @Test("filesystem projection ignores non-projectable worktree events before deriving topology maps")
+    func filesystemProjectionIgnoresNonProjectableWorktreeEvents() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-filesystem-ignore-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
+        store.restore()
+        let coordinator = makeFilesystemSyncCoordinator(
+            store: store,
+            filesystemSource: RecordingFilesystemSourceHarness(),
+            paneEventBus: EventBus<RuntimeEnvelope>()
+        )
+
+        let envelope = RuntimeEnvelope.worktree(
+            WorktreeEnvelope(
+                source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                seq: 1,
+                timestamp: ContinuousClock().now,
+                repoId: UUID(),
+                worktreeId: UUID(),
+                event: .gitWorkingDirectory(.originChanged(repoId: UUID(), from: "", to: "origin"))
+            )
+        )
+
+        #expect(await coordinator.handleFilesystemEnvelopeIfNeeded(envelope) == false)
     }
 
     @Test("closing tab with drawer children snapshots all panes for undo")
@@ -342,7 +371,6 @@ struct PaneCoordinatorTests {
         let metadata = PaneMetadata(
             paneId: runtimePaneId,
             contentType: .browser,
-            source: .floating(launchDirectory: nil, title: "Runtime Teardown"),
             title: "Runtime Teardown"
         )
         let runtime = WebviewRuntime(
@@ -459,7 +487,7 @@ struct PaneCoordinatorTests {
         )
 
         let primaryPane = store.createPane(
-            source: .worktree(worktreeId: primaryWorktree.id, repoId: repo.id, launchDirectory: primaryWorktree.path),
+            launchDirectory: primaryWorktree.path,
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: primaryWorktree.id,
@@ -521,9 +549,7 @@ struct PaneCoordinatorTests {
         }
 
         let tertiaryPane = store.createPane(
-            source: .worktree(
-                worktreeId: reconciledTertiaryWorktree.id, repoId: repo.id,
-                launchDirectory: reconciledTertiaryWorktree.path),
+            launchDirectory: reconciledTertiaryWorktree.path,
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: reconciledTertiaryWorktree.id,
@@ -608,7 +634,7 @@ struct PaneCoordinatorTests {
         )
 
         let primaryPane = store.createPane(
-            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
+            launchDirectory: mainWorktree.path,
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: mainWorktree.id,
@@ -683,7 +709,7 @@ struct PaneCoordinatorTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
+            launchDirectory: mainWorktree.path,
             facets: PaneContextFacets(repoId: repo.id, worktreeId: mainWorktree.id, cwd: mainWorktree.path)
         )
         let tab = Tab(paneId: pane.id)
@@ -784,6 +810,7 @@ private actor RecordingFilesystemSource: PaneCoordinatorFilesystemSourceManaging
     private(set) var registeredRoots: [UUID: URL] = [:]
     private(set) var activityByWorktreeId: [UUID: Bool] = [:]
     private(set) var activePaneWorktreeId: UUID?
+    private(set) var topologyAssertionGeneration: UInt64?
 
     func start() async {}
 
@@ -798,6 +825,17 @@ private actor RecordingFilesystemSource: PaneCoordinatorFilesystemSourceManaging
         activityByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
+        }
+    }
+
+    func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
+        guard topologyAssertionGeneration.map({ assertion.generation >= $0 }) ?? true else { return }
+        topologyAssertionGeneration = assertion.generation
+        let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
+        registeredRoots = assertion.contextsByWorktreeId.mapValues(\.rootPath)
+        activityByWorktreeId = activityByWorktreeId.filter { desiredWorktreeIds.contains($0.key) }
+        if let activePaneWorktreeId, !desiredWorktreeIds.contains(activePaneWorktreeId) {
+            self.activePaneWorktreeId = nil
         }
     }
 
@@ -823,6 +861,7 @@ private actor DelayingRecordingFilesystemSource: PaneCoordinatorFilesystemSource
     private(set) var registeredRoots: [UUID: URL] = [:]
     private(set) var activityByWorktreeId: [UUID: Bool] = [:]
     private(set) var activePaneWorktreeId: UUID?
+    private(set) var topologyAssertionGeneration: UInt64?
 
     init(operationDelayTurns: Int) {
         self.operationDelayTurns = operationDelayTurns
@@ -843,6 +882,18 @@ private actor DelayingRecordingFilesystemSource: PaneCoordinatorFilesystemSource
         activityByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
+        }
+    }
+
+    func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
+        await settleDelay()
+        guard topologyAssertionGeneration.map({ assertion.generation >= $0 }) ?? true else { return }
+        topologyAssertionGeneration = assertion.generation
+        let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
+        registeredRoots = assertion.contextsByWorktreeId.mapValues(\.rootPath)
+        activityByWorktreeId = activityByWorktreeId.filter { desiredWorktreeIds.contains($0.key) }
+        if let activePaneWorktreeId, !desiredWorktreeIds.contains(activePaneWorktreeId) {
+            self.activePaneWorktreeId = nil
         }
     }
 

@@ -441,6 +441,43 @@ struct FilesystemActorTests {
         await actor.shutdown()
     }
 
+    @Test("ignored-only changes do not emit filesChanged envelope")
+    func ignoredOnlyChangesDoNotEmitFilesChangedEnvelope() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let actor = makeActor(bus: bus)
+
+        let rootPath = FileManager.default.temporaryDirectory
+            .appending(path: "ignored-only-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+        try "*.tmp\n".write(
+            to: rootPath.appending(path: ".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let worktreeId = UUID()
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+
+        let observed = ObservedFilesystemChanges()
+        let stream = await bus.subscribe()
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
+        defer { collectionTask.cancel() }
+
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+
+        await actor.shutdown()
+    }
+
     @Test("gitignore modification reloads filter for subsequent batches")
     func gitignoreModificationReloadsFilterForSubsequentBatches() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -468,9 +505,10 @@ struct FilesystemActorTests {
         }
         defer { collectionTask.cancel() }
 
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".git/index", "cache.tmp"])
         let initialChangeset = await observed.next()
         #expect(initialChangeset.paths.isEmpty)
+        #expect(initialChangeset.containsGitInternalChanges)
         #expect(initialChangeset.suppressedIgnoredPathCount == 1)
 
         try "# no ignore rules\n".write(
@@ -492,6 +530,45 @@ struct FilesystemActorTests {
         #expect(postReloadChangeset.paths.contains("cache.tmp"))
         #expect(!postReloadChangeset.paths.contains(".gitignore"))
         #expect(postReloadChangeset.suppressedIgnoredPathCount == 0)
+
+        await actor.shutdown()
+    }
+
+    @Test("gitignore-only modification emits refresh-worthy empty changeset")
+    func gitignoreOnlyModificationEmitsRefreshWorthyEmptyChangeset() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let actor = makeActor(bus: bus)
+
+        let rootPath = FileManager.default.temporaryDirectory
+            .appending(path: "gitignore-only-refresh-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+        try "*.tmp\n".write(
+            to: rootPath.appending(path: ".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let worktreeId = UUID()
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+
+        let stream = await bus.subscribe()
+        var iterator = stream.makeAsyncIterator()
+
+        try "# no ignore rules\n".write(
+            to: rootPath.appending(path: ".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore"])
+
+        let envelope = try #require(await iterator.next())
+        let changeset = try #require(filesChangedChangeset(from: envelope))
+        #expect(changeset.worktreeId == worktreeId)
+        #expect(changeset.paths.isEmpty)
+        #expect(changeset.containsGitInternalChanges)
+        #expect(changeset.suppressedIgnoredPathCount == 0)
+        #expect(changeset.suppressedGitInternalPathCount == 0)
 
         await actor.shutdown()
     }
@@ -522,9 +599,10 @@ struct FilesystemActorTests {
             }
         }
 
-        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["cache.tmp"])
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".git/index", "cache.tmp"])
         let initialChangeset = await observed.next()
         #expect(initialChangeset.paths.isEmpty)
+        #expect(initialChangeset.containsGitInternalChanges)
         #expect(initialChangeset.suppressedIgnoredPathCount == 1)
 
         try "# no ignore rules\n".write(

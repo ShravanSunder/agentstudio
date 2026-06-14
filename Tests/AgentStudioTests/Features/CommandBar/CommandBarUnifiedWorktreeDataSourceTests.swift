@@ -150,12 +150,9 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             return
         }
         let pane = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "Terminal"
+            launchDirectory: storedWorktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         store.appendTab(Tab(paneId: pane.id))
 
@@ -191,12 +188,9 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             return
         }
         let pane = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "Terminal"
+            launchDirectory: storedWorktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         store.appendTab(Tab(paneId: pane.id))
 
@@ -224,12 +218,9 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             return
         }
         let pane = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "Terminal"
+            launchDirectory: storedWorktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         store.appendTab(Tab(paneId: pane.id))
 
@@ -268,7 +259,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     @Test
     func test_everythingScope_tabKeywordsIncludeArrangementNames() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         var tab = Tab(paneId: pane.id)
         let namedArrangement = PaneArrangement(
             name: "Review",
@@ -289,7 +280,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     @Test
     func test_everythingScope_tabKeywordsIncludeTabName() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id, name: "My Workspace")
         store.appendTab(tab)
 
@@ -347,12 +338,9 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             return
         }
         let pane = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "Terminal"
+            launchDirectory: storedWorktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         store.appendTab(Tab(paneId: pane.id))
 
@@ -392,21 +380,15 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         }
 
         let paneA = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "A"
+            launchDirectory: storedWorktree.path,
+            title: "A",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         store.appendTab(Tab(paneId: paneA.id))
         let paneB = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "B"
+            launchDirectory: storedWorktree.path,
+            title: "B",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         store.appendTab(Tab(paneId: paneB.id))
 
@@ -445,12 +427,9 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             return
         }
         let pane = store.createPane(
-            source: .worktree(
-                worktreeId: storedWorktree.id,
-                repoId: repo.id,
-                launchDirectory: storedWorktree.path
-            ),
-            title: "T"
+            launchDirectory: storedWorktree.path,
+            title: "T",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
         )
         store.appendTab(Tab(paneId: pane.id))
 

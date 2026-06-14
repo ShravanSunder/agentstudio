@@ -17,7 +17,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             configureMainWindowKeyboardOwner(atoms)
 
-            let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+            let parentPane = harness.store.createPane()
             let tab = Tab(paneId: parentPane.id)
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
@@ -105,7 +105,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
             atoms.workspaceSidebarState.setSidebarSurface(.inbox)
             atoms.workspaceSidebarState.setSidebarHasFocus(true)
 
-            let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Pane"))
+            let pane = harness.store.createPane()
             let tab = Tab(paneId: pane.id)
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
@@ -149,7 +149,6 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
                 content: .webview(WebviewState(url: try #require(URL(string: "https://example.com")))),
                 metadata: PaneMetadata(
                     contentType: .browser,
-                    source: .floating(launchDirectory: nil, title: "Browser"),
                     title: "Browser"
                 )
             )
@@ -190,7 +189,7 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentPane = harness.store.createPane()
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)

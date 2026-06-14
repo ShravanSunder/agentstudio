@@ -52,6 +52,7 @@ actor RecordingFilesystemSourceHarness: PaneCoordinatorFilesystemSourceManaging 
     private var registeredRoots: [UUID: URL] = [:]
     private var activityByWorktreeId: [UUID: Bool] = [:]
     private var activePaneWorktreeId: UUID?
+    private var topologyAssertionGeneration: UInt64?
     private var registerLog: [(worktreeId: UUID, repoId: UUID, rootPath: URL)] = []
     private var unregisterLog: [UUID] = []
 
@@ -70,6 +71,17 @@ actor RecordingFilesystemSourceHarness: PaneCoordinatorFilesystemSourceManaging 
         activityByWorktreeId.removeValue(forKey: worktreeId)
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
+        }
+    }
+
+    func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
+        guard topologyAssertionGeneration.map({ assertion.generation >= $0 }) ?? true else { return }
+        topologyAssertionGeneration = assertion.generation
+        let desiredWorktreeIds = Set(assertion.contextsByWorktreeId.keys)
+        registeredRoots = assertion.contextsByWorktreeId.mapValues(\.rootPath)
+        activityByWorktreeId = activityByWorktreeId.filter { desiredWorktreeIds.contains($0.key) }
+        if let activePaneWorktreeId, !desiredWorktreeIds.contains(activePaneWorktreeId) {
+            self.activePaneWorktreeId = nil
         }
     }
 

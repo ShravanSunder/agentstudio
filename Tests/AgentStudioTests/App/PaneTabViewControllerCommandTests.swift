@@ -56,8 +56,8 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let firstPane = harness.store.createPane()
+        let secondPane = harness.store.createPane()
         let firstTab = Tab(paneId: firstPane.id, name: "First Tab")
         let secondTab = Tab(paneId: secondPane.id, name: "Second Tab")
         harness.store.appendTab(firstTab)
@@ -80,8 +80,8 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let firstPane = harness.store.createPane()
+        let secondPane = harness.store.createPane()
         let firstTab = Tab(paneId: firstPane.id, name: "First Tab")
         let secondTab = Tab(paneId: secondPane.id, name: "Second Tab")
         harness.store.appendTab(firstTab)
@@ -107,7 +107,7 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Only"))
+        let pane = harness.store.createPane()
         let tab = Tab(paneId: pane.id, name: "Only Tab")
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -124,8 +124,8 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let firstPane = harness.store.createPane()
+        let secondPane = harness.store.createPane()
         let firstTab = Tab(paneId: firstPane.id, name: "First Tab")
         let secondTab = Tab(paneId: secondPane.id, name: "Second Tab")
         harness.store.appendTab(firstTab)
@@ -146,8 +146,8 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let firstPane = harness.store.createPane()
+        let secondPane = harness.store.createPane()
         let tab = Tab(paneId: firstPane.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -180,9 +180,9 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let firstTabPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-        let secondTabPaneA = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second A"))
-        let secondTabPaneB = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second B"))
+        let firstTabPane = harness.store.createPane()
+        let secondTabPaneA = harness.store.createPane()
+        let secondTabPaneB = harness.store.createPane()
         let firstTab = Tab(paneId: firstTabPane.id, name: "First")
         let secondTab = Tab(paneId: secondTabPaneA.id, name: "Second")
         harness.store.appendTab(firstTab)
@@ -217,8 +217,8 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let firstPane = harness.store.createPane()
+        let secondPane = harness.store.createPane()
         let tab = Tab(paneId: firstPane.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -310,7 +310,7 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentPane = harness.store.createPane()
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -351,9 +351,10 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let parentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Parent",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
@@ -381,9 +382,10 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let parentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Parent",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
@@ -413,9 +415,10 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let parentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Parent",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
@@ -437,10 +440,10 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentPane = harness.store.createPane()
         let parentTab = Tab(paneId: parentPane.id)
         harness.store.appendTab(parentTab)
-        let otherPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Other"))
+        let otherPane = harness.store.createPane()
         let otherTab = Tab(paneId: otherPane.id)
         harness.store.appendTab(otherTab)
         harness.store.setActiveTab(otherTab.id)
@@ -464,9 +467,10 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let parentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Parent",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
@@ -492,7 +496,7 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Only"))
+        let pane = harness.store.createPane()
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -509,7 +513,7 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Only"))
+        let pane = harness.store.createPane()
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
@@ -527,14 +531,16 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let primaryPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Primary",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let terminatingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Terminating",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: primaryPane.id)
         harness.store.appendTab(tab)
@@ -561,14 +567,16 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let survivingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Surviving",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let terminatingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Terminating",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let survivingTab = Tab(paneId: survivingPane.id, name: "Surviving")
         let terminatingTab = Tab(paneId: terminatingPane.id, name: "Terminating")
@@ -590,14 +598,16 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Visible",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            launchDirectory: worktree.path,
             title: "Hidden",
-            provider: .zmx
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
         )
         let tab = Tab(paneId: visiblePane.id)
         harness.store.appendTab(tab)
@@ -630,17 +640,14 @@ struct PaneTabViewControllerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let firstPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "First"),
             title: "First",
             provider: .zmx
         )
         let secondPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Second"),
             title: "Second",
             provider: .zmx
         )
         let foregroundPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Foreground"),
             title: "Foreground",
             provider: .zmx
         )
@@ -675,12 +682,10 @@ struct PaneTabViewControllerCommandTests {
         #expect(!atom(\.managementLayer).isActive)
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
         let visiblePane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Visible"),
             title: "Visible",
             provider: .zmx
         )
@@ -720,7 +725,6 @@ struct PaneTabViewControllerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
@@ -755,7 +759,6 @@ struct PaneTabViewControllerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
@@ -784,7 +787,6 @@ struct PaneTabViewControllerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
@@ -830,7 +832,6 @@ struct PaneTabViewControllerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
@@ -861,8 +862,8 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let first = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
-        let second = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let first = harness.store.createPane()
+        let second = harness.store.createPane()
         let tab = Tab(paneId: first.id)
         harness.store.appendTab(tab)
         harness.store.insertPane(
@@ -946,7 +947,7 @@ struct PaneTabViewControllerCommandTests {
         paneCount: Int
     ) throws -> (tab: Tab, panes: [Pane]) {
         let panes = (0..<paneCount).map { index in
-            harness.store.createPane(source: .floating(launchDirectory: nil, title: "Pane \(index + 1)"))
+            harness.store.createPane(title: "Pane \(index + 1)")
         }
         let tab = Tab(paneId: panes[0].id)
         harness.store.appendTab(tab)

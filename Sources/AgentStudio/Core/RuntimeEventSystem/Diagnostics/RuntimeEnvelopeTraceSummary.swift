@@ -377,6 +377,8 @@ extension TopologyEvent {
         switch self {
         case .repoDiscovered:
             return "topology.repoDiscovered"
+        case .reposDiscovered:
+            return "topology.reposDiscovered"
         case .repoRemoved:
             return "topology.repoRemoved"
         case .worktreeRegistered:
