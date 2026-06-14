@@ -6,6 +6,11 @@ enum AppPolicies {
         static let traceEventQueueBufferLimit: Int = 4096
     }
 
+    enum Bridge {
+        static let contentCacheMaxBytes: Int = 50 * 1024 * 1024
+        static let contentMaxBytesPerItem: Int = 50 * 1024 * 1024
+    }
+
     enum WorkspacePersistence {
         static let debouncedAutosaveFailureDampingThreshold: Int = 3
     }
@@ -85,6 +90,10 @@ enum AppPolicies {
 
     enum ZmxStartup {
         static let reconciliationTimeout: Duration = .seconds(3)
+    }
+
+    enum StartupDiagnostic {
+        static let launchRestoreBoundsTimeout: Duration = .seconds(3)
     }
 
     enum SelectablePopover {

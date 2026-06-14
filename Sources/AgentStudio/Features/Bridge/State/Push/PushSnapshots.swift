@@ -8,6 +8,18 @@ struct DiffStatusSlice: Encodable, Equatable, Sendable {
     let epoch: Int
 }
 
+/// Wire payload for review package metadata.
+/// Content bytes stay lazy and are fetched through BridgeContentHandle URLs.
+struct DiffPackageMetadataSlice: Encodable, Equatable, Sendable {
+    let package: BridgeReviewPackage?
+}
+
+/// Wire payload for incremental review package deltas.
+/// A nil delta is a no-op marker that clears stale pending delta state.
+struct DiffPackageDeltaSlice: Encodable, Equatable, Sendable {
+    let delta: BridgeReviewDelta?
+}
+
 /// Wire payload for connection health push.
 /// Pushed on `.hot` level — connection changes need immediate UI response.
 struct ConnectionSlice: Encodable, Equatable, Sendable {

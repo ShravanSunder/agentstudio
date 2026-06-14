@@ -40,7 +40,6 @@ extension PaneCoordinator {
             }
         }
     }
-
     @discardableResult
     func registerHostedView(
         mountedView: NSView & PaneMountedContent,
@@ -154,7 +153,11 @@ extension PaneCoordinator {
             return view
 
         case .bridgePanel(let state):
-            let controller = BridgePaneController(paneId: pane.id, state: state)
+            let controller = BridgePaneController(
+                paneId: pane.id,
+                state: state,
+                reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state)
+            )
             let view = BridgePaneMountView(paneId: pane.id, controller: controller)
             registerHostedView(mountedView: view, for: pane.id)
             registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
@@ -513,7 +516,7 @@ extension PaneCoordinator {
             )
             return
         }
-        terminal.displaySurface(surfaceView)
+        terminal.displaySurface(surfaceView, geometryVerificationReason: "reattachForViewSwitch")
         if let pane = store.paneAtom.pane(paneId) {
             registerTerminalRuntimeIfNeeded(for: pane)
         }

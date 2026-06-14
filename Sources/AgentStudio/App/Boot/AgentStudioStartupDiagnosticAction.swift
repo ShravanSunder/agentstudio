@@ -7,6 +7,9 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
     enum Kind: String, Sendable {
         case newTab = "new-tab"
         case commandBarRepoFilter = "command-bar-repo-filter"
+        #if DEBUG
+            case crossTabMoveGeometrySmoke = "cross-tab-move-geometry-smoke"
+        #endif
         case addWatchFolder = "add-watch-folder"
     }
 
@@ -18,6 +21,10 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
             "newTab"
         case .commandBarRepoFilter:
             "commandBarRepoFilter"
+        #if DEBUG
+            case .crossTabMoveGeometrySmoke:
+                "crossTabMoveGeometrySmoke"
+        #endif
         case .addWatchFolder:
             "addWatchFolder"
         }

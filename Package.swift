@@ -17,6 +17,10 @@ let package = Package(
         .package(url: "https://github.com/swift-otel/swift-otel.git", from: "1.0.0"),
         .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.10.0"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.10.0"),
+        .package(
+            url: "https://github.com/ShravanSunder/agentstudio-git.git",
+            revision: "90bb17da9d7030f4ae954d45cf150a0f5fe6511b"
+        ),
     ],
     targets: [
         .executableTarget(
@@ -30,6 +34,7 @@ let package = Package(
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
                 .product(name: "OTel", package: "swift-otel"),
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+                .product(name: "AgentStudioGit", package: "agentstudio-git"),
             ],
             path: "Sources/AgentStudio",
             exclude: [
@@ -45,6 +50,7 @@ let package = Package(
                 .copy("Resources/AppIcon.iconset"),
                 .copy("Resources/terminfo"),
                 .copy("Resources/ghostty"),
+                .copy("Resources/BridgeWeb"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
@@ -75,6 +81,7 @@ let package = Package(
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
                 .product(name: "Instrumentation", package: "swift-distributed-tracing"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
+                .product(name: "AgentStudioGit", package: "agentstudio-git"),
             ],
             path: "Tests/AgentStudioTests",
             exclude: [

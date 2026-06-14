@@ -18,7 +18,12 @@ struct ObservabilityLaunchScriptsTests {
         #expect(script.contains("Delete :CFBundleURLTypes"))
         #expect(!script.contains("CFBundleURLTypes:0:CFBundleURLSchemes:0 \"agentstudio\""))
         #expect(script.contains("debug_root=\"$HOME/.agentstudio-db/$debug_code\""))
-        #expect(script.contains("\"AGENTSTUDIO_DATA_DIR=$debug_root\""))
+        #expect(script.contains("trace_name_is_safe_path_component()"))
+        #expect(script.contains("write_launch_failed_state invalid_trace_name"))
+        #expect(script.contains("launch_data_root=\"${AGENTSTUDIO_DEBUG_DATA_DIR:-$debug_root}\""))
+        #expect(script.contains("launch_data_root=\"$debug_root/runs/$trace_name\""))
+        #expect(script.contains("\"AGENTSTUDIO_DATA_DIR=$launch_data_root\""))
+        #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION"))
         #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE"))
         #expect(script.contains("running_debug_app_pids()"))
         #expect(script.contains("Agent Studio Debug $debug_code is already running"))
@@ -243,9 +248,10 @@ struct ObservabilityLaunchScriptsTests {
         let stateFile = fixture.url("latest.env")
         let betaApp = try fixture.makeAppBundle(name: "AgentStudioBeta.app", releaseChannel: "beta")
         let betaAppPath = betaApp.path
+        let marker = "beta marker | fields process.pid"
         try """
         AGENTSTUDIO_OBSERVABILITY_STATUS=running
-        AGENTSTUDIO_OBSERVABILITY_MARKER=beta-marker
+        AGENTSTUDIO_OBSERVABILITY_MARKER=\(shellEscapedStateValue(marker))
         AGENTSTUDIO_OBSERVABILITY_SERVICE_VERSION=0.0.54-beta.99
         AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
         AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
@@ -253,6 +259,7 @@ struct ObservabilityLaunchScriptsTests {
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
         let curlMarker = fixture.url("curl-called")
+        let curlArguments = fixture.url("curl-arguments")
 
         let result = try fixture.runVerifier(
             stateFile: stateFile,
@@ -263,11 +270,15 @@ struct ObservabilityLaunchScriptsTests {
                     """
                     #!/bin/bash
                     echo called >> "\(curlMarker.path)"
+                    printf '%s\\n' "$*" >> "\(curlArguments.path)"
                     if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
                       printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
                       exit 0
                     fi
-                    if [[ "$*" == *":* | limit 1"* ]]; then
+                    if [[ "$*" == *"app.startup_diagnostic_action."* ]]; then
+                      exit 0
+                    fi
+                    if [[ "$*" == *":*"* ]]; then
                       exit 0
                     fi
                     printf '{"service.name":"AgentStudio","service.version":"0.0.54-beta.99","dev.release.channel":"beta","dev.runtime.flavor":"release","_msg":"app.process.start"}\\n'
@@ -288,6 +299,14 @@ struct ObservabilityLaunchScriptsTests {
 
         #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
         #expect(FileManager.default.fileExists(atPath: curlMarker.path))
+        let curlArgumentText = try String(contentsOf: curlArguments, encoding: .utf8)
+        let expectedTraceQuery = [
+            "{service.name=\"AgentStudio\",dev.release.channel=\"beta\"}",
+            "agent.proof.marker:=\"beta marker | fields process.pid\"",
+        ].joined(separator: " ")
+        #expect(curlArgumentText.contains(expectedTraceQuery))
+        #expect(!curlArgumentText.contains("agent.proof.marker:beta marker | fields process.pid"))
+        #expect(!curlArgumentText.contains("agentstudio.trace.name"))
     }
 
     @Test("beta observability verifier rejects PID from a different beta bundle path")
@@ -455,9 +474,10 @@ struct ObservabilityLaunchScriptsTests {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
+        let marker = "debug marker | fields process.pid"
         try """
         AGENTSTUDIO_OBSERVABILITY_STATUS=running
-        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_MARKER=\(shellEscapedStateValue(marker))
         AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
         AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
         AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
@@ -469,6 +489,7 @@ struct ObservabilityLaunchScriptsTests {
             bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
         )
         let curlMarker = fixture.url("curl-called")
+        let curlArguments = fixture.url("curl-arguments")
 
         let result = try fixture.runVerifier(
             scriptPath: "scripts/verify-debug-observability.sh",
@@ -479,11 +500,15 @@ struct ObservabilityLaunchScriptsTests {
                     """
                     #!/bin/bash
                     echo called >> "\(curlMarker.path)"
+                    printf '%s\\n' "$*" >> "\(curlArguments.path)"
                     if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
                       printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
                       exit 0
                     fi
-                    if [[ "$*" == *":* | limit 1"* ]]; then
+                    if [[ "$*" == *"app.startup_diagnostic_action."* ]]; then
+                      exit 0
+                    fi
+                    if [[ "$*" == *":*"* ]]; then
                       exit 0
                     fi
                     printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+abcd1234","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
@@ -504,6 +529,14 @@ struct ObservabilityLaunchScriptsTests {
 
         #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
         #expect(FileManager.default.fileExists(atPath: curlMarker.path))
+        let curlArgumentText = try String(contentsOf: curlArguments, encoding: .utf8)
+        let expectedTraceQuery = [
+            "{service.name=\"AgentStudio\",dev.runtime.flavor=\"debug\"}",
+            "agent.proof.marker:=\"debug marker | fields process.pid\"",
+        ].joined(separator: " ")
+        #expect(curlArgumentText.contains(expectedTraceQuery))
+        #expect(!curlArgumentText.contains("agent.proof.marker:debug marker | fields process.pid"))
+        #expect(!curlArgumentText.contains("agentstudio.trace.name"))
     }
 
     @Test("debug observability verifier fails when startup reconciliation telemetry is missing")
