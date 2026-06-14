@@ -596,13 +596,8 @@ actor GitWorkingDirectoryProjector {
         computeStart: ContinuousClock.Instant
     ) {
         guard isCurrent(changeset) else { return }
+        guard case .unavailable(let unavailable) = statusResult else { return }
 
-        let unavailable: GitWorkingTreeStatusUnavailable =
-            if case .unavailable(let value) = statusResult {
-                value
-            } else {
-                GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil)
-            }
         performanceTraceRecorder?.recordDuration(
             .gitStatusUnavailable,
             duration: computeStart.duration(to: envelopeClock.now),

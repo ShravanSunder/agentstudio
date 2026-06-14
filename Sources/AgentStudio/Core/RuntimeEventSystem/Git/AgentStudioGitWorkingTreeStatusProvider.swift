@@ -124,9 +124,7 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
                 let scheduledTimeout = timeoutScheduler.scheduleTimeout(after: timeout) {
                     race.fail(AgentStudioGitSDKTimeoutError.timedOut)
                 }
-                if !race.install(readTask: readTask, scheduledTimeout: scheduledTimeout) {
-                    onOperationFinished()
-                }
+                _ = race.install(readTask: readTask, scheduledTimeout: scheduledTimeout)
             }
         } onCancel: {
             raceBox.cancel()

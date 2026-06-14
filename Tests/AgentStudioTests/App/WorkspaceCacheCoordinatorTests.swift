@@ -109,8 +109,8 @@ final class WorkspaceCacheCoordinatorTests {
         let realRepoPath = realRoot.appending(path: "app")
         let linkedRepoPath = linkedRoot.appending(path: "app")
         try FileManager.default.createDirectory(at: realRepoPath, withIntermediateDirectories: true)
-        try FileManager.default.createSymbolicLink(atPath: linkedRoot.path, withDestinationPath: realRoot.path)
         defer { try? FileManager.default.removeItem(at: tmp) }
+        try FileManager.default.createSymbolicLink(atPath: linkedRoot.path, withDestinationPath: realRoot.path)
 
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
