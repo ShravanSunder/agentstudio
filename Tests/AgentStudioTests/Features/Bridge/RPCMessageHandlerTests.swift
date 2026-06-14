@@ -33,7 +33,7 @@ final class RPCMessageHandlerTests {
     @Test
     func test_extracts_method_from_valid_json() {
         // Arrange
-        let json = #"{"jsonrpc":"2.0","method":"diff.requestFileContents","params":{"fileId":"abc"}}"#
+        let json = #"{"jsonrpc":"2.0","method":"test.probe","params":{"fileId":"abc"}}"#
 
         // Act
         let result = RPCMessageHandler.extractJSON(from: json)

@@ -104,4 +104,15 @@ final class BridgeBootstrapTests {
         #expect(script.contains("envelope.__revision"), "applyEnvelope must extract __revision from envelope")
         #expect(script.contains("envelope.__epoch"), "applyEnvelope must extract __epoch from envelope")
     }
+
+    @Test
+    func test_push_relay_preserves_store_at_detail_level() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(
+            script.contains("detail: { op: 'merge', store: store"),
+            "Merge relay must expose store at event detail level so page-world receivers can route pushes")
+        #expect(
+            script.contains("detail: { op: 'replace', store: store"),
+            "Replace relay must expose store at event detail level so page-world receivers can route pushes")
+    }
 }

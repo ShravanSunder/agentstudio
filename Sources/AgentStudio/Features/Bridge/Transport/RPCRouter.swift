@@ -90,15 +90,14 @@ final class RPCRouter {
             await reportError(parseError.code, parseError.message, id: parseError.id)
             return
         } catch {
-            await reportError(.parseError, "Parse error: \(errorMessage(from: error))", id: .null)
+            rpcRouterLogger.error("RPC parse failed: \(self.errorMessage(from: error), privacy: .private)")
+            await reportError(.parseError, "Parse error", id: .null)
             return
         }
 
         guard isBridgeReady || request.method == BridgeReadyMethod.method else {
             rpcRouterLogger.info("[RPCRouter] dropped pre-ready command: \(request.method)")
-            if request.requestId != nil {
-                await reportError(.bridgeNotReady, "Bridge not ready: \(request.method)", id: request.requestId)
-            }
+            await reportError(.bridgeNotReady, "Bridge not ready: \(request.method)", id: request.requestId)
             return
         }
 
@@ -123,11 +122,14 @@ final class RPCRouter {
             await emitSuccessResponseIfNeeded(id: request.requestId, resultData: resultData)
         } catch {
             let (rpcErrorCode, dispatchErrorMessage) = classifyDispatchError(error)
+            rpcRouterLogger.error(
+                "RPC dispatch failed method=\(request.method, privacy: .public) code=\(rpcErrorCode.rawValue) error=\(self.errorMessage(from: error), privacy: .private)"
+            )
             reportCommandAck(
                 commandId: request.commandId,
                 method: request.method,
                 status: CommandAck.Status.rejected,
-                reason: errorMessage(from: error)
+                reason: dispatchErrorMessage
             )
             await reportError(rpcErrorCode, dispatchErrorMessage, id: request.requestId)
         }
@@ -171,7 +173,7 @@ final class RPCRouter {
         } catch {
             throw RequestEnvelopeParseError(
                 code: .parseError,
-                message: "Parse error: \(error.localizedDescription)",
+                message: "Parse error",
                 id: .null
             )
         }
@@ -268,16 +270,25 @@ final class RPCRouter {
             rpcErrorCode = .internalError
         }
 
-        let message: String
-        switch rpcErrorCode {
-        case .invalidParams:
-            message = "Invalid params: \(errorMessage(from: error))"
-        case .internalError:
-            message = "Internal error: \(errorMessage(from: error))"
-        default:
-            message = "\(errorMessage(from: error))"
-        }
+        let message = publicErrorMessage(for: rpcErrorCode)
         return (rpcErrorCode, message)
+    }
+
+    private func publicErrorMessage(for code: RPCErrorCode) -> String {
+        switch code {
+        case .parseError:
+            return "Parse error"
+        case .invalidRequest:
+            return "Invalid request"
+        case .methodNotFound:
+            return "Method not found"
+        case .invalidParams:
+            return "Invalid params"
+        case .internalError:
+            return "Internal error"
+        case .bridgeNotReady:
+            return "Bridge not ready"
+        }
     }
 
     private func errorMessage(from error: Error) -> String {

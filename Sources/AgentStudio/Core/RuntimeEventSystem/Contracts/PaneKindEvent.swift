@@ -51,13 +51,11 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
     case navigationCompleted
     case pageLoaded
     case diffLoaded
-    case hunkApproved
     case contentSaved
     case fileOpened
     case deferred
     case unhandled
     case consoleMessage
-    case allApproved
     case diagnosticsUpdated
     case fsCwdSubtreeChanged
     case fsGitWorkingTreeInCwd
@@ -108,13 +106,11 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
         case .navigationCompleted: return "navigationCompleted"
         case .pageLoaded: return "pageLoaded"
         case .diffLoaded: return "diffLoaded"
-        case .hunkApproved: return "hunkApproved"
         case .contentSaved: return "contentSaved"
         case .fileOpened: return "fileOpened"
         case .deferred: return "deferred"
         case .unhandled: return "unhandled"
         case .consoleMessage: return "consoleMessage"
-        case .allApproved: return "allApproved"
         case .diagnosticsUpdated: return "diagnosticsUpdated"
         case .fsCwdSubtreeChanged: return "fsCwdSubtreeChanged"
         case .fsGitWorkingTreeInCwd: return "fsGitWorkingTreeInCwd"

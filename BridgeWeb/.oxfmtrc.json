@@ -1,0 +1,21 @@
+{
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	"printWidth": 100,
+	"tabWidth": 2,
+	"useTabs": true,
+	"semi": true,
+	"singleQuote": true,
+	"trailingComma": "all",
+	"sortImports": {
+		"enabled": true
+	},
+	"sortPackageJson": {
+		"enabled": true
+	},
+	"ignorePatterns": [
+		"dist",
+		"coverage",
+		"node_modules",
+		"src/test-fixtures/bridge-contract-fixtures"
+	]
+}

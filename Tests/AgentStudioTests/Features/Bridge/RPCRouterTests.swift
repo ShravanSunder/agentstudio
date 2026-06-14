@@ -21,7 +21,16 @@ final class RPCRouterTests {
         }
 
         typealias Result = NoResponse
-        static let method = "diff.requestFileContents"
+        static let method = "test.probe"
+    }
+
+    private struct ReviewMarkFileViewedFixtureMethod: RPCMethod {
+        struct Params: Decodable {
+            let fileId: String
+        }
+
+        typealias Result = NoResponse
+        static let method = "review.markFileViewed"
     }
 
     private struct FailingMethod: RPCMethod {
@@ -79,7 +88,7 @@ final class RPCRouterTests {
         let router = RPCRouter()
         let receivedFileId = SendableBox<String?>(nil)
 
-        router.register(method: DiffRequestFileContentsMethod.self) { params in
+        router.register(method: ReviewMarkFileViewedFixtureMethod.self) { params in
             await receivedFileId.set(params.fileId)
             return nil
         }
@@ -160,7 +169,7 @@ final class RPCRouterTests {
         // Act
         await router.dispatch(
             json:
-                #"{ "jsonrpc": "2.0", "id": 7, "method":"diff.requestFileContents", "params": { "fileId": "abc123" } }"#,
+                #"{ "jsonrpc": "2.0", "id": 7, "method":"test.probe", "params": { "fileId": "abc123" } }"#,
             isBridgeReady: true
         )
 
@@ -246,6 +255,31 @@ final class RPCRouterTests {
         #expect((error?["code"] as? NSNumber)?.intValue == -32_004)
     }
 
+    @Test
+    func test_pre_ready_notification_reports_bridge_not_ready_without_response() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let responseCount = SendableBox(0)
+        var errorCode: Int?
+        router.register(method: ResponseMethod.self) { _ in
+            .init(echoed: "unexpected")
+        }
+        router.onError = { code, _, _ in errorCode = code }
+        router.onResponse = { _ in
+            await responseCount.update { $0 + 1 }
+        }
+
+        // Act
+        await router.dispatch(
+            json: #"{ "jsonrpc": "2.0", "method":"agent.response", "params": { "value": "hello" } }"#,
+            isBridgeReady: false
+        )
+
+        // Assert
+        #expect(errorCode == -32_004)
+        #expect(await responseCount.get() == 0)
+    }
+
     // MARK: - Unknown method
 
     @Test
@@ -321,7 +355,7 @@ final class RPCRouterTests {
         // Act
         await router.dispatch(
             json: """
-                {"jsonrpc":"1.0","method":"diff.requestFileContents","params":{"fileId":"abc123"}}
+                {"jsonrpc":"1.0","method":"test.probe","params":{"fileId":"abc123"}}
                 """,
             isBridgeReady: true
         )
@@ -340,7 +374,7 @@ final class RPCRouterTests {
         // Act
         await router.dispatch(
             json: """
-                {"jsonrpc":"2.0","id":true,"method":"diff.requestFileContents","params":{"fileId":"abc123"}}
+                {"jsonrpc":"2.0","id":true,"method":"test.probe","params":{"fileId":"abc123"}}
                 """,
             isBridgeReady: true
         )
@@ -381,7 +415,7 @@ final class RPCRouterTests {
         router.onError = { code, _, _ in errorCode = code }
 
         // Act
-        let fixture = #"{"jsonrpc":"2.0","method":"diff.requestFileContents"}"#
+        let fixture = #"{"jsonrpc":"2.0","method":"test.probe"}"#
         await router.dispatch(json: fixture, isBridgeReady: true)
 
         // Assert
@@ -403,7 +437,7 @@ final class RPCRouterTests {
 
         // Act
         await router.dispatch(
-            json: #"{ "jsonrpc":"2.0", "id":"bad-params", "method":"diff.requestFileContents" }"#,
+            json: #"{ "jsonrpc":"2.0", "id":"bad-params", "method":"test.probe" }"#,
             isBridgeReady: true
         )
 
@@ -429,7 +463,7 @@ final class RPCRouterTests {
 
         // Act
         await router.dispatch(
-            json: #"{"jsonrpc":"2.0","method":"diff.requestFileContents","params":null}"#,
+            json: #"{"jsonrpc":"2.0","method":"test.probe","params":null}"#,
             isBridgeReady: true
         )
 
@@ -450,7 +484,7 @@ final class RPCRouterTests {
         // Act
         await router.dispatch(
             json: """
-                {"jsonrpc":"2.0","method":"diff.requestFileContents","params":"abc"}
+                {"jsonrpc":"2.0","method":"test.probe","params":"abc"}
                 """,
             isBridgeReady: true
         )
@@ -470,7 +504,7 @@ final class RPCRouterTests {
 
         // Act
         await router.dispatch(
-            json: #"{ "jsonrpc": "2.0", "method":"diff.requestFileContents", "params":[1,2,3] }"#,
+            json: #"{ "jsonrpc": "2.0", "method":"test.probe", "params":[1,2,3] }"#,
             isBridgeReady: true
         )
 
@@ -502,7 +536,7 @@ final class RPCRouterTests {
 
         // Assert
         #expect(errorCode == -32_603)
-        #expect(errorMessage?.contains("boom") == true)
+        #expect(errorMessage == "Internal error")
     }
 
     @Test
@@ -531,6 +565,7 @@ final class RPCRouterTests {
         #expect((envelope["id"] as? NSNumber)?.int64Value == 123)
         let error = envelope["error"] as? [String: Any]
         #expect((error?["code"] as? NSNumber)?.intValue == -32_603)
+        #expect(error?["message"] as? String == "Internal error")
     }
 
     // MARK: - Batch rejection (§5.5)
@@ -583,7 +618,7 @@ final class RPCRouterTests {
         let router = RPCRouter()
         let callCount = SendableBox(0)
 
-        router.register(method: DiffRequestFileContentsMethod.self) { _ in
+        router.register(method: ReviewMarkFileViewedFixtureMethod.self) { _ in
             await callCount.update { $0 + 1 }
             return nil
         }
@@ -610,22 +645,22 @@ final class RPCRouterTests {
         // Act
         await router.dispatch(
             json:
-                #"{ "jsonrpc":"2.0", "method":"diff.requestFileContents", "params":{"fileId":"a"}, "__commandId":"cmd-1" }"#,
+                #"{ "jsonrpc":"2.0", "method":"test.probe", "params":{"fileId":"a"}, "__commandId":"cmd-1" }"#,
             isBridgeReady: true
         )
         await router.dispatch(
             json:
-                #"{ "jsonrpc":"2.0", "method":"diff.requestFileContents", "params":{"fileId":"b"}, "__commandId":"cmd-2" }"#,
+                #"{ "jsonrpc":"2.0", "method":"test.probe", "params":{"fileId":"b"}, "__commandId":"cmd-2" }"#,
             isBridgeReady: true
         )
         await router.dispatch(
             json:
-                #"{ "jsonrpc":"2.0", "method":"diff.requestFileContents", "params":{"fileId":"c"}, "__commandId":"cmd-3" }"#,
+                #"{ "jsonrpc":"2.0", "method":"test.probe", "params":{"fileId":"c"}, "__commandId":"cmd-3" }"#,
             isBridgeReady: true
         )
         await router.dispatch(
             json:
-                #"{ "jsonrpc":"2.0", "method":"diff.requestFileContents", "params":{"fileId":"a"}, "__commandId":"cmd-1" }"#,
+                #"{ "jsonrpc":"2.0", "method":"test.probe", "params":{"fileId":"a"}, "__commandId":"cmd-1" }"#,
             isBridgeReady: true
         )
 
