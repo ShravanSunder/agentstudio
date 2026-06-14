@@ -282,7 +282,7 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
 
         await gate.release()
         await tracker.waitForFinishedCount(1)
-        let recoveredResult = await provider.statusResult(for: rootPath)
+        let recoveredResult = await Self.waitUntilStatusReadRecovers(provider: provider, rootPath: rootPath)
 
         guard case .unavailable(let timedOutUnavailable) = timedOutResult else {
             Issue.record("expected first result to time out, got \(timedOutResult)")
@@ -300,6 +300,18 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(overlappingUnavailable.reason == .readAlreadyInFlight)
         #expect(startCountWhileGated == 1)
         #expect(await tracker.startedCount() == 2)
+    }
+
+    private static func waitUntilStatusReadRecovers(
+        provider: AgentStudioGitWorkingTreeStatusProvider,
+        rootPath: URL
+    ) async -> GitWorkingTreeStatusResult {
+        var latestResult = await provider.statusResult(for: rootPath)
+        for _ in 0..<10 where latestResult.isReadAlreadyInFlight {
+            await Task.yield()
+            latestResult = await provider.statusResult(for: rootPath)
+        }
+        return latestResult
     }
 
     @Test("real SDK provider matches shell provider for current status shape")
@@ -405,6 +417,15 @@ private func assertSDKMatchesShell(_ repoURL: URL) async throws {
     #expect(sdkStatus.summary.behindCount == shellStatus.summary.behindCount)
     #expect(sdkStatus.summary.hasUpstream == shellStatus.summary.hasUpstream)
     #expect(sdkStatus.originResolution == shellStatus.originResolution)
+}
+
+extension GitWorkingTreeStatusResult {
+    fileprivate var isReadAlreadyInFlight: Bool {
+        guard case .unavailable(let unavailable) = self else {
+            return false
+        }
+        return unavailable.reason == .readAlreadyInFlight
+    }
 }
 
 private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler, @unchecked Sendable {

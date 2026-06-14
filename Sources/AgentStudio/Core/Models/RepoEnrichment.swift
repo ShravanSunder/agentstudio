@@ -73,4 +73,28 @@ enum RepoEnrichment: Codable, Hashable, Sendable {
     var displayName: String? {
         identity?.displayName
     }
+
+    func hasSameCacheContent(as other: Self) -> Bool {
+        switch (self, other) {
+        case (.awaitingOrigin(let lhsRepoId), .awaitingOrigin(let rhsRepoId)):
+            lhsRepoId == rhsRepoId
+        case (
+            .resolvedLocal(let lhsRepoId, let lhsIdentity, _),
+            .resolvedLocal(let rhsRepoId, let rhsIdentity, _)
+        ):
+            lhsRepoId == rhsRepoId && lhsIdentity == rhsIdentity
+        case (
+            .resolvedRemote(let lhsRepoId, let lhsRaw, let lhsIdentity, _),
+            .resolvedRemote(let rhsRepoId, let rhsRaw, let rhsIdentity, _)
+        ):
+            lhsRepoId == rhsRepoId && lhsRaw == rhsRaw && lhsIdentity == rhsIdentity
+        case (.awaitingOrigin, .resolvedLocal),
+            (.awaitingOrigin, .resolvedRemote),
+            (.resolvedLocal, .awaitingOrigin),
+            (.resolvedLocal, .resolvedRemote),
+            (.resolvedRemote, .awaitingOrigin),
+            (.resolvedRemote, .resolvedLocal):
+            false
+        }
+    }
 }

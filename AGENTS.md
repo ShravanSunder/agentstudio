@@ -12,7 +12,7 @@ mise run setup                # Init submodules, build vendored artifacts, copy 
 mise run build                # Build the Swift app
 mise run test                 # Run tests (Swift 6 `Testing`)
 mise run format               # Auto-format all Swift sources
-mise run lint                 # Lint (swift-format + swiftlint + boundary checks)
+mise run lint                 # Lint (swift-format + pinned AgentStudio SwiftLint)
 .build/debug/AgentStudio      # Launch debug build
 ```
 
@@ -20,7 +20,7 @@ First-time setup: `mise install && mise run doctor-mac && mise run setup && mise
 
 > **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If `mise run setup` surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
 
-Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
+Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint automatically after every Edit/Write on `.swift` files.
 
 ## Local Observability
 
@@ -41,6 +41,10 @@ mise run observability:down
 
 The underlying source of truth is
 `~/dev/ai-tools/observability/observability-stack`.
+The shared Docker Compose services are `ai-tools-otel-collector`,
+`ai-tools-victoria-metrics`, `ai-tools-victoria-logs`, and
+`ai-tools-victoria-traces`; app repos must target those shared containers
+through loopback endpoints instead of creating or querying per-app stacks.
 
 Standard debug proof path for PR branches:
 
@@ -171,6 +175,12 @@ Debug and beta builds use a safe baseline when `AGENTSTUDIO_TRACE_TAGS` is
 unset: JSONL plus OTLP logs/metrics to `http://127.0.0.1:4318`. Stable builds stay
 disabled unless trace tags are explicit, and explicit stable tracing defaults to
 JSONL. `AGENTSTUDIO_TRACE_TAGS=off` disables the debug/beta baseline.
+Trace tags are the only instrumentation selection surface. Do not add ad-hoc
+per-emitter environment variables such as `AGENTSTUDIO_TRACE_*_METRICS`;
+high-volume lanes such as atoms must be selected with
+`AGENTSTUDIO_TRACE_TAGS=atoms` or the debug helper's `*` tag set. Standard
+performance workload proof excludes `atoms` by default and should enable it only
+for a dedicated atom telemetry proof run.
 
 Use `AGENTSTUDIO_TRACE_BACKEND=jsonl|otlp|both` for explicit selection.
 `OTEL_EXPORTER_OTLP_ENDPOINT` is accepted only for loopback HTTP endpoints and
@@ -185,7 +195,7 @@ exercises all three ingestion lanes.
 
 OTLP output is source-scrubbed. Allowed resource identity is limited to safe
 runtime labels plus deterministic repo/worktree hashes and branch, for example
-`dev.repo.hash`, `dev.worktree.hash`, `git.branch`,
+`dev.repo.hash`, `dev.worktree.hash`, `dev.branch.name`,
 `dev.runtime.flavor`, and `dev.release.channel`. Raw paths, raw UUIDs, prompts,
 payload text, errors, and tool output must not be exported over OTLP.
 
@@ -226,7 +236,14 @@ Instead:
 
 AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound and accessed through `AtomRegistry` + `AtomScope`, with `atom(\.foo)` as the primary read path. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms`, and persistence wrappers live under `Core/State/MainActor/Persistence`. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
 
-`AtomRegistry` is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`. It may compose Core and Feature atoms. `Infrastructure/AtomLib` owns only the generic access helpers (`atom(\...)`, `AtomScope`, `AtomReader`, `Derived`, `DerivedSelector`) and must not own product atoms or feature-specific registry fields.
+`AtomRegistry` is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`. It may compose Core and Feature atoms. `Infrastructure/AtomLib` owns only generic atom primitives and access helpers (`atom(\...)`, `AtomScope`, `AtomReader`, `Derived`, `DerivedSelector`, `AtomValue`, `AtomEntityMap`, `DerivedValue`) and must not own product atoms or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomEntityMap.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
+
+Architecture boundaries are enforced by the pinned AgentStudio SwiftLint build
+configured in `scripts/agentstudio-architecture-swiftlint.env` and run by
+`scripts/run-agentstudio-architecture-swiftlint.sh`. The custom rule source
+lives outside this app repo in `~/dev/ai-tools/swiftlint/agentstudio-architecture-rules`.
+Do not reintroduce repo-local shell/`rg` architecture lint scripts for rules
+that can be expressed with SwiftSyntax.
 
 ### Folder Arcs
 
@@ -241,7 +258,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 - `Features/`
   User-facing capability slices such as Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification, and feature-owned EditorChooser state. Features own capability-specific behavior that is broader than a reusable component.
 - `Infrastructure/`
-  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`. `Infrastructure/AtomLib` holds generic atom access helpers only; the concrete `AtomRegistry` lives at the source root because it composes Core and Feature atoms.
+  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`. `Infrastructure/AtomLib` holds generic atom access helpers and primitives only; the concrete `AtomRegistry` lives at the source root because it composes Core and Feature atoms.
 
 ### Shared UI, Styles, And Policies
 
@@ -297,7 +314,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceTabLayoutAtom` | compatibility tab-layout facade over shell, cursor, graph, arrangement cursor, and presentation owners | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` |
 | `WorkspaceTabLayoutDerived` | UI read model composing rich `Tab`, `PaneArrangement`, and `DrawerView` values from tab write owners | `Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift` |
 | `WorkspaceMutationCoordinator` | cross-atom workspace mutations spanning pane and tab layout state | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` |
-| `RepoEnrichmentCacheAtom` | rebuildable repo/worktree enrichment, PR counts, and rebuild metadata; notification unread counts are inbox-owned | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
+| `RepoEnrichmentCacheAtom` | rebuildable repo enrichment, worktree enrichment, PR counts, keyed revisions, and rebuild metadata; notification unread counts are inbox-owned | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `RecentWorkspaceTargetAtom` | local recent workspace target history | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `RepoCacheAtom` | UI-facing compatibility read surface over repo enrichment cache + recent targets; does not own notification unread counts | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `SidebarExpandedGroupAtom` | local sidebar expanded-group memory | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
@@ -360,8 +377,10 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Session Lifecycle](docs/architecture/session_lifecycle.md) | Pane identity, creation, close, undo, restore, zmx backend |
 | [Surface Architecture](docs/architecture/ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health, crash isolation |
 | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers, events |
+| [Observability And Traceability](docs/architecture/observability_and_traceability.md) | Trace tags, debug/beta OTLP proof, source-side projection, Victoria proof rules |
 | [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), execution-owner decision tree (`AppDelegate` shell vs `PaneTabViewController` pane/drawer), contexts, alternateTriggers, and where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
+| [Architecture Lint Inventory](docs/architecture/architecture_lint_inventory.md) | SwiftLint rule IDs, former shell-script coverage, and blocking/report-only/test/review classifications |
 | [Swift-React Bridge](docs/architecture/swift_react_bridge_design.md) | Bridge architecture, content-delivery status, JSON-RPC/push contracts, read-only CodeView/Shiki review surface, and LUNA-337 completion boundary |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
 | [Agent Resources](docs/guides/agent_resources.md) | Bootstrap, official Swift/macOS docs, DeepWiki sources, and research guidance |

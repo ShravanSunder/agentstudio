@@ -35,7 +35,7 @@ struct AgentStudioTraceIdentityStoreTests {
         #expect(resource["dev.repo.name"] == nil)
         #expect(resource["dev.repo.hash"] == "repo-hash")
         #expect(resource["dev.worktree.hash"] == "worktree-hash")
-        #expect(resource["git.branch"] == "feature/otel")
+        #expect(resource["dev.branch.name"] == "feature/otel")
         #expect(resource["agentstudio.repo.id"] == nil)
         #expect(resource["agentstudio.worktree.id"] == nil)
     }
@@ -69,7 +69,7 @@ struct AgentStudioTraceIdentityStoreTests {
 
         #expect(resource["dev.repo.hash"] == "repo-hash")
         #expect(resource["dev.worktree.hash"] == "worktree-hash")
-        #expect(resource["git.branch"] == "main")
+        #expect(resource["dev.branch.name"] == "main")
         #expect(resource["agentstudio.pane.id"] == nil)
     }
 
@@ -87,6 +87,6 @@ struct AgentStudioTraceIdentityStoreTests {
         #expect(resource["service.name"] == "AgentStudio")
         #expect(resource["dev.repo.hash"] == nil)
         #expect(resource["dev.worktree.hash"] == nil)
-        #expect(resource["git.branch"] == nil)
+        #expect(resource["dev.branch.name"] == nil)
     }
 }

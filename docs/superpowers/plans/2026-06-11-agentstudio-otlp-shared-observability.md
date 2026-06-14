@@ -357,10 +357,10 @@ Implementation shape:
    - `agentstudio.runtime_flavor`;
    - `dev.repo.hash` from `Repo.stableKey`;
    - `dev.worktree.hash` from `Worktree.stableKey`;
-   - `git.branch` from `WorktreeEnrichment.branch` when known.
+   - `dev.branch.name` from `WorktreeEnrichment.branch` when known.
 3. Do not put raw repo/worktree paths into the identity store.
-4. Keep `git.commit` optional and unset in v1 unless a current repo source
-   already exposes it. Current `GitWorkingTreeSnapshot` has branch but not commit.
+4. Do not export commit identity in v1; current safe grouping only needs branch
+   and stable repo/worktree hashes.
 5. Build a safe map from local-only IDs to identity:
    - pane ID -> repo/worktree stable identity;
    - worktree ID -> repo/worktree stable identity.
@@ -509,8 +509,8 @@ command.
 1. Should the companion shared-host plan be created in `devfiles` immediately
    after this AgentStudio plan review, or should AgentStudio producer work land
    first with only fake-collector proof?
-2. Should `git.commit` wait for a separate Git enrichment change? Current source
-   has branch but not commit; this plan treats commit as optional/unset in v1.
+2. Should commit identity ever be added as a safe local-only resource field, or
+   is branch plus stable repo/worktree hash enough?
 3. Should explicit remote OTLP endpoints ever be supported for beta? This plan
    says no for v1.
 

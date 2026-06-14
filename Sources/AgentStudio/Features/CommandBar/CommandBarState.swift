@@ -43,6 +43,7 @@ final class CommandBarState {
     /// Root scope that remains stable while navigating nested levels.
     private(set) var pinnedScope: CommandBarScope = .everything
     private(set) var defaultRootScope: CommandBarScope = .everything
+    private(set) var rootSessionGeneration: Int = 0
 
     // MARK: - Selection
 
@@ -149,6 +150,8 @@ final class CommandBarState {
     }
 
     private func show(mode: OpenMode) {
+        rootSessionGeneration += 1
+
         let prefix: String?
         switch mode {
         case .prefix(let requestedPrefix):
@@ -173,6 +176,7 @@ final class CommandBarState {
 
     /// Dismiss the command bar entirely.
     func dismiss() {
+        rootSessionGeneration += 1
         isVisible = false
         rawInput = ""
         pinnedScope = .everything
@@ -184,6 +188,7 @@ final class CommandBarState {
 
     /// Switch prefix in-place (when already open, pressing a different shortcut).
     func switchPrefix(_ prefix: String) {
+        rootSessionGeneration += 1
         navigationStack = []
         defaultRootScope = .everything
         rawInput = prefix.isEmpty ? "" : prefix + " "

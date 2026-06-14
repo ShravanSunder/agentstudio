@@ -99,16 +99,14 @@ echo "Formatted all Swift sources"
 """
 
 [tasks.lint]
-description = "Lint Swift sources with swift-format and swiftlint"
+description = "Lint Swift sources with swift-format and AgentStudio SwiftLint"
 run = """
 #!/usr/bin/env bash
 set -e
 echo "--- swift-format lint ---"
 swift-format lint --recursive Sources/ Tests/ 2>&1 && echo "swift-format: OK" || { echo "swift-format: FAIL"; exit 1; }
-echo "--- swiftlint ---"
-swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"; exit 1; }
-echo "--- architecture boundary checks ---"
-bash scripts/check-core-boundary-imports.sh
+echo "--- AgentStudio SwiftLint ---"
+scripts/run-agentstudio-architecture-swiftlint.sh lint --strict 2>&1 && echo "agentstudio swiftlint: OK" || { echo "agentstudio swiftlint: FAIL"; exit 1; }
 echo "--- release script checks ---"
 /bin/bash scripts/verify-release-scripts.sh
 """

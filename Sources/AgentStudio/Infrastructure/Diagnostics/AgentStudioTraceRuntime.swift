@@ -243,13 +243,16 @@ struct AgentStudioTraceRuntime: Sendable {
             "agentstudio.release_channel": configuration.releaseChannel.rawValue,
             "agentstudio.runtime_flavor": configuration.runtimeFlavor.rawValue,
             "agentstudio.session.id": sessionID,
-            "agentstudio.trace.name": configuration.traceName,
+            "agent.proof.marker": configuration.traceName,
             "dev.build.config": buildConfiguration.lowercased(),
             "dev.release.channel": configuration.releaseChannel.rawValue,
             "dev.runtime.flavor": configuration.runtimeFlavor.rawValue,
             "process.pid": "\(processIdentifier)",
             "service.name": serviceName,
         ]
+        if let proofToken = configuration.proofToken {
+            attributes["agent.proof.launch"] = proofToken
+        }
         if let serviceVersion, !serviceVersion.isEmpty {
             attributes["service.version"] = serviceVersion
         }

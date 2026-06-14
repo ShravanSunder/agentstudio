@@ -195,12 +195,8 @@ final class RepoCacheStore {
         guard !isObservingCacheState else { return }
         isObservingCacheState = true
         withObservationTracking {
-            _ = cacheAtom.repoEnrichmentByRepoId
-            _ = cacheAtom.worktreeEnrichmentByWorktreeId
-            _ = cacheAtom.pullRequestCountByWorktreeId
+            _ = cacheAtom.cacheRevision
             _ = recentTargetAtom.recentTargets
-            _ = cacheAtom.sourceRevision
-            _ = cacheAtom.lastRebuiltAt
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 // Repo cache write owners are @MainActor; this traps if ownership changes.
@@ -261,9 +257,9 @@ final class RepoCacheStore {
         try persistor.saveCache(
             .init(
                 workspaceId: workspaceId,
-                repoEnrichmentByRepoId: cacheAtom.repoEnrichmentByRepoId,
-                worktreeEnrichmentByWorktreeId: cacheAtom.worktreeEnrichmentByWorktreeId,
-                pullRequestCountByWorktreeId: cacheAtom.pullRequestCountByWorktreeId,
+                repoEnrichmentByRepoId: cacheAtom.repoEnrichmentSnapshot(),
+                worktreeEnrichmentByWorktreeId: cacheAtom.worktreeEnrichmentSnapshot(),
+                pullRequestCountByWorktreeId: cacheAtom.pullRequestCountSnapshot(),
                 recentTargets: recentTargetAtom.recentTargets,
                 sourceRevision: cacheAtom.sourceRevision,
                 lastRebuiltAt: cacheAtom.lastRebuiltAt
@@ -343,9 +339,9 @@ final class RepoCacheStore {
 
     private func currentCacheStateRecord() -> WorkspaceLocalRepository.CacheStateRecord {
         .init(
-            repoEnrichmentByRepoId: cacheAtom.repoEnrichmentByRepoId,
-            worktreeEnrichmentByWorktreeId: cacheAtom.worktreeEnrichmentByWorktreeId,
-            pullRequestCountByWorktreeId: cacheAtom.pullRequestCountByWorktreeId,
+            repoEnrichmentByRepoId: cacheAtom.repoEnrichmentSnapshot(),
+            worktreeEnrichmentByWorktreeId: cacheAtom.worktreeEnrichmentSnapshot(),
+            pullRequestCountByWorktreeId: cacheAtom.pullRequestCountSnapshot(),
             sourceRevision: cacheAtom.sourceRevision,
             lastRebuiltAt: cacheAtom.lastRebuiltAt
         )

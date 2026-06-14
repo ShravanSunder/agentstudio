@@ -2,6 +2,9 @@ import Foundation
 
 final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     enum Event: String, Sendable {
+        case atomDerived = "performance.atom.derived"
+        case atomMutation = "performance.atom.mutation"
+        case atomRead = "performance.atom.read"
         case commandBarFilter = "performance.commandbar.filter"
         case commandBarItems = "performance.commandbar.items"
         case coordinatorWrite = "performance.coordinator.write"

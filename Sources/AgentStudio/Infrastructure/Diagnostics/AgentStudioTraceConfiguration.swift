@@ -107,6 +107,7 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
 
     let enabledTags: Set<AgentStudioTraceTag>
     let traceName: String
+    let proofToken: String?
     let directory: URL
     let flushMode: AgentStudioTraceFlushMode
     let backend: AgentStudioTraceBackend
@@ -137,6 +138,7 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
             runtimeFlavor: runtimeFlavor
         )
         let traceName = sanitizedTraceName(environment["AGENTSTUDIO_TRACE_NAME"])
+        let proofToken = sanitizedProofToken(environment["AGENTSTUDIO_TRACE_PROOF_TOKEN"])
         let directory = traceDirectory(environment["AGENTSTUDIO_TRACE_DIR"])
         let flushMode = AgentStudioTraceFlushMode.parse(environment["AGENTSTUDIO_TRACE_FLUSH"])
         let backendSelection = AgentStudioTraceBackend.parse(
@@ -159,6 +161,7 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
         return Self(
             enabledTags: selection.tags,
             traceName: traceName,
+            proofToken: proofToken,
             directory: directory,
             flushMode: flushMode,
             backend: backend,
@@ -184,6 +187,7 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
     private init(
         enabledTags: Set<AgentStudioTraceTag>,
         traceName: String,
+        proofToken: String?,
         directory: URL,
         flushMode: AgentStudioTraceFlushMode,
         backend: AgentStudioTraceBackend,
@@ -198,6 +202,7 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
     ) {
         self.enabledTags = enabledTags
         self.traceName = traceName
+        self.proofToken = proofToken
         self.directory = directory
         self.flushMode = flushMode
         self.backend = backend
@@ -269,6 +274,18 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
         }
         let sanitized = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
         return sanitized.isEmpty ? "trace" : sanitized
+    }
+
+    private static func sanitizedProofToken(_ rawValue: String?) -> String? {
+        let trimmedValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmedValue, !trimmedValue.isEmpty else { return nil }
+
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let scalars = trimmedValue.unicodeScalars.map { scalar in
+            allowedCharacters.contains(scalar) ? Character(scalar) : "-"
+        }
+        let sanitized = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
+        return sanitized.isEmpty ? nil : sanitized
     }
 
     private static func traceDirectory(_ rawValue: String?) -> URL {

@@ -100,6 +100,57 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func atomPerformanceRecordProjectsAtomCounters() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 456,
+            severityText: .info,
+            body: "performance.atom.read",
+            traceID: nil,
+            spanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.atom.kind": .string("entity_map"),
+                "agentstudio.performance.atom.operation": .string("value"),
+                "agentstudio.performance.atom.slot.count": .int(2),
+                "agentstudio.performance.atom.cached_key.count": .int(1),
+                "agentstudio.performance.atom.cache_hit": .bool(false),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.eventName == "performance.atom.read")
+        let expectedDimensions = [
+            AgentStudioOTLPPerformanceMetricDimension(
+                name: "event",
+                value: "performance.atom.read"
+            )
+        ]
+        #expect(
+            metricEvent.samples == [
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.atom.read",
+                    label: "agentstudio_performance_atom_cache_hit",
+                    dimensions: expectedDimensions,
+                    value: 0
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.atom.read",
+                    label: "agentstudio_performance_atom_cached_key_count",
+                    dimensions: expectedDimensions,
+                    value: 1
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.atom.read",
+                    label: "agentstudio_performance_atom_slot_count",
+                    dimensions: expectedDimensions,
+                    value: 2
+                ),
+            ])
+    }
+
+    @Test
     func recorderEmitsCumulativeElapsedMaximumGaugeByReason() throws {
         let factory = RecordingMetricsFactory()
         let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)

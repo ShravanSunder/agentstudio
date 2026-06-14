@@ -92,6 +92,7 @@ struct LauncherScriptFixture {
         process.arguments = [scriptPath] + arguments
         process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         var mergedEnvironment = ProcessInfo.processInfo.environment
+        mergedEnvironment["AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES"] = "1"
         mergedEnvironment["AI_TOOLS_OBSERVABILITY_STACK_HELPER"] = stackHelper.path
         mergedEnvironment["AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL"] = "http://127.0.0.1:13133/"
         mergedEnvironment["AGENTSTUDIO_CURL_BIN"] = curl.path

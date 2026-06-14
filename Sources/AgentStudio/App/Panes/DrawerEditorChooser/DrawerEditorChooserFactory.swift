@@ -45,7 +45,7 @@ enum DrawerEditorChooserFactory {
         return DrawerOverlay.TrailingActions(
             canOpenTarget: canOpenTarget,
             editorMenuContent: AnyView(
-                EditorChooserPopover(
+                DrawerEditorChooserPopoverHost(
                     items: items,
                     bookmarkedEditorId: editorChooser.bookmarkedEditorId,
                     directLaunchHintText: directLaunchHintText,
@@ -94,6 +94,37 @@ enum DrawerEditorChooserFactory {
                     : editorChooser.availableTargets
             ),
             onOpenFinder: onOpenFinder
+        )
+    }
+}
+
+private struct DrawerEditorChooserPopoverHost: View {
+    let items: [EditorChoiceItem]
+    let bookmarkedEditorId: EditorTargetId?
+    let directLaunchHintText: String?
+    let directLaunchShortcutText: String?
+    let style: EditorChooserMenuStyle
+    let onSelect: (EditorTargetId) -> Void
+    let onToggleBookmark: (EditorTargetId) -> Void
+    let onDismiss: () -> Void
+    let matchesAdditionalDismissShortcut: (NSEvent) -> Bool
+
+    @State private var selectedEditorId: EditorTargetId?
+    @State private var hoveredRowId: EditorTargetId?
+
+    var body: some View {
+        EditorChooserPopover(
+            items: items,
+            bookmarkedEditorId: bookmarkedEditorId,
+            directLaunchHintText: directLaunchHintText,
+            directLaunchShortcutText: directLaunchShortcutText,
+            style: style,
+            onSelect: onSelect,
+            onToggleBookmark: onToggleBookmark,
+            onDismiss: onDismiss,
+            matchesAdditionalDismissShortcut: matchesAdditionalDismissShortcut,
+            selectedEditorId: $selectedEditorId,
+            hoveredRowId: $hoveredRowId
         )
     }
 }
