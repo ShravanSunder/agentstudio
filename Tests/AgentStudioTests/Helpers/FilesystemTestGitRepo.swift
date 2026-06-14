@@ -10,6 +10,7 @@ enum FilesystemTestGitRepo {
         let repoURL = root.appending(path: "\(prefix)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
         try runGit(at: repoURL, args: ["init"])
+        try runGit(at: repoURL, args: ["symbolic-ref", "HEAD", "refs/heads/main"])
         try runGit(at: repoURL, args: ["config", "user.email", "luna-tests@example.com"])
         try runGit(at: repoURL, args: ["config", "user.name", "Luna Tests"])
         try runGit(at: repoURL, args: ["config", "commit.gpgsign", "false"])

@@ -259,9 +259,11 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         let gate = StatusReadGate()
         let tracker = StatusReadTracker()
         let timeoutScheduler = ManualStatusTimeoutScheduler()
+        let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry()
         let provider = AgentStudioGitWorkingTreeStatusProvider(
             timeout: .seconds(999),
-            timeoutScheduler: timeoutScheduler
+            timeoutScheduler: timeoutScheduler,
+            activeReadRegistry: activeReadRegistry
         ) { _, _ in
             await tracker.recordStarted()
             await gate.waitUntilReleased()
@@ -281,8 +283,8 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         let startCountWhileGated = await tracker.startedCount()
 
         await gate.release()
-        await tracker.waitForFinishedCount(1)
-        let recoveredResult = await Self.waitUntilStatusReadRecovers(provider: provider, rootPath: rootPath)
+        await activeReadRegistry.waitUntilInactive(AgentStudioGitActiveStatusReadKey(rootPath))
+        let recoveredResult = await provider.statusResult(for: rootPath)
 
         guard case .unavailable(let timedOutUnavailable) = timedOutResult else {
             Issue.record("expected first result to time out, got \(timedOutResult)")
@@ -302,16 +304,74 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(await tracker.startedCount() == 2)
     }
 
-    private static func waitUntilStatusReadRecovers(
-        provider: AgentStudioGitWorkingTreeStatusProvider,
-        rootPath: URL
-    ) async -> GitWorkingTreeStatusResult {
-        var latestResult = await provider.statusResult(for: rootPath)
-        for _ in 0..<10 where latestResult.isReadAlreadyInFlight {
-            await Task.yield()
-            latestResult = await provider.statusResult(for: rootPath)
+    @Test("pre-install timeout keeps same root gated until detached read exits")
+    func preInstallTimeoutKeepsSameRootGatedUntilDetachedReadExits() async throws {
+        let rootPath = URL(fileURLWithPath: "/tmp/pre-install-timeout-repo")
+        let gate = StatusReadGate()
+        let tracker = StatusReadTracker()
+        let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry()
+        let timingOutProvider = AgentStudioGitWorkingTreeStatusProvider(
+            timeout: .seconds(999),
+            timeoutScheduler: ImmediateStatusTimeoutScheduler(),
+            activeReadRegistry: activeReadRegistry
+        ) { _, _ in
+            await tracker.recordStarted()
+            await gate.waitUntilReleased()
+            await tracker.recordFinished()
+            return makeSnapshot()
         }
-        return latestResult
+
+        let timedOutResult = await timingOutProvider.statusResult(for: rootPath)
+        let overlappingResult = await timingOutProvider.statusResult(for: rootPath)
+
+        await gate.release()
+        await activeReadRegistry.waitUntilInactive(AgentStudioGitActiveStatusReadKey(rootPath))
+
+        let recoveredProvider = AgentStudioGitWorkingTreeStatusProvider(
+            activeReadRegistry: activeReadRegistry
+        ) { _, _ in
+            makeSnapshot()
+        }
+        let recoveredResult = await recoveredProvider.statusResult(for: rootPath)
+
+        guard case .unavailable(let timedOutUnavailable) = timedOutResult else {
+            Issue.record("expected first result to time out, got \(timedOutResult)")
+            return
+        }
+        guard case .unavailable(let overlappingUnavailable) = overlappingResult else {
+            Issue.record("expected overlapping result to be unavailable, got \(overlappingResult)")
+            return
+        }
+        guard case .available = recoveredResult else {
+            Issue.record("expected provider to recover after detached read exits, got \(recoveredResult)")
+            return
+        }
+        #expect(timedOutUnavailable.reason == .timeout)
+        #expect(overlappingUnavailable.reason == .readAlreadyInFlight)
+        #expect(await tracker.startedCount() == 1)
+    }
+
+    @Test("successful SDK read leaves root immediately available for another read")
+    func successfulSDKReadLeavesRootImmediatelyAvailableForAnotherRead() async throws {
+        let rootPath = URL(fileURLWithPath: "/tmp/successful-read-recovery-repo")
+        let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry()
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            activeReadRegistry: activeReadRegistry
+        ) { _, _ in
+            makeSnapshot()
+        }
+
+        let firstResult = await provider.statusResult(for: rootPath)
+        let secondResult = await provider.statusResult(for: rootPath)
+
+        guard case .available = firstResult else {
+            Issue.record("expected first result to be available, got \(firstResult)")
+            return
+        }
+        guard case .available = secondResult else {
+            Issue.record("expected second result to be available, got \(secondResult)")
+            return
+        }
     }
 
     @Test("real SDK provider matches shell provider for current status shape")
@@ -419,15 +479,6 @@ private func assertSDKMatchesShell(_ repoURL: URL) async throws {
     #expect(sdkStatus.originResolution == shellStatus.originResolution)
 }
 
-extension GitWorkingTreeStatusResult {
-    fileprivate var isReadAlreadyInFlight: Bool {
-        guard case .unavailable(let unavailable) = self else {
-            return false
-        }
-        return unavailable.reason == .readAlreadyInFlight
-    }
-}
-
 private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler, @unchecked Sendable {
     private struct ScheduledTimeout {
         let id: Int
@@ -503,6 +554,16 @@ private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutSch
         scheduleWaiters.append(waiter)
         lock.unlock()
         return true
+    }
+}
+
+private struct ImmediateStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler {
+    func scheduleTimeout(
+        after _: Duration,
+        _ handler: @escaping @Sendable () -> Void
+    ) -> AgentStudioGitScheduledTimeout {
+        handler()
+        return AgentStudioGitScheduledTimeout {}
     }
 }
 

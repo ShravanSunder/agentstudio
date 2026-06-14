@@ -110,14 +110,18 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
                     return
                 }
                 // Detached by design: the SDK read may ignore cooperative cancellation.
+                let operationFinish = AgentStudioGitOperationFinish(onOperationFinished)
                 // swiftlint:disable:next no_task_detached
                 let readTask = Task.detached(priority: .utility) {
                     defer {
-                        onOperationFinished()
+                        operationFinish.finish()
                     }
                     do {
-                        try await race.succeed(operation())
+                        let value = try await operation()
+                        operationFinish.finish()
+                        race.succeed(value)
                     } catch {
+                        operationFinish.finish()
                         race.fail(error)
                     }
                 }
@@ -219,6 +223,28 @@ private enum AgentStudioGitSDKTimeoutError: Error {
     case timedOut
 }
 
+private final class AgentStudioGitOperationFinish: @unchecked Sendable {
+    private let lock = NSLock()
+    private let handler: @Sendable () -> Void
+    private var didFinish = false
+
+    init(_ handler: @escaping @Sendable () -> Void) {
+        self.handler = handler
+    }
+
+    func finish() {
+        lock.lock()
+        guard !didFinish else {
+            lock.unlock()
+            return
+        }
+        didFinish = true
+        lock.unlock()
+
+        handler()
+    }
+}
+
 struct AgentStudioGitActiveStatusReadKey: Hashable, Sendable {
     private let path: String
 
@@ -230,6 +256,7 @@ struct AgentStudioGitActiveStatusReadKey: Hashable, Sendable {
 final class AgentStudioGitActiveStatusReadRegistry: @unchecked Sendable {
     private let lock = NSLock()
     private var activeReadKeys: Set<AgentStudioGitActiveStatusReadKey> = []
+    private var inactiveWaiters: [AgentStudioGitActiveStatusReadKey: [CheckedContinuation<Void, Never>]] = [:]
 
     func start(_ key: AgentStudioGitActiveStatusReadKey) -> Bool {
         lock.lock()
@@ -239,9 +266,28 @@ final class AgentStudioGitActiveStatusReadRegistry: @unchecked Sendable {
     }
 
     func finish(_ key: AgentStudioGitActiveStatusReadKey) {
+        let waiters: [CheckedContinuation<Void, Never>]
         lock.lock()
         activeReadKeys.remove(key)
+        waiters = inactiveWaiters.removeValue(forKey: key) ?? []
         lock.unlock()
+
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    func waitUntilInactive(_ key: AgentStudioGitActiveStatusReadKey) async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            guard activeReadKeys.contains(key) else {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            inactiveWaiters[key, default: []].append(continuation)
+            lock.unlock()
+        }
     }
 }
 
