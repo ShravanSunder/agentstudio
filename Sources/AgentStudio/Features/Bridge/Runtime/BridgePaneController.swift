@@ -57,6 +57,8 @@ final class BridgePaneController {
     let reviewChangeIndex = BridgeChangeIndex()
     let bridgePaneState: BridgePaneState
     var nextReviewGeneration: BridgeReviewGeneration = 0
+    var activeReviewRefreshTask: Task<Void, Never>?
+    var hasPendingReviewRefresh = false
 
     // MARK: - Push Plans
 
@@ -408,10 +410,13 @@ final class BridgePaneController {
         reviewPushPlan?.stop()
         connectionPushPlan?.stop()
         agentPushPlan?.stop()
+        activeReviewRefreshTask?.cancel()
         diffPushPlan = nil
         reviewPushPlan = nil
         connectionPushPlan = nil
         agentPushPlan = nil
+        activeReviewRefreshTask = nil
+        hasPendingReviewRefresh = false
         runtime.resetForControllerTeardown()
         lastPushed.removeAll()
         isBridgeReady = false

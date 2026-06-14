@@ -142,6 +142,21 @@ struct CommandBarDataSourceTests {
         #expect(groups.contains("Repo"))
         #expect(groups.contains("Window"))
         #expect(groups.contains("Webview"))
+        #expect(groups.contains("Bridge"))
+    }
+
+    @Test
+    func test_commandsScope_includesOpenBridgeReview() {
+        let store = makeStore()
+
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let bridgeItem = items.first { $0.id == "cmd-openBridgeReview" }
+
+        #expect(bridgeItem != nil)
+        #expect(bridgeItem?.title == "Open Bridge Review")
+        #expect(bridgeItem?.group == "Bridge")
+        #expect(bridgeItem?.hasChildren == false)
     }
 
     @Test

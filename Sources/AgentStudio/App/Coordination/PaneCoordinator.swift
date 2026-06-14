@@ -385,8 +385,10 @@ final class PaneCoordinator {
                 Self.logger.warning(
                     "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
                 )
+            case .paneFilesystemContext(let event):
+                await handleBridgePaneFilesystemContext(event, sourcePaneId: sourcePaneId)
             case .lifecycle, .terminalActivity, .browser, .diff, .editor, .agentNotificationRequested, .plugin,
-                .paneFilesystemContext, .artifact, .security, .filesystem:
+                .artifact, .security, .filesystem:
                 Self.logger.debug(
                     "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: paneEnvelope.event), privacy: .public)"
                 )
@@ -400,6 +402,22 @@ final class PaneCoordinator {
                 "Runtime event ignored for worktree source \(String(describing: worktreeEnvelope.worktreeId), privacy: .public): \(String(describing: worktreeEnvelope.event), privacy: .public)"
             )
         }
+    }
+
+    func handleBridgePaneFilesystemContext(
+        _ event: PaneFilesystemContextEvent,
+        sourcePaneId: PaneId
+    ) async {
+        guard
+            let bridgeView = viewRegistry.view(for: sourcePaneId.uuid)?
+                .mountedContent(as: BridgePaneMountView.self)
+        else {
+            Self.logger.debug(
+                "Runtime filesystem context ignored for non-Bridge pane \(sourcePaneId.uuid.uuidString, privacy: .public)"
+            )
+            return
+        }
+        await bridgeView.controller.handlePaneFilesystemContextEvent(event)
     }
 
     private func handleTerminalRuntimeEvent(_ event: GhosttyEvent, sourcePaneId: PaneId) {

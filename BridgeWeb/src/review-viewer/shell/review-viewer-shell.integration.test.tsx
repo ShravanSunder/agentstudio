@@ -68,6 +68,54 @@ describe('review viewer shell', () => {
 
 		expect(loaded?.text).toBe('loaded head content');
 	});
+
+	test('renders only items matching folder file-class and change-kind filter state', () => {
+		const basePackage = makeBridgeReviewPackage();
+		const sourceItem = basePackage.itemsById['item-source'];
+		if (sourceItem === undefined) {
+			throw new Error('expected source item');
+		}
+		const hiddenDocsItem = {
+			...sourceItem,
+			itemId: 'item-docs',
+			basePath: 'docs/architecture/old.md',
+			headPath: 'docs/architecture/old.md',
+			changeKind: 'added' as const,
+			fileClass: 'docs' as const,
+			extension: 'md',
+		};
+		const reviewPackage = {
+			...basePackage,
+			orderedItemIds: ['item-source', 'item-docs'],
+			itemsById: {
+				'item-source': sourceItem,
+				'item-docs': hiddenDocsItem,
+			},
+			query: {
+				...basePackage.query,
+				pathScope: ['Sources/**'],
+			},
+			filterState: {
+				...basePackage.filterState,
+				includedFileClasses: ['source' as const],
+				changeKinds: ['modified' as const],
+			},
+		};
+
+		const element = ReviewViewerShell({
+			reviewPackage,
+			selectedItemId: 'item-source',
+			onSelectItem: () => undefined,
+			selectedContentText: null,
+		});
+
+		const text = collectText(element);
+		expect(text).toContain('Sources/App/View.swift');
+		expect(text).not.toContain('docs/architecture/old.md');
+		expect(text).toContain('Folder: Sources/**');
+		expect(text).toContain('Class: source');
+		expect(text).toContain('Change: modified');
+	});
 });
 
 function collectText(node: ReactNode): string {

@@ -8,6 +8,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     var treeDescriptors: [BridgeReviewItemDescriptor]
     var itemDescriptorByPath: [String: BridgeReviewItemDescriptor]
     private let contentLoadGate: BridgeContentLoadGate?
+    private var comparisonGate: BridgeComparisonGate?
     private let checksCancellationAfterGate: Bool
     private var contentRequests: [BridgeContentLoadRequest] = []
     private var comparisonRequests: [BridgeEndpointComparisonRequest] = []
@@ -28,6 +29,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         treeDescriptors: [BridgeReviewItemDescriptor] = [],
         itemDescriptorByPath: [String: BridgeReviewItemDescriptor] = [:],
         contentLoadGate: BridgeContentLoadGate? = nil,
+        comparisonGate: BridgeComparisonGate? = nil,
         checksCancellationAfterGate: Bool = false
     ) {
         self.comparison = comparison
@@ -35,6 +37,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         self.treeDescriptors = treeDescriptors
         self.itemDescriptorByPath = itemDescriptorByPath
         self.contentLoadGate = contentLoadGate
+        self.comparisonGate = comparisonGate
         self.checksCancellationAfterGate = checksCancellationAfterGate
     }
 
@@ -44,10 +47,12 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
 
     func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison {
         comparisonRequests.append(request)
+        let resolvedComparison = comparison
+        await comparisonGate?.waitUntilReleased()
         return BridgeEndpointComparison(
             baseEndpoint: request.baseEndpoint,
             headEndpoint: request.headEndpoint,
-            changedFiles: comparison.changedFiles
+            changedFiles: resolvedComparison.changedFiles
         )
     }
 
@@ -102,6 +107,14 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         comparisonRequests.count
     }
 
+    func setComparison(_ comparison: BridgeEndpointComparison) {
+        self.comparison = comparison
+    }
+
+    func setComparisonGate(_ comparisonGate: BridgeComparisonGate?) {
+        self.comparisonGate = comparisonGate
+    }
+
     func recordedTreeReadRequestsCount() -> Int {
         treeReadRequests.count
     }
@@ -138,6 +151,57 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
             }
         }
         finishedContentLoadWaiters = pendingWaiters
+    }
+}
+
+actor BridgeComparisonGate {
+    private struct StartedComparisonWaiter {
+        let requestedCount: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private var startedComparisonCount = 0
+    private var startedComparisonWaiters: [StartedComparisonWaiter] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+    private var isReleased = false
+
+    func waitUntilReleased() async {
+        startedComparisonCount += 1
+        resumeSatisfiedStartedComparisonWaiters()
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation in
+            releaseContinuations.append(continuation)
+        }
+    }
+
+    func waitForStartedComparisonCount(_ requestedCount: Int) async {
+        guard startedComparisonCount < requestedCount else { return }
+        await withCheckedContinuation { continuation in
+            startedComparisonWaiters.append(
+                StartedComparisonWaiter(requestedCount: requestedCount, continuation: continuation)
+            )
+        }
+    }
+
+    func releaseAll() {
+        isReleased = true
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    private func resumeSatisfiedStartedComparisonWaiters() {
+        var pendingWaiters: [StartedComparisonWaiter] = []
+        for waiter in startedComparisonWaiters {
+            if startedComparisonCount >= waiter.requestedCount {
+                waiter.continuation.resume()
+            } else {
+                pendingWaiters.append(waiter)
+            }
+        }
+        startedComparisonWaiters = pendingWaiters
     }
 }
 
