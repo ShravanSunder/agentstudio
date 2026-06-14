@@ -57,12 +57,32 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     }
 
     func handlePaneFilesystemContextEvent(_ event: PaneFilesystemContextEvent) async {
-        guard shouldRefreshReviewPackage(for: event),
-            let currentPackage = paneState.diff.packageMetadata
-        else {
+        guard shouldRefreshReviewPackage(for: event) else { return }
+
+        hasPendingReviewRefresh = true
+        if let activeReviewRefreshTask {
+            await activeReviewRefreshTask.value
             return
         }
 
+        let refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.drainPendingReviewRefreshes()
+        }
+        activeReviewRefreshTask = refreshTask
+        await refreshTask.value
+    }
+
+    private func drainPendingReviewRefreshes() async {
+        while hasPendingReviewRefresh, !Task.isCancelled {
+            hasPendingReviewRefresh = false
+            await refreshCurrentReviewPackage()
+        }
+        activeReviewRefreshTask = nil
+    }
+
+    private func refreshCurrentReviewPackage() async {
+        guard let currentPackage = paneState.diff.packageMetadata else { return }
         do {
             let result = try await reviewPipeline.loadPackage(
                 BridgeReviewPipelineRequest(
@@ -75,7 +95,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
                 )
             )
-            guard paneState.diff.packageMetadata?.packageId == currentPackage.packageId,
+            guard !Task.isCancelled,
+                paneState.diff.packageMetadata?.packageId == currentPackage.packageId,
                 paneState.diff.packageMetadata?.reviewGeneration == currentPackage.reviewGeneration
             else {
                 return
