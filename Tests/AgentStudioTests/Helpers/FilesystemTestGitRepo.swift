@@ -33,7 +33,8 @@ enum FilesystemTestGitRepo {
         try? FileManager.default.removeItem(at: repoURL)
     }
 
-    private static func runGit(at repoURL: URL, args: [String]) throws {
+    @discardableResult
+    static func runGit(at repoURL: URL, args: [String]) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git", "-C", repoURL.path] + args
@@ -57,5 +58,8 @@ enum FilesystemTestGitRepo {
                 ]
             )
         }
+
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: outputData, encoding: .utf8) ?? ""
     }
 }

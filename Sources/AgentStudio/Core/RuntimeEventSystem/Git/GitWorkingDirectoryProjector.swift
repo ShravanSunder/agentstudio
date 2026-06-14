@@ -37,7 +37,6 @@ actor GitWorkingDirectoryProjector {
     private var latestTopologyAssertion: FilesystemTopologyAssertion?
     private var activeWorktreeIds: Set<UUID> = []
     private var activePaneWorktreeId: UUID?
-    private var lastKnownBranchByWorktree: [UUID: String] = [:]
     private var repoIdByWorktreeId: [UUID: UUID] = [:]
     private var lastKnownOriginByRepoId: [UUID: String] = [:]
     private var originResolutionByRepoId: [UUID: GitOriginResolution] = [:]
@@ -50,7 +49,7 @@ actor GitWorkingDirectoryProjector {
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
-        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
+        gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
         envelopeClock: ContinuousClock = ContinuousClock(),
         coalescingWindow: Duration,
         periodicRefreshInterval: Duration? = nil,
@@ -138,7 +137,6 @@ actor GitWorkingDirectoryProjector {
         latestTopologyAssertion = nil
         activeWorktreeIds.removeAll(keepingCapacity: false)
         activePaneWorktreeId = nil
-        lastKnownBranchByWorktree.removeAll(keepingCapacity: false)
         repoIdByWorktreeId.removeAll(keepingCapacity: false)
         lastKnownOriginByRepoId.removeAll(keepingCapacity: false)
         originResolutionByRepoId.removeAll(keepingCapacity: false)
@@ -344,7 +342,6 @@ actor GitWorkingDirectoryProjector {
             return
         }
         if previousContext != nil, previousContext != context {
-            lastKnownBranchByWorktree.removeValue(forKey: worktreeId)
             lastEmittedSnapshotByWorktreeId.removeValue(forKey: worktreeId)
             nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
             cancelNilStatusRetry(worktreeId: worktreeId)
@@ -375,7 +372,6 @@ actor GitWorkingDirectoryProjector {
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
         }
-        lastKnownBranchByWorktree.removeValue(forKey: worktreeId)
         repoIdByWorktreeId.removeValue(forKey: worktreeId)
         rootPathByWorktreeId.removeValue(forKey: worktreeId)
         lastEmittedSnapshotByWorktreeId.removeValue(forKey: worktreeId)
@@ -526,7 +522,8 @@ actor GitWorkingDirectoryProjector {
             summary: statusSnapshot.summary,
             branch: statusSnapshot.branch
         )
-        if lastEmittedSnapshotByWorktreeId[changeset.worktreeId] != nextSnapshot {
+        let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
+        if previousSnapshot != nextSnapshot {
             lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
             await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
@@ -544,9 +541,9 @@ actor GitWorkingDirectoryProjector {
             )
         }
 
-        if let previousBranch = lastKnownBranchByWorktree[changeset.worktreeId],
+        if let previousSnapshot,
             let nextBranch = statusSnapshot.branch,
-            previousBranch != nextBranch
+            previousSnapshot.branch != nextBranch
         {
             await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
@@ -554,13 +551,11 @@ actor GitWorkingDirectoryProjector {
                 event: .branchChanged(
                     worktreeId: changeset.worktreeId,
                     repoId: changeset.repoId,
-                    from: previousBranch,
+                    from: previousSnapshot.branch ?? "",
                     to: nextBranch
                 )
             )
         }
-        lastKnownBranchByWorktree[changeset.worktreeId] = statusSnapshot.branch
-
         guard shouldCheckOrigin(for: changeset) else { return }
 
         let nextOriginResolution = statusSnapshot.originResolution

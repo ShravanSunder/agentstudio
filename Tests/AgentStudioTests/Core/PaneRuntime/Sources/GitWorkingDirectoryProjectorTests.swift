@@ -7,6 +7,46 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector")
 struct GitWorkingDirectoryProjectorTests {
+    @Test("default provider emits real SDK-backed initial git snapshot")
+    func defaultProviderEmitsRealSDKBackedInitialGitSnapshot() async throws {
+        let repoURL = try FilesystemTestGitRepo.create(named: "projector-default-sdk-provider")
+        defer { FilesystemTestGitRepo.destroy(repoURL) }
+        try "initial\n".write(to: repoURL.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
+        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["add", "tracked.txt"])
+        try FilesystemTestGitRepo.runGit(at: repoURL, args: ["commit", "-m", "Seed projector default"])
+        try "initial\nupdated\n".write(to: repoURL.appending(path: "tracked.txt"), atomically: true, encoding: .utf8)
+
+        let bus = EventBus<RuntimeEnvelope>()
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            coalescingWindow: .zero
+        )
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: UUID(), rootPath: repoURL)
+            )
+        )
+
+        let didReceiveSnapshot = await waitUntil {
+            await observed.snapshotCount(for: worktreeId) >= 1
+        }
+        #expect(didReceiveSnapshot)
+        let snapshot = await observed.latestSnapshot(for: worktreeId)
+        #expect(snapshot?.rootPath == repoURL)
+        #expect(snapshot?.branch == "main")
+        #expect(snapshot?.summary.changed == 1)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
     @Test("worktreeRegistered triggers eager initial git snapshot")
     func worktreeRegisteredTriggersEagerInitialGitSnapshot() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -1343,6 +1383,52 @@ struct GitWorkingDirectoryProjectorTests {
         let branchEvent = await observed.latestBranchEvent(for: worktreeId)
         #expect(branchEvent?.0 == "main")
         #expect(branchEvent?.1 == "feature/split")
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("branchChanged emits when branchless snapshot becomes a branch")
+    func branchChangedEmitsWhenBranchlessSnapshotBecomesBranch() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let calls = CallCounter()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            let callNumber = await calls.increment()
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: callNumber, staged: 0, untracked: 0),
+                branch: callNumber == 1 ? nil : "main",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/branchless-change-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+
+        let firstSnapshotObserved = await waitUntil {
+            await observed.snapshotCount(for: worktreeId) >= 1
+        }
+        #expect(firstSnapshotObserved)
+
+        await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
+
+        let observedBranchChange = await waitUntil {
+            await observed.branchEventCount(for: worktreeId) >= 1
+        }
+        #expect(observedBranchChange)
+
+        let branchEvent = await observed.latestBranchEvent(for: worktreeId)
+        #expect(branchEvent?.0.isEmpty == true)
+        #expect(branchEvent?.1 == "main")
 
         await actor.shutdown()
         collectionTask.cancel()

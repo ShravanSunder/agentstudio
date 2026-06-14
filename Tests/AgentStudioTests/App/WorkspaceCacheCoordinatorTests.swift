@@ -101,6 +101,45 @@ final class WorkspaceCacheCoordinatorTests {
     }
 
     @Test
+    func topology_repoRemoved_matchesSymlinkStoredRepoByStableKey() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-cache-symlink-remove-\(UUID().uuidString)")
+        let realRoot = tmp.appending(path: "real")
+        let linkedRoot = tmp.appending(path: "linked")
+        let realRepoPath = realRoot.appending(path: "app")
+        let linkedRepoPath = linkedRoot.appending(path: "app")
+        try FileManager.default.createDirectory(at: realRepoPath, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: linkedRoot.path, withDestinationPath: realRoot.path)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let coordinator = makeCoordinator(
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            welcomeAtom: WelcomeAtom()
+        )
+        let repo = workspaceStore.addRepo(at: linkedRepoPath)
+        let worktreeId = repo.worktrees.first!.id
+        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: worktreeId, repoId: repo.id, branch: "main")
+        )
+        repoCache.setPullRequestCount(2, for: worktreeId)
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(.repoRemoved(repoPath: realRepoPath))
+            )
+        )
+
+        #expect(workspaceStore.repositoryTopologyAtom.isRepoUnavailable(repo.id))
+        #expect(repoCache.repoEnrichmentByRepoId[repo.id] == nil)
+        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
+        #expect(repoCache.pullRequestCountByWorktreeId[worktreeId] == nil)
+    }
+
+    @Test
     func topology_worktreeUnregistered_unknownRepo_isIgnored() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()

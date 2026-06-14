@@ -71,7 +71,7 @@ actor FilesystemActor {
     private let fseventStreamClient: any FSEventStreamClient
     private let envelopeClock = ContinuousClock()
     private let schedulingClock: SchedulingClock
-    private let groupedWatchedFolderScanner: @Sendable (URL) -> [RepoScanner.RepoScanGroup]
+    private let groupedWatchedFolderScanner: @Sendable (URL) async -> [RepoScanner.RepoScanGroup]
     private let debounceWindow: Duration
     private let maxFlushLatency: Duration
 
@@ -91,8 +91,8 @@ actor FilesystemActor {
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
-        groupedWatchedFolderScanner: @escaping @Sendable (URL) -> [RepoScanner.RepoScanGroup] = {
-            RepoScanner().scanForGitReposGrouped(in: $0)
+        groupedWatchedFolderScanner: @escaping @Sendable (URL) async -> [RepoScanner.RepoScanGroup] = {
+            await RepoScanner().scanForGitReposGrouped(in: $0)
         },
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
@@ -108,8 +108,8 @@ actor FilesystemActor {
     init<C: Clock>(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
-        groupedWatchedFolderScanner: @escaping @Sendable (URL) -> [RepoScanner.RepoScanGroup] = {
-            RepoScanner().scanForGitReposGrouped(in: $0)
+        groupedWatchedFolderScanner: @escaping @Sendable (URL) async -> [RepoScanner.RepoScanGroup] = {
+            await RepoScanner().scanForGitReposGrouped(in: $0)
         },
         sleepClock: C,
         debounceWindow: Duration = .milliseconds(500),
@@ -664,9 +664,9 @@ actor FilesystemActor {
     /// @concurrent ensures this escapes to the global executor.
     @concurrent nonisolated private static func scanFolder(
         _ folderPath: URL,
-        using watchedFolderScanner: @escaping @Sendable (URL) -> [RepoScanner.RepoScanGroup]
+        using watchedFolderScanner: @escaping @Sendable (URL) async -> [RepoScanner.RepoScanGroup]
     ) async -> [RepoScanner.RepoScanGroup] {
-        watchedFolderScanner(folderPath)
+        await watchedFolderScanner(folderPath)
     }
 
     private struct WatchedFolderRefreshScanResult {

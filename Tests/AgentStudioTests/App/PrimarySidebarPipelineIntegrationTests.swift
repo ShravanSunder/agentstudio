@@ -222,7 +222,7 @@ struct PrimarySidebarPipelineIntegrationTests {
         let tempRoot = try makeProjectDevShapeFixture()
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
-        let discoveredRepoPaths = RepoScanner().scanForGitRepos(in: tempRoot, maxDepth: 4)
+        let discoveredRepoPaths = await RepoScanner().scanForGitRepos(in: tempRoot, maxDepth: 4)
         let discoveredPathSet = Set(discoveredRepoPaths.map(canonicalPath(_:)))
 
         #expect(discoveredPathSet.contains(canonicalPath(tempRoot.appending(path: "askluna-project/askluna-finance"))))
