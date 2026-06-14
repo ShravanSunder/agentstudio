@@ -495,20 +495,15 @@ actor GitWorkingDirectoryProjector {
 
         // Provider contract: expensive git compute must run off actor isolation.
         let computeStart = envelopeClock.now
-        guard let statusSnapshot = await gitWorkingTreeProvider.status(for: changeset.rootPath) else {
-            guard isCurrent(changeset) else { return }
-            performanceTraceRecorder?.recordDuration(
-                .gitStatusUnavailable,
-                duration: computeStart.duration(to: envelopeClock.now),
-                attributes: gitStatusTraceAttributes(for: changeset)
-            )
-            scheduleNilStatusRetry(for: changeset)
+        let statusResult = await gitWorkingTreeProvider.statusResult(for: changeset.rootPath)
+        guard case .available(let statusSnapshot) = statusResult else {
+            handleUnavailableStatusResult(statusResult, changeset: changeset, computeStart: computeStart)
             return
         }
         performanceTraceRecorder?.recordDuration(
             .gitStatusComputed,
             duration: computeStart.duration(to: envelopeClock.now),
-            attributes: gitStatusTraceAttributes(for: changeset)
+            attributes: gitStatusTraceAttributes(for: changeset, unavailable: nil)
         )
         nilStatusRetryCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
         guard !Task.isCancelled else { return }
@@ -593,6 +588,27 @@ actor GitWorkingDirectoryProjector {
                 )
             )
         }
+    }
+
+    private func handleUnavailableStatusResult(
+        _ statusResult: GitWorkingTreeStatusResult,
+        changeset: FileChangeset,
+        computeStart: ContinuousClock.Instant
+    ) {
+        guard isCurrent(changeset) else { return }
+
+        let unavailable: GitWorkingTreeStatusUnavailable =
+            if case .unavailable(let value) = statusResult {
+                value
+            } else {
+                GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil)
+            }
+        performanceTraceRecorder?.recordDuration(
+            .gitStatusUnavailable,
+            duration: computeStart.duration(to: envelopeClock.now),
+            attributes: gitStatusTraceAttributes(for: changeset, unavailable: unavailable)
+        )
+        scheduleNilStatusRetry(for: changeset)
     }
 
     private func scheduleNilStatusRetry(for changeset: FileChangeset) {
@@ -777,8 +793,11 @@ actor GitWorkingDirectoryProjector {
         return refreshPolicy.isBackgroundWorktreeDue(worktreeId, tick: periodicRefreshTick)
     }
 
-    private func gitStatusTraceAttributes(for changeset: FileChangeset) -> [String: AgentStudioTraceValue] {
-        [
+    private func gitStatusTraceAttributes(
+        for changeset: FileChangeset,
+        unavailable: GitWorkingTreeStatusUnavailable?
+    ) -> [String: AgentStudioTraceValue] {
+        var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.performance.git.input_path.count": .int(changeset.paths.count),
             "agentstudio.performance.git.pending.count": .int(pendingByWorktreeId.count),
             "agentstudio.performance.git.running.count": .int(worktreeTasks.count),
@@ -788,5 +807,9 @@ actor GitWorkingDirectoryProjector {
                 changeset.suppressedGitInternalPathCount
             ),
         ]
+        if let unavailable {
+            attributes["agentstudio.performance.git.status_unavailable.reason"] = .string(unavailable.reason.rawValue)
+        }
+        return attributes
     }
 }

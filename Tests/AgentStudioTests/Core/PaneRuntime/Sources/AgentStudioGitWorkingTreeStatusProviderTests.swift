@@ -129,14 +129,82 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
 
     @Test("SDK status timeout returns nil")
     func sdkStatusTimeoutReturnsNil() async {
-        let provider = AgentStudioGitWorkingTreeStatusProvider(timeout: .milliseconds(1)) { _, _ in
-            try await Task.sleep(for: .seconds(60))
+        let gate = StatusReadGate()
+        let timeoutScheduler = ManualStatusTimeoutScheduler()
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            timeout: .seconds(999),
+            timeoutScheduler: timeoutScheduler
+        ) { _, _ in
+            await gate.waitUntilReleased()
             return makeSnapshot()
         }
 
-        let status = await provider.status(for: URL(fileURLWithPath: "/tmp/slow-repo"))
+        let statusTask = Task {
+            await provider.status(for: URL(fileURLWithPath: "/tmp/slow-repo"))
+        }
+        await gate.waitUntilStarted()
+        await timeoutScheduler.waitUntilScheduled()
+        timeoutScheduler.fireScheduledTimeout()
+        let status = await statusTask.value
+        await gate.release()
 
         #expect(status == nil)
+    }
+
+    @Test("SDK status timeout reports reason")
+    func sdkStatusTimeoutReportsReason() async throws {
+        let gate = StatusReadGate()
+        let timeoutScheduler = ManualStatusTimeoutScheduler()
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            timeout: .seconds(999),
+            timeoutScheduler: timeoutScheduler
+        ) { _, _ in
+            await gate.waitUntilReleased()
+            return makeSnapshot()
+        }
+
+        let resultTask = Task {
+            await provider.statusResult(for: URL(fileURLWithPath: "/tmp/slow-repo"))
+        }
+        await gate.waitUntilStarted()
+        await timeoutScheduler.waitUntilScheduled()
+        timeoutScheduler.fireScheduledTimeout()
+        let result = await resultTask.value
+        await gate.release()
+
+        guard case .unavailable(let unavailable) = result else {
+            Issue.record("expected unavailable result, got \(result)")
+            return
+        }
+        #expect(unavailable.reason == .timeout)
+    }
+
+    @Test("SDK status timeout wins when SDK read ignores cancellation")
+    func sdkStatusTimeoutWinsWhenSDKReadIgnoresCancellation() async throws {
+        let gate = StatusReadGate()
+        let timeoutScheduler = ManualStatusTimeoutScheduler()
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            timeout: .seconds(999),
+            timeoutScheduler: timeoutScheduler
+        ) { _, _ in
+            await gate.waitUntilReleased()
+            return makeSnapshot()
+        }
+
+        let resultTask = Task {
+            await provider.statusResult(for: URL(fileURLWithPath: "/tmp/noncooperative-slow-repo"))
+        }
+        await gate.waitUntilStarted()
+        await timeoutScheduler.waitUntilScheduled()
+        timeoutScheduler.fireScheduledTimeout()
+        let result = await resultTask.value
+        await gate.release()
+
+        guard case .unavailable(let unavailable) = result else {
+            Issue.record("expected unavailable result, got \(result)")
+            return
+        }
+        #expect(unavailable.reason == .timeout)
     }
 
     @Test("real SDK provider matches shell provider for current status shape")
@@ -242,6 +310,126 @@ private func assertSDKMatchesShell(_ repoURL: URL) async throws {
     #expect(sdkStatus.summary.behindCount == shellStatus.summary.behindCount)
     #expect(sdkStatus.summary.hasUpstream == shellStatus.summary.hasUpstream)
     #expect(sdkStatus.originResolution == shellStatus.originResolution)
+}
+
+private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler, @unchecked Sendable {
+    private struct ScheduledTimeout {
+        let id: Int
+        let handler: @Sendable () -> Void
+    }
+
+    private let lock = NSLock()
+    private var nextId = 0
+    private var scheduledTimeouts: [ScheduledTimeout] = []
+    private var scheduleWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func scheduleTimeout(
+        after _: Duration,
+        _ handler: @escaping @Sendable () -> Void
+    ) -> AgentStudioGitScheduledTimeout {
+        let id: Int
+        let waiters: [CheckedContinuation<Void, Never>]
+        lock.lock()
+        id = nextId
+        nextId += 1
+        scheduledTimeouts.append(ScheduledTimeout(id: id, handler: handler))
+        waiters = scheduleWaiters
+        scheduleWaiters.removeAll(keepingCapacity: false)
+        lock.unlock()
+
+        for waiter in waiters {
+            waiter.resume()
+        }
+
+        return AgentStudioGitScheduledTimeout { [weak self] in
+            self?.cancelScheduledTimeout(id: id)
+        }
+    }
+
+    func waitUntilScheduled() async {
+        guard !hasScheduledTimeouts() else { return }
+
+        await withCheckedContinuation { continuation in
+            if !appendScheduleWaiterIfNeeded(continuation) {
+                continuation.resume()
+            }
+        }
+    }
+
+    func fireScheduledTimeout() {
+        let scheduledTimeout: ScheduledTimeout?
+        lock.lock()
+        scheduledTimeout = scheduledTimeouts.isEmpty ? nil : scheduledTimeouts.removeFirst()
+        lock.unlock()
+
+        scheduledTimeout?.handler()
+    }
+
+    private func cancelScheduledTimeout(id: Int) {
+        lock.lock()
+        scheduledTimeouts.removeAll { $0.id == id }
+        lock.unlock()
+    }
+
+    private func hasScheduledTimeouts() -> Bool {
+        lock.lock()
+        let result = !scheduledTimeouts.isEmpty
+        lock.unlock()
+        return result
+    }
+
+    private func appendScheduleWaiterIfNeeded(_ waiter: CheckedContinuation<Void, Never>) -> Bool {
+        lock.lock()
+        guard scheduledTimeouts.isEmpty else {
+            lock.unlock()
+            return false
+        }
+        scheduleWaiters.append(waiter)
+        lock.unlock()
+        return true
+    }
+}
+
+private actor StatusReadGate {
+    private var didStart = false
+    private var didRelease = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitUntilStarted() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilReleased() async {
+        markStarted()
+        guard !didRelease else { return }
+        await withCheckedContinuation { continuation in
+            releaseWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        guard !didRelease else { return }
+        didRelease = true
+        let waiters = releaseWaiters
+        releaseWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func markStarted() {
+        guard !didStart else { return }
+        didStart = true
+        let waiters = startWaiters
+        startWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
 }
 
 private func makeSnapshot(

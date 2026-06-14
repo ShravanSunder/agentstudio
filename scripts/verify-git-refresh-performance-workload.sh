@@ -31,6 +31,10 @@ Environment overrides:
                                       a full 16-stripe background refresh cycle.
   AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR
                                       Set to 0 to skip startup command-bar repo filter smoke. Default: 1.
+  AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD
+                                      Set to 1 to capture /usr/bin/sample during the writer
+                                      workload. Default: 0 so sampling cannot perturb
+                                      latency metrics used as proof.
   AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF
                                       Set to 1 to allow JSONL as an explicit local proof
                                       fallback. Default: 0; standard proof requires Victoria.
@@ -66,6 +70,7 @@ ACTIVE_PANE_COUNT="${AGENTSTUDIO_PERF_ACTIVE_PANES:-14}"
 WRITER_COUNT="${AGENTSTUDIO_PERF_WRITER_COUNT:-5}"
 DURATION_SECONDS="${AGENTSTUDIO_PERF_DURATION_SECONDS:-60}"
 DRIVE_COMMAND_BAR="${AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR:-1}"
+SAMPLE_DURING_WORKLOAD="${AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD:-0}"
 ALLOW_JSONL_PROOF="${AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF:-0}"
 if [ -n "${AGENTSTUDIO_PERF_PROOF_ROOT:-}" ]; then
   PROOF_ROOT="$AGENTSTUDIO_PERF_PROOF_ROOT"
@@ -184,6 +189,10 @@ require_positive_integer AGENTSTUDIO_PERF_WRITER_COUNT "$WRITER_COUNT"
 require_positive_integer AGENTSTUDIO_PERF_DURATION_SECONDS "$DURATION_SECONDS"
 if [ "$DRIVE_COMMAND_BAR" != "0" ] && [ "$DRIVE_COMMAND_BAR" != "1" ]; then
   echo "AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR must be 0 or 1" >&2
+  exit 2
+fi
+if [ "$SAMPLE_DURING_WORKLOAD" != "0" ] && [ "$SAMPLE_DURING_WORKLOAD" != "1" ]; then
+  echo "AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD must be 0 or 1" >&2
   exit 2
 fi
 
@@ -782,6 +791,7 @@ summarize_traces() {
     echo "writer_count=$WRITER_COUNT"
     echo "duration_seconds=$DURATION_SECONDS"
     echo "drive_command_bar=$DRIVE_COMMAND_BAR"
+    echo "sample_during_workload=$SAMPLE_DURING_WORKLOAD"
     echo "allow_jsonl_proof=$ALLOW_JSONL_PROOF"
     echo "app_pid=$APP_PID"
     echo "debug_observability_state_file=$DEBUG_OBSERVABILITY_STATE_FILE"
@@ -853,7 +863,12 @@ if ! drive_command_bar_smoke; then
 fi
 
 start_writers
-sample_app
+if [ "$SAMPLE_DURING_WORKLOAD" = "1" ]; then
+  sample_app
+else
+  echo "sample skipped during measured workload; set AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD=1 for stack capture" \
+    >"$ARTIFACT/sample.log"
+fi
 
 for writer_pid in "${WRITER_PIDS[@]}"; do
   wait "$writer_pid" >/dev/null 2>&1 || true

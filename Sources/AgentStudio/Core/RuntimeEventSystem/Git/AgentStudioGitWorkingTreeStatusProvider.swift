@@ -1,4 +1,5 @@
 import AgentStudioGit
+import Dispatch
 import Foundation
 import os
 
@@ -13,42 +14,59 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
 
     private let statusReader: AgentStudioGitStatusReader
     private let timeout: Duration
+    private let timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler
 
     init(
         client: any AgentStudioGit.AgentStudioGitLocalClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient(),
-        timeout: Duration = AppPolicies.GitRefresh.defaultSDKReadTimeout
+        timeout: Duration = AppPolicies.GitRefresh.defaultSDKReadTimeout,
+        timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler = DispatchAgentStudioGitStatusTimeoutScheduler()
     ) {
-        self.init(timeout: timeout) { worktreePath, options in
+        self.init(timeout: timeout, timeoutScheduler: timeoutScheduler) { worktreePath, options in
             try await client.status(for: worktreePath, options: options)
         }
     }
 
     init(
         timeout: Duration = AppPolicies.GitRefresh.defaultSDKReadTimeout,
+        timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler = DispatchAgentStudioGitStatusTimeoutScheduler(),
         statusReader: @escaping AgentStudioGitStatusReader
     ) {
         self.statusReader = statusReader
         self.timeout = timeout
+        self.timeoutScheduler = timeoutScheduler
     }
 
-    func status(for rootPath: URL) async -> GitWorkingTreeStatus? {
-        await Self.computeStatus(rootPath: rootPath, timeout: timeout, statusReader: statusReader)
+    func statusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult {
+        await Self.computeStatusResult(
+            rootPath: rootPath,
+            timeout: timeout,
+            timeoutScheduler: timeoutScheduler,
+            statusReader: statusReader
+        )
     }
 
     @concurrent
-    nonisolated private static func computeStatus(
+    nonisolated private static func computeStatusResult(
         rootPath: URL,
         timeout: Duration,
+        timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler,
         statusReader: @escaping AgentStudioGitStatusReader
-    ) async -> GitWorkingTreeStatus? {
+    ) async -> GitWorkingTreeStatusResult {
         do {
-            let snapshot = try await withTimeout(timeout) {
+            let snapshot = try await readWithHardTimeout(timeout, timeoutScheduler: timeoutScheduler) {
                 try await statusReader(
                     rootPath,
                     AgentStudioGit.GitStatusOptions(includeIgnored: false, includeUntracked: true)
                 )
             }
-            return map(snapshot)
+            return .available(map(snapshot))
+        } catch is CancellationError {
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .cancelled))
+        } catch AgentStudioGitSDKTimeoutError.timedOut {
+            logger.error(
+                "AgentStudioGit status timed out for \(rootPath.path, privacy: .public)"
+            )
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .timeout))
         } catch {
             logger.error(
                 """
@@ -56,29 +74,57 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
                 \(String(describing: error), privacy: .public)
                 """
             )
-            return nil
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .sdkError))
         }
     }
 
-    nonisolated private static func withTimeout<ReturnValue: Sendable>(
+    nonisolated private static func readWithHardTimeout<ReturnValue: Sendable>(
         _ timeout: Duration,
+        timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler,
         operation: @Sendable @escaping () async throws -> ReturnValue
     ) async throws -> ReturnValue {
-        try await withThrowingTaskGroup(of: ReturnValue.self) { group in
-            group.addTask {
-                try await operation()
+        let raceBox = AgentStudioGitTimeoutRaceBox<ReturnValue>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ReturnValue, Error>) in
+                let race = AgentStudioGitTimeoutRace(continuation: continuation)
+                guard raceBox.install(race) else { return }
+                // Detached by design: the SDK read may ignore cooperative cancellation.
+                // swiftlint:disable:next no_task_detached
+                let readTask = Task.detached(priority: .utility) {
+                    do {
+                        try await race.succeed(operation())
+                    } catch {
+                        race.fail(error)
+                    }
+                }
+                let scheduledTimeout = timeoutScheduler.scheduleTimeout(after: timeout) {
+                    race.fail(AgentStudioGitSDKTimeoutError.timedOut)
+                }
+                race.install(readTask: readTask, scheduledTimeout: scheduledTimeout)
             }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw AgentStudioGitSDKTimeoutError.timedOut
-            }
-
-            guard let result = try await group.next() else {
-                throw AgentStudioGitSDKTimeoutError.timedOut
-            }
-            group.cancelAll()
-            return result
+        } onCancel: {
+            raceBox.cancel()
         }
+    }
+
+    nonisolated fileprivate static func dispatchInterval(for duration: Duration) -> DispatchTimeInterval {
+        let components = duration.components
+        let (secondsNanoseconds, multiplicationOverflow) =
+            components.seconds.multipliedReportingOverflow(by: 1_000_000_000)
+        let attosecondNanoseconds = components.attoseconds / 1_000_000_000
+        let (totalNanoseconds, additionOverflow) =
+            secondsNanoseconds.addingReportingOverflow(attosecondNanoseconds)
+
+        guard !multiplicationOverflow, !additionOverflow else {
+            return .seconds(Int.max)
+        }
+        guard totalNanoseconds > 0 else {
+            return .nanoseconds(0)
+        }
+        guard totalNanoseconds <= Int64(Int.max) else {
+            return .seconds(Int.max)
+        }
+        return .nanoseconds(Int(totalNanoseconds))
     }
 
     nonisolated private static func map(_ snapshot: AgentStudioGit.GitStatusSnapshot) -> GitWorkingTreeStatus {
@@ -147,4 +193,136 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
 
 private enum AgentStudioGitSDKTimeoutError: Error {
     case timedOut
+}
+
+protocol AgentStudioGitStatusTimeoutScheduler: Sendable {
+    func scheduleTimeout(
+        after timeout: Duration,
+        _ handler: @escaping @Sendable () -> Void
+    ) -> AgentStudioGitScheduledTimeout
+}
+
+struct AgentStudioGitScheduledTimeout: Sendable {
+    private let box: AgentStudioGitScheduledTimeoutBox
+
+    init(cancel: @escaping () -> Void) {
+        box = AgentStudioGitScheduledTimeoutBox(cancel: cancel)
+    }
+
+    func cancel() {
+        box.cancel()
+    }
+}
+
+private final class AgentStudioGitScheduledTimeoutBox: @unchecked Sendable {
+    private let cancelHandler: () -> Void
+
+    init(cancel: @escaping () -> Void) {
+        cancelHandler = cancel
+    }
+
+    func cancel() {
+        cancelHandler()
+    }
+}
+
+struct DispatchAgentStudioGitStatusTimeoutScheduler: AgentStudioGitStatusTimeoutScheduler {
+    private static let timeoutQueue = DispatchQueue(
+        label: "com.agentstudio.git-status-timeout",
+        qos: .userInitiated
+    )
+
+    func scheduleTimeout(
+        after timeout: Duration,
+        _ handler: @escaping @Sendable () -> Void
+    ) -> AgentStudioGitScheduledTimeout {
+        let workItem = DispatchWorkItem(block: handler)
+        Self.timeoutQueue.asyncAfter(
+            deadline: .now() + AgentStudioGitWorkingTreeStatusProvider.dispatchInterval(for: timeout),
+            execute: workItem
+        )
+        return AgentStudioGitScheduledTimeout {
+            workItem.cancel()
+        }
+    }
+}
+
+private final class AgentStudioGitTimeoutRaceBox<ReturnValue: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var race: AgentStudioGitTimeoutRace<ReturnValue>?
+    private var didCancel = false
+
+    func install(_ race: AgentStudioGitTimeoutRace<ReturnValue>) -> Bool {
+        lock.lock()
+        if didCancel {
+            lock.unlock()
+            race.fail(CancellationError())
+            return false
+        }
+        self.race = race
+        lock.unlock()
+        return true
+    }
+
+    func cancel() {
+        let raceToCancel: AgentStudioGitTimeoutRace<ReturnValue>?
+        lock.lock()
+        didCancel = true
+        raceToCancel = race
+        race = nil
+        lock.unlock()
+
+        raceToCancel?.fail(CancellationError())
+    }
+}
+
+private final class AgentStudioGitTimeoutRace<ReturnValue: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private let continuation: CheckedContinuation<ReturnValue, Error>
+    private var didResume = false
+    private var readTask: Task<Void, Never>?
+    private var scheduledTimeout: AgentStudioGitScheduledTimeout?
+
+    init(continuation: CheckedContinuation<ReturnValue, Error>) {
+        self.continuation = continuation
+    }
+
+    func install(readTask: Task<Void, Never>, scheduledTimeout: AgentStudioGitScheduledTimeout) {
+        lock.lock()
+        if didResume {
+            lock.unlock()
+            readTask.cancel()
+            scheduledTimeout.cancel()
+            return
+        }
+        self.readTask = readTask
+        self.scheduledTimeout = scheduledTimeout
+        lock.unlock()
+    }
+
+    func succeed(_ value: ReturnValue) {
+        resume(.success(value))
+    }
+
+    func fail(_ error: Error) {
+        resume(.failure(error))
+    }
+
+    private func resume(_ result: Result<ReturnValue, Error>) {
+        let workToCancel: (Task<Void, Never>?, AgentStudioGitScheduledTimeout?)
+        lock.lock()
+        guard !didResume else {
+            lock.unlock()
+            return
+        }
+        didResume = true
+        workToCancel = (readTask, scheduledTimeout)
+        readTask = nil
+        scheduledTimeout = nil
+        lock.unlock()
+
+        workToCancel.0?.cancel()
+        workToCancel.1?.cancel()
+        continuation.resume(with: result)
+    }
 }

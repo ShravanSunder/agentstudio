@@ -43,6 +43,41 @@ struct GitWorkingTreeStatus: Sendable, Equatable {
     }
 }
 
+enum GitWorkingTreeStatusUnavailableReason: String, Sendable, Equatable {
+    case providerReturnedNil = "provider_returned_nil"
+    case timeout
+    case cancelled
+    case sdkError = "sdk_error"
+}
+
+struct GitWorkingTreeStatusUnavailable: Sendable, Equatable {
+    let reason: GitWorkingTreeStatusUnavailableReason
+}
+
+enum GitWorkingTreeStatusResult: Sendable, Equatable {
+    case available(GitWorkingTreeStatus)
+    case unavailable(GitWorkingTreeStatusUnavailable)
+}
+
 protocol GitWorkingTreeStatusProvider: Sendable {
+    func statusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult
     func status(for rootPath: URL) async -> GitWorkingTreeStatus?
+}
+
+extension GitWorkingTreeStatusProvider {
+    func statusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult {
+        guard let status = await status(for: rootPath) else {
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
+        }
+        return .available(status)
+    }
+
+    func status(for rootPath: URL) async -> GitWorkingTreeStatus? {
+        switch await statusResult(for: rootPath) {
+        case .available(let status):
+            status
+        case .unavailable:
+            nil
+        }
+    }
 }

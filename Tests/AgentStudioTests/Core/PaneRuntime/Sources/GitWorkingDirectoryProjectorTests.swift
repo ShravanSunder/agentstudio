@@ -34,7 +34,7 @@ struct GitWorkingDirectoryProjectorTests {
             )
         )
 
-        let didReceiveSnapshot = await waitUntil {
+        let didReceiveSnapshot = await waitUntil(maxTurns: 2_000_000) {
             await observed.snapshotCount(for: worktreeId) >= 1
         }
         #expect(didReceiveSnapshot)

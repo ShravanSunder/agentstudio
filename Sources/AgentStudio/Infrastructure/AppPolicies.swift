@@ -17,7 +17,7 @@ enum AppPolicies {
 
     enum GitRefresh {
         static let defaultPolicy = Policy()
-        static let defaultSDKReadTimeout: Duration = .seconds(2)
+        static let defaultSDKReadTimeout: Duration = .seconds(1)
 
         struct Policy: Equatable, Sendable {
             let activeCadence: Duration

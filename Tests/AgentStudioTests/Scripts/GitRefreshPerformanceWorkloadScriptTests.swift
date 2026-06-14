@@ -17,6 +17,8 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("METRICS_QUERY_URL="))
         #expect(source.contains("Set >=255 when this script is used to cover"))
         #expect(source.contains("AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR"))
+        #expect(source.contains("AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD"))
+        #expect(source.contains("Default: 0 so sampling cannot perturb"))
         #expect(source.contains("AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF"))
         #expect(source.contains("standard proof requires Victoria"))
         #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_STATE_FILE"))
@@ -60,6 +62,10 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("--data-urlencode \"start=$QUERY_START\""))
         #expect(source.contains("jsonl_proof_enabled && current_trace_jsonl_has_event \"$event_name\""))
         #expect(source.contains("jsonl_proof_enabled && current_trace_jsonl_has_command_bar_filter"))
+        #expect(source.contains("SAMPLE_DURING_WORKLOAD=\"${AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD:-0}\""))
+        #expect(source.contains("sample_during_workload=$SAMPLE_DURING_WORKLOAD"))
+        #expect(source.contains("[ \"$SAMPLE_DURING_WORKLOAD\" = \"1\" ]"))
+        #expect(source.contains("sample skipped during measured workload"))
         #expect(source.contains("performance.coordinator.write \\"))
         #expect(
             source.contains(
