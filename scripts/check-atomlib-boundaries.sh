@@ -20,6 +20,11 @@ cleanup_temp_dir() {
 }
 trap cleanup_temp_dir EXIT
 
+if ! command -v rg >/dev/null 2>&1; then
+  echo "AtomLib boundary check requires ripgrep (rg)." >&2
+  exit 2
+fi
+
 usage() {
   cat <<'USAGE'
 Usage: check-atomlib-boundaries.sh [--scan-path <path>] [--no-inventory] [--expect-fixture-failures]

@@ -23,6 +23,7 @@ struct AtomLibBoundaryScriptTests {
         #expect(source.contains("AGENTSTUDIO_ATOMLIB_BOUNDARY_PROJECT_ROOT"))
         #expect(source.contains("DerivedValue[<(]"))
         #expect(source.contains("mktemp"))
+        #expect(source.contains("command -v rg"))
         #expect(!source.contains("/tmp/atomlib-boundary-"))
     }
 
