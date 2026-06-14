@@ -35,21 +35,23 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.build.config",
         "agentstudio.release_channel",
         "agentstudio.runtime_flavor",
-        "agentstudio.trace.name",
+        "agent.proof.launch",
+        "agent.proof.marker",
         "dev.build.config",
+        "dev.branch.name",
         "dev.release.channel",
+        "dev.repo.hash",
         "dev.runtime.flavor",
+        "dev.worktree.hash",
         "service.name",
         "service.version",
     ]
 
-    private static let allowedSafeResourceKeys: Set<String> = allowedResourceKeys.union([
-        "dev.repo.hash",
-        "dev.worktree.hash",
-        "git.branch",
-    ])
+    private static let allowedSafeResourceKeys: Set<String> = allowedResourceKeys
 
     private static let allowedStringAttributeKeys: Set<String> = [
+        "agent.proof.marker",
+        "agent.proof.launch",
         "agentstudio.app.startup.outcome",
         "agentstudio.app.startup.phase",
         "agentstudio.command.source",
@@ -58,6 +60,8 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.eventbus.name",
         "agentstudio.pane.kind",
         "agentstudio.performance.coordinator.phase",
+        "agentstudio.performance.atom.kind",
+        "agentstudio.performance.atom.operation",
         "agentstudio.performance.management_layer.command",
         "agentstudio.performance.pane_action.name",
         "agentstudio.performance.sidebar.toggle.intent",
@@ -78,7 +82,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.workspace.boot.step",
         "agentstudio.zmx.startup.inventory_outcome",
         "dev.runtime.flavor",
-        "git.branch",
+        "dev.branch.name",
     ]
 
     private static let allowedNumericAttributeKeys: Set<String> = [
@@ -86,8 +90,64 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.envelope.schema_version",
         "agentstudio.envelope.seq",
         "agentstudio.ghostty.status",
+        "agentstudio.performance.atom.accepted_change.count",
+        "agentstudio.performance.atom.cached_key.count",
+        "agentstudio.performance.atom.input_revision.count",
+        "agentstudio.performance.atom.slot.count",
+        "agentstudio.performance.commandbar.input.count",
+        "agentstudio.performance.commandbar.item.count",
+        "agentstudio.performance.commandbar.pane.count",
+        "agentstudio.performance.commandbar.query_character.count",
+        "agentstudio.performance.commandbar.repo.count",
+        "agentstudio.performance.commandbar.result.count",
+        "agentstudio.performance.commandbar.worktree.count",
+        "agentstudio.performance.coordinator.active_pane_write.count",
+        "agentstudio.performance.coordinator.activity_write.count",
+        "agentstudio.performance.coordinator.derived_envelope.count",
+        "agentstudio.performance.coordinator.filesystem_source_elapsed_ms",
+        "agentstudio.performance.coordinator.index_elapsed_ms",
+        "agentstudio.performance.coordinator.mainactor_apply_elapsed_ms",
+        "agentstudio.performance.coordinator.pane.count",
+        "agentstudio.performance.coordinator.registered.count",
+        "agentstudio.performance.coordinator.total_elapsed_ms",
+        "agentstudio.performance.coordinator.unregistered.count",
+        "agentstudio.performance.coordinator.worktree.count",
+        "agentstudio.performance.elapsed_ms",
+        "agentstudio.performance.git.admitted.count",
+        "agentstudio.performance.git.available_slot.count",
+        "agentstudio.performance.git.dropped_subscriber.count",
+        "agentstudio.performance.git.enqueued.count",
+        "agentstudio.performance.git.event_posted.count",
+        "agentstudio.performance.git.input_path.count",
+        "agentstudio.performance.git.pending.count",
+        "agentstudio.performance.git.registered.count",
+        "agentstudio.performance.git.running.count",
+        "agentstudio.performance.git.snapshot_dedup.count",
+        "agentstudio.performance.git.status.duration_ms",
+        "agentstudio.performance.git.status.elapsed_ms",
+        "agentstudio.performance.git.suppressed_git_internal_path.count",
+        "agentstudio.performance.git.suppressed_ignored_path.count",
+        "agentstudio.performance.git.tick.count",
+        "agentstudio.performance.management_layer.pane.count",
+        "agentstudio.performance.management_layer.tab.count",
+        "agentstudio.performance.pane_action.pane.count",
+        "agentstudio.performance.pane_action.tab.count",
+        "agentstudio.performance.pane_tab_layout.pane.count",
+        "agentstudio.performance.pane_tab_layout.subview.count",
+        "agentstudio.performance.pane_tab_layout.tab.count",
+        "agentstudio.performance.pane_view_restore.pane.count",
+        "agentstudio.performance.pane_view_restore.tab.count",
+        "agentstudio.performance.pane_view_restore.visible_pane.count",
+        "agentstudio.performance.sidebar.expanded_group.count",
+        "agentstudio.performance.sidebar.group.count",
+        "agentstudio.performance.sidebar.loading_repo.count",
+        "agentstudio.performance.sidebar.query_character.count",
+        "agentstudio.performance.sidebar.repo.count",
         "agentstudio.performance.sidebar.split_width",
         "agentstudio.performance.sidebar.width",
+        "agentstudio.performance.tabbar.pane.count",
+        "agentstudio.performance.tabbar.source_tab.count",
+        "agentstudio.performance.tabbar.tab.count",
         "agentstudio.performance.terminal.geometry.visible_terminal.count",
         "agentstudio.performance.terminal.surface.cell_height_px",
         "agentstudio.performance.terminal.surface.cell_width_px",
@@ -97,28 +157,46 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.surface.requested_height_px",
         "agentstudio.performance.terminal.surface.requested_width_px",
         "agentstudio.performance.terminal.surface.row.count",
+        "agentstudio.performance.topology.index.count",
+        "agentstudio.workspace.snapshot.pane_count",
+        "agentstudio.zmx.startup.hydrated_anchor_count",
+        "agentstudio.zmx.startup.live_session_count",
+        "agentstudio.zmx.startup.protected_session_count",
+        "agentstudio.zmx.startup.unmatched_live_session_count",
+        "agentstudio.zmx.startup.unresolved_candidate_count",
         "agentstudio.zmx.socket_path_headroom",
     ]
 
     private static let allowedBooleanAttributeKeys: Set<String> = [
         "agentstudio.app.is_active",
+        "agentstudio.performance.atom.cache_hit",
+        "agentstudio.performance.git.has_git_internal_changes",
+        "agentstudio.performance.management_layer.did_exit",
+        "agentstudio.performance.management_layer.is_active",
+        "agentstudio.performance.pane_view_restore.force_when_bounds_exist",
+        "agentstudio.performance.pane_view_restore.had_placeholder",
         "agentstudio.performance.sidebar.is_collapsed",
+        "agentstudio.performance.sidebar.is_filtering",
+        "agentstudio.performance.sidebar.was_empty",
         "agentstudio.performance.sidebar.was_collapsed",
         "agentstudio.performance.terminal.surface.dedup_likely",
         "agentstudio.performance.terminal.surface.hidden",
         "agentstudio.performance.terminal.surface.has_superview",
         "agentstudio.performance.terminal.surface.has_window",
+        "agentstudio.performance.topology.has_match",
+        "agentstudio.workspace.snapshot.has_tab_membership_mismatch",
     ]
 
     private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
         "agentstudio.release_channel",
         "agentstudio.runtime_flavor",
-        "agentstudio.trace.name",
+        "agent.proof.launch",
+        "agent.proof.marker",
         "dev.release.channel",
         "dev.repo.hash",
         "dev.runtime.flavor",
         "dev.worktree.hash",
-        "git.branch",
+        "dev.branch.name",
         "service.version",
     ]
 
@@ -182,19 +260,10 @@ enum AgentStudioOTLPTraceProjection {
 
     private static func isAllowedNumericKey(_ key: String) -> Bool {
         allowedNumericAttributeKeys.contains(key)
-            || key.hasSuffix(".count")
-            || key.hasSuffix("_count")
-            || key.hasSuffix(".duration_ms")
-            || key.hasSuffix("_duration_ms")
-            || key.hasSuffix(".elapsed_ms")
-            || key.hasSuffix("_elapsed_ms")
     }
 
     private static func isAllowedBooleanKey(_ key: String) -> Bool {
         allowedBooleanAttributeKeys.contains(key)
-            || key.contains(".has_")
-            || key.hasSuffix(".accepted")
-            || key.hasSuffix("_accepted")
     }
 
     private static func isIdentifierKey(_ key: String) -> Bool {

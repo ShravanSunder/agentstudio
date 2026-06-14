@@ -859,7 +859,7 @@ extension CommandBarDataSource {
             let repoName = pane.metadata.repoName ?? repo.name
             let branchName = atom(\.paneDisplay).resolvedBranchName(
                 worktree: worktree,
-                enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+                enrichment: repoCache.worktreeEnrichment(for: worktree.id)
             )
             let worktreeFolderName = worktree.path.lastPathComponent
             return PaneDisplayParts(

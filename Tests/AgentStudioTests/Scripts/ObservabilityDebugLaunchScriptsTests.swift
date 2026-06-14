@@ -32,6 +32,19 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(script.contains("swift build --build-path \"$build_path\""))
     }
 
+    @Test("debug launcher uses ai-tools observability stack contract")
+    func debugLauncherUsesAiToolsObservabilityStackContract() throws {
+        let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
+
+        #expect(script.contains("AI_TOOLS_OBSERVABILITY_STACK_HELPER"))
+        #expect(script.contains("AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL"))
+        #expect(script.contains("AGENTSTUDIO_TRACE_PROOF_TOKEN"))
+        #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN"))
+        #expect(script.contains("$HOME/dev/ai-tools/observability/observability-stack"))
+        #expect(!script.contains("SHRAVAN_OBSERVABILITY"))
+        #expect(!script.contains("$HOME/dev/devfiles/shared/observability/observability-stack"))
+    }
+
     @Test("debug launcher refuses same worktree debug app outside default artifact root")
     func debugLauncherRefusesSameWorktreeDebugRuntimeByBundleIdentifier() throws {
         let fixture = try LauncherScriptFixture()
@@ -492,6 +505,20 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(source.contains("running_debug_state_pid \"$state_file\" \"$debug_code\""))
     }
 
+    @Test("debug verifier queries trace marker as VictoriaLogs field")
+    func debugVerifierQueriesTraceMarkerAsVictoriaLogsField() throws {
+        let source = try String(contentsOfFile: "scripts/verify-debug-observability.sh", encoding: .utf8)
+
+        #expect(source.contains("stream_query=\"{service.name=\\\"AgentStudio\\\",dev.runtime.flavor=\\\"debug\\\"}\""))
+        #expect(source.contains("logsql_escape_exact_value()"))
+        #expect(source.contains("logsql_exact_filter()"))
+        #expect(source.contains("marker_query=\"$(logsql_exact_filter \"agent.proof.marker\" \"$MARKER\")\""))
+        #expect(source.contains("startup_event_query=\"$(logsql_exact_filter \"_msg\""))
+        #expect(source.contains("query=\"$stream_query $marker_query\""))
+        #expect(!source.contains("marker_query=\"agent.proof.marker:${MARKER}\""))
+        #expect(!source.contains("agentstudio.trace.name"))
+    }
+
     @Test("debug launcher fails closed when LaunchServices accepts app but PID never appears")
     func debugLauncherFailsClosedWhenLaunchServicesAcceptsAppButPidNeverAppears() throws {
         let fixture = try LauncherScriptFixture()
@@ -558,19 +585,20 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(!miseConfig.contains("\nbash scripts/inject-bundle-version.sh"))
         #expect(miseConfig.contains("/bin/bash scripts/inject-bundle-version.sh"))
         #expect(
-            !miseConfig.contains("run = \"bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\""))
+            !miseConfig.contains("run = \"bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\""))
+        #expect(!miseConfig.contains("$HOME/dev/devfiles/shared/observability/observability-stack"))
         #expect(
             miseConfig.contains(
-                "run = \"/bin/bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\" up\""))
+                "run = \"/bin/bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\" up\""))
         #expect(
             miseConfig.contains(
-                "run = \"/bin/bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\" status\""))
+                "run = \"/bin/bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\" status\""))
         #expect(
             miseConfig.contains(
-                "run = \"/bin/bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\" smoke\""))
+                "run = \"/bin/bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\" smoke\""))
         #expect(
             miseConfig.contains(
-                "run = \"/bin/bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\" down\""))
+                "run = \"/bin/bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\" down\""))
         #expect(!verifierScript.contains("\nbash \"$ROOT_DIR/scripts/inject-bundle-version.sh\""))
         #expect(verifierScript.contains("/bin/bash \"$ROOT_DIR/scripts/inject-bundle-version.sh\""))
     }

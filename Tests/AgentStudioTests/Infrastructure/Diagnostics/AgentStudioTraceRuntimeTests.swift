@@ -335,7 +335,7 @@ struct AgentStudioTraceRuntimeTests {
         #expect(resource["dev.repo.name"] == nil)
         #expect(resource["dev.repo.hash"] == "repo-hash")
         #expect(resource["dev.worktree.hash"] == "worktree-hash")
-        #expect(resource["git.branch"] == "otel-integration")
+        #expect(resource["dev.branch.name"] == "otel-integration")
         #expect(resource["agentstudio.worktree.id"] == nil)
     }
 

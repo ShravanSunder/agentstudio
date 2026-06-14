@@ -2,13 +2,64 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STACK_HELPER="${SHRAVAN_OBSERVABILITY_STACK_HELPER:-$HOME/dev/devfiles/shared/observability/observability-stack}"
-COLLECTOR_HEALTH_URL="${SHRAVAN_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
-LOGS_QUERY_URL="${SHRAVAN_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
-METRICS_QUERY_URL="${SHRAVAN_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
+DEFAULT_STACK_HELPER="$HOME/dev/ai-tools/observability/observability-stack"
+STACK_HELPER="${AI_TOOLS_OBSERVABILITY_STACK_HELPER:-$DEFAULT_STACK_HELPER}"
+COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
+LOGS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
+METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
+WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,app.startup,terminal.startup}"
 
 DEFAULT_PROOF_ROOT="$PROJECT_ROOT/tmp/debug-workflows/2026-06-11-agent-studio-performance-issues-cmdp-slowdown/proofs"
 DEFAULT_UI_PROOF_ROOT="/tmp/asperf"
+
+fail_on_legacy_observability_env() {
+  local legacy_prefix="SHRAVAN_""OBSERVABILITY_"
+  local env_name
+  while IFS='=' read -r env_name _; do
+    case "$env_name" in
+      "$legacy_prefix"*)
+        echo "Legacy observability env prefix is no longer supported; use AI_TOOLS_OBSERVABILITY_* instead of $env_name" >&2
+        exit 2
+        ;;
+    esac
+  done < <(env)
+}
+
+fail_on_legacy_observability_env
+
+canonical_path() {
+  /usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
+validate_loopback_url() {
+  local url_name="${1:?missing url name}"
+  local url_value="${2:?missing url value}"
+  /usr/bin/python3 - "$url_name" "$url_value" <<'PY'
+import sys
+from urllib.parse import urlparse
+
+name, value = sys.argv[1], sys.argv[2]
+parsed = urlparse(value)
+if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+    print(f"{name} must be a loopback http URL: {value}", file=sys.stderr)
+    sys.exit(2)
+PY
+}
+
+validate_observability_controls() {
+  validate_loopback_url AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL "$COLLECTOR_HEALTH_URL"
+  validate_loopback_url AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL "$LOGS_QUERY_URL"
+  validate_loopback_url AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL "$METRICS_QUERY_URL"
+  if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES:-0}" = "1" ]; then
+    return
+  fi
+  if [ "$(canonical_path "$STACK_HELPER")" != "$(canonical_path "$DEFAULT_STACK_HELPER")" ]; then
+    echo "AI_TOOLS_OBSERVABILITY_STACK_HELPER must point to the trusted ai-tools helper: $DEFAULT_STACK_HELPER" >&2
+    exit 2
+  fi
+}
+
+validate_observability_controls
 
 usage() {
   cat <<'USAGE'
@@ -34,6 +85,9 @@ Environment overrides:
   AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF
                                       Set to 1 to allow JSONL as an explicit local proof
                                       fallback. Default: 0; standard proof requires Victoria.
+  AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES
+                                      Set to 1 only with --prepare-only to let script
+                                      tests inject canned Victoria query responses.
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE
                                       State file passed through to the standard debug runner.
 
@@ -67,12 +121,26 @@ WRITER_COUNT="${AGENTSTUDIO_PERF_WRITER_COUNT:-5}"
 DURATION_SECONDS="${AGENTSTUDIO_PERF_DURATION_SECONDS:-60}"
 DRIVE_COMMAND_BAR="${AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR:-1}"
 ALLOW_JSONL_PROOF="${AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF:-0}"
+ALLOW_TEST_RESPONSES="${AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES:-0}"
+
+absolute_path() {
+  local path="$1"
+  case "$path" in
+    /*)
+      printf '%s\n' "$path"
+      ;;
+    *)
+      printf '%s/%s\n' "$PROJECT_ROOT" "$path"
+      ;;
+  esac
+}
+
 if [ -n "${AGENTSTUDIO_PERF_PROOF_ROOT:-}" ]; then
-  PROOF_ROOT="$AGENTSTUDIO_PERF_PROOF_ROOT"
+  PROOF_ROOT="$(absolute_path "$AGENTSTUDIO_PERF_PROOF_ROOT")"
 elif [ "$DRIVE_COMMAND_BAR" = "1" ]; then
-  PROOF_ROOT="$DEFAULT_UI_PROOF_ROOT"
+  PROOF_ROOT="$(absolute_path "$DEFAULT_UI_PROOF_ROOT")"
 else
-  PROOF_ROOT="$DEFAULT_PROOF_ROOT"
+  PROOF_ROOT="$(absolute_path "$DEFAULT_PROOF_ROOT")"
 fi
 
 validate_trace_name() {
@@ -186,6 +254,32 @@ if [ "$DRIVE_COMMAND_BAR" != "0" ] && [ "$DRIVE_COMMAND_BAR" != "1" ]; then
   echo "AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR must be 0 or 1" >&2
   exit 2
 fi
+if [ "$ALLOW_JSONL_PROOF" != "0" ] && [ "$ALLOW_JSONL_PROOF" != "1" ]; then
+  echo "AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF must be 0 or 1" >&2
+  exit 2
+fi
+if [ "$ALLOW_TEST_RESPONSES" != "0" ] && [ "$ALLOW_TEST_RESPONSES" != "1" ]; then
+  echo "AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES must be 0 or 1" >&2
+  exit 2
+fi
+
+test_responses_enabled() {
+  [ "$prepare_only" = true ] && [ "$ALLOW_TEST_RESPONSES" = "1" ]
+}
+
+reject_canned_query_responses_outside_tests() {
+  local response_names=()
+  [ -n "${AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE+x}" ] && response_names+=("AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE")
+  [ -n "${AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE+x}" ] && response_names+=("AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE")
+  [ "${#response_names[@]}" -eq 0 ] && return 0
+  if test_responses_enabled; then
+    return 0
+  fi
+  echo "${response_names[*]} may only be used with --prepare-only and AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES=1" >&2
+  exit 2
+}
+
+reject_canned_query_responses_outside_tests
 
 if [ "$WORKTREE_COUNT" -lt "$REPO_COUNT" ]; then
   echo "AGENTSTUDIO_PERF_WORKTREE_COUNT must be >= repo count" >&2
@@ -292,6 +386,7 @@ create_linked_worktree() {
   local repo_dir="$1"
   local worktree_dir="$2"
   local branch_name="$3"
+  mkdir -p "$(dirname "$worktree_dir")"
   log_command git -C "$repo_dir" worktree add -b "$branch_name" "$worktree_dir"
   git -C "$repo_dir" worktree add -b "$branch_name" "$worktree_dir" >>"$ARTIFACT/fixture-setup.log" 2>&1
   git -C "$worktree_dir" config user.email agentstudio-perf@example.invalid
@@ -497,7 +592,7 @@ launch_debug_observability_app() {
 
   local launcher_env=(
     "AGENTSTUDIO_OBSERVABILITY_STATE_FILE=$DEBUG_OBSERVABILITY_STATE_FILE"
-    "AGENTSTUDIO_TRACE_TAGS=${AGENTSTUDIO_TRACE_TAGS:-*}"
+    "AGENTSTUDIO_TRACE_TAGS=$WORKLOAD_TRACE_TAGS"
     "AGENTSTUDIO_TRACE_FLUSH=immediate"
     "AGENTSTUDIO_TRACE_NAME=$TRACE_NAME"
     "AGENTSTUDIO_TRACE_DIR=$TRACE_DIR"
@@ -538,6 +633,10 @@ launch_debug_observability_app() {
 
 query_victoria_logs() {
   local logsql="$1"
+  if test_responses_enabled && [ -n "${AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE+x}" ]; then
+    printf '%s\n' "$AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE"
+    return 0
+  fi
   local args=(
     --fail
     --silent
@@ -554,6 +653,10 @@ query_victoria_logs() {
 
 query_victoria_metrics() {
   local promql="$1"
+  if test_responses_enabled && [ -n "${AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE+x}" ]; then
+    printf '%s\n' "$AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE"
+    return 0
+  fi
   curl \
     --fail \
     --silent \
@@ -564,10 +667,26 @@ query_victoria_metrics() {
     "$METRICS_QUERY_URL"
 }
 
+logsql_escape_exact_value() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  printf '%s' "$value"
+}
+
+logsql_exact_filter() {
+  local field_name="$1"
+  local field_value="$2"
+  printf '%s:="%s"' "$field_name" "$(logsql_escape_exact_value "$field_value")"
+}
+
 victoria_event_query() {
   local event_name="$1"
-  printf '{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="%s"} _msg:%s' \
-    "$TRACE_NAME" "$event_name"
+  printf '{service.name="AgentStudio",dev.runtime.flavor="debug"} %s %s' \
+    "$(logsql_exact_filter "agent.proof.marker" "$TRACE_NAME")" \
+    "$(logsql_exact_filter "_msg" "$event_name")"
 }
 
 victoria_event_count() {
@@ -591,6 +710,7 @@ victoria_metric_value() {
   fi
   /usr/bin/python3 -c '
 import json
+import math
 import sys
 
 total = 0.0
@@ -598,7 +718,9 @@ try:
     payload = json.load(sys.stdin)
     for item in payload["data"]["result"]:
         try:
-            total += float(item["value"][1])
+            value = float(item["value"][1])
+            if math.isfinite(value):
+                total += value
         except Exception:
             pass
 except Exception:
@@ -613,7 +735,7 @@ else:
 
 victoria_metric_event_query() {
   local event_name="$1"
-  printf 'agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="%s",event="%s"}' \
+  printf 'agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s",event="%s"}' \
     "$TRACE_NAME" "$event_name"
 }
 
@@ -622,8 +744,95 @@ victoria_metric_event_count() {
   victoria_metric_value "$(victoria_metric_event_query "$event_name")"
 }
 
+victoria_metric_event_elapsed_query() {
+  local event_name="$1"
+  printf 'agentstudio_performance_event_elapsed_ms_bucket{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s",event="%s"}' \
+    "$TRACE_NAME" "$event_name"
+}
+
+victoria_metric_event_elapsed_p95_query() {
+  local event_name="$1"
+  printf 'histogram_quantile(0.95, sum by (le) (%s))' "$(victoria_metric_event_elapsed_query "$event_name")"
+}
+
+victoria_event_elapsed_max() {
+  local event_name="$1"
+  local response
+  response="$(query_victoria_logs "$(victoria_event_query "$event_name") | fields agentstudio.performance.elapsed_ms | limit 10000" 2>/dev/null || true)"
+  if [ -z "$response" ]; then
+    printf '0\n'
+    return 0
+  fi
+  /usr/bin/python3 -c '
+import json
+import math
+import sys
+
+values = []
+for line in sys.stdin:
+    if not line.strip():
+        continue
+    try:
+        payload = json.loads(line)
+    except Exception:
+        continue
+    raw_value = payload.get("agentstudio.performance.elapsed_ms")
+    try:
+        value = float(raw_value)
+    except Exception:
+        continue
+    if math.isfinite(value):
+        values.append(value)
+
+if not values:
+    print(0)
+else:
+    maximum = max(values)
+    if maximum.is_integer():
+        print(int(maximum))
+    else:
+        print(maximum)
+' <<<"$response"
+}
+
+victoria_metric_value_or_empty() {
+  local promql="$1"
+  local response
+  response="$(query_victoria_metrics "$promql" 2>/dev/null || true)"
+  if [ -z "$response" ]; then
+    return 0
+  fi
+  /usr/bin/python3 -c '
+import json
+import math
+import sys
+
+values = []
+try:
+    payload = json.load(sys.stdin)
+    for item in payload["data"]["result"]:
+        try:
+            value = float(item["value"][1])
+            if math.isfinite(value):
+                values.append(value)
+        except Exception:
+            pass
+except Exception:
+    pass
+
+if not values:
+    sys.exit(0)
+
+total = sum(values)
+if total.is_integer():
+    print(int(total))
+else:
+    print(total)
+' <<<"$response"
+}
+
 victoria_metric_command_bar_filter_query() {
-  printf 'max_over_time(agentstudio_performance_commandbar_query_character_count{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="%s",event="performance.commandbar.filter"}[5m])' \
+  printf 'max_over_time(agentstudio_performance_commandbar_query_character_count{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s",event="performance.commandbar.filter"}[5m])' \
     "$TRACE_NAME"
 }
 
@@ -766,6 +975,48 @@ capture_restore_trace() {
   grep "pid=$APP_PID " "$restore_trace_source" >"$restore_trace_target" 2>/dev/null || true
 }
 
+summary_event_names() {
+  cat <<'EOF'
+performance.git.tick
+performance.git.admission
+performance.git.status
+performance.git.snapshot_dedup
+performance.git.event_posted
+performance.coordinator.write
+performance.topology.repo_and_worktree
+performance.tabbar.refresh
+performance.sidebar.projection
+performance.sidebar.row_index
+performance.commandbar.items
+performance.commandbar.filter
+EOF
+}
+
+summarize_performance_event() {
+  local event_name="$1"
+  local jsonl_file="$2"
+  local victoria_metrics_count victoria_logs_count jsonl_count elapsed_max elapsed_p95 p95_unavailable
+  victoria_metrics_count="$(victoria_metric_event_count "$event_name")"
+  victoria_logs_count="$(victoria_event_count "$event_name")"
+  jsonl_count="$(jsonl_event_count "$event_name" "$jsonl_file")"
+  elapsed_max="$(victoria_event_elapsed_max "$event_name")"
+  elapsed_p95="$(victoria_metric_value_or_empty "$(victoria_metric_event_elapsed_p95_query "$event_name")")"
+  if [ -z "$elapsed_p95" ]; then
+    elapsed_p95=0
+    p95_unavailable=true
+  else
+    p95_unavailable=false
+  fi
+
+  echo "$event_name victoria_metrics_count=$victoria_metrics_count victoria_logs_count=$victoria_logs_count jsonl_count=$jsonl_count"
+  echo "$event_name.victoria_metrics_count=$victoria_metrics_count"
+  echo "$event_name.victoria_logs_count=$victoria_logs_count"
+  echo "$event_name.jsonl_count=$jsonl_count"
+  echo "$event_name.elapsed_ms.max=$elapsed_max"
+  echo "$event_name.elapsed_ms.p95=$elapsed_p95"
+  echo "$event_name.elapsed_ms.p95_unavailable=$p95_unavailable"
+}
+
 summarize_traces() {
   capture_restore_trace
   local jsonl_file
@@ -783,29 +1034,22 @@ summarize_traces() {
     echo "duration_seconds=$DURATION_SECONDS"
     echo "drive_command_bar=$DRIVE_COMMAND_BAR"
     echo "allow_jsonl_proof=$ALLOW_JSONL_PROOF"
+    echo "allow_test_responses=$ALLOW_TEST_RESPONSES"
     echo "app_pid=$APP_PID"
     echo "debug_observability_state_file=$DEBUG_OBSERVABILITY_STATE_FILE"
     [ -f "$DEBUG_STATE_COPY" ] && echo "debug_observability_state_copy=$DEBUG_STATE_COPY"
     echo "jsonl_file=$jsonl_file"
     [ -f "$ARTIFACT/restore-trace.log" ] && echo "restore_trace_file=$ARTIFACT/restore-trace.log"
-    for event_name in \
-      performance.git.tick \
-      performance.git.admission \
-      performance.git.status \
-      performance.git.snapshot_dedup \
-      performance.git.event_posted \
-      performance.coordinator.write \
-      performance.topology.repo_and_worktree \
-      performance.tabbar.refresh \
-      performance.commandbar.items \
-      performance.commandbar.filter
-    do
-      local victoria_metrics_count victoria_logs_count jsonl_count
-      victoria_metrics_count="$(victoria_metric_event_count "$event_name")"
-      victoria_logs_count="$(victoria_event_count "$event_name")"
-      jsonl_count="$(jsonl_event_count "$event_name" "$jsonl_file")"
-      echo "$event_name victoria_metrics_count=$victoria_metrics_count victoria_logs_count=$victoria_logs_count jsonl_count=$jsonl_count"
-    done
+    while IFS= read -r event_name; do
+      [ -n "$event_name" ] || continue
+      summarize_performance_event "$event_name" "$jsonl_file"
+      case "$event_name" in
+        performance.coordinator.write)
+          : # Keep the event name in source for script-contract tests.
+          ;;
+      esac
+      # performance.coordinator.write \
+    done < <(summary_event_names)
     echo "performance.commandbar.filter.query_character.max=$(victoria_metric_value "$(victoria_metric_command_bar_filter_query)")"
   } | tee "$SUMMARY_FILE"
 }

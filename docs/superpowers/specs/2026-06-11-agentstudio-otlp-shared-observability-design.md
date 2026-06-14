@@ -47,9 +47,10 @@ AgentStudio does not permanently own:
 - shared host service names beyond the producer endpoint contract
 - shared Victoria smoke/e2e tests
 
-The shared observability host should live in `devfiles` or another shared local
-tooling package. If any compose/config assets temporarily land in this repo, they
-must be marked temporary, generic, and external to AgentStudio product runtime.
+The shared observability host should live in `~/dev/ai-tools/observability`,
+outside the AgentStudio product runtime. If any compose/config assets
+temporarily land in this repo, they must be marked temporary, generic, and
+external to AgentStudio product runtime.
 
 ## Current State
 
@@ -74,26 +75,26 @@ to look like OpenTelemetry.
 ## External Shared Observability Host Contract
 
 The shared host is the local machine service plane. It is owned outside
-AgentStudio product runtime. The likely long-term home is `devfiles` or another
-small shared local-observability package. This AgentStudio repo may carry a
-thin pointer in `AGENTS.md` plus temporary developer instructions, but the stack
-itself should not be conceptually owned by AgentStudio.
+AgentStudio product runtime by `~/dev/ai-tools/observability`. This AgentStudio
+repo may carry a thin pointer in `AGENTS.md` plus temporary developer
+instructions, but the stack itself should not be conceptually owned by
+AgentStudio.
 
 Recommended shared stack identity:
 
 ```text
 compose project
-  shravan-observability
+  ai-tools-observability
 
 services
-  obs-otel-collector
-  obs-victoria-metrics
-  obs-victoria-logs
-  obs-victoria-traces
-  obs-grafana                    optional
+  ai-tools-otel-collector
+  ai-tools-victoria-metrics
+  ai-tools-victoria-logs
+  ai-tools-victoria-traces
+  ai-tools-grafana               optional
 
 docker network
-  shravan-observability
+  ai-tools-observability
 
 default host bindings
   127.0.0.1:4317  -> collector OTLP gRPC
@@ -116,13 +117,13 @@ Durable storage should live under a shared machine-local root, not under a repo
 checkout and not under an app data directory:
 
 ```text
-~/.local/share/shravan-observability/metrics
-~/.local/share/shravan-observability/logs
-~/.local/share/shravan-observability/traces
+~/.local/share/ai-tools-observability/metrics
+~/.local/share/ai-tools-observability/logs
+~/.local/share/ai-tools-observability/traces
 ```
 
 The exact root should be overrideable with a single environment variable such as
-`SHRAVAN_OBSERVABILITY_DATA_DIR`. Generated collector config and compose files
+`AI_TOOLS_OBSERVABILITY_DATA_DIR`. Generated collector config and compose files
 may live under an ignored runtime/config directory, but durable Victoria data is
 not temporary runtime state.
 
@@ -138,9 +139,9 @@ OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 The collector owns routing to Victoria-specific endpoints:
 
 ```text
-metrics -> http://obs-victoria-metrics:8428/opentelemetry/v1/metrics
-logs    -> http://obs-victoria-logs:9428/insert/opentelemetry/v1/logs
-traces  -> http://obs-victoria-traces:10428/insert/opentelemetry/v1/traces
+metrics -> http://ai-tools-victoria-metrics:8428/opentelemetry/v1/metrics
+logs    -> http://ai-tools-victoria-logs:9428/insert/opentelemetry/v1/logs
+traces  -> http://ai-tools-victoria-traces:10428/insert/opentelemetry/v1/traces
 ```
 
 AgentStudio should not know Victoria backend paths. It should know only the
@@ -232,6 +233,9 @@ domain data that should remain explicit opt-in.
 
 `AGENTSTUDIO_TRACE_TAGS=off` disables tracing even in debug/beta. Explicit
 selectors such as `runtime,eventbus` or `terminal.*` override the baseline.
+Trace tags are the instrumentation selection boundary. New high-volume emitters
+must use `AgentStudioTraceTag` selectors such as `atoms`; do not add ad-hoc
+per-emitter environment variables such as `AGENTSTUDIO_TRACE_ATOM_METRICS`.
 
 ## Swift OTel Integration Boundary
 
@@ -305,8 +309,7 @@ workspace/repo context is known, the runtime should enrich new records with:
 ```text
 dev.repo.hash
 dev.worktree.hash
-git.branch
-git.commit
+dev.branch.name
 ```
 
 The implementation should use a runtime-owned enrichment provider updated after
@@ -317,7 +320,8 @@ state.
 worktree path must not be sent over OTLP by default. Branch name is allowed and
 useful for grouping. This accepts that local branch names may reveal local issue
 or project labels inside the loopback-only observability host. Commit is useful
-when cheap to discover.
+for local debugging but is not exported by default because it is not required by
+the current safe resource contract.
 
 High-cardinality values such as process id, session id, pane id, tab id, and
 request/correlation ids must not become VictoriaMetrics labels. They may appear
@@ -332,7 +336,7 @@ Good:
 
 ```text
 metric name: agentstudio.startup.duration
-labels/resource: service.name=agentstudio, git.branch=otel-integration
+labels/resource: service.name=agentstudio, dev.branch.name=otel-integration
 ```
 
 Avoid:
@@ -417,6 +421,11 @@ TerminalActivityRouter
 GhosttyActionRouter+Tracing
   OTLP: action name and controlled route outcome
   JSONL only: pane/surface ids and any freeform route reason
+
+AtomPerformanceTelemetry
+  tag: atoms
+  OTLP: controlled atom event names, kind/operation vocabulary, aggregate counts
+  JSONL only: future local forensic fields, if explicitly needed
 ```
 
 If a future investigation needs a local-only field in OTLP, the change must add
@@ -490,7 +499,7 @@ VictoriaLogs:
 Recommended stream fields:
 
 ```text
-service.name,dev.repo.hash,dev.worktree.hash,git.branch,dev.runtime.flavor
+service.name,dev.repo.hash,dev.worktree.hash,dev.branch.name,dev.runtime.flavor
 ```
 
 VictoriaMetrics:
@@ -509,7 +518,7 @@ service.name
 service.version
 dev.repo.hash
 dev.worktree.hash
-git.branch
+dev.branch.name
 dev.runtime.flavor
 dev.release.channel
 agentstudio.release_channel
@@ -554,17 +563,18 @@ AgentStudio should document how to use the shared stack, but should not own it.
 Recommended AGENTS.md guidance:
 
 ```text
-To collect OTLP locally, start the shared observability stack from devfiles:
+To collect OTLP locally, start the shared observability stack from ai-tools:
 
   mise run observability:up
   mise run observability:status
+  mise run observability:smoke
   mise run observability:down
 
 AgentStudio debug/beta builds emit to http://127.0.0.1:4318 when local OTLP is
 enabled/available. Stable release builds require explicit env opt-in.
 ```
 
-If the shared stack temporarily lives in this repo before promotion to devfiles,
+If the shared stack temporarily lives in this repo before promotion to ai-tools,
 the implementation plan must mark that as temporary and keep service names,
 compose project names, data directories, and labels generic.
 
@@ -576,7 +586,7 @@ AgentStudio trace call sites
   -> JSONL sink
   -> OTLP sink
   -> http://127.0.0.1:4318
-  -> obs-otel-collector
+  -> ai-tools-otel-collector
   -> collector processors
   -> VictoriaMetrics / VictoriaLogs / VictoriaTraces
 ```

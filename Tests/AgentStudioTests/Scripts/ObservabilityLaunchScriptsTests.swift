@@ -91,6 +91,7 @@ struct ObservabilityLaunchScriptsTests {
             #expect(script.contains("--stdout \"$launch_log\""))
             #expect(script.contains("--stderr \"$launch_log\""))
             #expect(script.contains("--env \"AGENTSTUDIO_TRACE_BACKEND=$trace_backend\""))
+            #expect(script.contains("--env \"AGENTSTUDIO_TRACE_PROOF_TOKEN=$trace_proof_token\""))
             #expect(script.contains("PGREP_BIN=\"${AGENTSTUDIO_PGREP_BIN:-/usr/bin/pgrep}\""))
             #expect(script.contains("LSOF_BIN=\"${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}\""))
             #expect(script.contains("\"$PGREP_BIN\" -x AgentStudio"))
@@ -144,6 +145,16 @@ struct ObservabilityLaunchScriptsTests {
 
         #expect(verifierScript.contains("CURL_BIN=\"${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}\""))
         #expect(verifierScript.contains("\"$CURL_BIN\" --fail --silent --show-error --max-time 5 --get"))
+        #expect(
+            verifierScript.contains(
+                "stream_query=\"{service.name=\\\"AgentStudio\\\",dev.release.channel=\\\"beta\\\"}\""))
+        #expect(verifierScript.contains("logsql_escape_exact_value()"))
+        #expect(verifierScript.contains("logsql_exact_filter()"))
+        #expect(verifierScript.contains("marker_query=\"$(logsql_exact_filter \"agent.proof.marker\" \"$MARKER\")\""))
+        #expect(verifierScript.contains("startup_event_query=\"$(logsql_exact_filter \"_msg\""))
+        #expect(verifierScript.contains("query=\"$stream_query $marker_query\""))
+        #expect(!verifierScript.contains("marker_query=\"agent.proof.marker:${MARKER}\""))
+        #expect(!verifierScript.contains("agentstudio.trace.name"))
         #expect(verifierScript.contains("AGENTSTUDIO_EXPECTED_BETA_APP"))
         #expect(verifierScript.contains("missing AGENTSTUDIO_EXPECTED_BETA_APP"))
         #expect(verifierScript.contains("AgentStudio beta observability app mismatch"))
@@ -256,7 +267,7 @@ struct ObservabilityLaunchScriptsTests {
                       printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
                       exit 0
                     fi
-                    if [[ "$*" == *":*"* ]]; then
+                    if [[ "$*" == *":* | limit 1"* ]]; then
                       exit 0
                     fi
                     printf '{"service.name":"AgentStudio","service.version":"0.0.54-beta.99","dev.release.channel":"beta","dev.runtime.flavor":"release","_msg":"app.process.start"}\\n'
@@ -384,7 +395,7 @@ struct ObservabilityLaunchScriptsTests {
                     "curl",
                     """
                     #!/bin/bash
-                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]] || [[ "$*" == *":*"* ]]; then
+                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]] || [[ "$*" == *":* | limit 1"* ]]; then
                       exit 0
                     fi
                     printf '{"service.name":"AgentStudio","service.version":"0.0.54-beta.99","dev.release.channel":"beta","dev.runtime.flavor":"release","_msg":"app.process.start"}\\n'
@@ -472,7 +483,7 @@ struct ObservabilityLaunchScriptsTests {
                       printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
                       exit 0
                     fi
-                    if [[ "$*" == *":*"* ]]; then
+                    if [[ "$*" == *":* | limit 1"* ]]; then
                       exit 0
                     fi
                     printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+abcd1234","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
@@ -522,7 +533,7 @@ struct ObservabilityLaunchScriptsTests {
                     "curl",
                     """
                     #!/bin/bash
-                    if [[ "$*" == *":*"* ]] || [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                    if [[ "$*" == *":* | limit 1"* ]] || [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
                       exit 0
                     fi
                     printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+abcd1234","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
@@ -574,7 +585,7 @@ struct ObservabilityLaunchScriptsTests {
                       printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"unavailable","agentstudio.zmx.startup.live_session_count":0,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":0,"agentstudio.zmx.startup.unresolved_candidate_count":1,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
                       exit 0
                     fi
-                    if [[ "$*" == *":*"* ]]; then
+                    if [[ "$*" == *":* | limit 1"* ]]; then
                       exit 0
                     fi
                     printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+abcd1234","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'

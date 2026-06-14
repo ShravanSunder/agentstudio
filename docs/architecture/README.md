@@ -58,6 +58,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 - **Surface independence** — Ghostty surfaces are ephemeral runtime resources; the model layer never holds `NSView` references
 - **@MainActor everywhere** — Thread safety enforced at compile time, no runtime races
 - **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
+- **Trace tags select instrumentation** — Observability emitters are gated by `AGENTSTUDIO_TRACE_TAGS`; backends are selected separately by `AGENTSTUDIO_TRACE_BACKEND` and loopback OTLP variables. Do not add one-off env vars for individual emitters. See [Observability And Traceability](observability_and_traceability.md).
 
 Current atom vocabulary:
 

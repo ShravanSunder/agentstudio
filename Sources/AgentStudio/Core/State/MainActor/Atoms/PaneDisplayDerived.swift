@@ -158,9 +158,14 @@ struct PaneDisplayDerived {
         let sidebarRepos = workspaceRepositoryTopology.repos.map(RepoPresentationItem.init(repo:))
         guard let sidebarRepo = sidebarRepos.first(where: { $0.id == repoId }) else { return nil }
 
+        let repoEnrichmentByRepoId = Dictionary(
+            uniqueKeysWithValues: sidebarRepos.compactMap { repo in
+                repoCache.repoEnrichment(for: repo.id).map { (repo.id, $0) }
+            }
+        )
         let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
             repos: sidebarRepos,
-            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+            repoEnrichmentByRepoId: repoEnrichmentByRepoId,
         )
         let resolvedGroups = RepoPresentationGrouping.buildGroups(
             repos: sidebarRepos,
@@ -254,7 +259,7 @@ struct PaneDisplayDerived {
                 worktreeIconName: worktree.isMainWorktree ? "octicon-star-fill" : "octicon-git-worktree",
                 branchName: resolvedBranchName(
                     worktree: worktree,
-                    enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+                    enrichment: repoCache.worktreeEnrichment(for: worktree.id)
                 )
             )
         }
@@ -273,14 +278,14 @@ struct PaneDisplayDerived {
                     ? "octicon-star-fill" : "octicon-git-worktree",
                 branchName: resolvedBranchName(
                     worktree: resolvedContext.worktree,
-                    enrichment: repoCache.worktreeEnrichmentByWorktreeId[resolvedContext.worktree.id]
+                    enrichment: repoCache.worktreeEnrichment(for: resolvedContext.worktree.id)
                 )
             )
         }
 
         if let repoName = pane.metadata.repoName, let worktreeName = pane.metadata.worktreeName {
             let branchName = explicitWorktreeId.flatMap { worktreeId in
-                let branch = repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch ?? ""
+                let branch = repoCache.worktreeEnrichment(for: worktreeId)?.branch ?? ""
                 return branch.isEmpty ? nil : branch
             }
             return WorkspaceContextParts(

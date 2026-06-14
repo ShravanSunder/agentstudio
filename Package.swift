@@ -77,6 +77,9 @@ let package = Package(
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
             ],
             path: "Tests/AgentStudioTests",
+            exclude: [
+                "Fixtures/AtomLibCompileFailures"
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
