@@ -92,6 +92,10 @@ enum AppPolicies {
         static let reconciliationTimeout: Duration = .seconds(3)
     }
 
+    enum StartupDiagnostic {
+        static let launchRestoreBoundsTimeout: Duration = .seconds(3)
+    }
+
     enum SelectablePopover {
         static let maxNumberedShortcuts: Int = 9
     }

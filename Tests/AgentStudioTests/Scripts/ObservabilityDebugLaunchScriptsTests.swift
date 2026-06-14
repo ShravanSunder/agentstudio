@@ -32,6 +32,51 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(script.contains("swift build --build-path \"$build_path\""))
     }
 
+    @Test("debug launcher rejects unsafe trace names before launch")
+    func debugLauncherRejectsUnsafeTraceNamesBeforeLaunch() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        let openMarker = fixture.url("open-called")
+        let buildPath = try fixture.makeDebugBuildExecutable(
+            """
+            #!/bin/bash
+            sleep 30
+            """
+        )
+
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
+            environment: [
+                "AGENTSTUDIO_TRACE_NAME": "../../bad",
+                "AGENTSTUDIO_OPEN_BIN": try fixture.executable(
+                    "open",
+                    """
+                    #!/bin/bash
+                    echo called > "\(openMarker.path)"
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_PGREP_BIN": try fixture.executable(
+                    "pgrep",
+                    """
+                    #!/bin/bash
+                    exit 1
+                    """
+                ).path,
+                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("invalid AGENTSTUDIO_TRACE_NAME"))
+        #expect(!FileManager.default.fileExists(atPath: openMarker.path))
+        let state = try String(contentsOf: stateFile, encoding: .utf8)
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=launch_failed"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_REASON=invalid_trace_name"))
+    }
+
     @Test("debug launcher refuses same worktree debug app outside default artifact root")
     func debugLauncherRefusesSameWorktreeDebugRuntimeByBundleIdentifier() throws {
         let fixture = try LauncherScriptFixture()
@@ -400,6 +445,7 @@ struct ObservabilityDebugLaunchScriptsTests {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
         let stateFile = fixture.url("latest.env")
+        let hostileDataRoot = fixture.url("hostile-data")
         let buildPath = try fixture.makeDebugBuildExecutable(
             """
             #!/bin/bash
@@ -412,6 +458,8 @@ struct ObservabilityDebugLaunchScriptsTests {
             printf "data=%s\\n" "$AGENTSTUDIO_DATA_DIR" > "\(fixture.url("launched-env").path)"
             printf "backend=%s\\n" "$AGENTSTUDIO_TRACE_BACKEND" >> "\(fixture.url("launched-env").path)"
             printf "marker=%s\\n" "$AGENTSTUDIO_TRACE_NAME" >> "\(fixture.url("launched-env").path)"
+            printf "restore_trace=%s\\n" "${AGENTSTUDIO_RESTORE_TRACE:-}" >> "\(fixture.url("launched-env").path)"
+            printf "diagnostic=%s\\n" "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" >> "\(fixture.url("launched-env").path)"
             sleep 30
             """
         )
@@ -449,6 +497,9 @@ struct ObservabilityDebugLaunchScriptsTests {
                     """
                 ).path,
                 "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
+                "AGENTSTUDIO_DEBUG_DATA_DIR": hostileDataRoot.path,
+                "AGENTSTUDIO_RESTORE_TRACE": "1",
+                "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "cross-tab-move-geometry-smoke",
                 "ZMX_DIR": "/tmp/hostile-zmx-dir",
                 "ZMX_SESSION": "hostile-session",
                 "ZMX_SESSION_PREFIX": "hostile-prefix",
@@ -469,18 +520,236 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE="))
         #expect(state.contains("AgentStudio\\ Debug\\ "))
+        #expect(state.contains("/runs/debug-observability-"))
         let buildExecutable = shellEscapedStateValue(buildPath.appending(path: "debug/AgentStudio").path)
         #expect(!state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=\(buildExecutable)"))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_DATA_DIR="))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR="))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
+        #expect(!state.contains(hostileDataRoot.path))
 
         try fixture.waitForFile(
-            fixture.url("launched-env"), containing: "marker=debug-observability-", timeoutSeconds: 5)
+            fixture.url("launched-env"), containing: "diagnostic=cross-tab-move-geometry-smoke", timeoutSeconds: 5)
         let launchedEnv = try String(contentsOf: fixture.url("launched-env"), encoding: .utf8)
         #expect(launchedEnv.contains("data=/"))
+        #expect(launchedEnv.contains("/runs/debug-observability-"))
         #expect(launchedEnv.contains("backend=otlp"))
         #expect(launchedEnv.contains("marker=debug-observability-"))
+        #expect(launchedEnv.contains("restore_trace=1"))
+        #expect(launchedEnv.contains("diagnostic=cross-tab-move-geometry-smoke"))
+        #expect(!launchedEnv.contains(hostileDataRoot.path))
         #expect(!FileManager.default.fileExists(atPath: fixture.url("leaked-env").path))
+    }
+
+    @Test("debug launcher forwards diagnostic env through LaunchServices")
+    func debugLauncherForwardsDiagnosticEnvironmentThroughLaunchServices() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        let openArgsURL = fixture.url("open-args")
+        let launchedAppURL = fixture.url("launched-app")
+        let buildPath = try fixture.makeDebugBuildExecutable(
+            """
+            #!/bin/bash
+            sleep 30
+            """
+        )
+
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
+            environment: [
+                "AGENTSTUDIO_OPEN_BIN": try fixture.executable(
+                    "open",
+                    """
+                    #!/bin/bash
+                    printf "%s\\n" "$@" > "\(openArgsURL.path)"
+                    for arg in "$@"; do
+                      case "$arg" in
+                        *.app)
+                          printf "%s\\n" "$arg" > "\(launchedAppURL.path)"
+                          ;;
+                      esac
+                    done
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_PGREP_BIN": try fixture.executable(
+                    "pgrep",
+                    """
+                    #!/bin/bash
+                    if [ -f "\(launchedAppURL.path)" ]; then
+                      echo 42424
+                      exit 0
+                    fi
+                    exit 1
+                    """
+                ).path,
+                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
+                    "lsof",
+                    """
+                    #!/bin/bash
+                    app_path="$(cat "\(launchedAppURL.path)")"
+                    printf "p42424\\nftxt\\nn%s/Contents/MacOS/AgentStudio\\n" "$app_path"
+                    """
+                ).path,
+                "AGENTSTUDIO_DITTO_BIN": try fixture.executable(
+                    "ditto",
+                    """
+                    #!/bin/bash
+                    cp -R "$1" "$2"
+                    """
+                ).path,
+                "AGENTSTUDIO_CODESIGN_BIN": try fixture.executable(
+                    "codesign",
+                    """
+                    #!/bin/bash
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
+                "AGENTSTUDIO_RESTORE_TRACE": "1",
+                "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "cross-tab-move-geometry-smoke",
+            ]
+        )
+
+        #expect(result.exitCode == 0)
+        let state = try String(contentsOf: stateFile, encoding: .utf8)
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=running"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=launchservices"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_PID=42424"))
+        #expect(state.contains("/runs/debug-observability-"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
+
+        let openArgs = try String(contentsOf: openArgsURL, encoding: .utf8)
+        #expect(openArgs.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
+        #expect(openArgs.contains("AGENTSTUDIO_RESTORE_TRACE=1"))
+        #expect(openArgs.contains("AGENTSTUDIO_DATA_DIR="))
+        #expect(openArgs.contains("/runs/debug-observability-"))
+    }
+
+    @Test("debug observability verifier requires requested startup diagnostic telemetry")
+    func debugObservabilityVerifierRequiresRequestedStartupDiagnosticTelemetry() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
+        AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
+        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke
+        AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(fixture.url("Agent Studio Debug testcode.app").path))
+        """.write(to: stateFile, atomically: true, encoding: .utf8)
+        let debugApp = try fixture.makeAppBundle(
+            name: "Agent Studio Debug testcode.app",
+            releaseChannel: "stable",
+            bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
+        )
+
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-debug-observability.sh",
+            stateFile: stateFile,
+            environment: [
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl-missing-startup-diagnostic",
+                    """
+                    #!/bin/bash
+                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *"app.startup_diagnostic_action."* ]]; then
+                      exit 0
+                    fi
+                    if [[ "$*" == *":*"* ]]; then
+                      exit 0
+                    fi
+                    printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+abcd1234","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
+                    "lsof",
+                    """
+                    #!/bin/bash
+                    echo "n\(debugApp.path)/Contents/MacOS/AgentStudio"
+                    """
+                ).path,
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("startup diagnostic command_exercised record missing"))
+    }
+
+    @Test("debug observability verifier accepts completed startup diagnostic render proof")
+    func debugObservabilityVerifierAcceptsCompletedStartupDiagnosticRenderProof() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
+        AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
+        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke
+        AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(fixture.url("Agent Studio Debug testcode.app").path))
+        """.write(to: stateFile, atomically: true, encoding: .utf8)
+        let debugApp = try fixture.makeAppBundle(
+            name: "Agent Studio Debug testcode.app",
+            releaseChannel: "stable",
+            bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
+        )
+        let curlArguments = fixture.url("curl-arguments")
+
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-debug-observability.sh",
+            stateFile: stateFile,
+            environment: [
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl",
+                    """
+                    #!/bin/bash
+                    printf '%s\\n' "$*" >> "\(curlArguments.path)"
+                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *"app.startup_diagnostic_action.command_exercised"* ]]; then
+                      printf '{"_msg":"app.startup_diagnostic_action.command_exercised","agentstudio.startup_diagnostic.action":"cross-tab-move-geometry-smoke","agentstudio.startup_diagnostic.expected_visible_pane.count":3,"agentstudio.startup_diagnostic.fixture.terminal_view.count":3,"agentstudio.startup_diagnostic.fixture.surface_reference.count":3,"agentstudio.startup_diagnostic.fixture.surface.count":3,"agentstudio.startup_diagnostic.fixture.valid_geometry.count":3,"agentstudio.startup_diagnostic.render_proof.succeeded":true}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *"app.startup_diagnostic_action.completed"* ]]; then
+                      printf '{"_msg":"app.startup_diagnostic_action.completed","agentstudio.startup_diagnostic.action":"cross-tab-move-geometry-smoke","agentstudio.startup_diagnostic.expected_visible_pane.count":3,"agentstudio.startup_diagnostic.fixture.terminal_view.count":3,"agentstudio.startup_diagnostic.fixture.surface_reference.count":3,"agentstudio.startup_diagnostic.fixture.surface.count":3,"agentstudio.startup_diagnostic.fixture.valid_geometry.count":3,"agentstudio.startup_diagnostic.render_proof.succeeded":true}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *":*"* ]]; then
+                      exit 0
+                    fi
+                    printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+abcd1234","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
+                    "lsof",
+                    """
+                    #!/bin/bash
+                    echo "n\(debugApp.path)/Contents/MacOS/AgentStudio"
+                    """
+                ).path,
+            ]
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        let curlArgumentText = try String(contentsOf: curlArguments, encoding: .utf8)
+        let expectedDiagnosticFilter =
+            "agentstudio.startup_diagnostic.action:=\"cross-tab-move-geometry-smoke\""
+        #expect(curlArgumentText.contains("app.startup_diagnostic_action.command_exercised"))
+        #expect(curlArgumentText.contains("app.startup_diagnostic_action.completed"))
+        #expect(curlArgumentText.contains(expectedDiagnosticFilter))
     }
 
     @Test("debug launcher exposes idle preflight command")

@@ -52,6 +52,7 @@ enum AgentStudioOTLPTraceProjection {
     private static let allowedStringAttributeKeys: Set<String> = [
         "agentstudio.app.startup.outcome",
         "agentstudio.app.startup.phase",
+        "agentstudio.command.name",
         "agentstudio.command.source",
         "agentstudio.envelope.scope",
         "agentstudio.eventbus.consumer",
@@ -72,6 +73,8 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.runtime.action_policy",
         "agentstudio.runtime.event",
         "agentstudio.sqlite.database",
+        "agentstudio.startup_diagnostic.action",
+        "agentstudio.startup_diagnostic.skip_reason",
         "agentstudio.terminal.startup.outcome",
         "agentstudio.terminal.startup.phase",
         "agentstudio.trace.tag",
@@ -97,6 +100,11 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.surface.requested_height_px",
         "agentstudio.performance.terminal.surface.requested_width_px",
         "agentstudio.performance.terminal.surface.row.count",
+        "agentstudio.startup_diagnostic.expected_visible_pane.count",
+        "agentstudio.startup_diagnostic.fixture.surface.count",
+        "agentstudio.startup_diagnostic.fixture.surface_reference.count",
+        "agentstudio.startup_diagnostic.fixture.terminal_view.count",
+        "agentstudio.startup_diagnostic.fixture.valid_geometry.count",
         "agentstudio.zmx.socket_path_headroom",
     ]
 
@@ -108,6 +116,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.surface.hidden",
         "agentstudio.performance.terminal.surface.has_superview",
         "agentstudio.performance.terminal.surface.has_window",
+        "agentstudio.startup_diagnostic.render_proof.succeeded",
     ]
 
     private static let resourceKeysProjectedAsLogAttributes: Set<String> = [

@@ -179,10 +179,19 @@ portable_utc_time() {
     date -u -d "$gnu_offset" +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+logsql_exact_value_filter() {
+  local field="${1:?missing LogSQL field}"
+  local value="${2:-}"
+  local escaped_value="${value//\\/\\\\}"
+  escaped_value="${escaped_value//\"/\\\"}"
+  printf '%s:="%s"' "$field" "$escaped_value"
+}
+
 QUERY_START="${AGENTSTUDIO_OBSERVABILITY_QUERY_START:-${state_query_start:-$(portable_utc_time -4H '4 hours ago')}}"
 QUERY_END="${AGENTSTUDIO_OBSERVABILITY_QUERY_END:-$(portable_utc_time +5M '5 minutes')}"
 
-query="{service.name=\"AgentStudio\",dev.release.channel=\"beta\",agentstudio.trace.name=\"${MARKER}\"}"
+marker_filter="$(logsql_exact_value_filter agentstudio.trace.name "$MARKER")"
+query="service.name:AgentStudio dev.release.channel:beta $marker_filter"
 
 query_logs() {
   local logsql="$1"

@@ -51,6 +51,54 @@ struct AgentStudioOTLPTraceProjectionTests {
     }
 
     @Test
+    func startupDiagnosticProjectionKeepsCommandAndRenderProofFields() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 150,
+            severityText: .info,
+            body: "app.startup_diagnostic_action.blocked",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "agentstudio.trace.name": "debug-observability-marker",
+                "service.name": "AgentStudio",
+            ],
+            scope: .init(name: "agentstudio.app.startup", version: "0.1.0"),
+            attributes: [
+                "agentstudio.app.startup.outcome": .string("blocked"),
+                "agentstudio.app.startup.phase": .string("startup_diagnostic_action"),
+                "agentstudio.command.name": .string("cross-tab-move-geometry-smoke"),
+                "agentstudio.command.source": .string("startup_diagnostic"),
+                "agentstudio.startup_diagnostic.action": .string("cross-tab-move-geometry-smoke"),
+                "agentstudio.startup_diagnostic.expected_visible_pane.count": .int(3),
+                "agentstudio.startup_diagnostic.fixture.surface.count": .int(0),
+                "agentstudio.startup_diagnostic.fixture.surface_reference.count": .int(1),
+                "agentstudio.startup_diagnostic.fixture.terminal_view.count": .int(3),
+                "agentstudio.startup_diagnostic.fixture.valid_geometry.count": .int(0),
+                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(false),
+                "agentstudio.startup_diagnostic.skip_reason": .string("missing_bounds"),
+                "agentstudio.trace.tag": .string("app.startup"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.body == "app.startup_diagnostic_action.blocked")
+        #expect(projection.attributes["agentstudio.command.name"] == .string("cross-tab-move-geometry-smoke"))
+        #expect(projection.attributes["agentstudio.command.source"] == .string("startup_diagnostic"))
+        #expect(
+            projection.attributes["agentstudio.startup_diagnostic.action"]
+                == .string("cross-tab-move-geometry-smoke"))
+        #expect(projection.attributes["agentstudio.startup_diagnostic.expected_visible_pane.count"] == .int(3))
+        #expect(projection.attributes["agentstudio.startup_diagnostic.fixture.surface.count"] == .int(0))
+        #expect(projection.attributes["agentstudio.startup_diagnostic.fixture.surface_reference.count"] == .int(1))
+        #expect(projection.attributes["agentstudio.startup_diagnostic.fixture.terminal_view.count"] == .int(3))
+        #expect(projection.attributes["agentstudio.startup_diagnostic.fixture.valid_geometry.count"] == .int(0))
+        #expect(projection.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
+        #expect(projection.attributes["agentstudio.startup_diagnostic.skip_reason"] == .string("missing_bounds"))
+    }
+
+    @Test
     func persistenceProjectionDropsPathsWorkspaceIDsAndRawErrors() {
         let workspaceID = UUID(uuidString: "F6ADCB1B-E191-4890-963E-37F4A694B065")!
         let record = AgentStudioTraceRecord(
