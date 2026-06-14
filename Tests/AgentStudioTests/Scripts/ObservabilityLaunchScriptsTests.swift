@@ -64,6 +64,8 @@ struct ObservabilityLaunchScriptsTests {
         #expect(testHelperScript.contains("swift_test_output_has_failures()"))
         #expect(testHelperScript.contains("emitted Swift Testing failure output despite exit 0"))
         #expect(testHelperScript.contains("recorded an issue"))
+        #expect(testHelperScript.contains("grep -Eq \"unexpected signal code [0-9]+\" <<<\"$output\""))
+        #expect(!testHelperScript.contains("echo \"$output\" | grep -Eq \"unexpected signal code [0-9]+\""))
         #expect(testHelperScript.contains("terminate_process_tree TERM \"$command_pid\""))
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))

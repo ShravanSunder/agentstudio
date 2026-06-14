@@ -119,6 +119,10 @@ Infrastructure/   ──imports──►  (nothing internal)
 
 **Never:** `Core/ → Features/`, `Features/X → Features/Y`, `Core/ → App/`, `SharedComponents/ → Core|Features|App`, `Infrastructure/ → anything above`
 
+This boundary is enforced in lint by `agentstudio_import_direction`. Keep new
+import-policy exceptions out of source files; change the architecture rule and
+this document together when the layering model changes.
+
 If a file needs to know about `SurfaceManager` (Terminal) **and** `BridgePaneController` (Bridge), it can't be in `Core`. It lives in `App/` (composition root) or uses protocols defined in `Core/`.
 
 ### Feature Slice Self-Containment
@@ -199,6 +203,10 @@ Core views (e.g., `DrawerOverlay`, `DrawerIconBar`) that need to display feature
 #### Rules
 
 **Stateless.** Shared components do not subscribe to atoms. They do not hold observable state. They accept input via `@Binding`, value parameters, and closures for actions. They render from those inputs and emit intentions via the closures.
+
+Lint rule `agentstudio_shared_components_are_stateless` enforces the hard part
+of this contract by rejecting `@Atom`, `@State`, `@StateObject`,
+`@ObservedObject`, and `@EnvironmentObject` in `SharedComponents/`.
 
 **Imports only from Infrastructure.** `SharedComponents/` can import `Infrastructure/`, SwiftUI, AppKit, Foundation, and stdlib. It must not import `Core/`, `Features/`, or `App/`.
 

@@ -46,8 +46,7 @@ struct EditorChooserMenuContent: View {
     let style: EditorChooserMenuStyle
     let onSelect: (EditorTargetId) -> Void
     let onToggleBookmark: (EditorTargetId) -> Void
-
-    @State private var hoveredRowId: EditorTargetId?
+    @Binding var hoveredRowId: EditorTargetId?
 
     nonisolated static func makeDisplayItems(
         items: [EditorChoiceItem],

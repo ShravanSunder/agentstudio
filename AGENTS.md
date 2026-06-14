@@ -12,7 +12,7 @@ mise run setup                # Init submodules, build vendored artifacts, copy 
 mise run build                # Build the Swift app
 mise run test                 # Run tests (Swift 6 `Testing`)
 mise run format               # Auto-format all Swift sources
-mise run lint                 # Lint (swift-format + swiftlint + boundary checks)
+mise run lint                 # Lint (swift-format + pinned AgentStudio SwiftLint)
 .build/debug/AgentStudio      # Launch debug build
 ```
 
@@ -20,7 +20,7 @@ First-time setup: `mise install && mise run doctor-mac && mise run setup && mise
 
 > **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If `mise run setup` surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
 
-Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
+Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint automatically after every Edit/Write on `.swift` files.
 
 ## Local Observability
 
@@ -238,6 +238,13 @@ AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound 
 
 `AtomRegistry` is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`. It may compose Core and Feature atoms. `Infrastructure/AtomLib` owns only generic atom primitives and access helpers (`atom(\...)`, `AtomScope`, `AtomReader`, `Derived`, `DerivedSelector`, `AtomValue`, `AtomEntityMap`, `DerivedValue`) and must not own product atoms or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomEntityMap.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
 
+Architecture boundaries are enforced by the pinned AgentStudio SwiftLint build
+configured in `scripts/agentstudio-architecture-swiftlint.env` and run by
+`scripts/run-agentstudio-architecture-swiftlint.sh`. The custom rule source
+lives outside this app repo in `~/dev/ai-tools/swiftlint/agentstudio-architecture-rules`.
+Do not reintroduce repo-local shell/`rg` architecture lint scripts for rules
+that can be expressed with SwiftSyntax.
+
 ### Folder Arcs
 
 Use these broad ownership rules first, then consult [Directory Structure](docs/architecture/directory_structure.md) for exact placement:
@@ -373,6 +380,7 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Observability And Traceability](docs/architecture/observability_and_traceability.md) | Trace tags, debug/beta OTLP proof, source-side projection, Victoria proof rules |
 | [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), execution-owner decision tree (`AppDelegate` shell vs `PaneTabViewController` pane/drawer), contexts, alternateTriggers, and where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
+| [Architecture Lint Inventory](docs/architecture/architecture_lint_inventory.md) | SwiftLint rule IDs, former shell-script coverage, and blocking/report-only/test/review classifications |
 | [Swift-React Bridge](docs/architecture/swift_react_bridge_design.md) | Bridge architecture, content-delivery status, JSON-RPC/push contracts, read-only CodeView/Shiki review surface, and LUNA-337 completion boundary |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
 | [Agent Resources](docs/guides/agent_resources.md) | Bootstrap, official Swift/macOS docs, DeepWiki sources, and research guidance |

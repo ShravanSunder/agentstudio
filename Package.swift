@@ -85,7 +85,8 @@ let package = Package(
             ],
             path: "Tests/AgentStudioTests",
             exclude: [
-                "Fixtures/AtomLibCompileFailures"
+                "Fixtures/AtomLibCompileFailures",
+                "Fixtures/SwiftLintLegacyCustomRules",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
