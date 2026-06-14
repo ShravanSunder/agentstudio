@@ -192,11 +192,13 @@ if [ "$custom_scan_paths" -eq 0 ]; then
 fi
 
 scan_failed=0
-for scan_path in "${scan_paths[@]}"; do
-  if ! scan_path_for_violations "$scan_path"; then
-    scan_failed=1
-  fi
-done
+if [ "${#scan_paths[@]}" -gt 0 ]; then
+  for scan_path in "${scan_paths[@]}"; do
+    if ! scan_path_for_violations "$scan_path"; then
+      scan_failed=1
+    fi
+  done
+fi
 
 if ! check_production_repo_cache_dictionary_reads; then
   scan_failed=1

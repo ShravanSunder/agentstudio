@@ -363,7 +363,7 @@ struct ObservabilityLaunchScriptsTests {
         AGENTSTUDIO_OBSERVABILITY_STATUS=running
         AGENTSTUDIO_OBSERVABILITY_MARKER=beta-marker
         AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
-        AGENTSTUDIO_OBSERVABILITY_PID=999999
+        AGENTSTUDIO_OBSERVABILITY_PID=999999999
         AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(betaAppPath))
         """
         .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
@@ -648,7 +648,7 @@ struct ObservabilityLaunchScriptsTests {
         AGENTSTUDIO_OBSERVABILITY_STATUS=running
         AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
         AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
-        AGENTSTUDIO_OBSERVABILITY_PID=999999
+        AGENTSTUDIO_OBSERVABILITY_PID=999999999
         AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
         AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(fixture.url("Agent Studio Debug testcode.app").path))
         """
