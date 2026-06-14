@@ -16,6 +16,7 @@ import {
 } from '../foundation/review-package/bridge-review-item-registry.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import {
+	BridgeReviewEmptyShell,
 	loadSelectedReviewItemContent,
 	ReviewViewerShell,
 } from '../review-viewer/shell/review-viewer-shell.js';
@@ -79,7 +80,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 
 	return (
 		<div data-testid="bridge-app-root">
-			{reviewPackage === null ? null : (
+			{reviewPackage === null ? (
+				<BridgeReviewEmptyShell />
+			) : (
 				<ReviewViewerShell
 					onSelectItem={(itemId: string): void => {
 						setSelectedItemId(itemId);

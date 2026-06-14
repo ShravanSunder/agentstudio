@@ -30,6 +30,21 @@ export interface LoadSelectedReviewItemContentProps {
 	readonly fetchContent?: BridgeContentFetch;
 }
 
+export function BridgeReviewEmptyShell(): ReactElement {
+	return (
+		<main data-testid="bridge-review-empty-shell">
+			<section aria-label="Review summary">
+				<p>Bridge Review</p>
+				<p>Waiting for review package</p>
+			</section>
+			<nav aria-label="Changed files" />
+			<section aria-label="Selected content">
+				<pre />
+			</section>
+		</main>
+	);
+}
+
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const registry = createBridgeReviewItemRegistry({
 		reviewPackage: props.reviewPackage,

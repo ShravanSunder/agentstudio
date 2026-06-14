@@ -23,6 +23,20 @@ describe('BridgeApp', () => {
 		document.documentElement.removeAttribute('data-bridge-nonce');
 	});
 
+	test('renders a ready empty review shell before package metadata arrives', async () => {
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+
+		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
+		expect(document.body.textContent).toContain('Bridge Review');
+		expect(document.body.textContent).toContain('Waiting for review package');
+	});
+
 	test('mounts transport in order renders pushed package and sends selection commands', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeBridgeReviewPackage();

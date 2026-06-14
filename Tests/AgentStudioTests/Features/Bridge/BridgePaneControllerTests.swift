@@ -677,6 +677,52 @@ extension WebKitSerializedTests {
             #expect(registered.handle == headHandle)
         }
 
+        @Test("filesystem context refresh preserves revisions across changed and no-op packages")
+        func filesystemContextRefreshPreservesRevisionsAcrossChangedAndNoOpPackages() async throws {
+            let fixture = makeRefreshRevisionFixture()
+            defer { fixture.controller.teardown() }
+
+            let loadResult = await fixture.controller.handleDiffCommand(
+                .loadDiff(
+                    DiffArtifact(
+                        diffId: UUIDv7.generate(),
+                        worktreeId: fixture.headEndpoint.worktreeId,
+                        patchData: Data()
+                    )
+                ),
+                commandId: fixture.commandId,
+                correlationId: nil
+            )
+
+            await setRefreshComparison(fixture, changedFile: fixture.refreshedFile)
+            await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 10)
+            #expect(loadResult == .success(commandId: fixture.commandId))
+            #expect(fixture.controller.paneState.diff.status == .ready)
+            expectRefreshPackageState(
+                fixture,
+                itemId: "item-new",
+                revision: 1,
+                addedItemIds: ["item-new"],
+                removedItemIds: ["item-old"]
+            )
+
+            await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 11)
+            #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-new"])
+            #expect(fixture.controller.paneState.diff.packageMetadata?.revision == 1)
+            #expect(fixture.controller.paneState.diff.packageDelta == nil)
+
+            await setRefreshComparison(fixture, changedFile: fixture.secondRefreshedFile)
+            await postRefreshEvent(fixture, path: "Sources/App/Newer.swift", batchSeq: 12)
+            expectRefreshPackageState(
+                fixture,
+                itemId: "item-newer",
+                revision: 2,
+                addedItemIds: ["item-newer"],
+                removedItemIds: ["item-new"]
+            )
+            #expect(await fixture.provider.recordedComparisonRequestsCount() == 4)
+        }
+
         @Test("loadDiff ignores stale earlier generation completion")
         func loadDiff_ignores_stale_earlier_generation_completion() async throws {
             let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
@@ -808,4 +854,110 @@ extension WebKitSerializedTests {
             #expect(controller.paneState.diff.packageMetadata == nil)
         }
     }
+}
+
+@MainActor
+private struct RefreshRevisionFixture {
+    let baseEndpoint: BridgeSourceEndpoint
+    let headEndpoint: BridgeSourceEndpoint
+    let refreshedFile: BridgeEndpointChangedFile
+    let secondRefreshedFile: BridgeEndpointChangedFile
+    let provider: BridgeReviewSourceProviderFake
+    let controller: BridgePaneController
+    let commandId: UUID
+}
+
+@MainActor
+private func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
+    let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
+    let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
+    let initialFile = makeBridgeEndpointChangedFile(
+        fileId: "old",
+        path: "Sources/App/Old.swift",
+        sizeBytes: 100
+    )
+    let refreshedFile = makeBridgeEndpointChangedFile(
+        fileId: "new",
+        path: "Sources/App/New.swift",
+        sizeBytes: 100
+    )
+    let secondRefreshedFile = makeBridgeEndpointChangedFile(
+        fileId: "newer",
+        path: "Sources/App/Newer.swift",
+        sizeBytes: 100
+    )
+    let provider = BridgeReviewSourceProviderFake(
+        comparison: BridgeEndpointComparison(
+            baseEndpoint: baseEndpoint,
+            headEndpoint: headEndpoint,
+            changedFiles: [initialFile]
+        ),
+        contentByHandleId: [:]
+    )
+    let controller = BridgePaneController(
+        paneId: UUIDv7.generate(),
+        state: BridgePaneState(
+            panelKind: .diffViewer,
+            source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+        ),
+        reviewSourceProvider: provider
+    )
+    return RefreshRevisionFixture(
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
+        refreshedFile: refreshedFile,
+        secondRefreshedFile: secondRefreshedFile,
+        provider: provider,
+        controller: controller,
+        commandId: UUID()
+    )
+}
+
+@MainActor
+private func setRefreshComparison(
+    _ fixture: RefreshRevisionFixture,
+    changedFile: BridgeEndpointChangedFile
+) async {
+    await fixture.provider.setComparison(
+        BridgeEndpointComparison(
+            baseEndpoint: fixture.baseEndpoint,
+            headEndpoint: fixture.headEndpoint,
+            changedFiles: [changedFile]
+        )
+    )
+}
+
+@MainActor
+private func postRefreshEvent(
+    _ fixture: RefreshRevisionFixture,
+    path: String,
+    batchSeq: UInt64
+) async {
+    await fixture.controller.handlePaneFilesystemContextEvent(
+        .cwdSubtreeChanged(
+            context: PaneFilesystemContext(
+                paneId: PaneId(uuid: fixture.controller.paneId),
+                repoId: fixture.headEndpoint.repoId,
+                cwd: URL(fileURLWithPath: "/tmp/worktree"),
+                worktreeId: fixture.headEndpoint.worktreeId
+            ),
+            paths: [path],
+            batchSeq: batchSeq
+        )
+    )
+}
+
+@MainActor
+private func expectRefreshPackageState(
+    _ fixture: RefreshRevisionFixture,
+    itemId: String,
+    revision: Int,
+    addedItemIds: [String],
+    removedItemIds: [String]
+) {
+    #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == [itemId])
+    #expect(fixture.controller.paneState.diff.packageMetadata?.revision == revision)
+    #expect(fixture.controller.paneState.diff.packageDelta?.revision == revision)
+    #expect(fixture.controller.paneState.diff.packageDelta?.operations.addItems.map(\.itemId) == addedItemIds)
+    #expect(fixture.controller.paneState.diff.packageDelta?.operations.removeItems == removedItemIds)
 }

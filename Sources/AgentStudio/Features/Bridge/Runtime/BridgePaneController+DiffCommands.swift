@@ -32,7 +32,9 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     handles: result.registeredContentHandles,
                     reviewGeneration: reviewGeneration
                 )
-                paneState.diff.setPackageMetadata(result.package)
+                paneState.diff.setPackageMetadata(
+                    result.package.withRevision(delta?.revision ?? result.package.revision)
+                )
                 paneState.diff.setPackageDelta(delta)
                 paneState.diff.setStatus(.ready)
                 ingestRuntimeEvent(
@@ -51,6 +53,50 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 paneState.diff.setStatus(.error, error: "loadFailed")
                 return .failure(.invalidPayload(description: "Failed to load bridge review package"))
             }
+        }
+    }
+
+    func handlePaneFilesystemContextEvent(_ event: PaneFilesystemContextEvent) async {
+        guard shouldRefreshReviewPackage(for: event),
+            let currentPackage = paneState.diff.packageMetadata
+        else {
+            return
+        }
+
+        do {
+            let result = try await reviewPipeline.loadPackage(
+                BridgeReviewPipelineRequest(
+                    packageId: currentPackage.packageId,
+                    query: currentPackage.query,
+                    baseEndpoint: currentPackage.baseEndpoint,
+                    headEndpoint: currentPackage.headEndpoint,
+                    checkpointIds: currentPackage.groups.map(\.groupId),
+                    reviewGeneration: currentPackage.reviewGeneration,
+                    generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
+                )
+            )
+            guard paneState.diff.packageMetadata?.packageId == currentPackage.packageId,
+                paneState.diff.packageMetadata?.reviewGeneration == currentPackage.reviewGeneration
+            else {
+                return
+            }
+
+            let delta = try await reviewChangeIndex.ingestExplicitLoad(result.package)
+            await reviewContentStore.activate(
+                handles: result.registeredContentHandles,
+                reviewGeneration: result.package.reviewGeneration
+            )
+            paneState.diff.setPackageMetadata(
+                result.package.withRevision(delta?.revision ?? currentPackage.revision)
+            )
+            paneState.diff.setPackageDelta(delta)
+            paneState.diff.setStatus(.ready)
+        } catch BridgeProviderFailure.providerUnavailable {
+            bridgeDiffCommandLogger.debug("Skipped bridge review refresh: provider unavailable")
+        } catch {
+            bridgeDiffCommandLogger.debug(
+                "Skipped bridge review refresh: \(String(describing: error), privacy: .private)"
+            )
         }
     }
 
@@ -90,6 +136,20 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             reviewGeneration: reviewGeneration,
             generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
         )
+    }
+
+    private func shouldRefreshReviewPackage(for event: PaneFilesystemContextEvent) -> Bool {
+        guard let currentPackage = paneState.diff.packageMetadata else { return false }
+        let context: PaneFilesystemContext
+        switch event {
+        case .cwdSubtreeChanged(let eventContext, let paths, _):
+            guard !paths.isEmpty else { return false }
+            context = eventContext
+        case .gitWorkingTreeInCwd(let eventContext, _, _, _):
+            context = eventContext
+        }
+        return context.paneId.uuid == paneId
+            && context.worktreeId == currentPackage.query.worktreeId
     }
 
     private func makeReviewEndpoints(

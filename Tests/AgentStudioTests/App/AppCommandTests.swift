@@ -899,6 +899,24 @@ final class AppCommandTests {
     @MainActor
 
     @Test
+    func test_dispatcher_openBridgeReview_registered() {
+        let def = CommandDispatcher.shared.definition(for: .openBridgeReview)
+        #expect(def.label == "Open Bridge Review")
+        #expect(def.icon == .system(.rectangleSplit2x1))
+        #expect(def.commandBarGroupName == "Bridge")
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_openBridgeReview_noKeyBinding() {
+        let def = CommandDispatcher.shared.definition(for: .openBridgeReview)
+        #expect(def.keyBinding == nil)
+    }
+
+    @MainActor
+
+    @Test
     func test_dispatcher_signInGitHub_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGitHub)
         #expect(def.label == "Sign in to GitHub")
