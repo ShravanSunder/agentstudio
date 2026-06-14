@@ -15,25 +15,34 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private let statusReader: AgentStudioGitStatusReader
     private let timeout: Duration
     private let timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler
+    private let activeReadRegistry: AgentStudioGitActiveStatusReadRegistry
 
     init(
         client: any AgentStudioGit.AgentStudioGitLocalClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient(),
-        timeout: Duration = AppPolicies.GitRefresh.defaultSDKReadTimeout,
-        timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler = DispatchAgentStudioGitStatusTimeoutScheduler()
+        timeout: Duration = AppPolicies.GitRefresh.defaultStatusReadTimeout,
+        timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler = DispatchAgentStudioGitStatusTimeoutScheduler(),
+        activeReadRegistry: AgentStudioGitActiveStatusReadRegistry = AgentStudioGitActiveStatusReadRegistry()
     ) {
-        self.init(timeout: timeout, timeoutScheduler: timeoutScheduler) { worktreePath, options in
-            try await client.status(for: worktreePath, options: options)
-        }
+        self.init(
+            timeout: timeout,
+            timeoutScheduler: timeoutScheduler,
+            activeReadRegistry: activeReadRegistry,
+            statusReader: { worktreePath, options in
+                try await client.status(for: worktreePath, options: options)
+            }
+        )
     }
 
     init(
-        timeout: Duration = AppPolicies.GitRefresh.defaultSDKReadTimeout,
+        timeout: Duration = AppPolicies.GitRefresh.defaultStatusReadTimeout,
         timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler = DispatchAgentStudioGitStatusTimeoutScheduler(),
+        activeReadRegistry: AgentStudioGitActiveStatusReadRegistry = AgentStudioGitActiveStatusReadRegistry(),
         statusReader: @escaping AgentStudioGitStatusReader
     ) {
         self.statusReader = statusReader
         self.timeout = timeout
         self.timeoutScheduler = timeoutScheduler
+        self.activeReadRegistry = activeReadRegistry
     }
 
     func statusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult {
@@ -41,6 +50,7 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
             rootPath: rootPath,
             timeout: timeout,
             timeoutScheduler: timeoutScheduler,
+            activeReadRegistry: activeReadRegistry,
             statusReader: statusReader
         )
     }
@@ -50,14 +60,21 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
         rootPath: URL,
         timeout: Duration,
         timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler,
+        activeReadRegistry: AgentStudioGitActiveStatusReadRegistry,
         statusReader: @escaping AgentStudioGitStatusReader
     ) async -> GitWorkingTreeStatusResult {
+        let readKey = AgentStudioGitActiveStatusReadKey(rootPath)
+        guard activeReadRegistry.start(readKey) else {
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .readAlreadyInFlight))
+        }
         do {
             let snapshot = try await readWithHardTimeout(timeout, timeoutScheduler: timeoutScheduler) {
                 try await statusReader(
                     rootPath,
                     AgentStudioGit.GitStatusOptions(includeIgnored: false, includeUntracked: true)
                 )
+            } onOperationFinished: {
+                activeReadRegistry.finish(readKey)
             }
             return .available(map(snapshot))
         } catch is CancellationError {
@@ -81,16 +98,23 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     nonisolated private static func readWithHardTimeout<ReturnValue: Sendable>(
         _ timeout: Duration,
         timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler,
-        operation: @Sendable @escaping () async throws -> ReturnValue
+        operation: @Sendable @escaping () async throws -> ReturnValue,
+        onOperationFinished: @escaping @Sendable () -> Void
     ) async throws -> ReturnValue {
         let raceBox = AgentStudioGitTimeoutRaceBox<ReturnValue>()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ReturnValue, Error>) in
                 let race = AgentStudioGitTimeoutRace(continuation: continuation)
-                guard raceBox.install(race) else { return }
+                guard raceBox.install(race) else {
+                    onOperationFinished()
+                    return
+                }
                 // Detached by design: the SDK read may ignore cooperative cancellation.
                 // swiftlint:disable:next no_task_detached
                 let readTask = Task.detached(priority: .utility) {
+                    defer {
+                        onOperationFinished()
+                    }
                     do {
                         try await race.succeed(operation())
                     } catch {
@@ -100,7 +124,9 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
                 let scheduledTimeout = timeoutScheduler.scheduleTimeout(after: timeout) {
                     race.fail(AgentStudioGitSDKTimeoutError.timedOut)
                 }
-                race.install(readTask: readTask, scheduledTimeout: scheduledTimeout)
+                if !race.install(readTask: readTask, scheduledTimeout: scheduledTimeout) {
+                    onOperationFinished()
+                }
             }
         } onCancel: {
             raceBox.cancel()
@@ -195,6 +221,32 @@ private enum AgentStudioGitSDKTimeoutError: Error {
     case timedOut
 }
 
+struct AgentStudioGitActiveStatusReadKey: Hashable, Sendable {
+    private let path: String
+
+    init(_ rootPath: URL) {
+        self.path = rootPath.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+}
+
+final class AgentStudioGitActiveStatusReadRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var activeReadKeys: Set<AgentStudioGitActiveStatusReadKey> = []
+
+    func start(_ key: AgentStudioGitActiveStatusReadKey) -> Bool {
+        lock.lock()
+        let inserted = activeReadKeys.insert(key).inserted
+        lock.unlock()
+        return inserted
+    }
+
+    func finish(_ key: AgentStudioGitActiveStatusReadKey) {
+        lock.lock()
+        activeReadKeys.remove(key)
+        lock.unlock()
+    }
+}
+
 protocol AgentStudioGitStatusTimeoutScheduler: Sendable {
     func scheduleTimeout(
         after timeout: Duration,
@@ -287,17 +339,18 @@ private final class AgentStudioGitTimeoutRace<ReturnValue: Sendable>: @unchecked
         self.continuation = continuation
     }
 
-    func install(readTask: Task<Void, Never>, scheduledTimeout: AgentStudioGitScheduledTimeout) {
+    func install(readTask: Task<Void, Never>, scheduledTimeout: AgentStudioGitScheduledTimeout) -> Bool {
         lock.lock()
         if didResume {
             lock.unlock()
             readTask.cancel()
             scheduledTimeout.cancel()
-            return
+            return false
         }
         self.readTask = readTask
         self.scheduledTimeout = scheduledTimeout
         lock.unlock()
+        return true
     }
 
     func succeed(_ value: ReturnValue) {

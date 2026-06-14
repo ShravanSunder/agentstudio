@@ -127,6 +127,21 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(status == nil)
     }
 
+    @Test("SDK status failure reports SDK error reason")
+    func sdkStatusFailureReportsSDKErrorReason() async throws {
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            statusReader: { _, _ in throw AgentStudioGit.GitDataPlaneError.unsupported(message: "boom") }
+        )
+
+        let result = await provider.statusResult(for: URL(fileURLWithPath: "/tmp/not-a-repo"))
+
+        guard case .unavailable(let unavailable) = result else {
+            Issue.record("expected unavailable result, got \(result)")
+            return
+        }
+        #expect(unavailable.reason == .sdkError)
+    }
+
     @Test("SDK status timeout returns nil")
     func sdkStatusTimeoutReturnsNil() async {
         let gate = StatusReadGate()
@@ -179,6 +194,37 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(unavailable.reason == .timeout)
     }
 
+    @Test("SDK status cancellation reports cancellation reason")
+    func sdkStatusCancellationReportsCancellationReason() async throws {
+        let gate = StatusReadGate()
+        let tracker = StatusReadTracker()
+        let timeoutScheduler = ManualStatusTimeoutScheduler()
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            timeout: .seconds(999),
+            timeoutScheduler: timeoutScheduler
+        ) { _, _ in
+            await tracker.recordStarted()
+            await gate.waitUntilReleased()
+            await tracker.recordFinished()
+            return makeSnapshot()
+        }
+
+        let resultTask = Task {
+            await provider.statusResult(for: URL(fileURLWithPath: "/tmp/cancelled-repo"))
+        }
+        await gate.waitUntilStarted()
+        resultTask.cancel()
+        let result = await resultTask.value
+        await gate.release()
+        await tracker.waitForFinishedCount(1)
+
+        guard case .unavailable(let unavailable) = result else {
+            Issue.record("expected unavailable result, got \(result)")
+            return
+        }
+        #expect(unavailable.reason == .cancelled)
+    }
+
     @Test("SDK status timeout wins when SDK read ignores cancellation")
     func sdkStatusTimeoutWinsWhenSDKReadIgnoresCancellation() async throws {
         let gate = StatusReadGate()
@@ -205,6 +251,55 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
             return
         }
         #expect(unavailable.reason == .timeout)
+    }
+
+    @Test("timed out SDK read keeps same root gated until detached read exits")
+    func timedOutSDKReadKeepsSameRootGatedUntilDetachedReadExits() async throws {
+        let rootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo")
+        let gate = StatusReadGate()
+        let tracker = StatusReadTracker()
+        let timeoutScheduler = ManualStatusTimeoutScheduler()
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            timeout: .seconds(999),
+            timeoutScheduler: timeoutScheduler
+        ) { _, _ in
+            await tracker.recordStarted()
+            await gate.waitUntilReleased()
+            await tracker.recordFinished()
+            return makeSnapshot()
+        }
+
+        let timedOutRead = Task {
+            await provider.statusResult(for: rootPath)
+        }
+        await gate.waitUntilStarted()
+        await timeoutScheduler.waitUntilScheduled()
+        timeoutScheduler.fireScheduledTimeout()
+        let timedOutResult = await timedOutRead.value
+
+        let overlappingResult = await provider.statusResult(for: rootPath)
+        let startCountWhileGated = await tracker.startedCount()
+
+        await gate.release()
+        await tracker.waitForFinishedCount(1)
+        let recoveredResult = await provider.statusResult(for: rootPath)
+
+        guard case .unavailable(let timedOutUnavailable) = timedOutResult else {
+            Issue.record("expected first result to time out, got \(timedOutResult)")
+            return
+        }
+        guard case .unavailable(let overlappingUnavailable) = overlappingResult else {
+            Issue.record("expected overlapping result to be unavailable, got \(overlappingResult)")
+            return
+        }
+        guard case .available = recoveredResult else {
+            Issue.record("expected provider to recover after detached read exits, got \(recoveredResult)")
+            return
+        }
+        #expect(timedOutUnavailable.reason == .timeout)
+        #expect(overlappingUnavailable.reason == .readAlreadyInFlight)
+        #expect(startCountWhileGated == 1)
+        #expect(await tracker.startedCount() == 2)
     }
 
     @Test("real SDK provider matches shell provider for current status shape")
@@ -428,6 +523,36 @@ private actor StatusReadGate {
         startWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters {
             waiter.resume()
+        }
+    }
+}
+
+private actor StatusReadTracker {
+    private var startCount = 0
+    private var finishCount = 0
+    private var finishWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func recordStarted() {
+        startCount += 1
+    }
+
+    func recordFinished() {
+        finishCount += 1
+        let readyWaiters = finishWaiters.filter { $0.count <= finishCount }
+        finishWaiters.removeAll { $0.count <= finishCount }
+        for waiter in readyWaiters {
+            waiter.continuation.resume()
+        }
+    }
+
+    func startedCount() -> Int {
+        startCount
+    }
+
+    func waitForFinishedCount(_ count: Int) async {
+        guard finishCount < count else { return }
+        await withCheckedContinuation { continuation in
+            finishWaiters.append((count: count, continuation: continuation))
         }
     }
 }

@@ -46,6 +46,7 @@ struct GitWorkingTreeStatus: Sendable, Equatable {
 enum GitWorkingTreeStatusUnavailableReason: String, Sendable, Equatable {
     case providerReturnedNil = "provider_returned_nil"
     case timeout
+    case readAlreadyInFlight = "read_already_in_flight"
     case cancelled
     case sdkError = "sdk_error"
 }

@@ -24,12 +24,14 @@ struct RepoScanner {
     }
 
     struct AgentStudioGitRepositoryDiscoveryProvider: GitRepositoryDiscoveryProvider {
+        static let defaultTimeout: Duration = AppPolicies.GitRefresh.defaultDiscoveryReadTimeout
+
         private let client: any AgentStudioGit.AgentStudioGitLocalClient
         private let timeout: Duration
 
         init(
             client: any AgentStudioGit.AgentStudioGitLocalClient = AgentStudioGit.LibGit2AgentStudioGitLocalClient(),
-            timeout: Duration = AppPolicies.GitRefresh.defaultSDKReadTimeout
+            timeout: Duration = Self.defaultTimeout
         ) {
             self.client = client
             self.timeout = timeout

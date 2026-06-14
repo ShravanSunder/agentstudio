@@ -20,7 +20,16 @@ struct AppPoliciesGitRefreshTests {
         #expect(policy.suppressedWorktreeTombstoneLimit == 1024)
         #expect(policy.maxNilStatusRetries == 1)
         #expect(policy.nilStatusRetryDelay > .zero)
-        #expect(AppPolicies.GitRefresh.defaultSDKReadTimeout == .seconds(1))
+        #expect(AppPolicies.GitRefresh.defaultStatusReadTimeout == .seconds(1))
+        #expect(AppPolicies.GitRefresh.defaultDiscoveryReadTimeout == .seconds(2))
+        #expect(
+            RepoScanner.AgentStudioGitRepositoryDiscoveryProvider.defaultTimeout
+                == AppPolicies.GitRefresh.defaultDiscoveryReadTimeout
+        )
+        #expect(
+            RepoScanner.AgentStudioGitRepositoryDiscoveryProvider.defaultTimeout
+                != AppPolicies.GitRefresh.defaultStatusReadTimeout
+        )
     }
 
     @Test("default policy stripes background work deterministically")

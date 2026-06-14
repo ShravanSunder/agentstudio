@@ -620,20 +620,90 @@ else:
 ' <<<"$response"
 }
 
-victoria_metric_event_query() {
+victoria_metric_event_label_selector() {
   local event_name="$1"
-  printf 'agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="%s",event="%s"}' \
-    "$TRACE_NAME" "$event_name"
+  local extra_selector="${2:-}"
+  printf 'service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="%s",event="%s"%s' \
+    "$TRACE_NAME" "$event_name" "$extra_selector"
 }
 
-victoria_metric_event_count() {
+victoria_metric_event_query() {
   local event_name="$1"
-  victoria_metric_value "$(victoria_metric_event_query "$event_name")"
+  printf 'agentstudio_performance_events_total{%s}' \
+    "$(victoria_metric_event_label_selector "$event_name")"
+}
+
+victoria_metric_event_count_query() {
+  local event_name="$1"
+  local extra_selector="${2:-}"
+  printf 'sum(agentstudio_performance_events_total{%s})' \
+    "$(victoria_metric_event_label_selector "$event_name" "$extra_selector")"
+}
+
+victoria_metric_event_count_for_reason() {
+  local event_name="$1"
+  local reason="$2"
+  victoria_metric_value "$(victoria_metric_event_count_query "$event_name" ",reason=\"$reason\"")"
+}
+
+victoria_metric_event_elapsed_p95() {
+  local event_name="$1"
+  local extra_selector="${2:-}"
+  victoria_metric_value \
+    "histogram_quantile(0.95, sum by (le) (agentstudio_performance_event_elapsed_ms_bucket{$(victoria_metric_event_label_selector "$event_name" "$extra_selector")}))"
+}
+
+victoria_metric_event_elapsed_max() {
+  local event_name="$1"
+  local extra_selector="${2:-}"
+  victoria_metric_value \
+    "max(agentstudio_performance_event_elapsed_ms_max{$(victoria_metric_event_label_selector "$event_name" "$extra_selector")})"
+}
+
+victoria_metric_event_elapsed_mean() {
+  local event_name="$1"
+  local extra_selector="${2:-}"
+  printf 'sum(agentstudio_performance_event_elapsed_ms_sum{%s}) / sum(agentstudio_performance_event_elapsed_ms_count{%s})' \
+    "$(victoria_metric_event_label_selector "$event_name" "$extra_selector")" \
+    "$(victoria_metric_event_label_selector "$event_name" "$extra_selector")"
+}
+
+victoria_metric_event_elapsed_mean_value() {
+  local event_name="$1"
+  local extra_selector="${2:-}"
+  victoria_metric_value "$(victoria_metric_event_elapsed_mean "$event_name" "$extra_selector")"
+}
+
+victoria_metric_status_unavailable_reason_values() {
+  printf '%s\n' \
+    provider_returned_nil \
+    timeout \
+    read_already_in_flight \
+    cancelled \
+    sdk_error
+}
+
+require_status_latency_metrics() {
+  local event_count max_value p95_value
+  event_count="$(victoria_metric_event_count performance.git.status)"
+  [ "$event_count" != "0" ] || return 0
+  max_value="$(victoria_metric_event_elapsed_max performance.git.status)"
+  p95_value="$(victoria_metric_event_elapsed_p95 performance.git.status)"
+  if [ "$max_value" = "0" ] || [ "$p95_value" = "0" ]; then
+    echo "did not observe performance.git.status elapsed p95/max metrics for marker $TRACE_NAME" >&2
+    summarize_traces
+    exit 1
+  fi
 }
 
 victoria_metric_command_bar_filter_query() {
   printf 'max_over_time(agentstudio_performance_commandbar_query_character_count{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="%s",event="performance.commandbar.filter"}[5m])' \
     "$TRACE_NAME"
+}
+
+victoria_metric_event_count() {
+  local event_name="$1"
+  victoria_metric_value "$(victoria_metric_event_query "$event_name")"
 }
 
 jsonl_proof_enabled() {
@@ -802,6 +872,7 @@ summarize_traces() {
       performance.git.tick \
       performance.git.admission \
       performance.git.status \
+      performance.git.status_unavailable \
       performance.git.snapshot_dedup \
       performance.git.event_posted \
       performance.coordinator.write \
@@ -816,6 +887,17 @@ summarize_traces() {
       jsonl_count="$(jsonl_event_count "$event_name" "$jsonl_file")"
       echo "$event_name victoria_metrics_count=$victoria_metrics_count victoria_logs_count=$victoria_logs_count jsonl_count=$jsonl_count"
     done
+    echo "performance.git.status.elapsed_ms.mean=$(victoria_metric_event_elapsed_mean_value performance.git.status)"
+    echo "performance.git.status.elapsed_ms.p95=$(victoria_metric_event_elapsed_p95 performance.git.status)"
+    echo "performance.git.status.elapsed_ms.max=$(victoria_metric_event_elapsed_max performance.git.status)"
+    local unavailable_reason
+    while IFS= read -r unavailable_reason; do
+      local reason_selector=",reason=\"$unavailable_reason\""
+      echo "performance.git.status_unavailable.reason.$unavailable_reason.count=$(victoria_metric_event_count_for_reason performance.git.status_unavailable "$unavailable_reason")"
+      echo "performance.git.status_unavailable.reason.$unavailable_reason.elapsed_ms.mean=$(victoria_metric_event_elapsed_mean_value performance.git.status_unavailable "$reason_selector")"
+      echo "performance.git.status_unavailable.reason.$unavailable_reason.elapsed_ms.p95=$(victoria_metric_event_elapsed_p95 performance.git.status_unavailable "$reason_selector")"
+      echo "performance.git.status_unavailable.reason.$unavailable_reason.elapsed_ms.max=$(victoria_metric_event_elapsed_max performance.git.status_unavailable "$reason_selector")"
+    done < <(victoria_metric_status_unavailable_reason_values)
     echo "performance.commandbar.filter.query_character.max=$(victoria_metric_value "$(victoria_metric_command_bar_filter_query)")"
   } | tee "$SUMMARY_FILE"
 }
@@ -879,6 +961,7 @@ if ! wait_for_trace_event performance.git.status 30; then
   summarize_traces
   exit 1
 fi
+require_status_latency_metrics
 
 if [ "$DRIVE_COMMAND_BAR" = "1" ] && ! wait_for_command_bar_repo_filter_event 10; then
   echo "did not observe non-empty performance.commandbar.filter after startup command-bar repo filter smoke" >&2
