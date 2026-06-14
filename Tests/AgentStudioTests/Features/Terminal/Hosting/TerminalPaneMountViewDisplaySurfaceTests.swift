@@ -98,6 +98,12 @@ struct TerminalPaneMountViewDisplaySurfaceTests {
         #expect(plan.beginsRestorePresentation)
     }
 
+    @Test("display epilogue verifies geometry without repairing it first")
+    func displayEpilogueVerifiesGeometryWithoutRepairingItFirst() {
+        #expect(TerminalPaneMountView.geometryVerificationMode(for: .displayEpilogue) == .verifyOnlyAfterLayout)
+        #expect(TerminalPaneMountView.geometryVerificationMode(for: .explicitGeometrySync) == .syncThenVerify)
+    }
+
     @Test("same-surface display branch returns before unmounting or rewrapping")
     func sameSurfaceDisplayBranchReturnsBeforeUnmountingOrRewrapping() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
@@ -109,7 +115,10 @@ struct TerminalPaneMountViewDisplaySurfaceTests {
         let rewrapBranchStart = try #require(source.range(of: "// Remove existing surface if any"))
         let reuseBranch = String(source[reuseBranchStart.lowerBound..<rewrapBranchStart.lowerBound])
 
-        #expect(reuseBranch.contains("finishSurfaceDisplay(surfaceView, displayPlan: displayPlan)"))
+        #expect(reuseBranch.contains("finishSurfaceDisplay("))
+        #expect(reuseBranch.contains("surfaceView,"))
+        #expect(reuseBranch.contains("displayPlan: displayPlan"))
+        #expect(reuseBranch.contains("geometryVerificationReason: geometryVerificationReason"))
         #expect(reuseBranch.contains("return"))
         #expect(!reuseBranch.contains("ghosttyMountView.unmountCurrentView()"))
         #expect(!reuseBranch.contains("TerminalSurfaceScrollView("))

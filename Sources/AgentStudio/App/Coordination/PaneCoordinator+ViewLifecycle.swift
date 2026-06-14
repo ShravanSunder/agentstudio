@@ -516,7 +516,7 @@ extension PaneCoordinator {
             )
             return
         }
-        terminal.displaySurface(surfaceView)
+        terminal.displaySurface(surfaceView, geometryVerificationReason: "reattachForViewSwitch")
         if let pane = store.paneAtom.pane(paneId) {
             registerTerminalRuntimeIfNeeded(for: pane)
         }
