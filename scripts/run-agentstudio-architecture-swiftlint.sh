@@ -18,7 +18,7 @@ required_vars=(
   AGENTSTUDIO_ARCH_SWIFTLINT_SUBDIR
 )
 for var_name in "${required_vars[@]}"; do
-  if [ -z "${!var_name:-}" ]; then
+  if [ -z "${!var_name-}" ]; then
     echo "missing required config variable: $var_name" >&2
     exit 1
   fi
@@ -65,6 +65,11 @@ resolve_tool_root() {
   fi
 
   mkdir -p "$CACHE_ROOT"
+  if { [ -e "$CACHE_REPO" ] || [ -L "$CACHE_REPO" ]; } && [ ! -d "$CACHE_REPO/.git" ]; then
+    invalid_cache_repo="$CACHE_REPO.invalid.$(date +%Y%m%d%H%M%S).$$"
+    echo "quarantining invalid AgentStudio architecture SwiftLint cache: $CACHE_REPO -> $invalid_cache_repo" >&2
+    mv "$CACHE_REPO" "$invalid_cache_repo"
+  fi
   if [ ! -d "$CACHE_REPO/.git" ]; then
     git clone "$AGENTSTUDIO_ARCH_SWIFTLINT_REPO_URL" "$CACHE_REPO"
   fi
@@ -76,7 +81,7 @@ resolve_tool_root() {
   git -C "$CACHE_REPO" checkout --quiet --detach "$AGENTSTUDIO_ARCH_SWIFTLINT_COMMIT"
   if ! is_tool_subtree_clean "$CACHE_REPO"; then
     echo "cached AgentStudio architecture SwiftLint repo is dirty: $CACHE_REPO" >&2
-    echo "remove the cache directory or set AGENTSTUDIO_ARCH_SWIFTLINT_CACHE_ROOT to a clean cache" >&2
+    echo "move the cache directory aside or set AGENTSTUDIO_ARCH_SWIFTLINT_CACHE_ROOT to a clean cache" >&2
     exit 1
   fi
   echo "$CACHE_REPO"

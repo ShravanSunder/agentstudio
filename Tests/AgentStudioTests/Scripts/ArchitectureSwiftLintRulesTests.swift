@@ -21,6 +21,11 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(runner.contains("AGENTSTUDIO_SWIFTLINT_BINARY="))
         #expect(runner.contains("is_tool_subtree_clean"))
         #expect(runner.contains("git -C \"$CACHE_REPO\" fetch --quiet origin \"$AGENTSTUDIO_ARCH_SWIFTLINT_COMMIT\""))
+        #expect(runner.contains("if [ -z \"${!var_name-}\" ]; then"))
+        #expect(!runner.contains("${!var_name:-}"))
+        #expect(runner.contains("quarantining invalid AgentStudio architecture SwiftLint cache"))
+        #expect(runner.contains("mv \"$CACHE_REPO\" \"$invalid_cache_repo\""))
+        #expect(!runner.contains("rm -rf \"$CACHE_REPO\""))
         #expect(!runner.contains("repoEnrichmentByRepoId"))
         #expect(!runner.contains("WorktreeEnrichment must not use raw equality"))
 
@@ -83,13 +88,15 @@ struct ArchitectureSwiftLintRulesTests {
             .appendingPathComponent("agentstudio-architecture-swiftlint-stderr-\(UUID().uuidString).log")
         FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
         FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+        defer {
+            try? FileManager.default.removeItem(at: stdoutURL)
+            try? FileManager.default.removeItem(at: stderrURL)
+        }
         let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
         let stderrHandle = try FileHandle(forWritingTo: stderrURL)
         defer {
             try? stdoutHandle.close()
             try? stderrHandle.close()
-            try? FileManager.default.removeItem(at: stdoutURL)
-            try? FileManager.default.removeItem(at: stderrURL)
         }
 
         let process = Process()
