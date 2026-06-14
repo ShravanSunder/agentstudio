@@ -63,6 +63,11 @@ cohesive by lifecycle.
 state, registry fields, cache semantics, and feature-specific derived readers
 stay in Core or Features.
 
+Lint rule `agentstudio_atomlib_is_generic` enforces this boundary for
+`Infrastructure/AtomLib`. Product atoms, feature imports, and concrete
+`AtomRegistry` fields belong in the app's Core/Feature state tree or the root
+registry, not in the generic primitive library.
+
 Use the primitive that matches the read surface:
 
 | Primitive | Use for | Rule |
@@ -71,6 +76,11 @@ Use the primitive that matches the read surface:
 | `AtomEntityMap<Key, Value>` | keyed entity families such as repo enrichment, worktree enrichment, and PR counts | hot UI reads use `value(for:)`; dictionary snapshots are bridge surfaces |
 | `DerivedValue<Value>` | registry-owned memoized read models | compute from declared input revisions; do not reach back into `AtomScope` or `atom(\...)` |
 | `AtomMutationContext` | grouped mutations across primitive updates inside one owner | bump the aggregate revision once after accepted changes |
+
+The derived-read contract is enforced by
+`agentstudio_derived_value_declared_inputs`: a `DerivedValue` compute closure
+must be a pure function of declared revisions/inputs, not a hidden atom read
+through `AtomScope`, `AtomReader`, `atom(\...)`, or `@Atom`.
 
 `AtomEntityMap` is the internal atom-family primitive. It stores a private
 dictionary for snapshots, but each key has its own observable slot. A row that
@@ -86,10 +96,20 @@ batch reconciliation, and explicitly measured cold paths. Production UI,
 command-bar, tab-bar, and sidebar rows should prefer keyed readers or a derived
 read model that uses keyed readers internally.
 
+Lint rule `agentstudio_repo_cache_keyed_reads` rejects hot
+`repoEnrichmentByRepoId`, `worktreeEnrichmentByWorktreeId`, and
+`pullRequestCountByWorktreeId` dictionary reads outside the allowed cold-path
+surfaces.
+
 `RepoEnrichmentCacheAtom` is the reference implementation: repo enrichment,
 worktree enrichment, and PR counts are owned as separate `AtomEntityMap`
 instances; `RepoCacheAtom` exposes keyed reads for hot consumers and snapshot
 methods for persistence/cold bulk bridges.
+
+Worktree enrichment diffing must use the narrow comparator helpers rather than
+raw `WorktreeEnrichment` equality. Lint rule
+`agentstudio_worktree_enrichment_comparator` protects that performance boundary
+so non-rendering metadata changes do not wake hot rows.
 
 ## Atom And Actor Placement
 
