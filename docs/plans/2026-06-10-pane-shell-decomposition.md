@@ -74,9 +74,16 @@ Read-only context:
 
 1. **Characterize before moving.** Write tests against the *current* focus
    behavior at the `PaneTabViewController` seam (trigger → resulting
-   `WorkspaceFocusOwnerAtom` state) for the main transitions: pane click,
-   drawer focus, tab switch refocus, empty-drawer focus. These tests must pass
-   before and after extraction.
+   `WorkspaceFocusOwnerAtom` state). Coverage: enumerate **all**
+   `PaneFocusTrigger` enum cases and cover each at the integration seam (the
+   existing per-decider unit suites — `PaneKeyboardFocusDeciderTests`,
+   `PaneTabClickFocusDeciderTests`, etc. — test deciders in isolation, not
+   the controller seam; both layers are needed). Priority cases: pane click,
+   drawer focus, tab switch refocus, empty-drawer focus. In the same pass,
+   inventory the private methods and state that the focus and tab-bar domains
+   share inside `PaneTabViewController` — that inventory becomes the injected
+   dependency list for tasks 2-3. These tests must pass before and after
+   extraction.
 2. **Extract `WorkspaceFocusController`.** Move focus trigger handling,
    context building, executor creation, refocus scheduling, and scope
    normalization into a `@MainActor` type owned by `PaneTabViewController`.
@@ -90,17 +97,21 @@ Read-only context:
    reuse decision from a snapshot; `openTerminal` becomes
    resolve-then-sequence. Unit-test the policy directly.
 5. **Re-measure.** `PaneTabViewController` should land well under 2,000 lines
-   with extraction targets each under ~500. Update the CLAUDE.md component
-   table and `appkit_swiftui_architecture.md` in the same changeset (repo rule
-   for boundary changes).
+   with extraction targets each under ~500. Also re-inventory the domains
+   remaining in the file (pane view lifecycle/restoration, arrangement-bar
+   presentation, popovers, ...) and record which follow-up extraction, if
+   any, is justified next — line count alone is a smell test, not the goal.
+   Update the CLAUDE.md component table and
+   `appkit_swiftui_architecture.md` in the same changeset (repo rule for
+   boundary changes).
 
 ## Proof Gates
 
 - Red/green: characterization tests from task 1 pass unchanged after tasks
   2-4; new policy unit tests.
-- Focused validation: `mise run test -- --filter "Focus"`,
-  `mise run test -- --filter "PaneTab"`, plus full
-  `mise run test` and `mise run lint` (zero errors).
+- Focused validation: `mise run test -- --filter "PaneFocus"` (narrowed from
+  "Focus", which over-matches), `mise run test -- --filter "PaneTab"`, plus
+  full `mise run test` and `mise run lint` (zero errors).
 - Manual: Peekaboo pass over focus flows — click panes/drawers/tabs, keyboard
   shortcuts for pane navigation, drawer expansion focus, tab rename popover —
   against the debug build (PID targeting).

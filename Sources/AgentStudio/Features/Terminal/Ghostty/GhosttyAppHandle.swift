@@ -58,6 +58,8 @@ extension Ghostty {
         }
 
         deinit {
+            // Ghostty.App clears AppFocusSynchronizer before releasing this owner,
+            // so app-level focus sync cannot race this free through a stale pointer.
             ghostty_app_free(appHandle)
             ghostty_config_free(configHandle)
         }

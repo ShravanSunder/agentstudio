@@ -518,7 +518,7 @@ final class InboxNotificationRouter {
             guard !notification.isRead || !notification.isDismissedFromPaneInbox else { continue }
             let decision = autoClearPolicy.decision(
                 notification: notification,
-                isSourcePaneAttended: isSourcePaneObserved(paneId),
+                isSourcePaneAttended: isSourcePaneAttended(paneId),
                 isSourcePanePinnedToBottom: isPinnedToBottom
             )
             guard decision == .clear else {
@@ -587,8 +587,8 @@ final class InboxNotificationRouter {
         )
     }
 
-    private func isSourcePaneObserved(_ paneId: UUID) -> Bool {
-        currentObservedPaneIds().contains(paneId)
+    private func isSourcePaneAttended(_ paneId: UUID) -> Bool {
+        currentAttendedPaneId() == paneId
     }
 
     private func currentAttendedPaneId() -> UUID? {

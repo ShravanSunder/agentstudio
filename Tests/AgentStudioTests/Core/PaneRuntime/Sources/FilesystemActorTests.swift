@@ -75,6 +75,51 @@ struct FilesystemActorTests {
         await actor.shutdown()
     }
 
+    @Test("suspended register does not resurrect worktree after shutdown")
+    func suspendedRegisterDoesNotResurrectWorktreeAfterShutdown() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let loader = ControlledPathFilterLoader()
+        let streamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: streamClient,
+            pathFilterLoader: { rootPath in
+                await loader.load(forRootPath: rootPath)
+            },
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+
+        let observed = ObservedFilesystemChanges()
+        let stream = await bus.subscribe()
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
+        defer { collectionTask.cancel() }
+
+        let worktreeId = UUID()
+        await loader.suspendNextLoad()
+        let registerTask = Task {
+            await actor.register(
+                worktreeId: worktreeId,
+                repoId: worktreeId,
+                rootPath: URL(fileURLWithPath: "/tmp/suspended-register-\(UUID().uuidString)")
+            )
+        }
+        await loader.waitForSuspendedLoad()
+
+        await actor.shutdown()
+        await loader.resumeSuspendedLoad()
+        await registerTask.value
+
+        streamClient.send(.init(worktreeId: worktreeId, paths: ["Sources/AfterShutdown.swift"]))
+        await Task.yield()
+
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+    }
+
     @Test("deepest ownership dedupes nested roots")
     func deepestOwnershipDedupesNestedRoots() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -135,7 +180,14 @@ struct FilesystemActorTests {
     @Test("active-in-app priority order beats sidebar-only")
     func activeInAppPriorityWinsQueueOrder() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let actor = makeActor(bus: bus)
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            sleepClock: clock,
+            debounceWindow: .milliseconds(60),
+            maxFlushLatency: .seconds(1)
+        )
 
         let sidebarOnlyWorktreeId = UUID()
         let activeWorktreeId = UUID()
@@ -154,6 +206,8 @@ struct FilesystemActorTests {
         await actor.enqueueRawPaths(worktreeId: sidebarOnlyWorktreeId, paths: ["README.md"])
         await actor.enqueueRawPaths(worktreeId: activeWorktreeId, paths: ["src/main.swift"])
 
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(60))
         let firstEnvelope = try #require(await iterator.next())
         let firstChangeset = try #require(filesChangedChangeset(from: firstEnvelope))
         #expect(firstChangeset.worktreeId == activeWorktreeId)
@@ -575,6 +629,54 @@ struct FilesystemActorTests {
         await collectionTask.value
     }
 
+    @Test("gitignore reload discards loaded filter when root unregisters during await")
+    func gitignoreReloadDiscardsFilterWhenRootUnregistersDuringAwait() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let loader = ControlledPathFilterLoader()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: ControllableFSEventStreamClient(),
+            pathFilterLoader: { rootPath in
+                await loader.load(forRootPath: rootPath)
+            },
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+
+        let rootPath = FileManager.default.temporaryDirectory
+            .appending(path: "gitignore-unregister-reload-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+
+        let worktreeId = UUID()
+        await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+
+        let observed = ObservedFilesystemChanges()
+        let stream = await bus.subscribe()
+        let collectionTask = Task {
+            for await envelope in stream {
+                await observed.record(envelope)
+            }
+        }
+        defer { collectionTask.cancel() }
+
+        await loader.suspendNextLoad()
+        let reloadTask = Task {
+            await actor.enqueueRawPaths(worktreeId: worktreeId, paths: [".gitignore"])
+        }
+        await loader.waitForSuspendedLoad()
+
+        await actor.unregister(worktreeId: worktreeId)
+        await loader.resumeSuspendedLoad()
+        await reloadTask.value
+
+        await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/AfterUnregister.swift"])
+        await Task.yield()
+
+        #expect(await observed.filesChangedCount(for: worktreeId) == 0)
+        await actor.shutdown()
+    }
+
     @Test("debounce coalesces bursts and flushes once after debounce window")
     func debounceCoalescesBursts() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -803,5 +905,44 @@ private actor ObservedFilesystemChanges {
         return await withCheckedContinuation { continuation in
             nextWaiters.append(continuation)
         }
+    }
+}
+
+private actor ControlledPathFilterLoader {
+    private var shouldSuspendNextLoad = false
+    private var suspendedContinuation: CheckedContinuation<Void, Never>?
+    private var suspendedWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func suspendNextLoad() {
+        shouldSuspendNextLoad = true
+    }
+
+    func load(forRootPath rootPath: URL) async -> FilesystemPathFilter {
+        if shouldSuspendNextLoad {
+            shouldSuspendNextLoad = false
+            await withCheckedContinuation { continuation in
+                suspendedContinuation = continuation
+                let waiters = suspendedWaiters
+                suspendedWaiters.removeAll(keepingCapacity: false)
+                for waiter in waiters {
+                    waiter.resume()
+                }
+            }
+        }
+
+        return await FilesystemPathFilter.load(forRootPath: rootPath)
+    }
+
+    func waitForSuspendedLoad() async {
+        guard suspendedContinuation == nil else { return }
+        await withCheckedContinuation { continuation in
+            suspendedWaiters.append(continuation)
+        }
+    }
+
+    func resumeSuspendedLoad() {
+        let continuation = suspendedContinuation
+        suspendedContinuation = nil
+        continuation?.resume()
     }
 }

@@ -5,7 +5,7 @@ mode="${1:-test}"
 shift || true
 
 case "$mode" in
-  test|test-fast|test-webkit)
+  test|test-fast|test-webkit|test-otlp-smoke)
     ;;
   *)
     echo "run-swift-test-task: unknown mode '$mode'" >&2
@@ -38,6 +38,7 @@ case "$mode" in
   test)
     run_non_serialized_swift_tests "non-serialized suites"
     run_webkit_suites
+    run_otlp_bootstrap_smoke
 
     echo "--- E2E serialized tests (serial) ---"
     if [ "${SWIFT_TEST_INCLUDE_E2E:-0}" = "1" ]; then
@@ -64,5 +65,8 @@ case "$mode" in
     ;;
   test-webkit)
     run_webkit_suites
+    ;;
+  test-otlp-smoke)
+    run_otlp_bootstrap_smoke
     ;;
 esac

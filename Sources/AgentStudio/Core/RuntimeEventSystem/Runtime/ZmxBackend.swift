@@ -240,6 +240,26 @@ final class ZmxBackend: SessionBackend {
             && segments[1] == paneSessionSegment(drawerPaneId)
     }
 
+    static func isAgentStudioSessionId(_ sessionId: String) -> Bool {
+        let mainSegments = sessionId.split(separator: "-", omittingEmptySubsequences: false)
+        if mainSegments.count == 4,
+            mainSegments[0] == "as",
+            isLowercaseHex16(mainSegments[1]),
+            isLowercaseHex16(mainSegments[2]),
+            isLowercaseHex16(mainSegments[3])
+        {
+            return true
+        }
+
+        let drawerPrefix = "\(sessionPrefix)d--"
+        guard sessionId.hasPrefix(drawerPrefix) else { return false }
+        let drawerSegments = String(sessionId.dropFirst(drawerPrefix.count))
+            .components(separatedBy: "--")
+        return drawerSegments.count == 2
+            && isLowercaseHex16(Substring(drawerSegments[0]))
+            && isLowercaseHex16(Substring(drawerSegments[1]))
+    }
+
     private static func isDrawerSessionId(_ sessionId: String) -> Bool {
         sessionId.hasPrefix("\(sessionPrefix)d--")
     }
@@ -387,7 +407,7 @@ final class ZmxBackend: SessionBackend {
                 .components(separatedBy: "\n")
                 .filter { !$0.isEmpty }
                 .compactMap(Self.extractSessionName(from:))
-                .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("as-d--") }
+                .filter(Self.isAgentStudioSessionId)
             return .complete(Set(sessionIds))
         } catch {
             zmxLogger.warning("Failed to discover AgentStudio zmx sessions: \(error.localizedDescription)")

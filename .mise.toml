@@ -187,16 +187,20 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test]
-description = "Run default test suite (excludes E2E + ZmxE2E by default)"
+description = "Run default test suite (includes isolated OTLP smoke; excludes E2E + ZmxE2E by default)"
 run = "/bin/bash scripts/run-swift-test-task.sh test"
 
 [tasks.test-fast]
-description = "Run fast lane: unit + non-WebKit integration tests, excluding WebKit/E2E/ZmxE2E"
+description = "Run fast lane: unit + non-WebKit integration tests, excluding isolated OTLP smoke/WebKit/E2E/ZmxE2E"
 run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
 
 [tasks.test-webkit]
 description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
 run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"
+
+[tasks.test-otlp-smoke]
+description = "Run isolated real OTLP bootstrap/export smoke"
+run = "/bin/bash scripts/run-swift-test-task.sh test-otlp-smoke"
 
 [tasks.test-coverage]
 description = "Run test suite with code coverage and print coverage JSON path"

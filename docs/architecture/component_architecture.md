@@ -1139,13 +1139,15 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `App/Coordination/PaneCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
 | `App/Windows/MainWindowController.swift` | Primary window management |
 | `App/Windows/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
-| `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
+| `App/Panes/PaneTabViewController.swift` | AppKit pane shell, tab-content host lifecycle, and workspace command routing |
+| `App/Panes/WorkspaceFocusController.swift` | Pane focus trigger handling and focus owner synchronization |
+| `App/Panes/TabBarInteractionController.swift` | Tab-bar command wiring, drag/drop/reorder helpers, and tab rename popovers |
 | **Features/Terminal** | |
 | `Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift` | Placeholder shown for zmx panes awaiting geometry (`.preparing`) or failed starts |
 | `Features/Terminal/Restore/TerminalRestoreScheduler.swift` | Orders panes by `VisibilityTier` for staged restore (visible first) |
 | **Core/Actions** (workspace mutations) | |
 | `Core/Actions/PaneActionCommand.swift` | Workspace-level action enum (selectTab, closePane, insertPane, etc.) |
-| `Core/Actions/ActionResolver.swift` | `WorkspaceCommandResolver` resolves user input → PaneActionCommand |
+| `Core/Actions/ActionResolver.swift` | `WorkspaceCommandResolver` resolves user input → PaneActionCommand and owns pure command-side policies such as worktree tab reuse |
 | `Core/Actions/ActionValidator.swift` | `WorkspaceCommandValidator` validates actions before execution |
 | `Core/Actions/ActionStateSnapshot.swift` | Captures state for validation |
 | **Core/RuntimeEventSystem/** | |

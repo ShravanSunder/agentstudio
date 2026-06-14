@@ -6,10 +6,10 @@ import Testing
 @Suite("FilesystemPathFilter")
 struct FilesystemPathFilterTests {
     @Test("classifies git internals before ignore policy")
-    func classifiesGitInternalsBeforeIgnorePolicy() throws {
+    func classifiesGitInternalsBeforeIgnorePolicy() async throws {
         let rootPath = try makeRootWithGitIgnore(lines: ["*"])
         defer { try? FileManager.default.removeItem(at: rootPath) }
-        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+        let filter = await FilesystemPathFilter.load(forRootPath: rootPath)
 
         #expect(filter.classify(relativePath: ".git/index") == .gitInternal)
         #expect(filter.classify(relativePath: "src/.git/config") == .gitInternal)
@@ -17,7 +17,7 @@ struct FilesystemPathFilterTests {
     }
 
     @Test("gitignore supports negation, root anchoring, directory patterns, and single-char wildcard")
-    func supportsNegationAnchoringDirectoryAndSingleWildcard() throws {
+    func supportsNegationAnchoringDirectoryAndSingleWildcard() async throws {
         let rootPath = try makeRootWithGitIgnore(
             lines: [
                 "*.log",
@@ -28,7 +28,7 @@ struct FilesystemPathFilterTests {
             ]
         )
         defer { try? FileManager.default.removeItem(at: rootPath) }
-        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+        let filter = await FilesystemPathFilter.load(forRootPath: rootPath)
 
         #expect(filter.isIgnored(relativePath: "debug.log"))
         #expect(!filter.isIgnored(relativePath: "important.log"))
@@ -40,7 +40,7 @@ struct FilesystemPathFilterTests {
     }
 
     @Test("double-star glob and regex metacharacters in file names are handled correctly")
-    func supportsDoubleStarAndRegexMetacharacters() throws {
+    func supportsDoubleStarAndRegexMetacharacters() async throws {
         let rootPath = try makeRootWithGitIgnore(
             lines: [
                 "docs/**/*.tmp",
@@ -48,7 +48,7 @@ struct FilesystemPathFilterTests {
             ]
         )
         defer { try? FileManager.default.removeItem(at: rootPath) }
-        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+        let filter = await FilesystemPathFilter.load(forRootPath: rootPath)
 
         #expect(filter.isIgnored(relativePath: "docs/a/b/c.tmp"))
         #expect(!filter.isIgnored(relativePath: "docs/a/b/c.txt"))
@@ -57,17 +57,17 @@ struct FilesystemPathFilterTests {
     }
 
     @Test("missing .gitignore falls back to empty ignore policy")
-    func missingGitIgnoreFallsBackToEmptyPolicy() throws {
+    func missingGitIgnoreFallsBackToEmptyPolicy() async throws {
         let rootPath = try makeEmptyRoot()
         defer { try? FileManager.default.removeItem(at: rootPath) }
 
-        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+        let filter = await FilesystemPathFilter.load(forRootPath: rootPath)
         #expect(filter.classify(relativePath: "Sources/App.swift") == .projected)
         #expect(!filter.isIgnored(relativePath: "debug.log"))
     }
 
     @Test("empty/comment-only .gitignore does not ignore paths")
-    func commentOnlyGitIgnoreDoesNotIgnorePaths() throws {
+    func commentOnlyGitIgnoreDoesNotIgnorePaths() async throws {
         let rootPath = try makeRootWithGitIgnore(
             lines: [
                 "",
@@ -78,7 +78,7 @@ struct FilesystemPathFilterTests {
         )
         defer { try? FileManager.default.removeItem(at: rootPath) }
 
-        let filter = FilesystemPathFilter.load(forRootPath: rootPath)
+        let filter = await FilesystemPathFilter.load(forRootPath: rootPath)
         #expect(filter.classify(relativePath: "build/output.o") == .projected)
         #expect(!filter.isIgnored(relativePath: "Sources/App.swift"))
     }

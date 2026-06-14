@@ -9,13 +9,13 @@ extension AppDelegate {
         using restoreBounds: CGRect,
         source: StaticString
     ) async {
-        guard !launchRestoreObservationState.didComplete else { return }
+        guard launchRestoreObservationState.beginRestoreIfNeeded() else { return }
         guard !restoreBounds.isEmpty else {
             RestoreTrace.log("launchRestore skipped reason=emptyBounds source=\(source)")
             launchRestoreLogger.error(
                 "Launch restore attempted with empty bounds source=\(source, privacy: .public) storeBounds=\(NSStringFromRect(self.windowLifecycleStore.terminalContainerBounds), privacy: .public)"
             )
-            launchRestoreObservationState.complete()
+            completeLaunchRestore()
             return
         }
 
@@ -24,8 +24,13 @@ extension AppDelegate {
         )
         await paneCoordinator.restoreAllViews(in: restoreBounds)
         mainWindowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
-        launchRestoreObservationState.complete()
+        completeLaunchRestore()
         RestoreTrace.log("launchRestore end registeredViews=\(viewRegistry.registeredPaneIds.count)")
+    }
+
+    private func completeLaunchRestore() {
+        guard !launchRestoreObservationState.didComplete else { return }
+        launchRestoreObservationState.complete()
     }
 
     func observeLaunchRestoreReadiness() {
@@ -45,6 +50,12 @@ extension AppDelegate {
                     return
                 }
                 guard !self.launchRestoreObservationState.didComplete else { return }
+                guard !self.launchRestoreObservationState.isInProgress else {
+                    launchRestoreLogger.error(
+                        "Launch restore timed out while restore is already in progress; skipping concurrent recovery"
+                    )
+                    return
+                }
                 launchRestoreLogger.error(
                     "Launch restore timed out — isSettled=\(self.windowLifecycleStore.isLaunchLayoutSettled, privacy: .public) bounds=\(NSStringFromRect(self.windowLifecycleStore.terminalContainerBounds), privacy: .public)"
                 )

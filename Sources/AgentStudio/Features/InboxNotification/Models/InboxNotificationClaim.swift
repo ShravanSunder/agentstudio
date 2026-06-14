@@ -35,3 +35,18 @@ struct InboxNotificationClaimKey: Sendable, Codable, Equatable, Hashable {
     let semantic: InboxNotificationClaimSemantic
     let sessionId: UUID?
 }
+
+enum InboxNotificationClaimCoalescence {
+    static func canCoalesce(
+        existing: InboxNotification,
+        incoming: InboxNotification
+    ) -> Bool {
+        if !existing.isRead && !existing.isDismissedFromPaneInbox {
+            return true
+        }
+        return existing.isRead
+            && existing.isDismissedFromPaneInbox
+            && incoming.isRead
+            && incoming.isDismissedFromPaneInbox
+    }
+}

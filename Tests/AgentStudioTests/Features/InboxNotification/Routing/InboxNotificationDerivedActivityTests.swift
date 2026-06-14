@@ -36,8 +36,8 @@ extension InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
-    @Test("focused pane activity appends no unread PaneInbox notification")
-    func focusedPaneActivityAppendsNoUnreadPaneInboxNotification() async {
+    @Test("focused bottom-pinned pane activity appends no unread PaneInbox notification")
+    func focusedBottomPinnedPaneActivityAppendsNoUnreadPaneInboxNotification() async {
         let fixture = await makeFixture()
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
@@ -51,7 +51,7 @@ extension InboxNotificationRouterTests {
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: paneId,
-                event: .terminalActivity(.unseenActivitySettled(makeSettledActivity()))
+                event: .terminalActivity(.unseenActivitySettled(makeSettledActivity(isPinnedToBottom: true)))
             )
         )
 
@@ -70,8 +70,8 @@ extension InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
-    @Test("visible sibling scrolled to bottom appends derived activity as read history")
-    func visibleSiblingScrolledToBottomAppendsDerivedActivityAsReadHistory() async {
+    @Test("visible sibling scrolled to bottom keeps derived activity unread")
+    func visibleSiblingScrolledToBottomKeepsDerivedActivityUnread() async {
         let fixture = await makeFixture()
         let focusedPaneId = PaneId()
         let visibleSiblingPaneId = PaneId()
@@ -97,11 +97,11 @@ extension InboxNotificationRouterTests {
         await waitForNotificationCount(
             1,
             in: fixture,
-            description: "bottom-pinned visible sibling activity should append read history"
+            description: "bottom-pinned visible sibling activity should remain unread until attended"
         )
-        #expect(fixture.inboxAtom.notifications[0].isRead == true)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
-        #expect(fixture.inboxAtom.globalUnreadCount == 0)
+        #expect(fixture.inboxAtom.notifications[0].isRead == false)
+        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
+        #expect(fixture.inboxAtom.globalUnreadCount == 1)
         await fixture.router.stop()
         await fixture.tracker.stop()
         fixture.attendedPane.stop()

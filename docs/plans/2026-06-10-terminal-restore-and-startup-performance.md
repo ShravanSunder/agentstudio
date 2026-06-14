@@ -105,28 +105,41 @@ Read-only context:
    `restorePaneAndDrawers`, surface-create duration, zmx discovery duration)
    and a save-duration trace in the datastore (pane/tab counts + ms). Run
    debug build with `AGENTSTUDIO_RESTORE_TRACE=1` at 10 and 30 panes; record
-   the baseline table in this plan's PR description.
+   the baseline table in this plan's PR description. Hard gate: no task 2-6
+   work merges without the baseline table recorded — reviewers cannot judge
+   improvements without it.
 2. **Defer/trim zmx discovery.** Start visible-pane restore immediately;
    resolve `hiddenLiveSessionIds()` concurrently and await it only before the
    hidden-pane loop. Add a `retryPolicy` parameter to `executeWithRetry` and
    use single-attempt for discovery (destroy/kill keep the standard policy).
+   Coordination: the zmx-lifecycle plan (task 3) sequences orphan cleanup
+   *after* launch restore — compatible with this deferral; neither change may
+   put `zmx list` back on the visible-restore critical path.
 3. **Move the Worktrunk check off the launch path.** Run it after the first
    window is visible; replace `runModal()` with a non-blocking presentation
    consistent with the no-toast contract (e.g. a persistent inbox notification
    of kind `approvalRequested`-style or a sheet on explicit user action).
    Drop the synchronous probe from `applicationDidFinishLaunching`.
-4. **Gate surface health checks.** Pause the health Timer while
-   `AppLifecycleAtom.isActive == false` (resume + immediate check on
-   activation), and skip `pendingUndo`/hidden surfaces unless their state can
-   change while hidden (verify: zmx-backed hidden surfaces can die — keep them
-   but at a slower cadence, e.g. every 5th tick).
-5. **Derived memoization — measure, then decide.** Add a debug-only access
-   counter to `Derived.value`; capture reads-per-frame during tab switching
-   and sidebar interaction at 30 panes. If a hot derived value exceeds ~100
-   recomputes/s, add per-`Derived` last-value caching keyed by an atom
-   revision counter (bump on mutation) — smallest viable invalidation, no
-   general dependency graph. If below threshold, record the numbers and close
-   this task as not-justified.
+4. **Gate surface health checks.** Implementation note: `SurfaceManager`
+   creates its `Timer.scheduledTimer` directly (no injected clock today), so
+   the smallest compliant change is lifecycle-driven gating, not a clock
+   refactor: observe `AppLifecycleAtom.isActive`; on deactivation invalidate
+   the timer, on activation recreate it and run one immediate check. Skip
+   `pendingUndo`/hidden surfaces unless their state can change while hidden
+   (verify: zmx-backed hidden surfaces can die — keep them but at a slower
+   cadence, e.g. every 5th tick). A full injected-clock refactor of the
+   health loop is optional follow-up, not this task.
+5. **Derived memoization — measure, then decide.** Instrumentation must be
+   repo-rule compliant (no new `#if DEBUG` hooks in production files): inject
+   an optional metrics-recorder seam into `Derived` (constructor parameter
+   defaulting to a no-op, same pattern as injected clocks) or count via the
+   existing runtime-env-gated diagnostics mechanism (`RestoreTrace` is
+   env-gated at runtime, which is compliant). Capture reads-per-frame during
+   tab switching and sidebar interaction at 30 panes. If a hot derived value
+   exceeds ~100 recomputes/s, add per-`Derived` last-value caching keyed by
+   an atom revision counter (bump on mutation) — smallest viable
+   invalidation, no general dependency graph. If below threshold, record the
+   numbers and close this task as not-justified.
 6. **Save-pipeline verdict.** From task 1 numbers: if p95 save duration at 30
    panes is under ~10ms, document "full-replace is fine" in
    `atom_persistence_boundaries.md` and stop; otherwise write a follow-up plan
@@ -140,8 +153,10 @@ Read-only context:
 - Red/green: discovery-deferral test (visible restore proceeds while
   discovery is pending — fake backend with delayed `list`); health-gating test
   (no `isAlive` calls while inactive, immediate check on activation).
-- Focused validation: `mise run test -- --filter "SurfaceManager"`,
-  `mise run test -- --filter "Restore"`.
+- Focused validation: `mise run test -- --filter "SurfaceManager"` (verify
+  the suite name matches before relying on it),
+  `mise run test -- --filter "TerminalRestore"` (narrowed from "Restore",
+  which over-matches unrelated suites).
 - Full validation: `mise run test`, `mise run lint` — zero errors.
 - Manual: Peekaboo-verified launch with 10+ restored panes; Worktrunk-missing
   scenario shows the non-modal surface and the window appears immediately.

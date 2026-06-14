@@ -4,6 +4,44 @@ import os.log
 
 private let runtimeLogger = Logger(subsystem: "com.agentstudio", category: "SessionRuntime")
 
+private enum SessionHealthCheckOutcome {
+    case alive(Bool)
+    case timedOut
+    case cancelled
+}
+
+private final class SessionHealthCheckRace: @unchecked Sendable {
+    private let lock = NSLock()
+    private var outcome: SessionHealthCheckOutcome?
+    private var continuation: CheckedContinuation<SessionHealthCheckOutcome, Never>?
+
+    func wait() async -> SessionHealthCheckOutcome {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if let outcome {
+                lock.unlock()
+                continuation.resume(returning: outcome)
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+        }
+    }
+
+    func complete(_ outcome: SessionHealthCheckOutcome) {
+        lock.lock()
+        guard self.outcome == nil else {
+            lock.unlock()
+            return
+        }
+        self.outcome = outcome
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: outcome)
+    }
+}
+
 // MARK: - Session Status
 
 /// Runtime state of a terminal session. Not persisted — derived at runtime.
@@ -23,7 +61,7 @@ enum SessionRuntimeStatus: String, Codable, Hashable, Sendable {
 /// Abstraction for terminal session providers (Ghostty, zmx, etc.).
 /// Concrete implementations handle process lifecycle and health monitoring.
 @MainActor
-protocol SessionBackendProtocol {
+protocol SessionBackendProtocol: Sendable {
     /// Provider type this backend handles.
     var provider: SessionProvider { get }
 
@@ -61,6 +99,9 @@ final class SessionRuntime {
     /// Delay scheduler for periodic health checks.
     private let delay: AsyncDelay
 
+    /// Per-pane health check timeout.
+    private let healthCheckTimeout: Duration
+
     /// Reference to the store (read-only for pane list).
     private weak var store: WorkspaceStore?
 
@@ -71,12 +112,14 @@ final class SessionRuntime {
         atom: SessionRuntimeAtom = SessionRuntimeAtom(),
         store: WorkspaceStore? = nil,
         healthCheckInterval: TimeInterval = 30,
-        clock: (any Clock<Duration> & Sendable)? = nil
+        clock: (any Clock<Duration> & Sendable)? = nil,
+        healthCheckTimeout: Duration = .seconds(5)
     ) {
         self.atom = atom
         self.store = store
         self.healthCheckInterval = healthCheckInterval
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
+        self.healthCheckTimeout = healthCheckTimeout
     }
 
     isolated deinit {
@@ -176,11 +219,54 @@ final class SessionRuntime {
                 let backend = backends[provider]
             else { continue }
 
-            let alive = await backend.isAlive(pane: pane)
+            let alive = await isAliveWithinTimeout(
+                pane: pane,
+                provider: provider,
+                backend: backend
+            )
             if !alive {
                 atom.markUnhealthy(id)
                 runtimeLogger.warning("Pane \(id) unhealthy (\(provider.rawValue))")
             }
+        }
+    }
+
+    private func isAliveWithinTimeout(
+        pane: Pane,
+        provider: SessionProvider,
+        backend: any SessionBackendProtocol
+    ) async -> Bool {
+        let delay = self.delay
+        let timeout = healthCheckTimeout
+        let race = SessionHealthCheckRace()
+        let healthTask = Task {
+            race.complete(.alive(await backend.isAlive(pane: pane)))
+        }
+        let timeoutTask = Task {
+            do {
+                try await delay.wait(timeout)
+                race.complete(.timedOut)
+            } catch is CancellationError {
+                race.complete(.cancelled)
+            } catch {
+                race.complete(.timedOut)
+            }
+        }
+
+        let outcome = await race.wait()
+        healthTask.cancel()
+        timeoutTask.cancel()
+
+        switch outcome {
+        case .alive(let alive):
+            return alive
+        case .timedOut:
+            runtimeLogger.warning(
+                "Pane \(pane.id) health check timed out after \(timeout.description) (\(provider.rawValue))"
+            )
+            return false
+        case .cancelled:
+            return false
         }
     }
 

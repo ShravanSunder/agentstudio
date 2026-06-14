@@ -83,11 +83,16 @@ Read-only context:
 3. **Fix the focus-handle TOCTOU.** Move the `setAppFocus` call inside the
    lock's critical section: extend `GhosttyAppHandleBits` with
    `withCurrent(_ body: (ghostty_app_t) -> Void)` executing under
-   `lock.withLock`, so clearing cannot interleave between read and use. Verify
-   `ghostty_app_set_focus` is safe to call under an unfair lock (it is a quick
-   state setter; confirm via deepwiki/ghostty source during execution — if it
-   can re-enter Swift callbacks, switch to a generation-counter validation
-   scheme instead and document why).
+   `lock.withLock`, so clearing cannot interleave between read and use.
+   Grounding (researched via deepwiki ghostty-org/ghostty):
+   `ghostty_app_set_focus` updates a boolean field on the App struct — no
+   allocation, no locks, no callbacks back into the host — so it meets
+   Apple's unfair-lock discipline ("keep the body small; do not call out to
+   code you do not control" — this call is verified-controlled). Constraint:
+   the critical section may contain **only** this verified call; if a future
+   change needs another C call in the section, re-verify it to the same bar
+   or switch to the generation-counter validation scheme (documented
+   fallback). State both the evidence and the constraint in a code comment.
 4. **Audit the freeing order.** Confirm `clearAppHandleForDeinit()` is invoked
    strictly before `ghostty_app_free` in `GhosttyAppHandle` teardown; add a
    comment stating the ordering contract at both sites.
@@ -98,8 +103,10 @@ Read-only context:
 
 - Red/green: exhaustiveness test fails if any routed tag lacks a decision
   (validate by temporarily removing one handler case locally); TOCTOU test via
-  the injectable `GhosttyAppFocusSetting` fake — concurrent clear + sync never
-  delivers a cleared handle to the setter.
+  the injectable `GhosttyAppFocusSetting` fake — a bounded stress loop
+  (N detached `clearAppHandleForDeinit()` tasks racing M `sync` calls, no
+  sleeps) asserts the recording setter never receives a zero/cleared handle
+  bit-pattern.
 - Focused validation: `mise run test -- --filter "GhosttyActionRouter"`,
   `mise run test -- --filter "AppFocusSynchronizer"`.
 - Full validation: `mise run test`, `mise run lint` — zero errors.
@@ -109,9 +116,10 @@ Read-only context:
 
 ## Stop Conditions
 
-- Stop if `ghostty_app_set_focus` can synchronously re-enter Swift (lock
-  inversion risk) — report and switch to the generation-counter design before
-  proceeding.
+- Resolved during plan review: deepwiki verification shows
+  `ghostty_app_set_focus` cannot re-enter Swift (atomic boolean setter). The
+  stop condition now applies only if execution-time reading of the vendored
+  ghostty source contradicts that finding (e.g. after a ghostty bump).
 - Stop if the exhaustiveness test reveals tags whose correct routing is
   ambiguous (product decision needed on default behavior) — list them and ask.
 

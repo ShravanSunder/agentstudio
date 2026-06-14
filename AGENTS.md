@@ -614,6 +614,9 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `PaneCoordinator+TerminalPlaceholders` | `App/Coordination/` | Terminal placeholder creation and management |
 | `PaneCoordinator+Undo` | `App/Coordination/` | Pane close undo support |
 | `PaneCoordinator+ViewLifecycle` | `App/Coordination/` | NSView lifecycle orchestration for panes |
+| `PaneTabViewController` | `App/Panes/` | AppKit pane shell, tab-content host lifecycle, and workspace command routing surface |
+| `WorkspaceFocusController` | `App/Panes/` | Pane focus trigger handling, focus owner normalization, and focus executor construction |
+| `TabBarInteractionController` | `App/Panes/` | Tab-bar command wiring, drag/reorder/drop helpers, and tab rename popover lifecycle |
 | `WorkspaceCacheCoordinator` | `App/` | Event bus consumer, updates stores |
 | `WorkspaceIdentityAtom` | `Core/State/MainActor/Atoms/` | Workspace id, name, and creation timestamp |
 | `WorkspaceWindowMemoryAtom` | `Core/State/MainActor/Atoms/` | Local sidebar width and window frame memory |
@@ -644,7 +647,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceSettingsStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for editor bookmark, checkout colors, and inbox notification preferences until feature-specific settings stores split |
 | `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx attach orchestration using stored pane anchors |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo |
-| `WorkspaceCommandResolver` | `Core/Actions/` | Resolves AppCommand into PaneActionCommand, builds ActionStateSnapshot |
+| `WorkspaceCommandResolver` | `Core/Actions/` | Resolves AppCommand into PaneActionCommand, builds ActionStateSnapshot, and owns pure command-side policies such as worktree tab reuse |
 | `WorkspaceCommandValidator` | `Core/Actions/` | Validates PaneActionCommand against ActionStateSnapshot |
 | `BridgePaneController` | `Features/Bridge/` | WKWebView lifecycle for React panes |
 | `RPCRouter` | `Features/Bridge/Transport/` | JSON-RPC dispatch for bridge messages |

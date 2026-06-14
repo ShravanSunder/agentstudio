@@ -295,6 +295,35 @@ enum WorkspaceCommandResolver {
         )
     }
 
+    // MARK: - Worktree Tab Reuse
+
+    static func existingTabForWorktree<T: ResolvableTab>(
+        _ worktreeId: UUID,
+        in tabs: [T],
+        worktreeIdForPane: (UUID) -> UUID?
+    ) -> UUID? {
+        existingTabAndPaneForWorktree(
+            worktreeId,
+            in: tabs,
+            worktreeIdForPane: worktreeIdForPane
+        )?.tabId
+    }
+
+    static func existingTabAndPaneForWorktree<T: ResolvableTab>(
+        _ worktreeId: UUID,
+        in tabs: [T],
+        worktreeIdForPane: (UUID) -> UUID?
+    ) -> (tabId: UUID, paneId: UUID)? {
+        for tab in tabs {
+            if let paneId = tab.ownedPaneIds.first(where: { paneId in
+                worktreeIdForPane(paneId) == worktreeId
+            }) {
+                return (tab.id, paneId)
+            }
+        }
+        return nil
+    }
+
     // MARK: - Private Helpers
 
     private static func activeTabAndPane<T: ResolvableTab>(

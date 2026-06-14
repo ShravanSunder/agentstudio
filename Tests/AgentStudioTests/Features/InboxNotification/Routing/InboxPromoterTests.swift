@@ -67,11 +67,15 @@ struct InboxPromoterTests {
         #expect(listModel.sections.first?.notifications.first?.id == fixture.atom.notifications[0].id)
     }
 
-    @Test("observed pinned repeated activity updates one read history session")
-    func observedPinnedRepeatedActivityUpdatesOneReadHistorySession() {
+    @Test("attended pinned repeated activity updates one read history session")
+    func attendedPinnedRepeatedActivityUpdatesOneReadHistorySession() {
         let paneId = UUID()
         let fixture = Fixture(
-            policySnapshot: .init(observedPaneIds: [paneId], pinnedToBottomByPaneId: [paneId: true])
+            policySnapshot: .init(
+                attendedPaneId: paneId,
+                observedPaneIds: [paneId],
+                pinnedToBottomByPaneId: [paneId: true]
+            )
         )
 
         fixture.promoter.promoteSettledActivity(
@@ -93,11 +97,15 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications[0].activityContext?.rowsAdded == 90)
     }
 
-    @Test("focused explicit activity clears existing unread session")
-    func focusedExplicitActivityClearsExistingUnreadSession() {
+    @Test("attended pinned explicit activity keeps session read dismissed")
+    func attendedPinnedExplicitActivityKeepsSessionReadDismissed() {
         let paneId = UUID()
         let fixture = Fixture(
-            policySnapshot: .init(attendedPaneId: paneId, observedPaneIds: [paneId])
+            policySnapshot: .init(
+                attendedPaneId: paneId,
+                observedPaneIds: [paneId],
+                pinnedToBottomByPaneId: [paneId: true]
+            )
         )
 
         fixture.promoter.promoteSettledActivity(
@@ -279,12 +287,16 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications[1].isRead == false)
     }
 
-    @Test("stale observed history session does not absorb future settled activity")
-    func staleObservedHistorySessionDoesNotAbsorbFutureSettledActivity() {
+    @Test("stale attended history session does not absorb future settled activity")
+    func staleAttendedHistorySessionDoesNotAbsorbFutureSettledActivity() {
         var now = Date(timeIntervalSince1970: 1000)
         let paneId = UUID()
         let fixture = Fixture(
-            policySnapshot: .init(observedPaneIds: [paneId], pinnedToBottomByPaneId: [paneId: true]),
+            policySnapshot: .init(
+                attendedPaneId: paneId,
+                observedPaneIds: [paneId],
+                pinnedToBottomByPaneId: [paneId: true]
+            ),
             now: { now }
         )
 
@@ -306,11 +318,15 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications[1].claimKey?.sessionId != firstSessionId)
     }
 
-    @Test("observed pinned small activity is suppressed")
-    func observedPinnedSmallActivityIsSuppressed() {
+    @Test("attended pinned small activity is suppressed")
+    func attendedPinnedSmallActivityIsSuppressed() {
         let paneId = UUID()
         let fixture = Fixture(
-            policySnapshot: .init(observedPaneIds: [paneId], pinnedToBottomByPaneId: [paneId: true])
+            policySnapshot: .init(
+                attendedPaneId: paneId,
+                observedPaneIds: [paneId],
+                pinnedToBottomByPaneId: [paneId: true]
+            )
         )
 
         fixture.promoter.promoteSettledActivity(
@@ -340,8 +356,30 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox == false)
     }
 
-    @Test("observed pinned large activity is retained as read history")
-    func observedPinnedLargeActivityIsRetainedAsReadHistory() {
+    @Test("attended pinned large activity is retained as read history")
+    func attendedPinnedLargeActivityIsRetainedAsReadHistory() {
+        let paneId = UUID()
+        let fixture = Fixture(
+            policySnapshot: .init(
+                attendedPaneId: paneId,
+                observedPaneIds: [paneId],
+                pinnedToBottomByPaneId: [paneId: true]
+            )
+        )
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 60),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+
+        #expect(fixture.atom.notifications.count == 1)
+        #expect(fixture.atom.notifications[0].isRead == true)
+        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox == true)
+    }
+
+    @Test("observed pinned large activity remains unread")
+    func observedPinnedLargeActivityRemainsUnread() {
         let paneId = UUID()
         let fixture = Fixture(
             policySnapshot: .init(observedPaneIds: [paneId], pinnedToBottomByPaneId: [paneId: true])
@@ -354,8 +392,8 @@ struct InboxPromoterTests {
         )
 
         #expect(fixture.atom.notifications.count == 1)
-        #expect(fixture.atom.notifications[0].isRead == true)
-        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox == true)
+        #expect(fixture.atom.notifications[0].isRead == false)
+        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox == false)
     }
 
     private struct Fixture {

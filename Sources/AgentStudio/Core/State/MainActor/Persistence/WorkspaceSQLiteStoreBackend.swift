@@ -14,13 +14,16 @@ struct WorkspaceSQLiteStoreBackend {
 
     let coreRepository: WorkspaceCoreRepository
     let localBackend: WorkspaceLocalSQLiteStoreBackend
+    private let beforeCoreSnapshotCommit: @Sendable (WorkspaceSQLiteSnapshot) throws -> Void
 
     init(
         coreRepository: WorkspaceCoreRepository,
-        localBackend: WorkspaceLocalSQLiteStoreBackend
+        localBackend: WorkspaceLocalSQLiteStoreBackend,
+        beforeCoreSnapshotCommit: @escaping @Sendable (WorkspaceSQLiteSnapshot) throws -> Void = { _ in }
     ) {
         self.coreRepository = coreRepository
         self.localBackend = localBackend
+        self.beforeCoreSnapshotCommit = beforeCoreSnapshotCommit
     }
 
     init(
@@ -32,7 +35,8 @@ struct WorkspaceSQLiteStoreBackend {
                 UUID,
                 WorkspaceLocalSQLiteLegacyLane
             ) throws -> WorkspaceLocalSQLiteLegacyImportDecision = { _, _ in .allowImport
-            }
+            },
+        beforeCoreSnapshotCommit: @escaping @Sendable (WorkspaceSQLiteSnapshot) throws -> Void = { _ in }
     ) {
         self.coreRepository = coreRepository
         self.localBackend = WorkspaceLocalSQLiteStoreBackend(
@@ -40,6 +44,7 @@ struct WorkspaceSQLiteStoreBackend {
             makeLocalRestoreRepository: makeLocalRestoreRepository,
             legacyImportDecision: legacyImportDecision
         )
+        self.beforeCoreSnapshotCommit = beforeCoreSnapshotCommit
     }
 
     func load(preferredWorkspaceId: UUID) throws -> WorkspaceSQLiteSnapshot? {
@@ -189,11 +194,24 @@ struct WorkspaceSQLiteStoreBackend {
     ) throws {
         // Commit order is core staged -> local completed -> core completed.
         // Restore only trusts a core completion token that the local sidecar can match.
+        try writeLocalSnapshot(snapshot, state: state, localRepository: localRepository)
+        try commitWorkspaceSnapshot(snapshot)
+    }
+
+    func writeLocalSnapshot(
+        _ snapshot: WorkspaceSQLiteSnapshot,
+        state: WorkspacePersistor.PersistableState,
+        localRepository: WorkspaceLocalRepository
+    ) throws {
         try localRepository.replaceWorkspaceSnapshotLocalState(
             cursorState: WorkspaceSQLiteStateBridge.cursorStateRecord(from: state),
             windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
             completedAt: snapshot.updatedAt
         )
+    }
+
+    func commitWorkspaceSnapshot(_ snapshot: WorkspaceSQLiteSnapshot) throws {
+        try beforeCoreSnapshotCommit(snapshot)
         try markWorkspaceSnapshotCommitted(workspaceId: snapshot.id, committedAt: snapshot.updatedAt)
     }
 
@@ -291,6 +309,7 @@ struct WorkspaceSQLiteStoreBackend {
             windowState: WorkspaceSQLiteStateBridge.windowStateRecord(from: state),
             completedAt: snapshot.updatedAt
         )
+        try beforeCoreSnapshotCommit(snapshot)
         try markWorkspaceSnapshotCommitted(workspaceId: snapshot.id, committedAt: snapshot.updatedAt)
         do {
             try coreRepository.markLegacyWorkspaceCoreImported(

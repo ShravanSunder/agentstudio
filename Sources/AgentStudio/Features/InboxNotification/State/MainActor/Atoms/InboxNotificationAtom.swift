@@ -99,7 +99,7 @@ final class InboxNotificationAtom {
         if let index = notifications.firstIndex(where: { existing in
             existing.claimKey == claimKey
                 && claimKey.lane.canMergeWithinActivitySession
-                && canCoalesceClaim(existing: existing, incoming: notification)
+                && InboxNotificationClaimCoalescence.canCoalesce(existing: existing, incoming: notification)
         }) {
             let replacement = merge(notifications[index], notification)
             notifications[index] = replacement
@@ -117,7 +117,7 @@ final class InboxNotificationAtom {
                     let existingClaimKey = existing.claimKey,
                     existingClaimKey.paneId == claimKey.paneId,
                     existingClaimKey.sessionId == sessionId,
-                    canCoalesceClaim(existing: existing, incoming: notification)
+                    InboxNotificationClaimCoalescence.canCoalesce(existing: existing, incoming: notification)
                 else {
                     return false
                 }
@@ -140,19 +140,6 @@ final class InboxNotificationAtom {
             didCoalesce: false,
             retentionOutcome: append(notification)
         )
-    }
-
-    private func canCoalesceClaim(
-        existing: InboxNotification,
-        incoming: InboxNotification
-    ) -> Bool {
-        if !existing.isRead && !existing.isDismissedFromPaneInbox {
-            return true
-        }
-        return existing.isRead
-            && existing.isDismissedFromPaneInbox
-            && incoming.isRead
-            && incoming.isDismissedFromPaneInbox
     }
 
     func replaceAll(_ replacement: [InboxNotification]) {

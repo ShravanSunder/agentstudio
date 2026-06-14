@@ -4,7 +4,7 @@ import GhosttyKit
 
 @MainActor
 extension PaneCoordinator {
-    private struct RestoreAllViewsProgress {
+    struct RestoreAllViewsProgress {
         var restored = 0
         var drawerRestored = 0
         var failedPaneIds: [UUID] = []

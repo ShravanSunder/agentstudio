@@ -83,6 +83,8 @@ extension Ghostty {
         }
 
         deinit {
+            // Clear the focus synchronizer's raw pointer before AppHandle deinit
+            // frees ghostty_app_t.
             focusSynchronizer.clearAppHandleForDeinit()
         }
 

@@ -64,6 +64,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var commandBarController: CommandBarPanelController!
     // MARK: - OAuth
     var oauthService: OAuthService!
+    var sessionConfiguration: SessionConfiguration!
     var filesystemPipelineBootTask: Task<Void, Never>?
     var initialTopologySyncTask: Task<Void, Never>?
     var persistenceObservationBootTask: Task<Void, Never>?
@@ -117,9 +118,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             RestoreTrace.log("unset NO_COLOR for terminal color support")
         }
 
-        // Check for worktrunk dependency
-        checkWorktrunkInstallation()
-
         // Set up main menu (doesn't depend on zmx restore)
         setupMainMenu()
 
@@ -164,6 +162,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         mainWindowController?.completeLaunchPresentation()
+        scheduleWorktrunkInstallationCheckAfterFirstWindowVisible()
         observeLaunchRestoreReadiness()
         wireLifecycleConsumers()
         if let window = mainWindowController?.window {
@@ -188,8 +187,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Dependency Check
 
-    private func checkWorktrunkInstallation() {
+    func scheduleWorktrunkInstallationCheckAfterFirstWindowVisible() {
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.presentWorktrunkInstallationSheetIfNeeded()
+        }
+    }
+
+    private func presentWorktrunkInstallationSheetIfNeeded() {
         guard !WorktrunkService.shared.isInstalled else { return }
+        guard let window = mainWindowController?.window else { return }
 
         let alert = NSAlert()
         alert.messageText = "Worktrunk Not Installed"
@@ -200,29 +207,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.addButton(withTitle: "Copy Command")
         alert.addButton(withTitle: "Later")
 
-        let response = alert.runModal()
+        alert.beginSheetModal(for: window) { response in
+            switch response {
+            case .alertFirstButtonReturn:
+                // Open Terminal and run install
+                let script = """
+                    tell application "Terminal"
+                        activate
+                        do script "\(WorktrunkService.shared.installCommand)"
+                    end tell
+                    """
+                if let appleScript = NSAppleScript(source: script) {
+                    var error: NSDictionary?
+                    appleScript.executeAndReturnError(&error)
+                }
 
-        switch response {
-        case .alertFirstButtonReturn:
-            // Open Terminal and run install
-            let script = """
-                tell application "Terminal"
-                    activate
-                    do script "\(WorktrunkService.shared.installCommand)"
-                end tell
-                """
-            if let appleScript = NSAppleScript(source: script) {
-                var error: NSDictionary?
-                appleScript.executeAndReturnError(&error)
+            case .alertSecondButtonReturn:
+                // Copy command to clipboard
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(WorktrunkService.shared.installCommand, forType: .string)
+
+            default:
+                break
             }
-
-        case .alertSecondButtonReturn:
-            // Copy command to clipboard
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(WorktrunkService.shared.installCommand, forType: .string)
-
-        default:
-            break
         }
     }
 
@@ -234,7 +241,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Called from `applicationDidFinishLaunching` (always main thread).
     @MainActor
     func reconcileZmxSessionAnchorsAtStartup(
-        sessionConfiguration: SessionConfiguration = .detect(),
+        sessionConfiguration: SessionConfiguration,
         makeInventory: (SessionConfiguration) -> (any ZmxStartupSessionInventory)? =
             AppDelegate.makeZmxStartupSessionInventory
     ) async {

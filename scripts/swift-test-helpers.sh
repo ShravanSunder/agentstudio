@@ -33,12 +33,14 @@ run_non_serialized_swift_tests() {
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --parallel --num-workers "$SWIFT_TEST_WORKERS" \
+      --skip AgentStudioOTLPBootstrapSmokeTests \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial $label" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --skip AgentStudioOTLPBootstrapSmokeTests \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   fi
 }
@@ -62,6 +64,15 @@ run_webkit_suites() {
     [ -n "$filter" ] || continue
     run_webkit_suite_with_retry "$filter" || return $?
   done < <(webkit_suite_filters)
+}
+
+run_otlp_bootstrap_smoke() {
+  echo "--- OTLP bootstrap smoke (isolated) ---"
+  run_swift_with_timeout \
+    "AgentStudioOTLPBootstrapSmokeTests" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
+      --skip-build --filter AgentStudioOTLPBootstrapSmokeTests --build-path "$BUILD_PATH"
 }
 
 run_swift_with_timeout() {

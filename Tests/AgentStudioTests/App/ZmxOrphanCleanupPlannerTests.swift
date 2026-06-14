@@ -730,7 +730,7 @@ private final class RecordingZmxStartupSessionInventory: ZmxStartupSessionInvent
 
     init(liveSessionIds: [String]) {
         self.snapshot = .complete(
-            Set(liveSessionIds.filter { $0.hasPrefix(ZmxBackend.sessionPrefix) || $0.hasPrefix("as-d--") })
+            Set(liveSessionIds.filter(ZmxBackend.isAgentStudioSessionId))
         )
     }
 
