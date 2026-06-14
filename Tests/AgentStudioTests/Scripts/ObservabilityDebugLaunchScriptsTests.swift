@@ -701,6 +701,63 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         #expect(result.stderr.contains("startup diagnostic command_exercised record missing"))
     }
 
+    @Test("debug observability verifier does not require render proof for command bar workload diagnostic")
+    func debugObservabilityVerifierDoesNotRequireRenderProofForCommandBarWorkloadDiagnostic() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
+        AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
+        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=command-bar-repo-filter
+        AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(fixture.url("Agent Studio Debug testcode.app").path))
+        """.write(to: stateFile, atomically: true, encoding: .utf8)
+        let debugApp = try fixture.makeAppBundle(
+            name: "Agent Studio Debug testcode.app",
+            releaseChannel: "stable",
+            bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
+        )
+        let curlArguments = fixture.url("curl-arguments")
+
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-debug-observability.sh",
+            stateFile: stateFile,
+            environment: [
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl-command-bar-workload",
+                    """
+                    #!/bin/bash
+                    printf '%s\\n' "$*" >> "\(curlArguments.path)"
+                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *":*"* ]]; then
+                      exit 0
+                    fi
+                    printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+abcd1234","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
+                    "lsof",
+                    """
+                    #!/bin/bash
+                    echo "n\(debugApp.path)/Contents/MacOS/AgentStudio"
+                    """
+                ).path,
+            ]
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        let curlArgumentText = try String(contentsOf: curlArguments, encoding: .utf8)
+        #expect(!curlArgumentText.contains("app.startup_diagnostic_action.command_exercised"))
+        #expect(!curlArgumentText.contains("app.startup_diagnostic_action.completed"))
+    }
+
     @Test("debug observability verifier accepts completed startup diagnostic render proof")
     func debugObservabilityVerifierAcceptsCompletedStartupDiagnosticRenderProof() throws {
         let fixture = try LauncherScriptFixture()

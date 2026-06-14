@@ -297,7 +297,7 @@ if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_UNAVAILABLE_ZMX_STARTUP:-0}" != "1" ] &&
 fi
 
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-$state_startup_diagnostic_action}"
-if [ -n "$startup_diagnostic_action" ]; then
+if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
   startup_diagnostic_action_filter="$(
     logsql_exact_filter agentstudio.startup_diagnostic.action "$startup_diagnostic_action"
   )"
