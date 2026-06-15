@@ -194,9 +194,9 @@ wait_for_metric_count() {
   return 1
 }
 
-marker_filter="$(logsql_exact_value_filter agentstudio.trace.name "$MARKER")"
+marker_filter="$(logsql_exact_value_filter agent.proof.marker "$MARKER")"
 scenario_filter="$(logsql_exact_value_filter agentstudio.bridge.test.scenario "$BRIDGE_OBSERVABILITY_SCENARIO")"
-trace_marker_filter="$(logsql_quoted_exact_value_filter span_attr:agentstudio.trace.name "$MARKER")"
+trace_marker_filter="$(logsql_quoted_exact_value_filter span_attr:agent.proof.marker "$MARKER")"
 trace_scenario_filter="$(
   logsql_quoted_exact_value_filter span_attr:agentstudio.bridge.test.scenario "$BRIDGE_OBSERVABILITY_SCENARIO"
 )"
@@ -248,18 +248,18 @@ required_metric_event_contracts=(
 
 for contract in "${required_metric_event_contracts[@]}"; do
   IFS='|' read -r event_name phase plane priority slice <<<"$contract"
-  promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="'"$MARKER"'",event="'"$event_name"'",phase="'"$phase"'",plane="'"$plane"'",priority="'"$priority"'",slice="'"$slice"'"}'
+  promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="'"$event_name"'",phase="'"$phase"'",plane="'"$plane"'",priority="'"$priority"'",slice="'"$slice"'"}'
   count="$(wait_for_metric_count "missing Bridge metric counter for marker $MARKER: $event_name $phase/$plane/$priority/$slice" "$promql")"
 done
 
-package_push_slice_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="'"$MARKER"'",event="performance.bridge.webkit.package_push",phase="transport",plane="data",priority="cold",slice="diff_package_metadata"}'
+package_push_slice_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push",phase="transport",plane="data",priority="cold",slice="diff_package_metadata"}'
 package_push_slice_count="$(
   wait_for_metric_count \
     "missing Bridge package_push metric counter grouped by plane/priority/slice for marker $MARKER" \
     "$package_push_slice_promql"
 )"
 
-broad_package_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="'"$MARKER"'",event="performance.bridge.webkit.package_push"} unless agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="'"$MARKER"'",event="performance.bridge.webkit.package_push",phase=~".+",plane=~".+",priority=~".+",slice=~".+"}'
+broad_package_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push"} unless agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push",phase=~".+",plane=~".+",priority=~".+",slice=~".+"}'
 broad_package_push_count="$(metric_value "$broad_package_push_promql")"
 if [ "$broad_package_push_count" != "0" ] && [ "$broad_package_push_count" != "0.0" ]; then
   echo "missing Bridge broad package_push metric fallback guard: unlabeled fallback series survived" >&2
@@ -267,7 +267,7 @@ if [ "$broad_package_push_count" != "0" ] && [ "$broad_package_push_count" != "0
   exit 1
 fi
 
-unknown_package_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agentstudio.trace.name="'"$MARKER"'",event="performance.bridge.webkit.package_push",slice="unknown"}'
+unknown_package_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push",slice="unknown"}'
 unknown_package_push_count="$(metric_value "$unknown_package_push_promql")"
 if [ "$unknown_package_push_count" != "0" ] && [ "$unknown_package_push_count" != "0.0" ]; then
   echo "Bridge package_push metric used unknown producer slice" >&2
@@ -278,19 +278,19 @@ fi
 trace_response="$(
   wait_for_trace_query \
     "missing Bridge Swift package_build span in VictoriaTraces for marker $MARKER" \
-    "$trace_marker_filter $trace_scenario_filter \"span_attr:agentstudio.bridge.phase\":\"package_build\" \"span_attr:agentstudio.bridge.transport\":\"swift\" | fields trace_id,span_id,span_name,span_attr:agentstudio.trace.name,span_attr:agentstudio.bridge.test.scenario,span_attr:agentstudio.bridge.phase | limit 20"
+    "$trace_marker_filter $trace_scenario_filter \"span_attr:agentstudio.bridge.phase\":\"package_build\" \"span_attr:agentstudio.bridge.transport\":\"swift\" | fields trace_id,span_id,span_name,span_attr:agent.proof.marker,span_attr:agentstudio.bridge.test.scenario,span_attr:agentstudio.bridge.phase | limit 20"
 )"
 
 content_trace_response="$(
   wait_for_trace_query \
     "missing Bridge content fetch span in VictoriaTraces for marker $MARKER" \
-    "$trace_marker_filter $trace_scenario_filter \"span_attr:agentstudio.bridge.phase\":\"fetch\" \"span_attr:agentstudio.bridge.transport\":\"content\" | fields trace_id,span_id,span_name,span_attr:agentstudio.trace.name,span_attr:agentstudio.bridge.test.scenario,span_attr:agentstudio.bridge.phase | limit 20"
+    "$trace_marker_filter $trace_scenario_filter \"span_attr:agentstudio.bridge.phase\":\"fetch\" \"span_attr:agentstudio.bridge.transport\":\"content\" | fields trace_id,span_id,span_name,span_attr:agent.proof.marker,span_attr:agentstudio.bridge.test.scenario,span_attr:agentstudio.bridge.phase | limit 20"
 )"
 
 rpc_trace_response="$(
   wait_for_trace_query \
     "missing Bridge review RPC span in VictoriaTraces for marker $MARKER" \
-    "$trace_marker_filter $trace_scenario_filter \"span_attr:agentstudio.bridge.phase\":\"dispatch\" \"span_attr:agentstudio.bridge.transport\":\"rpc\" \"span_attr:agentstudio.bridge.rpc.method_class\":\"review\" | fields trace_id,span_id,span_name,span_attr:agentstudio.trace.name,span_attr:agentstudio.bridge.test.scenario,span_attr:agentstudio.bridge.phase,span_attr:agentstudio.bridge.rpc.method_class | limit 20"
+    "$trace_marker_filter $trace_scenario_filter \"span_attr:agentstudio.bridge.phase\":\"dispatch\" \"span_attr:agentstudio.bridge.transport\":\"rpc\" \"span_attr:agentstudio.bridge.rpc.method_class\":\"review\" | fields trace_id,span_id,span_name,span_attr:agent.proof.marker,span_attr:agentstudio.bridge.test.scenario,span_attr:agentstudio.bridge.phase,span_attr:agentstudio.bridge.rpc.method_class | limit 20"
 )"
 
 for unsafe_field in \
