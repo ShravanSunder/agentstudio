@@ -1,8 +1,10 @@
 # AgentStudio IPC Debug Auth And Pane-Agent Bootstrap Plan
 
 Date: 2026-06-15
-Status: Milestone A partially implemented and live-tested; Milestone B and
-terminal completion/readback proof remain open.
+Status: Milestone A implemented and live-tested for title-change readback;
+Milestone B fd bootstrap/helper implemented at the launch-owner seam; machine-
+checked debug smoke implemented with render/runtime readiness proof. Real
+pane-close/child-exit lifecycle wiring remains open.
 Branch: `programatical-control`
 
 ## Current Checkpoint: 2026-06-15
@@ -24,30 +26,39 @@ Implemented and covered by focused tests:
   views so a runtime becomes IPC-addressable.
 
 Live debug app proof captured under
-`tmp/debug-workflows/2026-06-15-agentstudio-ipc-live-proof/`:
+marker `debug-observability-wpzc-1781540889-8300`:
 
 - unsafe no-auth can call `auth.status`, `system.identify`,
-  `system.capabilities`, `window.list`, `workspace.list`, `pane.list`,
-  `command.list`, and `command.execute(commandPalette)`;
+  and `pane.list`;
 - debug token escrow can authenticate through `auth.login` and then call
-  `command.list`;
+  authenticated methods; the debug token file is mode `0600` before login and
+  removed after login;
 - `ipc-terminal-smoke` creates ready terminal panes visible through
   `terminal.status`;
-- `terminal.wait(attachReady)` succeeds;
 - `terminal.send` accepts input against a ready runtime;
-- native app visibility was captured with Peekaboo.
+- `terminal.wait(titleChanged, afterSequence:)` observes the resulting runtime
+  event after accepted input;
+- `terminal.wait(afterSequence:)` uses runtime-owned replay plus live
+  subscription, treats `afterSequence` as a strict floor, and fails fast on
+  replay gaps so callers refresh snapshots;
+- `mise run verify-debug-observability` now requires `ipc-terminal-smoke`
+  startup diagnostic telemetry and fails if the smoke pane count is absent,
+  not exactly one, or lacks terminal view/surface/valid-geometry render proof.
 
 Open gates before this plan can be called complete:
 
-- `terminal.wait(commandFinished)` and `terminal.wait(titleChanged)` timed out
-  after accepted `terminal.send` calls in live proof. This is now a real
-  terminal event/readback gap, not a docs question.
-- The production-shaped pane-agent fd spawn adapter is not implemented. The
-  existing bootstrap factory mints and writes a close-on-exec fd token, but no
-  app-owned launch adapter remaps that fd into a child pane-agent process yet.
-- Pane-agent revocation smoke and stale-principal denial are not live-proven.
-- A machine-checked smoke verifier script is not implemented; current proof is
-  saved JSON/Peekaboo artifacts plus focused tests.
+- `terminal.wait(commandFinished)`, cwd/readback, and prompt-readiness proof
+  remain open runtime-fact work.
+- The production-shaped pane-agent fd spawn adapter is implemented:
+  `PaneAgentLaunchOwner` remaps exactly one bootstrap fd into
+  `agentstudio-pane-agent`, and the helper authenticates against a local IPC
+  server through the fd path.
+- Bound-principal invalidation closes authenticated socket sessions in focused
+  server tests. Real pane-close/child-exit lifecycle wiring and live
+  stale-principal smoke remain open.
+- OTLP debug proof exports `agentstudio.startup_diagnostic.created_pane.count`
+  plus render-proof counts for machine checking, while raw pane UUIDs remain
+  scrubbed.
 
 ## Goal
 
@@ -219,10 +230,10 @@ done.
 | `command.list` and `command.execute` are narrow phase-1 IPC methods backed by `CommandDispatcher` only | T3 | command DTO/adapter/registry tests | Unit/integration | command list returns only four public IPC command ids and denies spawned pane agents | Yes |
 | `command.execute(commandPalette)` rejects without real window preconditions and proves `CommandBarSurfaceAtom.activeSurface` postcondition | T3 | adapter tests plus live smoke | Integration/smoke | result includes verifier-visible workspace window id and scope ordered after dispatch | Yes |
 | Command execution is not grantable via `IPCPermissionScope` in phase 1 | T3 | permission/authorization negative tests | Unit | `permission.request` for command execution fails closed | Yes |
-| Pane-agent fd bootstrap remaps exactly one inheritable fd and rewrites child env to the post-remap fd number | T4 | launch-owner fd tests with child helper/probe | Integration | unrelated subprocess cannot inherit/read token fd | Yes |
-| `agentstudio-pane-agent` reads fd once, closes it, calls `auth.login`, then identifies as `.spawnedPaneAgent` | T5 | helper executable tests against local test server | Integration | replay/read-after-close tests fail | Yes |
-| Unused pane-agent tokens are canceled on spawn failure, exec failure, auth timeout, and server stop | T4/T5 | launch-owner failure tests | Integration | token cannot authenticate after deadline/failure | Yes |
-| Pane close synchronously revokes active principals by closing connections and canceling waits/streams | T6 | server/principal registry tests and live negative smoke | Integration/smoke | in-flight wait is canceled and replacement pane cannot be controlled | Yes |
+| Pane-agent fd bootstrap remaps exactly one inheritable fd and rewrites child env to the post-remap fd number | T4 | `PaneAgentLaunchOwnerTests` | Integration | spawn request uses `POSIX_SPAWN_CLOEXEC_DEFAULT` and one explicit fd action | Yes |
+| `agentstudio-pane-agent` reads fd once, closes it, calls `auth.login`, then identifies as `.spawnedPaneAgent` | T5 | `PaneAgentLaunchOwnerTests` plus `AgentStudioIPCBootstrapTokenReaderTests` | Integration | helper subprocess authenticates against a local IPC server through fd bootstrap | Yes |
+| Unused pane-agent tokens are canceled on spawn failure, exec failure, auth timeout, and server stop | T4/T5 | launch-owner spawn-failure cancellation test plus server stop tests | Integration | auth-timeout and child-exit cancellation still open | Partial |
+| Pane close synchronously revokes active principals by closing connections and canceling waits/streams | T6 | server/principal registry tests | Integration/smoke | bound-principal sockets close; in-flight wait cancellation and live replacement-pane smoke still open | Partial |
 | Debug app can be live-controlled through both debug auth surfaces | T7 | `run-debug-observability` plus machine-checked IPC smoke verifier | Smoke | proof records PID, runtime id, socket path, debug root, correlation id and raw responses with tokens redacted | Yes |
 | Terminal command proof observes runtime effect, not just non-unauthenticated response | T7 | `terminal.send` + `terminal.wait(commandFinished)` or exported runtime fact | Smoke/manual | unique correlation id per run | Yes |
 | Docs are promoted after implementation | T8 | architecture docs and lint inventory updated | Docs/lint | docs use implemented paths and remove stale open decisions | No |
@@ -638,14 +649,14 @@ not satisfy the smoke/manual layer.
 
 ## Next Step
 
-Close the remaining Milestone A proof gap before expanding authority:
+Phase 1 can build on the current IPC usefulness gate. The remaining follow-ups
+are narrower runtime/lifecycle work:
 
-1. Decide whether phase-1 `terminal.wait` should keep `commandFinished` and
-   `titleChanged`, or shrink to only runtime facts currently emitted by the
-   product.
-2. Implement the missing runtime event/readback path or narrow the public wait
-   contract.
-3. Add the machine-checked debug IPC smoke verifier so JSON proof artifacts are
-   validated automatically.
+1. Add product proof for `terminal.wait(commandFinished)`, cwd/readback, and
+   prompt-readiness if those stay in the public phase-1 wait enum.
+2. Wire real pane-close and child-exit lifecycle events into
+   `invalidatePrincipals(boundToPaneId:)`, then add a live stale-principal smoke.
+3. Add a separate explicit keystroke/control-key IPC method only if automation
+   needs key semantics beyond `terminal.send` text input.
 4. Then continue to Milestone B: app-owned pane-agent fd spawn adapter,
    helper/client auth, and revocation smoke.

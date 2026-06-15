@@ -56,6 +56,7 @@ public struct AppIPCRuntimeError: Error, Equatable, Sendable {
         case backendUnavailable
         case validationRejected
         case timeout
+        case replayGap
     }
 
     public let reason: Reason
@@ -79,7 +80,8 @@ public protocol AppIPCRuntimePort: Sendable {
     func waitForTerminal(
         _ handle: IPCHandle,
         condition: IPCTerminalWaitCondition,
-        timeout: Duration
+        timeout: Duration,
+        afterSequence: UInt64?
     ) async throws -> IPCTerminalWaitResult
 }
 

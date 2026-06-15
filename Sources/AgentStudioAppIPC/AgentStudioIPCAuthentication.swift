@@ -74,6 +74,15 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
         return token
     }
 
+    public func revokeSubjectToken(_ subjectToken: AgentStudioIPCSubjectToken) {
+        let revokedPrincipalId = lock.withLock {
+            principalsByToken.removeValue(forKey: subjectToken)?.principalId
+        }
+        if let revokedPrincipalId {
+            grantLedger?.revokeAll(for: revokedPrincipalId)
+        }
+    }
+
     public func authenticate(subjectToken: AgentStudioIPCSubjectToken) throws -> IPCPrincipal {
         try lock.withLock {
             guard let principal = principalsByToken[subjectToken] else {
@@ -225,14 +234,20 @@ public struct AgentStudioIPCPaneBootstrapError: Error, Equatable, Sendable {
 public final class AgentStudioIPCPaneBootstrap: @unchecked Sendable {
     public let descriptor: AgentStudioIPCPaneBootstrapDescriptor
 
+    private let subjectToken: AgentStudioIPCSubjectToken?
     private let readFileDescriptor: Int32
     private let writeFileDescriptor: Int32
     private let lock = NSLock()
     private var isReadClosed = false
     private var isWriteClosed = false
 
-    public init(descriptor: AgentStudioIPCPaneBootstrapDescriptor, writeFileDescriptor: Int32) {
+    public init(
+        descriptor: AgentStudioIPCPaneBootstrapDescriptor,
+        writeFileDescriptor: Int32,
+        subjectToken: AgentStudioIPCSubjectToken? = nil
+    ) {
         self.descriptor = descriptor
+        self.subjectToken = subjectToken
         self.readFileDescriptor = descriptor.tokenReadFileDescriptor
         self.writeFileDescriptor = writeFileDescriptor
     }
@@ -288,6 +303,14 @@ public final class AgentStudioIPCPaneBootstrap: @unchecked Sendable {
             }
         #endif
     }
+
+    public func cancel(in registry: AgentStudioIPCPrincipalRegistry) {
+        if let subjectToken {
+            registry.revokeSubjectToken(subjectToken)
+        }
+        close()
+        closeTokenReadFileDescriptor()
+    }
 }
 
 public struct AgentStudioIPCPaneBootstrapFactory: Sendable {
@@ -334,7 +357,8 @@ public struct AgentStudioIPCPaneBootstrapFactory: Sendable {
                         ),
                         tokenReadFileDescriptor: readFileDescriptor
                     ),
-                    writeFileDescriptor: writeFileDescriptor
+                    writeFileDescriptor: writeFileDescriptor,
+                    subjectToken: token
                 )
                 try bootstrap.writeTokenAndClose(token)
                 return bootstrap

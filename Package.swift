@@ -9,6 +9,7 @@ let package = Package(
     products: [
         .executable(name: "AgentStudio", targets: ["AgentStudio"]),
         .executable(name: "agentstudio-ipc", targets: ["AgentStudioIPCClient"]),
+        .executable(name: "agentstudio-pane-agent", targets: ["AgentStudioPaneAgent"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
@@ -116,6 +117,16 @@ let package = Package(
                 "AgentStudioIPCClientCore"
             ],
             path: "Sources/AgentStudioIPCClient",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .executableTarget(
+            name: "AgentStudioPaneAgent",
+            dependencies: [
+                "AgentStudioIPCClientCore"
+            ],
+            path: "Sources/AgentStudioPaneAgent",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

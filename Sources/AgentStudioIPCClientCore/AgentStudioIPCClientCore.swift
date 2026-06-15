@@ -61,6 +61,7 @@ public struct AgentStudioIPCClientError: Error, Equatable, Sendable {
         case invalidArguments
         case emptyResponse
         case responseIdMismatch
+        case authenticationFailed
     }
 
     public let reason: Reason
@@ -84,7 +85,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     case commandExecute(IPCCommandExecuteParams)
     case terminalStatus(handle: String)
     case terminalSend(handle: String, input: String, correlationId: UUID?)
-    case terminalWait(handle: String, condition: IPCTerminalWaitCondition, timeoutSeconds: Double)
+    case terminalWait(
+        handle: String, condition: IPCTerminalWaitCondition, timeoutSeconds: Double, afterSequence: UInt64?)
     case eventsSubscribe(eventNames: [IPCEventName])
     case eventsUnsubscribe(subscriptionId: UUID)
 
@@ -161,12 +163,16 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
                 params["correlationId"] = .string(correlationId.uuidString)
             }
             return .object(params)
-        case .terminalWait(let handle, let condition, let timeoutSeconds):
-            return .object([
+        case .terminalWait(let handle, let condition, let timeoutSeconds, let afterSequence):
+            var params: [String: JSONValue] = [
                 "handle": .string(handle),
                 "condition": .string(condition.rawValue),
                 "timeoutSeconds": .number(timeoutSeconds),
-            ])
+            ]
+            if let afterSequence {
+                params["afterSequence"] = .number(Double(afterSequence))
+            }
+            return .object(params)
         case .eventsSubscribe(let eventNames):
             return .object([
                 "eventNames": .array(eventNames.map { .string($0.rawValue) })
@@ -283,7 +289,10 @@ public struct AgentStudioIPCClient: Sendable {
     ) throws -> Int {
         if configuration.authToken != nil, command != .authLogin {
             try send(.authLogin, requestId: requestId, connection: connection)
-            _ = try receiveResponse(id: requestId, connection: connection, frameReader: &frameReader)
+            let loginResponse = try receiveResponse(id: requestId, connection: connection, frameReader: &frameReader)
+            guard loginResponse.error == nil else {
+                throw AgentStudioIPCClientError(reason: .authenticationFailed)
+            }
             let commandRequestId = requestId + 1
             try send(command, requestId: commandRequestId, connection: connection)
             return commandRequestId

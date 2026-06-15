@@ -297,24 +297,26 @@ if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_UNAVAILABLE_ZMX_STARTUP:-0}" != "1" ] &&
 fi
 
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-$state_startup_diagnostic_action}"
-if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
+if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
+  [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ]; then
   startup_diagnostic_action_filter="$(
     logsql_exact_filter agentstudio.startup_diagnostic.action "$startup_diagnostic_action"
   )"
   diagnostic_query="$query $startup_diagnostic_action_filter"
-  diagnostic_command_response="$(
-    query_logs \
-      "$diagnostic_query _msg:app.startup_diagnostic_action.command_exercised | fields _msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.fixture.terminal_view.count,agentstudio.startup_diagnostic.fixture.surface_reference.count,agentstudio.startup_diagnostic.fixture.surface.count,agentstudio.startup_diagnostic.fixture.valid_geometry.count,agentstudio.startup_diagnostic.render_proof.succeeded | limit 5"
-  )"
+  diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.created_pane.count"
+  if [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ]; then
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.created_pane.count,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.fixture.terminal_view.count,agentstudio.startup_diagnostic.fixture.surface_reference.count,agentstudio.startup_diagnostic.fixture.surface.count,agentstudio.startup_diagnostic.fixture.valid_geometry.count,agentstudio.startup_diagnostic.render_proof.succeeded"
+  fi
+  if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.fixture.terminal_view.count,agentstudio.startup_diagnostic.fixture.surface_reference.count,agentstudio.startup_diagnostic.fixture.surface.count,agentstudio.startup_diagnostic.fixture.valid_geometry.count,agentstudio.startup_diagnostic.render_proof.succeeded"
+  fi
+  diagnostic_command_response="$(query_logs "$diagnostic_query _msg:app.startup_diagnostic_action.command_exercised | fields $diagnostic_fields | limit 5")"
   if [ -z "$diagnostic_command_response" ]; then
     echo "startup diagnostic command_exercised record missing for action $startup_diagnostic_action" >&2
     exit 1
   fi
 
-  diagnostic_completed_response="$(
-    query_logs \
-      "$diagnostic_query _msg:app.startup_diagnostic_action.completed | fields _msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.fixture.terminal_view.count,agentstudio.startup_diagnostic.fixture.surface_reference.count,agentstudio.startup_diagnostic.fixture.surface.count,agentstudio.startup_diagnostic.fixture.valid_geometry.count,agentstudio.startup_diagnostic.render_proof.succeeded | limit 5"
-  )"
+  diagnostic_completed_response="$(query_logs "$diagnostic_query _msg:app.startup_diagnostic_action.completed | fields $diagnostic_fields | limit 5")"
   if [ -z "$diagnostic_completed_response" ]; then
     diagnostic_blocked_response="$(
       query_logs \
@@ -333,7 +335,20 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
     fi
     exit 1
   fi
-  if ! grep -q '"agentstudio.startup_diagnostic.render_proof.succeeded":true' <<<"$diagnostic_completed_response"; then
+  if [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ] &&
+    ! grep -Eq '"agentstudio.startup_diagnostic.created_pane.count":("?1"?)([,}[:space:]]|$)' <<<"$diagnostic_completed_response"; then
+    echo "startup diagnostic completed without creating one IPC smoke pane for action $startup_diagnostic_action" >&2
+    echo "$diagnostic_completed_response" >&2
+    exit 1
+  fi
+  if [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ] &&
+    ! grep -Eq '"agentstudio.startup_diagnostic.render_proof.succeeded":("?true"?)([,}[:space:]]|$)' <<<"$diagnostic_completed_response"; then
+    echo "startup diagnostic completed without successful IPC terminal render proof for action $startup_diagnostic_action" >&2
+    echo "$diagnostic_completed_response" >&2
+    exit 1
+  fi
+  if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] &&
+    ! grep -Eq '"agentstudio.startup_diagnostic.render_proof.succeeded":("?true"?)([,}[:space:]]|$)' <<<"$diagnostic_completed_response"; then
     echo "startup diagnostic completed without successful render proof for action $startup_diagnostic_action" >&2
     echo "$diagnostic_completed_response" >&2
     exit 1

@@ -4,6 +4,15 @@ import Observation
 import os.log
 
 @MainActor
+protocol TerminalSurfaceCommandDispatching: AnyObject {
+    func sendInput(_ input: String, toPaneId paneId: UUID) -> Result<Void, SurfaceError>
+    func clearScrollback(forPaneId paneId: UUID) -> Result<Void, SurfaceError>
+    func scrollToBottom(forPaneId paneId: UUID) -> Result<Void, SurfaceError>
+    func scrollPageUp(forPaneId paneId: UUID) -> Result<Void, SurfaceError>
+    func jumpToPrompt(delta: Int, forPaneId paneId: UUID) -> Result<Void, SurfaceError>
+}
+
+@MainActor
 @Observable
 final class TerminalRuntime: BusPostingPaneRuntime {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "TerminalRuntime")
@@ -24,13 +33,15 @@ final class TerminalRuntime: BusPostingPaneRuntime {
     let capabilities: Set<PaneCapability>
 
     private let eventChannel: PaneRuntimeEventChannel
+    private let surfaceCommandDispatcher: any TerminalSurfaceCommandDispatching
 
     init(
         paneId: PaneId,
         metadata: PaneMetadata,
         clock: ContinuousClock = ContinuousClock(),
         replayBuffer: EventReplayBuffer? = nil,
-        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
+        paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
+        surfaceCommandDispatcher: any TerminalSurfaceCommandDispatching = SurfaceManager.shared
     ) {
         self.paneId = paneId
         self.metadata = metadata
@@ -45,6 +56,7 @@ final class TerminalRuntime: BusPostingPaneRuntime {
             replayBuffer: replayBuffer ?? EventReplayBuffer(),
             paneEventBus: paneEventBus
         )
+        self.surfaceCommandDispatcher = surfaceCommandDispatcher
     }
 
     @discardableResult
@@ -357,19 +369,19 @@ final class TerminalRuntime: BusPostingPaneRuntime {
     private func dispatchTerminalCommand(_ command: TerminalCommand, commandId: UUID) -> ActionResult {
         switch command {
         case .sendInput(let input):
-            let dispatchResult = SurfaceManager.shared.sendInput(input, toPaneId: paneId.uuid)
+            let dispatchResult = surfaceCommandDispatcher.sendInput(input, toPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .clearScrollback:
-            let dispatchResult = SurfaceManager.shared.clearScrollback(forPaneId: paneId.uuid)
+            let dispatchResult = surfaceCommandDispatcher.clearScrollback(forPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .scrollToBottom:
-            let dispatchResult = SurfaceManager.shared.scrollToBottom(forPaneId: paneId.uuid)
+            let dispatchResult = surfaceCommandDispatcher.scrollToBottom(forPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .scrollPageUp:
-            let dispatchResult = SurfaceManager.shared.scrollPageUp(forPaneId: paneId.uuid)
+            let dispatchResult = surfaceCommandDispatcher.scrollPageUp(forPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .jumpToPrompt(let delta):
-            let dispatchResult = SurfaceManager.shared.jumpToPrompt(delta: delta, forPaneId: paneId.uuid)
+            let dispatchResult = surfaceCommandDispatcher.jumpToPrompt(delta: delta, forPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .resize(let cols, let rows):
             Self.logger.warning(

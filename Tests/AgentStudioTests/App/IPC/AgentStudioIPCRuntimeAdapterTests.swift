@@ -156,11 +156,11 @@ struct AgentStudioIPCRuntimeAdapterTests {
 
     @Test("terminal wait commandFinished resolves from pane runtime event")
     func terminalWaitCommandFinishedResolvesFromPaneRuntimeEvent() async throws {
-        let eventBus = makeTestPaneRuntimeEventBus()
-        let harness = RuntimeAdapterHarness(eventBus: eventBus)
+        let harness = RuntimeAdapterHarness()
         let pane = harness.createTerminalPane()
         let paneId = PaneId(uuid: pane.id)
-        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: paneId))
+        let runtime = RecordingTerminalIPCRuntime(paneId: paneId)
+        harness.runtimeRegistry.register(runtime)
         let commandId = UUID()
         let correlationId = UUID()
 
@@ -171,7 +171,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
                 timeout: .milliseconds(100)
             )
         }
-        await eventBus.post(
+        runtime.emit(
             RuntimeEnvelope.pane(
                 PaneEnvelope(
                     source: .pane(paneId),
@@ -194,6 +194,121 @@ struct AgentStudioIPCRuntimeAdapterTests {
         #expect(result.correlationId == correlationId)
         #expect(result.exitCode == 7)
         #expect(result.duration == 42)
+    }
+
+    @Test("terminal wait commandFinished replays events after requested runtime sequence")
+    func terminalWaitCommandFinishedReplaysEventsAfterRequestedRuntimeSequence() async throws {
+        let harness = RuntimeAdapterHarness()
+        let pane = harness.createTerminalPane()
+        let paneId = PaneId(uuid: pane.id)
+        let runtime = RecordingTerminalIPCRuntime(paneId: paneId)
+        let commandId = UUID()
+        let correlationId = UUID()
+        runtime.replayEvents = [
+            RuntimeEnvelope.pane(
+                PaneEnvelope(
+                    source: .pane(paneId),
+                    seq: 2,
+                    timestamp: ContinuousClock.now,
+                    correlationId: correlationId,
+                    commandId: commandId,
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    event: .terminal(.commandFinished(exitCode: 0, duration: 12))
+                )
+            )
+        ]
+        harness.runtimeRegistry.register(runtime)
+
+        let result = try await harness.adapter.waitForTerminal(
+            IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
+            condition: .commandFinished,
+            timeout: .milliseconds(1),
+            afterSequence: 1
+        )
+
+        #expect(result.paneId == pane.id)
+        #expect(result.condition == .commandFinished)
+        #expect(result.eventName == .terminalCommandFinished)
+        #expect(result.commandId == commandId)
+        #expect(result.correlationId == correlationId)
+        #expect(result.exitCode == 0)
+        #expect(result.duration == 12)
+    }
+
+    @Test("terminal wait ignores live events at or before requested runtime sequence")
+    func terminalWaitIgnoresLiveEventsAtOrBeforeRequestedRuntimeSequence() async throws {
+        let harness = RuntimeAdapterHarness()
+        let pane = harness.createTerminalPane()
+        let paneId = PaneId(uuid: pane.id)
+        let runtime = RecordingTerminalIPCRuntime(paneId: paneId)
+        harness.runtimeRegistry.register(runtime)
+        let expectedCommandId = UUID()
+
+        let waitTask = Task {
+            try await harness.adapter.waitForTerminal(
+                IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
+                condition: .titleChanged,
+                timeout: .seconds(1),
+                afterSequence: 10
+            )
+        }
+        await Task.yield()
+        runtime.emit(
+            RuntimeEnvelope.pane(
+                PaneEnvelope(
+                    source: .pane(paneId),
+                    seq: 10,
+                    timestamp: ContinuousClock.now,
+                    correlationId: nil,
+                    commandId: nil,
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    event: .terminal(.titleChanged("stale"))
+                )
+            )
+        )
+        runtime.emit(
+            RuntimeEnvelope.pane(
+                PaneEnvelope(
+                    source: .pane(paneId),
+                    seq: 11,
+                    timestamp: ContinuousClock.now,
+                    correlationId: nil,
+                    commandId: expectedCommandId,
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    event: .terminal(.titleChanged("fresh"))
+                )
+            )
+        )
+
+        let result = try await waitTask.value
+        #expect(result.paneId == pane.id)
+        #expect(result.condition == .titleChanged)
+        #expect(result.eventName == .terminalTitleChanged)
+        #expect(result.commandId == expectedCommandId)
+    }
+
+    @Test("terminal wait fails fast when after sequence replay has a gap")
+    func terminalWaitFailsFastWhenAfterSequenceReplayHasGap() async throws {
+        let harness = RuntimeAdapterHarness()
+        let pane = harness.createTerminalPane()
+        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id))
+        runtime.replayGapDetected = true
+        harness.runtimeRegistry.register(runtime)
+
+        do {
+            _ = try await harness.adapter.waitForTerminal(
+                IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
+                condition: .commandFinished,
+                timeout: .seconds(1),
+                afterSequence: 1
+            )
+            Issue.record("terminal.wait unexpectedly succeeded with a replay gap")
+        } catch let error as AppIPCRuntimeError {
+            #expect(error.reason == .replayGap)
+        }
     }
 
     @Test("terminal wait times out when no exported fact matches")
@@ -359,6 +474,8 @@ private final class RecordingTerminalIPCRuntime: PaneRuntime {
     var lifecycle: PaneRuntimeLifecycle = .ready
     var capabilities: Set<PaneCapability> = [.input, .resize, .search]
     var lastSeq: UInt64 = 0
+    var replayEvents: [RuntimeEnvelope] = []
+    var replayGapDetected = false
     private(set) var receivedCommands: [RuntimeCommandEnvelope] = []
 
     private let stream: AsyncStream<RuntimeEnvelope>
@@ -381,6 +498,10 @@ private final class RecordingTerminalIPCRuntime: PaneRuntime {
         stream
     }
 
+    func emit(_ envelope: RuntimeEnvelope) {
+        continuation.yield(envelope)
+    }
+
     func snapshot() -> PaneRuntimeSnapshot {
         PaneRuntimeSnapshot(
             paneId: paneId,
@@ -393,7 +514,12 @@ private final class RecordingTerminalIPCRuntime: PaneRuntime {
     }
 
     func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
-        EventReplayBuffer.ReplayResult(events: [], nextSeq: seq, gapDetected: false)
+        let events = replayEvents.filter { $0.seq > seq }
+        return EventReplayBuffer.ReplayResult(
+            events: events,
+            nextSeq: events.last?.seq ?? seq,
+            gapDetected: replayGapDetected
+        )
     }
 
     func shutdown(timeout: Duration) async -> [UUID] {

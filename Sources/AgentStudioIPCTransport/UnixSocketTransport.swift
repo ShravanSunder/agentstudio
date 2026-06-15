@@ -146,6 +146,7 @@ public final class UnixSocketConnection: @unchecked Sendable {
                     return
                 }
 
+                _ = Darwin.shutdown(fileDescriptor, SHUT_RDWR)
                 _ = Darwin.close(fileDescriptor)
                 isClosed = true
             }

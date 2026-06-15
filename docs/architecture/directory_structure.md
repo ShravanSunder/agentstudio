@@ -26,6 +26,8 @@ Sources/AgentStudio/
 │   ├── Events/                       # App-scoped notification bus types
 │   ├── Lifecycle/                    # ApplicationLifecycleMonitor, ManagementLayerMonitor,
 │   │                                 #   ManagementLayerToolbarButton, WindowRestoreBridge
+│   ├── PaneAgents/                   # App-owned pane-agent process launch,
+│   │                                 #   fd bootstrap remap, lifecycle cleanup
 │   ├── Panes/                        # App-owned pane hosting, tab management, empty states
 │   │   ├── Hosting/                  # PaneHostView, management-layer drag shield
 │   │   ├── Status/                   # Workspace status chips
@@ -135,9 +137,20 @@ Sources/AgentStudioIPCClient/
   Thin `agentstudio-ipc` executable entrypoint.
   Depends only on the client core.
 
+Sources/AgentStudioPaneAgent/
+  Thin `agentstudio-pane-agent` helper. Reads the app-supplied bootstrap fd
+  once, authenticates with `auth.login`, and verifies runtime identity.
+  Depends only on the client core.
+
 Sources/AgentStudio/App/IPCComposition/
   Concrete adapters from AgentStudioAppIPC protocol ports into PaneCoordinator,
   RuntimeRegistry, PaneRuntime, and app-owned state.
+
+Sources/AgentStudio/App/PaneAgents/
+  App-owned launch and lifecycle surface for pane-agent child processes.
+  Requests bootstrap descriptors from AgentStudioAppIPC, remaps the token fd
+  into the helper, cancels unused bootstraps on spawn failure, and calls the
+  server revocation seam when pane-agent authority must end.
 
 Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift
   App-owned live IPC server composition and lifecycle. It may import

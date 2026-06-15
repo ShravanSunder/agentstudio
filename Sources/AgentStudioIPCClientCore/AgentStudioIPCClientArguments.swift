@@ -110,13 +110,30 @@ public enum AgentStudioIPCClientArguments {
             let values = try requireCount(remainingArguments, 2)
             return .terminalSend(handle: values[0], input: values[1], correlationId: nil)
         case "terminal-wait":
-            let values = try requireCount(remainingArguments, 3)
+            guard remainingArguments.count == 3 || remainingArguments.count == 4 else {
+                throw AgentStudioIPCClientError(reason: .invalidArguments)
+            }
+            let values = remainingArguments
             guard let condition = IPCTerminalWaitCondition(rawValue: values[1]),
                 let timeoutSeconds = Double(values[2])
             else {
                 throw AgentStudioIPCClientError(reason: .invalidArguments)
             }
-            return .terminalWait(handle: values[0], condition: condition, timeoutSeconds: timeoutSeconds)
+            let afterSequence: UInt64?
+            if values.count == 4 {
+                guard let parsedAfterSequence = UInt64(values[3]) else {
+                    throw AgentStudioIPCClientError(reason: .invalidArguments)
+                }
+                afterSequence = parsedAfterSequence
+            } else {
+                afterSequence = nil
+            }
+            return .terminalWait(
+                handle: values[0],
+                condition: condition,
+                timeoutSeconds: timeoutSeconds,
+                afterSequence: afterSequence
+            )
         case "events-subscribe":
             let values = try requireCount(remainingArguments, 1)
             let eventNames = try values[0].split(separator: ",").map { rawName -> IPCEventName in

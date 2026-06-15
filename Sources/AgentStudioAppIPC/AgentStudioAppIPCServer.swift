@@ -57,6 +57,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let debugEscrowLock = NSLock()
     private var isRunning = false
     private var activeConnections: [Int32: UnixSocketConnection] = [:]
+    private var activeConnectionPrincipals: [Int32: IPCPrincipal] = [:]
     private var debugEscrowPrincipalId: UUID?
 
     public init(
@@ -157,6 +158,29 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         )
     }
 
+    public func cancelPaneBootstrap(_ bootstrap: AgentStudioIPCPaneBootstrap) {
+        bootstrap.cancel(in: principalRegistry)
+    }
+
+    public func invalidatePrincipals(boundToPaneId paneId: String) {
+        principalRegistry.invalidatePrincipals(boundToPaneId: paneId)
+        let connections = lifecycleLock.withLock {
+            let matchingFileDescriptors =
+                activeConnectionPrincipals
+                .filter { _, principal in principal.isBound(toPaneId: paneId) }
+                .map(\.key)
+            for fileDescriptor in matchingFileDescriptors {
+                activeConnectionPrincipals.removeValue(forKey: fileDescriptor)
+            }
+            return matchingFileDescriptors.compactMap { fileDescriptor in
+                activeConnections.removeValue(forKey: fileDescriptor)
+            }
+        }
+        for connection in connections {
+            connection.close()
+        }
+    }
+
     private func handle(_ connection: UnixSocketConnection) async {
         guard registerConnection(connection) else {
             connection.close()
@@ -205,6 +229,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                     do {
                         let result = try await process(
                             request,
+                            connectionFileDescriptor: connection.fileDescriptor,
                             connectionState: &connectionState,
                             socketSubscriber: socketSubscriber
                         )
@@ -224,6 +249,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
     private func process(
         _ request: JSONRPCRequest,
+        connectionFileDescriptor: Int32,
         connectionState: inout AgentStudioAppIPCConnectionState,
         socketSubscriber: any IPCEventSubscriber
     ) async throws -> JSONValue {
@@ -231,7 +257,11 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             throw AgentStudioAppIPCRequestError.unauthenticated
         }
 
-        if connectionState.principal == nil, allowsUnsafeDebugNoAuthentication {
+        if connectionState.principal == nil,
+            !connectionState.authenticationFailed,
+            request.method != "auth.login",
+            allowsUnsafeDebugNoAuthentication
+        {
             connectionState.principal = IPCPrincipal(
                 principalId: UUID(),
                 runtimeId: service.configuration.runtimeId,
@@ -239,6 +269,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 kind: .unsafeDebugClient,
                 approvalAuthority: .noApprovalAuthority
             )
+            if let principal = connectionState.principal {
+                recordPrincipal(principal, forConnectionFileDescriptor: connectionFileDescriptor)
+            }
         }
 
         if !AgentStudioIPCPreAuthMethods.isAllowed(request.method) {
@@ -256,11 +289,20 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
         case "auth.login":
             let params = try decodeParams(AuthLoginParams.self, from: request.params)
-            let result = try authenticator.login(
-                subjectToken: AgentStudioIPCSubjectToken(rawValue: params.token),
-                callerSuppliedPaneHint: params.paneHint
-            )
+            let result: AgentStudioIPCLoginResult
+            do {
+                result = try authenticator.login(
+                    subjectToken: AgentStudioIPCSubjectToken(rawValue: params.token),
+                    callerSuppliedPaneHint: params.paneHint
+                )
+            } catch {
+                connectionState.principal = nil
+                connectionState.authenticationFailed = true
+                throw error
+            }
             connectionState.principal = result.principal
+            connectionState.authenticationFailed = false
+            recordPrincipal(result.principal, forConnectionFileDescriptor: connectionFileDescriptor)
             consumeDebugEscrowIfNeeded(for: result.principal)
             return principalResult(result.principal)
 
@@ -272,15 +314,15 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
         default:
             let principal = try requirePrincipal(connectionState.principal)
-            let target = try await authorizationTarget(for: request, principal: principal)
+            let context = try await authorizationContext(for: request, principal: principal)
             try authorizationService.authorize(
                 principal: principal,
                 methodName: request.method,
-                requestedTarget: target,
+                requestedTarget: context.target,
                 activePaneId: nil
             )
             return try await processAuthenticated(
-                request,
+                context.request,
                 principal: principal,
                 socketSubscriber: socketSubscriber
             )
@@ -341,7 +383,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             let result = try await service.ports.runtimePort.waitForTerminal(
                 handle,
                 condition: params.condition,
-                timeout: timeout
+                timeout: timeout,
+                afterSequence: params.afterSequence
             )
             return try encodeResult(result)
         case "command.list":
@@ -389,36 +432,49 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         }
     }
 
-    private func authorizationTarget(for request: JSONRPCRequest, principal: IPCPrincipal) async throws
-        -> IPCTargetScope
+    private func authorizationContext(for request: JSONRPCRequest, principal: IPCPrincipal) async throws
+        -> AuthorizedRequestContext
     {
         switch request.method {
         case "system.identify", "system.version", "system.capabilities", "auth.status":
-            return principal.boundPaneTarget ?? .app
+            return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
         case "terminal.status", "terminal.snapshot", "terminal.send", "terminal.wait", "pane.focus", "pane.snapshot":
             let params = try decodeParams(HandleParams.self, from: request.params)
-            return try await targetScope(fromHandle: params.handle)
+            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
+            return try AuthorizedRequestContext(
+                request: request.replacingHandle(canonicalHandle.rawIPCHandleString),
+                target: targetScope(fromCanonicalHandle: canonicalHandle)
+            )
         case "permission.request":
-            return principal.boundPaneTarget ?? .app
+            return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
         case "permission.requestStatus", "permission.grantStatus", "permission.pendingApprovals",
             "permission.resolveRequest", "events.subscribe", "events.unsubscribe", "command.list", "command.execute":
-            return principal.boundPaneTarget ?? .app
+            return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
         default:
-            return .app
+            return AuthorizedRequestContext(request: request, target: .app)
         }
     }
 
-    private func targetScope(fromHandle rawHandle: String) async throws -> IPCTargetScope {
+    private func canonicalHandle(fromRawHandle rawHandle: String) async throws -> IPCHandle {
         let handle = try IPCHandle.parse(rawHandle)
         switch (handle.kind, handle.reference) {
-        case (.pane, .canonicalUUID(let paneId)):
-            return .pane(paneId.uuidString)
         case (.pane, .friendlyOrdinal(let ordinal)):
             let panes = try await service.ports.queryPort.listPanes().panes
             guard let pane = panes[safe: ordinal - 1] else {
                 throw AppIPCQueryError(reason: .targetNotFound)
             }
-            return .pane(pane.id.uuidString)
+            return IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id))
+        case (.pane, .canonicalUUID), (.workspace, .canonicalUUID):
+            return handle
+        default:
+            throw AgentStudioAppIPCRequestError.invalidParams
+        }
+    }
+
+    private func targetScope(fromCanonicalHandle handle: IPCHandle) throws -> IPCTargetScope {
+        switch (handle.kind, handle.reference) {
+        case (.pane, .canonicalUUID(let paneId)):
+            return .pane(paneId.uuidString)
         case (.workspace, .canonicalUUID(let workspaceId)):
             return .workspace(workspaceId)
         default:
@@ -580,6 +636,14 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private func unregisterConnection(_ connection: UnixSocketConnection) {
         lifecycleLock.withLock {
             _ = activeConnections.removeValue(forKey: connection.fileDescriptor)
+            _ = activeConnectionPrincipals.removeValue(forKey: connection.fileDescriptor)
+        }
+    }
+
+    private func recordPrincipal(_ principal: IPCPrincipal, forConnectionFileDescriptor fileDescriptor: Int32) {
+        lifecycleLock.withLock {
+            guard activeConnections[fileDescriptor] != nil else { return }
+            activeConnectionPrincipals[fileDescriptor] = principal
         }
     }
 
@@ -588,6 +652,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             isRunning = false
             let connections = Array(activeConnections.values)
             activeConnections.removeAll(keepingCapacity: false)
+            activeConnectionPrincipals.removeAll(keepingCapacity: false)
             return connections
         }
         listener.stop()
@@ -608,6 +673,33 @@ extension Array {
 
 private struct AgentStudioAppIPCConnectionState {
     var principal: IPCPrincipal?
+    var authenticationFailed = false
+}
+
+private struct AuthorizedRequestContext {
+    let request: JSONRPCRequest
+    let target: IPCTargetScope
+}
+
+extension JSONRPCRequest {
+    fileprivate func replacingHandle(_ handle: String) throws -> JSONRPCRequest {
+        guard case .object(var params) = params else {
+            throw AgentStudioAppIPCRequestError.invalidParams
+        }
+        params["handle"] = .string(handle)
+        return JSONRPCRequest(id: id, method: method, params: .object(params))
+    }
+}
+
+extension IPCHandle {
+    fileprivate var rawIPCHandleString: String {
+        switch reference {
+        case .friendlyOrdinal(let ordinal):
+            "\(kind.rawValue):\(ordinal)"
+        case .canonicalUUID(let uuid):
+            "\(kind.rawValue):\(uuid.uuidString)"
+        }
+    }
 }
 
 private actor AgentStudioAppIPCConnectionWriter {
@@ -679,6 +771,7 @@ private struct TerminalWaitParams: Decodable {
     let handle: String
     let condition: IPCTerminalWaitCondition
     let timeoutSeconds: Double
+    let afterSequence: UInt64?
 }
 
 private struct RequestIdParams: Decodable {
@@ -705,6 +798,15 @@ extension IPCPrincipal {
             .pane(boundPaneId)
         case .automationClient, .futureMCPClient, .unsafeDebugClient:
             nil
+        }
+    }
+
+    fileprivate func isBound(toPaneId paneId: String) -> Bool {
+        switch kind {
+        case .spawnedPaneAgent(let boundPaneId, _):
+            boundPaneId == paneId
+        case .automationClient, .futureMCPClient, .unsafeDebugClient:
+            false
         }
     }
 }
@@ -776,6 +878,8 @@ extension AgentStudioAppIPCRequestError {
             self = Self(code: -32_007, message: "validation rejected")
         case .timeout:
             self = Self(code: -32_009, message: "timeout")
+        case .replayGap:
+            self = Self(code: -32_010, message: "replay gap")
         }
     }
 

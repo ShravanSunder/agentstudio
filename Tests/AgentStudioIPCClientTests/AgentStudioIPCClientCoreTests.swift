@@ -4,7 +4,7 @@ import AgentStudioProgrammaticControl
 import Foundation
 import Testing
 
-@Suite("AgentStudio IPC CLI client core")
+@Suite("AgentStudio IPC CLI client core", .serialized)
 struct AgentStudioIPCClientCoreTests {
     @Test("discovers socket path from explicit flag before environment and metadata")
     func discoversSocketPathFromExplicitFlagBeforeEnvironmentAndMetadata() throws {
@@ -51,12 +51,39 @@ struct AgentStudioIPCClientCoreTests {
         #expect(waitInvocation.configuration.socketPath == "/tmp/app.sock")
         #expect(
             waitInvocation.command
-                == .terminalWait(handle: "pane:1", condition: .commandFinished, timeoutSeconds: 5)
+                == .terminalWait(handle: "pane:1", condition: .commandFinished, timeoutSeconds: 5, afterSequence: nil)
         )
         #expect(
             subscribeInvocation.command
                 == .eventsSubscribe(eventNames: [.terminalCommandFinished, .permissionRequestCreated])
         )
+    }
+
+    @Test("terminal wait can include an after sequence for replayable runtime facts")
+    func terminalWaitCanIncludeAfterSequenceForReplayableRuntimeFacts() throws {
+        let invocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "terminal-wait", "pane:1", "commandFinished", "5", "41"],
+            environment: [:]
+        )
+        let client = AgentStudioIPCClient(configuration: invocation.configuration)
+
+        #expect(
+            invocation.command
+                == .terminalWait(handle: "pane:1", condition: .commandFinished, timeoutSeconds: 5, afterSequence: 41)
+        )
+        let frame = try client.requestFrame(invocation.command, requestId: 12)
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(12))
+        #expect(request.method == "terminal.wait")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["handle"] == .string("pane:1"))
+        #expect(params["condition"] == .string("commandFinished"))
+        #expect(params["timeoutSeconds"] == .number(5))
+        #expect(params["afterSequence"] == .number(41))
     }
 
     @Test("parses auth status and command control commands")
@@ -229,6 +256,44 @@ struct AgentStudioIPCClientCoreTests {
         #expect(handledMethods.value() == ["auth.login", "system.identify"])
     }
 
+    @Test("automatic authentication error prevents follow-up command")
+    func automaticAuthenticationErrorPreventsFollowupCommand() throws {
+        let endpoint = UnixSocketEndpoint(path: temporarySocketPath())
+        let listener = UnixSocketListener(endpoint: endpoint)
+        let handledMethods = LockedBox<[String]>([])
+        try listener.start { connection in
+            var decoder = NDJSONFrameDecoder(maxFrameBytes: 65_536)
+            let loginRequest = try receiveRequest(connection: connection, decoder: &decoder)
+            handledMethods.set(handledMethods.value() + [loginRequest.method])
+            try connection.send(
+                errorFrame(
+                    id: loginRequest.id,
+                    code: -32_001,
+                    message: "unauthenticated"
+                ))
+            connection.close()
+        }
+        defer {
+            listener.stop()
+        }
+
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(
+                socketPath: endpoint.path,
+                authToken: "bad-token",
+                maxFrameBytes: 65_536
+            )
+        )
+
+        do {
+            _ = try client.call(.identify, requestId: 9)
+            Issue.record("client unexpectedly sent follow-up command after auth error")
+        } catch let error as AgentStudioIPCClientError {
+            #expect(error.reason == .authenticationFailed)
+        }
+        #expect(handledMethods.value() == ["auth.login"])
+    }
+
     @Test("event subscribe keeps the socket open and surfaces notification frames")
     func eventSubscribeKeepsSocketOpenAndSurfacesNotificationFrames() throws {
         let endpoint = UnixSocketEndpoint(path: temporarySocketPath())
@@ -297,6 +362,17 @@ private func receiveRequest(
 private func responseFrame(id: JSONRPCIdentifier?, result: JSONValue) throws -> Data {
     try NDJSONFrameEncoder.encode(
         JSONRPCCodec.encodeResponse(JSONRPCResponse.success(id: id, result: result)),
+        maxFrameBytes: 65_536
+    )
+}
+
+private func errorFrame(id: JSONRPCIdentifier?, code: Int, message: String) throws -> Data {
+    try NDJSONFrameEncoder.encode(
+        JSONRPCCodec.encodeResponse(
+            JSONRPCResponse.failure(
+                id: id,
+                error: JSONRPCErrorPayload(code: code, message: message)
+            )),
         maxFrameBytes: 65_536
     )
 }

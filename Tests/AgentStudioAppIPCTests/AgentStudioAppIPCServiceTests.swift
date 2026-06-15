@@ -8,7 +8,7 @@ import Testing
     import Darwin
 #endif
 
-@Suite("AgentStudio App IPC service shell")
+@Suite("AgentStudio App IPC service shell", .serialized)
 struct AgentStudioAppIPCServiceTests {
     @Test("composes service from configuration and protocol ports")
     func composesServiceFromConfigurationAndProtocolPorts() throws {
@@ -194,6 +194,93 @@ struct AgentStudioAppIPCServiceTests {
         let result = try decodeResponseResult(IPCTerminalSendInputResult.self, from: response)
         #expect(result.paneId == paneId)
         #expect(result.disposition == .accepted)
+    }
+
+    @Test("failed auth login prevents unsafe debug fallback on same socket")
+    func failedAuthLoginPreventsUnsafeDebugFallbackOnSameSocket() throws {
+        let paneId = UUID()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1)],
+            runtimePort: FakeRuntimePort(successfulPaneId: paneId)
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+        defer {
+            connection.close()
+        }
+        var reader = TestFrameReader()
+
+        try sendRequest(
+            connection: connection,
+            request: JSONRPCClientRequest(
+                id: .number(62),
+                method: "auth.login",
+                params: .object(["token": .string("invalid-token")])
+            )
+        )
+        let loginResponse = try reader.receiveResponse(connection: connection)
+        #expect(loginResponse.id == .number(62))
+        #expect(loginResponse.error?.code == -32_001)
+
+        try sendRequest(
+            connection: connection,
+            request: JSONRPCClientRequest(
+                id: .number(63),
+                method: "terminal.send",
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "input": .string("echo should-not-run\n"),
+                ])
+            )
+        )
+        let sendResponse = try reader.receiveResponse(connection: connection)
+        #expect(sendResponse.id == .number(63))
+        #expect(sendResponse.error?.code == -32_001)
+        #expect(sendResponse.error?.message == "unauthenticated")
+    }
+
+    @Test("terminal wait forwards after sequence to runtime port")
+    func terminalWaitForwardsAfterSequenceToRuntimePort() throws {
+        let paneId = UUID()
+        let runtimePort = RecordingWaitRuntimePort(successfulPaneId: paneId)
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1)],
+            runtimePort: runtimePort
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(64),
+                method: "terminal.wait",
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "condition": .string(IPCTerminalWaitCondition.commandFinished.rawValue),
+                    "timeoutSeconds": .number(1),
+                    "afterSequence": .number(41),
+                ])
+            )
+        )
+
+        #expect(response.id == .number(64))
+        #expect(response.error == nil)
+        #expect(runtimePort.lastAfterSequence == 41)
+        #expect(runtimePort.lastHandle == IPCHandle(kind: .pane, reference: .canonicalUUID(paneId)))
+        let result = try decodeResponseResult(IPCTerminalWaitResult.self, from: response)
+        #expect(result.paneId == paneId)
+        #expect(result.condition == .commandFinished)
     }
 
     @Test("non-debug server channels ignore unsafe no-auth access mode")
@@ -534,6 +621,44 @@ struct AgentStudioAppIPCServiceTests {
         }
     }
 
+    @Test("pane invalidation closes existing bound principal socket sessions")
+    func paneInvalidationClosesExistingBoundPrincipalSocketSessions() throws {
+        let fixture = try LiveServerFixture()
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+        let principal = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: fixture.runtimeId,
+            accessMode: .agentStudioOnly,
+            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
+            approvalAuthority: .noApprovalAuthority
+        )
+        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
+        let connection = try UnixSocketClient.connect(
+            endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path)
+        )
+        defer {
+            connection.close()
+        }
+        var reader = TestFrameReader()
+        try login(connection: connection, token: token, requestId: 52, reader: &reader)
+
+        fixture.server.invalidatePrincipals(boundToPaneId: fixture.boundPaneId.uuidString)
+
+        do {
+            try sendRequest(
+                connection: connection,
+                request: JSONRPCClientRequest(id: .number(53), method: "system.identify", params: .object([:]))
+            )
+            let responseData = try connection.receive(maxBytes: 4096)
+            #expect(responseData.isEmpty)
+        } catch let error as UnixSocketTransportError {
+            #expect(error.reason == .writeFailed || error.reason == .readFailed)
+        }
+    }
+
     @Test("server routes delegated approval authority through authenticated sockets")
     func serverRoutesDelegatedApprovalAuthorityThroughAuthenticatedSockets() throws {
         let fixture = try LiveServerFixture()
@@ -608,315 +733,4 @@ struct AgentStudioAppIPCServiceTests {
         let principal = try fixture.server.principalRegistry.authenticate(subjectToken: token)
         #expect(principal.kind == .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil))
     }
-}
-
-private struct LiveServerFixture {
-    let runtimeId = UUID()
-    let boundPaneId = UUID()
-    let rootURL: URL
-    let paths: AgentStudioIPCPaths
-    let server: AgentStudioAppIPCServer
-
-    init(
-        accessMode: IPCAccessMode = .agentStudioOnly,
-        channel: AgentStudioIPCChannel = .debug,
-        panes: [IPCPaneSummary] = [],
-        runtimePort: any AppIPCRuntimePort = FakeRuntimePort(),
-        commandPort: any AppIPCCommandPort = FakeCommandPort(),
-        debugTokenEscrowEnabled: Bool = false
-    ) throws {
-        rootURL = URL(fileURLWithPath: "/tmp/asipc-\(UUID().uuidString.prefix(8))", isDirectory: true)
-        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-        #if canImport(Darwin)
-            _ = chmod(rootURL.path, 0o700)
-        #endif
-        paths = AgentStudioIPCPathResolver().paths(rootDirectory: rootURL)
-        let methodRegistry = try AppIPCMethodRegistry.phaseOne()
-        let service = AgentStudioAppIPCService(
-            configuration: AgentStudioAppIPCConfiguration(
-                runtimeId: runtimeId,
-                accessMode: accessMode,
-                methodDefinitions: methodRegistry.definitions,
-                debugTokenEscrowEnabled: debugTokenEscrowEnabled
-            ),
-            ports: AgentStudioAppIPCPorts(
-                queryPort: FakeQueryPort(runtimeId: runtimeId, panes: panes),
-                layoutPort: FakeLayoutPort(),
-                runtimePort: runtimePort,
-                commandPort: commandPort,
-                permissionApprovalPort: FakePermissionApprovalPort()
-            )
-        )
-        server = AgentStudioAppIPCServer(service: service, paths: paths, channel: channel)
-    }
-
-    func cleanup() {
-        server.stop()
-        try? FileManager.default.removeItem(at: rootURL)
-    }
-}
-
-private func makePaneSummary(id: UUID, ordinal: Int) -> IPCPaneSummary {
-    IPCPaneSummary(
-        id: id,
-        ordinal: ordinal,
-        contentKind: .terminal,
-        residency: .active,
-        tabId: nil,
-        repoId: nil,
-        worktreeId: nil,
-        isActive: false,
-        isDrawerChild: false
-    )
-}
-
-private struct DelegatedApprovalSocketScenario {
-    let requestedScope: IPCPermissionScope
-    let approverPrincipalId: UUID
-    let requesterToken: AgentStudioIPCSubjectToken
-    let approverToken: AgentStudioIPCSubjectToken
-}
-
-private func makeDelegatedApprovalSocketScenario(fixture: LiveServerFixture) throws -> DelegatedApprovalSocketScenario {
-    let requestedScope = IPCPermissionScope(
-        privilege: .terminalInputWrite,
-        target: .pane(UUID().uuidString),
-        dataScope: .terminalInput
-    )
-    let requester = IPCPrincipal(
-        principalId: UUID(),
-        runtimeId: fixture.runtimeId,
-        accessMode: .agentStudioOnly,
-        kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
-        approvalAuthority: .noApprovalAuthority
-    )
-    let approver = IPCPrincipal(
-        principalId: UUID(),
-        runtimeId: fixture.runtimeId,
-        accessMode: .agentStudioOnly,
-        kind: .spawnedPaneAgent(boundPaneId: UUID().uuidString, boundWorkspaceId: nil),
-        approvalAuthority: .delegatedApprover(
-            scopes: [
-                IPCApprovalScope(
-                    privilege: requestedScope.privilege,
-                    target: requestedScope.target,
-                    dataScope: requestedScope.dataScope
-                )
-            ]
-        )
-    )
-
-    return try DelegatedApprovalSocketScenario(
-        requestedScope: requestedScope,
-        approverPrincipalId: approver.principalId,
-        requesterToken: fixture.server.principalRegistry.issueSubjectToken(for: requester),
-        approverToken: fixture.server.principalRegistry.issueSubjectToken(for: approver)
-    )
-}
-
-private func requestDelegatedPermission(
-    connection: UnixSocketConnection,
-    reader: inout TestFrameReader,
-    scenario: DelegatedApprovalSocketScenario
-) throws -> IPCPermissionRequestResult {
-    let requestParams = IPCPermissionRequestParams(
-        scope: scenario.requestedScope,
-        reason: "paired pane",
-        approvalRoute: .delegatedPrincipal(scenario.approverPrincipalId)
-    )
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(
-            id: .number(21),
-            method: "permission.request",
-            params: try JSONRPCCodec.encodeJSONValue(requestParams)
-        )
-    )
-    let permissionRequest = try reader.receiveResponse(connection: connection)
-    #expect(permissionRequest.error == nil)
-    let permissionResult = try decodeResponseResult(
-        IPCPermissionRequestResult.self,
-        from: permissionRequest
-    )
-    #expect(permissionResult.state == .pending)
-    return permissionResult
-}
-
-private func resolveDelegatedPermission(
-    connection: UnixSocketConnection,
-    reader: inout TestFrameReader,
-    permissionResult: IPCPermissionRequestResult
-) throws {
-    try assertPendingApprovalVisible(
-        connection: connection,
-        reader: &reader,
-        permissionResult: permissionResult
-    )
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(
-            id: .number(32),
-            method: "permission.resolveRequest",
-            params: .object([
-                "requestId": .string(permissionResult.requestId.uuidString),
-                "decision": .string(ApprovalPolicyDecision.approve.rawValue),
-            ])
-        )
-    )
-    let resolvedApproval = try reader.receiveResponse(connection: connection)
-    #expect(resolvedApproval.error == nil)
-    let resolvedResult = try decodeResponseResult(
-        IPCPermissionRequestResult.self,
-        from: resolvedApproval
-    )
-    #expect(resolvedResult.state == .granted)
-}
-
-private func assertPendingApprovalVisible(
-    connection: UnixSocketConnection,
-    reader: inout TestFrameReader,
-    permissionResult: IPCPermissionRequestResult
-) throws {
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(id: .number(31), method: "permission.pendingApprovals", params: .object([:]))
-    )
-    let pendingApprovals = try reader.receiveResponse(connection: connection)
-    #expect(pendingApprovals.error == nil)
-    guard
-        case .object(let pendingResult)? = pendingApprovals.result,
-        case .array(let requests)? = pendingResult["requests"]
-    else {
-        Issue.record("expected pending approval requests array")
-        return
-    }
-    #expect(requests.count == 1)
-    let pendingResultValue = try decodeJSONValue(IPCPermissionRequestResult.self, from: requests[0])
-    #expect(pendingResultValue.requestId == permissionResult.requestId)
-}
-
-private func assertGrantIsActive(
-    connection: UnixSocketConnection,
-    reader: inout TestFrameReader,
-    permissionResult: IPCPermissionRequestResult
-) throws {
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(
-            id: .number(22),
-            method: "permission.grantStatus",
-            params: .object(["requestId": .string(permissionResult.requestId.uuidString)])
-        )
-    )
-    let grantStatus = try reader.receiveResponse(connection: connection)
-    let grantStatusResult = try decodeResponseResult(IPCPermissionGrantStatusResult.self, from: grantStatus)
-    #expect(grantStatusResult.state == .granted)
-    #expect(grantStatusResult.active)
-}
-
-private func sendRequest(socketPath: String, request: JSONRPCClientRequest) throws -> JSONRPCResponseMessage {
-    let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
-    defer {
-        connection.close()
-    }
-    try sendRequest(connection: connection, request: request)
-    var reader = TestFrameReader()
-    return try reader.receiveResponse(connection: connection)
-}
-
-private func sendRequest(connection: UnixSocketConnection, request: JSONRPCClientRequest) throws {
-    try connection.send(
-        try NDJSONFrameEncoder.encode(
-            JSONRPCCodec.encodeRequest(request),
-            maxFrameBytes: 65_536
-        ))
-}
-
-private func login(
-    connection: UnixSocketConnection,
-    token: AgentStudioIPCSubjectToken,
-    requestId: Int,
-    reader: inout TestFrameReader
-) throws {
-    try sendRequest(
-        connection: connection,
-        request: JSONRPCClientRequest(
-            id: .number(requestId),
-            method: "auth.login",
-            params: .object(["token": .string(token.rawValue)])
-        )
-    )
-    let response = try reader.receiveResponse(connection: connection)
-    #expect(response.id == .number(requestId))
-    #expect(response.error == nil)
-}
-
-private func decodeResponseResult<T: Decodable>(
-    _ type: T.Type,
-    from response: JSONRPCResponseMessage
-) throws -> T {
-    let result = try #require(response.result)
-    return try decodeJSONValue(type, from: result)
-}
-
-private func decodeJSONValue<T: Decodable>(_ type: T.Type, from value: JSONValue) throws -> T {
-    let data = try JSONEncoder().encode(value)
-    return try JSONDecoder().decode(type, from: data)
-}
-
-private struct TestFrameReader {
-    var decoder = NDJSONFrameDecoder(maxFrameBytes: 65_536)
-    var queuedFrames: [String] = []
-
-    mutating func receiveResponse(connection: UnixSocketConnection) throws -> JSONRPCResponseMessage {
-        if !queuedFrames.isEmpty {
-            return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
-        }
-        while true {
-            let data = try connection.receive(maxBytes: 4096)
-            queuedFrames.append(contentsOf: try decoder.append(data))
-            if !queuedFrames.isEmpty {
-                return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
-            }
-        }
-    }
-}
-
-private func readBootstrapToken(fileDescriptor: Int32) throws -> AgentStudioIPCSubjectToken {
-    #if canImport(Darwin)
-        var buffer = [UInt8](repeating: 0, count: 128)
-        let bytesRead = Darwin.read(fileDescriptor, &buffer, buffer.count)
-        guard bytesRead > 0 else {
-            throw AgentStudioIPCPaneBootstrapError(reason: .tokenWriteFailed, errnoCode: errno)
-        }
-        guard
-            let rawValue = String(bytes: buffer.prefix(bytesRead), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        else {
-            throw AgentStudioIPCPaneBootstrapError(reason: .tokenWriteFailed, errnoCode: errno)
-        }
-        return AgentStudioIPCSubjectToken(rawValue: rawValue)
-    #else
-        throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
-    #endif
-}
-
-private func isCloseOnExec(fileDescriptor: Int32) throws -> Bool {
-    #if canImport(Darwin)
-        let flags = fcntl(fileDescriptor, F_GETFD)
-        guard flags >= 0 else {
-            throw AgentStudioIPCPaneBootstrapError(reason: .pipeConfigurationFailed, errnoCode: errno)
-        }
-        return flags & FD_CLOEXEC == FD_CLOEXEC
-    #else
-        throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
-    #endif
-}
-
-private func fileMode(for url: URL) throws -> mode_t {
-    var statBuffer = stat()
-    guard lstat(url.path, &statBuffer) == 0 else {
-        throw POSIXError(.ENOENT)
-    }
-    return statBuffer.st_mode
 }

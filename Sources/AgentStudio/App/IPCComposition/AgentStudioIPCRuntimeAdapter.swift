@@ -96,7 +96,8 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
     func waitForTerminal(
         _ handle: IPCHandle,
         condition: IPCTerminalWaitCondition,
-        timeout: Duration
+        timeout: Duration,
+        afterSequence: UInt64? = nil
     ) async throws -> IPCTerminalWaitResult {
         let paneId = try resolveTerminalPaneId(handle)
         let runtime = try terminalRuntime(for: paneId)
@@ -104,16 +105,80 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             return try await waitForAttachReady(runtime: runtime, paneId: paneId, timeout: timeout)
         }
 
+        let stream = runtime.subscribe()
+
+        if let replayResult = try await replayedTerminalWaitResult(
+            runtime: runtime,
+            paneId: paneId,
+            condition: condition,
+            afterSequence: afterSequence
+        ) {
+            return replayResult
+        }
+
         guard
-            let result = await eventBus.waitForFirst(
+            let result = await waitForTerminalEvent(
+                stream: stream,
                 timeout: timeout,
                 { envelope in
-                    Self.terminalWaitResult(from: envelope, paneId: paneId, condition: condition)
+                    Self.terminalWaitResult(
+                        from: envelope,
+                        paneId: paneId,
+                        condition: condition,
+                        afterSequence: afterSequence
+                    )
                 })
         else {
             throw AppIPCRuntimeError(reason: .timeout)
         }
         return result
+    }
+
+    private func replayedTerminalWaitResult(
+        runtime: any PaneRuntime,
+        paneId: UUID,
+        condition: IPCTerminalWaitCondition,
+        afterSequence: UInt64?
+    ) async throws -> IPCTerminalWaitResult? {
+        guard let afterSequence else { return nil }
+        let replay = await runtime.eventsSince(seq: afterSequence)
+        guard !replay.gapDetected else {
+            throw AppIPCRuntimeError(reason: .replayGap)
+        }
+        return replay.events.compactMap { envelope in
+            Self.terminalWaitResult(
+                from: envelope,
+                paneId: paneId,
+                condition: condition,
+                afterSequence: afterSequence
+            )
+        }.first
+    }
+
+    private func waitForTerminalEvent(
+        stream: AsyncStream<RuntimeEnvelope>,
+        timeout: Duration,
+        _ extract: @Sendable @escaping (RuntimeEnvelope) -> IPCTerminalWaitResult?
+    ) async -> IPCTerminalWaitResult? {
+        await withTaskGroup(of: IPCTerminalWaitResult?.self) { group in
+            group.addTask {
+                for await envelope in stream {
+                    if let result = extract(envelope) {
+                        return result
+                    }
+                }
+                return nil
+            }
+
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+
+            let first: IPCTerminalWaitResult? = if let wrapped = await group.next() { wrapped } else { nil }
+            group.cancelAll()
+            return first
+        }
     }
 
     private func waitForAttachReady(
@@ -231,13 +296,17 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
     private nonisolated static func terminalWaitResult(
         from envelope: RuntimeEnvelope,
         paneId: UUID,
-        condition: IPCTerminalWaitCondition
+        condition: IPCTerminalWaitCondition,
+        afterSequence: UInt64? = nil
     ) -> IPCTerminalWaitResult? {
         guard case .pane(let paneEnvelope) = envelope,
             paneEnvelope.paneId.uuid == paneId,
             paneEnvelope.paneKind == .terminal,
             case .terminal(let event) = paneEnvelope.event
         else {
+            return nil
+        }
+        if let afterSequence, paneEnvelope.seq <= afterSequence {
             return nil
         }
 

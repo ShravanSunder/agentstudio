@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 private struct CrossTabMoveGeometrySmokeFixture {
@@ -94,6 +95,8 @@ extension AppDelegate {
         private func runIPCTerminalSmokeDiagnostic(
             action: AgentStudioStartupDiagnosticAction
         ) async {
+            NSApp.activate(ignoringOtherApps: true)
+
             guard let terminalContainerBounds = await startupDiagnosticLaunchRestoreBounds() else {
                 startupTraceRecorder.recordAppStartup(
                     "app.startup_diagnostic_action.skipped",
@@ -133,23 +136,42 @@ extension AppDelegate {
             await paneCoordinator.restoreAllViews(in: terminalContainerBounds)
             await Task.yield()
             mainWindowController?.syncVisibleTerminalGeometry(reason: "ipcTerminalSmoke")
+            let renderProof = await waitForIPCTerminalSmokeRenderProof(for: pane.id)
+            guard renderProof.succeeded else {
+                startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.blocked",
+                    phase: "startup_diagnostic_action",
+                    outcome: "blocked",
+                    attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                        [
+                            "agentstudio.startup_diagnostic.created_pane.count": .int(1),
+                            "agentstudio.startup_diagnostic.pane.id": .string(pane.id.uuidString),
+                        ].merging(renderProof.attributes) { _, newValue in newValue }
+                    ) { _, newValue in newValue }
+                )
+                return
+            }
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",
                 phase: "startup_diagnostic_action",
                 outcome: "succeeded",
-                attributes: startupDiagnosticTraceAttributes(for: action).merging([
-                    "agentstudio.startup_diagnostic.created_pane.count": .int(1),
-                    "agentstudio.startup_diagnostic.pane.id": .string(pane.id.uuidString),
-                ]) { _, newValue in newValue }
+                attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                    [
+                        "agentstudio.startup_diagnostic.created_pane.count": .int(1),
+                        "agentstudio.startup_diagnostic.pane.id": .string(pane.id.uuidString),
+                    ].merging(renderProof.attributes) { _, newValue in newValue }
+                ) { _, newValue in newValue }
             )
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.completed",
                 phase: "startup_diagnostic_action",
                 outcome: "succeeded",
-                attributes: startupDiagnosticTraceAttributes(for: action).merging([
-                    "agentstudio.startup_diagnostic.created_pane.count": .int(1),
-                    "agentstudio.startup_diagnostic.pane.id": .string(pane.id.uuidString),
-                ]) { _, newValue in newValue }
+                attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                    [
+                        "agentstudio.startup_diagnostic.created_pane.count": .int(1),
+                        "agentstudio.startup_diagnostic.pane.id": .string(pane.id.uuidString),
+                    ].merging(renderProof.attributes) { _, newValue in newValue }
+                ) { _, newValue in newValue }
             )
         }
     #endif
@@ -299,6 +321,35 @@ extension AppDelegate {
             mountedSurfaceCount: mountedSurfaces.count,
             validGeometryCount: validGeometryCount
         )
+    }
+
+    private func ipcTerminalSmokeRenderProof(for paneId: UUID) -> CrossTabMoveGeometrySmokeRenderProof {
+        let terminalView = viewRegistry.terminalView(for: paneId)
+        let mountedSurfaces = [terminalView?.ghosttySurface].compactMap { $0 }
+        let validGeometryCount = mountedSurfaces.filter(Self.surfaceHasValidSmokeGeometry).count
+        let runtime = paneCoordinator.runtimeForPane(PaneId(uuid: paneId))
+
+        return CrossTabMoveGeometrySmokeRenderProof(
+            expectedVisiblePaneCount: 1,
+            terminalViewCount: terminalView == nil ? 0 : 1,
+            surfaceIdCount: terminalView?.surfaceId == nil ? 0 : 1,
+            mountedSurfaceCount: mountedSurfaces.count,
+            validGeometryCount: runtime?.lifecycle == .ready ? validGeometryCount : 0
+        )
+    }
+
+    private func waitForIPCTerminalSmokeRenderProof(for paneId: UUID) async -> CrossTabMoveGeometrySmokeRenderProof {
+        let clock = ContinuousClock()
+        let start = clock.now
+        var proof = ipcTerminalSmokeRenderProof(for: paneId)
+        while !proof.succeeded
+            && start.duration(to: clock.now) < AppPolicies.StartupDiagnostic.ipcTerminalSmokeReadinessTimeout
+        {
+            try? await Task.sleep(for: .milliseconds(50))
+            mainWindowController?.syncVisibleTerminalGeometry(reason: "ipcTerminalSmokeReadiness")
+            proof = ipcTerminalSmokeRenderProof(for: paneId)
+        }
+        return proof
     }
 
     private static func surfaceHasValidSmokeGeometry(_ surface: Ghostty.SurfaceView) -> Bool {

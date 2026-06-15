@@ -32,9 +32,21 @@ The phase-1 foundation currently owns:
   principals, request dispatch, and shutdown cleanup.
 - Debug launcher support for owner-only IPC roots, a short trusted socket
   directory, and explicit forwarding of debug IPC auth environment variables.
+- DEBUG-only `ipc-terminal-smoke` startup diagnostic that opens a floating
+  terminal through the app owner and records success only after the terminal
+  has a view, surface reference, mounted surface, valid geometry, and ready
+  runtime proof.
 - Pane-agent bootstrap primitive that delivers a single-use subject token
   through a close-on-exec file descriptor while environment variables carry
   only socket/runtime routing metadata.
+- App-owned pane-agent launch owner under `App/PaneAgents` that remaps exactly
+  one bootstrap fd into `agentstudio-pane-agent` with
+  `POSIX_SPAWN_CLOEXEC_DEFAULT`.
+- `agentstudio-pane-agent` helper executable that reads the bootstrap fd once,
+  closes it, authenticates with `auth.login`, and verifies the runtime id via
+  `system.identify` without importing app/server targets.
+- Bound-principal invalidation on the IPC server that revokes pane-bound tokens
+  and closes authenticated sockets for that pane principal.
 - Public event-name contracts and permission-event DTOs for phase-1 exported
   notifications.
 - Permission recovery queries for requester-owned request/grant state and
@@ -44,16 +56,17 @@ The phase-1 foundation currently owns:
 
 The remaining app integration boundaries are:
 
-- concrete pane process-spawn fd handoff:
-  `AgentStudioAppIPCServer.makePaneBootstrap(...)` can mint the principal and
-  write the token to a close-on-exec parent descriptor, but the current
-  terminal/zmx launch path does not yet have a named adapter that deliberately
-  remaps that descriptor into a child pane-agent process.
+- pane-agent lifecycle integration:
+  `PaneAgentLaunchOwner` can launch and authenticate the helper through the fd
+  bootstrap path, and `AgentStudioAppIPCServer.invalidatePrincipals(...)` can
+  tear down bound-principal socket authority. The real pane close/child-exit
+  owner still needs to call that revocation seam and own auth-timeout
+  diagnostics.
 - terminal completion/readback proof:
-  live debug proof shows `terminal.status`, `terminal.wait(attachReady)`, and
-  `terminal.send` reach a ready runtime. It does not yet prove command
-  completion, shell output, title/cwd changes, or prompt readiness through
-  exported events.
+  live debug proof shows `terminal.status`, `pane.focus`, `terminal.send`, and
+  `terminal.wait(titleChanged, afterSequence:)` reach a ready runtime through
+  the debug app socket. It does not yet prove shell command completion, shell
+  output, cwd changes, or prompt readiness through exported events.
 
 ## Target Ownership
 
@@ -176,7 +189,8 @@ terminal.wait
   -> AgentStudioIPCRuntimeAdapter
        resolves pane handle by UUID or friendly ordinal
        requires a terminal pane and registered runtime
-  -> EventBus<RuntimeEnvelope>.waitForFirst(...)
+  -> PaneRuntime.eventsSince(afterSequence)
+  -> PaneRuntime.subscribe()
   -> allowlisted terminal wait result
 ```
 
@@ -191,15 +205,19 @@ particular prompt. Those higher-level observations belong to `terminal.wait`
 conditions and runtime events.
 
 `terminal.wait` resolves only stable exported facts. `attachReady` is currently
-proven from a ready registered runtime. `commandFinished`, `rendererHealthy`,
-`titleChanged`, `cwdChanged`, and `progressChanged` are the intended exported
-conditions, but live proof on 2026-06-15 showed `commandFinished` and
-`titleChanged` timing out after accepted `terminal.send` calls. Treat those
-conditions as not product-proven until the runtime emits the matching facts or
-the wait contract is narrowed. Wait results must carry only
+proven from a ready registered runtime. `titleChanged` is product-proven through
+`terminal.wait(titleChanged, afterSequence:)` after an accepted `terminal.send`
+call. `commandFinished`, cwd/readback, prompt-readiness, and broader shell
+completion remain follow-up runtime facts. Wait results must carry only
 command/correlation ids and safe scalar data such as exit code, duration, and
 renderer health; they must not expose terminal titles, cwd paths, or progress
 payload text.
+
+For cursor-bearing waits, the adapter subscribes to the owning runtime before
+checking runtime replay so an event cannot fall between the replay read and live
+subscription. `afterSequence` is a strict floor for both replayed and live
+events, and a replay gap maps to a stable `replay gap` error so callers refresh
+their terminal snapshot instead of attributing a later event to an old command.
 
 The terminal DTOs intentionally omit terminal output, scrollback, raw PTY bytes,
 cwd/launch paths, command lines, zmx session identifiers, raw runtime objects,
@@ -329,9 +347,9 @@ The CLI is a client/smoke surface, not an app-control owner. It cannot import
 authorization, grants, or app/runtime owner ports.
 
 Bearer tokens must not be passed as argv. Explicit interactive or automation
-auth uses `--token-stdin`; app-spawned pane agents should receive their
-pane-bound credential through an explicitly remapped bootstrap fd once a
-concrete pane-agent spawn adapter exists.
+auth uses `--token-stdin`; app-spawned pane agents receive their pane-bound
+credential through an explicitly remapped bootstrap fd owned by
+`PaneAgentLaunchOwner`.
 
 The current client surface includes query/control verbs for debug proof:
 `auth-status`, `identify`, `capabilities`, `list-windows`, `list-workspaces`,
@@ -352,10 +370,14 @@ Authentication and authorization are separate:
 Phase 1 uses opaque subject tokens issued by the app. Spawn environments may
 carry non-secret routing metadata such as socket path, runtime id, and a
 bootstrap fd number, but they must not carry bearer tokens. The bootstrap
-factory marks both pipe ends close-on-exec; the future spawn adapter must
-deliberately remap the read end into the pane-agent child instead of relying on
-ambient descriptor inheritance. A spawned pane agent receives its pane-bound
-credential by reading the fd written by `AgentStudioIPCPaneBootstrapFactory`;
+factory marks both pipe ends close-on-exec; `PaneAgentLaunchOwner` uses
+`posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT` and one `dup2` action so only
+the intended bootstrap fd is inheritable in the pane-agent helper. If the
+parent-side read fd already equals the child bootstrap fd number, the launch
+owner first duplicates it to a staged close-on-exec fd and then maps that staged
+fd into the child; this avoids accidentally closing the only readable token fd
+while preparing spawn actions. A spawned pane agent receives its pane-bound
+credential by reading that fd once through `AgentStudioIPCBootstrapTokenReader`;
 `auth.login` binds the token to the principal recorded in the registry, and the
 caller cannot upgrade itself by passing a different pane hint. Tokens are
 single-use in the current phase-1 foundation so replayed bearer material cannot

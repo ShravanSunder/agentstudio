@@ -31,13 +31,22 @@ Implementation checkpoint on 2026-06-15:
   command-spec allowlist, not arbitrary `AppCommand` execution.
 - A DEBUG-only `ipc-terminal-smoke` startup diagnostic can create a real
   floating terminal pane that becomes visible to IPC runtime methods.
-- Live proof has shown `terminal.status`, `terminal.wait(attachReady)`, and
-  `terminal.send` against a ready runtime.
-- Live proof has not shown command completion, title/cwd/readback, or prompt
-  readiness through exported events; `terminal.wait(commandFinished)` and
-  `terminal.wait(titleChanged)` timed out after accepted input.
-- The app-spawned pane-agent fd remap adapter and stale-principal revocation
-  smoke remain open implementation work.
+- Live proof has shown `terminal.status`, `pane.focus`, and `terminal.send`
+  against a ready runtime.
+- Live proof now covers title-change readback after `terminal.send` through
+  `terminal.wait(titleChanged, afterSequence:)`. Broader shell completion,
+  cwd/readback, and prompt-readiness proof remain follow-up runtime facts.
+- `terminal.wait(afterSequence:)` uses runtime-owned replay plus live
+  subscription with `afterSequence` as a strict sequence floor. Replay gaps fail
+  closed so callers refresh `terminal.snapshot` before waiting again.
+- `mise run verify-debug-observability` now treats `ipc-terminal-smoke` as a
+  required startup diagnostic when requested and proves the smoke pane count
+  plus terminal view/surface/valid-geometry render proof via OTLP while leaving
+  raw pane UUIDs scrubbed.
+- The app-spawned pane-agent fd remap adapter is implemented through
+  `PaneAgentLaunchOwner` plus the `agentstudio-pane-agent` helper. Real pane
+  close/child-exit lifecycle wiring and full live stale-principal smoke remain
+  open implementation work.
 
 ## Goal
 

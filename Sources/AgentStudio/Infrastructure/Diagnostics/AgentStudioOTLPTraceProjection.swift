@@ -162,6 +162,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.surface.requested_width_px",
         "agentstudio.performance.terminal.surface.row.count",
         "agentstudio.performance.topology.index.count",
+        "agentstudio.startup_diagnostic.created_pane.count",
         "agentstudio.startup_diagnostic.expected_visible_pane.count",
         "agentstudio.startup_diagnostic.fixture.surface.count",
         "agentstudio.startup_diagnostic.fixture.surface_reference.count",
