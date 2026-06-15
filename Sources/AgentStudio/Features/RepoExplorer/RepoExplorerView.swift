@@ -70,16 +70,13 @@ enum RepoExplorerFocusPublisher {
 /// Sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
 struct RepoExplorerView: View {
-    struct SidebarProjection {
-        let resolvedGroups: [RepoPresentationGroup]
-        let loadingRepos: [RepoPresentationItem]
-        let showsNoResults: Bool
-    }
+    typealias SidebarProjection = RepoExplorerSidebarProjection
 
     let store: WorkspaceStore
     let onRefocusActivePane: () -> Void
     let onShowNotificationsForWorktree: (Worktree) -> Void
     let unreadCount: (Worktree) -> Int
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
     static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
@@ -108,32 +105,58 @@ struct RepoExplorerView: View {
         store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:))
     }
 
-    private var sidebarProjectionFingerprint: String {
-        Self.projectionFingerprint(for: sidebarProjection)
-    }
-
-    private var sidebarProjection: SidebarProjection {
-        Self.projectSidebar(
+    private var sidebarSnapshot: RepoExplorerSnapshot {
+        RepoExplorerSnapshot(
             repos: sidebarRepos,
-            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+            repoEnrichmentByRepoId: sidebarRepoEnrichmentByRepoId,
             query: debouncedQuery
         )
     }
 
-    private var groups: [RepoPresentationGroup] {
-        sidebarProjection.resolvedGroups
-    }
-
-    private var loadingReposList: [RepoPresentationItem] {
-        sidebarProjection.loadingRepos
-    }
-
-    private var resolvedListEntries: [RepoExplorerListEntry] {
-        Self.buildListEntries(
-            groups: groups,
-            expandedGroupIds: Set(sidebarCache.expandedGroups.map(\.rawValue)),
-            isFiltering: isFiltering
+    private var sidebarRepoEnrichmentByRepoId: [UUID: RepoEnrichment] {
+        Dictionary(
+            uniqueKeysWithValues: sidebarRepos.compactMap { repo in
+                repoCache.repoEnrichment(for: repo.id).map { (repo.id, $0) }
+            }
         )
+    }
+
+    private var sidebarProjection: SidebarProjection {
+        let snapshot = sidebarSnapshot
+        return performanceTraceRecorder?.measure(
+            .sidebarProjection,
+            attributes: [
+                "agentstudio.performance.sidebar.repo.count": .int(snapshot.repos.count),
+                "agentstudio.performance.sidebar.query_character.count": .int(snapshot.query.count),
+            ]
+        ) {
+            RepoExplorerProjection.project(snapshot)
+        } ?? RepoExplorerProjection.project(snapshot)
+    }
+
+    private var sidebarRowIndex: RepoExplorerRowIndex {
+        let projection = sidebarProjection
+        let expandedGroupIds = Set(sidebarCache.expandedGroups.map(\.rawValue))
+        return performanceTraceRecorder?.measure(
+            .sidebarRowIndex,
+            attributes: [
+                "agentstudio.performance.sidebar.group.count": .int(projection.resolvedGroups.count),
+                "agentstudio.performance.sidebar.loading_repo.count": .int(projection.loadingRepos.count),
+                "agentstudio.performance.sidebar.expanded_group.count": .int(expandedGroupIds.count),
+                "agentstudio.performance.sidebar.is_filtering": .bool(isFiltering),
+            ]
+        ) {
+            RepoExplorerRowIndex(
+                projection: projection,
+                expandedGroupIds: expandedGroupIds,
+                isFiltering: isFiltering
+            )
+        }
+            ?? RepoExplorerRowIndex(
+                projection: projection,
+                expandedGroupIds: expandedGroupIds,
+                isFiltering: isFiltering
+            )
     }
 
     private var isFiltering: Bool {
@@ -149,9 +172,14 @@ struct RepoExplorerView: View {
     }
 
     private var worktreeStatusById: [UUID: GitBranchStatus] {
-        Self.mergeBranchStatuses(
-            worktreeEnrichmentsByWorktreeId: repoCache.worktreeEnrichmentByWorktreeId,
-            pullRequestCountsByWorktreeId: repoCache.pullRequestCountByWorktreeId
+        let factsByWorktreeId = Dictionary(
+            uniqueKeysWithValues: sidebarRepos.flatMap(\.worktrees).compactMap { worktree in
+                repoCache.worktreeFacts(for: worktree.id).map { (worktree.id, $0) }
+            }
+        )
+        return Self.mergeBranchStatuses(
+            worktreeEnrichmentsByWorktreeId: factsByWorktreeId.compactMapValues { $0.enrichment },
+            pullRequestCountsByWorktreeId: factsByWorktreeId.compactMapValues { $0.pullRequestCount }
         )
     }
 
@@ -200,6 +228,13 @@ struct RepoExplorerView: View {
         }
         .onChange(of: filterText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+            performanceTraceRecorder?.record(
+                .sidebarFilterInput,
+                attributes: [
+                    "agentstudio.performance.sidebar.query_character.count": .int(trimmed.count),
+                    "agentstudio.performance.sidebar.was_empty": .bool(trimmed.isEmpty),
+                ]
+            )
             uiState.setFilterText(trimmed)
             debounceTask?.cancel()
             if trimmed.isEmpty {
@@ -259,8 +294,9 @@ struct RepoExplorerView: View {
     }
 
     private var groupList: some View {
-        List {
-            ForEach(resolvedListEntries) { entry in
+        let rowIndex = sidebarRowIndex
+        return List {
+            ForEach(rowIndex.entries) { entry in
                 switch entry {
                 case .resolvedGroupHeader(let group):
                     SidebarRepoGroupHeader(
@@ -293,7 +329,7 @@ struct RepoExplorerView: View {
                     }
 
                 case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId):
-                    if let resolvedWorktreeContext = resolvedWorktreeContext(
+                    if let resolvedWorktreeContext = rowIndex.resolve(
                         groupId: groupId,
                         repoId: repoId,
                         worktreeId: worktreeId
@@ -356,9 +392,9 @@ struct RepoExplorerView: View {
                 }
             }
 
-            if !loadingReposList.isEmpty {
+            if !rowIndex.projection.loadingRepos.isEmpty {
                 Section {
-                    ForEach(loadingReposList, id: \.id) { repo in
+                    ForEach(rowIndex.projection.loadingRepos, id: \.id) { repo in
                         RepoExplorerLoadingRepoRow(repoName: repo.name)
                             .listRowInsets(
                                 EdgeInsets(
@@ -379,7 +415,6 @@ struct RepoExplorerView: View {
             }
         }
         .sidebarSurfaceListStyle(Self.surfaceListPolicy)
-        .id(sidebarProjectionFingerprint)
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }
 
@@ -406,17 +441,6 @@ struct RepoExplorerView: View {
 
         let key = SidebarGroupKey(groupId)
         sidebarCache.setGroupExpanded(key, isExpanded: !sidebarCache.expandedGroups.contains(key))
-    }
-
-    private func resolvedWorktreeContext(
-        groupId: String,
-        repoId: UUID,
-        worktreeId: UUID
-    ) -> (group: RepoPresentationGroup, repo: RepoPresentationItem, worktree: Worktree)? {
-        guard let group = groups.first(where: { $0.id == groupId }) else { return nil }
-        guard let repo = group.repos.first(where: { $0.id == repoId }) else { return nil }
-        guard let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else { return nil }
-        return (group, repo, worktree)
     }
 
     private func checkoutTitle(for worktree: Worktree, in repo: RepoPresentationItem) -> String {
@@ -452,7 +476,7 @@ struct RepoExplorerView: View {
     private func branchName(for worktree: Worktree) -> String {
         atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
-            enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+            enrichment: repoCache.worktreeEnrichment(for: worktree.id)
         )
     }
 
@@ -469,20 +493,6 @@ struct RepoExplorerView: View {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
     }
 
-}
-
-enum RepoExplorerListEntry: Identifiable {
-    case resolvedGroupHeader(RepoPresentationGroup)
-    case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID)
-
-    var id: String {
-        switch self {
-        case .resolvedGroupHeader(let group):
-            return "group:\(group.id)"
-        case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId):
-            return "worktree:\(groupId):\(repoId.uuidString):\(worktreeId.uuidString)"
-        }
-    }
 }
 
 private struct RepoExplorerLoadingSectionHeaderRow: View {
@@ -532,25 +542,6 @@ private struct RepoExplorerLoadingRepoRow: View {
     }
 }
 
-struct GitBranchStatus: Equatable, Sendable {
-    enum SyncState: Equatable, Sendable {
-        case synced
-        case ahead(Int)
-        case behind(Int)
-        case diverged(ahead: Int, behind: Int)
-        case noUpstream
-        case unknown
-    }
-
-    let isDirty: Bool
-    let syncState: SyncState
-    let prCount: Int?
-    let linesAdded: Int
-    let linesDeleted: Int
-
-    static let unknown = Self(isDirty: false, syncState: .unknown, prCount: nil, linesAdded: 0, linesDeleted: 0)
-}
-
 extension RepoExplorerView {
     static func checkoutColorHex(
         for repo: RepoPresentationItem,
@@ -596,28 +587,11 @@ extension RepoExplorerView {
         expandedGroupIds: Set<String>,
         isFiltering: Bool
     ) -> [RepoExplorerListEntry] {
-        var entries: [RepoExplorerListEntry] = []
-
-        for group in groups {
-            entries.append(.resolvedGroupHeader(group))
-
-            let shouldExpandGroup = isFiltering || expandedGroupIds.contains(group.id)
-            guard shouldExpandGroup else { continue }
-
-            for repo in group.repos {
-                for worktree in sortedWorktrees(for: repo) {
-                    entries.append(
-                        .resolvedWorktreeRow(
-                            groupId: group.id,
-                            repoId: repo.id,
-                            worktreeId: worktree.id
-                        )
-                    )
-                }
-            }
-        }
-
-        return entries
+        RepoExplorerRowIndex.buildListEntries(
+            groups: groups,
+            expandedGroupIds: expandedGroupIds,
+            isFiltering: isFiltering
+        )
     }
 
     static func projectionFingerprint(for projection: SidebarProjection) -> String {
@@ -643,23 +617,12 @@ extension RepoExplorerView {
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
         query: String
     ) -> SidebarProjection {
-        let resolvedRepos = resolvedRepos(repos, enrichmentByRepoId: repoEnrichmentByRepoId)
-        let loadingRepos = loadingRepos(repos, enrichmentByRepoId: repoEnrichmentByRepoId)
-        let filteredResolvedRepos = RepoExplorerFilter.filter(repos: resolvedRepos, query: query)
-        let filteredLoadingRepos = filterLoadingRepos(loadingRepos, query: query)
-        let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
-            repos: filteredResolvedRepos,
-            repoEnrichmentByRepoId: repoEnrichmentByRepoId
-        )
-        let resolvedGroups = RepoPresentationGrouping.buildGroups(
-            repos: filteredResolvedRepos,
-            metadataByRepoId: repoMetadataById
-        )
-
-        return SidebarProjection(
-            resolvedGroups: resolvedGroups,
-            loadingRepos: filteredLoadingRepos,
-            showsNoResults: !query.isEmpty && resolvedGroups.isEmpty && filteredLoadingRepos.isEmpty
+        RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: repos,
+                repoEnrichmentByRepoId: repoEnrichmentByRepoId,
+                query: query
+            )
         )
     }
 
@@ -667,46 +630,14 @@ extension RepoExplorerView {
         _ repos: [RepoPresentationItem],
         enrichmentByRepoId: [UUID: RepoEnrichment]
     ) -> [RepoPresentationItem] {
-        repos.filter { repo in
-            switch enrichmentByRepoId[repo.id] {
-            case .resolvedLocal, .resolvedRemote:
-                return true
-            case .awaitingOrigin, .none:
-                return false
-            }
-        }
+        RepoExplorerProjection.resolvedRepos(repos, enrichmentByRepoId: enrichmentByRepoId)
     }
 
     static func loadingRepos(
         _ repos: [RepoPresentationItem],
         enrichmentByRepoId: [UUID: RepoEnrichment]
     ) -> [RepoPresentationItem] {
-        repos.filter { repo in
-            switch enrichmentByRepoId[repo.id] {
-            case .resolvedLocal, .resolvedRemote:
-                return false
-            case .awaitingOrigin, .none:
-                return true
-            }
-        }
-    }
-
-    private static func filterLoadingRepos(
-        _ repos: [RepoPresentationItem],
-        query: String
-    ) -> [RepoPresentationItem] {
-        let filteredRepos: [RepoPresentationItem]
-        if query.isEmpty {
-            filteredRepos = repos
-        } else {
-            filteredRepos = repos.filter { repo in
-                repo.name.localizedCaseInsensitiveContains(query)
-            }
-        }
-
-        return filteredRepos.sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
+        RepoExplorerProjection.loadingRepos(repos, enrichmentByRepoId: enrichmentByRepoId)
     }
 
     static func primaryRepoForGroup(_ group: RepoPresentationGroup) -> RepoPresentationItem? {
@@ -717,84 +648,20 @@ extension RepoExplorerView {
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
         pullRequestCountsByWorktreeId: [UUID: Int]
     ) -> [UUID: GitBranchStatus] {
-        let allWorktreeIds = Set(worktreeEnrichmentsByWorktreeId.keys).union(pullRequestCountsByWorktreeId.keys)
-        var mergedByWorktreeId: [UUID: GitBranchStatus] = [:]
-        mergedByWorktreeId.reserveCapacity(allWorktreeIds.count)
-
-        for worktreeId in allWorktreeIds {
-            let enrichment = worktreeEnrichmentsByWorktreeId[worktreeId]
-            let pullRequestCount = pullRequestCountsByWorktreeId[worktreeId]
-            mergedByWorktreeId[worktreeId] = branchStatus(
-                enrichment: enrichment,
-                pullRequestCount: pullRequestCount
-            )
-        }
-
-        return mergedByWorktreeId
+        GitBranchStatus.merge(
+            worktreeEnrichmentsByWorktreeId: worktreeEnrichmentsByWorktreeId,
+            pullRequestCountsByWorktreeId: pullRequestCountsByWorktreeId
+        )
     }
 
     static func branchStatus(
         enrichment: WorktreeEnrichment?,
         pullRequestCount: Int?
     ) -> GitBranchStatus {
-        guard let enrichment else {
-            return GitBranchStatus(
-                isDirty: GitBranchStatus.unknown.isDirty,
-                syncState: GitBranchStatus.unknown.syncState,
-                prCount: pullRequestCount,
-                linesAdded: GitBranchStatus.unknown.linesAdded,
-                linesDeleted: GitBranchStatus.unknown.linesDeleted
-            )
-        }
-
-        let summary = enrichment.snapshot?.summary
-        let isDirty: Bool
-        if let summary {
-            isDirty = summary.changed > 0 || summary.staged > 0 || summary.untracked > 0
-        } else {
-            isDirty = false
-        }
-
-        let syncState: GitBranchStatus.SyncState
-        if let summary {
-            switch summary.hasUpstream {
-            case .some(false):
-                syncState = .noUpstream
-            case .some(true):
-                let ahead = summary.aheadCount ?? 0
-                let behind = summary.behindCount ?? 0
-                if ahead > 0 && behind > 0 {
-                    syncState = .diverged(ahead: ahead, behind: behind)
-                } else if ahead > 0 {
-                    syncState = .ahead(ahead)
-                } else if behind > 0 {
-                    syncState = .behind(behind)
-                } else if summary.aheadCount != nil || summary.behindCount != nil {
-                    syncState = .synced
-                } else {
-                    syncState = .unknown
-                }
-            case .none:
-                syncState = .unknown
-            }
-        } else {
-            syncState = .unknown
-        }
-        return GitBranchStatus(
-            isDirty: isDirty,
-            syncState: syncState,
-            prCount: pullRequestCount,
-            linesAdded: summary?.linesAdded ?? 0,
-            linesDeleted: summary?.linesDeleted ?? 0
-        )
+        GitBranchStatus.status(enrichment: enrichment, pullRequestCount: pullRequestCount)
     }
 
     static func sortedWorktrees(for repo: RepoPresentationItem) -> [Worktree] {
-        repo.worktrees.sorted { lhs, rhs in
-            if lhs.isMainWorktree != rhs.isMainWorktree {
-                return lhs.isMainWorktree
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
+        RepoExplorerRowIndex.sortedWorktrees(for: repo)
     }
 }

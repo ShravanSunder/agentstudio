@@ -12,6 +12,34 @@ extension PaneCoordinator {
         var restoredPaneIds: Set<UUID> = []
     }
 
+    private struct TerminalSurfaceStartupPreparation {
+        let strategy: Ghostty.SurfaceStartupStrategy
+        let showsRestorePresentationDuringStartup: Bool
+        let environmentVariables: [String: String]
+    }
+
+    private enum TerminalSurfaceStartupContext {
+        case worktree
+        case floating(launchDirectory: URL)
+
+        var diagnosticsTracePrefix: String {
+            switch self {
+            case .worktree:
+                "createView"
+            case .floating:
+                "createFloatingView"
+            }
+        }
+
+        var missingZmxLogMessage: String {
+            switch self {
+            case .worktree:
+                "zmx not found; using ephemeral session"
+            case .floating:
+                "zmx not found; using ephemeral floating session"
+            }
+        }
+    }
     @discardableResult
     func registerHostedView(
         mountedView: NSView & PaneMountedContent,
@@ -125,7 +153,11 @@ extension PaneCoordinator {
             return view
 
         case .bridgePanel(let state):
-            let controller = BridgePaneController(paneId: pane.id, state: state)
+            let controller = BridgePaneController(
+                paneId: pane.id,
+                state: state,
+                reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state)
+            )
             let view = BridgePaneMountView(paneId: pane.id, controller: controller)
             registerHostedView(mountedView: view, for: pane.id)
             registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
@@ -139,8 +171,6 @@ extension PaneCoordinator {
         }
     }
 
-    /// Create a terminal view for a pane, including surface and runtime setup.
-    /// Registers the view in the ViewRegistry.
     @discardableResult
     func createView(
         for pane: Pane,
@@ -162,57 +192,25 @@ extension PaneCoordinator {
         let launchDirectory = pane.metadata.cwd ?? pane.metadata.launchDirectory ?? worktree.path
 
         let shellCommand = "\(getDefaultShell()) -i -l"
-        let startupStrategy: Ghostty.SurfaceStartupStrategy
-        let showsRestorePresentationDuringStartup: Bool
-        var environmentVariables: [String: String] = [:]
-        switch pane.provider {
-        case .zmx:
-            if let diagnostics = terminalRestoreRuntime.zmxAttachDiagnostics(for: pane, store: store) {
-                RestoreTrace.log(
-                    "createView zmxDiagnostics pane=\(diagnostics.paneId) session=\(diagnostics.sessionId) socketPathLen=\(diagnostics.socketPathLength) socketPathHeadroom=\(diagnostics.socketPathHeadroom) maxSocketPathLen=\(diagnostics.maxSocketPathLength)"
-                )
-            }
-            if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane, store: store) {
-                startupStrategy = .surfaceCommand(attachCommand)
-                showsRestorePresentationDuringStartup = treatAsRestoredSessionStart
-                environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
-                // Override ZMX_SESSION to empty for the Ghostty surface's child shell.
-                // `zmx attach` refuses to run when ZMX_SESSION is non-empty
-                // (`vendor/zmx/src/main.zig:1136-1140` — "CannotAttachToSessionInSession").
-                // When Agent Studio is launched from inside another Agent Studio's drawer,
-                // the outer daemon has injected its session name into our inherited env;
-                // without this override the inner's own `zmx attach` immediately exits
-                // and Ghostty shows "Process Exited". Empty string is equivalent to unset
-                // per zmx's `std.posix.getenv(...) orelse ""`.
-                environmentVariables["ZMX_SESSION"] = ""
-            } else {
-                Self.logger.error(
-                    "zmx not found; using ephemeral session for \(pane.id) (state will not persist)"
-                )
-                if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
-                    store.paneAtom.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
-                }
-                startupStrategy = .surfaceCommand(shellCommand)
-                showsRestorePresentationDuringStartup = false
-            }
-        case .ghostty:
-            startupStrategy = .surfaceCommand(shellCommand)
-            showsRestorePresentationDuringStartup = false
-        case .none:
-            Self.logger.error("Cannot create view for non-terminal pane \(pane.id)")
-            return nil
-        }
+        guard
+            let startupPreparation = prepareTerminalSurfaceStartup(
+                for: pane,
+                shellCommand: shellCommand,
+                treatAsRestoredSessionStart: treatAsRestoredSessionStart,
+                context: .worktree
+            )
+        else { return nil }
 
         let config = Ghostty.SurfaceConfiguration(
             launchDirectory: launchDirectory.path,
-            startupStrategy: startupStrategy,
+            startupStrategy: startupPreparation.strategy,
             initialFrame: initialFrame,
-            environmentVariables: environmentVariables
+            environmentVariables: startupPreparation.environmentVariables
         )
 
         let metadata = SurfaceMetadata(
             launchDirectory: launchDirectory,
-            command: startupStrategy.startupCommandForSurface,
+            command: startupPreparation.strategy.startupCommandForSurface,
             title: worktree.name,
             worktreeId: worktree.id,
             repoId: repo.id,
@@ -221,22 +219,31 @@ extension PaneCoordinator {
         )
 
         let preparedRuntime = prepareTerminalRuntimeForFreshSurfaceIfNeeded(for: pane)
+        traceSurfaceCreateStarted(
+            pane: pane,
+            initialFrame: config.initialFrame,
+            startupCommandPresent: startupPreparation.strategy.startupCommandForSurface != nil,
+            environmentVariableCount: startupPreparation.environmentVariables.count
+        )
         let result = surfaceManager.createSurface(config: config, metadata: metadata)
 
         switch result {
         case .success(let managed):
+            traceSurfaceCreateSucceeded(pane: pane, surfaceID: managed.id)
             viewRegistry.unregister(pane.id)
             RestoreTrace.log(
                 "createView success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
             )
             surfaceManager.attach(managed.id, to: pane.id)
+            traceSurfaceAttached(pane: pane, surfaceID: managed.id)
 
             let view = TerminalPaneMountView(
                 worktree: worktree,
                 repo: repo,
                 restoredSurfaceId: managed.id,
                 paneId: pane.id,
-                showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup
+                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup,
+                performanceTraceRecorder: performanceTraceRecorder
             )
             view.onRepairRequested = { [weak self] paneId in
                 self?.execute(.repair(.recreateSurface(paneId: paneId)))
@@ -247,6 +254,7 @@ extension PaneCoordinator {
             }
 
             registerHostedView(mountedView: view, for: pane.id)
+            traceSurfaceDisplayed(pane: pane, surfaceID: managed.id)
             runtime.markRunning(pane.id)
             RestoreTrace.log(
                 "createView complete pane=\(pane.id) surface=\(managed.id) viewBounds=\(NSStringFromRect(view.bounds))"
@@ -256,6 +264,13 @@ extension PaneCoordinator {
             return view
 
         case .failure(let error):
+            traceSurfaceCreateFailed(
+                pane: pane,
+                error: error,
+                initialFrame: config.initialFrame,
+                startupCommandPresent: startupPreparation.strategy.startupCommandForSurface != nil,
+                environmentVariableCount: startupPreparation.environmentVariables.count
+            )
             RestoreTrace.log(
                 "createSurface failure pane=\(pane.id) error=\(error.localizedDescription)"
             )
@@ -266,8 +281,6 @@ extension PaneCoordinator {
         }
     }
 
-    /// Create a terminal view for a floating pane (drawers, standalone terminals).
-    /// No worktree/repo context — uses home directory or pane's cwd.
     @discardableResult
     private func createFloatingTerminalView(
         for pane: Pane,
@@ -287,43 +300,14 @@ extension PaneCoordinator {
         let launchDirectory =
             pane.metadata.cwd ?? pane.metadata.launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser
         let shellCommand = "\(getDefaultShell()) -i -l"
-        let startupStrategy: Ghostty.SurfaceStartupStrategy
-        let showsRestorePresentationDuringStartup: Bool
-        var environmentVariables: [String: String] = [:]
-
-        if pane.provider == .zmx,
-            let diagnostics = terminalRestoreRuntime.zmxAttachDiagnostics(for: pane, store: store)
-        {
-            RestoreTrace.log(
-                "createFloatingView zmxDiagnostics pane=\(diagnostics.paneId) session=\(diagnostics.sessionId) socketPathLen=\(diagnostics.socketPathLength) socketPathHeadroom=\(diagnostics.socketPathHeadroom) maxSocketPathLen=\(diagnostics.maxSocketPathLength)"
+        guard
+            let startupPreparation = prepareTerminalSurfaceStartup(
+                for: pane,
+                shellCommand: shellCommand,
+                treatAsRestoredSessionStart: treatAsRestoredSessionStart,
+                context: .floating(launchDirectory: launchDirectory)
             )
-        }
-
-        if pane.provider == .zmx,
-            let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane, store: store)
-        {
-            startupStrategy = .surfaceCommand(attachCommand)
-            showsRestorePresentationDuringStartup = treatAsRestoredSessionStart
-            environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
-            // See createView: drawers are the common nested-launch entry point, so
-            // scrubbing an inherited ZMX_SESSION here is essential to avoid zmx's
-            // CannotAttachToSessionInSession early-exit in the child shell.
-            environmentVariables["ZMX_SESSION"] = ""
-            RestoreTrace.log(
-                "createFloatingView zmx pane=\(pane.id) session=\(Self.floatingZmxRestoreSessionId(for: pane, launchDirectory: launchDirectory)) cwd=\(launchDirectory.path)"
-            )
-        } else {
-            if pane.provider == .zmx {
-                Self.logger.error(
-                    "zmx not found; using ephemeral floating session for \(pane.id) (state will not persist)"
-                )
-                if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
-                    store.paneAtom.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
-                }
-            }
-            startupStrategy = .surfaceCommand(shellCommand)
-            showsRestorePresentationDuringStartup = false
-        }
+        else { return nil }
 
         RestoreTrace.log(
             "createFloatingView pane=\(pane.id) cwd=\(launchDirectory.path) cmd=\(shellCommand)"
@@ -331,35 +315,44 @@ extension PaneCoordinator {
 
         let config = Ghostty.SurfaceConfiguration(
             launchDirectory: launchDirectory.path,
-            startupStrategy: startupStrategy,
+            startupStrategy: startupPreparation.strategy,
             initialFrame: initialFrame,
-            environmentVariables: environmentVariables
+            environmentVariables: startupPreparation.environmentVariables
         )
 
         let metadata = SurfaceMetadata(
             launchDirectory: launchDirectory,
-            command: startupStrategy.startupCommandForSurface,
+            command: startupPreparation.strategy.startupCommandForSurface,
             title: pane.metadata.title,
             contextFacets: pane.metadata.facets,
             paneId: pane.id
         )
 
         let preparedRuntime = prepareTerminalRuntimeForFreshSurfaceIfNeeded(for: pane)
+        traceSurfaceCreateStarted(
+            pane: pane,
+            initialFrame: config.initialFrame,
+            startupCommandPresent: startupPreparation.strategy.startupCommandForSurface != nil,
+            environmentVariableCount: startupPreparation.environmentVariables.count
+        )
         let result = surfaceManager.createSurface(config: config, metadata: metadata)
 
         switch result {
         case .success(let managed):
+            traceSurfaceCreateSucceeded(pane: pane, surfaceID: managed.id)
             viewRegistry.unregister(pane.id)
             RestoreTrace.log(
                 "createFloatingSurface success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
             )
             surfaceManager.attach(managed.id, to: pane.id)
+            traceSurfaceAttached(pane: pane, surfaceID: managed.id)
 
             let view = TerminalPaneMountView(
                 restoredSurfaceId: managed.id,
                 paneId: pane.id,
                 title: pane.metadata.title,
-                showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup
+                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup,
+                performanceTraceRecorder: performanceTraceRecorder
             )
             view.onRepairRequested = { [weak self] paneId in
                 self?.execute(.repair(.recreateSurface(paneId: paneId)))
@@ -370,6 +363,7 @@ extension PaneCoordinator {
             }
 
             registerHostedView(mountedView: view, for: pane.id)
+            traceSurfaceDisplayed(pane: pane, surfaceID: managed.id)
             runtime.markRunning(pane.id)
             RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
 
@@ -377,6 +371,13 @@ extension PaneCoordinator {
             return view
 
         case .failure(let error):
+            traceSurfaceCreateFailed(
+                pane: pane,
+                error: error,
+                initialFrame: config.initialFrame,
+                startupCommandPresent: startupPreparation.strategy.startupCommandForSurface != nil,
+                environmentVariableCount: startupPreparation.environmentVariables.count
+            )
             RestoreTrace.log(
                 "createFloatingSurface failure pane=\(pane.id) error=\(error.localizedDescription)"
             )
@@ -388,9 +389,68 @@ extension PaneCoordinator {
         }
     }
 
+    private func prepareTerminalSurfaceStartup(
+        for pane: Pane,
+        shellCommand: String,
+        treatAsRestoredSessionStart: Bool,
+        context: TerminalSurfaceStartupContext
+    ) -> TerminalSurfaceStartupPreparation? {
+        switch pane.provider {
+        case .zmx:
+            let diagnostics = terminalRestoreRuntime.zmxAttachDiagnostics(for: pane, store: store)
+            if let diagnostics {
+                RestoreTrace.log(
+                    "\(context.diagnosticsTracePrefix) zmxDiagnostics pane=\(diagnostics.paneId) session=\(diagnostics.sessionId) socketPathLen=\(diagnostics.socketPathLength) socketPathHeadroom=\(diagnostics.socketPathHeadroom) maxSocketPathLen=\(diagnostics.maxSocketPathLength)"
+                )
+            }
+            if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane, store: store) {
+                traceZmxAttachPrepared(pane: pane, diagnostics: diagnostics)
+                // Prevent nested Agent Studio launches from inheriting an outer zmx session.
+                let environmentVariables: [String: String] = [
+                    "ZMX_DIR": sessionConfig.zmxDir,
+                    "ZMX_SESSION": "",
+                ]
+                if case .floating(let launchDirectory) = context {
+                    RestoreTrace.log(
+                        "createFloatingView zmx pane=\(pane.id) session=\(Self.floatingZmxRestoreSessionId(for: pane, launchDirectory: launchDirectory)) cwd=\(launchDirectory.path)"
+                    )
+                }
+                return TerminalSurfaceStartupPreparation(
+                    strategy: .surfaceCommand(attachCommand),
+                    showsRestorePresentationDuringStartup: treatAsRestoredSessionStart,
+                    environmentVariables: environmentVariables
+                )
+            }
+
+            traceZmxAttachFailed(pane: pane)
+            Self.logger.error(
+                "\(context.missingZmxLogMessage) for \(pane.id) (state will not persist)"
+            )
+            if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
+                store.paneAtom.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
+            }
+            return TerminalSurfaceStartupPreparation(
+                strategy: .surfaceCommand(shellCommand),
+                showsRestorePresentationDuringStartup: false,
+                environmentVariables: [:]
+            )
+
+        case .ghostty:
+            return TerminalSurfaceStartupPreparation(
+                strategy: .surfaceCommand(shellCommand),
+                showsRestorePresentationDuringStartup: false,
+                environmentVariables: [:]
+            )
+
+        case .none:
+            Self.logger.error("Cannot create view for non-terminal pane \(pane.id)")
+            return nil
+        }
+    }
+
     /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
     func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
-        paneFilesystemProjectionStore.unregisterPaneContext(paneId)
+        removePaneFilesystemProjectionContext(paneId: paneId)
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
@@ -456,7 +516,7 @@ extension PaneCoordinator {
             )
             return
         }
-        terminal.displaySurface(surfaceView)
+        terminal.displaySurface(surfaceView, geometryVerificationReason: "reattachForViewSwitch")
         if let pane = store.paneAtom.pane(paneId) {
             registerTerminalRuntimeIfNeeded(for: pane)
         }
@@ -522,28 +582,7 @@ extension PaneCoordinator {
     }
 
     private func registerPaneFilesystemContextIfNeeded(for pane: Pane) {
-        guard let repoId = pane.repoId, let worktreeId = pane.worktreeId else {
-            paneFilesystemProjectionStore.unregisterPaneContext(pane.id)
-            return
-        }
-
-        let fallbackCwd =
-            store.repositoryTopologyAtom.worktree(worktreeId)?.path
-            ?? pane.metadata.launchDirectory
-            ?? pane.metadata.cwd
-        guard let fallbackCwd else {
-            paneFilesystemProjectionStore.unregisterPaneContext(pane.id)
-            return
-        }
-
-        paneFilesystemProjectionStore.registerPaneContext(
-            PaneFilesystemContext(
-                paneId: PaneId(uuid: pane.id),
-                repoId: repoId,
-                cwd: (pane.metadata.cwd ?? fallbackCwd).standardizedFileURL.resolvingSymlinksInPath(),
-                worktreeId: worktreeId
-            )
-        )
+        upsertPaneFilesystemProjectionContext(for: pane)
     }
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.
@@ -567,7 +606,8 @@ extension PaneCoordinator {
                     worktree: worktree,
                     repo: repo,
                     restoredSurfaceId: undone.id,
-                    paneId: pane.id
+                    paneId: pane.id,
+                    performanceTraceRecorder: performanceTraceRecorder
                 )
                 surfaceManager.attach(undone.id, to: pane.id)
                 view.displaySurface(undone.surface)

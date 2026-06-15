@@ -60,20 +60,20 @@ struct PaneManagementContext: Equatable {
 
         let statusChips: WorkspaceStatusChipsModel?
         if let worktreeId = pane?.worktreeId {
+            let worktreeFacts = repoCache.worktreeFacts(for: worktreeId)
             let branchStatus = RepoExplorerView.branchStatus(
-                enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktreeId],
-                pullRequestCount: repoCache.pullRequestCountByWorktreeId[worktreeId]
+                enrichment: worktreeFacts?.enrichment,
+                pullRequestCount: worktreeFacts?.pullRequestCount
             )
             statusChips = WorkspaceStatusChipsModel(
                 branchStatus: branchStatus,
                 notificationCount: notificationCountForWorktree(worktreeId)
             )
-        } else if let resolvedWorktreeId =
-            workspaceLookup.repoAndWorktree(containing: pane?.metadata.cwd)?.worktree.id
-        {
+        } else if let resolvedWorktreeId = resolvedContext?.worktree.id {
+            let worktreeFacts = repoCache.worktreeFacts(for: resolvedWorktreeId)
             let branchStatus = RepoExplorerView.branchStatus(
-                enrichment: repoCache.worktreeEnrichmentByWorktreeId[resolvedWorktreeId],
-                pullRequestCount: repoCache.pullRequestCountByWorktreeId[resolvedWorktreeId]
+                enrichment: worktreeFacts?.enrichment,
+                pullRequestCount: worktreeFacts?.pullRequestCount
             )
             statusChips = WorkspaceStatusChipsModel(
                 branchStatus: branchStatus,

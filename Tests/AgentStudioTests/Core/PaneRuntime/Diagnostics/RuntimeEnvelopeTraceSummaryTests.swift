@@ -91,6 +91,10 @@ struct RuntimeEnvelopeTraceSummaryTests {
                 == "browser.pageLoaded"
         )
         #expect(
+            PaneRuntimeEvent.diff(.diffLoaded(stats: DiffStats(filesChanged: 1, insertions: 2, deletions: 3)))
+                .traceEventName == "diff.diffLoaded"
+        )
+        #expect(
             PaneRuntimeEvent.agentNotificationRequested(title: "Done", body: nil).traceEventName
                 == "agent.notificationRequested")
         #expect(PaneRuntimeEvent.lifecycle(.paneClosed).traceEventName == "lifecycle.paneClosed")

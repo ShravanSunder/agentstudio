@@ -12,7 +12,7 @@ mise run setup                # Init submodules, build vendored artifacts, copy 
 mise run build                # Build the Swift app
 mise run test                 # Run tests (Swift 6 `Testing`)
 mise run format               # Auto-format all Swift sources
-mise run lint                 # Lint (swift-format + swiftlint + boundary checks)
+mise run lint                 # Lint (swift-format + pinned AgentStudio SwiftLint)
 .build/debug/AgentStudio      # Launch debug build
 ```
 
@@ -20,7 +20,184 @@ First-time setup: `mise install && mise run doctor-mac && mise run setup && mise
 
 > **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If `mise run setup` surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
 
-Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
+Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint automatically after every Edit/Write on `.swift` files.
+
+## Local Observability
+
+AgentStudio is an observability producer only. Do not add Docker Compose,
+VictoriaMetrics, VictoriaLogs, VictoriaTraces, or collector ownership to this
+repo. The shared local observability host is intended to live in shared tooling
+at `~/dev/ai-tools/observability`, with shared service names and data
+directories so unrelated projects can use the same stack.
+
+Shared-host commands:
+
+```bash
+mise run observability:up
+mise run observability:status
+mise run observability:smoke
+mise run observability:down
+```
+
+The underlying source of truth is
+`~/dev/ai-tools/observability/observability-stack`.
+The shared Docker Compose services are `ai-tools-otel-collector`,
+`ai-tools-victoria-metrics`, `ai-tools-victoria-logs`, and
+`ai-tools-victoria-traces`; app repos must target those shared containers
+through loopback endpoints instead of creating or querying per-app stacks.
+
+Standard debug proof path for PR branches:
+
+```bash
+mise run observability:up
+mise run run-debug-observability -- --detach
+mise run verify-debug-observability
+```
+
+Use this path instead of raw `swift build` plus hand-written environment
+variables. The runner allocates a shared Swift build slot, creates the debug app
+identity, launches with the Victoria/OTLP environment, and records the marker
+that the verifier queries in VictoriaLogs. Performance workload proof builds on
+this same runner; it must not create a separate app identity, data root, zmx
+root, build directory, trace marker, or process-discovery scheme.
+
+The debug launcher wraps the debug binary in a signed per-worktree app bundle
+named `Agent Studio Debug <code>`, where `<code>` is a deterministic
+four-character base36 hash of the canonical worktree path. The short code is
+intentional: zmx session names and Unix-domain socket paths are length-sensitive,
+so debug identity spends as little path/name budget as possible. That launch
+uses an isolated data root at `~/.agentstudio-db/<code>` and zmx directory at
+`~/.agentstudio-db/<code>/z`, so a debug run from one worktree cannot share zmx
+state with stable, beta, or another debug worktree. Debug observability bundles
+also remove URL-handler registration so they cannot claim production
+`agentstudio://` callbacks or deep links. Do not copy production or beta state
+into this root unless a test plan explicitly calls for it. The generated debug
+bundle, logs, traces, and zmx root live under `~/.agentstudio-db/<code>` rather
+than repo `tmp/` so autonomous debug runs do not need to read their runnable app
+from `~/Documents`.
+
+To inspect the deterministic identity without launching:
+
+```bash
+scripts/run-debug-observability.sh --print-identity
+```
+
+The state file is `tmp/debug-observability/latest-observability.env`. It is a
+marker/verifier handoff, not proof by itself; `mise run verify-debug-observability`
+must still query VictoriaLogs and validate the live process identity.
+The launcher refuses to start a second `Agent Studio Debug <code>` instance
+while one is already running; quit the reported PID before collecting a new
+debug observability proof for the same worktree. On refusal it overwrites
+`tmp/debug-observability/latest-observability.env` with
+`AGENTSTUDIO_OBSERVABILITY_STATUS=already_running` so stale markers cannot pass
+verification.
+
+Performance workload proof path:
+
+```bash
+mise run observability:up
+mise run verify-git-refresh-performance-workload
+```
+
+This script creates disposable fixture repos/worktrees, calls
+`scripts/run-debug-observability.sh --print-identity`, preflights the standard
+debug app is idle, launches through `scripts/run-debug-observability.sh
+--detach`, and then verifies marker-scoped performance telemetry through
+VictoriaMetrics. Standard performance proof must use VictoriaMetrics when the
+shared collection exists. JSONL is only a local artifact/debug aid and must not
+be an automatic fallback; set `AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF=1` only when a
+test plan explicitly asks for JSONL proof.
+
+Local beta diagnostic path:
+
+```bash
+mise run observability:up
+mise run create-beta-app-bundle
+mise run run-beta-observability -- --latest-local
+```
+
+This local beta helper is diagnostic only. The release workflow is the source of
+truth for beta promotion: it builds, signs, notarizes, staples, and publishes the
+real `AgentStudio Beta.app` artifact from a beta tag. Use the local debug runner
+for PR-branch proof, then use the GitHub-produced beta artifact for promotion
+proof.
+
+`run-beta-observability` stays attached to LaunchServices with `open -W` so
+task runners do not clean it up early. Leave it running, then verify from
+another shell:
+
+```bash
+AGENTSTUDIO_EXPECTED_BETA_APP="$DOWNLOADED_WORKFLOW_BETA_APP" mise run verify-beta-observability
+```
+
+`run-beta-observability` does not install over `/Applications/AgentStudio
+Beta.app`. With `--latest-local`, it prefers the newest local bundle under
+`~/.agentstudio-db/beta-observability/`, falling back to legacy repo-local
+bundles under `tmp/beta-observability/` only if present. Release-promotion proof
+must pass `--app "$DOWNLOADED_WORKFLOW_BETA_APP"` and bind
+`verify-beta-observability` with `AGENTSTUDIO_EXPECTED_BETA_APP`, so a stale
+installed beta or local diagnostic bundle cannot satisfy the gate. Generated
+beta apps, logs, and traces live outside `~/Documents` so local proof runs do
+not trigger Documents-folder TCC prompts merely because this worktree is under
+Documents.
+The debug and beta observability launchers intentionally require the shared
+collector health endpoint to be reachable; run `mise run observability:up`
+first. They run from a minimal clean environment and pass only the candidate
+app's trace/data variables (`open --env` for LaunchServices, equivalent direct
+environment for debug fallback), so inherited production app identity, Ghostty
+resource variables, `ZMX_DIR`, `ZMX_SESSION`, and `ZMX_SESSION_PREFIX` cannot
+leak into the candidate process. The launchers write per-run markers to
+`tmp/debug-observability/latest-observability.env` or
+`tmp/beta-observability/latest-observability.env`; verification queries those
+markers so stale logs cannot satisfy the gate.
+The beta launcher likewise refuses to launch while any beta-channel
+AgentStudio process is already running, even from another bundle path. Beta
+promotion proof should start from one known beta process. Its refusal path also
+writes `AGENTSTUDIO_OBSERVABILITY_STATUS=already_running` to the beta state
+file. Repo-local observability helpers run under `/bin/bash`
+rather than Homebrew bash because the Homebrew bash process has previously
+wedged release/verification scripts on this machine. Detached debug and beta
+launchers try LaunchServices `open` first. Debug may fall back to direct
+`Contents/MacOS/AgentStudio` execution when a local generated bundle is rejected
+by LaunchServices/Gatekeeper; the state file then records
+`AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable`. This is valid for
+Victoria/OTLP debug proof and keeps the same isolated data/zmx root, but it is
+not full GUI proof. Beta does not use this fallback: if LaunchServices returns a
+launch error, beta writes `AGENTSTUDIO_OBSERVABILITY_STATUS=launch_failed` and
+exits non-zero. Local ad-hoc beta bundles may be rejected by
+AMFI/LaunchServices; Developer ID signing alone can still be rejected as
+unnotarized. Beta promotion proof requires the accepted/notarized artifact
+produced by the GitHub release workflow, or another explicitly notarized local
+artifact. Developer ID signing is opt-in for local diagnostic bundles: set
+`SIGNING_IDENTITY` when running `mise run create-beta-app-bundle`.
+
+Debug and beta builds use a safe baseline when `AGENTSTUDIO_TRACE_TAGS` is
+unset: JSONL plus OTLP logs/metrics to `http://127.0.0.1:4318`. Stable builds stay
+disabled unless trace tags are explicit, and explicit stable tracing defaults to
+JSONL. `AGENTSTUDIO_TRACE_TAGS=off` disables the debug/beta baseline.
+Trace tags are the only instrumentation selection surface. Do not add ad-hoc
+per-emitter environment variables such as `AGENTSTUDIO_TRACE_*_METRICS`;
+high-volume lanes such as atoms must be selected with
+`AGENTSTUDIO_TRACE_TAGS=atoms` or the debug helper's `*` tag set. Standard
+performance workload proof excludes `atoms` by default and should enable it only
+for a dedicated atom telemetry proof run.
+
+Use `AGENTSTUDIO_TRACE_BACKEND=jsonl|otlp|both` for explicit selection.
+`OTEL_EXPORTER_OTLP_ENDPOINT` is accepted only for loopback HTTP endpoints and
+is treated as a collector base URL; AgentStudio sends logs to `/v1/logs` and
+metrics to `/v1/metrics`.
+Collector absence or exporter failure must be fail-open for normal app startup
+and must not prevent JSONL writes.
+
+AgentStudio currently exports OTLP logs and performance metrics. The shared
+stack also runs VictoriaTraces for other local producers, and its smoke gate
+exercises all three ingestion lanes.
+
+OTLP output is source-scrubbed. Allowed resource identity is limited to safe
+runtime labels plus deterministic repo/worktree hashes and branch, for example
+`dev.repo.hash`, `dev.worktree.hash`, `dev.branch.name`,
+`dev.runtime.flavor`, and `dev.release.channel`. Raw paths, raw UUIDs, prompts,
+payload text, errors, and tool output must not be exported over OTLP.
 
 ## Release Process
 
@@ -59,7 +236,14 @@ Instead:
 
 AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound and accessed through `AtomRegistry` + `AtomScope`, with `atom(\.foo)` as the primary read path. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms`, and persistence wrappers live under `Core/State/MainActor/Persistence`. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
 
-`AtomRegistry` is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`. It may compose Core and Feature atoms. `Infrastructure/AtomLib` owns only the generic access helpers (`atom(\...)`, `AtomScope`, `AtomReader`, `Derived`, `DerivedSelector`) and must not own product atoms or feature-specific registry fields.
+`AtomRegistry` is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`. It may compose Core and Feature atoms. `Infrastructure/AtomLib` owns only generic atom primitives and access helpers (`atom(\...)`, `AtomScope`, `AtomReader`, `Derived`, `DerivedSelector`, `AtomValue`, `AtomEntityMap`, `DerivedValue`) and must not own product atoms or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomEntityMap.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
+
+Architecture boundaries are enforced by the pinned AgentStudio SwiftLint build
+configured in `scripts/agentstudio-architecture-swiftlint.env` and run by
+`scripts/run-agentstudio-architecture-swiftlint.sh`. The custom rule source
+lives outside this app repo in `~/dev/ai-tools/swiftlint/agentstudio-architecture-rules`.
+Do not reintroduce repo-local shell/`rg` architecture lint scripts for rules
+that can be expressed with SwiftSyntax.
 
 ### Folder Arcs
 
@@ -74,7 +258,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 - `Features/`
   User-facing capability slices such as Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification, and feature-owned EditorChooser state. Features own capability-specific behavior that is broader than a reusable component.
 - `Infrastructure/`
-  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`. `Infrastructure/AtomLib` holds generic atom access helpers only; the concrete `AtomRegistry` lives at the source root because it composes Core and Feature atoms.
+  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`. `Infrastructure/AtomLib` holds generic atom access helpers and primitives only; the concrete `AtomRegistry` lives at the source root because it composes Core and Feature atoms.
 
 ### Shared UI, Styles, And Policies
 
@@ -117,7 +301,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceIdentityAtom` | workspace id, name, and creation timestamp | `Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift` |
 | `WorkspaceWindowMemoryAtom` | local sidebar width and window frame memory | `Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift` |
 | `WorkspaceRepositoryTopologyAtom` | repos, worktrees, watched paths, availability | `Core/State/MainActor/Atoms/WorkspaceRepositoryTopologyAtom.swift` |
-| `WorkspacePaneGraphAtom` | core pane graph: pane identity, content, residency, durable metadata, drawer identity, drawer membership | `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` |
+| `WorkspacePaneGraphAtom` | core pane graph: pane identity, content (including stored terminal zmx anchors), residency, durable metadata with live facets, drawer identity, drawer membership | `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` |
 | `WorkspaceDrawerCursorAtom` | local drawer expansion cursor keyed by drawer id | `Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift` |
 | `WorkspacePaneAtom` | compatibility mutation facade over pane graph + drawer cursor | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` |
 | `WorkspacePaneDerived` | UI read model composing rich `Pane` values from pane graph, drawer cursor, topology, and cache facts | `Core/State/MainActor/Atoms/WorkspacePaneDerived.swift` |
@@ -130,7 +314,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceTabLayoutAtom` | compatibility tab-layout facade over shell, cursor, graph, arrangement cursor, and presentation owners | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` |
 | `WorkspaceTabLayoutDerived` | UI read model composing rich `Tab`, `PaneArrangement`, and `DrawerView` values from tab write owners | `Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift` |
 | `WorkspaceMutationCoordinator` | cross-atom workspace mutations spanning pane and tab layout state | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` |
-| `RepoEnrichmentCacheAtom` | rebuildable repo/worktree enrichment, PR counts, and rebuild metadata; notification unread counts are inbox-owned | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
+| `RepoEnrichmentCacheAtom` | rebuildable repo enrichment, worktree enrichment, PR counts, keyed revisions, and rebuild metadata; notification unread counts are inbox-owned | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `RecentWorkspaceTargetAtom` | local recent workspace target history | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `RepoCacheAtom` | UI-facing compatibility read surface over repo enrichment cache + recent targets; does not own notification unread counts | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `SidebarExpandedGroupAtom` | local sidebar expanded-group memory | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
@@ -166,7 +350,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
 | `PaneFilesystemProjectionAtom` | pane-scoped filesystem projection state derived from runtime envelopes | `Core/State/MainActor/Atoms/PaneFilesystemProjectionAtom.swift` |
 | `SurfaceManager` | Ghostty surface lifecycle, health, undo | `Features/Terminal/` |
-| `SessionRuntime` | backend coordination, health checks, zmx/runtime orchestration over `SessionRuntimeAtom` | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` |
+| `SessionRuntime` | backend coordination, health checks, zmx/runtime orchestration over `SessionRuntimeAtom`; zmx attach identity comes from stored `TerminalState.zmxSessionId` anchors | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` |
 
 **Worktree model is structure-only:** `id`, `repoId` (FK), `name`, `path`, `isMainWorktree`. No branch, no status. All enrichment lives in `RepoEnrichmentCacheAtom`, populated by the event bus and exposed to existing UI readers through `RepoCacheAtom`.
 
@@ -193,8 +377,10 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Session Lifecycle](docs/architecture/session_lifecycle.md) | Pane identity, creation, close, undo, restore, zmx backend |
 | [Surface Architecture](docs/architecture/ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health, crash isolation |
 | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers, events |
+| [Observability And Traceability](docs/architecture/observability_and_traceability.md) | Trace tags, debug/beta OTLP proof, source-side projection, Victoria proof rules |
 | [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), execution-owner decision tree (`AppDelegate` shell vs `PaneTabViewController` pane/drawer), contexts, alternateTriggers, and where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
+| [Architecture Lint Inventory](docs/architecture/architecture_lint_inventory.md) | SwiftLint rule IDs, former shell-script coverage, and blocking/report-only/test/review classifications |
 | [Swift-React Bridge](docs/architecture/swift_react_bridge_design.md) | Bridge architecture, content-delivery status, JSON-RPC/push contracts, read-only CodeView/Shiki review surface, and LUNA-337 completion boundary |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
 | [Agent Resources](docs/guides/agent_resources.md) | Bootstrap, official Swift/macOS docs, DeepWiki sources, and research guidance |
@@ -432,7 +618,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceIdentityAtom` | `Core/State/MainActor/Atoms/` | Workspace id, name, and creation timestamp |
 | `WorkspaceWindowMemoryAtom` | `Core/State/MainActor/Atoms/` | Local sidebar width and window frame memory |
 | `WorkspaceRepositoryTopologyAtom` | `Core/State/MainActor/Atoms/` | Repos, worktrees, watched paths, availability |
-| `WorkspacePaneGraphAtom` | `Core/State/MainActor/Atoms/` | Core pane graph: identity, content, residency, durable metadata, drawer membership |
+| `WorkspacePaneGraphAtom` | `Core/State/MainActor/Atoms/` | Core pane graph: identity, content (including stored terminal zmx anchors), residency, durable metadata with live facets, drawer membership |
 | `WorkspaceDrawerCursorAtom` | `Core/State/MainActor/Atoms/` | Local drawer expansion cursor |
 | `WorkspacePaneAtom` | `Core/State/MainActor/Atoms/` | Compatibility mutation facade over pane graph + drawer cursor |
 | `WorkspacePaneDerived` | `Core/State/MainActor/Atoms/` | Rich pane read model composed from graph, cursor, topology, and cache facts |
@@ -456,7 +642,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `RepoCacheStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for repo enrichment cache + recent workspace targets |
 | `UIStateStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for workspace sidebar shell memory only |
 | `WorkspaceSettingsStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for editor bookmark, checkout colors, and inbox notification preferences until feature-specific settings stores split |
-| `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx |
+| `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx attach orchestration using stored pane anchors |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo |
 | `WorkspaceCommandResolver` | `Core/Actions/` | Resolves AppCommand into PaneActionCommand, builds ActionStateSnapshot |
 | `WorkspaceCommandValidator` | `Core/Actions/` | Validates PaneActionCommand against ActionStateSnapshot |
@@ -510,7 +696,11 @@ swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 
 **Timeouts are mandatory.** `60000` (60s) for test, `30000` (30s) for build. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention.
 
-**Lock recovery:** If "Another instance of SwiftPM is already running..." — kill it (`pkill -f "swift-build"`) and retry.
+**Lock recovery:** Do not blanket-kill SwiftPM or `swift-build`; another agent
+may own that process. First run `mise run clean-agent-builds` for leaked
+`.slot-claim` directories. If SwiftPM still reports an active lock, inspect the
+specific owning PID/slot and wait for it or terminate only that confirmed stale
+process.
 
 ---
 

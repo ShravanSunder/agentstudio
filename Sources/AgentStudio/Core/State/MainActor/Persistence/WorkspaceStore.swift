@@ -31,6 +31,7 @@ final class WorkspaceStore {
     private let delay: AsyncDelay
     let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
+    private var debouncedSaveFailureDamping = DebouncedSaveFailureDamping()
     private var isObservingPersistedState = false
     private var isRestoringState = false
     private(set) var isDirty: Bool = false
@@ -245,14 +246,18 @@ final class WorkspaceStore {
         }
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
-        return persistLegacyJSONSnapshot(persistedAt: Date()).succeeded
+        let outcome = persistLegacyJSONSnapshot(persistedAt: Date())
+        clearDebouncedSaveFailureDampingIfSucceeded(outcome)
+        return outcome.succeeded
     }
 
     @discardableResult
     func flushAsync() async -> WorkspaceStoreFlushOutcome {
         debouncedSaveTask?.cancel()
         debouncedSaveTask = nil
-        return await persistNow()
+        let outcome = await persistNow()
+        clearDebouncedSaveFailureDampingIfSucceeded(outcome)
+        return outcome
     }
 
     var prePersistHook: (() -> Void)?
@@ -302,17 +307,28 @@ final class WorkspaceStore {
             try? await delay.wait(persistDebounceDuration)
             guard !Task.isCancelled else { return }
             guard let self else { return }
-            _ = await self.persistNow()
+            await self.persistDebouncedAutosave()
         }
     }
 
+    private func persistDebouncedAutosave() async {
+        let shouldReportFailure = !debouncedSaveFailureDamping.shouldDampNextDebouncedFailureReport
+        if !shouldReportFailure {
+            workspaceStoreLogger.warning(
+                "Damping repeated workspace autosave failure report after \(self.debouncedSaveFailureDamping.consecutiveFailureCount) identical failure(s); autosave will still retry"
+            )
+        }
+        let outcome = await persistNow(shouldReportSaveFailure: shouldReportFailure)
+        debouncedSaveFailureDamping.record(outcome)
+    }
+
     @discardableResult
-    private func persistNow() async -> WorkspaceStoreFlushOutcome {
+    private func persistNow(shouldReportSaveFailure: Bool = true) async -> WorkspaceStoreFlushOutcome {
         let persistedAt = Date()
         do {
             if let sqliteDatastore {
                 prePersistHook?()
-                let snapshot = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshot(
+                let snapshotResult = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshotResult(
                     identityAtom: identityAtom,
                     windowMemoryAtom: windowMemoryAtom,
                     repositoryTopologyAtom: repositoryTopologyAtom,
@@ -320,7 +336,9 @@ final class WorkspaceStore {
                     workspaceTabLayoutAtom: tabLayoutAtom,
                     persistedAt: persistedAt
                 )
-                try await sqliteDatastore.saveWorkspaceSnapshot(snapshot)
+                try await sqliteDatastore.saveWorkspaceSnapshot(snapshotResult.snapshot)
+                applyLiveSQLiteTabRepairIfNeeded(snapshotResult)
+                reportTabMembershipRepairIfNeeded(snapshotResult.repairReport)
             } else {
                 return persistLegacyJSONSnapshot(persistedAt: persistedAt)
             }
@@ -330,10 +348,17 @@ final class WorkspaceStore {
             }
             return .persisted
         } catch {
-            workspaceStoreLogger.error("Failed to persist workspace: \(error.localizedDescription)")
-            reportSaveFailed()
+            workspaceStoreLogger.error("Failed to persist workspace: \(String(reflecting: error))")
+            if shouldReportSaveFailure {
+                reportSaveFailed()
+            }
             return .failed(String(describing: error))
         }
+    }
+
+    private func clearDebouncedSaveFailureDampingIfSucceeded(_ outcome: WorkspaceStoreFlushOutcome) {
+        guard outcome.succeeded else { return }
+        debouncedSaveFailureDamping.reset()
     }
 
     private enum SQLiteRestoreOutcome {
@@ -346,11 +371,11 @@ final class WorkspaceStore {
         switch await sqliteDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: identityAtom.workspaceId) {
         case .loaded(let snapshot, let recoveryEvents):
             let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-            hydrateWorkspaceState(state)
+            let repairReport = hydrateWorkspaceState(state)
             workspaceStoreLogger.info(
                 "Restored SQLite workspace '\(state.name)' with \(self.paneAtom.panes.count) pane(s), \(self.tabLayoutAtom.tabs.count) tab(s)"
             )
-            return .restored(recoveryEvents: recoveryEvents)
+            return .restored(recoveryEvents: recoveryEvents + recoveryEventsForTabMembershipRepair(repairReport))
         case .uninitialized(let recoveryEvents):
             return .uninitialized(recoveryEvents: recoveryEvents)
         case .unavailable(let failure, let recoveryEvents):
@@ -361,9 +386,10 @@ final class WorkspaceStore {
         }
     }
 
-    func hydrateWorkspaceState(_ state: WorkspacePersistor.PersistableState) {
+    @discardableResult
+    func hydrateWorkspaceState(_ state: WorkspacePersistor.PersistableState) -> WorkspaceTabMembershipRepairReport {
         isRestoringState = true
-        WorkspacePersistenceTransformer.hydrate(
+        let repairReport = WorkspacePersistenceTransformer.hydrate(
             state,
             identityAtom: identityAtom,
             windowMemoryAtom: windowMemoryAtom,
@@ -372,6 +398,7 @@ final class WorkspaceStore {
             workspaceTabLayoutAtom: tabLayoutAtom
         )
         isRestoringState = false
+        return repairReport
     }
 
     func reportSaveFailed() {
@@ -382,6 +409,43 @@ final class WorkspaceStore {
                 recovery: .saveFailed
             )
         )
+    }
+
+    private func reportTabMembershipRepairIfNeeded(_ repairReport: WorkspaceTabMembershipRepairReport) {
+        guard repairReport.hasRepairs else { return }
+        recoveryReporter?(
+            .init(
+                store: .workspace,
+                workspaceId: identityAtom.workspaceId,
+                recovery: .tabMembershipRepaired
+            )
+        )
+    }
+
+    private func recoveryEventsForTabMembershipRepair(
+        _ repairReport: WorkspaceTabMembershipRepairReport
+    ) -> [PersistenceRecoveryEvent] {
+        guard repairReport.hasRepairs else { return [] }
+        return [
+            .init(
+                store: .workspace,
+                workspaceId: identityAtom.workspaceId,
+                recovery: .tabMembershipRepaired
+            )
+        ]
+    }
+
+    private func applyLiveSQLiteTabRepairIfNeeded(_ snapshotResult: WorkspaceLiveSQLiteSnapshotResult) {
+        guard snapshotResult.repairReport.hasRepairs else { return }
+        isRestoringState = true
+        tabLayoutAtom.hydrate(
+            persistedTabs: snapshotResult.snapshot.tabs,
+            activeTabId: snapshotResult.snapshot.activeTabId,
+            validPaneIds: paneAtom.graphAtom.paneIds,
+            drawerParentPaneIdByDrawerId: WorkspacePersistenceTransformer.drawerParentPaneIdsByDrawerId(
+                from: paneAtom.liveSQLitePanes.values)
+        )
+        isRestoringState = false
     }
 
     private func reportRecoveryEvents(_ events: [PersistenceRecoveryEvent]) {
@@ -415,7 +479,7 @@ final class WorkspaceStore {
             }
             return .persisted
         } catch {
-            workspaceStoreLogger.error("Failed to persist workspace: \(error.localizedDescription)")
+            workspaceStoreLogger.error("Failed to persist workspace: \(String(reflecting: error))")
             reportSaveFailed()
             return .failed(String(describing: error))
         }
@@ -431,5 +495,33 @@ enum WorkspaceStoreFlushOutcome: Equatable {
             return true
         }
         return false
+    }
+}
+
+private struct DebouncedSaveFailureDamping {
+    private var failureSummary: String?
+    private(set) var consecutiveFailureCount: Int = 0
+
+    var shouldDampNextDebouncedFailureReport: Bool {
+        consecutiveFailureCount >= AppPolicies.WorkspacePersistence.debouncedAutosaveFailureDampingThreshold
+    }
+
+    mutating func record(_ outcome: WorkspaceStoreFlushOutcome) {
+        switch outcome {
+        case .persisted:
+            reset()
+        case .failed(let summary):
+            if failureSummary == summary {
+                consecutiveFailureCount += 1
+            } else {
+                failureSummary = summary
+                consecutiveFailureCount = 1
+            }
+        }
+    }
+
+    mutating func reset() {
+        failureSummary = nil
+        consecutiveFailureCount = 0
     }
 }

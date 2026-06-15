@@ -76,8 +76,68 @@ struct WorkspaceCoreMigrationTests {
                 "005_repair_tab_graph_layout_storage",
                 "006_create_workspace_sqlite_snapshot_status",
                 "007_stage_workspace_sqlite_snapshot_status",
+                "008_add_zmx_session_id",
+                "009_drop_pane_source_binding",
             ]
         )
+    }
+
+    @Test("migration 009 refits pane source columns as facet columns")
+    func migration009RefitsPaneSourceColumnsAsFacetColumns() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        let workspaceId = UUID().uuidString
+        let repoId = UUID().uuidString
+        let worktreeId = UUID().uuidString
+        let paneId = UUID().uuidString
+
+        try WorkspaceCoreMigrations.migrator.migrate(databaseQueue, upTo: "008_add_zmx_session_id")
+        try databaseQueue.write { database in
+            try insertWorkspace(database, workspaceId: workspaceId)
+            try insertRepo(database, workspaceId: workspaceId, repoId: repoId)
+            try insertWorktree(database, workspaceId: workspaceId, repoId: repoId, worktreeId: worktreeId)
+            try insertPaneBeforeSourceBindingMigration(
+                database,
+                workspaceId: workspaceId,
+                paneId: paneId,
+                sourceRepoId: repoId,
+                sourceWorktreeId: worktreeId
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO pane_content_terminal(pane_id, provider, lifetime, zmx_session_id)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [paneId, SessionProvider.zmx.rawValue, SessionLifetime.persistent.rawValue, "as-anchor"]
+            )
+        }
+
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+
+        let columnNames = try databaseQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(pane)")
+                .map { row in row["name"] as String }
+        }
+        #expect(columnNames.contains("facet_repo_id"))
+        #expect(columnNames.contains("facet_worktree_id"))
+        #expect(!columnNames.contains("source_kind"))
+        #expect(!columnNames.contains("source_repo_id"))
+        #expect(!columnNames.contains("source_worktree_id"))
+
+        let row = try databaseQueue.read { database in
+            try Row.fetchOne(
+                database,
+                sql: """
+                    SELECT facet_repo_id, facet_worktree_id, launch_directory, cwd
+                    FROM pane
+                    WHERE id = ?
+                    """,
+                arguments: [paneId]
+            )
+        }
+        #expect(row?["facet_repo_id"] as String? == repoId)
+        #expect(row?["facet_worktree_id"] as String? == worktreeId)
+        #expect(row?["launch_directory"] as String? == "/tmp")
+        #expect(row?["cwd"] as String? == "/tmp")
     }
 
     @Test("snapshot staging migration preserves existing completion token")
@@ -237,15 +297,15 @@ struct WorkspaceCoreMigrationTests {
         }
     }
 
-    @Test("pane source repo rejects repo from different workspace")
-    func paneSourceRepoRejectsRepoFromDifferentWorkspace() throws {
+    @Test("pane facet repo rejects repo from different workspace")
+    func paneFacetRepoRejectsRepoFromDifferentWorkspace() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceCoreMigrations.migrate(databaseQueue)
         let paneWorkspaceId = UUID().uuidString
         let repoWorkspaceId = UUID().uuidString
         let repoId = UUID().uuidString
 
-        expectDatabaseError(containing: "pane source_repo_id must belong to pane workspace") {
+        expectDatabaseError(containing: "pane facet_repo_id must belong to pane workspace") {
             try databaseQueue.write { database in
                 try insertWorkspace(database, workspaceId: paneWorkspaceId)
                 try insertWorkspace(database, workspaceId: repoWorkspaceId)
@@ -254,14 +314,14 @@ struct WorkspaceCoreMigrationTests {
                     database,
                     workspaceId: paneWorkspaceId,
                     paneId: UUID().uuidString,
-                    sourceRepoId: repoId
+                    facetRepoId: repoId
                 )
             }
         }
     }
 
-    @Test("pane source worktree rejects worktree from different workspace")
-    func paneSourceWorktreeRejectsWorktreeFromDifferentWorkspace() throws {
+    @Test("pane facet worktree rejects worktree from different workspace")
+    func paneFacetWorktreeRejectsWorktreeFromDifferentWorkspace() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceCoreMigrations.migrate(databaseQueue)
         let paneWorkspaceId = UUID().uuidString
@@ -269,7 +329,7 @@ struct WorkspaceCoreMigrationTests {
         let repoId = UUID().uuidString
         let worktreeId = UUID().uuidString
 
-        expectDatabaseError(containing: "pane source_worktree_id must belong to pane workspace") {
+        expectDatabaseError(containing: "pane facet_worktree_id must belong to pane workspace") {
             try databaseQueue.write { database in
                 try insertWorkspace(database, workspaceId: paneWorkspaceId)
                 try insertWorkspace(database, workspaceId: repoWorkspaceId)
@@ -279,7 +339,7 @@ struct WorkspaceCoreMigrationTests {
                     database,
                     workspaceId: paneWorkspaceId,
                     paneId: UUID().uuidString,
-                    sourceWorktreeId: worktreeId
+                    facetWorktreeId: worktreeId
                 )
             }
         }
@@ -590,6 +650,43 @@ struct WorkspaceCoreMigrationTests {
     }
 
     private func insertPane(
+        _ database: Database,
+        workspaceId: String,
+        paneId: String,
+        contentType: String = SQLitePaneContentTypeStorage.storageValue(for: .terminal),
+        facetRepoId: String? = nil,
+        facetWorktreeId: String? = nil,
+        parentPaneId: String? = nil
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO pane(
+                    id, workspace_id, content_type, execution_backend,
+                    facet_repo_id, facet_worktree_id, launch_directory, title, cwd,
+                    residency_kind, kind, parent_pane_id, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                paneId,
+                workspaceId,
+                contentType,
+                "zmx",
+                facetRepoId,
+                facetWorktreeId,
+                "/tmp",
+                "Terminal",
+                "/tmp",
+                "active",
+                parentPaneId == nil ? "leaf" : "drawerChild",
+                parentPaneId,
+                1.0,
+                1.0,
+            ]
+        )
+    }
+
+    private func insertPaneBeforeSourceBindingMigration(
         _ database: Database,
         workspaceId: String,
         paneId: String,

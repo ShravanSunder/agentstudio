@@ -13,6 +13,7 @@ struct SidebarSurfaceHost: View {
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 
@@ -42,7 +43,8 @@ struct SidebarSurfaceHost: View {
                 },
                 unreadCount: { worktree in
                     Self.unreadCount(for: worktree, inboxAtom: inboxAtom)
-                }
+                },
+                performanceTraceRecorder: performanceTraceRecorder
             )
         case .inbox:
             InboxNotificationSidebarView(

@@ -93,11 +93,11 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let activePane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Active"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let inactivePane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Inactive"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let activeTab = Tab(paneId: activePane.id, name: "Active")
@@ -124,11 +124,11 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let activePane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Active"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let inactivePane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Inactive"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let activeTab = Tab(paneId: activePane.id, name: "Active")
@@ -161,11 +161,11 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let firstPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "First"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let secondPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Second"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let firstTab = Tab(paneId: firstPane.id, name: "First")
@@ -206,11 +206,11 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let firstPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "First"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let secondPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Second"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let firstTab = Tab(paneId: firstPane.id, name: "First")
@@ -242,11 +242,11 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Parent"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let otherPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Other"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let parentTab = Tab(paneId: parentPane.id, name: "Parent")
@@ -285,11 +285,11 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let parentPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Parent"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let otherPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Other"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let parentTab = Tab(paneId: parentPane.id, name: "Parent")
@@ -327,11 +327,11 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let firstPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "First"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let secondPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Second"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let firstTab = Tab(paneId: firstPane.id, name: "First")
@@ -362,7 +362,7 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let pane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Focused"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let tab = Tab(paneId: pane.id, name: "Focused")
@@ -390,11 +390,11 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let firstPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "First"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let secondPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Second"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let firstTab = Tab(paneId: firstPane.id, name: "First")
@@ -424,7 +424,7 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let firstPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "First"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let firstTab = Tab(paneId: firstPane.id, name: "First")
@@ -437,7 +437,7 @@ struct PaneTabViewControllerTabRetentionTests {
         let dismantleCountBeforeAdd = harness.controller.paneRepresentableDismantleCountForTesting
 
         let secondPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Second"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let secondTab = Tab(paneId: secondPane.id, name: "Second")
@@ -466,7 +466,7 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let pane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Late"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let tab = Tab(paneId: pane.id, name: "Late")
@@ -497,11 +497,11 @@ struct PaneTabViewControllerTabRetentionTests {
         }
 
         let firstPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "First"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let secondPane = harness.store.createPane(
-            source: .floating(launchDirectory: harness.tempDir, title: "Second"),
+            launchDirectory: harness.tempDir,
             provider: .zmx
         )
         let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)

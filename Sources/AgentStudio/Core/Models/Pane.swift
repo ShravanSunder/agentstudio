@@ -72,7 +72,7 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
         self.metadata = decodedMetadata.canonicalizedIdentity(
             paneId: PaneId(uuid: id),
             contentType: Self.contentType(for: content),
-            fillNilSourceFacets: false
+            fillNilLaunchDirectoryFacet: false
         )
         self.residency = try container.decode(SessionResidency.self, forKey: .residency)
         self.kind = try container.decode(PaneKind.self, forKey: .kind)
@@ -105,9 +105,6 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
         if case .webview(let state) = content { return state }
         return nil
     }
-
-    /// Source from metadata.
-    var source: TerminalSource { metadata.terminalSource }
 
     /// Title from metadata.
     var title: String {

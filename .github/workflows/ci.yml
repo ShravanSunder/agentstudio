@@ -33,9 +33,9 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
           HOMEBREW_NO_INSTALL_CLEANUP: 1
-        run: brew install swift-format swiftlint
+        run: brew install swift-format bazelisk
 
-      - name: Lint + boundary checks
+      - name: Lint
         run: mise run lint
 
       - name: Format check (swift-format)
@@ -44,6 +44,36 @@ jobs:
           git diff --quiet -- Sources/ Tests/ || {
             echo "Swift formatting changes detected. Run mise run format locally.";
             git diff -- Sources/ Tests/;
+            exit 1;
+          }
+
+      # --- BridgeWeb check/build before Swift WebKit lanes ---
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate
+
+      - name: Setup Node for BridgeWeb
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: BridgeWeb/pnpm-lock.yaml
+
+      - name: Install BridgeWeb dependencies
+        run: pnpm --dir BridgeWeb install --frozen-lockfile
+
+      - name: BridgeWeb check, test, and packaged build
+        run: |
+          mise run bridge-web-check
+          mise run bridge-web-test
+          mise run bridge-web-build
+          test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
+          ls -la Sources/AgentStudio/Resources/BridgeWeb/app
+          test -z "$(git status --short -- Sources/AgentStudio/Resources/BridgeWeb/app)" || {
+            echo "BridgeWeb packaged resources are stale. Run mise run bridge-web-build and commit the result.";
+            git status --short -- Sources/AgentStudio/Resources/BridgeWeb/app;
             exit 1;
           }
 
@@ -162,6 +192,7 @@ jobs:
 
       - name: Benchmark tests
         run: |
+          set -o pipefail
           mise run test-benchmark 2>&1 | tee benchmark.log
           grep -E "\[PushBenchmark\]" benchmark.log > benchmark-lines.txt || true
           if [ ! -s benchmark-lines.txt ]; then

@@ -23,6 +23,17 @@ final class WindowLifecycleAtom {
         keyWindowId.map { registeredWindowIds.contains($0) } ?? false
     }
 
+    var preferredWorkspaceWindowId: UUID? {
+        if let focusedWindowId {
+            return focusedWindowId
+        }
+        if let keyWindowId {
+            return keyWindowId
+        }
+        guard registeredWindowIds.count == 1 else { return nil }
+        return registeredWindowIds.first
+    }
+
     func recordWindowRegistered(_ windowId: UUID) {
         registeredWindowIds.insert(windowId)
     }

@@ -91,11 +91,7 @@ struct TopologyEventPipelineIntegrationTests {
             }
 
             let pane = harness.workspaceStore.createPane(
-                source: .worktree(
-                    worktreeId: removedWorktree.id,
-                    repoId: repo.id,
-                    launchDirectory: removedWorktree.path
-                ),
+                launchDirectory: removedWorktree.path,
                 facets: PaneContextFacets(
                     repoId: repo.id,
                     worktreeId: removedWorktree.id,

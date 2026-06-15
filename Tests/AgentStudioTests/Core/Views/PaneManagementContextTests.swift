@@ -32,9 +32,13 @@ struct PaneManagementContextTests {
             }
 
             let pane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+                launchDirectory: worktree.path,
                 title: "Terminal",
-                facets: PaneContextFacets(cwd: URL(fileURLWithPath: "/tmp/agent-studio/subdir"))
+                facets: PaneContextFacets(
+                    repoId: repo.id,
+                    worktreeId: worktree.id,
+                    cwd: URL(fileURLWithPath: "/tmp/agent-studio/subdir")
+                )
             )
             store.paneAtom.updatePaneNote(pane.id, note: "Watch release logs")
             atoms.repoCache.setWorktreeEnrichment(
@@ -88,8 +92,9 @@ struct PaneManagementContextTests {
             }
 
             let pane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-                title: "Terminal"
+                launchDirectory: worktree.path,
+                title: "Terminal",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
             )
 
             let context = PaneManagementContext.project(paneId: pane.id, store: store)
@@ -116,7 +121,6 @@ struct PaneManagementContextTests {
             )
 
             let pane = store.createPane(
-                source: .floating(launchDirectory: nil, title: "Floating"),
                 title: "Floating"
             )
 
@@ -146,7 +150,7 @@ struct PaneManagementContextTests {
 
             let cwd = URL(fileURLWithPath: "/Users/dev/project-dev")
             let pane = store.createPane(
-                source: .floating(launchDirectory: cwd, title: "Floating"),
+                launchDirectory: cwd,
                 title: "Floating",
                 facets: PaneContextFacets(cwd: cwd)
             )
@@ -181,7 +185,6 @@ struct PaneManagementContextTests {
                 content: .webview(WebviewState(url: URL(string: "https://github.com")!)),
                 metadata: PaneMetadata(
                     contentType: .browser,
-                    source: .floating(launchDirectory: nil, title: "GitHub"),
                     title: "GitHub"
                 )
             )
@@ -217,7 +220,7 @@ struct PaneManagementContextTests {
                 content: .webview(WebviewState(url: URL(string: "https://github.com/ShravanSunder/agentstudio")!)),
                 metadata: PaneMetadata(
                     contentType: .browser,
-                    source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+                    launchDirectory: worktree.path,
                     title: "GitHub",
                     facets: PaneContextFacets(
                         repoId: repo.id,

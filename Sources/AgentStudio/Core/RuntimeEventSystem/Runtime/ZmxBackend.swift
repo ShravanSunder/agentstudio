@@ -34,26 +34,6 @@ struct ZmxCommandRetryPolicy: Sendable {
 /// Identifies a backend session that backs a single terminal pane.
 struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
     let id: String
-    let paneId: UUID
-    let projectId: UUID
-    let worktreeId: UUID
-    let repoPath: URL
-    let worktreePath: URL
-    let displayName: String
-    let launchDirectory: URL
-
-    var hasValidId: Bool {
-        guard id.hasPrefix(ZmxBackend.sessionPrefix) else { return false }
-        let suffix = String(id.dropFirst(ZmxBackend.sessionPrefix.count))
-        let segments = suffix.components(separatedBy: "-")
-        let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
-        guard segments.count == 3,
-            segments.allSatisfy({ $0.count == 16 })
-        else { return false }
-        return segments.allSatisfy { seg in
-            seg.unicodeScalars.allSatisfy { hexChars.contains($0) }
-        }
-    }
 }
 
 /// Backend-agnostic protocol for managing per-pane terminal sessions.
@@ -86,6 +66,36 @@ enum SessionBackendError: Error, LocalizedError {
         case .sessionNotFound(let id):
             return "Session not found: \(id)"
         }
+    }
+}
+
+enum ZmxSessionInventoryOutcome: Equatable, Sendable {
+    case complete
+    case unavailable(String)
+    case skipped(String)
+
+    var rawValue: String {
+        switch self {
+        case .complete:
+            return "complete"
+        case .unavailable:
+            return "unavailable"
+        case .skipped:
+            return "skipped"
+        }
+    }
+}
+
+struct ZmxSessionInventorySnapshot: Equatable, Sendable {
+    let outcome: ZmxSessionInventoryOutcome
+    let sessionIds: Set<String>
+
+    static func complete(_ sessionIds: Set<String>) -> Self {
+        Self(outcome: .complete, sessionIds: sessionIds)
+    }
+
+    static func unavailable(_ reason: String) -> Self {
+        Self(outcome: .unavailable(reason), sessionIds: [])
     }
 }
 
@@ -187,9 +197,58 @@ final class ZmxBackend: SessionBackend {
         return "as-d--\(parentSegment)--\(drawerSegment)"
     }
 
-    private static func paneSessionSegment(_ paneId: UUID) -> String {
+    static func paneSessionSegment(_ paneId: UUID) -> String {
         let hex = paneId.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         return String(hex.suffix(16))
+    }
+
+    static func mainSessionId(_ sessionId: String, matchesPaneId paneId: UUID) -> Bool {
+        sessionId.hasPrefix(sessionPrefix)
+            && !isDrawerSessionId(sessionId)
+            && sessionId.hasSuffix("-\(paneSessionSegment(paneId))")
+    }
+
+    static func drawerSessionId(_ sessionId: String, matchesPaneId paneId: UUID) -> Bool {
+        isDrawerSessionId(sessionId)
+            && sessionId.hasSuffix("--\(paneSessionSegment(paneId))")
+    }
+
+    static func isValidStoredMainSessionId(_ sessionId: String, paneId: UUID) -> Bool {
+        let segments = sessionId.split(separator: "-", omittingEmptySubsequences: false)
+        guard segments.count == 4, segments[0] == "as" else { return false }
+        return isLowercaseHex16(segments[1])
+            && isLowercaseHex16(segments[2])
+            && segments[3] == Substring(paneSessionSegment(paneId))
+    }
+
+    static func isValidStoredLayoutPaneSessionId(_ sessionId: String, paneId: UUID) -> Bool {
+        isValidStoredMainSessionId(sessionId, paneId: paneId)
+            || drawerSessionId(sessionId, matchesPaneId: paneId)
+    }
+
+    static func isValidStoredDrawerSessionId(
+        _ sessionId: String,
+        parentPaneId: UUID,
+        drawerPaneId: UUID
+    ) -> Bool {
+        let prefix = "\(sessionPrefix)d--"
+        guard sessionId.hasPrefix(prefix) else { return false }
+        let tail = String(sessionId.dropFirst(prefix.count))
+        let segments = tail.components(separatedBy: "--")
+        guard segments.count == 2 else { return false }
+        return segments[0] == paneSessionSegment(parentPaneId)
+            && segments[1] == paneSessionSegment(drawerPaneId)
+    }
+
+    private static func isDrawerSessionId(_ sessionId: String) -> Bool {
+        sessionId.hasPrefix("\(sessionPrefix)d--")
+    }
+
+    private static func isLowercaseHex16(_ value: Substring) -> Bool {
+        guard value.count == 16 else { return false }
+        return value.unicodeScalars.allSatisfy { scalar in
+            (48...57).contains(scalar.value) || (97...102).contains(scalar.value)
+        }
     }
 
     // MARK: - Availability
@@ -218,16 +277,7 @@ final class ZmxBackend: SessionBackend {
             attributes: nil
         )
 
-        return PaneSessionHandle(
-            id: sessionId,
-            paneId: paneId,
-            projectId: repo.id,
-            worktreeId: worktree.id,
-            repoPath: repo.repoPath,
-            worktreePath: worktree.path,
-            displayName: worktree.name,
-            launchDirectory: worktree.path
-        )
+        return PaneSessionHandle(id: sessionId)
     }
 
     func attachCommand(for handle: PaneSessionHandle) -> String {
@@ -317,28 +367,43 @@ final class ZmxBackend: SessionBackend {
         await healthCheck(handle)
     }
 
-    /// Discover zmx sessions that are not tracked by the store.
+    /// Discover live AgentStudio-owned zmx sessions.
     /// Filters by the compact main-session and drawer-session prefixes.
-    func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String] {
+    func discoverAgentStudioSessions() async -> ZmxSessionInventorySnapshot {
         do {
             let result = try await executeWithRetry(
                 command: zmxPath,
                 args: ["list"],
-                operation: "zmx list for orphan discovery"
+                operation: "zmx list for AgentStudio session inventory"
             )
 
-            guard result.succeeded else { return [] }
+            guard result.succeeded else {
+                return .unavailable(result.stderr)
+            }
 
             // Parse zmx list output — each line may contain a session name.
             // Extract session names that start with our prefix.
-            return result.stdout
+            let sessionIds = result.stdout
                 .components(separatedBy: "\n")
                 .filter { !$0.isEmpty }
                 .compactMap(Self.extractSessionName(from:))
                 .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("as-d--") }
-                .filter { !knownIds.contains($0) }
+            return .complete(Set(sessionIds))
         } catch {
-            zmxLogger.warning("Failed to discover orphan sessions: \(error.localizedDescription)")
+            zmxLogger.warning("Failed to discover AgentStudio zmx sessions: \(error.localizedDescription)")
+            return .unavailable(error.localizedDescription)
+        }
+    }
+
+    /// Discover zmx sessions that are not tracked by the store.
+    func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String] {
+        let inventory = await discoverAgentStudioSessions()
+        switch inventory.outcome {
+        case .complete:
+            return inventory.sessionIds
+                .filter { !knownIds.contains($0) }
+                .sorted()
+        case .unavailable, .skipped:
             return []
         }
     }

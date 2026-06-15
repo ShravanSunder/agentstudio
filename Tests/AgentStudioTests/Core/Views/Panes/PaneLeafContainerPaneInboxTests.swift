@@ -19,7 +19,7 @@ struct PaneLeafContainerPaneInboxTests {
         store.restore()
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Target"))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)

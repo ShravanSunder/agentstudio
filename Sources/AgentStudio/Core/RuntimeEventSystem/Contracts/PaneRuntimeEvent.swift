@@ -531,14 +531,10 @@ enum ConsoleLevel: String, Sendable {
 
 enum DiffEvent: PaneKindEvent, Sendable {
     case diffLoaded(stats: DiffStats)
-    case hunkApproved(hunkId: String)
-    case allApproved
 
     var actionPolicy: ActionPolicy {
         switch self {
         case .diffLoaded:
-            return .critical
-        case .hunkApproved, .allApproved:
             return .critical
         }
     }
@@ -546,8 +542,6 @@ enum DiffEvent: PaneKindEvent, Sendable {
     var eventName: EventIdentifier {
         switch self {
         case .diffLoaded: return .diffLoaded
-        case .hunkApproved: return .hunkApproved
-        case .allApproved: return .allApproved
         }
     }
 }

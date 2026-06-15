@@ -2,6 +2,27 @@ import Foundation
 
 @MainActor
 extension PaneCoordinator {
+    struct CrossTabMoveViewTransitions: Equatable {
+        let paneIdsToDetach: Set<UUID>
+        let paneIdsToReattach: Set<UUID>
+    }
+
+    nonisolated static func computeCrossTabMoveViewTransitions(
+        sourceVisibleBefore: Set<UUID>,
+        destinationVisibleBefore: Set<UUID>,
+        destinationVisibleAfter: Set<UUID>,
+        movedPaneIds: Set<UUID>
+    ) -> CrossTabMoveViewTransitions {
+        let newlyVisibleDestinationPaneIds = destinationVisibleAfter.subtracting(destinationVisibleBefore)
+        let movedPaneIdsVisibleAfterMove = destinationVisibleAfter.intersection(movedPaneIds)
+        let hiddenDestinationPaneIds = destinationVisibleBefore.subtracting(destinationVisibleAfter)
+
+        return CrossTabMoveViewTransitions(
+            paneIdsToDetach: sourceVisibleBefore.union(movedPaneIds).union(hiddenDestinationPaneIds),
+            paneIdsToReattach: newlyVisibleDestinationPaneIds.union(movedPaneIdsVisibleAfterMove)
+        )
+    }
+
     func executeMovePaneAcrossTabs(_ request: CrossTabPaneMoveRequest) {
         let paneId = request.paneId
         let sourceTabId = request.sourceTabId
@@ -11,8 +32,10 @@ extension PaneCoordinator {
             return
         }
 
-        let previousVisiblePaneIds = Set(arrangementView.activeVisiblePaneIds(forTab: sourceTabId))
+        let sourceVisibleBefore = Set(crossTabMoveVisiblePaneIds(forTab: sourceTabId))
+        let destinationVisibleBefore = Set(crossTabMoveVisiblePaneIds(forTab: destTabId))
         let drawer = pane.drawer
+        let movedPaneIds = Set([paneId] + (drawer?.paneIds ?? []))
         guard
             let result = store.tabLayoutAtom.movePaneAcrossTabs(
                 CrossTabPaneMoveMutation(
@@ -34,17 +57,39 @@ extension PaneCoordinator {
                 sourceTabClosed: result.sourceTabClosed
             )
         )
-        let newVisiblePaneIds = Set(arrangementView.activeVisiblePaneIds(forTab: destTabId))
-        let movedPaneIds = Set([paneId] + (drawer?.paneIds ?? []))
-        for movedPaneId in movedPaneIds {
-            detachForViewSwitch(paneId: movedPaneId)
-        }
-        reconcileVisiblePaneTransition(
-            previousVisiblePaneIds: previousVisiblePaneIds.subtracting(movedPaneIds),
-            newVisiblePaneIds: newVisiblePaneIds
+        let destinationVisibleAfter = Set(crossTabMoveVisiblePaneIds(forTab: destTabId))
+        let transitions = Self.computeCrossTabMoveViewTransitions(
+            sourceVisibleBefore: sourceVisibleBefore,
+            destinationVisibleBefore: destinationVisibleBefore,
+            destinationVisibleAfter: destinationVisibleAfter,
+            movedPaneIds: movedPaneIds
         )
+        for paneIdToDetach in transitions.paneIdsToDetach {
+            detachForViewSwitch(paneId: paneIdToDetach)
+        }
+        for paneIdToReattach in transitions.paneIdsToReattach {
+            reattachForViewSwitch(paneId: paneIdToReattach)
+        }
         restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
         focusVisiblePaneHost(paneId)
+    }
+
+    private func crossTabMoveVisiblePaneIds(forTab tabId: UUID) -> [UUID] {
+        var seenPaneIds: Set<UUID> = []
+        var paneIds: [UUID] = []
+        func append(_ paneId: UUID) {
+            guard seenPaneIds.insert(paneId).inserted else { return }
+            paneIds.append(paneId)
+        }
+
+        for paneId in arrangementView.activeVisiblePaneIds(forTab: tabId) {
+            append(paneId)
+            guard store.paneAtom.pane(paneId)?.drawer?.isExpanded == true else { continue }
+            for drawerPaneId in arrangementView.drawerVisiblePaneIds(forParent: paneId) {
+                append(drawerPaneId)
+            }
+        }
+        return paneIds
     }
 
     func reconcileVisiblePaneTransition(previousVisiblePaneIds: Set<UUID>, newVisiblePaneIds: Set<UUID>) {

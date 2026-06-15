@@ -57,7 +57,6 @@ final class TabBarAdapterTests {
 
         // Arrange
         let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "MyTerminal"),
             title: "MyTerminal"
         )
         let tab = Tab(paneId: pane.id, name: "MyTerminal")
@@ -83,11 +82,9 @@ final class TabBarAdapterTests {
 
         // Arrange
         let s1 = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Left"),
             title: "Left"
         )
         let s2 = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Right"),
             title: "Right"
         )
         let tab = makeTab(paneIds: [s1.id, s2.id], activePaneId: s1.id, name: "Left · Right")
@@ -111,11 +108,9 @@ final class TabBarAdapterTests {
 
         // Arrange
         let s1 = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Tab1"),
             title: "Tab1"
         )
         let s2 = store.createPane(
-            source: .floating(launchDirectory: nil, title: "Tab2"),
             title: "Tab2"
         )
         let tab1 = Tab(paneId: s1.id)
@@ -140,8 +135,8 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
         let tab1 = Tab(paneId: s1.id)
         let tab2 = Tab(paneId: s2.id)
         store.appendTab(tab1)
@@ -159,7 +154,7 @@ final class TabBarAdapterTests {
     func test_activeArrangementBadgeNumber_hiddenForDefaultArrangement() async throws {
         resetFixture()
 
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -173,8 +168,8 @@ final class TabBarAdapterTests {
     func test_activeArrangementBadgeNumber_isOneForFirstCustomArrangement() async throws {
         resetFixture()
 
-        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let firstPane = store.createPane()
+        let secondPane = store.createPane()
         let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
         store.appendTab(tab)
         let arrangementId = try #require(
@@ -193,8 +188,8 @@ final class TabBarAdapterTests {
     func test_activeArrangementBadgeNumber_usesCustomArrangementOrder() async throws {
         resetFixture()
 
-        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let firstPane = store.createPane()
+        let secondPane = store.createPane()
         let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
         store.appendTab(tab)
         _ = store.createArrangement(name: "#1", inTab: tab.id)
@@ -214,8 +209,8 @@ final class TabBarAdapterTests {
     func test_activeArrangementName_populatedForCustomActive() async throws {
         resetFixture()
 
-        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let firstPane = store.createPane()
+        let secondPane = store.createPane()
         let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
         store.appendTab(tab)
         let arrangementId = try #require(
@@ -235,7 +230,7 @@ final class TabBarAdapterTests {
     func test_activeArrangementName_isDefaultForDefaultArrangement() async throws {
         resetFixture()
 
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -251,8 +246,8 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange
-        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s1 = store.createPane()
+        let s2 = store.createPane()
         let tab1 = Tab(paneId: s1.id)
         let tab2 = Tab(paneId: s2.id)
         store.appendTab(tab1)
@@ -280,9 +275,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange
-        let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: nil)
-        )
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id, name: "Terminal")
         store.appendTab(tab)
 
@@ -298,7 +291,7 @@ final class TabBarAdapterTests {
     func test_genericTerminalTitle_usesCwdFolderNameWhenAvailable() async throws {
         resetFixture()
 
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         store.updatePaneCWD(pane.id, cwd: URL(filePath: "/tmp/askluna-finance"))
         store.appendTab(Tab(paneId: pane.id, name: "askluna-finance"))
 
@@ -314,7 +307,6 @@ final class TabBarAdapterTests {
         resetFixture()
 
         let pane = store.createPane(
-            source: .floating(launchDirectory: nil, title: "MyTerminal"),
             title: "MyTerminal"
         )
         let tab = Tab(paneId: pane.id, name: "Review Queue")
@@ -344,7 +336,7 @@ final class TabBarAdapterTests {
         )
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
+            launchDirectory: storedWorktree.path,
             title: "Ephemeral shell title",
             facets: PaneContextFacets(
                 repoId: repo.id,
@@ -380,7 +372,7 @@ final class TabBarAdapterTests {
         )
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
+            launchDirectory: storedWorktree.path,
             title: "Ignored",
             facets: PaneContextFacets(
                 repoId: repo.id,
@@ -459,7 +451,7 @@ final class TabBarAdapterTests {
 
         // Arrange — 2 tabs: 2×220 + 1×4 + 16 = 460px < 600px
         for _ in 0..<2 {
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let pane = store.createPane()
             store.appendTab(Tab(paneId: pane.id))
         }
 
@@ -482,7 +474,7 @@ final class TabBarAdapterTests {
 
         // Arrange — 8 tabs: 8×220 + 7×4 + 16 = 1804px > 600px
         for _ in 0..<8 {
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let pane = store.createPane()
             store.appendTab(Tab(paneId: pane.id))
         }
 
@@ -504,7 +496,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange — layout not ready (width = 0)
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         store.appendTab(Tab(paneId: pane.id))
 
         await waitForAdapterRefresh()
@@ -519,7 +511,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange — 1 tab, set both availableWidth and viewportWidth
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 800  // outer container
         adapter.viewportWidth = 600  // actual scroll viewport (smaller)
@@ -537,7 +529,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange — 1 tab so tabs.count > 0
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 600
 
@@ -559,7 +551,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange — trigger overflow via content width
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 600
         adapter.contentWidth = 700
@@ -583,7 +575,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange — trigger overflow via content width
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 600
         adapter.contentWidth = 700
@@ -608,7 +600,7 @@ final class TabBarAdapterTests {
         // Arrange — start with 4 tabs in 600px: 4×220 + 3×4 + 16 = 908px > 600px → overflow
         var panes: [Pane] = []
         for _ in 0..<4 {
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let pane = store.createPane()
             store.appendTab(Tab(paneId: pane.id))
             panes.append(pane)
         }

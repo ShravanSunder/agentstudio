@@ -54,11 +54,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                     id: parentPaneId,
                     content: .terminal(provider: .zmx, lifetime: .persistent),
                     metadata: .init(
-                        source: .worktree(
-                            repoId: repoId,
-                            worktreeId: worktreeId,
-                            launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/pane-graph-repo")
-                        ),
+                        launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/pane-graph-repo"),
                         executionBackend: .docker(image: "swift:latest"),
                         createdAt: Date(timeIntervalSince1970: 300),
                         title: "Parent",
@@ -84,7 +80,6 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                         showNavigation: false
                     ),
                     metadata: .init(
-                        source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/floating")),
                         executionBackend: .local,
                         createdAt: Date(timeIntervalSince1970: 301),
                         title: "Child Web",
@@ -290,11 +285,16 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                     id: paneId,
                     content: .terminal(provider: .zmx, lifetime: .persistent),
                     metadata: .init(
-                        source: .worktree(repoId: repoId, worktreeId: worktreeId, launchDirectory: launchDirectory),
+                        launchDirectory: launchDirectory,
                         executionBackend: .local,
                         createdAt: Date(timeIntervalSince1970: 300),
                         title: "Worktree",
-                        durableFacets: .init(tags: ["source"])
+                        durableFacets: .init(
+                            repoId: repoId,
+                            worktreeId: worktreeId,
+                            cwd: launchDirectory,
+                            tags: ["source"]
+                        )
                     ),
                     residency: .active,
                     placement: .layout,
@@ -357,10 +357,11 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                     id: paneId,
                     content: .terminal(provider: .zmx, lifetime: .persistent),
                     metadata: .init(
-                        source: .worktree(repoId: repoId, worktreeId: worktreeId, launchDirectory: launchDirectory),
+                        launchDirectory: launchDirectory,
                         executionBackend: .local,
                         createdAt: Date(timeIntervalSince1970: 300),
-                        title: "Worktree"
+                        title: "Worktree",
+                        durableFacets: .init(repoId: repoId, worktreeId: worktreeId, cwd: launchDirectory)
                     ),
                     residency: .active,
                     placement: .layout,
@@ -375,7 +376,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
         )
         let restoredGraph = try repository.fetchPaneGraph(workspaceId: workspaceId)
 
-        #expect(restoredGraph.panes.single?.metadata.source == .floating(launchDirectory: launchDirectory))
+        #expect(restoredGraph.panes.single?.metadata.launchDirectory == launchDirectory)
         #expect(restoredGraph.panes.single?.metadata.durableFacets.repoId == nil)
         #expect(restoredGraph.panes.single?.metadata.durableFacets.worktreeId == nil)
     }
@@ -390,7 +391,6 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
             id: id,
             content: content,
             metadata: .init(
-                source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/floating")),
                 executionBackend: .local,
                 createdAt: Date(timeIntervalSince1970: 300),
                 title: title,

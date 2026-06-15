@@ -206,7 +206,7 @@ struct MainSplitViewControllerCompositeCommandTests {
                     withRepos: true,
                     inboxAtom: inboxAtom,
                     body: { harness in
-                        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Pane"))
+                        let pane = harness.store.createPane()
                         let tab = Tab(paneId: pane.id)
                         harness.store.appendTab(tab)
                         harness.store.setActiveTab(tab.id)
@@ -250,11 +250,13 @@ struct MainSplitViewControllerCompositeCommandTests {
                     inboxAtom: inboxAtom,
                     body: { harness in
                         let targetPane = harness.store.createPane(
-                            source: .floating(launchDirectory: nil, title: "Target"))
+                            title: "Target"
+                        )
                         let targetTab = Tab(paneId: targetPane.id)
                         harness.store.appendTab(targetTab)
                         let activePane = harness.store.createPane(
-                            source: .floating(launchDirectory: nil, title: "Active"))
+                            title: "Active"
+                        )
                         let activeTab = Tab(paneId: activePane.id)
                         harness.store.appendTab(activeTab)
                         harness.store.setActiveTab(activeTab.id)

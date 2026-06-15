@@ -145,7 +145,6 @@ struct BridgeRuntimeTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .diff,
-            source: .floating(launchDirectory: nil, title: "Diff"),
             title: "Diff"
         )
         return BridgeRuntime(
@@ -181,10 +180,6 @@ private final class BridgeRuntimeCommandHandlerSpy: BridgeRuntimeCommandHandling
         switch command {
         case .loadDiff:
             receivedCommandKinds.append("loadDiff")
-        case .approveHunk:
-            receivedCommandKinds.append("approveHunk")
-        case .rejectHunk:
-            receivedCommandKinds.append("rejectHunk")
         }
         receivedCommandIds.append(commandId)
         receivedCorrelationIds.append(correlationId)

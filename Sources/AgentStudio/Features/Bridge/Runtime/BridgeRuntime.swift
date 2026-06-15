@@ -8,7 +8,7 @@ protocol BridgeRuntimeCommandHandling: AnyObject {
         _ command: DiffCommand,
         commandId: UUID,
         correlationId: UUID?
-    ) -> ActionResult
+    ) async -> ActionResult
 }
 
 @MainActor
@@ -84,7 +84,7 @@ final class BridgeRuntime: BusPostingPaneRuntime {
             guard let commandHandler else {
                 return .failure(.backendUnavailable(backend: "BridgePaneController"))
             }
-            return commandHandler.handleDiffCommand(
+            return await commandHandler.handleDiffCommand(
                 diffCommand,
                 commandId: envelope.commandId,
                 correlationId: envelope.correlationId

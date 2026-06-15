@@ -6,7 +6,8 @@ enum TabArrangementValidation {
 
     static func pruningInvalidPaneIds(
         validPaneIds: Set<UUID>,
-        from arrangementStates: [TabArrangementState]
+        from arrangementStates: [TabArrangementState],
+        drawerParentPaneIdByDrawerId: [UUID: UUID]? = nil
     ) -> [TabArrangementState] {
         var updatedStates = arrangementStates
         for tabIndex in updatedStates.indices {
@@ -16,6 +17,19 @@ enum TabArrangementValidation {
                 validPaneIds: validPaneIds,
                 from: updatedStates[tabIndex].arrangements
             )
+            updatedStates[tabIndex].arrangements = TabArrangementRepairRules.pruningDrawerViewsMissingParentPane(
+                drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId,
+                from: updatedStates[tabIndex].arrangements
+            )
+            updatedStates[tabIndex].arrangements = TabArrangementRepairRules.promotingLiveArrangementToDefault(
+                in: updatedStates[tabIndex].arrangements
+            )
+            if !updatedStates[tabIndex].arrangements.isEmpty,
+                activeArrangement(for: tabIndex, arrangementStates: updatedStates).layout.isEmpty,
+                let liveArrangement = updatedStates[tabIndex].arrangements.first(where: { !$0.layout.isEmpty })
+            {
+                updatedStates[tabIndex].activeArrangementId = liveArrangement.id
+            }
             let removedPaneIds = originalPaneIds.subtracting(updatedStates[tabIndex].allPaneIds)
             if !removedPaneIds.isEmpty {
                 logger.warning(
@@ -25,18 +39,20 @@ enum TabArrangementValidation {
         }
 
         updatedStates.removeAll { state in
-            let shouldDrop =
-                (state.arrangements.first(where: \.isDefault) ?? state.arrangements.first)?.layout.isEmpty
-                ?? true
+            let shouldDrop = !TabArrangementRepairRules.hasLivePaneReferences(in: state.arrangements)
             if shouldDrop {
-                logger.warning("pruningInvalidPaneIds: dropping tab \(state.tabId) because its default layout is empty")
+                logger.warning(
+                    "pruningInvalidPaneIds: dropping tab \(state.tabId) because it has no live pane references")
             }
             return shouldDrop
         }
         return updatedStates
     }
 
-    static func validating(_ arrangementStates: [TabArrangementState]) -> [TabArrangementState] {
+    static func validating(
+        _ arrangementStates: [TabArrangementState],
+        drawerParentPaneIdByDrawerId: [UUID: UUID]? = nil
+    ) -> [TabArrangementState] {
         var updatedStates = arrangementStates
         var seenPaneIds: Set<UUID> = []
 
@@ -72,6 +88,10 @@ enum TabArrangementValidation {
                     validPaneIds: Set(updatedStates[tabIndex].allPaneIds),
                     from: updatedStates[tabIndex].arrangements
                 )
+                updatedStates[tabIndex].arrangements = TabArrangementRepairRules.pruningDrawerViewsMissingParentPane(
+                    drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId,
+                    from: updatedStates[tabIndex].arrangements
+                )
             }
 
             let validPaneIds = Set(updatedStates[tabIndex].allPaneIds)
@@ -94,6 +114,18 @@ enum TabArrangementValidation {
                         )
                 }
             }
+            updatedStates[tabIndex].arrangements = TabArrangementRepairRules.pruningDrawerViewsMissingParentPane(
+                drawerParentPaneIdByDrawerId: drawerParentPaneIdByDrawerId,
+                from: updatedStates[tabIndex].arrangements
+            )
+            updatedStates[tabIndex].arrangements = TabArrangementRepairRules.promotingLiveArrangementToDefault(
+                in: updatedStates[tabIndex].arrangements
+            )
+            if activeArrangement(for: tabIndex, arrangementStates: updatedStates).layout.isEmpty,
+                let liveArrangement = updatedStates[tabIndex].arrangements.first(where: { !$0.layout.isEmpty })
+            {
+                updatedStates[tabIndex].activeArrangementId = liveArrangement.id
+            }
 
             if !updatedStates[tabIndex].arrangements.contains(where: {
                 $0.id == updatedStates[tabIndex].activeArrangementId
@@ -109,9 +141,9 @@ enum TabArrangementValidation {
         }
 
         updatedStates.removeAll { state in
-            let shouldDrop = state.arrangements.first(where: \.isDefault)?.layout.isEmpty ?? true
+            let shouldDrop = !TabArrangementRepairRules.hasLivePaneReferences(in: state.arrangements)
             if shouldDrop {
-                logger.warning("validating: dropping tab \(state.tabId) because its default layout is empty")
+                logger.warning("validating: dropping tab \(state.tabId) because it has no live pane references")
             }
             return shouldDrop
         }

@@ -94,7 +94,7 @@ struct PaneObservationResolverTests {
         Pane(
             id: id,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .init(.floating(launchDirectory: nil, title: nil)), title: "Pane"),
+            metadata: PaneMetadata(title: "Pane"),
             kind: .layout(drawer: drawer)
         )
     }
@@ -103,7 +103,7 @@ struct PaneObservationResolverTests {
         Pane(
             id: id,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .init(.floating(launchDirectory: nil, title: nil)), title: "Drawer"),
+            metadata: PaneMetadata(title: "Drawer"),
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
     }

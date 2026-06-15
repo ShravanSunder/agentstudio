@@ -72,12 +72,18 @@ final class TabBarAdapter {
 
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private var isObservingManagementLayer = false
     private var isObservingStore = false
 
-    init(store: WorkspaceStore, repoCache: RepoCacheAtom) {
+    init(
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+    ) {
         self.store = store
         self.repoCache = repoCache
+        self.performanceTraceRecorder = performanceTraceRecorder
         observe()
     }
 
@@ -105,7 +111,11 @@ final class TabBarAdapter {
             _ = self.store.tabLayoutAtom.tabs
             _ = self.store.tabLayoutAtom.activeTabId
             _ = self.store.paneAtom.panes
-            _ = self.repoCache.worktreeEnrichmentByWorktreeId
+            for pane in self.store.paneAtom.panes.values {
+                if let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId {
+                    _ = self.repoCache.worktreeEnrichment(for: worktreeId)
+                }
+            }
         } onChange: { [weak self] in
             guard let self else { return }
             Task { @MainActor in
@@ -133,6 +143,8 @@ final class TabBarAdapter {
     }
 
     private func refresh() {
+        let clock = ContinuousClock()
+        let start = clock.now
         let tabLayout = store.tabLayoutAtom
         let storeTabs = tabLayout.tabs
 
@@ -175,6 +187,15 @@ final class TabBarAdapter {
             activeTabId = tabs.last?.id
         }
         updateOverflow()
+        performanceTraceRecorder?.recordDuration(
+            .tabBarRefresh,
+            duration: start.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.tabbar.tab.count": .int(tabs.count),
+                "agentstudio.performance.tabbar.source_tab.count": .int(storeTabs.count),
+                "agentstudio.performance.tabbar.pane.count": .int(tabs.reduce(0) { $0 + $1.panes.count }),
+            ]
+        )
     }
 
     private func paneDisplayTitle(for paneId: UUID) -> String {
@@ -193,7 +214,7 @@ final class TabBarAdapter {
             let repoName = pane.metadata.repoName ?? repo.name
             let branchName = atom(\.paneDisplay).resolvedBranchName(
                 worktree: worktree,
-                enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+                enrichment: repoCache.worktreeEnrichment(for: worktree.id)
             )
             return "\(repoName) | \(branchName) | \(worktree.path.lastPathComponent)"
         }

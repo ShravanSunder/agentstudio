@@ -48,7 +48,7 @@ enum GitHubWebviewLaunchResolver {
             return fallbackURL
         }
 
-        guard let slug = repoCache.repoEnrichmentByRepoId[context.repo.id]?.remoteSlug else {
+        guard let slug = repoCache.repoEnrichment(for: context.repo.id)?.remoteSlug else {
             logger.info(
                 "Falling back to GitHub home because repo slug is unavailable for repoId=\(context.repo.id.uuidString, privacy: .public)"
             )
@@ -57,7 +57,7 @@ enum GitHubWebviewLaunchResolver {
 
         let path =
             if let worktreeId = context.worktreeId,
-                repoCache.pullRequestCountByWorktreeId[worktreeId, default: 0] > 0
+                (repoCache.pullRequestCount(for: worktreeId) ?? 0) > 0
             {
                 "/\(slug)/pulls"
             } else {

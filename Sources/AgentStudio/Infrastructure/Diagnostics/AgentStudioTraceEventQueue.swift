@@ -6,6 +6,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         let body: String
         let traceID: String?
         let parentSpanID: String?
+        let eventTimeUnixNano: UInt64?
         let attributes: [String: AgentStudioTraceValue]
     }
 
@@ -28,6 +29,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         body: String,
         traceID: String? = nil,
         parentSpanID: String? = nil,
+        eventTimeUnixNano: UInt64? = nil,
         attributes: [String: AgentStudioTraceValue]
     ) {
         let request = TraceRequest(
@@ -35,6 +37,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
             body: body,
             traceID: traceID,
             parentSpanID: parentSpanID,
+            eventTimeUnixNano: eventTimeUnixNano,
             attributes: attributes
         )
         lock.lock()
@@ -97,6 +100,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
                     body: request.body,
                     traceID: request.traceID,
                     parentSpanID: request.parentSpanID,
+                    eventTimeUnixNano: request.eventTimeUnixNano,
                     attributes: request.attributes
                 )
             }

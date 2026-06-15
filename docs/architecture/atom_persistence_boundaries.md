@@ -57,6 +57,76 @@ mutation, and SwiftUI/validator readers would have more opportunities to observe
 half-updated state. Keep normalized storage in repositories; keep atom writes
 cohesive by lifecycle.
 
+## AtomLib Observation Primitives
+
+`Infrastructure/AtomLib` owns generic observation primitives only. Product
+state, registry fields, cache semantics, and feature-specific derived readers
+stay in Core or Features.
+
+Lint rule `agentstudio_atomlib_is_generic` enforces this boundary for
+`Infrastructure/AtomLib`. Product atoms, feature imports, and concrete
+`AtomRegistry` fields belong in the app's Core/Feature state tree or the root
+registry, not in the generic primitive library.
+
+Use the primitive that matches the read surface:
+
+| Primitive | Use for | Rule |
+| --- | --- | --- |
+| `AtomValue<Value>` | one scalar or one cohesive content value | writes require an explicit content comparator except for trivial scalar allowlist types |
+| `AtomEntityMap<Key, Value>` | keyed entity families such as repo enrichment, worktree enrichment, and PR counts | hot UI reads use `value(for:)`; dictionary snapshots are bridge surfaces |
+| `DerivedValue<Value>` | registry-owned memoized read models | compute from declared input revisions; do not reach back into `AtomScope` or `atom(\...)` |
+| `AtomMutationContext` | grouped mutations across primitive updates inside one owner | bump the aggregate revision once after accepted changes |
+
+The derived-read contract is enforced by
+`agentstudio_derived_value_declared_inputs`: a `DerivedValue` compute closure
+must be a pure function of declared revisions/inputs, not a hidden atom read
+through `AtomScope`, `AtomReader`, `atom(\...)`, or `@Atom`.
+
+`AtomEntityMap` is the internal atom-family primitive. It stores a private
+dictionary for snapshots, but each key has its own observable slot. A row that
+reads `worktreeEnrichment(for: worktreeId)` should wake only when that
+worktree's enrichment changes, or when it read an absent key and that same key
+later appears. Surfaces that need both branch state and PR count use
+`worktreeFacts(for:)`, which composes the two keyed lanes intentionally.
+Membership changes are tracked separately from per-key value changes.
+
+Do not expose raw observable dictionaries as hot UI contracts. Dictionary-shaped
+APIs are allowed for persistence projections, legacy import/export, tests,
+batch reconciliation, and explicitly measured cold paths. Production UI,
+command-bar, tab-bar, and sidebar rows should prefer keyed readers or a derived
+read model that uses keyed readers internally.
+
+Lint rule `agentstudio_repo_cache_keyed_reads` rejects hot
+`repoEnrichmentByRepoId`, `worktreeEnrichmentByWorktreeId`, and
+`pullRequestCountByWorktreeId` dictionary reads outside the allowed cold-path
+surfaces.
+
+`RepoEnrichmentCacheAtom` is the reference implementation: repo enrichment,
+worktree enrichment, and PR counts are owned as separate `AtomEntityMap`
+instances; `RepoCacheAtom` exposes keyed reads for hot consumers and snapshot
+methods for persistence/cold bulk bridges.
+
+Worktree enrichment diffing must use the narrow comparator helpers rather than
+raw `WorktreeEnrichment` equality. Lint rule
+`agentstudio_worktree_enrichment_comparator` protects that performance boundary
+so non-rendering metadata changes do not wake hot rows.
+
+## Atom And Actor Placement
+
+AtomLib is not a cross-actor state runtime. Canonical UI-observed facts remain
+in `@MainActor` atoms. External or fleet-scale work belongs behind actor or
+store boundaries and should cross back to the main actor as compact, Sendable
+facts, snapshots, deltas, or intents.
+
+| Question | Placement |
+| --- | --- |
+| Is this canonical UI-observed state? | `@MainActor` atom |
+| Does a SwiftUI row need to wake for one key? | `AtomEntityMap` slot in the owning atom |
+| Does it perform git, filesystem, SQLite, network, or process work? | runtime/store/off-main actor |
+| Does it canonicalize many paths or diff many repos/worktrees/panes/tabs? | actor or measured MainActor exception |
+| Is it final application of compact actor output? | owning `@MainActor` atom or coordinator |
+| Is it a snapshot for persistence or batch reconciliation? | snapshot bridge, not hot UI observation |
+
 ## Step 0 Boundary Map
 
 | Current surface | Step 0 write owners | Derived/read surface |
@@ -78,8 +148,9 @@ cohesive by lifecycle.
 | `Pane` | `PaneGraphState` in `WorkspacePaneGraphAtom` | `Pane` from `WorkspacePaneDerived` | `LegacyPanePayload` | `pane`, `pane_content_*`, `pane_tag` |
 | `Drawer` identity and membership | `DrawerGraphState` in `WorkspacePaneGraphAtom` | `Drawer` from `WorkspacePaneDerived` | `LegacyDrawerPayload` | `drawer`, `drawer_pane` |
 | `Drawer.isExpanded` | `WorkspaceDrawerCursorAtom` | `Drawer` from `WorkspacePaneDerived` | `LegacyDrawerPayload` | `local_drawer_cursor.is_expanded` |
-| `PaneMetadata` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneMetadataPayload` | pane source, cwd, checkout, title, note, tag columns |
-| `PaneContextFacets` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneContextFacetsPayload` | repo id, worktree id, cwd, tags |
+| `PaneMetadata` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneMetadataPayload` | pane launch directory, title, checkout, note, and tag columns |
+| `PaneContextFacets` durable fields | `PaneGraphState.metadata` | `Pane` from `WorkspacePaneDerived` | `LegacyPaneContextFacetsPayload` | `facet_repo_id`, `facet_worktree_id`, cwd, tags |
+| `TerminalState.zmxSessionId` | `PaneGraphState.content` | `Pane` from `WorkspacePaneDerived` | legacy rows hydrate via boot cleanup / restore fallback | `pane_content_terminal.zmx_session_id` |
 | `PaneContextFacets` display fields | none | `WorkspacePaneDerived` from topology plus `RepoEnrichmentCacheAtom` | decoded only for legacy compatibility; cache import/rebuild supplies live values | `cache_repo_enrichment`, `cache_worktree_enrichment` |
 | `Tab` shell | `WorkspaceTabShellAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `LegacyTabPayload` | `tab_shell` |
 | `Tab.activeArrangementId` | `WorkspaceArrangementCursorAtom` | `Tab` from `WorkspaceTabLayoutDerived` | `LegacyTabPayload` | `local_tab_cursor.active_arrangement_id` |
@@ -122,8 +193,13 @@ When a new atom, state surface, or persisted field is added:
 1. Classify the field into one lifecycle lane.
 2. Name its role: write-owner state, derived read model, row projection, or
    legacy DTO.
-3. If persisted, identify the owning store/repository and reset semantics.
-4. If runtime-only, document that it is never imported from legacy JSON and not
+3. Choose the observation surface: scalar value, keyed `AtomEntityMap`,
+   derived read model, or snapshot bridge.
+4. Define the content comparator so equal data does not fire atom invalidation.
+5. If persisted, identify the owning store/repository and reset semantics.
+6. If runtime-only, document that it is never imported from legacy JSON and not
    written to SQLite in Step 1.
-5. Add or update focused tests when the classification changes command
+7. Apply the actor-placement gate above before putting expensive work on the
+   main actor.
+8. Add or update focused tests when the classification changes command
    routing, persistence, or derived reader behavior.

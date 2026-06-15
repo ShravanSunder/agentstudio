@@ -38,7 +38,7 @@ struct TabDisplayDerived {
         {
             let branchName = atom(\.paneDisplay).resolvedBranchName(
                 worktree: worktree,
-                enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+                enrichment: repoCache.worktreeEnrichment(for: worktree.id)
             )
             let folderName = worktree.path.lastPathComponent
 

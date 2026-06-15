@@ -159,9 +159,10 @@ enum WorkspaceLauncherProjector {
         inboxAtom: InboxNotificationAtom,
         iconColorHex: String?
     ) -> WorkspaceRecentCardModel {
+        let worktreeFacts = repoCache.worktreeFacts(for: worktree.id)
         let branchStatus = RepoExplorerView.branchStatus(
-            enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id],
-            pullRequestCount: repoCache.pullRequestCountByWorktreeId[worktree.id]
+            enrichment: worktreeFacts?.enrichment,
+            pullRequestCount: worktreeFacts?.pullRequestCount
         )
         let chipModel = WorkspaceStatusChipsModel(
             branchStatus: branchStatus,
@@ -172,7 +173,7 @@ enum WorkspaceLauncherProjector {
         )
         let branchName = atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
-            enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+            enrichment: worktreeFacts?.enrichment
         )
 
         let worktreeDisplayName: String = {
@@ -202,13 +203,14 @@ enum WorkspaceLauncherProjector {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [UUID: String] {
+        let repoEnrichmentByRepoId = repoCache.repoEnrichmentSnapshot()
         let sidebarRepos = RepoExplorerView.resolvedRepos(
             store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:)),
-            enrichmentByRepoId: repoCache.repoEnrichmentByRepoId
+            enrichmentByRepoId: repoEnrichmentByRepoId
         )
         let metadataByRepoId = RepoPresentationColoring.buildRepoMetadata(
             repos: sidebarRepos,
-            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId
+            repoEnrichmentByRepoId: repoEnrichmentByRepoId
         )
         let groups = RepoPresentationGrouping.buildGroups(
             repos: sidebarRepos,

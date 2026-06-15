@@ -1,0 +1,8 @@
+{
+  "jsonrpc": "2.0",
+  "method": "inbox.post",
+  "params": {
+    "title": "Claude Code finished",
+    "body": "3 files changed, 142 lines"
+  }
+}

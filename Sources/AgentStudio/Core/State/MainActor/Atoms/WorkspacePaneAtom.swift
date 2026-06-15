@@ -90,7 +90,7 @@ final class WorkspacePaneAtom {
     }
 
     func paneCount(for worktreeId: UUID) -> Int {
-        panes.values.filter { $0.worktreeId == worktreeId }.count
+        graphAtom.paneStates(for: worktreeId).count
     }
 
     func isWorktreeActive(_ worktreeId: UUID) -> Bool {
@@ -100,13 +100,14 @@ final class WorkspacePaneAtom {
     func orphanedPanes(excluding layoutPaneIds: Set<UUID>) -> [Pane] {
         panes.values.filter {
             guard !layoutPaneIds.contains($0.id) else { return false }
+            guard !$0.isDrawerChild else { return false }
             return $0.residency == .backgrounded || $0.residency.isOrphaned
         }
     }
 
     @discardableResult
     func createPane(
-        source: TerminalSource,
+        launchDirectory: URL? = nil,
         title: String = "Terminal",
         provider: SessionProvider = .zmx,
         lifetime: SessionLifetime = .persistent,
@@ -114,13 +115,22 @@ final class WorkspacePaneAtom {
         facets: PaneContextFacets = .empty
     ) -> Pane {
         let state = graphAtom.createPane(
-            source: source,
+            launchDirectory: launchDirectory,
             title: title,
             provider: provider,
             lifetime: lifetime,
             residency: residency,
             facets: facets
         )
+        if provider == .zmx,
+            let sessionId = zmxSessionId(
+                launchDirectory: launchDirectory,
+                facets: facets,
+                paneId: state.id
+            )
+        {
+            graphAtom.setTerminalZmxSessionId(state.id, sessionId: sessionId)
+        }
         return pane(state.id)!
     }
 
@@ -128,10 +138,28 @@ final class WorkspacePaneAtom {
     func createPane(
         content: PaneContent,
         metadata: PaneMetadata,
-        residency: SessionResidency = .active
+        residency: SessionResidency = .active,
+        anchorZmxSessionIfNeeded: Bool = true
     ) -> Pane {
         let state = graphAtom.createPane(content: content, metadata: metadata, residency: residency)
+        if anchorZmxSessionIfNeeded,
+            case .terminal(let terminalState) = content,
+            terminalState.provider == .zmx,
+            terminalState.zmxSessionId == nil,
+            let sessionId = zmxSessionId(
+                launchDirectory: metadata.launchDirectory,
+                facets: metadata.facets,
+                paneId: state.id
+            )
+        {
+            graphAtom.setTerminalZmxSessionId(state.id, sessionId: sessionId)
+        }
         return pane(state.id)!
+    }
+
+    @discardableResult
+    func setTerminalZmxSessionId(_ paneId: UUID, sessionId: String) -> Bool {
+        graphAtom.setTerminalZmxSessionId(paneId, sessionId: sessionId)
     }
 
     @discardableResult
@@ -189,7 +217,15 @@ final class WorkspacePaneAtom {
     }
 
     func purgeOrphanedPane(_ paneId: UUID) {
-        graphAtom.purgeOrphanedPane(paneId)
+        guard let pane = pane(paneId), pane.residency == .backgrounded || pane.residency.isOrphaned else {
+            graphAtom.purgeOrphanedPane(paneId)
+            return
+        }
+        if pane.drawer != nil {
+            _ = graphAtom.deletePaneAndOwnedDrawerChildren(paneId)
+        } else {
+            graphAtom.purgeOrphanedPane(paneId)
+        }
         drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
     }
 
@@ -215,6 +251,7 @@ final class WorkspacePaneAtom {
         guard let drawerPane = graphAtom.addDrawerPane(to: parentPaneId, content: content, metadata: metadata) else {
             return nil
         }
+        anchorDrawerZmxSessionIfNeeded(parentPaneId: parentPaneId, drawerPaneId: drawerPane.id)
         if let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
             drawerCursorAtom.expandDrawer(drawerId: drawerId)
         }
@@ -260,6 +297,7 @@ final class WorkspacePaneAtom {
                 metadata: metadata
             )
         else { return nil }
+        anchorDrawerZmxSessionIfNeeded(parentPaneId: parentPaneId, drawerPaneId: drawerPane.id)
         if let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
             drawerCursorAtom.expandDrawer(drawerId: drawerId)
         }
@@ -315,6 +353,9 @@ final class WorkspacePaneAtom {
     @discardableResult
     func restoreDrawerPane(_ drawerPane: Pane, to parentPaneId: UUID) -> Bool {
         let didRestore = graphAtom.restoreDrawerPane(drawerPane, to: parentPaneId)
+        if didRestore {
+            drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
+        }
         if didRestore, let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
             drawerCursorAtom.expandDrawer(drawerId: drawerId)
         }
@@ -329,25 +370,44 @@ final class WorkspacePaneAtom {
             ?? parentPane.metadata.launchDirectory
             ?? parentFallbackCWD
 
-        let inheritedSource: PaneMetadata.PaneMetadataSource
-        if let worktreeId = parentPane.worktreeId, let repoId = parentPane.repoId, let inheritedCWD {
-            inheritedSource = .worktree(
-                worktreeId: worktreeId,
-                repoId: repoId,
-                launchDirectory: inheritedCWD
-            )
-        } else {
-            inheritedSource = .floating(launchDirectory: inheritedCWD, title: nil)
-        }
-
         let inheritedFacets = parentPane.metadata.facets.fillingNilFields(
             from: PaneContextFacets(cwd: inheritedCWD)
         )
 
         return PaneMetadata(
-            source: inheritedSource,
+            launchDirectory: inheritedCWD,
             title: "Drawer",
             facets: inheritedFacets
         )
+    }
+
+    private func zmxSessionId(
+        launchDirectory: URL?,
+        facets: PaneContextFacets,
+        paneId: UUID
+    ) -> String? {
+        if let worktreeId = facets.worktreeId {
+            guard let repositoryTopologyAtom,
+                let worktree = repositoryTopologyAtom.worktree(worktreeId),
+                let repo = facets.repoId.flatMap({ repositoryTopologyAtom.repo($0) })
+                    ?? repositoryTopologyAtom.repo(containing: worktreeId)
+            else {
+                return nil
+            }
+            return ZmxBackend.sessionId(
+                repoStableKey: repo.stableKey,
+                worktreeStableKey: worktree.stableKey,
+                paneId: paneId
+            )
+        }
+        return ZmxBackend.floatingSessionId(
+            launchDirectory: launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser,
+            paneId: paneId
+        )
+    }
+
+    private func anchorDrawerZmxSessionIfNeeded(parentPaneId: UUID, drawerPaneId: UUID) {
+        let sessionId = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
+        graphAtom.setTerminalZmxSessionId(drawerPaneId, sessionId: sessionId)
     }
 }

@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import Observation
 
 @MainActor
 extension AppDelegate {
@@ -78,6 +80,10 @@ extension AppDelegate {
 
     private func recordBootStep(_ step: WorkspaceBootStep) {
         RestoreTrace.log("workspace.boot.step=\(step.rawValue)")
+        startupTraceRecorder.recordWorkspaceBootStep(
+            rawValue: step.rawValue,
+            purpose: step.purpose
+        )
     }
 
     private func executeBootStep(
@@ -94,7 +100,7 @@ extension AppDelegate {
         case .loadUIStore:
             await bootLoadUIStore(persistor: persistor)
         case .establishRuntimeBus:
-            bootEstablishRuntimeBus(paneRuntimeBus: paneRuntimeBus, filesystemSource: &filesystemSource)
+            await bootEstablishRuntimeBus(paneRuntimeBus: paneRuntimeBus, filesystemSource: &filesystemSource)
         case .startFilesystemActor:
             bootChainPipelineStep(filesystemSource) { await $0.startFilesystemActor() }
         case .startGitProjector:
@@ -114,8 +120,9 @@ extension AppDelegate {
 
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
+        atomStore.workspaceRepositoryTopology.setPerformanceTraceRecorder(performanceTraceRecorder)
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
         AtomScope.setUp(atomStore)
-        traceRuntime = .fromEnvironment()
         workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
@@ -170,6 +177,7 @@ extension AppDelegate {
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
         )
+        synchronizeApplicationLifecycleStateAfterWorkspaceBoot(isApplicationActive: NSApp.isActive)
         RestoreTrace.log(
             "store.restore complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.panes.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
@@ -182,6 +190,7 @@ extension AppDelegate {
     private func bootLoadCacheStore(persistor: WorkspacePersistor) async {
         _ = persistor
         await repoCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
+        await refreshTraceIdentitySnapshot()
         await sidebarCacheStore.restoreAsync(for: store.identityAtom.workspaceId)
     }
 
@@ -244,28 +253,32 @@ extension AppDelegate {
     private func bootEstablishRuntimeBus(
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
-    ) {
+    ) async {
         runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
-        cleanupOrphanZmxSessions()
+        await reconcileZmxSessionAnchorsAtStartup()
         viewRegistry = ViewRegistry()
         closeTransitionCoordinator = PaneCloseTransitionCoordinator()
         seedSlotsForRestoredPanes()
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
-            fseventStreamClient: DarwinFSEventStreamClient()
+            fseventStreamClient: DarwinFSEventStreamClient(),
+            performanceTraceRecorder: performanceTraceRecorder
         )
         filesystemSource = pipeline
         watchedFolderCommands = pipeline
+        SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
         paneCoordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: SurfaceManager.shared,
+            startupTraceRecorder: startupTraceRecorder,
             runtimeRegistry: .shared,
             paneEventBus: paneRuntimeBus,
             closeTransitionCoordinator: closeTransitionCoordinator,
             filesystemSource: pipeline,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
             bus: paneRuntimeBus,
@@ -276,6 +289,9 @@ extension AppDelegate {
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
                 await pipeline.applyScopeChange(change)
+            },
+            traceIdentityRefreshHandler: { [weak self] in
+                await self?.refreshTraceIdentitySnapshot()
             }
         )
         paneCoordinator.removeRepoHandler = { [weak self] repoId in
@@ -283,13 +299,18 @@ extension AppDelegate {
             self?.paneCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = ActionExecutor(coordinator: paneCoordinator, store: store)
-        tabBarAdapter = TabBarAdapter(store: store, repoCache: repoCache)
+        tabBarAdapter = TabBarAdapter(
+            store: store,
+            repoCache: repoCache,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
         commandBarController = CommandBarPanelController(
             store: store,
             repoCache: repoCache,
             dispatcher: .shared,
             notificationInboxCommands: makeInboxNotificationCommands(),
-            commandBarSurface: atomStore.commandBarSurface
+            commandBarSurface: atomStore.commandBarSurface,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         bootStartInboxNotificationRouter(bus: paneRuntimeBus)
         bootStartTerminalActivityRouter(bus: paneRuntimeBus)
@@ -319,6 +340,35 @@ extension AppDelegate {
                 await filesystemPipelineBootTask.value
             }
             self.paneCoordinator.syncFilesystemRootsAndActivity()
+            await self.refreshTraceIdentitySnapshot()
+            self.observeTraceIdentityInputs()
+        }
+    }
+
+    func refreshTraceIdentitySnapshot() async {
+        let panes = Array(store.paneAtom.panes.values)
+        let snapshot = AgentStudioTraceIdentitySnapshot.from(
+            repos: store.repositoryTopologyAtom.repos,
+            panes: panes,
+            worktreeEnrichments: repoCache.worktreeEnrichmentSnapshot()
+        )
+        await traceRuntime.updateIdentitySnapshot(snapshot)
+    }
+
+    private func observeTraceIdentityInputs() {
+        guard !isObservingTraceIdentityInputs else { return }
+        isObservingTraceIdentityInputs = true
+        withObservationTracking {
+            _ = store.paneAtom.panes
+            _ = store.repositoryTopologyAtom.repos
+            _ = repoCache.worktreeEnrichmentRevision
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isObservingTraceIdentityInputs = false
+                self.observeTraceIdentityInputs()
+                await self.refreshTraceIdentitySnapshot()
+            }
         }
     }
 
@@ -377,13 +427,19 @@ extension AppDelegate {
         let validRepoIds = Set(repos.map(\.id))
         let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
         var didPrune = false
-        for repoId in Array(repoCache.repoEnrichmentByRepoId.keys) where !validRepoIds.contains(repoId) {
+        for repoId in Array(repoCache.repoEnrichmentSnapshot().keys) where !validRepoIds.contains(repoId) {
             repoCache.removeRepo(repoId)
             didPrune = true
         }
-        for worktreeId in Array(repoCache.worktreeEnrichmentByWorktreeId.keys)
+        for worktreeId in Array(repoCache.worktreeEnrichmentSnapshot().keys)
         where !validWorktreeIds.contains(worktreeId) {
             repoCache.removeWorktree(worktreeId)
+            didPrune = true
+        }
+        if repoCache.enrichmentCacheAtom.pruneNilSlots(
+            validRepoIds: validRepoIds,
+            validWorktreeIds: validWorktreeIds
+        ) {
             didPrune = true
         }
         return didPrune

@@ -9,6 +9,7 @@ struct SidebarRootViewDependencies {
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 }
@@ -31,6 +32,7 @@ class MainSplitViewController: NSSplitViewController {
                 inboxAtom: dependencies.inboxAtom,
                 prefsAtom: dependencies.prefsAtom,
                 repoCache: dependencies.repoCache,
+                performanceTraceRecorder: dependencies.performanceTraceRecorder,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
                 onDismissInbox: dependencies.onDismissInbox
             )
@@ -61,6 +63,7 @@ class MainSplitViewController: NSSplitViewController {
     private let inboxPrefsAtom: InboxNotificationPrefsAtom
     private let inboxSidebarState: InboxSidebarState
     private let paneInboxPresenter: PaneInboxNotificationPresenter
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let paneTabRegistersAsCommandHandler: Bool
@@ -82,6 +85,7 @@ class MainSplitViewController: NSSplitViewController {
         inboxPrefsAtom: InboxNotificationPrefsAtom,
         inboxSidebarState: InboxSidebarState,
         paneInboxPresenter: PaneInboxNotificationPresenter,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
             .defaultSidebarRootViewBuilder,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
@@ -99,6 +103,7 @@ class MainSplitViewController: NSSplitViewController {
         self.inboxPrefsAtom = inboxPrefsAtom
         self.inboxSidebarState = inboxSidebarState
         self.paneInboxPresenter = paneInboxPresenter
+        self.performanceTraceRecorder = performanceTraceRecorder
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.paneTabRegistersAsCommandHandler = paneTabRegistersAsCommandHandler
@@ -124,6 +129,7 @@ class MainSplitViewController: NSSplitViewController {
             viewRegistry: viewRegistry,
             paneInboxPresentation: makePaneInboxPresentation(),
             closeTransitionCoordinator: closeTransitionCoordinator,
+            performanceTraceRecorder: performanceTraceRecorder,
             registersAsCommandHandler: paneTabRegistersAsCommandHandler
         )
         self.paneTabViewController = paneTabVC
@@ -142,6 +148,7 @@ class MainSplitViewController: NSSplitViewController {
                 inboxAtom: inboxAtom,
                 prefsAtom: inboxPrefsAtom,
                 repoCache: repoCache,
+                performanceTraceRecorder: performanceTraceRecorder,
                 onRefocusActivePane: { [weak paneTabVC] in
                     paneTabVC?.refocusActivePane()
                 },
@@ -314,11 +321,23 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     private func handleToggleSidebar() {
+        let clock = ContinuousClock()
+        let toggleStart = clock.now
+        let wasCollapsed = isSidebarCollapsed
         toggleSidebar(nil)
         // Contract: AppKit flips the split item collapsed flag asynchronously while
         // processing toggleSidebar(_:). Save on the next turn so UIState observes
         // the post-toggle truth instead of the stale pre-toggle value.
         scheduleSaveSidebarState()
+        performanceTraceRecorder?.recordDuration(
+            .sidebarToggle,
+            duration: toggleStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.sidebar.toggle.intent": .string(wasCollapsed ? "expand" : "collapse"),
+                "agentstudio.performance.sidebar.was_collapsed": .bool(wasCollapsed),
+                "agentstudio.performance.sidebar.is_collapsed": .bool(isSidebarCollapsed),
+            ]
+        )
     }
 
     private func handleFilterSidebar() {
@@ -480,12 +499,23 @@ class MainSplitViewController: NSSplitViewController {
         return rect
     }
     override func splitViewDidResizeSubviews(_ notification: Notification) {
+        let clock = ContinuousClock()
+        let resizeStart = clock.now
         super.splitViewDidResizeSubviews(notification)
         RestoreTrace.log(
             "MainSplitViewController.splitViewDidResizeSubviews splitBounds=\(NSStringFromRect(splitView.bounds)) sidebarCollapsed=\(isSidebarCollapsed)"
         )
         saveSidebarState()
         paneTabViewController?.syncVisibleTerminalGeometry(reason: "splitViewDidResizeSubviews")
+        performanceTraceRecorder?.recordDuration(
+            .sidebarResize,
+            duration: resizeStart.duration(to: clock.now),
+            attributes: [
+                "agentstudio.performance.sidebar.is_collapsed": .bool(isSidebarCollapsed),
+                "agentstudio.performance.sidebar.width": .double(Double(currentSidebarWidth() ?? 0)),
+                "agentstudio.performance.sidebar.split_width": .double(Double(splitView.bounds.width)),
+            ]
+        )
     }
 }
 

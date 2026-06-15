@@ -45,8 +45,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_selectTab_setsActiveTab() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -65,7 +65,7 @@ final class ActionExecutorTests {
     @Test
     func test_execute_closeTab_removesTab() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
         #expect(store.tabs.count == 1)
@@ -80,7 +80,7 @@ final class ActionExecutorTests {
     @Test
     func test_execute_closeTab_pushesToUndoStack() {
         // Arrange
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane = store.createPane()
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -99,8 +99,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_closeTab_multipleCloses_stacksUndo() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -131,7 +131,7 @@ final class ActionExecutorTests {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://undo.example")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Undoable"), title: "Undoable")
+            metadata: PaneMetadata(title: "Undoable")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -161,8 +161,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_breakUpTab_splitsIntoIndividualTabs() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let layout = Layout(paneId: p1.id)
             .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
@@ -189,8 +189,8 @@ final class ActionExecutorTests {
 
     @Test
     func test_execute_breakUpTab_namesNewTabsFromPaneContext() {
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "Left"), title: "Left")
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Right"), title: "Right")
+        let p1 = store.createPane(title: "Left")
+        let p2 = store.createPane(title: "Right")
         let layout = Layout(paneId: p1.id)
             .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
@@ -218,8 +218,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_extractPaneToTab_createsNewTab() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let layout = Layout(paneId: p1.id)
             .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
@@ -244,8 +244,8 @@ final class ActionExecutorTests {
 
     @Test
     func test_execute_extractPaneToTab_namesNewTabFromExtractedPane() {
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "First"), title: "First")
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Second"), title: "Second")
+        let p1 = store.createPane(title: "First")
+        let p2 = store.createPane(title: "Second")
         let layout = Layout(paneId: p1.id)
             .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
@@ -272,8 +272,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_resizePane_updatesRatio() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
         store.insertPane(
@@ -298,8 +298,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_equalizePanes_resetsRatios() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
         store.insertPane(
@@ -326,8 +326,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_closePane_removesFromLayout() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let layout = Layout(paneId: p1.id)
             .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
@@ -356,8 +356,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_movePaneAcrossTabs_movesPaneBetweenTabs() {
         // Arrange — p2 in tab2, move to tab1 next to p1
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -386,8 +386,8 @@ final class ActionExecutorTests {
 
     @Test
     func test_execute_insertPane_existingPane_sameTabMovesPane() {
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
         store.insertPane(
@@ -414,9 +414,30 @@ final class ActionExecutorTests {
     }
 
     @Test
+    func test_executeInsertPane_existingPane_rollsBackSourceTabOnInsertFailure() throws {
+        let p1 = store.createPane()
+        let tab = Tab(paneId: p1.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        let tabBeforeMove = try #require(store.tab(tab.id))
+
+        coordinator.executeInsertPane(
+            source: .existingPane(paneId: p1.id, sourceTabId: tab.id),
+            targetTabId: tab.id,
+            targetPaneId: p1.id,
+            direction: .left,
+            sizingMode: .halveTarget
+        )
+
+        #expect(store.tab(tab.id) == tabBeforeMove)
+        #expect(store.activeTabId == tab.id)
+        #expect(store.tabContaining(paneId: p1.id)?.id == tab.id)
+    }
+
+    @Test
     func test_execute_insertPane_existingPane_crossTabRequest_isRejected() {
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -442,8 +463,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_mergeTab_combinesTabs() {
         // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p1 = store.createPane()
+        let p2 = store.createPane()
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -491,12 +512,13 @@ final class ActionExecutorTests {
         let repoId = UUID()
         let worktree = makeWorktree(id: worktreeId)
         let repo = makeRepo(id: repoId)
+        let launchDirectory = URL(fileURLWithPath: "/tmp/worktree")
 
         // Create first pane manually
         let existingPane = store.createPane(
-            source: .worktree(
-                worktreeId: worktreeId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")),
-            title: "Existing"
+            launchDirectory: launchDirectory,
+            title: "Existing",
+            facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: launchDirectory)
         )
         let tab = Tab(paneId: existingPane.id)
         store.appendTab(tab)
@@ -516,10 +538,8 @@ final class ActionExecutorTests {
     func test_undoStack_expiresOldEntries() {
         // Arrange — close 12 tabs (exceeds maxUndoStackSize of 10)
         var closedPaneIds: [UUID] = []
-        for i in 0..<12 {
-            let pane = store.createPane(
-                source: .floating(launchDirectory: nil, title: "Tab \(i)")
-            )
+        for _ in 0..<12 {
+            let pane = store.createPane()
             closedPaneIds.append(pane.id)
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
@@ -611,9 +631,9 @@ final class ActionExecutorTests {
     @Test
     func test_execute_switchArrangement_updatesStoreState() {
         // Arrange: tab with panes A, B, C. Default arrangement has all 3.
-        let pA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let pB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let pC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pA = store.createPane()
+        let pB = store.createPane()
+        let pC = store.createPane()
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
@@ -641,9 +661,9 @@ final class ActionExecutorTests {
     @Test
     func test_execute_switchArrangement_backToDefault_restoresAllPanes() {
         // Arrange: tab with panes A, B, C
-        let pA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let pB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let pC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pA = store.createPane()
+        let pB = store.createPane()
+        let pC = store.createPane()
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
@@ -674,7 +694,7 @@ final class ActionExecutorTests {
     @Test
     func test_execute_switchArrangement_sameArrangement_noOp() {
         // Arrange
-        let pA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pA = store.createPane()
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
 
@@ -702,9 +722,9 @@ final class ActionExecutorTests {
     @Test
     func test_execute_switchArrangement_viewRegistryRetainsAllViews() {
         // Arrange: tab with 3 panes, each registered in ViewRegistry
-        let pA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let pB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let pC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pA = store.createPane()
+        let pB = store.createPane()
+        let pC = store.createPane()
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
@@ -745,9 +765,9 @@ final class ActionExecutorTests {
     @Test
     func test_execute_switchArrangement_backToDefault_viewsStillRegistered() {
         // Arrange: tab with 3 panes, each registered in ViewRegistry
-        let pA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let pB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let pC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pA = store.createPane()
+        let pB = store.createPane()
+        let pC = store.createPane()
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
@@ -793,7 +813,7 @@ final class ActionExecutorTests {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/recreate")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Recreate"), title: "Recreate")
+            metadata: PaneMetadata(title: "Recreate")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -814,7 +834,7 @@ final class ActionExecutorTests {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/missing")!)),
-            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Missing"), title: "Missing")
+            metadata: PaneMetadata(title: "Missing")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)

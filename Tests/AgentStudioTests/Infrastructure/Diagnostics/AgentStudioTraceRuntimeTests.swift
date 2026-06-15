@@ -1,6 +1,4 @@
 import Foundation
-@_spi(Testing) import InMemoryTracing
-import Instrumentation
 import Testing
 import Tracing
 
@@ -12,7 +10,11 @@ struct AgentStudioTraceRuntimeTests {
     func disabledRuntimeDoesNotEvaluateAttributes() async throws {
         let evaluationFlag = AttributeEvaluationFlag()
         let runtime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [:]),
+            configuration: AgentStudioTraceConfiguration.from(
+                environment: [:],
+                releaseChannel: .stable,
+                isDebugBuild: false
+            ),
             processIdentifier: 123,
             timeUnixNano: { 1 }
         )
@@ -35,6 +37,7 @@ struct AgentStudioTraceRuntimeTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let runtime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_NAME": "runtime-run",
                 "AGENTSTUDIO_TRACE_TAGS": "runtime",
@@ -80,6 +83,7 @@ struct AgentStudioTraceRuntimeTests {
         let evaluationFlag = AttributeEvaluationFlag()
         let runtime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_TAGS": "runtime",
             ]),
@@ -106,6 +110,7 @@ struct AgentStudioTraceRuntimeTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let runtime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_TAGS": "runtime",
             ]),
@@ -130,6 +135,7 @@ struct AgentStudioTraceRuntimeTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let runtime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_TAGS": "runtime",
@@ -150,6 +156,7 @@ struct AgentStudioTraceRuntimeTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let runtime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_TAGS": "eventbus",
             ]),
@@ -187,6 +194,7 @@ struct AgentStudioTraceRuntimeTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let runtime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_TAGS": "runtime",
             ]),
@@ -217,10 +225,224 @@ struct AgentStudioTraceRuntimeTests {
         #expect(!detachedLine.contains("\"agentstudio.correlation_id\""))
     }
 
+    @Test
+    func jsonlBackendRecordsOnlyJsonlSink() async throws {
+        let recordingSinks = RecordingTraceSinks()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 741,
+            sinkFactory: recordingSinks.factory(),
+            timeUnixNano: { 10 }
+        )
+
+        await runtime.record(tag: .runtime, body: "runtime.jsonl-only")
+
+        #expect(runtime.outputFileURL?.lastPathComponent == "agentstudio-trace-741.jsonl")
+        #expect(await recordingSinks.jsonl.bodies() == ["runtime.jsonl-only"])
+        #expect(await recordingSinks.otlp.bodies().isEmpty)
+    }
+
+    @Test
+    func otlpBackendRecordsOnlyOTLPSinkAndHasNoOutputFile() async throws {
+        let recordingSinks = RecordingTraceSinks()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "otlp",
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 742,
+            sinkFactory: recordingSinks.factory(),
+            timeUnixNano: { 11 }
+        )
+
+        await runtime.record(tag: .runtime, body: "runtime.otlp-only")
+
+        #expect(runtime.outputFileURL == nil)
+        #expect(await recordingSinks.jsonl.bodies().isEmpty)
+        #expect(await recordingSinks.otlp.bodies() == ["runtime.otlp-only"])
+    }
+
+    @Test
+    func bothBackendFansOutOneRecordToBothSinks() async throws {
+        let recordingSinks = RecordingTraceSinks()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "both",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 743,
+            sinkFactory: recordingSinks.factory(),
+            timeUnixNano: { 12 }
+        )
+
+        await runtime.record(tag: .runtime, body: "runtime.both")
+
+        #expect(runtime.outputFileURL?.lastPathComponent == "agentstudio-trace-743.jsonl")
+        #expect(await recordingSinks.jsonl.bodies() == ["runtime.both"])
+        #expect(await recordingSinks.otlp.bodies() == ["runtime.both"])
+    }
+
+    @Test
+    func runtimeRecordIncludesSafeIdentityResourceWhenWorktreeAttributeIsKnown() async throws {
+        let worktreeId = UUID()
+        let identityStore = AgentStudioTraceIdentityStore()
+        await identityStore.update(
+            AgentStudioTraceIdentitySnapshot(
+                worktreeIdentitiesByWorktreeId: [
+                    worktreeId: AgentStudioTraceWorktreeIdentity(
+                        repoHash: "repo-hash",
+                        worktreeHash: "worktree-hash",
+                        branch: "otel-integration"
+                    )
+                ]
+            )
+        )
+        let recordingSinks = RecordingTraceSinks()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(
+                environment: [
+                    "AGENTSTUDIO_TRACE_BACKEND": "otlp",
+                    "AGENTSTUDIO_TRACE_TAGS": "runtime",
+                ],
+                releaseChannel: .beta,
+                isDebugBuild: true
+            ),
+            processIdentifier: 747,
+            sinkFactory: recordingSinks.factory(),
+            identityStore: identityStore,
+            timeUnixNano: { 16 }
+        )
+
+        await runtime.record(
+            tag: .runtime,
+            body: "runtime.identity",
+            attributes: [
+                "agentstudio.worktree.id": .string(worktreeId.uuidString)
+            ]
+        )
+
+        let resources = await recordingSinks.otlp.resources()
+        let resource = try #require(resources.first)
+        #expect(resource["agentstudio.runtime_flavor"] == "debug")
+        #expect(resource["agentstudio.release_channel"] == "beta")
+        #expect(resource["dev.runtime.flavor"] == "debug")
+        #expect(resource["dev.release.channel"] == "beta")
+        #expect(resource["dev.repo.name"] == nil)
+        #expect(resource["dev.repo.hash"] == "repo-hash")
+        #expect(resource["dev.worktree.hash"] == "worktree-hash")
+        #expect(resource["dev.branch.name"] == "otel-integration")
+        #expect(resource["agentstudio.worktree.id"] == nil)
+    }
+
+    @Test
+    func otlpSinkFailureDoesNotPreventJsonlSinkRecord() async throws {
+        let recordingSinks = RecordingTraceSinks()
+        await recordingSinks.otlp.setRecordError(RecordingTraceSinkError.recordFailed)
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "both",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 744,
+            sinkFactory: recordingSinks.factory(),
+            timeUnixNano: { 13 }
+        )
+
+        await runtime.record(tag: .runtime, body: "runtime.otlp-fails")
+
+        #expect(await recordingSinks.jsonl.bodies() == ["runtime.otlp-fails"])
+        #expect(await recordingSinks.otlp.bodies().isEmpty)
+    }
+
+    @Test
+    func recordDispatchStartsLaterSinkBeforeEarlierSinkCompletes() async throws {
+        let recordingSinks = RecordingTraceSinks()
+        await recordingSinks.jsonl.suspendRecords()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "both",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 987,
+            sinkFactory: recordingSinks.factory(),
+            timeUnixNano: { 16 }
+        )
+
+        let recordTask = Task {
+            await runtime.record(tag: .runtime, body: "runtime.concurrent-dispatch")
+        }
+        await recordingSinks.jsonl.waitForRecordAttempt()
+
+        let didRecordOTLP = await waitForBodyByYielding("runtime.concurrent-dispatch", in: recordingSinks.otlp)
+        await recordingSinks.jsonl.resumeRecords()
+        await recordTask.value
+
+        #expect(didRecordOTLP)
+        #expect(await recordingSinks.jsonl.bodies() == ["runtime.concurrent-dispatch"])
+        #expect(await recordingSinks.otlp.bodies() == ["runtime.concurrent-dispatch"])
+    }
+
+    @Test
+    func flushFansOutToAllLiveSinks() async throws {
+        let recordingSinks = RecordingTraceSinks()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "both",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 745,
+            sinkFactory: recordingSinks.factory(),
+            timeUnixNano: { 14 }
+        )
+
+        try await runtime.flush()
+
+        #expect(await recordingSinks.jsonl.flushCount() == 1)
+        #expect(await recordingSinks.otlp.flushCount() == 1)
+    }
+
+    @Test
+    func shutdownFansOutToAllLiveSinks() async throws {
+        let recordingSinks = RecordingTraceSinks()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "both",
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 746,
+            sinkFactory: recordingSinks.factory(),
+            timeUnixNano: { 15 }
+        )
+
+        try await runtime.shutdown()
+
+        #expect(await recordingSinks.jsonl.shutdownCount() == 1)
+        #expect(await recordingSinks.otlp.shutdownCount() == 1)
+    }
+
     private func temporaryTraceDirectoryURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-trace-runtime-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    private func waitForBodyByYielding(_ body: String, in sink: RecordingTraceSink) async -> Bool {
+        for _ in 0..<100 {
+            if await sink.bodies().contains(body) {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
     }
 
     private final class AttributeEvaluationFlag: @unchecked Sendable {
@@ -231,34 +453,107 @@ struct AgentStudioTraceRuntimeTests {
             return true
         }
     }
-}
 
-@Suite(.serialized)
-struct AgentStudioTraceRuntimeInstrumentationTests {
-    @Test
-    func jsonlOnlyBackendDoesNotCreateTracingSpans() async throws {
-        let tracer = InMemoryTracer()
-        InstrumentationSystem.bootstrap(tracer)
+    private struct RecordingTraceSinks: Sendable {
+        let jsonl = RecordingTraceSink()
+        let otlp = RecordingTraceSink()
 
-        let runtime = AgentStudioTraceRuntime(
-            configuration: AgentStudioTraceConfiguration.from(environment: [
-                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
-                "AGENTSTUDIO_TRACE_TAGS": "runtime",
-            ]),
-            processIdentifier: 852,
-            timeUnixNano: { 404 }
-        )
-
-        await runtime.record(tag: .runtime, body: "runtime.local-jsonl")
-        await runtime.record(tag: .runtime, body: "runtime.local-jsonl-again")
-        try await runtime.flush()
-
-        #expect(tracer.finishedSpans.isEmpty)
+        func factory() -> AgentStudioTraceSinkFactory {
+            AgentStudioTraceSinkFactory(
+                makeJSONLSink: { _ in jsonl },
+                makeOTLPSink: { _ in otlp }
+            )
+        }
     }
 
-    private func temporaryTraceDirectoryURL() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("agentstudio-trace-runtime-instrumentation-tests", isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    private actor RecordingTraceSink: AgentStudioTraceSink {
+        private var records: [AgentStudioTraceRecord] = []
+        private var recordedFlushCount = 0
+        private var recordedShutdownCount = 0
+        private var recordError: Error?
+        private var flushError: Error?
+        private var shouldSuspendRecords = false
+        private var suspendedRecordContinuations: [CheckedContinuation<Void, Never>] = []
+        private var recordAttemptCount = 0
+        private var recordAttemptContinuations: [CheckedContinuation<Void, Never>] = []
+
+        func record(_ record: AgentStudioTraceRecord) async throws {
+            recordAttemptCount += 1
+            let waitingContinuations = recordAttemptContinuations
+            recordAttemptContinuations.removeAll()
+            for continuation in waitingContinuations {
+                continuation.resume()
+            }
+
+            if shouldSuspendRecords {
+                await withCheckedContinuation { continuation in
+                    suspendedRecordContinuations.append(continuation)
+                }
+            }
+
+            if let recordError {
+                throw recordError
+            }
+            records.append(record)
+        }
+
+        func flush() throws {
+            recordedFlushCount += 1
+            if let flushError {
+                throw flushError
+            }
+        }
+
+        func shutdown() throws {
+            recordedShutdownCount += 1
+        }
+
+        func diagnostics() -> AgentStudioTraceWriterDiagnostics {
+            .empty
+        }
+
+        func setRecordError(_ error: Error?) {
+            recordError = error
+        }
+
+        func suspendRecords() {
+            shouldSuspendRecords = true
+        }
+
+        func resumeRecords() {
+            shouldSuspendRecords = false
+            let continuations = suspendedRecordContinuations
+            suspendedRecordContinuations.removeAll()
+            for continuation in continuations {
+                continuation.resume()
+            }
+        }
+
+        func waitForRecordAttempt() async {
+            guard recordAttemptCount == 0 else { return }
+            await withCheckedContinuation { continuation in
+                recordAttemptContinuations.append(continuation)
+            }
+        }
+
+        func bodies() -> [String] {
+            records.map(\.body)
+        }
+
+        func resources() -> [[String: String]] {
+            records.map(\.resource)
+        }
+
+        func flushCount() -> Int {
+            recordedFlushCount
+        }
+
+        func shutdownCount() -> Int {
+            recordedShutdownCount
+        }
+    }
+
+    private enum RecordingTraceSinkError: Error {
+        case recordFailed
     }
 }

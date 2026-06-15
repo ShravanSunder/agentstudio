@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -30,7 +31,7 @@ struct PaneDisplayDerivedTests {
             )
 
             let pane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+                launchDirectory: worktree.path,
                 title: "Ignored Terminal Title",
                 facets: PaneContextFacets(
                     repoId: repo.id,
@@ -56,7 +57,7 @@ struct PaneDisplayDerivedTests {
                 interactionAtom: atoms.workspaceTabLayout
             )
             let pane = store.createPane(
-                source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/project-dev"), title: "ignored"),
+                launchDirectory: URL(fileURLWithPath: "/tmp/project-dev"),
                 title: "ignored",
                 facets: PaneContextFacets(cwd: URL(fileURLWithPath: "/tmp/project-dev"))
             )
@@ -72,7 +73,7 @@ struct PaneDisplayDerivedTests {
         withTestAtomRegistry { atoms in
             let paneId = PaneId().uuid
             var metadata = PaneMetadata(
-                source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/project-dev/agent-studio"), title: nil),
+                launchDirectory: URL(fileURLWithPath: "/tmp/project-dev/agent-studio"),
                 title: "Terminal"
             )
             metadata.updateNote("release smoke")
@@ -92,7 +93,7 @@ struct PaneDisplayDerivedTests {
 
     @Test("pane note participates in pane keywords")
     func paneNoteParticipatesInPaneKeywords() {
-        var metadata = PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Terminal")
+        var metadata = PaneMetadata(title: "Terminal")
         metadata.updateNote("gondolin auth logs")
         let pane = Pane(
             id: PaneId().uuid,
@@ -121,8 +122,9 @@ struct PaneDisplayDerivedTests {
             )
             store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
             let pane = store.createPane(
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-                title: "Color"
+                launchDirectory: worktree.path,
+                title: "Color",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
             )
 
             let first = atom(\.paneDisplay).accentColorHex(for: pane.id)
@@ -135,6 +137,46 @@ struct PaneDisplayDerivedTests {
     }
 
     @Test
+    func accentColorHexTracksKeyedRepoEnrichmentChanges() {
+        withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-color-tracking"))
+            let worktree = makeWorktree(
+                repoId: repo.id,
+                name: "main",
+                path: "/tmp/agent-studio-color-tracking/main"
+            )
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            let pane = store.createPane(
+                launchDirectory: worktree.path,
+                title: "Color",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
+            )
+            let invalidationCounter = PaneDisplayInvalidationCounter()
+
+            withObservationTracking {
+                _ = atom(\.paneDisplay).accentColorHex(for: pane.id)
+            } onChange: {
+                invalidationCounter.record()
+            }
+
+            atoms.repoCache.setRepoEnrichment(
+                .resolvedLocal(
+                    repoId: repo.id,
+                    identity: RemoteIdentityNormalizer.localIdentity(repoName: "agent-studio-color-tracking"),
+                    updatedAt: Date()
+                )
+            )
+
+            #expect(invalidationCounter.count == 1)
+        }
+    }
+
+    @Test
     func accentColorHex_returnsNil_forPaneWithoutRepo() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
@@ -142,7 +184,7 @@ struct PaneDisplayDerivedTests {
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
-            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let pane = store.createPane()
 
             #expect(atom(\.paneDisplay).accentColorHex(for: pane.id) == nil)
         }
@@ -195,12 +237,14 @@ struct PaneDisplayDerivedTests {
             )
 
             let paneA = store.createPane(
-                source: .worktree(worktreeId: worktreeA.id, repoId: repoA.id, launchDirectory: worktreeA.path),
-                title: "Main"
+                launchDirectory: worktreeA.path,
+                title: "Main",
+                facets: PaneContextFacets(repoId: repoA.id, worktreeId: worktreeA.id, cwd: worktreeA.path),
             )
             let paneB = store.createPane(
-                source: .worktree(worktreeId: worktreeB.id, repoId: repoB.id, launchDirectory: worktreeB.path),
-                title: "Fork"
+                launchDirectory: worktreeB.path,
+                title: "Fork",
+                facets: PaneContextFacets(repoId: repoB.id, worktreeId: worktreeB.id, cwd: worktreeB.path),
             )
 
             let sidebarRepos = [RepoPresentationItem(repo: repoA), RepoPresentationItem(repo: repoB)]
@@ -221,5 +265,13 @@ struct PaneDisplayDerivedTests {
             #expect(actualB == expectedB)
             #expect(actualA != actualB)
         }
+    }
+}
+
+private final class PaneDisplayInvalidationCounter: @unchecked Sendable {
+    private(set) var count = 0
+
+    func record() {
+        count += 1
     }
 }

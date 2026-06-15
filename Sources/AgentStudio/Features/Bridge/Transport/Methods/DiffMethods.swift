@@ -1,18 +1,10 @@
 import Foundation
 
 enum DiffMethods {
-    enum RequestFileContentsMethod: RPCMethod {
-        struct Params: Decodable, Sendable {
-            let fileId: String
-        }
-
-        typealias Result = RPCNoResponse
-        static let method = "diff.requestFileContents"
-    }
-
     enum LoadDiffMethod: RPCMethod {
         struct Params: Decodable, Sendable {
-            let source: String?
+            let worktreeId: UUID
+            let diffId: UUID?
             let head: String?
             let base: String?
         }
