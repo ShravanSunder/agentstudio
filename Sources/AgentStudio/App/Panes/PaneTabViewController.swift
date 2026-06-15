@@ -2478,11 +2478,27 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
+    private func handleWebSurfaceCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .openWebview:
+            executor.openWebview()
+            return true
+        case .openBridgeReview:
+            executor.openBridgeReview()
+            return true
+        default:
+            return false
+        }
+    }
+
     private func handleDirectCommand(_ command: AppCommand) {
         if handlePaneLocationCommand(command) {
             return
         }
         if handlePaneInboxCommand(command) {
+            return
+        }
+        if handleWebSurfaceCommand(command) {
             return
         }
 
@@ -2555,8 +2571,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
                 .flatMap { store.paneAtom.pane($0)?.metadata.facets.cwd }
             dispatchAction(.openFloatingTerminal(launchDirectory: activePaneCwd, title: nil))
-        case .openWebview:
-            executor.openWebview()
         case .detachDrawerPane:
             guard case .drawerPane(let parentPaneId, let drawerPaneId) = normalizedWorkspaceNavigationScopeState()
             else {

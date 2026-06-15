@@ -23,4 +23,8 @@ enum SystemMethods {
         typealias Result = RPCNoResponse
         static let method = "system.resyncAgentEvents"
     }
+
+    enum BridgeTelemetryMethod {
+        static let method = "system.bridgeTelemetry"
+    }
 }

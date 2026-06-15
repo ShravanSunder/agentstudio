@@ -108,11 +108,44 @@ final class BridgeBootstrapTests {
     @Test
     func test_push_relay_preserves_store_at_detail_level() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(script.contains("op: 'merge'"))
+        #expect(script.contains("op: 'replace'"))
         #expect(
-            script.contains("detail: { op: 'merge', store: store"),
-            "Merge relay must expose store at event detail level so page-world receivers can route pushes")
-        #expect(
-            script.contains("detail: { op: 'replace', store: store"),
-            "Replace relay must expose store at event detail level so page-world receivers can route pushes")
+            script.contains("store: store"),
+            "Push relay must expose store at event detail level so page-world receivers can route pushes")
+    }
+
+    @Test
+    func test_handshake_carries_optional_telemetry_config() {
+        let config = BridgeTelemetryBootstrapConfig.enabled(
+            scopes: [.web, .webKit],
+            scenario: "package_apply_content_fetch_v1"
+        )
+        let script = BridgeBootstrap.generateScript(
+            bridgeNonce: "test-nonce",
+            pushNonce: "push-nonce",
+            telemetryConfig: config
+        )
+        #expect(script.contains("const TELEMETRY_CONFIG ="))
+        #expect(script.contains("system.bridgeTelemetry"))
+        #expect(script.contains("telemetryConfig: TELEMETRY_CONFIG"))
+    }
+
+    @Test
+    func test_applyEnvelope_preserves_trace_context_at_detail_level() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(script.contains("envelope.__traceContext"))
+        #expect(script.contains("__traceContext: traceContext || null"))
+        #expect(script.contains("this.merge(store, payload, revision, epoch, slice, traceContext)"))
+        #expect(script.contains("this.replace(store, payload, revision, epoch, slice, traceContext)"))
+    }
+
+    @Test
+    func test_applyEnvelope_preserves_slice_at_detail_level() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(script.contains("const slice = envelope.slice"))
+        #expect(script.contains("slice: slice"))
+        #expect(script.contains("merge: function(store, data, revision, epoch, slice, traceContext)"))
+        #expect(script.contains("replace: function(store, data, revision, epoch, slice, traceContext)"))
     }
 }

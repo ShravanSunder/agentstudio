@@ -118,9 +118,13 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
 
     init?(record: AgentStudioOTLPProjectedLogRecord) {
         guard record.body.hasPrefix("performance.") else { return nil }
+        if record.body.hasPrefix("performance.bridge.") {
+            guard Self.hasCompleteBridgeMetricTaxonomy(record) else { return nil }
+        }
 
+        let dimensions = Self.dimensions(for: record)
         self.eventName = record.body
-        self.dimensions = Self.dimensions(for: record)
+        self.dimensions = dimensions
         self.elapsedMilliseconds = Self.doubleValue(
             record.attributes["agentstudio.performance.elapsed_ms"]
         )
@@ -131,7 +135,7 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             return AgentStudioOTLPPerformanceMetricSample(
                 eventName: record.body,
                 label: metricLabel,
-                dimensions: Self.dimensions(for: record),
+                dimensions: dimensions,
                 value: numericValue
             )
         }
@@ -155,6 +159,32 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         {
             dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: reason))
         }
+        if record.body.hasPrefix("performance.bridge.") {
+            appendBridgeDimension(
+                name: "phase",
+                attributeKey: "agentstudio.bridge.phase",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
+                name: "plane",
+                attributeKey: "agentstudio.bridge.plane",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
+                name: "priority",
+                attributeKey: "agentstudio.bridge.priority",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
+                name: "slice",
+                attributeKey: "agentstudio.bridge.slice",
+                record: record,
+                dimensions: &dimensions
+            )
+        }
         return dimensions
     }
 
@@ -173,9 +203,17 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     }
 
     private static func metricLabel(for attributeKey: String) -> String? {
-        guard attributeKey.hasPrefix("agentstudio.performance.") else { return nil }
+        if attributeKey.hasPrefix("agentstudio.performance.") {
+            let suffix = String(attributeKey.dropFirst("agentstudio.performance.".count))
+            return metricLabel(prefix: "agentstudio_performance", suffix: suffix)
+        }
 
-        let suffix = String(attributeKey.dropFirst("agentstudio.performance.".count))
+        guard allowedBridgeMetricAttributeKeys.contains(attributeKey) else { return nil }
+        let suffix = String(attributeKey.dropFirst("agentstudio.bridge.".count))
+        return metricLabel(prefix: "agentstudio_bridge", suffix: suffix)
+    }
+
+    private static func metricLabel(prefix: String, suffix: String) -> String? {
         guard !suffix.isEmpty else { return nil }
 
         let sanitized = suffix.unicodeScalars.map { scalar -> Character in
@@ -193,7 +231,36 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
 
         guard !sanitized.isEmpty else { return nil }
-        return "agentstudio_performance_\(sanitized)"
+        return "\(prefix)_\(sanitized)"
+    }
+
+    private static let allowedBridgeMetricAttributeKeys: Set<String> = [
+        "agentstudio.bridge.batch.sample_count",
+        "agentstudio.bridge.content.byte_size_bucket",
+        "agentstudio.bridge.content.line_count_bucket",
+        "agentstudio.bridge.telemetry.dropped_count",
+    ]
+
+    private static func hasCompleteBridgeMetricTaxonomy(_ record: AgentStudioOTLPProjectedLogRecord) -> Bool {
+        stringAttribute(record, "agentstudio.bridge.phase") != nil
+            && BridgeTelemetryPlane(rawValue: stringAttribute(record, "agentstudio.bridge.plane") ?? "") != nil
+            && BridgeTelemetryPriority(rawValue: stringAttribute(record, "agentstudio.bridge.priority") ?? "") != nil
+            && BridgeTelemetrySlice(rawValue: stringAttribute(record, "agentstudio.bridge.slice") ?? "") != nil
+    }
+
+    private static func stringAttribute(_ record: AgentStudioOTLPProjectedLogRecord, _ key: String) -> String? {
+        guard case .string(let value) = record.attributes[key] else { return nil }
+        return value
+    }
+
+    private static func appendBridgeDimension(
+        name: String,
+        attributeKey: String,
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard case .string(let value) = record.attributes[attributeKey] else { return }
+        dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: name, value: value))
     }
 
     private static func isSafeDimensionValue(_ value: String) -> Bool {

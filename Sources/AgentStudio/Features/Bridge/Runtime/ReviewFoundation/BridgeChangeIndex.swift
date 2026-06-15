@@ -115,7 +115,7 @@ actor BridgeChangeIndex {
 }
 
 extension BridgeReviewPackage {
-    fileprivate func withRevision(_ revision: Int) -> BridgeReviewPackage {
+    func withRevision(_ revision: Int) -> BridgeReviewPackage {
         BridgeReviewPackage(
             packageId: packageId,
             schemaVersion: schemaVersion,

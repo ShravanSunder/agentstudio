@@ -71,21 +71,63 @@ actor BridgeContentStore {
     }
 
     func load(handleId: String, requestedGeneration: BridgeReviewGeneration) async throws -> BridgeContentLoadResult {
-        try validateActiveGeneration(requestedGeneration)
-        guard let key = keyByHandleId[handleId], let handle = handleByKey[key] else {
-            throw BridgeProviderFailure.missingContent(handleId: handleId)
-        }
-        try validateHandleCanLoad(handle)
-        guard key.reviewGeneration == requestedGeneration else {
-            throw BridgeProviderFailure.staleReviewGeneration(
-                storedGeneration: key.reviewGeneration,
+        do {
+            return try await loadObserved(
+                handleId: handleId,
                 requestedGeneration: requestedGeneration
+            ).result
+        } catch let failure as BridgeContentLoadObservedFailure {
+            throw failure.underlyingError
+        }
+    }
+
+    func loadObserved(
+        handleId: String,
+        requestedGeneration: BridgeReviewGeneration
+    ) async throws -> BridgeContentLoadObservedResult {
+        do {
+            try validateActiveGeneration(requestedGeneration)
+        } catch {
+            throw observedFailure(
+                error,
+                handle: nil,
+                requestedGeneration: requestedGeneration,
+                cacheResult: .rejected
+            )
+        }
+        guard let key = keyByHandleId[handleId], let handle = handleByKey[key] else {
+            throw observedFailure(
+                BridgeProviderFailure.missingContent(handleId: handleId),
+                handle: nil,
+                requestedGeneration: requestedGeneration,
+                cacheResult: .rejected
+            )
+        }
+        do {
+            try validateHandleCanLoad(handle)
+        } catch {
+            throw observedFailure(
+                error,
+                handle: handle,
+                requestedGeneration: requestedGeneration,
+                cacheResult: .rejected
+            )
+        }
+        guard key.reviewGeneration == requestedGeneration else {
+            throw observedFailure(
+                BridgeProviderFailure.staleReviewGeneration(
+                    storedGeneration: key.reviewGeneration,
+                    requestedGeneration: requestedGeneration
+                ),
+                handle: handle,
+                requestedGeneration: requestedGeneration,
+                cacheResult: .rejected
             )
         }
 
         if let result = contentByKey[key] {
             touchCachedContent(for: key)
-            return result
+            return observedResult(result, cacheResult: .cacheHit)
         }
 
         if let task = inFlightLoadByKey[key] {
@@ -93,14 +135,24 @@ actor BridgeContentStore {
                 let result = try await task.value
                 try validateActiveGeneration(requestedGeneration)
                 try validateResult(result, for: handle)
-                return result
+                return observedResult(result, cacheResult: .inFlightCoalesced)
             } catch {
-                try throwStaleGenerationIfInvalidated(error, requestedGeneration: requestedGeneration)
+                try throwObservedStaleGenerationIfInvalidated(
+                    error,
+                    handle: handle,
+                    requestedGeneration: requestedGeneration,
+                    cacheResult: .inFlightCoalesced
+                )
             }
         }
 
         guard let provider else {
-            throw BridgeProviderFailure.providerUnavailable
+            throw observedFailure(
+                BridgeProviderFailure.providerUnavailable,
+                handle: handle,
+                requestedGeneration: requestedGeneration,
+                cacheResult: .rejected
+            )
         }
         let task = Task {
             try await provider.loadContent(
@@ -118,10 +170,15 @@ actor BridgeContentStore {
             try validateActiveGeneration(requestedGeneration)
             try validateResult(result, for: handle)
             cache(result, for: key)
-            return result
+            return observedResult(result, cacheResult: .providerLoad)
         } catch {
             inFlightLoadByKey[key] = nil
-            try throwStaleGenerationIfInvalidated(error, requestedGeneration: requestedGeneration)
+            try throwObservedStaleGenerationIfInvalidated(
+                error,
+                handle: handle,
+                requestedGeneration: requestedGeneration,
+                cacheResult: .providerLoad
+            )
         }
     }
 
@@ -196,16 +253,148 @@ actor BridgeContentStore {
         }
     }
 
-    private func throwStaleGenerationIfInvalidated(
+    private func throwObservedStaleGenerationIfInvalidated(
         _ error: any Error,
-        requestedGeneration: BridgeReviewGeneration
+        handle: BridgeContentHandle?,
+        requestedGeneration: BridgeReviewGeneration,
+        cacheResult: BridgeContentLoadObservation.CacheResult
     ) throws -> Never {
         do {
             try validateActiveGeneration(requestedGeneration)
         } catch {
-            throw error
+            throw observedFailure(
+                error,
+                handle: handle,
+                requestedGeneration: requestedGeneration,
+                cacheResult: .rejected
+            )
         }
-        throw error
+        throw observedFailure(
+            error,
+            handle: handle,
+            requestedGeneration: requestedGeneration,
+            cacheResult: cacheResult
+        )
+    }
+
+    private func observedResult(
+        _ result: BridgeContentLoadResult,
+        cacheResult: BridgeContentLoadObservation.CacheResult
+    ) -> BridgeContentLoadObservedResult {
+        BridgeContentLoadObservedResult(
+            result: result,
+            observation: observation(
+                cacheResult: cacheResult,
+                handle: result.handle,
+                requestedGeneration: result.handle.reviewGeneration,
+                data: result.data,
+                error: nil
+            )
+        )
+    }
+
+    private func observedFailure(
+        _ error: any Error,
+        handle: BridgeContentHandle?,
+        requestedGeneration: BridgeReviewGeneration,
+        cacheResult: BridgeContentLoadObservation.CacheResult
+    ) -> BridgeContentLoadObservedFailure {
+        BridgeContentLoadObservedFailure(
+            underlyingError: error,
+            observation: observation(
+                cacheResult: cacheResult,
+                handle: handle,
+                requestedGeneration: requestedGeneration,
+                data: nil,
+                error: error
+            )
+        )
+    }
+
+    private func observation(
+        cacheResult: BridgeContentLoadObservation.CacheResult,
+        handle: BridgeContentHandle?,
+        requestedGeneration: BridgeReviewGeneration,
+        data: Data?,
+        error: (any Error)?
+    ) -> BridgeContentLoadObservation {
+        let byteSize = byteSize(for: data, handle: handle, error: error)
+        return BridgeContentLoadObservation(
+            cacheResult: cacheResult,
+            role: handle?.role,
+            generationRelation: generationRelation(
+                handle: handle,
+                requestedGeneration: requestedGeneration,
+                error: error
+            ),
+            byteSizeBucket: byteSizeBucket(for: byteSize),
+            lineCountBucket: lineCountBucket(for: data),
+            isBinary: isBinary(handle: handle, error: error),
+            isStale: isStale(error)
+        )
+    }
+
+    private func generationRelation(
+        handle: BridgeContentHandle?,
+        requestedGeneration: BridgeReviewGeneration,
+        error: (any Error)?
+    ) -> BridgeContentLoadObservation.GenerationRelation {
+        if isStale(error) {
+            return .stale
+        }
+        guard let handle else {
+            return .unknown
+        }
+        return handle.reviewGeneration == requestedGeneration ? .current : .stale
+    }
+
+    private func byteSize(for data: Data?, handle: BridgeContentHandle?, error: (any Error)?) -> Int {
+        if let data {
+            return data.count
+        }
+        if case .oversizedContent(_, let sizeBytes)? = error as? BridgeProviderFailure {
+            return sizeBytes
+        }
+        return handle?.sizeBytes ?? 0
+    }
+
+    private func isBinary(handle: BridgeContentHandle?, error: (any Error)?) -> Bool {
+        if case .binaryContent? = error as? BridgeProviderFailure {
+            return true
+        }
+        return handle?.isBinary ?? false
+    }
+
+    private func isStale(_ error: (any Error)?) -> Bool {
+        if case .staleReviewGeneration? = error as? BridgeProviderFailure {
+            return true
+        }
+        return false
+    }
+
+    private func byteSizeBucket(for byteSize: Int) -> Int {
+        guard byteSize > 0 else {
+            return 0
+        }
+        var bucket = 1024
+        while bucket < byteSize, bucket < 64 * 1024 * 1024 {
+            bucket *= 2
+        }
+        return bucket
+    }
+
+    private func lineCountBucket(for data: Data?) -> Int {
+        guard let data, !data.isEmpty else {
+            return 0
+        }
+        let lineCount = data.reduce(1) { partialResult, byte in
+            byte == 10 ? partialResult + 1 : partialResult
+        }
+        var bucket = 1
+        while bucket < lineCount, bucket < 1_000_000 {
+            bucket *= 2
+        }
+        return bucket
     }
 
     private func cache(_ result: BridgeContentLoadResult, for key: ContentKey) {

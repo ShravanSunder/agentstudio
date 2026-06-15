@@ -111,7 +111,10 @@ The current repo already has enough infrastructure to ground this milestone:
   - Classifies `agentstudio://app/*` and `agentstudio://resource/content/{handleId}?generation=...`.
   - Serves packaged BridgeWeb app assets and handle-scoped in-memory/test content.
 - `Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController+DiffCommands.swift`
-  - Handles `loadDiff` as status/stats only.
+  - Handles `loadDiff` by submitting a `BridgeReviewQuery`, loading a `BridgeReviewPackage`,
+    registering content handles, and publishing package metadata/deltas.
+  - Refreshes the current package from pane filesystem context facts through the off-main
+    review pipeline; filesystem facts are triggers, not source truth.
   - The local branch already removed stale `approveHunk` / `rejectHunk` command handling; keep the vocabulary boundary test as the guardrail.
 - `Sources/AgentStudio/Features/Bridge/Models/ReviewFoundation/`
   - Contains the query-first `BridgeReview*` / `BridgeSourceEndpoint` / `BridgeReviewGeneration` model.
@@ -801,11 +804,11 @@ Expected result:
 - [x] Define `BridgeContentStore` as a runtime-local actor keyed by handle ID, package ID or review generation, item ID, role, endpoint identity, and content hash.
 - [x] Add tests proving base/head handles for the same path do not collide.
 - [x] Define `BridgeReviewPackageBuilder` as pure package assembly over review query, endpoint comparison/tree/file results, item descriptors, groups, hidden summary, and filter state.
-- [ ] Define `BridgeReviewDeltaBuilder` as pure item-delta assembly over change-index facts and package-local revisions.
+- [x] Define `BridgeReviewDeltaBuilder` as pure item-delta assembly over change-index facts and package-local revisions.
 - [ ] Add cancellation and stale-review-generation behavior at the actor boundary.
 - [x] Run `mise run test -- --filter BridgeReviewPipeline`.
 - [x] Run `mise run test -- --filter BridgeReviewPackageBuilder`.
-- [ ] Run `mise run test -- --filter BridgeReviewDeltaBuilder`.
+- [x] Run `mise run test -- --filter BridgeReviewDeltaBuilder`.
 - [x] Run `mise run test -- --filter BridgeContentStore`.
 
 Expected result:
@@ -898,11 +901,11 @@ Expected result:
 - Test: `Tests/AgentStudioTests/Features/Bridge/BridgeChangeIndexTests.swift`
 
 - [x] Build a runtime-local `BridgeChangeIndex` actor that records checkpoints, endpoint identity, event/batch sequence ranges, provenance, package-local revision facts, and active review generation.
-- [ ] Inject `any BridgeReviewSourceProvider` into the change index or the owning runtime/controller path.
-- [ ] Feed it from existing pane filesystem context facts and explicit source loads.
+- [x] Inject `any BridgeReviewSourceProvider` into the change index or the owning runtime/controller path.
+- [x] Feed it from existing pane filesystem context facts and explicit source loads.
 - [x] Keep it runtime-local; do not add an `AtomRegistry` field or persistence store in this milestone.
-- [ ] Keep main-actor entry points thin: collect UI/request context, await the actor, then publish resulting metadata.
-- [ ] Use a fake provider in tests.
+- [x] Keep main-actor entry points thin: collect UI/request context, await the actor, then publish resulting metadata.
+- [x] Use a fake provider in tests.
 - [x] Run `mise run test -- --filter BridgeChangeIndex`.
 
 Expected result:
@@ -933,14 +936,14 @@ Expected result:
 - [x] Replace placeholder resource serving with handle-based in-memory/test content resolution.
 - [x] Reject stale review-generation content requests.
 - [x] Reject unknown content handles and traversal attempts.
-- [ ] Make `diff.loadDiff` or its replacement submit a `BridgeReviewQuery` and publish a `BridgeReviewPackage` instead of only stats.
+- [x] Make `diff.loadDiff` or its replacement submit a `BridgeReviewQuery` and publish a `BridgeReviewPackage` instead of only stats.
 - [x] Build packages and resolve content handles through `BridgeReviewPipeline` / `BridgeContentStore`; scheme callbacks may hop to main actor only for WebKit-facing response completion.
-- [ ] Decide whether `diff.requestFileContents` remains necessary once scheme fetch is the single content path; remove duplicate RPC content fetch if it is redundant.
+- [x] Decide whether `diff.requestFileContents` remains necessary once scheme fetch is the single content path; remove duplicate RPC content fetch if it is redundant.
 - [x] Run `mise run test -- --filter BridgeChangeCollator`.
 - [x] Run `mise run test -- --filter BridgeReviewFileClassifier`.
 - [x] Run `mise run test -- --filter BridgeSchemeHandler`.
-- [ ] Run `mise run test -- --filter BridgePaneController`.
-- [ ] Run the WebKit serialized Bridge tests through the project test command.
+- [x] Run `mise run test -- --filter BridgePaneControllerTests`.
+- [x] Run the WebKit serialized Bridge tests through the project test command.
 
 Expected result:
 
@@ -962,7 +965,7 @@ Expected result:
 - [x] Keep worker chunk asset support in the delivery contract, but do not require Pierre worker code in `LUNA-337`.
 - [x] Verify MIME types and missing-resource errors.
 - [x] Run `mise run test -- --filter BridgeSchemeHandler`.
-- [ ] Run `mise run test -- --filter WebKitSerializedTests`.
+- [x] Run WebKit serialized Bridge tests through `mise run test-webkit`.
 
 Expected result:
 
@@ -1000,15 +1003,34 @@ Expected result:
 - Modify: `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx`
 - Modify: `BridgeWeb/src/foundation/review-package/bridge-review-package.ts`
 - Modify: `BridgeWeb/src/foundation/content/content-resource-loader.ts`
+- Modify: `Sources/AgentStudio/App/Commands/AppCommand.swift`
+- Modify: `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift`
+- Modify: `Sources/AgentStudio/App/Commands/ActionExecutor.swift`
+- Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator+BridgeReviewOpening.swift`
+- Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
 - Test: `BridgeWeb/src/review-viewer/shell/review-viewer-shell.integration.test.tsx`
 - Test: `BridgeWeb/src/foundation/content/content-resource-loader.integration.test.ts`
+- Test: `Tests/AgentStudioTests/App/ActionExecutorTests_Quick.swift`
+- Test: `Tests/AgentStudioTests/App/AppCommandTests.swift`
+- Test: `Tests/AgentStudioTests/Features/CommandBar/CommandBarDataSourceTests.swift`
 
-- [ ] Render package summary, endpoint labels, checkpoint/collation label, and filtered file list.
-- [ ] Fetch selected file content through the content handle.
-- [ ] Support folder/file-class/change-kind filter state in the shell.
-- [ ] Keep rendering simple; no Pierre CodeView in `LUNA-337`.
-- [ ] Run BridgeWeb tests.
-- [ ] Run packaged WebKit smoke once the bundle is copied into app resources.
+- [x] Render package summary, endpoint labels, checkpoint/collation label, and filtered file list.
+- [x] Fetch selected file content through the content handle.
+- [x] Support folder/file-class/change-kind filter state in the shell.
+- [x] Render a nonblank read-only Bridge review shell before package metadata arrives.
+- [x] Keep rendering simple; no Pierre CodeView in `LUNA-337`.
+- [x] Add command-palette access to open a real read-only Bridge review pane from inside AgentStudio.
+- [x] Preserve active pane worktree context when launching the Bridge review pane, while still allowing a blank review pane when no workspace context exists.
+- [x] Keep initial review-package bootstrap deferred: this command opens the real Bridge pane and waiting shell, but does not yet auto-dispatch `diff.loadDiff`.
+      The next Bridge viewer/data ticket must choose one owner for the initial package request: native open-time dispatch after runtime readiness, or BridgeWeb
+      handshake-time dispatch using the pane's workspace context.
+- [x] Run `mise run test -- --filter AppCommandTests`.
+- [x] Run `mise run test -- --filter CommandBarDataSourceTests`.
+- [x] Run `mise run test -- --filter ActionExecutorTestsQuick`.
+- [x] Run BridgeWeb tests.
+- [x] Build packaged BridgeWeb assets into app resources.
+- [x] Launch isolated debug app with packaged resources for command-palette manual testing.
+- [x] Run packaged WebKit smoke once the bundle is copied into app resources through `mise run test-webkit`.
 
 Expected result:
 

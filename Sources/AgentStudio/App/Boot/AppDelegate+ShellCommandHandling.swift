@@ -38,7 +38,7 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .newFloatingTerminal, .openWebview, .openNewTerminalInTab:
+            .newFloatingTerminal, .openWebview, .openBridgeReview, .openNewTerminalInTab:
             false
         }
     }
@@ -125,7 +125,7 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .newFloatingTerminal, .openWebview, .openNewTerminalInTab:
+            .newFloatingTerminal, .openWebview, .openBridgeReview, .openNewTerminalInTab:
             return false
         }
     }
@@ -167,7 +167,7 @@ extension AppDelegate: ShellCommandHandling {
             .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
-            .openWebview, .signInGitHub, .signInGoogle,
+            .openWebview, .openBridgeReview, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false
         }

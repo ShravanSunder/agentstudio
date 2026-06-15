@@ -9,6 +9,7 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
         case commandBarRepoFilter = "command-bar-repo-filter"
         #if DEBUG
             case crossTabMoveGeometrySmoke = "cross-tab-move-geometry-smoke"
+            case bridgeReviewObservabilitySmoke = "bridge-review-observability-smoke"
         #endif
         case addWatchFolder = "add-watch-folder"
     }
@@ -24,6 +25,8 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
         #if DEBUG
             case .crossTabMoveGeometrySmoke:
                 "crossTabMoveGeometrySmoke"
+            case .bridgeReviewObservabilitySmoke:
+                "bridgeReviewObservabilitySmoke"
         #endif
         case .addWatchFolder:
             "addWatchFolder"

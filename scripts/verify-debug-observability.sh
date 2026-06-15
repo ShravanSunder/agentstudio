@@ -236,6 +236,13 @@ logsql_exact_filter() {
   printf '%s:="%s"' "$field_name" "$(logsql_escape_exact_value "$field_value")"
 }
 
+json_truthy_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  grep -q "\"$field\":true" <<<"$payload" ||
+    grep -q "\"$field\":\"true\"" <<<"$payload"
+}
+
 QUERY_START="${AGENTSTUDIO_OBSERVABILITY_QUERY_START:-${state_query_start:-$(portable_utc_time -4H '4 hours ago')}}"
 QUERY_END="${AGENTSTUDIO_OBSERVABILITY_QUERY_END:-$(portable_utc_time +5M '5 minutes')}"
 
@@ -333,7 +340,9 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
     fi
     exit 1
   fi
-  if ! grep -q '"agentstudio.startup_diagnostic.render_proof.succeeded":true' <<<"$diagnostic_completed_response"; then
+  if ! json_truthy_field \
+    "agentstudio.startup_diagnostic.render_proof.succeeded" \
+    "$diagnostic_completed_response"; then
     echo "startup diagnostic completed without successful render proof for action $startup_diagnostic_action" >&2
     echo "$diagnostic_completed_response" >&2
     exit 1

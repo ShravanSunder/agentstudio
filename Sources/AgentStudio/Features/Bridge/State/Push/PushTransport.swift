@@ -46,6 +46,15 @@ enum StoreKey: String, Sendable, Encodable {
     case connection
 }
 
+struct BridgePushEnvelopeMetadata: Sendable {
+    let store: StoreKey
+    let op: PushOp
+    let level: PushLevel
+    let slice: BridgeTelemetrySlice
+    let revision: Int
+    let epoch: Int
+}
+
 // MARK: - PushTransport
 
 /// Responsible for stamping push envelopes (revision/epoch/pushId/level/op)
@@ -56,11 +65,7 @@ enum StoreKey: String, Sendable, Encodable {
 @MainActor
 protocol PushTransport: AnyObject {
     func pushJSON(
-        store: StoreKey,
-        op: PushOp,
-        level: PushLevel,
-        revision: Int,
-        epoch: Int,
+        metadata: BridgePushEnvelopeMetadata,
         json: Data
     ) async
 }

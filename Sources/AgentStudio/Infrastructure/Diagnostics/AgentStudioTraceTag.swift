@@ -11,6 +11,9 @@ enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
     case appStartup = "app.startup"
     case arrangement
     case atoms
+    case bridgePerformanceSwift = "bridge.performance.swift"
+    case bridgePerformanceWeb = "bridge.performance.web"
+    case bridgePerformanceWebKit = "bridge.performance.webkit"
     case drag
     case eventbus
     case inbox

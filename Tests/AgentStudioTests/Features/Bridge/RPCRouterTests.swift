@@ -80,6 +80,44 @@ final class RPCRouterTests {
         }
     }
 
+    private actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
+        private var recordedSamples: [BridgeTelemetrySample] = []
+        private var recordedDrops: [BridgeTelemetryDropReason] = []
+
+        func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
+            recordedSamples.append(sample)
+        }
+
+        func recordDrop(
+            reason: BridgeTelemetryDropReason,
+            droppedCount: Int,
+            receivedAtUnixNano: UInt64
+        ) async {
+            recordedDrops.append(reason)
+        }
+
+        func samples() -> [BridgeTelemetrySample] {
+            recordedSamples
+        }
+
+        func drops() -> [BridgeTelemetryDropReason] {
+            recordedDrops
+        }
+    }
+
+    private actor BridgeTelemetryIngestorSpy: BridgeTelemetryBatchIngesting {
+        private var ingestCount = 0
+
+        func ingest(_ data: Data) async -> BridgeTelemetryIngestResult {
+            ingestCount += 1
+            return .accepted(sampleCount: 1)
+        }
+
+        func count() -> Int {
+            ingestCount
+        }
+    }
+
     // MARK: - Dispatch
 
     @Test
@@ -225,6 +263,143 @@ final class RPCRouterTests {
 
         // Assert
         #expect(await responseCount.get() == 0)
+    }
+
+    @Test
+    func rpc_trace_context_is_decoded_outside_params_and_recorded() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let recorder = BridgeTelemetryRecorderSpy()
+        let receivedFileId = SendableBox<String?>(nil)
+        router.telemetryRecorder = recorder
+        router.register(method: ReviewMarkFileViewedFixtureMethod.self) { params in
+            await receivedFileId.set(params.fileId)
+            return nil
+        }
+
+        // Act
+        await router.dispatch(
+            json: """
+                {
+                    "jsonrpc": "2.0",
+                    "method": "review.markFileViewed",
+                    "__traceContext": {
+                        "traceId": "11111111111111111111111111111111",
+                        "spanId": "2222222222222222",
+                        "parentSpanId": null,
+                        "sampled": true
+                    },
+                    "params": { "fileId": "abc123" }
+                }
+                """,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect((await receivedFileId.get()) == "abc123")
+        let samples = await recorder.samples()
+        #expect(samples.map(\.name).contains("performance.bridge.webkit.rpc_dispatch"))
+        #expect(samples.map(\.name).contains("performance.bridge.webkit.rpc_response"))
+        #expect(samples.allSatisfy { $0.traceContext?.traceId == "11111111111111111111111111111111" })
+        #expect(samples.allSatisfy { $0.stringAttributes["agentstudio.bridge.rpc.method_class"] == "review" })
+        #expect(samples.allSatisfy { $0.stringAttributes["agentstudio.bridge.plane"] == "control" })
+        #expect(samples.allSatisfy { $0.stringAttributes["agentstudio.bridge.priority"] == "warm" })
+        #expect(samples.allSatisfy { $0.stringAttributes["agentstudio.bridge.slice"] == "review_rpc" })
+    }
+
+    @Test
+    func invalid_rpc_trace_context_does_not_reject_valid_command() async {
+        // Arrange
+        let router = RPCRouter()
+        let recorder = BridgeTelemetryRecorderSpy()
+        let receivedFileId = SendableBox<String?>(nil)
+        var errorCode: Int?
+        router.telemetryRecorder = recorder
+        router.onError = { code, _, _ in errorCode = code }
+        router.register(method: ReviewMarkFileViewedFixtureMethod.self) { params in
+            await receivedFileId.set(params.fileId)
+            return nil
+        }
+
+        // Act
+        await router.dispatch(
+            json: """
+                {
+                    "jsonrpc": "2.0",
+                    "method": "review.markFileViewed",
+                    "__traceContext": {
+                        "traceId": "INVALID",
+                        "spanId": "2222222222222222",
+                        "sampled": true
+                    },
+                    "params": { "fileId": "abc123" }
+                }
+                """,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == nil)
+        #expect((await receivedFileId.get()) == "abc123")
+        let samples = await recorder.samples()
+        #expect(samples.allSatisfy { $0.traceContext == nil })
+    }
+
+    @Test
+    func bridge_telemetry_rpc_is_raw_ingested_without_generic_rpc_self_observation() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let recorder = BridgeTelemetryRecorderSpy()
+        let ingestor = BridgeTelemetryIngestorSpy()
+        router.telemetryRecorder = recorder
+        router.telemetryIngestor = ingestor
+
+        let batch = BridgeTelemetryBatch(
+            schemaVersion: 1,
+            scenario: "test",
+            samples: [
+                BridgeTelemetrySample(
+                    scope: .web,
+                    name: "performance.bridge.web.rpc_send",
+                    durationMilliseconds: 1,
+                    traceContext: nil,
+                    stringAttributes: [:],
+                    numericAttributes: [:],
+                    booleanAttributes: [:]
+                )
+            ]
+        )
+        let paramsData = try JSONEncoder().encode(batch)
+        let paramsJSON = try #require(String(data: paramsData, encoding: .utf8))
+
+        // Act
+        await router.dispatch(
+            json: #"{"jsonrpc":"2.0","method":"system.bridgeTelemetry","params":\#(paramsJSON)}"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(await ingestor.count() == 1)
+        let sampleNames = await recorder.samples().map(\.name)
+        #expect(sampleNames == ["performance.bridge.webkit.telemetry_batch"])
+    }
+
+    @Test
+    func bridge_telemetry_rpc_is_method_not_found_without_ingestor() async {
+        // Arrange
+        let router = RPCRouter()
+        var errorCode: Int?
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        await router.dispatch(
+            json:
+                #"{"jsonrpc":"2.0","method":"system.bridgeTelemetry","params":{"schemaVersion":1,"scenario":"test","samples":[]}}"#,
+            isBridgeReady: true
+        )
+
+        // Assert
+        #expect(errorCode == -32_601)
     }
 
     @Test

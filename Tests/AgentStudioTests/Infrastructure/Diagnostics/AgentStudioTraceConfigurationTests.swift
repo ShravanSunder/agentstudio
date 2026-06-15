@@ -134,6 +134,29 @@ struct AgentStudioTraceConfigurationTests {
     }
 
     @Test
+    func bridgePerformanceTraceTagsParseAsExplicitOptInLanes() {
+        let selection = AgentStudioTraceTag.parseSelection("bridge.performance.*")
+
+        #expect(selection.unknownSelectors.isEmpty)
+        #expect(selection.tags.contains(.bridgePerformanceSwift))
+        #expect(selection.tags.contains(.bridgePerformanceWeb))
+        #expect(selection.tags.contains(.bridgePerformanceWebKit))
+        #expect(!AgentStudioTraceConfiguration.safeDefaultTags.contains(.bridgePerformanceSwift))
+        #expect(!AgentStudioTraceConfiguration.safeDefaultTags.contains(.bridgePerformanceWeb))
+        #expect(!AgentStudioTraceConfiguration.safeDefaultTags.contains(.bridgePerformanceWebKit))
+    }
+
+    @Test
+    func explicitWildcardCanEnableBridgePerformanceTagsForProofRuns() {
+        let selection = AgentStudioTraceTag.parseSelection("*")
+
+        #expect(selection.unknownSelectors.isEmpty)
+        #expect(selection.tags.contains(.bridgePerformanceSwift))
+        #expect(selection.tags.contains(.bridgePerformanceWeb))
+        #expect(selection.tags.contains(.bridgePerformanceWebKit))
+    }
+
+    @Test
     func tagSelectionKeepsMixedKnownAndUnknownSelectors() {
         let selection = AgentStudioTraceTag.parseSelection(" Runtime, paneInbox, missing.tag ")
 

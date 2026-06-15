@@ -1,5 +1,14 @@
 import { z } from 'zod';
 
+import {
+	bridgeTelemetrySliceSchema,
+	type BridgeTelemetrySlice,
+} from '../foundation/telemetry/bridge-telemetry-taxonomy.js';
+import {
+	decodeBridgeTraceContext,
+	type BridgeTraceContext,
+} from '../foundation/telemetry/bridge-trace-context.js';
+
 export type BridgePushStore = 'diff' | 'review' | 'agent' | 'connection';
 export type BridgePushOp = 'merge' | 'replace';
 export type BridgePushLevel = 'hot' | 'warm' | 'cold';
@@ -12,6 +21,8 @@ export interface BridgePushEnvelope {
 	readonly store: BridgePushStore;
 	readonly op: BridgePushOp;
 	readonly level: BridgePushLevel | null;
+	readonly slice: BridgeTelemetrySlice;
+	readonly traceContext: BridgeTraceContext | null;
 	readonly data: unknown;
 }
 
@@ -21,9 +32,11 @@ const bridgePushEnvelopeSchema = z
 		__pushId: z.string().optional(),
 		__revision: z.number().int().nonnegative(),
 		__epoch: z.number().int().nonnegative(),
+		__traceContext: z.unknown().optional(),
 		store: z.enum(['diff', 'review', 'agent', 'connection']),
 		op: z.enum(['merge', 'replace']),
 		level: z.enum(['hot', 'warm', 'cold']).optional(),
+		slice: bridgeTelemetrySliceSchema,
 		data: z.unknown().optional(),
 		payload: z.unknown().optional(),
 	})
@@ -48,6 +61,10 @@ export function decodeBridgePushEnvelope(value: unknown): BridgePushEnvelope {
 	const pushId = parsedEnvelope['__pushId'] ?? null;
 	const revision = parsedEnvelope['__revision'];
 	const epoch = parsedEnvelope['__epoch'];
+	const traceContext =
+		parsedEnvelope['__traceContext'] === undefined
+			? null
+			: decodeBridgeTraceContext(parsedEnvelope['__traceContext']);
 	return {
 		version,
 		pushId,
@@ -56,6 +73,8 @@ export function decodeBridgePushEnvelope(value: unknown): BridgePushEnvelope {
 		store: parsedEnvelope.store,
 		op: parsedEnvelope.op,
 		level: parsedEnvelope.level ?? null,
+		slice: parsedEnvelope.slice,
+		traceContext,
 		data,
 	};
 }

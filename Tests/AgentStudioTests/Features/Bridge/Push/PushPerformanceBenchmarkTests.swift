@@ -26,8 +26,8 @@ final class PushPerformanceBenchmarkTests {
         var allPayloadBytes: [Int] = []
 
         func pushJSON(
-            store: StoreKey, op: PushOp, level: PushLevel,
-            revision: Int, epoch: Int, json: Data
+            metadata: BridgePushEnvelopeMetadata,
+            json: Data
         ) async {
             pushCount += 1
             lastPushInstant = ContinuousClock.now
@@ -87,7 +87,7 @@ final class PushPerformanceBenchmarkTests {
             epoch: { state.epoch },
             slices: {
                 EntitySlice(
-                    "diffFiles", store: .diff, level: level,
+                    "diffFiles", telemetrySlice: .diffFiles, store: .diff, level: level,
                     capture: { (state: DiffState) in state.files },
                     version: { file in file.version },
                     keyToString: { $0 }
@@ -324,7 +324,7 @@ final class PushPerformanceBenchmarkTests {
             epoch: { diffState.epoch },
             slices: {
                 EntitySlice(
-                    "diffFiles", store: .diff, level: .cold,
+                    "diffFiles", telemetrySlice: .diffFiles, store: .diff, level: .cold,
                     capture: { (state: DiffState) in state.files },
                     version: { file in file.version },
                     keyToString: { $0 }

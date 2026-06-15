@@ -797,7 +797,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
                       exit 0
                     fi
                     if [[ "$*" == *"app.startup_diagnostic_action.completed"* ]]; then
-                      printf '{"_msg":"app.startup_diagnostic_action.completed","agentstudio.startup_diagnostic.action":"cross-tab-move-geometry-smoke","agentstudio.startup_diagnostic.expected_visible_pane.count":3,"agentstudio.startup_diagnostic.fixture.terminal_view.count":3,"agentstudio.startup_diagnostic.fixture.surface_reference.count":3,"agentstudio.startup_diagnostic.fixture.surface.count":3,"agentstudio.startup_diagnostic.fixture.valid_geometry.count":3,"agentstudio.startup_diagnostic.render_proof.succeeded":true}\\n'
+                      printf '{"_msg":"app.startup_diagnostic_action.completed","agentstudio.startup_diagnostic.action":"cross-tab-move-geometry-smoke","agentstudio.startup_diagnostic.expected_visible_pane.count":"3","agentstudio.startup_diagnostic.fixture.terminal_view.count":"3","agentstudio.startup_diagnostic.fixture.surface_reference.count":"3","agentstudio.startup_diagnostic.fixture.surface.count":"3","agentstudio.startup_diagnostic.fixture.valid_geometry.count":"3","agentstudio.startup_diagnostic.render_proof.succeeded":"true"}\\n'
                       exit 0
                     fi
                     if [[ "$*" == *":*"* ]]; then

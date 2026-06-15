@@ -64,6 +64,118 @@ struct AgentStudioOTLPTraceProjectionTests {
     }
 
     @Test
+    func bridgeProjectionPreservesValidTraceFieldsAndSafeAttributes() {
+        let historicalBridgeLane = ["agentstudio", "bridge", "lane"].joined(separator: ".")
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 125,
+            severityText: .info,
+            body: "performance.bridge.webkit.package_push",
+            traceID: "11111111111111111111111111111111",
+            spanID: "2222222222222222",
+            parentSpanID: "3333333333333333",
+            resource: [
+                "agentstudio.trace.name": "bridge-proof",
+                "service.name": "AgentStudio",
+            ],
+            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.content.byte_size_bucket": .int(100_000),
+                "agentstudio.bridge.content.line_count_bucket": .int(500),
+                "agentstudio.bridge.header_supported": .bool(true),
+                "agentstudio.bridge.item_id": .string("private-item-id"),
+                historicalBridgeLane: .string("warm"),
+                "agentstudio.bridge.phase": .string("package_push"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("cold"),
+                "agentstudio.bridge.slice": .string("diff_package_metadata"),
+                "agentstudio.bridge.transport": .string("push"),
+                "agentstudio.performance.elapsed_ms": .double(4.25),
+                "agentstudio.trace.tag": .string("bridge.performance.webkit"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.traceID == "11111111111111111111111111111111")
+        #expect(projection.spanID == "2222222222222222")
+        #expect(projection.parentSpanID == "3333333333333333")
+        #expect(projection.attributes["agentstudio.bridge.content.byte_size_bucket"] == .int(100_000))
+        #expect(projection.attributes["agentstudio.bridge.content.line_count_bucket"] == .int(500))
+        #expect(projection.attributes["agentstudio.bridge.header_supported"] == .bool(true))
+        #expect(projection.attributes[historicalBridgeLane] == nil)
+        #expect(projection.attributes["agentstudio.bridge.phase"] == .string("package_push"))
+        #expect(projection.attributes["agentstudio.bridge.plane"] == .string("data"))
+        #expect(projection.attributes["agentstudio.bridge.priority"] == .string("cold"))
+        #expect(projection.attributes["agentstudio.bridge.slice"] == .string("diff_package_metadata"))
+        #expect(projection.attributes["agentstudio.bridge.transport"] == .string("push"))
+        #expect(projection.attributes["agentstudio.performance.elapsed_ms"] == .double(4.25))
+        #expect(projection.attributes["agentstudio.bridge.item_id"] == nil)
+        #expect(!renderedProjection.contains("private-item-id"))
+    }
+
+    @Test
+    func bridgeProjectionDropsInvalidTaxonomyValues() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 126,
+            severityText: .info,
+            body: "performance.bridge.webkit.package_push",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("package_push"),
+                "agentstudio.bridge.plane": .string("file:///Users/private/repo"),
+                "agentstudio.bridge.priority": .string("urgent"),
+                "agentstudio.bridge.slice": .string("Sources/App/View.swift"),
+                "agentstudio.trace.tag": .string("bridge.performance.webkit"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.attributes["agentstudio.bridge.phase"] == .string("package_push"))
+        #expect(projection.attributes["agentstudio.bridge.plane"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.priority"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.slice"] == nil)
+        #expect(!renderedProjection.contains("/Users/private/repo"))
+        #expect(!renderedProjection.contains("Sources/App/View.swift"))
+    }
+
+    @Test
+    func bridgeProjectionDropsInvalidTraceFields() {
+        let historicalBridgeLane = ["agentstudio", "bridge", "lane"].joined(separator: ".")
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 126,
+            severityText: .info,
+            body: "performance.bridge.web.package_apply",
+            traceID: "00000000000000000000000000000000",
+            spanID: "not-a-span",
+            parentSpanID: "0000000000000000",
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+            attributes: [
+                historicalBridgeLane: .string("warm"),
+                "agentstudio.bridge.phase": .string("package_apply"),
+                "agentstudio.trace.tag": .string("bridge.performance.web"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.traceID == nil)
+        #expect(projection.spanID == nil)
+        #expect(projection.parentSpanID == nil)
+    }
+
+    @Test
     func startupDiagnosticProjectionKeepsCommandAndRenderProofFields() {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 150,
@@ -446,6 +558,9 @@ extension AgentStudioOTLPProjectedLogRecord {
         }
         if let spanID {
             components.append(spanID)
+        }
+        if let parentSpanID {
+            components.append(parentSpanID)
         }
         return components.joined(separator: "\n")
     }

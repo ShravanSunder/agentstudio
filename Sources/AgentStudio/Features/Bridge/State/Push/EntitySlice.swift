@@ -31,6 +31,7 @@ struct EntitySlice<
     Entity: Encodable & Sendable
 > {
     let name: String
+    let telemetrySlice: BridgeTelemetrySlice
     let store: StoreKey
     let level: PushLevel
     let capture: @MainActor @Sendable (State) -> [Key: Entity]
@@ -39,6 +40,7 @@ struct EntitySlice<
 
     init(
         _ name: String,
+        telemetrySlice: BridgeTelemetrySlice,
         store: StoreKey,
         level: PushLevel,
         capture: @escaping @MainActor @Sendable (State) -> [Key: Entity],
@@ -46,6 +48,7 @@ struct EntitySlice<
         keyToString: @escaping @Sendable (Key) -> String = { "\($0)" }
     ) {
         self.name = name
+        self.telemetrySlice = telemetrySlice
         self.store = store
         self.level = level
         self.capture = capture
@@ -62,6 +65,7 @@ struct EntitySlice<
         let level = self.level
         let store = self.store
         let name = self.name
+        let telemetrySlice = self.telemetrySlice
         let debounceClock = debounceClock
 
         return AnyPushSlice(name: name) { state, transport, revisions, epochProvider in
@@ -105,8 +109,15 @@ struct EntitySlice<
                     let revision = revisions.next(for: store)
                     let epoch = epochFn()
                     await transport.pushJSON(
-                        store: store, op: .merge, level: level,
-                        revision: revision, epoch: epoch, json: data
+                        metadata: BridgePushEnvelopeMetadata(
+                            store: store,
+                            op: .merge,
+                            level: level,
+                            slice: telemetrySlice,
+                            revision: revision,
+                            epoch: epoch
+                        ),
+                        json: data
                     )
                 }
             }

@@ -14,9 +14,24 @@ describe('bridge push envelope', () => {
 
 		expect(replaceEnvelope.store).toBe('diff');
 		expect(replaceEnvelope.op).toBe('replace');
+		expect(replaceEnvelope.level).toBe('hot');
+		expect(replaceEnvelope.slice).toBe('diff_status');
 		expect(replaceEnvelope.revision).toBe(1);
 		expect(mergeEnvelope.op).toBe('merge');
-		expect(mergeEnvelope.data).toEqual({ status: 'running', error: null, epoch: 1 });
+		expect(mergeEnvelope.level).toBe('warm');
+		expect(mergeEnvelope.slice).toBe('diff_package_delta');
+		expect(mergeEnvelope.data).toEqual({
+			delta: {
+				packageId: 'package-33733733-7337-4337-9337-337337337337',
+				reviewGeneration: 1,
+				revision: 2,
+				operations: {
+					addItems: [],
+					updateItems: [],
+					removeItems: [],
+				},
+			},
+		});
 		expect(epochAdvanceEnvelope.epoch).toBe(2);
 	});
 
@@ -24,5 +39,35 @@ describe('bridge push envelope', () => {
 		expect(() => decodeBridgePushEnvelope(pushMissingRevisionFixture)).toThrow(
 			/Invalid bridge push envelope/u,
 		);
+	});
+
+	test('decodes optional trace context outside the push payload', () => {
+		const envelope = decodeBridgePushEnvelope({
+			...pushReplaceFixture,
+			__traceContext: {
+				traceId: '11111111111111111111111111111111',
+				spanId: '2222222222222222',
+				parentSpanId: null,
+				sampled: true,
+			},
+		});
+
+		expect(envelope.traceContext?.traceId).toBe('11111111111111111111111111111111');
+		expect(envelope.data).toEqual(pushReplaceFixture.data);
+	});
+
+	test('rejects push envelopes that omit finite slice attribution', () => {
+		const pushWithoutSlice: Record<string, unknown> = { ...pushReplaceFixture };
+		delete pushWithoutSlice['slice'];
+
+		expect(() => decodeBridgePushEnvelope(pushWithoutSlice)).toThrow(
+			/Invalid bridge push envelope/u,
+		);
+	});
+
+	test('decodes required finite push slice outside the push payload', () => {
+		const envelope = decodeBridgePushEnvelope(pushReplaceFixture);
+
+		expect(envelope.slice).toBe('diff_status');
 	});
 });
