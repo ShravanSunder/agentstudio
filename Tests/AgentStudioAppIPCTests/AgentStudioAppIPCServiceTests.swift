@@ -100,6 +100,14 @@ private struct FakeRuntimePort: AppIPCRuntimePort {
     ) async throws -> IPCTerminalSendInputResult {
         throw AppIPCRuntimeError(reason: .noRuntime)
     }
+
+    func waitForTerminal(
+        _ handle: IPCHandle,
+        condition: IPCTerminalWaitCondition,
+        timeout: Duration
+    ) async throws -> IPCTerminalWaitResult {
+        throw AppIPCRuntimeError(reason: .timeout)
+    }
 }
 
 private struct FakePermissionApprovalPort: AppIPCPermissionApprovalPort {

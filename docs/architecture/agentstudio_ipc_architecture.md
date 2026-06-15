@@ -26,8 +26,8 @@ The phase-1 foundation currently owns:
   delegated approval visibility.
 
 Follow-up implementation slices still own socket-server lifecycle wiring,
-CLI/client commands, live event subscription delivery, terminal waits, and
-promotion of completed design material from the temporary spec/plan docs.
+CLI/client commands, live event subscription delivery, and promotion of
+completed design material from the temporary spec/plan docs.
 
 ## Target Ownership
 
@@ -134,12 +134,27 @@ terminal.send
   -> PaneCoordinator.dispatchRuntimeCommand
   -> RuntimeRegistry.runtime(for:)
   -> PaneRuntime.handleCommand(...)
+
+terminal.wait
+  -> AgentStudioIPCRuntimeAdapter
+       resolves pane handle by UUID or friendly ordinal
+       requires a terminal pane and registered runtime
+  -> EventBus<RuntimeEnvelope>.waitForFirst(...)
+  -> allowlisted terminal wait result
 ```
 
 `terminal.send` success means the runtime command path accepted the input bytes.
 It does not mean the shell command completed, produced output, or reached a
-particular prompt. Those higher-level observations belong to future
-`terminal.wait` conditions and runtime events.
+particular prompt. Those higher-level observations belong to `terminal.wait`
+conditions and runtime events.
+
+`terminal.wait` resolves only stable exported facts. `attachReady` can be
+satisfied immediately from a ready registered runtime. `commandFinished`,
+`rendererHealthy`, `titleChanged`, `cwdChanged`, and `progressChanged` wait on
+matching `RuntimeEnvelope.pane` terminal facts for the resolved pane. Wait
+results carry command/correlation ids and safe scalar data such as exit code,
+duration, and renderer health; they do not expose terminal titles, cwd paths, or
+progress payload text.
 
 The terminal DTOs intentionally omit terminal output, scrollback, raw PTY bytes,
 cwd/launch paths, command lines, zmx session identifiers, raw runtime objects,
@@ -187,7 +202,7 @@ Missed permission events are recoverable through explicit queries rather than a
 durable event log. Requesters recover their own state through
 `permission.requestStatus` and `permission.grantStatus`; delegated approvers
 recover routed pending requests through `permission.pendingApprovals`. Live
-event subscription delivery and terminal waits are separate follow-up slices.
+event subscription delivery is a separate follow-up slice.
 
 ## Request Authority Path
 
