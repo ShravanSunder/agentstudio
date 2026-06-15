@@ -12,14 +12,16 @@ decisions must move into `docs/architecture/`:
 
 - IPC service ownership and module boundaries move into `directory_structure.md`
   and `appkit_swiftui_architecture.md`.
+- IPC auth, subject-token, principal, grant, and approval-port boundaries move
+  into the app/runtime architecture docs with the implemented file paths.
 - Runtime command and event rules move into `pane_runtime_architecture.md` and
   `pane_runtime_eventbus_design.md`.
 - Terminal-backend zmx IPC details remain in `session_lifecycle.md`,
   `zmx_terminal_integration_lessons.md`, or the backend-only design track in
   `2026-06-13-zmx-backend-ipc-design.md`.
 
-This spec should then become implementation history, not the permanent
-architecture entrypoint.
+Architecture promotion is part of the implementation closeout. This spec should
+then become implementation history, not the permanent architecture entrypoint.
 
 ## Goal
 
@@ -30,6 +32,12 @@ strict JSON-RPC 2.0. The service routes requests into existing AgentStudio
 command and runtime owners instead of becoming a new mutation owner. The method
 catalog is designed so a later MCP adapter can reuse the same semantic registry
 and JSON schemas without making MCP the phase-1 wire protocol.
+
+Phase 1 also defines the authority model for pane-local agents: authentication
+resolves to a server-bound principal, baseline authority is represented as scoped
+grants, and elevated authority is requested through explicit `permission.*`
+methods. Permission events are observations only; they do not grant, deny,
+revoke, or execute authority.
 
 ## Non-Goals
 
@@ -144,36 +152,52 @@ the zmx trust model.
 ## Module Boundaries
 
 The implementation should split generic transport mechanics from product
-semantics.
+semantics with SwiftPM targets, not only folders. The goal is compile-time
+pressure first, lint pressure second, and prose guidance third.
 
 ```text
-Sources/AgentStudio/Infrastructure/IPC/
-  generic Unix socket helpers
-  peer credential lookup
-  NDJSON framing
-  JSON-RPC 2.0 codec
-  no Core, App, or Feature imports
+AgentStudioIPCTransport
+  Sources/AgentStudioIPCTransport/
+  Unix socket helpers, peer credentials, NDJSON framing, JSON-RPC codec
+  no product imports
 
-Sources/AgentStudio/Core/ProgrammaticControl/
-  method contracts
-  schema descriptions
-  handle model
-  privilege classes
-  auth/access-mode value types
-  no AppKit or view-controller dependencies
+AgentStudioProgrammaticControl
+  Sources/AgentStudioProgrammaticControl/
+  method contracts, schema descriptions, handle model, privilege/data/target
+  scope value types, permission DTOs
+  no AppKit, view-controller, Feature, or App executable dependencies
 
-Sources/AgentStudio/App/IPC/
-  app IPC service lifecycle
-  metadata publication
-  token generation and env export
-  access-mode enforcement
-  registry assembly
-  adapters into CommandDispatcher, coordinator, runtimes, and snapshots
+AgentStudioAppIPC
+  Sources/AgentStudioAppIPC/
+  service lifecycle, metadata publication, subject-token minting, connection
+  auth state, principal registry, GrantLedger, AuthorizationService, method
+  registry assembly, and protocol ports
+  no direct CommandDispatcher, PaneCoordinator, TerminalRuntime, SurfaceManager,
+  Feature, or view-controller imports
+
+AgentStudio executable target
+  Sources/AgentStudio/App/IPCComposition/
+  concrete port adapters into CommandDispatcher, ActionExecutor,
+  WorkspaceCommandValidator, PaneCoordinator, RuntimeRegistry, PaneRuntime, and
+  app-owned approval UI/queue
 ```
 
 `Features/` is not the right home for the app-level service. Feature transport
 such as Bridge belongs inside a feature because it is pane-local. App IPC is
 cross-feature app composition.
+
+`AgentStudioAppIPC` must define protocol ports instead of importing concrete app
+owners. The executable target implements those ports. This prevents AppIPC from
+becoming a god box: it can authenticate, authorize, route by registry metadata,
+and ask ports to execute, but it cannot own product behavior or mutate app state
+directly.
+
+PR #175's SwiftLint/SwiftSyntax architecture runner is the substrate for
+repository-specific enforcement. IPC-specific rules still need to be added.
+Those rules should reject forbidden target imports, direct atom mutation from IPC
+adapters, public registry methods under `zmx.*`, and public IPC DTOs containing
+raw `RuntimeEnvelope`, raw `PaneRuntimeSnapshot`, raw `PaneMetadata`, or zmx
+internals.
 
 ## Transport And Discovery
 
@@ -317,8 +341,9 @@ All app IPC requests, event subscriptions, handles, replay cursors, and zmx
 response bytes are untrusted inputs until validated by the layer that receives
 them.
 
-Phase 1 uses cmux-shaped modes with an Orca-style runtime token, adjusted so
-`agentStudioOnly` is enforceable.
+Phase 1 uses cmux-shaped access modes with an Orca-style environment bootstrap,
+adjusted so `agentStudioOnly` authenticates a specific spawned subject rather
+than every process that knows a runtime-wide shared token.
 
 ```text
 off
@@ -328,8 +353,8 @@ agentStudioOnly
   recommended phase-1 default
   socket and metadata are owner-only
   peer uid must match the app owner
-  runtime token is memory-only
-  token and socket path are injected into AgentStudio-spawned sessions
+  subject tokens are memory-only
+  subject token and socket path are injected into AgentStudio-spawned sessions
   no token is written to disk
 
 automationSameUser
@@ -354,20 +379,46 @@ unsafeDebug
 disk, any same-user process can read it and the mode collapses into
 `automationSameUser`.
 
-In `agentStudioOnly`, the runtime token is generated per app runtime, rotated on
-listener restart, scoped to authenticated connections only, never persisted,
-never echoed in logs/errors/events, and invalidated when the runtime identity
-changes. The mode trusts Agent Studio-spawned terminal descendants that inherit
-the environment. It is not a guarantee that no child process can delegate that
-capability onward.
+In `agentStudioOnly`, the exported bearer value is an opaque subject token. The
+environment variable name stays `AGENTSTUDIO_IPC_TOKEN`, but the token's phase-1
+meaning is per spawned subject, not one shared app-runtime token. AppIPC mints
+the token before terminal/session environment construction, records it in private
+runtime memory, and maps it to one `IPCPrincipal`.
+
+```text
+Subject token
+  opaque bearer token injected into one spawned pane/session
+  stored only in AppIPC runtime memory
+  maps to one IPCPrincipal
+  rotates with listener/runtime identity changes
+  never logged, persisted, echoed, or trusted because of caller-supplied params
+```
+
+Subject-token minting is eager:
+
+```text
+pane/session spawn begins
+  -> AgentStudioAppIPC mints subject token
+  -> AgentStudioAppIPC records token -> principalId + boundPaneId in memory
+  -> AgentStudioAppIPC returns env vars to the app's terminal spawn seam
+  -> terminal/session process inherits token
+```
+
+`auth.login` only looks up the supplied token in this private registry. It never
+accepts a caller-supplied pane hint, friendly ref, active focus, or environment
+value as the source of principal binding.
 
 The app injects the token and socket path into spawned terminal sessions:
 
 ```text
 AGENTSTUDIO_IPC_SOCKET=<socket path>
-AGENTSTUDIO_IPC_TOKEN=<runtime token>
+AGENTSTUDIO_IPC_TOKEN=<opaque subject token>
 AGENTSTUDIO_IPC_RUNTIME_ID=<runtime id>
 ```
+
+Optional non-secret diagnostics may include
+`AGENTSTUDIO_IPC_PRINCIPAL_HINT=<principal id>`, but the hint is never trusted.
+Only the token lookup inside AppIPC binds the principal.
 
 The first client request on a connection must authenticate:
 
@@ -376,23 +427,61 @@ The first client request on a connection must authenticate:
   "jsonrpc": "2.0",
   "id": "auth-1",
   "method": "auth.login",
-  "params": {"token": "runtime-token"}
+  "params": {"token": "subject-token"}
 }
 ```
 
-The server stores authenticated state per connection. Before successful
-authentication, only `auth.login` and an explicitly pre-auth `system.ping` are
-allowed. That `system.ping` response must return no runtime metadata. All other
-methods fail with `-32001 unauthenticated`. `auth.login` is retained as the
-stable method name so a later password mode does not require a wire-protocol
-break.
+The server stores authenticated principal state per connection. Before
+successful authentication, only `auth.login` and an explicitly pre-auth
+`system.ping` are allowed. That `system.ping` response must return no runtime
+metadata. All other methods fail with `-32001 unauthenticated`. `auth.login` is
+retained as the stable method name so a later password mode does not require a
+wire-protocol break.
 
 Peer credential checks run before token validation. Same-uid checks are required
 in every enabled mode. `agentStudioOnly` may additionally use peer PID ancestry
-when available, but the token remains the primary capability for spawned agents.
-If peer credentials cannot be obtained, the connection is rejected before
+when available, but the subject token remains the primary capability for spawned
+agents. If peer credentials cannot be obtained, the connection is rejected before
 JSON-RPC dispatch. Repeated authentication failures or malformed authentication
 frames close the connection.
+
+### Principals
+
+```text
+IPCPrincipal
+  principalId: UUID
+  runtimeId: UUID
+  accessMode: off | agentStudioOnly | automationSameUser | unsafeDebug
+  kind:
+    spawnedPaneAgent(boundPaneId: PaneId, boundWorkspaceId: UUID?)
+    automationClient
+    futureMCPClient
+    unsafeDebugClient
+  approvalAuthority:
+    none
+    policyConfigured(scopes)
+    delegatedApprover(scopes)
+```
+
+`selfPane` means the canonical `boundPaneId` attached to the authenticated
+principal by the server. It is not:
+
+- the currently focused pane;
+- a caller-supplied pane id;
+- a friendly ordinal;
+- a value read from an environment variable;
+- a runtime target resolved after focus changes.
+
+Principal lifetime is tied to the bound pane and app runtime. When a bound pane
+closes, AppIPC invalidates that pane's subject tokens, removes the principal,
+revokes baseline and elevated grants for that principal, and rejects future
+`auth.login` attempts with `-32001 unauthenticated`. Runtime id changes, listener
+restart, and token rotation also invalidate principals and grants.
+
+The subject token stays opaque. Approval authority is attached to the
+server-side principal record and app-owned policy records, not encoded as claims
+inside the bearer token. This keeps the token lookup as the trust boundary and
+prevents leaked environment tokens from becoming self-describing authority blobs.
 
 ## Privilege Classes
 
@@ -417,12 +506,287 @@ terminalWrite
 eventsRead
   subscribe to lifecycle/status event streams
 
+permissionRequest
+  create scoped permission requests
+
+permissionRead
+  read the caller's own permission requests and grants
+
+grantApprove
+  approve or deny delegated permission requests within an explicitly configured
+  approval scope
+
 debugUnsafe
   debug-only operations
 ```
 
 Phase 1 must separate terminal read and terminal write. Future scoped tokens can
 grant subsets of these classes without changing method definitions.
+
+Grants refine privilege classes with target and data scopes:
+
+```text
+targetScope
+  selfPane
+  pane:<uuid>
+  workspace:<uuid>
+  appGlobal, reserved for high-risk approvals
+
+dataScope
+  runtimeMetadata
+  paneContext
+  terminalStatus
+  terminalSnapshotRedacted
+  terminalInput
+```
+
+Data scopes are allowlists, not aliases for current internal structs. Phase-1
+redacted DTOs must exclude cwd, title text, note text, repo/worktree paths,
+launch directory, command text, prompt text, terminal rows, scrollback, raw
+`PaneRuntimeSnapshot`, raw `PaneMetadata`, zmx socket paths, zmx session names,
+and zmx history unless a later method contract explicitly promotes and redacts a
+field.
+
+### Baseline Grants
+
+After authentication, AppIPC derives baseline grants from the principal. These
+are not approved per request, but they are checked by the same authorization
+path as elevated grants.
+
+Recommended baseline for `spawnedPaneAgent(boundPaneId: A)`:
+
+```text
+targetScope
+  selfPane(A)
+
+privileges
+  systemRead
+  paneContextRead
+  terminalStatusRead
+  terminalInputWrite
+  terminalWait
+  eventsRead
+  permissionRequest
+  permissionRead
+
+dataScope
+  runtimeMetadata
+  paneContext
+  terminalStatus
+  terminalSnapshotRedacted
+```
+
+This is an intentional trust decision: a process spawned inside pane A may send
+input to pane A without a later approval prompt. Approval is required for
+authority outside the bound pane and for future high-risk actions that are not in
+the baseline set.
+
+Denied by default for a spawned pane principal:
+
+```text
+window.list
+workspace.list
+global pane.list
+terminal.send to another pane
+pane.focus to another pane
+pane.close / pane.split
+raw terminal output / scrollback
+zmx.*
+debugUnsafe
+```
+
+The method surface is per principal, not only per protocol. A method can be
+phase-1 available while still denied to a narrow spawned-pane principal.
+
+`automationSameUser`, future MCP clients, and future plugin principals require
+explicit baseline tables before they are enabled. They must not inherit the
+spawned-pane baseline or broad app authority by default.
+
+### Grant Ledger And Authorization
+
+`GrantLedger` is the authoritative in-memory state ledger for permission
+requests and active grants. It does not own app behavior, target resolution, or
+feature-specific policy.
+
+```text
+AgentStudioProgrammaticControl
+  IPCPrincipal value contracts
+  IPCPrivilege / IPCDataScope / IPCTargetScope
+  PermissionRequestParams / PermissionRequestResult
+  PermissionEvent DTOs
+  registry metadata
+
+AgentStudioAppIPC
+  subject-token minting and lookup
+  connection auth state
+  GrantLedger runtime state
+  PermissionBroker
+  AuthorizationService
+  PermissionScopeCanonicalizer
+  PermissionApprovalPort protocol
+  ApprovalPolicyStore protocol
+
+AgentStudio executable / App/IPCComposition
+  concrete PermissionApprovalPort implementation
+  concrete ApprovalPolicyStore implementation
+  human approval UI / queue
+  delegated-principal delivery
+  adapters to existing app owners
+```
+
+`AuthorizationService` checks method metadata, authenticated principal, resolved
+canonical target, baseline grants, and active grants. Existing app/runtime
+owners still validate and execute behavior.
+
+`PermissionScopeCanonicalizer` is the single owner of grant target/scope
+normalization. Permission issuance and permission consumption both use this same
+canonicalizer before touching `GrantLedger`.
+
+```text
+permission.request
+  -> canonicalize requested scope
+  -> store canonical pending request
+
+privileged method call
+  -> canonicalize resolved method target
+  -> compare against canonical active grants
+```
+
+`GrantLedger` stores only canonical grant keys. It does not resolve friendly
+refs, read active focus, inspect UI state, or call feature/runtime owners.
+
+### Permission Requests And Approval Routes
+
+`permission.request` is a JSON-RPC method. It belongs to the command plane.
+
+```text
+Pane Agent
+  -> permission.request
+       privilege: terminalInputWrite
+       target: pane:B
+       dataScope: terminalInput
+       reason: "run tests in paired build pane"
+       requestedDuration: 15m
+       approvalRoute: appPolicy | humanPrompt | delegatedPrincipal
+  -> AppIPC validates and canonicalizes requested scope
+  -> GrantLedger records pending request
+  -> PermissionBroker resolves the approval route
+```
+
+Approval is policy-routed, not always human-in-the-loop:
+
+```text
+appPolicy
+  app-owned rule decides approve, deny, or ask
+  rules are configured by the user or trusted app settings beforehand
+
+humanPrompt
+  app presents the request to the user and records the decision
+
+delegatedPrincipal
+  request is directed to an authenticated principal that has grantApprove for
+  the requested canonical scope
+```
+
+The human/user is the policy author and fallback approver. They do not have to be
+in every request path unless the selected policy says to ask.
+
+Events can announce state changes after the command path updates the ledger.
+Events do not grant, deny, revoke, execute, or acknowledge authority transitions.
+
+Phase 1 adds the `permission.*` namespace to the registry:
+
+```text
+permission.request
+  create a pending permission request
+
+permission.requestStatus
+  read the caller's own request state by requestId
+
+permission.grantStatus
+  read the caller's own active/expired/revoked grants
+
+permission.resolveRequest
+  approve or deny a delegated request
+  allowed only for principals with grantApprove over the requested scope
+```
+
+`permission.resolveRequest` is not a general admin method. If delegated approval
+is not implemented in the first code slice, the method must remain unregistered
+but the contract stays reserved so later automation can add it without changing
+the grant model. Approval through preconfigured app policy and human prompt still
+flows through the app-owned `PermissionApprovalPort`.
+
+`permission.request` has `accepted` result semantics because the requested grant
+may resolve after policy or delegated approval. The immediate response returns
+enough information to correlate later events:
+
+```json
+{
+  "requestId": "uuid",
+  "state": "pending",
+  "principalId": "uuid",
+  "requestedScope": {},
+  "approvalRoute": "appPolicy",
+  "expiresAt": null
+}
+```
+
+Immediate auto-deny or auto-grant is allowed when app policy can decide without
+interactive mediation. It must still return a request id and emit the same public
+permission event shape.
+
+Because events are non-durable, request and grant status must also be queryable.
+A client that disconnects after `permission.request` can later authenticate as
+the same principal and call `permission.requestStatus(requestId)` or
+`permission.grantStatus(...)`. These methods return only the caller's own
+permission state unless a future privileged observer model is explicitly added.
+
+Grant lifetime is split by risk:
+
+```text
+baseline selfPane grants
+  principal-bound
+  valid while the subject token, bound pane, and app runtime remain valid
+
+read-only elevated grants
+  may be principal-bound with a short TTL if explicitly approved
+
+cross-pane or global mutating grants
+  connection-bound by default
+  one-shot when the method can naturally consume one grant
+  never reconnectable unless a later spec explicitly chooses that risk
+```
+
+Subject-token theft is principal impersonation for the lifetime of that token and
+any principal-bound grants. This is an accepted local threat in
+`agentStudioOnly`, not a property the grant system can make impossible. The
+phase-1 design narrows the blast radius by keeping elevated mutating grants
+connection-bound or one-shot by default.
+
+Phase-1 enum defaults:
+
+```text
+DelegationPolicy
+  none
+    grant is usable only by the authenticated principal and current connection
+  principalBearer
+    grant is usable by any connection authenticated as the same principal
+    allowed only for baseline or explicitly approved read-only grants
+  oneShot
+    grant is consumed by the first authorized matching command
+
+RevocationTrigger
+  ttlExpired
+  connectionClosed
+  paneClosed
+  targetDisappeared
+  listenerRestarted
+  runtimeIdChanged
+  tokenRotated
+  explicitRevoke
+  consumed
+```
 
 ## Method Registry
 
@@ -536,6 +900,11 @@ terminal.send
 terminal.snapshot
 terminal.wait
 
+permission.request
+permission.requestStatus
+permission.grantStatus
+permission.resolveRequest, only if delegated approval ships in the first slice
+
 events.subscribe
 events.unsubscribe
 ```
@@ -550,6 +919,11 @@ pane.split
 pane.close
 terminal.interrupt
 ```
+
+`permission.resolveRequest` is not part of the broad expansion list. It is a
+guarded approval method and may be registered only when the principal/approval
+policy system can prove the caller has `grantApprove` over the canonical request
+scope.
 
 Deferred method groups:
 
@@ -599,13 +973,14 @@ Every method must name its execution owner.
 
 ```text
 system.* / auth.*
-  App/IPC service and auth gate
+  AgentStudioAppIPC service and auth gate
 
 window.* / workspace.* reads
-  App/IPC query adapter over app/workspace state
+  AgentStudioAppIPC query port implemented by App/IPCComposition over
+  app/workspace state
 
 pane.focus / future pane structural mutations
-  App IPC layout adapter
+  AgentStudioAppIPC layout port implemented by App/IPCComposition
     -> ActionExecutor.execute(...)
     -> WorkspaceCommandValidator
     -> PaneCoordinator
@@ -615,13 +990,19 @@ app and shell commands, if exposed later
     -> appCommandRouter or active workspace handler
 
 terminal.* runtime commands
-  App IPC runtime adapter
+  AgentStudioAppIPC runtime port implemented by App/IPCComposition
     -> PaneCoordinator.dispatchRuntimeCommand(...)
     -> RuntimeRegistry
     -> PaneRuntime.handleCommand(...)
 
 events.*
   event adapter over authoritative runtime/app facts
+
+permission.*
+  AppIPC PermissionBroker / GrantLedger / AuthorizationService
+    -> ApprovalPolicyStore for preconfigured rules
+    -> PermissionApprovalPort for human/app and delegated-principal routing
+    -> public permission events after ledger transitions
 ```
 
 The current `PaneTabViewController` validated action path is private. The
@@ -636,8 +1017,9 @@ is not ready for phase-1 registration.
 ## Events And Waits
 
 Phase 1 events carry only exported lifecycle, topology, focus, terminal status,
-and command-completion facts. They do not carry terminal output bytes, scrollback,
-zmx history, raw runtime envelopes, or arbitrary internal event payloads.
+command-completion, and permission-state facts. They do not carry terminal output
+bytes, scrollback, zmx history, raw runtime envelopes, or arbitrary internal event
+payloads.
 
 The observer model is snapshot plus live stream:
 
@@ -686,6 +1068,9 @@ Rules:
 
 - Events are observations only.
 - Commands never enter through event subscriptions.
+- Inbound client notifications named `events.notification`,
+  `permission.requestResolved`, or any other server-originated event name are
+  rejected and leave `GrantLedger` unchanged.
 - Phase 1 does not promise durable replay.
 - The server may keep a bounded in-memory buffer for active subscribers.
 - Slow subscribers are disconnected with a terminal error notification.
@@ -696,6 +1081,53 @@ Rules:
   explicitly includes and redacts them.
 - Methods that return `accepted` must emit a later completion/failure event when
   the underlying owner can observe one.
+
+Permission events are scoped public DTOs:
+
+```text
+permission.requestCreated
+permission.requestResolved
+permission.grantRevoked
+permission.grantExpired
+```
+
+Minimum permission event payload:
+
+```text
+requestId
+grantId?
+principalId
+state
+requestedScope or grantedScope
+approvalRoute?
+expiresAt?
+reasonCode?
+correlationId?
+```
+
+Permission event visibility:
+
+```text
+requesting principal
+  may observe status for its own requests and grants
+
+human/app approval surface
+  may observe pending requests routed to human/app approval
+
+delegated approving principal
+  may observe pending requests routed to it, limited to the canonical scope it
+  is allowed to approve
+
+other principals
+  observe nothing by default
+
+future privileged observer
+  requires an explicit observer privilege and separate threat model
+```
+
+Permission events must not include tokens, terminal input payloads, terminal
+output, scrollback, raw paths, URLs, prompts, browser contents, zmx socket paths,
+zmx session ids, zmx history, or zmx protocol details.
 
 `terminal.wait` is a request/response method with a bounded timeout. It must use
 admission limits so long waits cannot starve short RPC calls. It waits on a
@@ -810,8 +1242,15 @@ Security rules:
 
 - No production world-writable socket mode.
 - Same-uid peer credential check before token validation.
-- Memory-only default token for `agentStudioOnly`.
+- Memory-only subject tokens for `agentStudioOnly`.
 - Redact tokens in logs, traces, telemetry, and errors.
+- Treat subject-token leakage as principal impersonation for that token's
+  lifetime.
+- Keep approval authority server-side on principals, grants, and app-owned policy
+  records; do not encode self-describing authority claims into bearer tokens.
+- App policy may pre-approve, deny, or ask for grants according to user-configured
+  rules. Human prompt is a route, not the only approval mechanism.
+- Delegated approval requires `grantApprove` over the canonical requested scope.
 - Audit mutating methods with method name, target, privilege class, and
   correlation id, without sensitive payload values.
 - Bound frame size, request duration, open connection count, and long waits.
@@ -821,7 +1260,8 @@ Security rules:
 - Treat cwd, window/title text, command lines, search query/state, progress text,
   secure-input transitions, paths, URLs, terminal output, scrollback, zmx
   history, prompts, and browser/webview content as sensitive by default.
-- Do not put app-control tokens into zmx daemon state.
+- Do not put app-control tokens, principals, grants, or approval policies into zmx
+  daemon state.
 - Do not proxy or expose remote zmx sockets in phase 1. Future SSH-forwarded zmx
   support changes authentication, custody, audit, and failure semantics.
 - Future plugin or MCP hosts must receive explicitly scoped privileges and must
@@ -849,12 +1289,26 @@ transport tests
 auth tests
   unauthenticated command rejected
   invalid token rejected
-  agentStudioOnly token is not written to disk
+  agentStudioOnly subject token is not written to disk
   spawned-session env contains socket/token
   same-uid/peer credential checks
   token rotates on runtime/listener restart
   repeated failed auth closes the connection
   automationSameUser bootstrap material is never present in agentStudioOnly
+  subject token maps to a server-bound principal, never caller-supplied pane hints
+  bound pane close invalidates the principal and future auth attempts
+
+grant tests
+  baseline selfPane grants are derived after authentication
+  selfPane remains stable when UI focus changes
+  terminal.send to another pane is denied without a matching grant
+  appPolicy can auto-approve, auto-deny, or ask according to configured rules
+  delegated approval requires grantApprove over the canonical requested scope
+  permission.resolveRequest cannot approve a request without grantApprove
+  cross-pane/global mutating grants are connection-bound or one-shot by default
+  grant state is not persisted in phase 1
+  grants revoke on TTL, pane close, target disappearance, listener restart,
+  runtime id change, token rotation, explicit revoke, or one-shot consumption
 
 registry tests
   every method has params/result schema
@@ -874,9 +1328,11 @@ adapter tests
 event tests
   subscribe/unsubscribe
   status event delivery
+  permission event visibility
   slow subscriber disconnect
   no terminal output in phase-1 events
   exported event allowlist blocks internal-only payloads
+  inbound client notifications cannot mutate GrantLedger
   replay gap or restart requires snapshot refresh
   terminal.wait accepts only exported wait conditions
   terminal.send result is not shell command completion
@@ -890,11 +1346,11 @@ become Linear tickets after the spec and plan are approved.
 ```text
 1. IPC architecture and contract spec
 2. Generic Unix JSON-RPC transport and codec
-3. Auth/access-mode service and spawned-session token injection
-4. Method registry, schemas, capabilities, and handle registry
+3. Auth/access-mode service, subject-token minting, and principal binding
+4. Method registry, schemas, capabilities, grants, permissions, and handles
 5. App/workspace/pane query and command adapters
 6. Terminal runtime adapter and bounded terminal methods
-7. Event subscription and wait model
+7. Event subscription, permission events, and wait model
 8. CLI client for local agents
 9. zmx backend IPC vendor verification and transport-swap plan
 10. Future MCP adapter design and implementation
@@ -902,10 +1358,17 @@ become Linear tickets after the spec and plan are approved.
 
 ## Open Decisions
 
-The current target default is `agentStudioOnly` enabled, with a memory-only
-token injected into AgentStudio-spawned sessions. `automationSameUser` is opt-in
+The current target default is `agentStudioOnly` enabled, with memory-only subject
+tokens injected into AgentStudio-spawned sessions. `automationSameUser` is opt-in
 for external local tools. Keep this as the default unless spec review changes
 the threat model or first consumer.
+
+Human-in-the-loop approval is not required for every permission request. The
+target model allows user-configured app policy to auto-approve, auto-deny, or ask
+for grants, and allows delegated approval by principals with `grantApprove` over
+the requested canonical scope. If delegated approval is too large for the first
+code slice, keep `permission.resolveRequest` reserved/unregistered while still
+shipping app-policy and human-prompt routes through the same approval model.
 
 Phase-1 expansion methods `workspace.select`, `pane.split`, `pane.close`, and
 `terminal.interrupt` stay deferred until the spec names their exact owner chain
