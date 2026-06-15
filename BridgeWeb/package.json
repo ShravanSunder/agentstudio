@@ -4,7 +4,7 @@
 	"description": "AgentStudio Bridge review surface foundation",
 	"type": "module",
 	"scripts": {
-		"build": "tsc --noEmit && vite build",
+		"build": "tsc --noEmit && vite build && node scripts/normalize-build-output.mjs",
 		"check": "oxlint --type-aware && oxfmt --check . && tsc --noEmit",
 		"fmt": "oxfmt .",
 		"fmt:check": "oxfmt --check .",
