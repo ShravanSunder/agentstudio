@@ -1,0 +1,131 @@
+import AgentStudioAppIPC
+import AgentStudioProgrammaticControl
+import Foundation
+import Testing
+
+@Suite("AgentStudio IPC registry and authorization")
+struct AgentStudioIPCRegistryAuthorizationTests {
+    @Test("phase-one registry has complete metadata and no deferred namespaces")
+    func phaseOneRegistryHasCompleteMetadataAndNoDeferredNamespaces() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "bridge.", "orchestration."]
+
+        #expect(registry.definitions.count == 25)
+        for definition in registry.definitions {
+            #expect(!definition.paramsSchema.name.isEmpty)
+            #expect(!definition.resultSchema.name.isEmpty)
+            #expect(!definition.privilegeClasses.isEmpty)
+            #expect(!forbiddenPrefixes.contains { definition.name.hasPrefix($0) })
+        }
+    }
+
+    @Test("authorizes selfPane terminal send from the bound principal pane")
+    func authorizesSelfPaneTerminalSendFromBoundPrincipalPane() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: GrantLedger(),
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+
+        try service.authorize(
+            principal: principal,
+            methodName: "terminal.send",
+            requestedTarget: .selfPane,
+            activePaneId: "pane-2"
+        )
+    }
+
+    @Test("denies cross-pane terminal send without an elevated grant")
+    func deniesCrossPaneTerminalSendWithoutElevatedGrant() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: GrantLedger(),
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "terminal.send",
+                requestedTarget: .pane("pane-2"),
+                activePaneId: "pane-2"
+            )
+        }
+    }
+
+    @Test("authorizes cross-pane terminal send with a canonical active grant")
+    func authorizesCrossPaneTerminalSendWithCanonicalActiveGrant() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let grantLedger = GrantLedger()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: grantLedger,
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .terminalInputWrite, target: .pane("pane-2"), dataScope: .terminalInput),
+            to: principal.principalId
+        )
+
+        try service.authorize(
+            principal: principal,
+            methodName: "terminal.send",
+            requestedTarget: .pane("pane-2"),
+            activePaneId: "pane-3"
+        )
+    }
+
+    @Test("requires every privilege on multi-privilege methods")
+    func requiresEveryPrivilegeOnMultiPrivilegeMethods() throws {
+        let method = try IPCMethodDefinition(
+            name: "pane.inspectAndFocus",
+            privilegeClasses: [.paneContextRead, .layoutMutate],
+            executionOwner: .workspaceAction,
+            resultSemantics: .applied
+        )
+        let grantLedger = GrantLedger()
+        let service = AuthorizationService(
+            methodRegistry: AppIPCMethodRegistry(definitions: [method]),
+            grantLedger: grantLedger,
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "pane.inspectAndFocus",
+                requestedTarget: .selfPane,
+                activePaneId: nil
+            )
+        }
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .layoutMutate, target: .pane("pane-1"), dataScope: .paneContext),
+            to: principal.principalId
+        )
+
+        try service.authorize(
+            principal: principal,
+            methodName: "pane.inspectAndFocus",
+            requestedTarget: .selfPane,
+            activePaneId: nil
+        )
+    }
+}
+
+private func makeAuthorizationPrincipal(boundPaneId: String) -> IPCPrincipal {
+    IPCPrincipal(
+        principalId: UUID(),
+        runtimeId: UUID(),
+        accessMode: .agentStudioOnly,
+        kind: .spawnedPaneAgent(boundPaneId: boundPaneId, boundWorkspaceId: nil),
+        approvalAuthority: .noApprovalAuthority
+    )
+}

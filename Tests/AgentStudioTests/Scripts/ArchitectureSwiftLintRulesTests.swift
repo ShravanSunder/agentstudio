@@ -31,7 +31,7 @@ struct ArchitectureSwiftLintRulesTests {
 
         #expect(pin.contains("AGENTSTUDIO_ARCH_SWIFTLINT_REPO_URL=https://github.com/ShravanSunder/ai-tools.git"))
         #expect(pin.contains("AGENTSTUDIO_ARCH_SWIFTLINT_REF=agentstudio-swiftlint-architecture-rules-2026-06-14"))
-        #expect(pin.contains("AGENTSTUDIO_ARCH_SWIFTLINT_COMMIT=280eb2a1925ff3f89d6e67f2a728129f7247f723"))
+        #expect(pin.contains("AGENTSTUDIO_ARCH_SWIFTLINT_COMMIT=1bc0e474c48cf01c815f83e16abd65be6d27f51b"))
         #expect(pin.contains("AGENTSTUDIO_ARCH_SWIFTLINT_SUBDIR=swiftlint/agentstudio-architecture-rules"))
     }
 
@@ -42,7 +42,7 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout.contains("repo_url=https://github.com/ShravanSunder/ai-tools.git"))
         #expect(result.stdout.contains("ref=agentstudio-swiftlint-architecture-rules-2026-06-14"))
-        #expect(result.stdout.contains("commit=280eb2a1925ff3f89d6e67f2a728129f7247f723"))
+        #expect(result.stdout.contains("commit=1bc0e474c48cf01c815f83e16abd65be6d27f51b"))
         #expect(result.stdout.contains("subdir=swiftlint/agentstudio-architecture-rules"))
     }
 
@@ -56,6 +56,11 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(result.stdout.contains("agentstudio_derived_value_declared_inputs"))
         #expect(result.stdout.contains("agentstudio_repo_cache_keyed_reads"))
         #expect(result.stdout.contains("agentstudio_worktree_enrichment_comparator"))
+        #expect(result.stdout.contains("agentstudio_ipc_programmatic_control_boundary"))
+        #expect(result.stdout.contains("agentstudio_appipc_port_boundary"))
+        #expect(result.stdout.contains("agentstudio_ipc_composition_location"))
+        #expect(result.stdout.contains("agentstudio_ipc_public_surface_sanitization"))
+        #expect(result.stdout.contains("agentstudio_ipc_no_direct_atom_access"))
     }
 
     @Test("custom SwiftLint runner still honors repo regex custom rules")

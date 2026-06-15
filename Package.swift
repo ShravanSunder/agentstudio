@@ -26,6 +26,7 @@ let package = Package(
         .executableTarget(
             name: "AgentStudio",
             dependencies: [
+                "AgentStudioAppIPC",
                 "GhosttyKit",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "GRDB", package: "GRDB.swift"),
@@ -70,6 +71,63 @@ let package = Package(
                 .linkedFramework("AuthenticationServices"),
                 .linkedLibrary("z"),
                 .linkedLibrary("c++"),
+            ]
+        ),
+        .target(
+            name: "AgentStudioIPCTransport",
+            path: "Sources/AgentStudioIPCTransport",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioProgrammaticControl",
+            path: "Sources/AgentStudioProgrammaticControl",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioAppIPC",
+            dependencies: [
+                "AgentStudioIPCTransport",
+                "AgentStudioProgrammaticControl",
+            ],
+            path: "Sources/AgentStudioAppIPC",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioIPCTransportTests",
+            dependencies: [
+                "AgentStudioIPCTransport"
+            ],
+            path: "Tests/AgentStudioIPCTransportTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioProgrammaticControlTests",
+            dependencies: [
+                "AgentStudioProgrammaticControl"
+            ],
+            path: "Tests/AgentStudioProgrammaticControlTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioAppIPCTests",
+            dependencies: [
+                "AgentStudioAppIPC",
+                "AgentStudioIPCTransport",
+                "AgentStudioProgrammaticControl",
+            ],
+            path: "Tests/AgentStudioAppIPCTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
             ]
         ),
         .testTarget(

@@ -15,6 +15,11 @@ architecture lint rule.
 | Hot production reads use keyed repo-cache readers instead of raw observable dictionaries. | `agentstudio_repo_cache_keyed_reads` | `docs/architecture/atom_persistence_boundaries.md` |
 | `WorktreeEnrichment` atom comparators do not use raw equality. | `agentstudio_worktree_enrichment_comparator` | `docs/architecture/atom_persistence_boundaries.md` |
 | New state files use the `State/MainActor/{Atoms,Persistence}` path convention. | `agentstudio_state_actor_path` | `docs/architecture/directory_structure.md` |
+| `AgentStudioProgrammaticControl` stays a UI-free, app-owner-free contract target. | `agentstudio_ipc_programmatic_control_boundary` | `docs/architecture/agentstudio_ipc_architecture.md` |
+| `AgentStudioAppIPC` depends on protocol ports rather than concrete app/runtime owners. | `agentstudio_appipc_port_boundary` | `docs/architecture/agentstudio_ipc_architecture.md` |
+| Concrete AppIPC port implementations stay under `Sources/AgentStudio/App/IPCComposition/`. | `agentstudio_ipc_composition_location` | `docs/architecture/agentstudio_ipc_architecture.md` |
+| Public IPC surfaces do not expose `zmx.*` methods or raw runtime/zmx payload types. | `agentstudio_ipc_public_surface_sanitization` | `docs/architecture/agentstudio_ipc_architecture.md` |
+| AppIPC services and composition adapters do not read atoms directly. | `agentstudio_ipc_no_direct_atom_access` | `docs/architecture/agentstudio_ipc_architecture.md` |
 | The custom SwiftLint extension remains registered through a sentinel rule. | `agentstudio_no_forbidden_architecture_marker` | ai-tools SwiftLint fixtures |
 
 ## Former Shell Script Coverage

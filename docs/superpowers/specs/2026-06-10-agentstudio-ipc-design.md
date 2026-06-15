@@ -379,15 +379,17 @@ unsafeDebug
 disk, any same-user process can read it and the mode collapses into
 `automationSameUser`.
 
-In `agentStudioOnly`, the exported bearer value is an opaque subject token. The
-environment variable name stays `AGENTSTUDIO_IPC_TOKEN`, but the token's phase-1
-meaning is per spawned subject, not one shared app-runtime token. AppIPC mints
-the token before terminal/session environment construction, records it in private
-runtime memory, and maps it to one `IPCPrincipal`.
+In `agentStudioOnly`, the bearer value is an opaque subject token, but it must
+not be exported through the process environment. Same-user processes can inspect
+environment variables on macOS, so putting the bearer there collapses
+pane-scoped authority into same-user ambient authority. AppIPC mints the token
+before terminal/session spawn, records it in private runtime memory, maps it to
+one `IPCPrincipal`, and hands it to the spawned subject through a
+non-enumerable bootstrap channel owned by the app spawn adapter.
 
 ```text
 Subject token
-  opaque bearer token injected into one spawned pane/session
+  opaque bearer token delivered to one spawned pane/session
   stored only in AppIPC runtime memory
   maps to one IPCPrincipal
   rotates with listener/runtime identity changes
@@ -400,25 +402,26 @@ Subject-token minting is eager:
 pane/session spawn begins
   -> AgentStudioAppIPC mints subject token
   -> AgentStudioAppIPC records token -> principalId + boundPaneId in memory
-  -> AgentStudioAppIPC returns env vars to the app's terminal spawn seam
-  -> terminal/session process inherits token
+  -> AgentStudioAppIPC returns non-secret env vars to the terminal spawn seam
+  -> app spawn adapter delivers token through a non-enumerable bootstrap channel
 ```
 
 `auth.login` only looks up the supplied token in this private registry. It never
 accepts a caller-supplied pane hint, friendly ref, active focus, or environment
 value as the source of principal binding.
 
-The app injects the token and socket path into spawned terminal sessions:
+The app injects only non-secret routing metadata into spawned terminal sessions:
 
 ```text
 AGENTSTUDIO_IPC_SOCKET=<socket path>
-AGENTSTUDIO_IPC_TOKEN=<opaque subject token>
 AGENTSTUDIO_IPC_RUNTIME_ID=<runtime id>
 ```
 
 Optional non-secret diagnostics may include
 `AGENTSTUDIO_IPC_PRINCIPAL_HINT=<principal id>`, but the hint is never trusted.
-Only the token lookup inside AppIPC binds the principal.
+Only the token lookup inside AppIPC binds the principal. The token bootstrap
+channel is intentionally left to the app spawn-adapter implementation slice; it
+must not be an environment variable or persisted metadata file.
 
 The first client request on a connection must authenticate:
 

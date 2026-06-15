@@ -147,7 +147,7 @@ composition/integration tests.
 | Narrow IPC test targets prove transport/contracts/AppIPC boundaries without depending on the AgentStudio executable target | T1/T4 | SwiftPM test target graph | `swift test --filter` or targeted test run for dedicated IPC test targets | Compile/test | Existing `AgentStudioTests` remains for executable integration only, not boundary proof | No | Yes |
 | App IPC metadata and socket paths are derived from `AppDataPaths.rootDirectory()` under `<root>/ipc` | T2 | `AgentStudioAppIPC` service tests | Unit tests with injected environment/root/channel | Unit | Tests assert stable/beta/debug/env override paths and owner-only metadata mode | Yes | Yes |
 | Filesystem trust fails closed for symlinks, wrong owner, group/world access, and stale live socket ownership | T2 | `AgentStudioAppIPC` filesystem trust tests | Temp-dir tests with permission fixtures where platform allows | Integration | Permission checks skipped only when Darwin cannot set a mode, with explicit assertions for supported paths | Yes | Yes |
-| `agentStudioOnly` subject tokens are memory-only, minted before session env construction, and map to server-bound principals | T3 | Auth service and session env tests | Unit tests for subject-token registry plus environment-construction tests | Unit/integration | Tests scan metadata output for token absence and assert env contains socket/token/runtime id; `auth.login` never trusts caller pane hints | Yes | Yes |
+| `agentStudioOnly` subject tokens are memory-only, minted before session spawn, and map to server-bound principals | T3 | Auth service and spawn-bootstrap tests | Unit tests for subject-token registry plus environment-construction tests | Unit/integration | Tests scan metadata and env output for token absence and assert env contains only non-secret socket/runtime id routing data; `auth.login` never trusts caller pane hints | Yes | Yes |
 | Same-uid peer credential check runs before token auth and auth failures close/reject as specified | T3 | Transport/auth tests | Peer credential abstraction fake tests plus live same-uid happy path if feasible | Unit/integration | Peer credential abstraction is injectable so behavior is not dependent on CI socket support | Yes | Yes |
 | Principal lifetime follows bound pane and runtime identity | T3 | Principal registry tests | Unit tests over pane-close, listener restart, runtime-id change, token rotation | Unit | Closed-pane subject token returns `-32001 unauthenticated` and grants are revoked | Yes | Yes |
 | Method registry requires schemas, privilege class, execution owner, result semantics, and principal availability metadata for every phase-1 method | T4 | Registry tests | Reflection/table tests over registered methods | Unit | Test fails on missing metadata, deferred namespace registration, or method exposure to a principal without a matching grant path | Yes | Yes |
@@ -322,9 +322,11 @@ Proof:
   registry and ignores caller-supplied pane hints.
 - Principal lifetime tests prove bound pane close invalidates future auth and
   revokes grants.
-- Env injection tests prove the spawned session receives
-  `AGENTSTUDIO_IPC_SOCKET`, `AGENTSTUDIO_IPC_TOKEN`, and
+- Env injection tests prove the spawned session environment receives only
+  non-secret routing metadata such as `AGENTSTUDIO_IPC_SOCKET` and
   `AGENTSTUDIO_IPC_RUNTIME_ID`.
+- Spawn-bootstrap tests prove the subject token is delivered through a
+  non-enumerable channel, not an environment variable or metadata file.
 - Metadata tests prove the subject token is not persisted in `agentStudioOnly`.
 - Redaction tests use a sentinel token and prove it is absent from logs, traces,
   telemetry/audit payloads, JSON-RPC errors, `auth.status`, and events.
@@ -600,7 +602,7 @@ Write surfaces:
 Implement:
 
 - Socket discovery from explicit flag, `AGENTSTUDIO_IPC_SOCKET`, and metadata.
-- Auth from `AGENTSTUDIO_IPC_TOKEN` or explicit token input.
+- Auth from a non-enumerable app bootstrap credential or explicit token input.
 - Commands for identify/capabilities/list/current/pane focus/terminal send/wait.
 - Machine-readable output by default; optional human output can follow later.
 - No imports of `AgentStudioAppIPC` or the AgentStudio executable target. The CLI
