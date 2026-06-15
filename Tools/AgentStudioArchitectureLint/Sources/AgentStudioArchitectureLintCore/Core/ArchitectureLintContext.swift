@@ -11,24 +11,8 @@ struct ArchitectureLintContext {
     }
 
     func location(for position: AbsolutePosition) -> (line: Int, column: Int) {
-        let targetOffset = max(0, position.utf8Offset)
-        var currentOffset = 0
-        var line = 1
-        var column = 1
-
-        for byte in source.utf8 {
-            if currentOffset >= targetOffset {
-                break
-            }
-            currentOffset += 1
-            if byte == 10 {
-                line += 1
-                column = 1
-            } else {
-                column += 1
-            }
-        }
-
-        return (line, column)
+        let converter = SourceLocationConverter(fileName: path, tree: sourceFile)
+        let location = converter.location(for: position)
+        return (location.line, location.column)
     }
 }

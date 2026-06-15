@@ -51,11 +51,10 @@ struct SourceFileDiscovery {
     }
 
     private func shouldSkip(path: String) -> Bool {
-        let normalized = path.replacingOccurrences(of: "\\", with: "/")
-        return normalized.contains("/vendor/")
-            || normalized.contains("/.build/")
-            || normalized.contains("/Frameworks/")
-            || normalized.contains("/Tools/AgentStudioArchitectureLint/.build/")
+        let skippedComponents = Set(["vendor", ".build", "Frameworks"])
+        return URL(fileURLWithPath: path).pathComponents.contains { component in
+            skippedComponents.contains(component)
+        }
     }
 
     private func isRegularFile(url: URL) -> Bool {

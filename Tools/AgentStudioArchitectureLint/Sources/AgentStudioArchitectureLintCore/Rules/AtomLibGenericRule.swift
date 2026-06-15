@@ -43,6 +43,9 @@ private final class AtomLibGenericVisitor: SyntaxVisitor {
     }
 
     override func visitPost(_ node: DeclReferenceExprSyntax) {
+        guard !node.isMemberAccessName else {
+            return
+        }
         let name = node.baseName.text
         guard deniedNames.contains(name) || productPrefixes.contains(where: { name.hasPrefix($0) }) else {
             return

@@ -20,6 +20,15 @@ struct ArchitectureViolation {
     let message: String
 }
 
+extension DeclReferenceExprSyntax {
+    var isMemberAccessName: Bool {
+        guard let memberAccess = parent?.as(MemberAccessExprSyntax.self) else {
+            return false
+        }
+        return memberAccess.declName.baseName.text == baseName.text
+    }
+}
+
 final class ImportCollectingVisitor: SyntaxVisitor {
     private(set) var imports: [ImportRecord] = []
 

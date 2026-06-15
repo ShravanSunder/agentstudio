@@ -27,8 +27,7 @@ private final class WorktreeEnrichmentComparatorVisitor: SyntaxVisitor {
         }
 
         for argument in node.arguments where argument.label?.text == "isContentEqual" {
-            let expression = argument.expression.trimmedDescription
-            if expression == "==" || expression.contains("==") {
+            if isRawWorktreeEquality(expression: argument.expression.trimmedDescription) {
                 violations.append(
                     ArchitectureViolation(
                         position: argument.positionAfterSkippingLeadingTrivia,
@@ -37,5 +36,14 @@ private final class WorktreeEnrichmentComparatorVisitor: SyntaxVisitor {
                 )
             }
         }
+    }
+
+    private func isRawWorktreeEquality(expression: String) -> Bool {
+        let compact = expression.filter { !$0.isWhitespace }
+        return compact == "=="
+            || compact.contains("inlhs==rhs")
+            || compact.contains("inrhs==lhs")
+            || compact.contains("in$0==$1")
+            || compact.contains("in$1==$0")
     }
 }

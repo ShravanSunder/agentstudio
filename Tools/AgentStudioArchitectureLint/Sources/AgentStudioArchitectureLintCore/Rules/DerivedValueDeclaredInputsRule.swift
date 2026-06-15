@@ -73,6 +73,9 @@ private final class DerivedValueClosureVisitor: SyntaxVisitor {
     }
 
     override func visitPost(_ node: DeclReferenceExprSyntax) {
+        guard !node.isMemberAccessName else {
+            return
+        }
         guard deniedNames.contains(node.baseName.text) || hiddenInputHelperNames.contains(node.baseName.text) else {
             return
         }
