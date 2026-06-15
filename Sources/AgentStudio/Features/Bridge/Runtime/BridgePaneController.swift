@@ -77,6 +77,10 @@ final class BridgePaneController {
     private(set) var isContentInteractionEnabled: Bool
     private var interactionApplyTask: Task<Void, Never>?
     private var inboxPostTimestamps: [Date] = []
+    private let telemetryScopeGate: BridgeTelemetryScopeGate
+    private let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    private let traceContextFactory: BridgeTraceContextFactory
+    var lastReviewPackageTraceContext: BridgeTraceContext?
 
     /// Per store+op dedup cache. Bounded at O(StoreKey × PushOp) — currently 8 entries max.
     /// Each entry stores the epoch it was pushed in + the payload bytes. Dedup only matches
@@ -97,10 +101,29 @@ final class BridgePaneController {
         paneId: UUID,
         state: BridgePaneState,
         metadata: PaneMetadata? = nil,
-        reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil
+        reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
+        traceRuntime: AgentStudioTraceRuntime? = nil,
+        telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy = .live,
+        telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
+        telemetryIngestor: (any BridgeTelemetryBatchIngesting)? = nil,
+        traceContextFactory: BridgeTraceContextFactory = .live
     ) {
         self.paneId = paneId
         self.bridgePaneState = state
+        let telemetryDependencies = Self.resolveTelemetryDependencies(
+            traceRuntime: traceRuntime,
+            telemetryRuntimePolicy: telemetryRuntimePolicy,
+            telemetryScopeGate: telemetryScopeGate,
+            telemetryRecorder: telemetryRecorder,
+            telemetryIngestor: telemetryIngestor
+        )
+        let resolvedTelemetryScopeGate = telemetryDependencies.scopeGate
+        let resolvedTelemetryRecorder = telemetryDependencies.recorder
+        let resolvedTelemetryIngestor = telemetryDependencies.ingestor
+        self.telemetryScopeGate = resolvedTelemetryScopeGate
+        self.telemetryRecorder = resolvedTelemetryRecorder
+        self.traceContextFactory = traceContextFactory
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
         self.reviewContentStore = BridgeContentStore(provider: resolvedReviewSourceProvider)
         self.reviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
@@ -141,8 +164,20 @@ final class BridgePaneController {
         // sets up nonce-validated command forwarding, and dispatches handshake event.
         let bridgeNonce = UUID().uuidString
         let pushNonce = UUID().uuidString
+        let webTelemetryScopes = resolvedTelemetryScopeGate.browserExposedScopes
+        let telemetryConfig =
+            !webTelemetryScopes.isEmpty
+            ? BridgeTelemetryBootstrapConfig.enabled(
+                scopes: webTelemetryScopes,
+                scenario: BridgeTelemetryBootstrapConfig.packageApplyContentFetchScenario
+            )
+            : nil
         let bootstrapScript = WKUserScript(
-            source: BridgeBootstrap.generateScript(bridgeNonce: bridgeNonce, pushNonce: pushNonce),
+            source: BridgeBootstrap.generateScript(
+                bridgeNonce: bridgeNonce,
+                pushNonce: pushNonce,
+                telemetryConfig: telemetryConfig
+            ),
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true,
             in: bridgeWorld
@@ -155,7 +190,8 @@ final class BridgePaneController {
         if let scheme = URLScheme("agentstudio") {
             config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
                 paneId: paneId,
-                contentStore: reviewContentStore
+                contentStore: reviewContentStore,
+                telemetryRecorder: resolvedTelemetryRecorder
             )
         }
 
@@ -167,6 +203,61 @@ final class BridgePaneController {
         )
 
         self.router = RPCRouter()
+        configureRouter(
+            router,
+            messageHandler: messageHandler,
+            telemetryRecorder: resolvedTelemetryRecorder,
+            telemetryIngestor: resolvedTelemetryIngestor
+        )
+
+        onRuntimeEvent = { [weak self] event, commandId, correlationId in
+            self?.runtime.ingestBridgeEvent(event, commandId: commandId, correlationId: correlationId)
+        }
+        onRuntimeCommandAck = { [weak self] ack in
+            self?.runtime.recordCommandAck(ack)
+        }
+        runtime.commandHandler = self
+
+        registerNamespaceHandlers()
+    }
+
+    private nonisolated static func resolveTelemetryDependencies(
+        traceRuntime: AgentStudioTraceRuntime?,
+        telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy,
+        telemetryScopeGate: BridgeTelemetryScopeGate?,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)?,
+        telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
+    ) -> (
+        scopeGate: BridgeTelemetryScopeGate,
+        recorder: (any BridgePerformanceTraceRecording)?,
+        ingestor: (any BridgeTelemetryBatchIngesting)?
+    ) {
+        guard telemetryRuntimePolicy.allowsTelemetry else {
+            return (BridgeTelemetryScopeGate(enabledScopes: []), nil, nil)
+        }
+
+        let resolvedScopeGate = telemetryScopeGate ?? BridgeTelemetryScopeGate(traceRuntime: traceRuntime)
+        let resolvedRecorder =
+            telemetryRecorder
+            ?? (resolvedScopeGate.isEnabled ? BridgePerformanceTraceRecorder(traceRuntime: traceRuntime) : nil)
+        let resolvedIngestor =
+            resolvedScopeGate.isEnabled(.web)
+            ? (telemetryIngestor
+                ?? resolvedRecorder.map {
+                    BridgeTelemetryIngestor(scopeGate: resolvedScopeGate, recorder: $0)
+                })
+            : nil
+        return (resolvedScopeGate, resolvedRecorder, resolvedIngestor)
+    }
+
+    private func configureRouter(
+        _ router: RPCRouter,
+        messageHandler: RPCMessageHandler,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)?,
+        telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
+    ) {
+        router.telemetryRecorder = telemetryRecorder
+        router.telemetryIngestor = telemetryIngestor
 
         // Log all RPC errors (parse errors, unknown methods, batch rejection, handler failures).
         // All error codes are reported through this single callback.
@@ -194,16 +285,6 @@ final class BridgePaneController {
             self?.handleBridgeReady()
             return nil
         }
-
-        onRuntimeEvent = { [weak self] event, commandId, correlationId in
-            self?.runtime.ingestBridgeEvent(event, commandId: commandId, correlationId: correlationId)
-        }
-        onRuntimeCommandAck = { [weak self] ack in
-            self?.runtime.recordCommandAck(ack)
-        }
-        runtime.commandHandler = self
-
-        registerNamespaceHandlers()
     }
 
     // MARK: - Content Interaction
@@ -643,9 +724,10 @@ extension BridgePaneController: PushTransport {
 
         // Phase 1: encode the push envelope (encoding bugs are NOT connection errors).
         let envelopeString: String
+        let traceContext = makePushTraceContext(for: store)
         do {
             let payload = try JSONSerialization.jsonObject(with: json)
-            let envelope: [String: Any] = [
+            var envelope: [String: Any] = [
                 "__v": 1,
                 "__revision": revision,
                 "__epoch": epoch,
@@ -655,6 +737,10 @@ extension BridgePaneController: PushTransport {
                 "level": level.rawValue,
                 "payload": payload,
             ]
+            if let traceContext {
+                let traceContextData = try JSONEncoder().encode(traceContext)
+                envelope["__traceContext"] = try JSONSerialization.jsonObject(with: traceContextData)
+            }
             let envelopeJSON = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
             guard let encoded = String(data: envelopeJSON, encoding: .utf8) else {
                 throw BridgeError.encoding("Unable to encode push envelope as UTF-8")
@@ -667,6 +753,7 @@ extension BridgePaneController: PushTransport {
             return
         }
         // Transport the envelope to React; transport failures are connection errors.
+        let pushStart = ContinuousClock.now
         do {
             try await page.callJavaScript(
                 "window.__bridgeInternal.applyEnvelope(JSON.parse(json))",
@@ -674,6 +761,13 @@ extension BridgePaneController: PushTransport {
                 contentWorld: bridgeWorld
             )
             lastPushed[dedupKey] = DedupEntry(epoch: epoch, payload: json)
+            await recordPackagePushTelemetry(
+                level: level,
+                traceContext: traceContext,
+                durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                    from: pushStart.duration(to: ContinuousClock.now)
+                )
+            )
             bridgeControllerLogger.debug(
                 "[BridgePaneController] pushJSON store=\(store.rawValue) op=\(op.rawValue) level=\(String(describing: level)) rev=\(revision) epoch=\(epoch) bytes=\(json.count)"
             )
@@ -683,6 +777,84 @@ extension BridgePaneController: PushTransport {
             )
             paneState.connection.setHealth(.error)
         }
+    }
+
+    func makeRootTraceContext() -> BridgeTraceContext? {
+        guard telemetryScopeGate.isEnabled else {
+            return nil
+        }
+        return traceContextFactory.makeRootContext()
+    }
+
+    func makeChildTraceContext(parent: BridgeTraceContext?) -> BridgeTraceContext? {
+        guard telemetryScopeGate.isEnabled else {
+            return nil
+        }
+        return traceContextFactory.makeChildContext(parent: parent)
+    }
+
+    private func makePushTraceContext(for store: StoreKey) -> BridgeTraceContext? {
+        guard telemetryScopeGate.isEnabled else {
+            return nil
+        }
+        guard store == .diff else {
+            return traceContextFactory.makeRootContext()
+        }
+        return traceContextFactory.makeChildContext(parent: lastReviewPackageTraceContext)
+    }
+
+    func recordSwiftTelemetry(
+        name: String,
+        phase: String,
+        lane: PushLevel,
+        traceContext: BridgeTraceContext?,
+        durationMilliseconds: Double?
+    ) async {
+        guard let telemetryRecorder else {
+            return
+        }
+        await telemetryRecorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .swift,
+                name: name,
+                durationMilliseconds: durationMilliseconds,
+                traceContext: traceContext,
+                stringAttributes: [
+                    "agentstudio.bridge.lane": lane.rawValue,
+                    "agentstudio.bridge.phase": phase,
+                    "agentstudio.bridge.transport": "swift",
+                ],
+                numericAttributes: [:],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
+    }
+
+    private func recordPackagePushTelemetry(
+        level: PushLevel,
+        traceContext: BridgeTraceContext?,
+        durationMilliseconds: Double
+    ) async {
+        guard let telemetryRecorder else {
+            return
+        }
+        await telemetryRecorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .webKit,
+                name: "performance.bridge.webkit.package_push",
+                durationMilliseconds: durationMilliseconds,
+                traceContext: traceContext,
+                stringAttributes: [
+                    "agentstudio.bridge.lane": level.rawValue,
+                    "agentstudio.bridge.phase": "transport",
+                    "agentstudio.bridge.transport": "push",
+                ],
+                numericAttributes: [:],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
     }
 }
 

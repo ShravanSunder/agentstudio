@@ -32,6 +32,38 @@ extension PaneCoordinator {
         return pane
     }
 
+    #if DEBUG
+        /// Open a deterministic Bridge review pane for local observability proof.
+        @discardableResult
+        func openBridgeReviewObservabilitySmoke() -> Pane? {
+            let state = BridgePaneState(panelKind: .diffViewer, source: nil)
+            let pane = store.paneAtom.createPane(
+                content: .bridgePanel(state),
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Bridge Observability Smoke"
+                )
+            )
+            bridgeReviewSourceProviderOverridesByPaneId[pane.id] = BridgeObservabilitySmokeReviewSourceProvider()
+            viewRegistry.ensureSlot(for: pane.id)
+
+            guard createViewForContent(pane: pane) != nil else {
+                Self.logger.error("Bridge observability smoke creation failed — rolling back pane \(pane.id)")
+                bridgeReviewSourceProviderOverridesByPaneId[pane.id] = nil
+                store.mutationCoordinator.removePane(pane.id)
+                viewRegistry.removeSlot(for: pane.id)
+                return nil
+            }
+
+            let tab = Tab(paneId: pane.id, name: tabNameForPane(pane))
+            store.tabLayoutAtom.appendTab(tab)
+            store.tabLayoutAtom.setActiveTab(tab.id)
+
+            Self.logger.info("Opened Bridge observability smoke pane \(pane.id)")
+            return pane
+        }
+    #endif
+
     private func bridgeReviewMetadata(
         from activePane: Pane?
     ) -> (metadata: PaneMetadata, source: BridgePaneSource?) {

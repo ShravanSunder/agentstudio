@@ -23,14 +23,46 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     artifact: artifact,
                     reviewGeneration: reviewGeneration
                 )
+                let packageTraceContext = makeRootTraceContext()
+                let packageBuildStart = ContinuousClock.now
                 let result = try await reviewPipeline.loadPackage(request)
+                await recordSwiftTelemetry(
+                    name: "performance.bridge.swift.package_build",
+                    phase: "package_build",
+                    lane: .cold,
+                    traceContext: packageTraceContext,
+                    durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                        from: packageBuildStart.duration(to: ContinuousClock.now)
+                    )
+                )
                 guard reviewGeneration == nextReviewGeneration else {
                     return .failure(.invalidPayload(description: "Stale bridge review load"))
                 }
+                lastReviewPackageTraceContext = packageTraceContext
+                let deltaBuildStart = ContinuousClock.now
                 let delta = try await reviewChangeIndex.ingestExplicitLoad(result.package)
+                await recordSwiftTelemetry(
+                    name: "performance.bridge.swift.delta_build",
+                    phase: "delta_build",
+                    lane: .warm,
+                    traceContext: makeChildTraceContext(parent: packageTraceContext),
+                    durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                        from: deltaBuildStart.duration(to: ContinuousClock.now)
+                    )
+                )
+                let contentRegisterStart = ContinuousClock.now
                 await reviewContentStore.activate(
                     handles: result.registeredContentHandles,
                     reviewGeneration: reviewGeneration
+                )
+                await recordSwiftTelemetry(
+                    name: "performance.bridge.swift.content_register",
+                    phase: "content_register",
+                    lane: .cold,
+                    traceContext: makeChildTraceContext(parent: packageTraceContext),
+                    durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                        from: contentRegisterStart.duration(to: ContinuousClock.now)
+                    )
                 )
                 paneState.diff.setPackageMetadata(
                     result.package.withRevision(delta?.revision ?? result.package.revision)
@@ -84,6 +116,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     private func refreshCurrentReviewPackage() async {
         guard let currentPackage = paneState.diff.packageMetadata else { return }
         do {
+            let packageTraceContext = makeRootTraceContext()
+            let packageBuildStart = ContinuousClock.now
             let result = try await reviewPipeline.loadPackage(
                 BridgeReviewPipelineRequest(
                     packageId: currentPackage.packageId,
@@ -95,6 +129,15 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
                 )
             )
+            await recordSwiftTelemetry(
+                name: "performance.bridge.swift.package_build",
+                phase: "package_build",
+                lane: .cold,
+                traceContext: packageTraceContext,
+                durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                    from: packageBuildStart.duration(to: ContinuousClock.now)
+                )
+            )
             guard !Task.isCancelled,
                 paneState.diff.packageMetadata?.packageId == currentPackage.packageId,
                 paneState.diff.packageMetadata?.reviewGeneration == currentPackage.reviewGeneration
@@ -102,10 +145,31 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 return
             }
 
+            lastReviewPackageTraceContext = packageTraceContext
+            let deltaBuildStart = ContinuousClock.now
             let delta = try await reviewChangeIndex.ingestExplicitLoad(result.package)
+            await recordSwiftTelemetry(
+                name: "performance.bridge.swift.delta_build",
+                phase: "delta_build",
+                lane: .warm,
+                traceContext: makeChildTraceContext(parent: packageTraceContext),
+                durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                    from: deltaBuildStart.duration(to: ContinuousClock.now)
+                )
+            )
+            let contentRegisterStart = ContinuousClock.now
             await reviewContentStore.activate(
                 handles: result.registeredContentHandles,
                 reviewGeneration: result.package.reviewGeneration
+            )
+            await recordSwiftTelemetry(
+                name: "performance.bridge.swift.content_register",
+                phase: "content_register",
+                lane: .cold,
+                traceContext: makeChildTraceContext(parent: packageTraceContext),
+                durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                    from: contentRegisterStart.duration(to: ContinuousClock.now)
+                )
             )
             paneState.diff.setPackageMetadata(
                 result.package.withRevision(delta?.revision ?? currentPackage.revision)

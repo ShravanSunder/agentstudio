@@ -117,9 +117,17 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     }
 
     private static func metricLabel(for attributeKey: String) -> String? {
-        guard attributeKey.hasPrefix("agentstudio.performance.") else { return nil }
+        if attributeKey.hasPrefix("agentstudio.performance.") {
+            let suffix = String(attributeKey.dropFirst("agentstudio.performance.".count))
+            return metricLabel(prefix: "agentstudio_performance", suffix: suffix)
+        }
 
-        let suffix = String(attributeKey.dropFirst("agentstudio.performance.".count))
+        guard allowedBridgeMetricAttributeKeys.contains(attributeKey) else { return nil }
+        let suffix = String(attributeKey.dropFirst("agentstudio.bridge.".count))
+        return metricLabel(prefix: "agentstudio_bridge", suffix: suffix)
+    }
+
+    private static func metricLabel(prefix: String, suffix: String) -> String? {
         guard !suffix.isEmpty else { return nil }
 
         let sanitized = suffix.unicodeScalars.map { scalar -> Character in
@@ -137,8 +145,15 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
 
         guard !sanitized.isEmpty else { return nil }
-        return "agentstudio_performance_\(sanitized)"
+        return "\(prefix)_\(sanitized)"
     }
+
+    private static let allowedBridgeMetricAttributeKeys: Set<String> = [
+        "agentstudio.bridge.batch.sample_count",
+        "agentstudio.bridge.content.byte_size_bucket",
+        "agentstudio.bridge.content.line_count_bucket",
+        "agentstudio.bridge.telemetry.dropped_count",
+    ]
 }
 
 struct AgentStudioOTLPPerformanceMetricSample: Equatable, Sendable {

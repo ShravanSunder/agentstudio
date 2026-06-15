@@ -128,12 +128,18 @@ extension WebKitSerializedTests {
 
         private func makeController(
             state: BridgePaneState = BridgePaneState(panelKind: .diffViewer, source: nil),
-            reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil
+            reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
+            telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
+            telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
+            traceContextFactory: BridgeTraceContextFactory = .live
         ) -> BridgePaneController {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: state,
-                reviewSourceProvider: reviewSourceProvider
+                reviewSourceProvider: reviewSourceProvider,
+                telemetryScopeGate: telemetryScopeGate,
+                telemetryRecorder: telemetryRecorder,
+                traceContextFactory: traceContextFactory
             )
         }
 

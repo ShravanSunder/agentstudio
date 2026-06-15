@@ -10,6 +10,60 @@
 
 ---
 
+## Execution Status: 2026-06-14
+
+This plan is active on the LUNA-337 Bridge branch. The current implementation
+has landed the debug-only Swift diagnostics plumbing, Bridge telemetry models
+and runtime, BridgeWeb summary recorder, Bridge smoke startup diagnostic, and
+the `scripts/verify-bridge-observability.sh` verifier. The remaining completion
+work is current validation, Victoria-backed proof, performance-cycle evidence,
+and implementation review.
+
+Current proof ledger:
+`docs/wip/bridge-observability/2026-06-14-bridge-observability-proof.md`.
+
+Fresh Victoria marker: `bridge-observability-1781487476`.
+
+The first Victoria cycle proved all three Bridge communication lanes and found a
+real export reliability gap: BridgeWeb RPC send and content fetch events were
+recorded locally but not flushed consistently at boundary crossings. That issue
+is fixed by forcing BridgeWeb telemetry flushes after non-telemetry RPC send
+records and content fetch records. The same cycle identified telemetry batch
+noise under repeated package pushes. That is fixed by using the existing
+`minimumFlushIntervalMilliseconds` telemetry config for non-forced flushes; the
+fresh proof marker shows `performance.bridge.webkit.telemetry_batch` reduced
+from 14 to 9 while `rpc_send` and `content_fetch` remained present. Review
+swarm follow-up also tightened browser telemetry to `.web`-only ingress,
+release-style telemetry disablement, oversized-batch drop accounting, failed
+flush retry behavior, review-push trace parent selection, and controlled
+`agentstudio.bridge.rpc.method_class` attribution for RPC traces. Remaining
+push timing work should be handled in a separate measured performance slice
+after adding a low-cardinality push-slice discriminator; the current
+`performance.bridge.webkit.package_push` event aggregates WebKit push
+transport, not only review package payloads.
+
+Current implementation choices that supersede earlier open wording in this
+plan:
+
+- The fixed proof scenario is
+  `package_apply_content_fetch_v1`.
+- The startup diagnostic action is
+  `bridge-review-observability-smoke`.
+- The deterministic smoke provider is DEBUG-only and in-memory.
+- The Bridge verifier is `mise run verify-bridge-observability`.
+- Logs and traces are scoped by both current `agentstudio.trace.name` marker and
+  `agentstudio.bridge.test.scenario`; metrics stay marker/event scoped to avoid
+  widening metric label cardinality.
+- BridgeWeb receives only browser-owned telemetry scopes. Browser-originated
+  batches may emit `.web` samples; Swift and WebKit samples are native-only.
+- Generic RPC telemetry uses `agentstudio.bridge.rpc.method_class` with
+  controlled values `review`, `telemetry`, and `other`. The verifier requires a
+  review RPC trace and rejects telemetry self-RPC logs or spans.
+- Content fetch defaults to summary correlation. The direct `traceparent`
+  custom-header proof is guarded by
+  `AGENT_STUDIO_WEBKIT_TRACEPARENT_FETCH_PROOF=on` because the headless WebKit
+  custom-scheme header lane can crash outside this slice.
+
 ## Source Coverage
 
 - `docs/superpowers/specs/2026-06-14-bridge-debug-telemetry-observability.md` is the canonical Bridge telemetry spec, 799 lines, read in full.
@@ -222,15 +276,19 @@ The verifier must assert each required family for the fixed scenario. Wildcard "
 | `performance.bridge.swift.content_load` | `BridgeContentStore` observation routed by `BridgeSchemeHandler` | content fetch parent when header supported, summary otherwise | Swift unit plus WebKit proof |
 | `performance.bridge.swift.telemetry_ingest` | `BridgeTelemetryIngestor` | telemetry batch trace, no self-RPC recursion | Swift unit |
 | `performance.bridge.webkit.package_push` | `BridgePaneController.pushJSON` | package build parent | Swift/WebKit test plus VictoriaTraces |
-| `performance.bridge.webkit.rpc_dispatch` | generic RPC router, excluding `system.bridgeTelemetry` | RPC client parent | `RPCRouterTests` plus VictoriaLogs |
-| `performance.bridge.webkit.rpc_response` | generic RPC router, excluding `system.bridgeTelemetry` | dispatch child | `RPCRouterTests` plus VictoriaLogs |
+| `performance.bridge.webkit.rpc_dispatch` | generic RPC router, excluding `system.bridgeTelemetry` | RPC client parent plus `rpc.method_class=review` for review commands | `RPCRouterTests` plus VictoriaLogs/VictoriaTraces |
+| `performance.bridge.webkit.rpc_response` | generic RPC router, excluding `system.bridgeTelemetry` | dispatch child plus controlled `rpc.method_class` | `RPCRouterTests` plus VictoriaLogs |
 | `performance.bridge.webkit.telemetry_batch` | raw telemetry sink path | none or telemetry trace | Swift unit plus verifier |
 | `performance.bridge.web.package_apply` | BridgeWeb app/review package apply | push trace context | Vitest plus VictoriaLogs |
 | `performance.bridge.web.rpc_send` | BridgeWeb RPC client, excluding `system.bridgeTelemetry` | RPC interaction trace | Vitest plus VictoriaLogs |
-| `performance.bridge.web.rpc_ack` | BridgeWeb response handling | RPC send child | Vitest plus VictoriaLogs |
 | `performance.bridge.web.content_fetch` | content resource loader | fetch trace context | Vitest plus verifier |
 | `performance.bridge.web.first_render` | review viewer shell | package/apply trace | Vitest plus verifier |
 | `performance.bridge.web.telemetry_drop` | BridgeWeb buffer/sink | summarized cold-lane event | Vitest plus verifier |
+
+`performance.bridge.web.rpc_ack` is intentionally not required in this plan.
+BridgeWeb does not yet own a response-consumer lane for `__bridge_response` or
+agent command-ack pushes; that belongs to a later bidirectional-response
+milestone if the Bridge viewer starts reacting to command results directly.
 
 ## Requirements/Proof Matrix
 
@@ -317,7 +375,7 @@ Add tests proving these selectors work:
     #expect(selection.unknownSelectors.isEmpty)
     #expect(selection.tags.contains(.bridgePerformanceSwift))
     #expect(selection.tags.contains(.bridgePerformanceWeb))
-#expect(selection.tags.contains(.bridgePerformanceWebKit))
+    #expect(selection.tags.contains(.bridgePerformanceWebKit))
 }
 ```
 
@@ -949,7 +1007,8 @@ Expected: exit 0.
 **Files:**
 - Create: `scripts/verify-bridge-observability.sh`
 - Modify: `.mise.toml`
-- Create: `Tests/AgentStudioTests/Scripts/BridgeObservabilityVerifierTests.swift` if script parsing logic is non-trivial.
+- Modify: `Tests/AgentStudioTests/Scripts/ObservabilityDebugLaunchScriptsTests.swift`
+  with the Bridge verifier contract assertion.
 - Create/update: `docs/wip/bridge-observability/2026-06-14-bridge-observability-proof.md`
 
 - [ ] **Step 1: Add a mise task**
@@ -977,11 +1036,15 @@ The script must:
 
 The verifier must find:
 
-- every event family in the Required Event Inventory for scenario `package_apply_content_fetch_v1`, or an explicit scenario-approved not-emitted note for `performance.bridge.swift.delta_build`
+- every event family in the Required Event Inventory for scenario `package_apply_content_fetch_v1`
 - at least one Bridge metric sample in VictoriaMetrics
-- at least one Bridge trace in VictoriaTraces with multiple spans or an explicit documented summary-correlation fallback for content fetch headers
+- a Swift package-build span, content-fetch span, and review RPC dispatch span
+  in VictoriaTraces
 - `agentstudio.bridge.test.scenario = package_apply_content_fetch_v1` on every collector-backed Bridge query
-- no `system.bridgeTelemetry` self-RPC `rpc_send`, `rpc_dispatch`, `rpc_response`, or `rpc_ack` records
+- no `system.bridgeTelemetry` self-RPC `rpc_send`, `rpc_dispatch`, or
+  `rpc_response` records
+- no telemetry self-RPC spans with
+  `agentstudio.bridge.rpc.method_class=telemetry`
 
 - [ ] **Step 4: Implement negative privacy queries**
 
@@ -1007,15 +1070,19 @@ Expected: collector, VictoriaLogs, VictoriaMetrics, and VictoriaTraces healthy; 
 
 - [ ] **Step 6: Add verifier script tests if query assembly is non-trivial**
 
-If `scripts/verify-bridge-observability.sh` builds more than simple fixed queries, add `Tests/AgentStudioTests/Scripts/BridgeObservabilityVerifierTests.swift` covering:
+If `scripts/verify-bridge-observability.sh` builds more than simple fixed
+queries, cover the verifier contract in
+`Tests/AgentStudioTests/Scripts/ObservabilityDebugLaunchScriptsTests.swift` or a
+dedicated script test file. Current required assertions:
 
-- missing state file
-- stale/not-running PID
-- missing scenario attribute
-- missing required event family
-- privacy sentinel hit
-- summary-correlated content fallback
-- telemetry self-RPC recursion rejection
+- `bridge-review-observability-smoke` is required
+- generic debug proof is invoked first
+- Swift, WebKit, and Web events are all queried
+- VictoriaTraces queries include the current marker, scenario, and review
+  `rpc.method_class`
+- unsafe item IDs remain a negative query
+- telemetry self-RPC is queried negatively in logs and traces
+- `.mise.toml` exposes `verify-bridge-observability`
 
 ## Task 7: Full Bridge Observability Proof Run
 
@@ -1065,7 +1132,9 @@ Run:
 mise run verify-bridge-observability
 ```
 
-Expected: exit 0 and proof output lists the current trace name, scenario id, logs count, metrics count, trace count, content-fetch correlation mode, required event inventory result, telemetry self-RPC recursion result, and negative canary result.
+Expected: exit 0 and proof output lists the current trace name, scenario id,
+logs count, metrics count, `traces=3`, telemetry self-RPC recursion result, and
+negative canary result.
 
 - [ ] **Step 5: Record proof**
 
@@ -1149,6 +1218,11 @@ delta: <value> ms / <percent>
 commands: <exact commands>
 trace names: <baseline>, <after>
 ```
+
+Before optimizing this event, split it with a low-cardinality push-slice
+attribute such as `review_package`, `review_delta`, `connection`, or `agent`.
+The current event measures WebKit push transport as a whole, so it is useful for
+detecting pressure but too broad for package-specific optimization claims.
 
 - [ ] **Step 5: Repeat for up to three cycles**
 

@@ -6,6 +6,7 @@ struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
     let body: String
     let traceID: String?
     let spanID: String?
+    let parentSpanID: String?
     let resource: [String: String]
     let scope: AgentStudioTraceRecord.Scope
     let attributes: [String: AgentStudioTraceValue]
@@ -23,8 +24,9 @@ enum AgentStudioOTLPTraceProjection {
             timeUnixNano: record.timeUnixNano,
             severityText: record.severityText,
             body: safeBody(record.body),
-            traceID: nil,
-            spanID: nil,
+            traceID: validTraceID(record.traceID),
+            spanID: validSpanID(record.spanID),
+            parentSpanID: validSpanID(record.parentSpanID),
             resource: resource,
             scope: record.scope,
             attributes: attributes
@@ -52,6 +54,16 @@ enum AgentStudioOTLPTraceProjection {
     private static let allowedStringAttributeKeys: Set<String> = [
         "agentstudio.app.startup.outcome",
         "agentstudio.app.startup.phase",
+        "agentstudio.bridge.cache.result",
+        "agentstudio.bridge.content.correlation_mode",
+        "agentstudio.bridge.content.role",
+        "agentstudio.bridge.generation.relation",
+        "agentstudio.bridge.lane",
+        "agentstudio.bridge.phase",
+        "agentstudio.bridge.rpc.method_class",
+        "agentstudio.bridge.telemetry.drop_reason",
+        "agentstudio.bridge.test.scenario",
+        "agentstudio.bridge.transport",
         "agentstudio.command.name",
         "agentstudio.command.source",
         "agentstudio.envelope.scope",
@@ -85,6 +97,10 @@ enum AgentStudioOTLPTraceProjection {
     ]
 
     private static let allowedNumericAttributeKeys: Set<String> = [
+        "agentstudio.bridge.batch.sample_count",
+        "agentstudio.bridge.content.byte_size_bucket",
+        "agentstudio.bridge.content.line_count_bucket",
+        "agentstudio.bridge.telemetry.dropped_count",
         "agentstudio.display.count",
         "agentstudio.envelope.schema_version",
         "agentstudio.envelope.seq",
@@ -110,6 +126,11 @@ enum AgentStudioOTLPTraceProjection {
 
     private static let allowedBooleanAttributeKeys: Set<String> = [
         "agentstudio.app.is_active",
+        "agentstudio.bridge.cache_hit",
+        "agentstudio.bridge.content.binary",
+        "agentstudio.bridge.content.stale",
+        "agentstudio.bridge.header_missing",
+        "agentstudio.bridge.header_supported",
         "agentstudio.performance.sidebar.is_collapsed",
         "agentstudio.performance.sidebar.was_collapsed",
         "agentstudio.performance.terminal.surface.dedup_likely",
@@ -260,5 +281,30 @@ enum AgentStudioOTLPTraceProjection {
             && !normalizedValue.contains("\\")
             && !normalizedValue.contains("\n")
             && !normalizedValue.contains("\r")
+    }
+
+    private static func validTraceID(_ value: String?) -> String? {
+        validHexIdentifier(value, requiredLength: 32)
+    }
+
+    private static func validSpanID(_ value: String?) -> String? {
+        validHexIdentifier(value, requiredLength: 16)
+    }
+
+    private static func validHexIdentifier(_ value: String?, requiredLength: Int) -> String? {
+        guard let value, value.count == requiredLength else {
+            return nil
+        }
+        guard value.utf8.contains(where: { $0 != 48 }) else {
+            return nil
+        }
+        guard
+            value.utf8.allSatisfy({ byte in
+                byte >= 48 && byte <= 57 || byte >= 97 && byte <= 102
+            })
+        else {
+            return nil
+        }
+        return value
     }
 }

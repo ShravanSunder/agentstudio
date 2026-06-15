@@ -28,6 +28,7 @@ final class RPCRouter {
     private var seenCommandIdRing: [String?]
     private var seenCommandIdWriteIndex = 0
     private var seenCommandIdCount = 0
+    private var telemetryQueue = BridgeTelemetryQueue()
     private let maxCommandIdHistory: Int
 
     // MARK: - Error Callback
@@ -54,6 +55,8 @@ final class RPCRouter {
     var onResponse: (@MainActor @Sendable (String) async -> Void) = { responseJSON in
         rpcRouterLogger.warning("RPC response dropped because onResponse is not configured: \(responseJSON)")
     }
+    var telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
+    var telemetryRecorder: (any BridgePerformanceTraceRecording)?
 
     init(maxCommandIdHistory: Int = 100) {
         let boundedHistory = max(1, maxCommandIdHistory)
@@ -83,6 +86,18 @@ final class RPCRouter {
     /// JSON-RPC requests with an `id` emit direct response envelopes via `onResponse`.
     /// Notifications (no `id`) remain fire-and-forget and do not emit responses.
     func dispatch(json: String, isBridgeReady: Bool) async {
+        if isBridgeTelemetryCandidate(json),
+            json.utf8.count > BridgeTelemetryLimits.maxEncodedBatchBytes
+        {
+            await recordBridgeTelemetryBatch(
+                traceContext: nil,
+                result: .dropped(.encodedBatchTooLarge),
+                durationMilliseconds: nil
+            )
+            await reportError(.invalidParams, "Invalid params", id: nil)
+            return
+        }
+
         let request: ParsedRPCRequest
         do {
             request = try parseRequestEnvelope(from: json)
@@ -101,6 +116,11 @@ final class RPCRouter {
             return
         }
 
+        if request.method == SystemMethods.BridgeTelemetryMethod.method {
+            await dispatchBridgeTelemetryBatch(request)
+            return
+        }
+
         if shouldSkip(commandId: request.commandId) {
             return
         }
@@ -108,6 +128,19 @@ final class RPCRouter {
         guard let handler = handlers[request.method] else {
             await reportError(.methodNotFound, "Method not found: \(request.method)", id: request.requestId)
             return
+        }
+
+        let shouldRecordRPC = shouldRecordGenericRPCTelemetry(method: request.method)
+        let rpcMethodClass = Self.rpcMethodClass(request.method)
+        let rpcStart = ContinuousClock.now
+        if shouldRecordRPC {
+            await recordGenericRPCTelemetry(
+                name: "performance.bridge.webkit.rpc_dispatch",
+                traceContext: request.traceContext,
+                methodClass: rpcMethodClass,
+                phase: "dispatch",
+                durationMilliseconds: nil
+            )
         }
 
         do {
@@ -120,6 +153,15 @@ final class RPCRouter {
                 reason: nil
             )
             await emitSuccessResponseIfNeeded(id: request.requestId, resultData: resultData)
+            if shouldRecordRPC {
+                await recordGenericRPCTelemetry(
+                    name: "performance.bridge.webkit.rpc_response",
+                    traceContext: request.traceContext,
+                    methodClass: rpcMethodClass,
+                    phase: "success",
+                    durationMilliseconds: Self.milliseconds(from: rpcStart.duration(to: ContinuousClock.now))
+                )
+            }
         } catch {
             let (rpcErrorCode, dispatchErrorMessage) = classifyDispatchError(error)
             rpcRouterLogger.error(
@@ -132,6 +174,15 @@ final class RPCRouter {
                 reason: dispatchErrorMessage
             )
             await reportError(rpcErrorCode, dispatchErrorMessage, id: request.requestId)
+            if shouldRecordRPC {
+                await recordGenericRPCTelemetry(
+                    name: "performance.bridge.webkit.rpc_response",
+                    traceContext: request.traceContext,
+                    methodClass: rpcMethodClass,
+                    phase: "error",
+                    durationMilliseconds: Self.milliseconds(from: rpcStart.duration(to: ContinuousClock.now))
+                )
+            }
         }
     }
 
@@ -153,6 +204,7 @@ final class RPCRouter {
         let requestId: RPCIdentifier?
         let method: String
         let commandId: String?
+        let traceContext: BridgeTraceContext?
         let params: JSONRPCValue?
     }
 
@@ -223,13 +275,64 @@ final class RPCRouter {
         } else {
             commandId = nil
         }
+        let traceContext = parseTraceContext(dict["__traceContext"])
 
         return ParsedRPCRequest(
             requestId: requestId,
             method: method,
             commandId: commandId,
+            traceContext: traceContext,
             params: dict["params"]
         )
+    }
+
+    private func dispatchBridgeTelemetryBatch(_ request: ParsedRPCRequest) async {
+        guard let telemetryIngestor else {
+            await reportError(.methodNotFound, "Method not found: \(request.method)", id: request.requestId)
+            return
+        }
+
+        let paramsData: Data
+        do {
+            guard let decodedParamsData = try decodeParamsData(from: request.params) else {
+                await reportError(.invalidParams, "Invalid params", id: request.requestId)
+                return
+            }
+            paramsData = decodedParamsData
+        } catch {
+            await reportError(.invalidParams, "Invalid params", id: request.requestId)
+            return
+        }
+
+        if paramsData.count > BridgeTelemetryLimits.maxEncodedBatchBytes {
+            await recordBridgeTelemetryBatch(
+                traceContext: request.traceContext,
+                result: .dropped(.encodedBatchTooLarge),
+                durationMilliseconds: nil
+            )
+            await reportError(.invalidParams, "Invalid params", id: request.requestId)
+            return
+        }
+
+        guard telemetryQueue.admitBatch() == nil else {
+            await recordBridgeTelemetryBatch(
+                traceContext: request.traceContext,
+                result: .dropped(.queueSaturated),
+                durationMilliseconds: nil
+            )
+            await reportError(.invalidParams, "Invalid params", id: request.requestId)
+            return
+        }
+
+        let start = ContinuousClock.now
+        let result = await telemetryIngestor.ingest(paramsData)
+        telemetryQueue.finishBatch()
+        await recordBridgeTelemetryBatch(
+            traceContext: request.traceContext,
+            result: result,
+            durationMilliseconds: Self.milliseconds(from: start.duration(to: ContinuousClock.now))
+        )
+        await emitSuccessResponseIfNeeded(id: request.requestId, resultData: nil)
     }
 
     private func shouldSkip(commandId: String?) -> Bool {
@@ -452,6 +555,111 @@ final class RPCRouter {
         case .object, .array, .bool:
             return .invalid
         }
+    }
+
+    private nonisolated func parseTraceContext(_ raw: JSONRPCValue?) -> BridgeTraceContext? {
+        guard let raw else {
+            return nil
+        }
+        guard let data = try? JSONEncoder().encode(raw) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(BridgeTraceContext.self, from: data)
+    }
+
+    private nonisolated func isBridgeTelemetryCandidate(_ json: String) -> Bool {
+        let compacted = json.filter { !$0.isWhitespace }
+        return compacted.contains(#""method":"\#(SystemMethods.BridgeTelemetryMethod.method)""#)
+    }
+
+    private nonisolated func shouldRecordGenericRPCTelemetry(method: String) -> Bool {
+        method != BridgeReadyMethod.method && method != SystemMethods.BridgeTelemetryMethod.method
+    }
+
+    private nonisolated static func rpcMethodClass(_ method: String) -> String {
+        if method == SystemMethods.BridgeTelemetryMethod.method {
+            return "telemetry"
+        }
+        if method.hasPrefix("review.") {
+            return "review"
+        }
+        return "other"
+    }
+
+    private func recordGenericRPCTelemetry(
+        name: String,
+        traceContext: BridgeTraceContext?,
+        methodClass: String,
+        phase: String,
+        durationMilliseconds: Double?
+    ) async {
+        await telemetryRecorder?.record(
+            sample: BridgeTelemetrySample(
+                scope: .webKit,
+                name: name,
+                durationMilliseconds: durationMilliseconds,
+                traceContext: traceContext,
+                stringAttributes: [
+                    "agentstudio.bridge.lane": "warm",
+                    "agentstudio.bridge.phase": phase,
+                    "agentstudio.bridge.rpc.method_class": methodClass,
+                    "agentstudio.bridge.transport": "rpc",
+                ],
+                numericAttributes: [:],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: currentTimeUnixNano()
+        )
+    }
+
+    private func recordBridgeTelemetryBatch(
+        traceContext: BridgeTraceContext?,
+        result: BridgeTelemetryIngestResult,
+        durationMilliseconds: Double?
+    ) async {
+        let phase: String
+        let sampleCount: Double
+        let dropReason: BridgeTelemetryDropReason?
+        switch result {
+        case .accepted(let acceptedSampleCount):
+            phase = "accepted"
+            sampleCount = Double(acceptedSampleCount)
+            dropReason = nil
+        case .dropped(let reason):
+            phase = "dropped"
+            sampleCount = 0
+            dropReason = reason
+        }
+
+        var stringAttributes = [
+            "agentstudio.bridge.lane": "warm",
+            "agentstudio.bridge.phase": phase,
+            "agentstudio.bridge.transport": "rpc",
+        ]
+        if let dropReason {
+            stringAttributes["agentstudio.bridge.telemetry.drop_reason"] = dropReason.rawValue
+        }
+
+        await telemetryRecorder?.record(
+            sample: BridgeTelemetrySample(
+                scope: .webKit,
+                name: "performance.bridge.webkit.telemetry_batch",
+                durationMilliseconds: durationMilliseconds,
+                traceContext: traceContext,
+                stringAttributes: stringAttributes,
+                numericAttributes: ["agentstudio.bridge.batch.sample_count": sampleCount],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: currentTimeUnixNano()
+        )
+    }
+
+    private nonisolated func currentTimeUnixNano() -> UInt64 {
+        UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+    }
+
+    private static func milliseconds(from duration: Duration) -> Double {
+        AgentStudioPerformanceTraceRecorder.milliseconds(from: duration)
     }
 
     /// Return serialized `params` payload bytes for typed decoding.

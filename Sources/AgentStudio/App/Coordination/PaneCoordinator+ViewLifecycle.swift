@@ -156,7 +156,8 @@ extension PaneCoordinator {
             let controller = BridgePaneController(
                 paneId: pane.id,
                 state: state,
-                reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state)
+                reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
+                traceRuntime: traceRuntime
             )
             let view = BridgePaneMountView(paneId: pane.id, controller: controller)
             registerHostedView(mountedView: view, for: pane.id)

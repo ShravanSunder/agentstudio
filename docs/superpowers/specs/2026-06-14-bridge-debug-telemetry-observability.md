@@ -1,17 +1,18 @@
 # Bridge Debug Telemetry Observability Spec
 
-> Status: design source for Bridge telemetry planning. Implementation plan not
-> written yet.
+> Status: design source for Bridge telemetry implementation. Active execution
+> plan:
+> [Bridge Observability Implementation Plan](../plans/2026-06-14-bridge-observability-implementation.md).
 > Created: 2026-06-14
 > Depends on: [Bridge Review Foundation Spec](2026-06-10-bridge-review-foundation.md)
 > Depends on: [AgentStudio OTLP Shared Observability Design](2026-06-11-agentstudio-otlp-shared-observability-design.md)
 > Architecture companion: [Swift-React Bridge Architecture](../../architecture/swift_react_bridge_design.md)
 
 This spec defines how Bridge performance and lifecycle telemetry should work for
-the pre-Pierre Bridge foundation and the future Pierre/Shiki/Trees viewer. It is
-not an implementation plan. It captures the required architecture, boundaries,
-activation model, folder ownership, privacy rules, and proof expectations that a
-future plan must map into code.
+the pre-Pierre Bridge foundation and the future Pierre/Shiki/Trees viewer. It
+captures the required architecture, boundaries, activation model, folder
+ownership, privacy rules, and proof expectations. The implementation plan linked
+above maps these requirements to code and proof gates.
 
 ## Purpose
 
@@ -242,7 +243,6 @@ performance.bridge.webkit.rpc_response
 performance.bridge.webkit.telemetry_batch
 performance.bridge.web.package_apply
 performance.bridge.web.rpc_send
-performance.bridge.web.rpc_ack
 performance.bridge.web.content_fetch
 performance.bridge.web.first_render
 performance.bridge.web.telemetry_drop
@@ -313,6 +313,23 @@ minimumFlushIntervalMilliseconds
 methodName = system.bridgeTelemetry
 scenario = package_apply_content_fetch_v1
 ```
+
+The browser-exposed scope set must be narrower than the native active scope set.
+BridgeWeb may emit only browser-owned `.web` samples. Swift and WebKit events
+are generated on the native side and must not be accepted from
+`system.bridgeTelemetry` batches, even when the corresponding native trace tags
+are enabled.
+
+Generic RPC telemetry must use a low-cardinality method class instead of raw
+method names:
+
+```text
+agentstudio.bridge.rpc.method_class = review | telemetry | other
+```
+
+`system.bridgeTelemetry` is classified only for negative verifier queries; the
+generic RPC send/dispatch/response instrumentation must still exclude that
+method so telemetry does not recursively measure its own transport.
 
 The initial Victoria-backed proof scenario is:
 
@@ -396,8 +413,6 @@ BridgeWeb user action
      span: performance.bridge.swift.<operation>
   -> response / command ack
      span: performance.bridge.webkit.rpc_response
-  -> BridgeWeb ack/response handling
-     span: performance.bridge.web.rpc_ack
 ```
 
 The trace context belongs in transport metadata such as `__traceContext`, not in
@@ -407,6 +422,11 @@ events.
 
 `__commandId` remains a de-dup and acknowledgement key. It is not a trace id and
 must not be promoted to OTLP labels.
+
+BridgeWeb does not yet own a response-consumer lane for `__bridge_response` or
+agent command-ack pushes. A future bidirectional-response milestone may add a
+`performance.bridge.web.rpc_ack` event there, but it is not part of the current
+Bridge observability proof.
 
 ### Content Fetch Correlation
 
@@ -427,8 +447,11 @@ because it does not alter the content handle URL and does not make trace
 identity part of resource addressing.
 
 The implementation plan must verify whether `WKURLSchemeHandler` receives custom
-headers for `agentstudio://resource/content` fetches. If WebKit strips those
-headers for custom-scheme requests, the fallback is:
+headers for `agentstudio://resource/content` fetches. The default implementation
+uses summary correlation for content fetch proof; a separate guarded WebKit
+assertion may enable the direct-header proof when
+`AGENT_STUDIO_WEBKIT_TRACEPARENT_FETCH_PROOF=on`. If WebKit strips those headers
+or the headless WebKit harness is unstable for that assertion, the fallback is:
 
 - BridgeWeb records the frontend content-fetch span in its local telemetry
   batch.
@@ -737,8 +760,10 @@ Collector-free tests should cover:
 - disabled-path behavior
 - BridgeWeb telemetry buffer limits
 - BridgeWeb scope gating
+- browser-originated `.swift` and `.webkit` sample rejection
 - BridgeWeb sink serialization
 - app composition selecting a null recorder when telemetry is disabled
+- release-style composition rejecting `system.bridgeTelemetry`
 
 Collector-backed tests belong in an explicit observability/performance proof
 lane. They should use the existing shared observability flow:
@@ -749,8 +774,8 @@ mise run run-debug-observability -- --detach
 mise run verify-debug-observability
 ```
 
-A later Bridge performance proof runner may add a Bridge-specific verifier, but
-it must still use the same debug app identity and shared collector contract.
+Bridge-specific collector proof uses `mise run verify-bridge-observability`.
+It must still use the same debug app identity and shared collector contract.
 
 Test telemetry must be enclosed with a trace name and controlled scenario:
 
@@ -807,7 +832,7 @@ payloads, arbitrary errors, or high-cardinality IDs.
 
 ## Implementation Plan Requirements
 
-The future implementation plan must be a hard-cutover plan for telemetry, not a
+The implementation plan must be a hard-cutover plan for telemetry, not a
 parallel diagnostics system.
 
 It must include:
@@ -855,7 +880,10 @@ mise run lint
 ```
 
 When the implementation claims Victoria/OTLP proof, it must also include the
-shared observability runner and a Bridge-specific verifier or query.
+shared observability runner and the Bridge-specific verifier or query. The
+minimum proof is the required Bridge event inventory, metrics, Swift package
+span, content-fetch span, review RPC span, privacy canary, and telemetry
+self-RPC negative query.
 
 ## Resolved Implementation Decisions
 
@@ -868,6 +896,11 @@ shared observability runner and a Bridge-specific verifier or query.
 - The first Victoria-backed proof scenario is
   `package_apply_content_fetch_v1`, driven by
   `bridge-review-observability-smoke`.
+- Browser-originated telemetry is `.web` only; `.swift` and `.webkit` are
+  native-owned scopes.
+- Review RPC trace proof uses
+  `agentstudio.bridge.rpc.method_class=review`, and the verifier rejects
+  telemetry self-RPC logs/spans.
 
 ## Follow-Up Questions Outside This Spec
 

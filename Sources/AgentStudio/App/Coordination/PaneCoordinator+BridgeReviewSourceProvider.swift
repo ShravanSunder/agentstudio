@@ -6,6 +6,11 @@ extension PaneCoordinator {
         for pane: Pane,
         state: BridgePaneState
     ) -> any BridgeReviewSourceProvider {
+        #if DEBUG
+            if let provider = bridgeReviewSourceProviderOverridesByPaneId[pane.id] {
+                return provider
+            }
+        #endif
         let worktreePath =
             resolvedWorktreeContext(for: pane)?.worktree.path
             ?? bridgeWorkspaceSourcePath(from: state.source)

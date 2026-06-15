@@ -49,7 +49,11 @@ final class PaneCoordinator {
     let filesystemProjectionIndex: any PaneCoordinatorFilesystemProjectionIndexing
     let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
     let windowLifecycleStore: WindowLifecycleAtom
+    let traceRuntime: AgentStudioTraceRuntime?
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    #if DEBUG
+        var bridgeReviewSourceProviderOverridesByPaneId: [UUID: any BridgeReviewSourceProvider] = [:]
+    #endif
     var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
@@ -121,6 +125,7 @@ final class PaneCoordinator {
         filesystemProjectionIndex: (any PaneCoordinatorFilesystemProjectionIndexing)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
         windowLifecycleStore: WindowLifecycleAtom,
+        traceRuntime: AgentStudioTraceRuntime? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         let resolvedFilesystemSource =
@@ -147,6 +152,7 @@ final class PaneCoordinator {
         self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
         self.windowLifecycleStore = windowLifecycleStore
+        self.traceRuntime = traceRuntime
         self.performanceTraceRecorder = performanceTraceRecorder
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         subscribeToCWDChanges()

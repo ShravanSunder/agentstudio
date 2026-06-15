@@ -25,4 +25,19 @@ describe('bridge push envelope', () => {
 			/Invalid bridge push envelope/u,
 		);
 	});
+
+	test('decodes optional trace context outside the push payload', () => {
+		const envelope = decodeBridgePushEnvelope({
+			...pushReplaceFixture,
+			__traceContext: {
+				traceId: '11111111111111111111111111111111',
+				spanId: '2222222222222222',
+				parentSpanId: null,
+				sampled: true,
+			},
+		});
+
+		expect(envelope.traceContext?.traceId).toBe('11111111111111111111111111111111');
+		expect(envelope.data).toEqual(pushReplaceFixture.data);
+	});
 });

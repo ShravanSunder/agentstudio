@@ -277,6 +277,7 @@ extension AppDelegate {
             closeTransitionCoordinator: closeTransitionCoordinator,
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore,
+            traceRuntime: traceRuntime,
             performanceTraceRecorder: performanceTraceRecorder
         )
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
