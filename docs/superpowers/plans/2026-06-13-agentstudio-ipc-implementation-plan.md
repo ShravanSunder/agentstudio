@@ -1,7 +1,7 @@
 # AgentStudio IPC Implementation Plan
 
 **Date:** 2026-06-13
-**Status:** Draft implementation plan from approved design direction. Requires plan review before execution.
+**Status:** Active implementation plan from approved design direction. Implementation is in progress on the `programatical-control` branch; T1-T8 foundation slices have landed, while T9 CLI/smoke and T10 architecture promotion remain.
 **Primary spec:** `docs/superpowers/specs/2026-06-10-agentstudio-ipc-design.md`
 **Related backend spec:** `docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md`
 
@@ -734,6 +734,15 @@ Current tooling proof from this planning pass after merging PR #175:
   If this regresses during implementation, separate changed-surface proof from
   unrelated tooling blockers before editing release tooling.
 
+Current implementation proof after the T8 event/wait slice:
+
+- Focused IPC test gate:
+  `swift test --filter 'IPCContractsTests|JSONRPCCodecTests|AgentStudioIPCEventBrokerTests|AgentStudioIPCPermissionBrokerTests|AgentStudioIPCRuntimeAdapterTests|AgentStudioAppIPCServiceTests|AgentStudioIPCRegistryAuthorizationTests'`
+  passed with 48 tests in 7 suites.
+- Full lint gate: `mise run lint` passed with swift-format OK, AgentStudio
+  SwiftLint 0 violations across 1166 Swift files, and release script
+  verification passed.
+
 ## Rollout And Recovery
 
 - Default target mode is `agentStudioOnly` with memory-only subject tokens.
@@ -778,14 +787,26 @@ Current tooling proof from this planning pass after merging PR #175:
    removed from phase 1 and limited to test-owned smoke clients?
 2. Is `system.ping` pre-auth allowed with a content-free response, or should
    `auth.login` be the only pre-auth method?
-3. Which exact `terminal.wait` conditions earn phase-1 support after mapping to
-   current runtime facts?
-4. What is the minimum useful `terminal.snapshot` DTO for the first consumer?
-5. Is `automationSameUser` included in phase 1, or kept as a follow-up after
+3. Is `automationSameUser` included in phase 1, or kept as a follow-up after
    `agentStudioOnly` works for spawned agents?
-6. Before T4 starts, choose where the first user-configured approval policy
+4. Before T4 starts, choose where the first user-configured approval policy
    lives: settings-backed persistence, workspace-local config, or runtime-only
    developer config.
+
+## Implementation Decisions Resolved
+
+- `terminal.wait` supports `attachReady`, `commandFinished`,
+  `rendererHealthy`, `titleChanged`, `cwdChanged`, and `progressChanged`. These
+  map to stable exported runtime facts and return allowlisted scalar payloads
+  only.
+- `terminal.snapshot` remains an allowlisted DTO and omits terminal output,
+  scrollback, raw PTY bytes, cwd/title/search/progress content, zmx identifiers,
+  and raw runtime objects.
+- Event subscription ownership lives in `IPCEventBroker`, which stores
+  principal-bound subscriptions, encodes JSON-RPC `events.notification` frames,
+  filters by public event name and visibility predicate, rejects inbound
+  server-event impersonation, and removes slow subscribers that report
+  backpressure.
 
 ## Next Skill
 
