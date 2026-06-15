@@ -215,6 +215,95 @@ public struct IPCPaneFocusResult: Codable, Equatable, Sendable {
     }
 }
 
+public enum IPCPaneSplitDirection: String, Codable, Equatable, Sendable {
+    case left
+    case right
+}
+
+public struct IPCPaneSplitParams: Codable, Equatable, Sendable {
+    public let handle: String
+    public let direction: IPCPaneSplitDirection
+    public let correlationId: UUID?
+
+    public init(handle: String, direction: IPCPaneSplitDirection, correlationId: UUID?) {
+        self.handle = handle
+        self.direction = direction
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCPaneSplitResult: Codable, Equatable, Sendable {
+    public let targetPaneId: UUID
+    public let direction: IPCPaneSplitDirection
+    public let correlationId: UUID?
+
+    public init(targetPaneId: UUID, direction: IPCPaneSplitDirection, correlationId: UUID?) {
+        self.targetPaneId = targetPaneId
+        self.direction = direction
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCPaneCloseParams: Codable, Equatable, Sendable {
+    public let handle: String
+    public let correlationId: UUID?
+
+    public init(handle: String, correlationId: UUID?) {
+        self.handle = handle
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCPaneCloseResult: Codable, Equatable, Sendable {
+    public let paneId: UUID
+    public let correlationId: UUID?
+
+    public init(paneId: UUID, correlationId: UUID?) {
+        self.paneId = paneId
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCDrawerAddPaneParams: Codable, Equatable, Sendable {
+    public let parentPaneHandle: String
+    public let correlationId: UUID?
+
+    public init(parentPaneHandle: String, correlationId: UUID?) {
+        self.parentPaneHandle = parentPaneHandle
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCDrawerAddPaneResult: Codable, Equatable, Sendable {
+    public let parentPaneId: UUID
+    public let correlationId: UUID?
+
+    public init(parentPaneId: UUID, correlationId: UUID?) {
+        self.parentPaneId = parentPaneId
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCDrawerToggleParams: Codable, Equatable, Sendable {
+    public let parentPaneHandle: String
+    public let correlationId: UUID?
+
+    public init(parentPaneHandle: String, correlationId: UUID?) {
+        self.parentPaneHandle = parentPaneHandle
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCDrawerToggleResult: Codable, Equatable, Sendable {
+    public let parentPaneId: UUID
+    public let correlationId: UUID?
+
+    public init(parentPaneId: UUID, correlationId: UUID?) {
+        self.parentPaneId = parentPaneId
+        self.correlationId = correlationId
+    }
+}
+
 public enum IPCRuntimeLifecycle: String, Codable, Equatable, Sendable {
     case created
     case ready

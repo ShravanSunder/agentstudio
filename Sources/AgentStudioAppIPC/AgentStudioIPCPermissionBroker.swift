@@ -66,6 +66,7 @@ public struct PermissionBrokerError: Error, Equatable, Sendable {
         case selfApprovalNotAllowed
         case unsupportedResolutionDecision
         case debugUnsafeNotGrantable
+        case layoutMutateNotGrantable
     }
 
     public let reason: Reason
@@ -100,6 +101,9 @@ public struct PermissionBroker: Sendable {
         let canonicalScope = try canonicalizer.canonicalize(params.scope, for: requester)
         guard canonicalScope.privilege != .debugUnsafe else {
             throw PermissionBrokerError(reason: .debugUnsafeNotGrantable)
+        }
+        guard canonicalScope.privilege != .layoutMutate else {
+            throw PermissionBrokerError(reason: .layoutMutateNotGrantable)
         }
         let pendingRecord = PermissionRecord(
             requestId: UUID(),

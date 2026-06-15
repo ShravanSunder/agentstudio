@@ -100,12 +100,25 @@ struct AgentStudioIPCClientCoreTests {
             ["--socket", "/tmp/app.sock", "command-execute", "commandPalette"],
             environment: [:]
         )
+        let unknownExecuteInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "command-execute", "futureCommand"],
+            environment: [:]
+        )
 
         #expect(statusInvocation.command == .authStatus)
         #expect(listInvocation.command == .commandList)
         #expect(
             executeInvocation.command
                 == .commandExecute(IPCCommandExecuteParams(commandId: .commandPalette, targetHandle: nil))
+        )
+        #expect(
+            unknownExecuteInvocation.command
+                == .commandExecute(
+                    IPCCommandExecuteParams(
+                        commandId: IPCCommandIdentifier(rawValue: "futureCommand"),
+                        targetHandle: nil
+                    )
+                )
         )
     }
 

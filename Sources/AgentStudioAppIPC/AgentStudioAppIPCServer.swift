@@ -49,7 +49,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let methodRegistry: AppIPCMethodRegistry
     private let authenticator: AgentStudioIPCAuthenticator
     private let authorizationService: AuthorizationService
-    private let permissionBroker: PermissionBroker
+    let permissionBroker: PermissionBroker
     private let peerCredentialProvider: any PeerCredentialProviding
     private let peerCredentialGate: AgentStudioIPCPeerCredentialGate
     private let maxFrameBytes: Int
@@ -329,109 +329,6 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         }
     }
 
-    private func processAuthenticated(
-        _ request: JSONRPCRequest,
-        principal: IPCPrincipal,
-        socketSubscriber: any IPCEventSubscriber
-    ) async throws -> JSONValue {
-        switch request.method {
-        case "system.identify":
-            return try await encodeResult(service.ports.queryPort.systemIdentify())
-        case "system.version":
-            return try await encodeResult(service.ports.queryPort.systemVersion())
-        case "system.capabilities":
-            return try await encodeResult(service.ports.queryPort.systemCapabilities())
-        case "window.list":
-            return try await encodeResult(service.ports.queryPort.listWindows())
-        case "window.current":
-            return try await encodeResult(service.ports.queryPort.currentWindow())
-        case "workspace.list":
-            return try await encodeResult(service.ports.queryPort.listWorkspaces())
-        case "workspace.current":
-            return try await encodeResult(service.ports.queryPort.currentWorkspace())
-        case "pane.list":
-            return try await encodeResult(service.ports.queryPort.listPanes())
-        case "pane.current":
-            return try await encodeResult(service.ports.queryPort.currentPane())
-        case "pane.snapshot":
-            let params = try decodeParams(HandleParams.self, from: request.params)
-            let paneId = try uuidFromPaneHandle(params.handle)
-            return try await encodeResult(service.ports.queryPort.snapshotPane(paneId))
-        case "pane.focus":
-            let params = try decodeParams(HandleParams.self, from: request.params)
-            let handle = try IPCHandle.parse(params.handle)
-            return try await encodeResult(service.ports.layoutPort.focusPane(handle))
-        case "terminal.status":
-            let handle = try decodeHandle(from: request.params)
-            return try await encodeResult(service.ports.runtimePort.terminalStatus(handle))
-        case "terminal.snapshot":
-            let handle = try decodeHandle(from: request.params)
-            return try await encodeResult(service.ports.runtimePort.terminalSnapshot(handle))
-        case "terminal.send":
-            let params = try decodeParams(TerminalSendParams.self, from: request.params)
-            let handle = try IPCHandle.parse(params.handle)
-            let result = try await service.ports.runtimePort.sendTerminalInput(
-                to: handle,
-                input: params.input,
-                correlationId: params.correlationId
-            )
-            return try encodeResult(result)
-        case "terminal.wait":
-            let params = try decodeParams(TerminalWaitParams.self, from: request.params)
-            let handle = try IPCHandle.parse(params.handle)
-            let timeout = Duration.milliseconds(Int64((params.timeoutSeconds * 1000).rounded(.up)))
-            let result = try await service.ports.runtimePort.waitForTerminal(
-                handle,
-                condition: params.condition,
-                timeout: timeout,
-                afterSequence: params.afterSequence
-            )
-            return try encodeResult(result)
-        case "command.list":
-            let result = try await MainActor.run {
-                try service.ports.commandPort.listCommands()
-            }
-            return try encodeResult(result)
-        case "command.execute":
-            let params = try decodeParams(IPCCommandExecuteParams.self, from: request.params)
-            let result = try await MainActor.run {
-                try service.ports.commandPort.executeCommand(params)
-            }
-            return try encodeResult(result)
-        case "permission.request":
-            let params = try decodeParams(IPCPermissionRequestParams.self, from: request.params)
-            let result = try permissionBroker.requestPermission(params, requester: principal)
-            return try encodeResult(result)
-        case "permission.requestStatus":
-            let params = try decodeParams(RequestIdParams.self, from: request.params)
-            return try encodeResult(permissionBroker.requestStatus(params.requestId, requester: principal))
-        case "permission.grantStatus":
-            let params = try decodeParams(RequestIdParams.self, from: request.params)
-            return try encodeResult(permissionBroker.grantStatus(params.requestId, requester: principal))
-        case "permission.pendingApprovals":
-            let results = try permissionBroker.pendingApprovals(for: principal).map(\.result)
-            return try JSONRPCCodec.encodeJSONValue(["requests": results])
-        case "permission.resolveRequest":
-            let params = try decodeParams(ResolvePermissionParams.self, from: request.params)
-            return try encodeResult(
-                permissionBroker.resolveRequest(params.requestId, approver: principal, decision: params.decision))
-        case "events.subscribe":
-            let params = try decodeParams(EventsSubscribeParams.self, from: request.params)
-            let result = try await service.eventBroker.subscribe(
-                eventNames: Set(params.eventNames),
-                principal: principal,
-                subscriber: socketSubscriber
-            )
-            return try encodeResult(result)
-        case "events.unsubscribe":
-            let params = try decodeParams(SubscriptionIdParams.self, from: request.params)
-            try await service.eventBroker.unsubscribe(params.subscriptionId, principal: principal)
-            return .object(["unsubscribed": .bool(true), "subscriptionId": .string(params.subscriptionId.uuidString)])
-        default:
-            throw AgentStudioAppIPCRequestError.methodNotFound
-        }
-    }
-
     private func authorizationContext(for request: JSONRPCRequest, principal: IPCPrincipal) async throws
         -> AuthorizedRequestContext
     {
@@ -445,8 +342,53 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 request: request.replacingHandle(canonicalHandle.rawIPCHandleString),
                 target: targetScope(fromCanonicalHandle: canonicalHandle)
             )
+        case "pane.split":
+            let params = try decodeParams(IPCPaneSplitParams.self, from: request.params)
+            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
+            let canonicalParams = IPCPaneSplitParams(
+                handle: canonicalHandle.rawIPCHandleString,
+                direction: params.direction,
+                correlationId: params.correlationId
+            )
+            return try AuthorizedRequestContext(
+                request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
+                target: targetScope(fromCanonicalHandle: canonicalHandle)
+            )
+        case "pane.close":
+            let params = try decodeParams(IPCPaneCloseParams.self, from: request.params)
+            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
+            let canonicalParams = IPCPaneCloseParams(
+                handle: canonicalHandle.rawIPCHandleString, correlationId: params.correlationId)
+            return try AuthorizedRequestContext(
+                request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
+                target: targetScope(fromCanonicalHandle: canonicalHandle)
+            )
+        case "drawer.addPane":
+            let params = try decodeParams(IPCDrawerAddPaneParams.self, from: request.params)
+            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.parentPaneHandle)
+            let canonicalParams = IPCDrawerAddPaneParams(
+                parentPaneHandle: canonicalHandle.rawIPCHandleString,
+                correlationId: params.correlationId
+            )
+            return try AuthorizedRequestContext(
+                request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
+                target: targetScope(fromCanonicalHandle: canonicalHandle)
+            )
+        case "drawer.toggle":
+            let params = try decodeParams(IPCDrawerToggleParams.self, from: request.params)
+            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.parentPaneHandle)
+            let canonicalParams = IPCDrawerToggleParams(
+                parentPaneHandle: canonicalHandle.rawIPCHandleString,
+                correlationId: params.correlationId
+            )
+            return try AuthorizedRequestContext(
+                request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
+                target: targetScope(fromCanonicalHandle: canonicalHandle)
+            )
         case "permission.request":
             return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
+        case "ui.commandBar.open":
+            return AuthorizedRequestContext(request: request, target: .app)
         case "permission.requestStatus", "permission.grantStatus", "permission.pendingApprovals",
             "permission.resolveRequest", "events.subscribe", "events.unsubscribe", "command.list", "command.execute":
             return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
@@ -482,12 +424,12 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         }
     }
 
-    private func decodeHandle(from params: JSONValue?) throws -> IPCHandle {
+    func decodeHandle(from params: JSONValue?) throws -> IPCHandle {
         let params = try decodeParams(HandleParams.self, from: params)
         return try IPCHandle.parse(params.handle)
     }
 
-    private func uuidFromPaneHandle(_ rawHandle: String) throws -> UUID {
+    func uuidFromPaneHandle(_ rawHandle: String) throws -> UUID {
         let handle = try IPCHandle.parse(rawHandle)
         guard handle.kind == .pane else {
             throw AgentStudioAppIPCRequestError.invalidParams
@@ -507,7 +449,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         return principal
     }
 
-    private func decodeParams<T: Decodable>(_ type: T.Type, from params: JSONValue?) throws -> T {
+    func decodeParams<T: Decodable>(_ type: T.Type, from params: JSONValue?) throws -> T {
         let value = params ?? .object([:])
         do {
             let data = try JSONEncoder().encode(value)
@@ -517,7 +459,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         }
     }
 
-    private func encodeResult<T: Encodable>(_ value: T) throws -> JSONValue {
+    func encodeResult<T: Encodable>(_ value: T) throws -> JSONValue {
         do {
             return try JSONRPCCodec.encodeJSONValue(value)
         } catch {
@@ -689,6 +631,10 @@ extension JSONRPCRequest {
         params["handle"] = .string(handle)
         return JSONRPCRequest(id: id, method: method, params: .object(params))
     }
+
+    fileprivate func replacingParams(_ params: JSONValue) -> JSONRPCRequest {
+        JSONRPCRequest(id: id, method: method, params: params)
+    }
 }
 
 extension IPCHandle {
@@ -741,7 +687,7 @@ private actor AgentStudioAppIPCSocketEventSubscriber: IPCEventSubscriber {
     }
 }
 
-private struct AgentStudioAppIPCRequestError: Error, Equatable, Sendable {
+struct AgentStudioAppIPCRequestError: Error, Equatable, Sendable {
     let code: Int
     let message: String
 
@@ -757,37 +703,37 @@ private struct AuthLoginParams: Decodable {
     let paneHint: String?
 }
 
-private struct HandleParams: Decodable {
+struct HandleParams: Decodable {
     let handle: String
 }
 
-private struct TerminalSendParams: Decodable {
+struct TerminalSendParams: Decodable {
     let handle: String
     let input: String
     let correlationId: UUID?
 }
 
-private struct TerminalWaitParams: Decodable {
+struct TerminalWaitParams: Decodable {
     let handle: String
     let condition: IPCTerminalWaitCondition
     let timeoutSeconds: Double
     let afterSequence: UInt64?
 }
 
-private struct RequestIdParams: Decodable {
+struct RequestIdParams: Decodable {
     let requestId: UUID
 }
 
-private struct ResolvePermissionParams: Decodable {
+struct ResolvePermissionParams: Decodable {
     let requestId: UUID
     let decision: ApprovalPolicyDecision
 }
 
-private struct EventsSubscribeParams: Decodable {
+struct EventsSubscribeParams: Decodable {
     let eventNames: [IPCEventName]
 }
 
-private struct SubscriptionIdParams: Decodable {
+struct SubscriptionIdParams: Decodable {
     let subscriptionId: UUID
 }
 
@@ -824,6 +770,8 @@ extension AgentStudioAppIPCRequestError {
             self.init(runtimeError.reason)
         case let commandError as AppIPCCommandError:
             self.init(commandError.reason)
+        case let uiPresentationError as AppIPCUIPresentationError:
+            self.init(uiPresentationError.reason)
         case let authError as AgentStudioIPCAuthenticationError:
             self.init(authError.reason)
         case is PermissionBrokerError, is IPCEventBrokerError:
@@ -891,6 +839,21 @@ extension AgentStudioAppIPCRequestError {
             self = Self(code: -32_004, message: "target not found")
         case .unsupportedCommand:
             self = Self(code: -32_003, message: "unsupported capability")
+        case .requiresPresentation:
+            self = Self(code: -32_003, message: "requires presentation")
+        case .requiresTarget:
+            self = Self(code: -32_004, message: "target required")
+        case .requiresParameters:
+            self = Self(code: -32_007, message: "parameters required")
+        case .validationRejected:
+            self = Self(code: -32_007, message: "validation rejected")
+        }
+    }
+
+    private init(_ reason: AppIPCUIPresentationError.Reason) {
+        switch reason {
+        case .noActiveWindow:
+            self = Self(code: -32_006, message: "no active window")
         case .validationRejected:
             self = Self(code: -32_007, message: "validation rejected")
         }

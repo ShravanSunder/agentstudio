@@ -20,13 +20,17 @@ The phase-1 foundation currently owns:
 - Phase-1 method catalog, handle parsing, authorization, grant ledger, and
   permission broker policy/delegation primitives.
 - Concrete app query adapter for system/window/workspace/pane read snapshots.
-- Concrete layout adapter for `pane.focus` through the existing focus owner
-  chain.
+- Concrete layout adapter for `pane.focus`, `pane.split`, `pane.close`,
+  `drawer.addPane`, and `drawer.toggle` through existing app/workspace action
+  owners.
+- Layout-control stability guard: terminal panes created by split/drawer
+  control get placeholder hosts before entering visible layout, and recoverable
+  restored missing-host gaps are logged instead of terminating the debug app.
 - Concrete terminal runtime adapter for `terminal.status`,
   `terminal.snapshot`, and `terminal.send`.
-- Narrow command-spec adapter for `command.list` and `command.execute` over the
-  public allowlist: quick find, command palette, pane picker, and repo/worktree
-  picker.
+- Explicit command/UI split: `command.list` and `command.execute` describe
+  headless semantic commands only; UI presentation lives under
+  `ui.commandBar.open` with `uiPresent` authority.
 - App-owned Unix socket server lifecycle from `AppDelegate`, including runtime
   metadata publication, same-UID peer gate, pre-auth ping/login, per-connection
   principals, request dispatch, and shutdown cleanup.
@@ -63,10 +67,15 @@ The remaining app integration boundaries are:
   owner still needs to call that revocation seam and own auth-timeout
   diagnostics.
 - terminal completion/readback proof:
-  live debug proof shows `terminal.status`, `pane.focus`, `terminal.send`, and
+  live debug proof shows app IPC can identify the debug runtime, reject
+  command-bar presentation through `command.execute`, present command-bar
+  scope through `ui.commandBar.open`, split panes, create drawer panes, toggle
+  drawers, and verify debug observability. Earlier terminal proof showed
+  `terminal.status`, `pane.focus`, `terminal.send`, and
   `terminal.wait(titleChanged, afterSequence:)` reach a ready runtime through
-  the debug app socket. It does not yet prove shell command completion, shell
-  output, cwd changes, or prompt readiness through exported events.
+  the debug app socket. The system still does not yet prove shell command
+  completion, shell output, cwd changes, or prompt readiness through exported
+  events.
 
 ## Target Ownership
 
@@ -138,13 +147,14 @@ titles, raw URLs, cwd paths, command lines, terminal buffers, zmx session ids, o
 backend daemon details. Terminal content requires the dedicated terminal runtime
 adapter and stricter terminal privileges in later slices.
 
-## Pane Focus Boundary
+## Layout Boundary
 
-`pane.focus` is a layout/app-control method, not an atom mutation. Phase 1
-routes it through two named seams:
+Layout methods are app-control methods, not atom mutations. Phase 1 routes
+focus through the existing focus seam and structural mutations through the
+workspace action executor seam:
 
 ```
-AppIPC layout method
+pane.focus
   -> AgentStudioIPCLayoutAdapter
        verifies active workspace window
        resolves pane handle by UUID or friendly ordinal
@@ -153,13 +163,67 @@ AppIPC layout method
        validates pane belongs to a tab
   -> PaneTabViewController.execute(.focusPane, target:targetType:)
   -> existing PaneFocusTrigger / PaneFocusOrchestrator / PaneFocusExecutor path
+
+pane.split / pane.close / drawer.addPane / drawer.toggle
+  -> AgentStudioIPCLayoutAdapter
+       verifies active workspace window
+       resolves pane handle by UUID or friendly ordinal
+       resolves owning tab where the action requires it
+  -> ActionExecutor.execute(PaneActionCommand)
+  -> existing PaneTabViewController / workspace mutation owner path
 ```
 
-This split keeps IPC responsible for protocol concerns and keeps focus behavior
-owned by the existing app focus pipeline. The adapter maps no-active-window,
-missing-target, and validation-rejected outcomes into AppIPC layout errors so
-the future JSON-RPC layer can publish stable error codes without reaching into
-controller internals.
+This split keeps IPC responsible for protocol concerns and keeps layout
+behavior owned by the existing app/workspace action pipeline. The adapter maps
+no-active-window, missing-target, and validation-rejected outcomes into AppIPC
+layout errors so the JSON-RPC layer can publish stable error codes without
+reaching into controller internals.
+
+Programmatic layout methods must preserve the pane-host invariant that the UI
+renderer depends on: a terminal pane needs a `ViewRegistry` slot and placeholder
+host before it is exposed through a tab or drawer layout. The coordinator owns
+that ordering because it is the component that mutates pane graph membership and
+creates terminal views. The render layer still logs unexpected missing-host
+state for restore/debugging, but it must not crash a live debug app while IPC
+automation is exercising recoverable layout state.
+
+## Command And UI Presentation Boundary
+
+IPC command methods and UI presentation methods are intentionally separate.
+`command.execute` is reserved for headless semantic command execution. It must
+not present the command bar, picker UI, sheets, or prompts as an implicit side
+effect. A command-spec row that currently requires presentation fails closed
+with a stable `requires presentation` error until a semantic method with
+explicit parameters exists. The current phase-1 headless command catalog is
+empty; the public command-id wrapper remains open so future command ids and
+version-skewed clients can fail with `unsupported capability` instead of
+parameter-decoding errors.
+
+```
+command.list / command.execute
+  -> AgentStudioIPCCommandAdapter
+       exposes only headless semantic commands
+       rejects current command-bar openers
+  -> future semantic app owner
+  -> AgentStudioProgrammaticControl DTO
+
+ui.commandBar.open
+  -> AgentStudioIPCUIPresentationAdapter
+  -> AgentStudioIPCUIPresenting
+  -> AppDelegate command-bar presenter
+  -> CommandBarPanelController
+```
+
+`ui.commandBar.open` is useful automation, but it is presentation, not command
+completion. Its result proves that the app presenter accepted a scope for a
+workspace window; it does not claim that a command was selected or applied.
+Because phase 1 has no public window target, `ui.commandBar.open` is authorized
+only against app scope. Pane-scoped `uiPresent` grants must not drive whichever
+workspace window happens to be focused.
+Structural operations such as `pane.split` and `drawer.addPane` are not routed
+through command-bar UI because they have explicit target and mode parameters.
+Picker-oriented flows, such as repo/worktree selection, should stay under
+`ui.commandBar.open(scope: repos)` until they have a semantic method contract.
 
 ## Terminal Runtime Boundary
 
@@ -351,13 +415,17 @@ auth uses `--token-stdin`; app-spawned pane agents receive their pane-bound
 credential through an explicitly remapped bootstrap fd owned by
 `PaneAgentLaunchOwner`.
 
-The current client surface includes query/control verbs for debug proof:
+The current CLI client surface includes query/control verbs for debug proof:
 `auth-status`, `identify`, `capabilities`, `list-windows`, `list-workspaces`,
 `list-panes`, `pane-focus`, `terminal-status`, `terminal-snapshot`,
 `terminal-send`, `terminal-wait`, `command-list`, and `command-execute`.
-`command-execute` accepts only the public command ids defined in
-`AgentStudioProgrammaticControl`; it does not expose arbitrary `AppCommand`
-cases.
+`command-execute` is intentionally narrow: it accepts open string command ids so
+version-skewed clients get `unsupported capability` instead of parameter decode
+failure, but only allowlisted headless semantic ids may execute. Current
+command-bar-backed rows return `requires presentation`. Direct JSON-RPC clients
+can also call the app-level method registry, including `ui.commandBar.open`,
+`pane.split`, `pane.close`, `drawer.addPane`, and `drawer.toggle`, subject to
+authentication and authorization.
 
 ## Auth And Permissions
 
@@ -398,6 +466,12 @@ Both modes use the debug unsafe method allowlist, cannot grant
 Baseline authority is intentionally small. A pane-bound agent gets self-pane
 authority for low-risk introspection and scoped terminal operations. Anything
 outside that baseline requires an explicit grant.
+
+Phase 1 denies requested `layoutMutate` grants through `permission.request`
+because the reusable grant ledger is principal-scoped and durable across
+reconnects. Cross-pane or app-wide layout mutation requires a later
+connection-bound or one-shot grant model before it can be approved outside
+unsafe debug proof.
 
 Permission requests flow through the permission broker:
 

@@ -23,13 +23,18 @@ public struct AppIPCMethodRegistry: Sendable {
             Self.method("pane.list", .paneContextRead, .queryReader),
             Self.method("pane.current", .paneContextRead, .queryReader),
             Self.method("pane.focus", .layoutMutate, .workspaceAction),
+            Self.method("pane.split", .layoutMutate, .workspaceAction),
+            Self.method("pane.close", .layoutMutate, .workspaceAction),
             Self.method("pane.snapshot", .paneContextRead, .queryReader),
+            Self.method("drawer.toggle", .layoutMutate, .workspaceAction),
+            Self.method("drawer.addPane", .layoutMutate, .workspaceAction),
             Self.method("terminal.status", .terminalStatusRead, .runtimeCommand),
             Self.method("terminal.send", .terminalInputWrite, .runtimeCommand),
             Self.method("terminal.snapshot", .terminalSnapshotRead, .runtimeCommand),
             Self.method("terminal.wait", .terminalWait, .runtimeCommand, resultSemantics: .accepted),
-            Self.method("command.list", .debugUnsafe, .appCommand),
+            Self.method("command.list", .systemRead, .queryReader),
             Self.method("command.execute", .debugUnsafe, .appCommand),
+            Self.method("ui.commandBar.open", .uiPresent, .uiPresentation),
             Self.method("permission.request", .permissionRequest, .permissionBroker, resultSemantics: .accepted),
             Self.method("permission.requestStatus", .permissionRead, .permissionBroker),
             Self.method("permission.grantStatus", .permissionRead, .permissionBroker),
@@ -197,6 +202,8 @@ public struct PermissionScopeCanonicalizer: Sendable {
             .unspecified
         case .paneContextRead, .layoutMutate:
             .paneContext
+        case .uiPresent:
+            .uiSurface
         case .terminalRead, .terminalSnapshotRead:
             .terminalSnapshot
         case .terminalWrite, .terminalInputWrite:
@@ -327,13 +334,18 @@ public struct AuthorizationService: Sendable {
         "pane.list",
         "pane.current",
         "pane.focus",
+        "pane.split",
+        "pane.close",
         "pane.snapshot",
+        "drawer.toggle",
+        "drawer.addPane",
         "terminal.status",
         "terminal.send",
         "terminal.snapshot",
         "terminal.wait",
         "command.list",
         "command.execute",
+        "ui.commandBar.open",
     ]
 }
 

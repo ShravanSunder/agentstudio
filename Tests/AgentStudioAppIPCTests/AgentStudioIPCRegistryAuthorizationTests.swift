@@ -10,7 +10,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "bridge.", "orchestration."]
 
-        #expect(registry.definitions.count == 27)
+        #expect(registry.definitions.count == 32)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
             #expect(!definition.resultSchema.name.isEmpty)
@@ -19,12 +19,22 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         }
 
         let commandList = try #require(registry.definition(named: "command.list"))
-        #expect(commandList.privilegeClasses == [.debugUnsafe])
-        #expect(commandList.executionOwner == .appCommand)
+        #expect(commandList.privilegeClasses == [.systemRead])
+        #expect(commandList.executionOwner == .queryReader)
 
         let commandExecute = try #require(registry.definition(named: "command.execute"))
         #expect(commandExecute.privilegeClasses == [.debugUnsafe])
         #expect(commandExecute.executionOwner == .appCommand)
+
+        let commandBarOpen = try #require(registry.definition(named: "ui.commandBar.open"))
+        #expect(commandBarOpen.privilegeClasses == [.uiPresent])
+        #expect(commandBarOpen.executionOwner == .uiPresentation)
+
+        for methodName in ["pane.split", "pane.close", "drawer.toggle", "drawer.addPane"] {
+            let definition = try #require(registry.definition(named: methodName))
+            #expect(definition.privilegeClasses == [.layoutMutate])
+            #expect(definition.executionOwner == .workspaceAction)
+        }
     }
 
     @Test("authorizes selfPane terminal send from the bound principal pane")
@@ -127,8 +137,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         )
     }
 
-    @Test("unsafe debug allows command methods but grants cannot authorize debug unsafe privilege")
-    func unsafeDebugAllowsCommandMethodsButGrantsCannotAuthorizeDebugUnsafePrivilege() throws {
+    @Test("command discovery is non-debug while command execution remains unsafe-debug only")
+    func commandDiscoveryIsNonDebugWhileCommandExecutionRemainsUnsafeDebugOnly() throws {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let grantLedger = GrantLedger()
         let service = AuthorizationService(
@@ -146,9 +156,9 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let spawnedPane = makeAuthorizationPrincipal(boundPaneId: "pane-1")
 
         try service.authorize(
-            principal: unsafeDebug,
+            principal: spawnedPane,
             methodName: "command.list",
-            requestedTarget: .app,
+            requestedTarget: .selfPane,
             activePaneId: nil
         )
 
@@ -164,6 +174,69 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                 activePaneId: "pane-1"
             )
         }
+
+        try service.authorize(
+            principal: unsafeDebug,
+            methodName: "command.execute",
+            requestedTarget: .app,
+            activePaneId: nil
+        )
+    }
+
+    @Test("spawned pane baseline does not include ui presentation")
+    func spawnedPaneBaselineDoesNotIncludeUIPresentation() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: GrantLedger(),
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "ui.commandBar.open",
+                requestedTarget: .app,
+                activePaneId: nil
+            )
+        }
+    }
+
+    @Test("ui presentation requires app scoped authority")
+    func uiPresentationRequiresAppScopedAuthority() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let grantLedger = GrantLedger()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: grantLedger,
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .uiPresent, target: .pane("pane-1"), dataScope: .uiSurface),
+            to: principal.principalId
+        )
+
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "ui.commandBar.open",
+                requestedTarget: .app,
+                activePaneId: nil
+            )
+        }
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface),
+            to: principal.principalId
+        )
+        try service.authorize(
+            principal: principal,
+            methodName: "ui.commandBar.open",
+            requestedTarget: .app,
+            activePaneId: nil
+        )
     }
 }
 

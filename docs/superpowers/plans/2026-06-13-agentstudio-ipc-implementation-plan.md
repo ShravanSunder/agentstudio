@@ -8,7 +8,10 @@ CLI/client core, architecture docs, app-owned socket server lifecycle, and
 fd-based pane bootstrap primitive have landed. The remaining follow-up is
 concrete child-process fd remapping in the future pane-agent spawn adapter; the
 current terminal/zmx launch path does not yet pass the bootstrap fd into a
-child process.
+child process. A new corrective slice is also required for command/UI separation:
+the current `command.*` debug allowlist opens command-bar UI surfaces, while the
+target contract requires headless semantic command execution under `command.*`
+and explicit UI presentation under `ui.*`.
 **Primary spec:** `docs/superpowers/specs/2026-06-10-agentstudio-ipc-design.md`
 **Related backend spec:** `docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md`
 
@@ -19,6 +22,8 @@ strict JSON-RPC 2.0 framing, `agentStudioOnly` subject-token auth, principal
 binding, scoped grants, permission requests, method registry, pane-first handles,
 read/query methods, pane focus, terminal status/snapshot/send/wait, event
 subscriptions, and a dedicated local CLI executable target for smoke/use.
+Correct the command surface so command-spec-backed semantic execution and UI
+presentation do not share one ambiguous `command.execute` method.
 
 The implementation must route through existing app and runtime owners. It must
 not introduce a new mutation owner, command bus, public zmx API, or phase-1 MCP
@@ -28,8 +33,8 @@ transport.
 
 Read in full before planning:
 
-- `docs/superpowers/specs/2026-06-10-agentstudio-ipc-design.md`: 1408 lines,
-  chunks `1-360`, `361-720`, `721-1080`, `1081-1408`.
+- `docs/superpowers/specs/2026-06-10-agentstudio-ipc-design.md`: 1613 lines,
+  chunks `1-360`, `361-760`, `761-1160`, `1161-1613`.
 - `docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md`: 322 lines,
   chunk `1-322`.
 
@@ -74,6 +79,8 @@ Live repo evidence checked:
   runtime envelopes, or raw zmx protocol details.
 - No public `zmx.*` namespace.
 - No direct atom mutation from IPC methods.
+- No implicit command-bar, picker, sheet, or prompt presentation through
+  `command.execute`; UI surfaces are explicit `ui.*` methods.
 - No zmx backend IPC transport swap in this plan. The zmx backend spec remains
   a later internal implementation plan after vendor verification.
 
@@ -84,14 +91,14 @@ external agent / CLI
   -> AgentStudioIPCTransport
        Unix socket, peer credentials, NDJSON, JSON-RPC codec
   -> AgentStudioProgrammaticControl
-       method contracts, schemas, privileges, grant scopes, handles,
-       public events/waits
+      method contracts, schemas, privileges, grant scopes, handles,
+      command execution modes, UI presentation contracts, public events/waits
   -> AgentStudioAppIPC
        service lifecycle, auth, principals, GrantLedger, AuthorizationService,
        registry assembly, protocol ports
   -> AgentStudio executable / App/Boot + App/IPCComposition
-       app listener lifecycle, concrete policy, approval, query/action/runtime
-       adapters
+      app listener lifecycle, concrete policy, approval, query/action/runtime,
+      command, and UI-presentation adapters
   -> existing owners
        CommandDispatcher / ActionExecutor / WorkspaceCommandValidator
        PaneCoordinator / RuntimeRegistry / PaneRuntime
@@ -174,6 +181,9 @@ composition/integration tests.
 | Permission events are visibility-scoped and status methods recover missed permission events | T8 | Permission event/status tests | Fake subscriber tests plus request/grant status queries | Unit/integration | Requesting principal, app approval surface, delegated approver, and unrelated principal visibility are tested separately | Yes | Yes |
 | CLI can discover socket metadata, authenticate, call read methods, send terminal input, and subscribe/unsubscribe | T9 | CLI smoke tests | CLI unit tests plus local smoke against test IPC server | Smoke | Smoke uses isolated `AGENTSTUDIO_DATA_DIR` and does not touch user's running app | Yes | Yes |
 | If the local CLI ships in phase 1, it is a dedicated executable target with no dependency on `AgentStudioAppIPC` or the AgentStudio executable target | T9 | SwiftPM target graph and CLI tests | `swift package describe`, CLI target build, CLI smoke | Compile/smoke | No committed support client outside a target unless T9 is explicitly removed from phase 1 | No | Yes |
+| `command.execute` means headless semantic execution and never opens command bar, picker, sheet, or prompt UI implicitly | T11 | Command contract and adapter tests | Red/green IPC command adapter tests plus registry tests | Unit/integration | Tests fail on current `showCommandBar*` mapping, then pass only when UI openers move to `ui.*` | Yes | Yes |
+| UI presentation commands remain exposed because they are useful, but they live under `ui.*` with `uiPresent` privilege and presentation postconditions | T11 | UI-presentation adapter tests | `ui.commandBar.open` tests for each scope and no-active-window behavior | Unit/integration | Tests assert UI method returns command-bar postcondition and does not claim selected command/action completion | Yes | Yes |
+| Create/split/close/drawer operations are classified by semantic effect, not by whether a keyboard shortcut currently opens a chooser | T11 promoted expansion | Method registry, layout adapter, and command exposure tests | Registry metadata tests over execution mode, required parameters, target kinds, and owner chain | Unit/integration | `tab.create`/`pane.split`/`pane.close`/`drawer.toggle`/`drawer.addPane` require explicit owner chains and arguments; `ui.commandBar.open(scope: repos)` is the chooser path | Yes | Yes |
 | Phase-1 implementation does not expose zmx public methods or zmx internals | T4/T7/T8 | Registry/schema tests | Namespace denylist and snapshot/event sensitive-field tests | Unit | Tests explicitly deny `zmx.*`, socket path, session name, history, raw `Info` bytes | Yes | Yes |
 | Architecture docs are promoted after implementation and spec becomes history | T10 | Docs proof | `rg` checks plus docs diff review | Docs/lint | Docs reference real implemented file paths and remove stale open decisions | No | Yes |
 
@@ -190,7 +200,9 @@ Actions:
   through the Claude Code CLI with Opus-level review; do not use Anthropic API
   calls.
 - Keep phase-1 expansion methods (`workspace.select`, `pane.split`, `pane.close`,
-  `terminal.interrupt`) out unless review identifies a complete owner chain.
+  `drawer.toggle`, `drawer.addPane`, `terminal.interrupt`) out unless review
+  identifies a complete owner chain. T11 promotes the methods whose owner chain
+  is already complete and testable through `ActionExecutor`.
 - Decide CLI packaging before code: add a Swift executable target or defer the
   installable CLI while still shipping test/support client code.
 
@@ -655,6 +667,142 @@ Proof:
   not zmx or EventBus state.
 - `mise run lint` includes markdown/boundary checks as repo tooling defines.
 
+### T11. Command/UI Namespace Split And Headless Command Execution
+
+Purpose: correct the command surface so IPC can use the command-spec system
+without pretending that opening command palette UI is headless command execution.
+
+Entry gate:
+
+- Keep the current `AppCommand` / `CommandSpec` identity model as the metadata
+  source. Do not fork a second command catalog.
+- Treat this as a contract correction, not a debug-smoke proof. The current live
+  proof that dispatches `showCommandBar*` commands is useful evidence that UI
+  presentation can work, but it is not proof of headless semantic command
+  execution.
+
+Write surfaces:
+
+- `Sources/AgentStudioProgrammaticControl/IPCCommandContracts.swift`
+- `Sources/AgentStudioProgrammaticControl/IPCContracts.swift`
+- `Sources/AgentStudioAppIPC/AgentStudioIPCRegistryAuthorization.swift`
+- `Sources/AgentStudioAppIPC/AgentStudioAppIPCServer.swift`
+- `Sources/AgentStudioAppIPC/AgentStudioAppIPCService.swift`
+- `Sources/AgentStudio/App/IPCComposition/AgentStudioIPCLayoutAdapter.swift`
+- `Sources/AgentStudio/App/IPCComposition/AgentStudioIPCCommandAdapter.swift`
+- New or renamed `Sources/AgentStudio/App/IPCComposition/AgentStudioIPCUIPresentationAdapter.swift`
+- `Tests/AgentStudioAppIPCTests/AgentStudioIPCRegistryAuthorizationTests.swift`
+- `Tests/AgentStudioTests/App/IPC/AgentStudioIPCLayoutAdapterTests.swift`
+- `Tests/AgentStudioTests/App/IPC/AgentStudioIPCCommandAdapterTests.swift`
+- New or renamed `Tests/AgentStudioTests/App/IPC/AgentStudioIPCUIPresentationAdapterTests.swift`
+- `Tests/AgentStudioIPCClientTests/` if the CLI exposes the new methods.
+- `docs/architecture/agentstudio_ipc_architecture.md` after implementation proof.
+
+Implement:
+
+- Add a public execution-mode model, for example:
+  `headless`, `uiPresentation`, and future `requiresInteractiveInput`.
+- Add `uiPresent` privilege and a `uiPresentation` execution owner to the public
+  contract metadata.
+- Change `command.list` so it lists headless-capable semantic commands, with
+  execution modes, target kinds, required privileges, and required parameters.
+- Hard-cut the DTO shape. Headless `command.*` descriptors/results and
+  UI-presentation `ui.commandBar.open` params/results are separate public DTO
+  families. Do not keep a compatibility shim where command results carry
+  command-bar postconditions.
+- Change `command.execute` so it rejects commands whose current implementation
+  requires presentation or missing user input. It must not call
+  `showCommandBarEverything`, `showCommandBarCommands`, `showCommandBarPanes`, or
+  `showCommandBarRepos`.
+- Add `ui.commandBar.open` with params:
+  `scope: everything | commands | panes | repos` and optional correlation id.
+  Phase 1 deliberately omits `targetWindow`; the method presents in the resolved
+  current workspace window only. Window-scoped UI grants require a future
+  `window` target scope plus canonicalization and wrong-window denial tests.
+- Route `ui.commandBar.open` through an explicit UI-presentation port. The
+  executable target may use command-bar presentation machinery, but the port must
+  return a presenter-owned result object. Do not prove presentation by dispatching
+  a shell command and then inspecting global `CommandBarSurfaceAtom` state.
+- Return presentation postconditions such as workspace window id and active
+  command-bar scope. Do not report command/action completion.
+- Keep create/split/close semantics in domain namespaces. `tab.create` and
+  `pane.split` are semantic methods when explicit arguments are available;
+  `ui.commandBar.open(scope: repos)` is the chooser/picker affordance.
+- Promote the first useful layout-control methods in this slice because they
+  already have a stable owner chain: `pane.split`, `pane.close`,
+  `drawer.toggle`, and `drawer.addPane` route through
+  `AgentStudioIPCLayoutAdapter -> ActionExecutor -> WorkspaceCommandValidator ->
+  PaneCoordinator`. IPC owns handle/parameter translation only.
+- Treat drawer control as pane-layout control, not UI presentation. Opening,
+  closing, or adding drawer panes must use explicit `drawer.*` methods with pane
+  handles; showing a picker or command bar to choose a drawer target remains
+  `ui.*`.
+- Update CLI/client command names only after the server contract and tests pass.
+
+Proof:
+
+- Red test first: existing `command.execute(commandPalette)` / command-bar opener
+  tests must fail under the new expectation or be replaced by explicit
+  `ui.commandBar.open` tests.
+- Registry tests prove `command.execute` is not registered with `debugUnsafe` as
+  the only practical access path for UI presentation, and `ui.commandBar.open`
+  declares `uiPresent`.
+- Command adapter tests prove `command.execute` rejects UI-opening commands with
+  `requiresPresentation` / `unsupportedCommand` and does not mutate command-bar
+  surface state. Unknown command ids must decode as open strings and return
+  `unsupportedCommand` / `unsupported capability`, not `invalid params`.
+- Registry/auth tests prove `command.list` is a non-debug discovery method
+  (`systemRead` unless implementation review chooses a narrower command-read
+  privilege) and that `command.execute` cannot be used as a broad replacement for
+  method-specific privileges.
+- UI adapter and authorization tests prove `ui.commandBar.open` presents through
+  the presentation owner, returns the postcondition for the resolved workspace
+  window, and is authorized at app scope until a public window target exists.
+- Layout adapter tests prove `pane.split`, `pane.close`, `drawer.toggle`, and
+  `drawer.addPane` resolve handles and delegate to the action owner seam without
+  direct atom mutation. They must report owner-chain validation rejection instead
+  of optimistic success, and drawer parent handles must reject drawer-child
+  panes unless a later design explicitly canonicalizes them to parents.
+- Concrete layout-owner tests prove split/drawer actions register placeholder
+  hosts before exposing newly-created terminal panes to visible tab or drawer
+  layouts. Live debug proof must also run against a restored debug root without
+  crashing on recoverable missing-host state.
+- Permission broker tests prove `layoutMutate` grants are not requestable through
+  the current principal-bound grant ledger; non-debug mutating grants need a
+  later connection-bound or one-shot grant model.
+- Live debug proof must exercise at least one split and one drawer command
+  through IPC, then query `pane.list` or `pane.snapshot` to prove the app state
+  changed.
+- Manual debug proof for this slice must capture exact JSON-RPC requests and
+  responses for:
+  `command.execute(commandPalette)` failing with `requiresPresentation` or
+  `unsupportedCommand`, `ui.commandBar.open(scope: commands)` succeeding with a
+  presentation-only postcondition, `pane.split` changing the pane graph,
+  `drawer.addPane` changing drawer/pane state, and `drawer.toggle` applying to
+  the requested parent pane. The proof must leave the debug app process alive
+  after the sequence.
+- No-active-window tests map to `-32006`.
+- Authorization tests prove spawned pane agents do not get `uiPresent` by
+  baseline and pane-scoped `uiPresent` does not authorize app/window
+  presentation, while unsafe debug can still use `ui.commandBar.open` for local
+  smoke proof.
+- CLI/client tests, if updated in this slice, prove method serialization for
+  `ui.commandBar.open` and do not send bearer tokens in argv.
+- `swift test --package-path Tools/AgentStudioArchitectureLint`
+- Focused Swift tests for `IPCContractsTests`,
+  `AgentStudioIPCRegistryAuthorizationTests`,
+  `AgentStudioIPCCommandAdapterTests`, `AgentStudioIPCUIPresentationAdapterTests`,
+  and CLI client tests if touched.
+- `mise run lint`
+
+Split/replan trigger:
+
+- If no stable headless owner exists for a desired `AppCommand`, do not expose it
+  through `command.execute`. Either add a domain method with explicit parameters
+  and owner chain, or leave it out of phase 1.
+- If `ui.commandBar.open` requires direct command-bar atom mutation, stop and route
+  through the app-owned presentation controller/port instead.
+
 ## Write Surface Summary
 
 Expected new areas:
@@ -680,6 +828,7 @@ Expected existing areas touched narrowly:
 - `Sources/AgentStudio/App/Boot/AppDelegate.swift` or an extension for service
   lifecycle wiring.
 - Existing terminal session environment construction path for IPC env injection.
+- Existing IPC command adapter/contracts for the T11 command/UI split.
 - `Tools/AgentStudioArchitectureLint/`,
   `Tests/AgentStudioTests/Scripts/ArchitectureSwiftLintRulesTests.swift`, and
   `docs/architecture/architecture_lint_inventory.md` when IPC SwiftSyntax rules
@@ -692,6 +841,8 @@ No expected changes:
 - Public Bridge/Webview method surfaces.
 - Atom write-owner boundaries.
 - EventBus command routing semantics.
+- Existing `AppCommand` / `CommandSpec` catalog identity. T11 consumes it; it does
+  not fork it.
 
 ## Validation Gates
 
@@ -719,6 +870,7 @@ Required during implementation slices:
    - terminal adapter
    - events/permission events/waits
    - CLI discovery/client
+   - command/UI namespace split and presentation adapter
 4. Existing relevant suites:
    - `Tests/AgentStudioTests/Infrastructure/AppDataPathsTests.swift`
    - `Tests/AgentStudioTests/App/ActionExecutorTests*.swift`
@@ -875,6 +1027,12 @@ Remaining follow-up before claiming pane-agent child-process bootstrap:
 - Event subscriptions can become an accidental raw runtime-envelope API. Keep
   public event DTOs separate.
 - CLI packaging may force package/product changes; decide before coding.
+- Command identity can become a semantic trap: a single `AppCommand` may currently
+  be used by keyboard/UI affordances that gather missing input. IPC must classify
+  the exposed method by effect and execution mode, not by shortcut label.
+- UI presentation authority can become a covert automation path if it is granted
+  broadly. Keep `uiPresent` separate from `layoutMutate` and deny it from spawned
+  pane baseline grants unless explicitly approved.
 - Full `mise run lint` now passes in this worktree after PR #175. Future failures
   should still distinguish changed-surface proof from unrelated tooling blockers.
 
@@ -888,6 +1046,10 @@ Remaining follow-up before claiming pane-agent child-process bootstrap:
 3. Choose durable storage for user-configured approval policy:
    settings-backed persistence, workspace-local config, or runtime-only
    developer config.
+4. Choose the first headless semantic command allowlist for `command.execute`.
+   Recommended default: start with commands whose owner chain already has explicit
+   target/argument semantics, and keep create/split/close domain methods separate
+   when a clearer `pane.*`, `tab.*`, or `terminal.*` method exists.
 
 ## Implementation Decisions Resolved
 
@@ -907,6 +1069,9 @@ Remaining follow-up before claiming pane-agent child-process bootstrap:
   `agentstudio-ipc`, backed by `AgentStudioIPCClientCore`. The client target
   graph intentionally excludes `AgentStudioAppIPC` and the AgentStudio
   executable target.
+- UI-opening command-bar scopes remain exposed because they are useful for
+  automation and live debugging, but the target contract exposes them as explicit
+  `ui.commandBar.open` presentation methods rather than `command.execute`.
 
 ## Next Workflow
 

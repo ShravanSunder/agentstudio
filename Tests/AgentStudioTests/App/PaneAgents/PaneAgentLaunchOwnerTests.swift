@@ -215,6 +215,7 @@ private struct PaneAgentLiveServerFixture {
                 layoutPort: PaneAgentTestLayoutPort(),
                 runtimePort: PaneAgentTestRuntimePort(),
                 commandPort: PaneAgentTestCommandPort(),
+                uiPresentationPort: PaneAgentTestUIPresentationPort(),
                 permissionApprovalPort: PaneAgentTestPermissionApprovalPort()
             )
         )
@@ -275,6 +276,22 @@ private struct PaneAgentTestLayoutPort: AppIPCLayoutPort {
     func focusPane(_: IPCHandle) throws -> IPCPaneFocusResult {
         throw AppIPCLayoutError(reason: .targetNotFound)
     }
+
+    func splitPane(_: IPCPaneSplitParams) throws -> IPCPaneSplitResult {
+        throw AppIPCLayoutError(reason: .targetNotFound)
+    }
+
+    func closePane(_: IPCPaneCloseParams) throws -> IPCPaneCloseResult {
+        throw AppIPCLayoutError(reason: .targetNotFound)
+    }
+
+    func addDrawerPane(_: IPCDrawerAddPaneParams) throws -> IPCDrawerAddPaneResult {
+        throw AppIPCLayoutError(reason: .targetNotFound)
+    }
+
+    func toggleDrawer(_: IPCDrawerToggleParams) throws -> IPCDrawerToggleResult {
+        throw AppIPCLayoutError(reason: .targetNotFound)
+    }
 }
 
 private struct PaneAgentTestRuntimePort: AppIPCRuntimePort {
@@ -309,6 +326,12 @@ private struct PaneAgentTestCommandPort: AppIPCCommandPort {
 
     func executeCommand(_: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
         throw AppIPCCommandError(reason: .unsupportedCommand)
+    }
+}
+
+private struct PaneAgentTestUIPresentationPort: AppIPCUIPresentationPort {
+    func openCommandBar(_: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult {
+        throw AppIPCUIPresentationError(reason: .noActiveWindow)
     }
 }
 

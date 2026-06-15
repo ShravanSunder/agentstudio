@@ -27,8 +27,10 @@ Implementation checkpoint on 2026-06-15:
 
 - Debug unsafe no-auth and debug token escrow are implemented for debug-channel
   live-control proof only. They are not beta/stable access modes.
-- `command.list` and `command.execute` are implemented as a narrow public
-  command-spec allowlist, not arbitrary `AppCommand` execution.
+- `command.list` and `command.execute` are currently implemented as a narrow
+  public command-spec allowlist for debug/live-control proof, but that allowlist
+  opens command-bar UI surfaces. The target contract splits semantic headless
+  command execution under `command.*` from explicit UI presentation under `ui.*`.
 - A DEBUG-only `ipc-terminal-smoke` startup diagnostic can create a real
   floating terminal pane that becomes visible to IPC runtime methods.
 - Live proof has shown `terminal.status`, `pane.focus`, and `terminal.send`
@@ -81,6 +83,8 @@ revoke, or execute authority.
 - Do not expose arbitrary internal event names or raw runtime envelopes as the
   public event/wait contract.
 - Do not mutate atoms directly from IPC methods.
+- Do not make `command.execute` present command-bar, picker, sheet, or prompt UI
+  as an implicit side effect. UI presentation is an explicit `ui.*` method.
 
 ## Grounding In The Current System
 
@@ -528,6 +532,11 @@ paneContextRead
 layoutMutate
   focus, split, close, select, move
 
+uiPresent
+  present app-owned UI surfaces such as command bar scopes, pickers, sheets, and
+  prompts; does not by itself grant permission to execute the action selected in
+  that UI
+
 terminalRead
   reserved broad terminal read class; phase-1 grants should prefer the narrower
   terminalStatusRead, terminalSnapshotRead, and terminalWait classes
@@ -581,6 +590,7 @@ targetScope
 dataScope
   runtimeMetadata
   paneContext
+  uiSurface
   terminalStatus
   terminalSnapshotRedacted
   terminalInput
@@ -637,6 +647,7 @@ global pane.list
 terminal.send to another pane
 pane.focus to another pane
 pane.close / pane.split
+ui.commandBar.open unless granted
 raw terminal output / scrollback
 zmx.*
 debugUnsafe
@@ -812,6 +823,12 @@ cross-pane or global mutating grants
   never reconnectable unless a later spec explicitly chooses that risk
 ```
 
+Phase 1 exposes structural layout methods for unsafe debug proof and future
+authorized clients, but `permission.request` rejects requested `layoutMutate`
+grants until connection-bound or one-shot grant storage exists. A
+principal-bound durable grant ledger is acceptable for low-risk read/status
+privileges; it is not acceptable for reusable destructive layout authority.
+
 Subject-token theft is principal impersonation for the lifetime of that token and
 any principal-bound grants. This is an accepted local threat in
 `agentStudioOnly`, not a property the grant system can make impossible. The
@@ -863,7 +880,8 @@ privilege class
   one or more declared classes
 
 execution owner
-  app command, workspace action, runtime command, query reader, event reader
+  app command, UI presentation, workspace action, runtime command, query reader,
+  event reader
 
 result semantics
   applied or accepted
@@ -892,6 +910,141 @@ the terminal surface; shell command completion is observed separately through
 The registry must not route raw requests directly into atoms. It must not invent
 a generic command bus. It binds external methods to focused existing
 capabilities.
+
+## Command Specs, Headless Commands, And UI Presentation
+
+`AppCommand` and `CommandSpec` remain the shared identity and metadata source for
+keyboard shortcuts, menu items, command-bar rows, and IPC discovery. IPC must not
+turn that shared identity into one ambiguous execution lane.
+
+The public contract has two distinct lanes:
+
+```text
+command.*
+  semantic command discovery and headless execution
+  may use CommandSpec metadata for id, label, icon, help text, and availability
+  must route to a named app/workspace/runtime execution owner
+  must not present command bar, picker, sheet, or prompt UI implicitly
+
+ui.*
+  explicit presentation of app-owned UI surfaces
+  may use AppCommand/CommandSpec-backed shell commands internally
+  returns presenter-owned presentation postconditions, not semantic action completion
+  does not imply permission to execute whatever the user or agent later chooses
+```
+
+The dividing question is:
+
+```text
+Is the caller asking AgentStudio to perform product work,
+or asking AgentStudio to show a human/app UI surface?
+```
+
+If it performs product work, the method belongs in the domain namespace or
+`command.*` only when the command has a stable headless owner:
+
+```text
+pane.focus
+pane.split
+pane.close
+drawer.toggle
+drawer.addPane
+tab.create
+terminal.send
+command.execute(commandId: "copyCurrentPanePath", target: "pane:1")
+```
+
+If it presents a chooser or overlay, the method belongs under `ui.*`:
+
+```text
+ui.commandBar.open(scope: everything)
+ui.commandBar.open(scope: commands)
+ui.commandBar.open(scope: panes)
+ui.commandBar.open(scope: repos)
+```
+
+Creating a pane, tab, or drawer pane is not a UI action by default.
+`tab.create`, `pane.split`, `pane.close`, `drawer.toggle`, and `drawer.addPane`
+are semantic app-control methods when all required target and creation
+parameters are supplied. Opening the repo/worktree command-bar scope so the user
+can choose what to create is a UI-presentation method. The current shortcut named
+`newTab` may still open the repo/worktree command bar because that is a
+keyboard/UI affordance; IPC must expose the underlying create/open semantics
+separately from the affordance that asks the user for missing input.
+
+Programmatic structural mutations must also preserve render stability. A pane
+created by `pane.split` or `drawer.addPane` must have a `ViewRegistry` slot plus
+a placeholder host before it becomes visible through tab or drawer layout. If a
+restored/debug workspace already contains recoverable missing-host state, the
+renderer may log and show a placeholder, but it must not terminate the app
+during IPC automation.
+
+`command.execute` must therefore fail closed when a command's current
+implementation requires UI presentation, missing user input, or ambiguous active
+selection:
+
+```text
+unsupportedCommand
+  command is not in the public IPC allowlist. `commandId` decodes as an open
+  string so version-skewed clients receive this semantic error instead of a
+  parameter-decoding failure.
+
+requiresTarget
+  a pane/tab/workspace target is required and none was supplied or resolved
+
+requiresParameters
+  semantic execution needs arguments that the command-bar UI normally gathers
+
+requiresPresentation
+  the command's primary behavior is opening UI; call an explicit ui.* method
+```
+
+`command.list` should expose execution-mode metadata so clients cannot confuse a
+row that can run headlessly with a row that opens UI:
+
+```json
+{
+  "id": "copyCurrentPanePath",
+  "title": "Copy Current Pane Path",
+  "executionModes": ["headless"],
+  "targetKinds": ["pane"],
+  "requiredPrivileges": ["paneContextRead"]
+}
+```
+
+`command.list` is command-catalog discovery and uses `systemRead` in phase 1.
+It is not `debugUnsafe`. `command.execute` may still be restricted to the
+headless command allowlist, but it must not be the only way to discover which
+methods are available. The current phase-1 headless command catalog is empty;
+public command ids still decode as open strings so unsupported future ids map to
+`unsupportedCommand` instead of `invalidParams`.
+
+For UI surfaces:
+
+```json
+{
+  "id": "commandBar.repos",
+  "title": "New Tab or Worktree",
+  "executionModes": ["uiPresentation"],
+  "method": "ui.commandBar.open",
+  "params": {"scope": "repos"},
+  "requiredPrivileges": ["uiPresent"]
+}
+```
+
+The phase-1 corrective rule is simple: no public `command.execute` entry may map
+to `showCommandBarEverything`, `showCommandBarCommands`,
+`showCommandBarPanes`, or `showCommandBarRepos`. Those remain valuable, but they
+are exposed as `ui.commandBar.open(scope: ...)`.
+
+Phase 1 `ui.commandBar.open` presents in the resolved current workspace window
+only and is authorized at app scope. It does not accept `targetWindow`, and a
+pane-scoped `uiPresent` grant must not authorize presentation in whichever
+workspace window is currently focused. Window-scoped UI control is deferred
+until `IPCTargetScope` has a public window target plus canonicalization,
+grant-lifetime, and wrong-window denial tests. Implementations must not prove UI
+presentation by dispatching a shell command and then reading global command-bar
+state; the UI presentation owner returns the postcondition.
 
 ## Handles And Targeting
 
@@ -954,6 +1107,11 @@ terminal.send
 terminal.snapshot
 terminal.wait
 
+command.list
+command.execute
+
+ui.commandBar.open
+
 permission.request
 permission.requestStatus
 permission.grantStatus
@@ -969,9 +1127,12 @@ the spec names their exact execution owner, active-window behavior, validation
 errors, and no-direct-atom-mutation proof:
 
 ```text
+tab.create
 workspace.select
 pane.split
 pane.close
+drawer.toggle
+drawer.addPane
 terminal.interrupt
 ```
 
@@ -1043,6 +1204,19 @@ pane.focus / future pane structural mutations
 app and shell commands, if exposed later
   CommandDispatcher
     -> appCommandRouter or active workspace handler
+
+command.*
+  semantic app/workspace/runtime command execution only
+  CommandSpec/AppCommand metadata may identify commands, but execution must route
+  to a headless-capable owner chain and must fail with requiresPresentation when
+  the current command implementation opens UI to gather intent
+
+ui.*
+  explicit UI presentation adapter implemented by App/IPCComposition
+    -> CommandDispatcher for UI-opening shell commands when that is already the
+       app-owned presentation path
+    -> AppDelegate / command-bar controller for presentation postconditions
+  does not execute selected command-bar results or bypass the UI surface owner
 
 terminal.* runtime commands
   AgentStudioAppIPC runtime port implemented by App/IPCComposition
@@ -1375,6 +1549,8 @@ registry tests
   every method has execution owner
   no deferred namespace is registered in phase 1
   no method is registered without a named owner chain
+  command.execute registry entries are headless only
+  UI presentation entries live under ui.* and declare uiPresent
 
 adapter tests
   pane target resolution
@@ -1383,6 +1559,11 @@ adapter tests
   accepted commands expose correlationId
   no-active-window behavior maps to JSON-RPC error
   no adapter mutates atoms directly
+  command.execute rejects CommandSpec rows that require presentation
+  ui.commandBar.open presents each allowed scope and returns a presentation
+  postcondition without claiming the selected command executed
+  concrete split/drawer mutations register placeholder hosts before exposing
+  created panes to rendered layouts
 
 event tests
   subscribe/unsubscribe
@@ -1411,8 +1592,9 @@ become Linear tickets after the spec and plan are approved.
 6. Terminal runtime adapter and bounded terminal methods
 7. Event subscription, permission events, and wait model
 8. CLI client for local agents
-9. zmx backend IPC vendor verification and transport-swap plan
-10. Future MCP adapter design and implementation
+9. Command/UI namespace split and headless command execution correction
+10. zmx backend IPC vendor verification and transport-swap plan
+11. Future MCP adapter design and implementation
 ```
 
 ## Open Decisions
@@ -1429,10 +1611,15 @@ the requested canonical scope. Phase 1 includes delegated approval in the
 contract: delegated approvers can list routed pending requests through
 `permission.pendingApprovals` and resolve them through `permission.resolveRequest`.
 
-Phase-1 expansion methods `workspace.select`, `pane.split`, `pane.close`, and
-`terminal.interrupt` stay deferred until the spec names their exact owner chain
-and no-active-window behavior. Otherwise, window-bound methods return `-32006 no
-active window`.
+Phase-1 promotes `pane.split`, `pane.close`, `drawer.toggle`, and
+`drawer.addPane` because their owner chain is explicit:
+`AgentStudioIPCLayoutAdapter -> ActionExecutor -> WorkspaceCommandValidator ->
+PaneCoordinator`. They are window-bound methods and return `-32006 no active
+window` when no workspace window can be resolved. `workspace.select`,
+`tab.create`, and `terminal.interrupt` stay deferred until the spec names their
+exact owner chain, required parameters, fallback semantics, and no-active-window
+behavior. Opening the repo/worktree picker remains
+`ui.commandBar.open(scope: repos)`.
 
 If `terminal.snapshot` cannot be backed by an explicit exported DTO during
 planning, shrink phase 1 to `terminal.status` plus `pane.snapshot` rather than

@@ -45,6 +45,10 @@ public struct AppIPCLayoutError: Error, Equatable, Sendable {
 @MainActor
 public protocol AppIPCLayoutPort: Sendable {
     func focusPane(_ handle: IPCHandle) throws -> IPCPaneFocusResult
+    func splitPane(_ params: IPCPaneSplitParams) throws -> IPCPaneSplitResult
+    func closePane(_ params: IPCPaneCloseParams) throws -> IPCPaneCloseResult
+    func addDrawerPane(_ params: IPCDrawerAddPaneParams) throws -> IPCDrawerAddPaneResult
+    func toggleDrawer(_ params: IPCDrawerToggleParams) throws -> IPCDrawerToggleResult
 }
 
 public struct AppIPCRuntimeError: Error, Equatable, Sendable {
@@ -90,6 +94,9 @@ public struct AppIPCCommandError: Error, Equatable, Sendable {
         case noActiveWindow
         case targetNotFound
         case unsupportedCommand
+        case requiresPresentation
+        case requiresTarget
+        case requiresParameters
         case validationRejected
     }
 
@@ -110,11 +117,30 @@ public protocol AppIPCPermissionApprovalPort: Sendable {
     func decision(for record: PermissionRecord, requester: IPCPrincipal) -> ApprovalPolicyDecision
 }
 
+public struct AppIPCUIPresentationError: Error, Equatable, Sendable {
+    public enum Reason: String, Equatable, Sendable {
+        case noActiveWindow
+        case validationRejected
+    }
+
+    public let reason: Reason
+
+    public init(reason: Reason) {
+        self.reason = reason
+    }
+}
+
+@MainActor
+public protocol AppIPCUIPresentationPort: Sendable {
+    func openCommandBar(_ params: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult
+}
+
 public struct AgentStudioAppIPCPorts: Sendable {
     public let queryPort: any AppIPCQueryPort
     public let layoutPort: any AppIPCLayoutPort
     public let runtimePort: any AppIPCRuntimePort
     public let commandPort: any AppIPCCommandPort
+    public let uiPresentationPort: any AppIPCUIPresentationPort
     public let permissionApprovalPort: any AppIPCPermissionApprovalPort
 
     public init(
@@ -122,12 +148,14 @@ public struct AgentStudioAppIPCPorts: Sendable {
         layoutPort: any AppIPCLayoutPort,
         runtimePort: any AppIPCRuntimePort,
         commandPort: any AppIPCCommandPort,
+        uiPresentationPort: any AppIPCUIPresentationPort,
         permissionApprovalPort: any AppIPCPermissionApprovalPort
     ) {
         self.queryPort = queryPort
         self.layoutPort = layoutPort
         self.runtimePort = runtimePort
         self.commandPort = commandPort
+        self.uiPresentationPort = uiPresentationPort
         self.permissionApprovalPort = permissionApprovalPort
     }
 }

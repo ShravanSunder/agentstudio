@@ -62,6 +62,39 @@ struct FakeLayoutPort: AppIPCLayoutPort {
     func focusPane(_: IPCHandle) throws -> IPCPaneFocusResult {
         throw AppIPCLayoutError(reason: .targetNotFound)
     }
+
+    func splitPane(_ params: IPCPaneSplitParams) throws -> IPCPaneSplitResult {
+        let handle = try IPCHandle.parse(params.handle)
+        guard case .canonicalUUID(let paneId) = handle.reference else {
+            throw AppIPCLayoutError(reason: .targetNotFound)
+        }
+        return IPCPaneSplitResult(
+            targetPaneId: paneId, direction: params.direction, correlationId: params.correlationId)
+    }
+
+    func closePane(_ params: IPCPaneCloseParams) throws -> IPCPaneCloseResult {
+        let handle = try IPCHandle.parse(params.handle)
+        guard case .canonicalUUID(let paneId) = handle.reference else {
+            throw AppIPCLayoutError(reason: .targetNotFound)
+        }
+        return IPCPaneCloseResult(paneId: paneId, correlationId: params.correlationId)
+    }
+
+    func addDrawerPane(_ params: IPCDrawerAddPaneParams) throws -> IPCDrawerAddPaneResult {
+        let handle = try IPCHandle.parse(params.parentPaneHandle)
+        guard case .canonicalUUID(let paneId) = handle.reference else {
+            throw AppIPCLayoutError(reason: .targetNotFound)
+        }
+        return IPCDrawerAddPaneResult(parentPaneId: paneId, correlationId: params.correlationId)
+    }
+
+    func toggleDrawer(_ params: IPCDrawerToggleParams) throws -> IPCDrawerToggleResult {
+        let handle = try IPCHandle.parse(params.parentPaneHandle)
+        guard case .canonicalUUID(let paneId) = handle.reference else {
+            throw AppIPCLayoutError(reason: .targetNotFound)
+        }
+        return IPCDrawerToggleResult(parentPaneId: paneId, correlationId: params.correlationId)
+    }
 }
 
 struct FakeRuntimePort: AppIPCRuntimePort {
@@ -138,21 +171,35 @@ struct FakeCommandPort: AppIPCCommandPort {
     }
 
     func listCommands() throws -> IPCCommandListResult {
-        IPCCommandListResult(
-            commands: IPCCommandIdentifier.allCases.map { commandId in
-                IPCCommandListEntry(id: commandId, title: commandId.rawValue)
-            })
+        IPCCommandListResult(commands: [])
     }
 
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
-        guard let workspaceWindowId, let activeScope else {
+        guard IPCCommandIdentifier.allCases.contains(params.commandId) else {
+            throw AppIPCCommandError(reason: .unsupportedCommand)
+        }
+        guard workspaceWindowId != nil, activeScope != nil else {
             throw AppIPCCommandError(reason: .noActiveWindow)
         }
-        return IPCCommandExecuteResult(
-            commandId: params.commandId,
-            applied: true,
+        throw AppIPCCommandError(reason: .requiresPresentation)
+    }
+}
+
+struct FakeUIPresentationPort: AppIPCUIPresentationPort {
+    let workspaceWindowId: UUID?
+
+    nonisolated init(workspaceWindowId: UUID? = UUID()) {
+        self.workspaceWindowId = workspaceWindowId
+    }
+
+    func openCommandBar(_ params: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult {
+        guard let workspaceWindowId else {
+            throw AppIPCUIPresentationError(reason: .noActiveWindow)
+        }
+        return IPCCommandBarOpenResult(
             workspaceWindowId: workspaceWindowId,
-            commandBar: IPCCommandBarPostcondition(workspaceWindowId: workspaceWindowId, scope: activeScope)
+            scope: params.scope,
+            correlationId: params.correlationId
         )
     }
 }
@@ -184,6 +231,7 @@ struct LiveServerFixture {
         panes: [IPCPaneSummary] = [],
         runtimePort: any AppIPCRuntimePort = FakeRuntimePort(),
         commandPort: any AppIPCCommandPort = FakeCommandPort(),
+        uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         debugTokenEscrowEnabled: Bool = false
     ) throws {
         rootURL = URL(fileURLWithPath: "/tmp/asipc-\(UUID().uuidString.prefix(8))", isDirectory: true)
@@ -205,6 +253,7 @@ struct LiveServerFixture {
                 layoutPort: FakeLayoutPort(),
                 runtimePort: runtimePort,
                 commandPort: commandPort,
+                uiPresentationPort: uiPresentationPort,
                 permissionApprovalPort: FakePermissionApprovalPort()
             )
         )

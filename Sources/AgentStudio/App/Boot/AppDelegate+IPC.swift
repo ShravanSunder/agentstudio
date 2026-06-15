@@ -40,7 +40,8 @@ extension AppDelegate {
                     layoutPort: AgentStudioIPCLayoutAdapter(
                         workspaceStore: store,
                         windowLifecycleReader: windowLifecycleReader,
-                        paneFocusControl: paneFocusControl
+                        paneFocusControl: paneFocusControl,
+                        actionExecutor: executor
                     ),
                     runtimePort: AgentStudioIPCRuntimeAdapter(
                         workspaceStore: store,
@@ -48,9 +49,9 @@ extension AppDelegate {
                         commandDispatcher: ActionExecutorRuntimeCommandDispatcher(actionExecutor: executor)
                     ),
                     commandPort: AgentStudioIPCCommandAdapter(
-                        windowLifecycleReader: windowLifecycleReader,
-                        commandBarSurface: atomStore.commandBarSurface
+                        windowLifecycleReader: windowLifecycleReader
                     ),
+                    uiPresentationPort: AgentStudioIPCUIPresentationAdapter(presenter: self),
                     permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
                 )
             )

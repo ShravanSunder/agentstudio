@@ -107,6 +107,7 @@ public enum IPCTargetScope: Hashable, Sendable, Codable {
 public enum IPCDataScope: String, Codable, CaseIterable, Hashable, Sendable {
     case unspecified
     case paneContext
+    case uiSurface
     case terminalStatus
     case terminalSnapshot
     case terminalInput
@@ -126,6 +127,7 @@ public enum IPCPrivilegeClass: String, Codable, CaseIterable, Hashable, Sendable
     case terminalInputWrite
     case terminalWait
     case eventsRead
+    case uiPresent
     case permissionRequest
     case permissionRead
     case grantApprove
@@ -134,6 +136,7 @@ public enum IPCPrivilegeClass: String, Codable, CaseIterable, Hashable, Sendable
 
 public enum IPCExecutionOwner: String, Codable, Equatable, Sendable {
     case appCommand
+    case uiPresentation
     case workspaceAction
     case runtimeCommand
     case queryReader

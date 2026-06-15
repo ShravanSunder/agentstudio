@@ -57,6 +57,34 @@ struct AgentStudioIPCPermissionBrokerTests {
         #expect(!ledger.contains(requestedScope, for: requester.principalId))
     }
 
+    @Test("layout mutation grants are rejected until scoped mutating grants are one-shot")
+    func layoutMutationGrantsAreRejectedUntilScopedMutatingGrantsAreOneShot() throws {
+        let ledger = GrantLedger()
+        let broker = PermissionBroker(
+            grantLedger: ledger,
+            canonicalizer: PermissionScopeCanonicalizer(),
+            approvalPolicyStore: StaticApprovalPolicyStore(decision: .approve)
+        )
+        let requester = makePermissionPrincipal(boundPaneId: "pane-1")
+        let scope = IPCPermissionScope(
+            privilege: .layoutMutate,
+            target: .pane("pane-2"),
+            dataScope: .paneContext
+        )
+
+        do {
+            _ = try broker.requestPermission(
+                IPCPermissionRequestParams(scope: scope, reason: "split another pane", approvalRoute: .appPolicy),
+                requester: requester
+            )
+            Issue.record("layout mutation grant unexpectedly succeeded")
+        } catch let error as PermissionBrokerError {
+            #expect(error.reason == .layoutMutateNotGrantable)
+        }
+
+        #expect(!ledger.contains(scope, for: requester.principalId))
+    }
+
     @Test("app policy ask leaves request pending")
     func appPolicyAskLeavesRequestPending() throws {
         let broker = PermissionBroker(

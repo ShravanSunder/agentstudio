@@ -33,6 +33,7 @@ struct AgentStudioAppIPCServiceTests {
                 layoutPort: FakeLayoutPort(),
                 runtimePort: FakeRuntimePort(),
                 commandPort: FakeCommandPort(),
+                uiPresentationPort: FakeUIPresentationPort(),
                 permissionApprovalPort: FakePermissionApprovalPort()
             ),
             eventBroker: eventBroker
@@ -413,12 +414,14 @@ struct AgentStudioAppIPCServiceTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.paths.debugTokenURL.path))
     }
 
-    @Test("unsafe debug client can list and execute command allowlist")
-    func unsafeDebugClientCanListAndExecuteCommandAllowlist() throws {
+    @Test("unsafe debug client can list commands and explicit UI presentation opens command bar")
+    func unsafeDebugClientCanListCommandsAndExplicitUIPresentationOpensCommandBar() throws {
+        let windowId = UUID()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
-            commandPort: FakeCommandPort(workspaceWindowId: UUID(), activeScope: .commands)
+            commandPort: FakeCommandPort(workspaceWindowId: windowId, activeScope: .commands),
+            uiPresentationPort: FakeUIPresentationPort(workspaceWindowId: windowId)
         )
         defer {
             fixture.cleanup()
@@ -431,7 +434,7 @@ struct AgentStudioAppIPCServiceTests {
         )
         #expect(list.error == nil)
         let listResult = try decodeResponseResult(IPCCommandListResult.self, from: list)
-        #expect(listResult.commands.map(\.id) == [.quickFind, .commandPalette, .panePicker, .repoWorktreePicker])
+        #expect(listResult.commands.isEmpty)
 
         let execute = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
@@ -443,11 +446,48 @@ struct AgentStudioAppIPCServiceTests {
                 )
             )
         )
-        #expect(execute.error == nil)
-        let executeResult = try decodeResponseResult(IPCCommandExecuteResult.self, from: execute)
-        #expect(executeResult.commandId == .commandPalette)
-        #expect(executeResult.applied)
-        #expect(executeResult.commandBar?.scope == .commands)
+        #expect(execute.error?.code == -32_003)
+        #expect(execute.error?.message == "requires presentation")
+
+        let open = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(69),
+                method: "ui.commandBar.open",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCCommandBarOpenParams(scope: .commands, correlationId: nil)
+                )
+            )
+        )
+        #expect(open.error == nil)
+        let openResult = try decodeResponseResult(IPCCommandBarOpenResult.self, from: open)
+        #expect(openResult.workspaceWindowId == windowId)
+        #expect(openResult.scope == .commands)
+    }
+
+    @Test("unknown command ids decode and return unsupported capability")
+    func unknownCommandIdsDecodeAndReturnUnsupportedCapability() throws {
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            commandPort: FakeCommandPort(workspaceWindowId: UUID(), activeScope: .commands)
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(70),
+                method: "command.execute",
+                params: .object(["commandId": .string("futureCommand")])
+            )
+        )
+
+        #expect(response.error?.code == -32_003)
+        #expect(response.error?.message == "unsupported capability")
     }
 
     @Test("spawned pane agents cannot execute command methods")
@@ -487,6 +527,77 @@ struct AgentStudioAppIPCServiceTests {
         let execute = try reader.receiveResponse(connection: connection)
         #expect(execute.error?.code == -32_002)
         #expect(execute.error?.message == "unauthorized")
+    }
+
+    @Test("unsafe debug client can invoke semantic layout control methods")
+    func unsafeDebugClientCanInvokeSemanticLayoutControlMethods() throws {
+        let paneId = UUID()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1)]
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let split = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(71),
+                method: "pane.split",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCPaneSplitParams(handle: "pane:1", direction: .right, correlationId: nil)
+                )
+            )
+        )
+        #expect(split.error == nil)
+        let splitResult = try decodeResponseResult(IPCPaneSplitResult.self, from: split)
+        #expect(splitResult.targetPaneId == paneId)
+        #expect(splitResult.direction == .right)
+
+        let close = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(74),
+                method: "pane.close",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCPaneCloseParams(handle: "pane:1", correlationId: nil)
+                )
+            )
+        )
+        #expect(close.error == nil)
+        let closeResult = try decodeResponseResult(IPCPaneCloseResult.self, from: close)
+        #expect(closeResult.paneId == paneId)
+
+        let drawerAdd = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(75),
+                method: "drawer.addPane",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil)
+                )
+            )
+        )
+        #expect(drawerAdd.error == nil)
+        let drawerAddResult = try decodeResponseResult(IPCDrawerAddPaneResult.self, from: drawerAdd)
+        #expect(drawerAddResult.parentPaneId == paneId)
+
+        let drawerToggle = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(76),
+                method: "drawer.toggle",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCDrawerToggleParams(parentPaneHandle: "pane:1", correlationId: nil)
+                )
+            )
+        )
+        #expect(drawerToggle.error == nil)
+        let drawerToggleResult = try decodeResponseResult(IPCDrawerToggleResult.self, from: drawerToggle)
+        #expect(drawerToggleResult.parentPaneId == paneId)
     }
 
     @Test("debug unsafe privilege cannot be requested through permission broker")

@@ -1,10 +1,39 @@
 import Foundation
 
-public enum IPCCommandIdentifier: String, Codable, CaseIterable, Equatable, Sendable {
-    case quickFind
-    case commandPalette
-    case panePicker
-    case repoWorktreePicker
+public struct IPCCommandIdentifier: Codable, CaseIterable, Equatable, Hashable, Sendable {
+    public static let quickFind = Self(rawValue: "quickFind")
+    public static let commandPalette = Self(rawValue: "commandPalette")
+    public static let panePicker = Self(rawValue: "panePicker")
+    public static let repoWorktreePicker = Self(rawValue: "repoWorktreePicker")
+
+    public static let allCases: [Self] = [
+        .quickFind,
+        .commandPalette,
+        .panePicker,
+        .repoWorktreePicker,
+    ]
+
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        rawValue = try container.decode(String.self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+public enum IPCCommandExecutionMode: String, Codable, Equatable, Sendable {
+    case headless
+    case uiPresentation
+    case requiresInteractiveInput
 }
 
 public enum IPCCommandBarScope: String, Codable, Equatable, Sendable {
@@ -17,10 +46,22 @@ public enum IPCCommandBarScope: String, Codable, Equatable, Sendable {
 public struct IPCCommandListEntry: Codable, Equatable, Sendable {
     public let id: IPCCommandIdentifier
     public let title: String
+    public let executionModes: [IPCCommandExecutionMode]
+    public let targetKinds: [IPCHandleKind]
+    public let requiredPrivileges: [IPCPrivilegeClass]
 
-    public init(id: IPCCommandIdentifier, title: String) {
+    public init(
+        id: IPCCommandIdentifier,
+        title: String,
+        executionModes: [IPCCommandExecutionMode],
+        targetKinds: [IPCHandleKind],
+        requiredPrivileges: [IPCPrivilegeClass]
+    ) {
         self.id = id
         self.title = title
+        self.executionModes = executionModes
+        self.targetKinds = targetKinds
+        self.requiredPrivileges = requiredPrivileges
     }
 }
 
@@ -42,31 +83,18 @@ public struct IPCCommandExecuteParams: Codable, Equatable, Sendable {
     }
 }
 
-public struct IPCCommandBarPostcondition: Codable, Equatable, Sendable {
-    public let workspaceWindowId: UUID
-    public let scope: IPCCommandBarScope
-
-    public init(workspaceWindowId: UUID, scope: IPCCommandBarScope) {
-        self.workspaceWindowId = workspaceWindowId
-        self.scope = scope
-    }
-}
-
 public struct IPCCommandExecuteResult: Codable, Equatable, Sendable {
     public let commandId: IPCCommandIdentifier
     public let applied: Bool
-    public let workspaceWindowId: UUID
-    public let commandBar: IPCCommandBarPostcondition?
+    public let targetHandle: String?
 
     public init(
         commandId: IPCCommandIdentifier,
         applied: Bool,
-        workspaceWindowId: UUID,
-        commandBar: IPCCommandBarPostcondition?
+        targetHandle: String?
     ) {
         self.commandId = commandId
         self.applied = applied
-        self.workspaceWindowId = workspaceWindowId
-        self.commandBar = commandBar
+        self.targetHandle = targetHandle
     }
 }

@@ -99,9 +99,7 @@ public enum AgentStudioIPCClientArguments {
             return .commandList
         case "command-execute":
             let values = try requireCount(remainingArguments, 1)
-            guard let commandId = IPCCommandIdentifier(rawValue: values[0]) else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
+            let commandId = IPCCommandIdentifier(rawValue: values[0])
             return .commandExecute(IPCCommandExecuteParams(commandId: commandId, targetHandle: nil))
         case "terminal-status":
             let values = try requireCount(remainingArguments, 1)
