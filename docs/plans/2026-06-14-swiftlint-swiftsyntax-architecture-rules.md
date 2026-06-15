@@ -1,14 +1,23 @@
 # SwiftLint + SwiftSyntax Architecture Rules Plan
 
 Date: 2026-06-14
-Status: Implemented locally; pending implementation review and PR/CI wrap-up
+Status: Superseded. The `ai-tools`/Bazel custom-SwiftLint implementation
+direction is rejected for AgentStudio architecture lint.
+Superseded by: `docs/plans/2026-06-15-agentstudio-local-swiftpm-architecture-lint.md`
 Goal thread: `019eb7f0-27b9-7780-abf8-5f49320f8863`
 
 ## Objective
 
-Move AgentStudio's implicit architecture rules into the SwiftLint rule surface,
-using SwiftSyntax-backed native SwiftLint rules where structure matters, and
-remove bespoke shell/ripgrep architecture scripts as the long-term lint gate.
+Historical objective: move AgentStudio's implicit architecture rules into the
+SwiftLint rule surface, using SwiftSyntax-backed native SwiftLint rules where
+structure matters, and remove bespoke shell/ripgrep architecture scripts as the
+long-term lint gate.
+
+This objective was refined after implementation review. AgentStudio now uses
+stock SwiftLint plus a repo-local SwiftPM/SwiftSyntax architecture linter under
+`Tools/AgentStudioArchitectureLint`. The rule semantics and fixtures from the
+`ai-tools` branch remain source material, but the Bazel/custom-SwiftLint build
+path is not the AgentStudio architecture-lint direction.
 
 Implementation must not begin until this plan is reviewed and approved.
 Approval was given in chat on 2026-06-14.

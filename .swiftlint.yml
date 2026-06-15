@@ -4,11 +4,15 @@
 included:
   - Sources
   - Tests
+  - Tools/AgentStudioArchitectureLint/Sources
+  - Tools/AgentStudioArchitectureLint/Tests
 
 excluded:
   - vendor
   - .build
   - Frameworks
+  - Tools/AgentStudioArchitectureLint/.build
+  - Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures
 
 # Strict mode: treat warnings as errors in CI
 strict: true

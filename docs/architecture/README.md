@@ -173,6 +173,7 @@ Each document owns a specific concern. No two documents are authoritative for th
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Remote zmx daemons and fork strategy | SSH tunnel architecture (Option C), security model, connection lifecycle, case for forking zmx |
 | [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |
 | [Architecture Lint Inventory](architecture_lint_inventory.md) | Architecture lint enforcement map | SwiftLint rule IDs, former shell-script coverage, blocking/report-only/test/review classifications |
+| [AgentStudio IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic-control boundaries | Public contract, AppIPC port, app composition, zmx separation, and lint-rule ownership boundaries |
 | [Swift-React Bridge](swift_react_bridge_design.md) | Bridge architecture and current LUNA-337 status | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation, read-only CodeView/Shiki review surface, and explicit implemented-vs-planned bridge delivery boundaries. Canonical review-foundation vocabulary lives in [Bridge Review Foundation Spec](../superpowers/specs/2026-06-10-bridge-review-foundation.md). |
 | [JTBD & Requirements](jtbd_and_requirements.md) | Product requirements | Jobs to be done, pain points, and requirements for the dynamic window system |
 
