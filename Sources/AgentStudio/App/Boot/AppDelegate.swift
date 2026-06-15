@@ -1,3 +1,4 @@
+import AgentStudioAppIPC
 import AppKit
 import SwiftUI
 import os.log
@@ -56,6 +57,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var executor: ActionExecutor!
     var tabBarAdapter: TabBarAdapter!
     var runtime: SessionRuntime!
+    var appIPCServer: AgentStudioAppIPCServer?
     var appLifecycleStore: AppLifecycleAtom!
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
@@ -166,6 +168,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindowController?.completeLaunchPresentation()
         observeLaunchRestoreReadiness()
         wireLifecycleConsumers()
+        startAppIPCServer()
         if let window = mainWindowController?.window {
             RestoreTrace.log(
                 "mainWindow showWindow frame=\(NSStringFromRect(window.frame)) content=\(NSStringFromRect(window.contentLayoutRect))"
@@ -179,6 +182,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     isolated deinit {
+        appIPCServer?.stop()
         filesystemPipelineBootTask?.cancel()
         initialTopologySyncTask?.cancel()
         persistenceObservationBootTask?.cancel()

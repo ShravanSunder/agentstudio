@@ -21,6 +21,12 @@ The phase-1 foundation currently owns:
   chain.
 - Concrete terminal runtime adapter for `terminal.status`,
   `terminal.snapshot`, and `terminal.send`.
+- App-owned Unix socket server lifecycle from `AppDelegate`, including runtime
+  metadata publication, same-UID peer gate, pre-auth ping/login, per-connection
+  principals, request dispatch, and shutdown cleanup.
+- Pane-agent bootstrap primitive that delivers a single-use subject token
+  through a close-on-exec file descriptor while environment variables carry
+  only socket/runtime routing metadata.
 - Public event-name contracts and permission-event DTOs for phase-1 exported
   notifications.
 - Permission recovery queries for requester-owned request/grant state and
@@ -28,11 +34,11 @@ The phase-1 foundation currently owns:
 - Event broker subscription state, notification encoding, visibility filtering,
   inbound server-event rejection, and slow-subscriber ejection.
 
-Follow-up implementation slices still own socket-server lifecycle wiring and
-the non-enumerable app spawn bootstrap channel that delivers pane-bound subject
-tokens. Until those land, the current implementation proves the contracts,
-policy services, adapters, and CLI/client foundation, not live end-to-end
-programmatic control of a running AgentStudio app.
+The remaining app integration boundary is concrete pane process-spawn fd
+handoff. `AgentStudioAppIPCServer.makePaneBootstrap(...)` can mint the
+principal and write the token to a close-on-exec parent descriptor, but the
+current terminal/zmx launch path does not yet have a named adapter that
+deliberately remaps that descriptor into a child pane-agent process.
 
 ## Target Ownership
 
@@ -57,10 +63,10 @@ AgentStudioAppIPC
   Imports:  Transport and ProgrammaticControl targets.
   Must not: Import concrete app/runtime owner types or read atoms directly.
 
-AgentStudio/App/IPCComposition
-  Owns:     Concrete port adapters from AgentStudioAppIPC protocols into
-            PaneCoordinator, RuntimeRegistry, PaneRuntime, and app state
-            owners.
+AgentStudio/App/Boot + AgentStudio/App/IPCComposition
+  Owns:     AppDelegate server composition/lifecycle plus concrete port adapters
+            from AgentStudioAppIPC protocols into PaneCoordinator,
+            RuntimeRegistry, PaneRuntime, and app state owners.
   Imports:  AgentStudioAppIPC plus the concrete app modules it adapts.
 
 AgentStudioIPCClientCore
@@ -158,6 +164,11 @@ terminal.wait
   -> EventBus<RuntimeEnvelope>.waitForFirst(...)
   -> allowlisted terminal wait result
 ```
+
+The socket server canonicalizes pane handles to concrete pane ids before
+authorization. Friendly ordinals remain workspace-local convenience handles, but
+they do not collapse to `selfPane`; a pane-bound principal needs an explicit
+grant before a `pane:N` handle can operate on a different pane.
 
 `terminal.send` success means the runtime command path accepted the input bytes.
 It does not mean the shell command completed, produced output, or reached a
@@ -271,6 +282,12 @@ IPC methods are not command-bus messages. The app IPC layer validates method
 identity, principal authority, target scope, and grants before calling the
 smallest app-owned protocol port that can satisfy the operation.
 
+The live app listener is composed by `AppDelegate+IPC.swift` after workspace
+boot wires lifecycle consumers. It writes runtime metadata under
+`AppDataPaths.rootDirectory()/ipc`, refuses to steal an existing live socket,
+unlinks only stale dead sockets, and stops before termination persistence drains
+so new clients cannot race shutdown.
+
 ## CLI Boundary
 
 The phase-1 CLI ships as the `agentstudio-ipc` Swift executable product. Its
@@ -295,7 +312,8 @@ authorization, grants, or app/runtime owner ports.
 
 Bearer tokens must not be passed as argv. Explicit interactive or automation
 auth uses `--token-stdin`; app-spawned pane agents should receive their
-pane-bound credential through the future non-enumerable bootstrap channel.
+pane-bound credential through an explicitly remapped bootstrap fd once a
+concrete pane-agent spawn adapter exists.
 
 ## Auth And Permissions
 
@@ -306,11 +324,14 @@ Authentication and authorization are separate:
   target and data scope.
 
 Phase 1 uses opaque subject tokens issued by the app. Spawn environments may
-carry non-secret routing metadata such as socket path and runtime id, but they
-must not carry bearer tokens. A spawned pane agent receives its pane-bound
-credential through a non-enumerable bootstrap channel owned by the app spawn
-adapter. `auth.login` binds the token to the principal recorded in the registry;
-the caller cannot upgrade itself by passing a different pane hint. Tokens are
+carry non-secret routing metadata such as socket path, runtime id, and a
+bootstrap fd number, but they must not carry bearer tokens. The bootstrap
+factory marks both pipe ends close-on-exec; the future spawn adapter must
+deliberately remap the read end into the pane-agent child instead of relying on
+ambient descriptor inheritance. A spawned pane agent receives its pane-bound
+credential by reading the fd written by `AgentStudioIPCPaneBootstrapFactory`;
+`auth.login` binds the token to the principal recorded in the registry, and the
+caller cannot upgrade itself by passing a different pane hint. Tokens are
 single-use in the current phase-1 foundation so replayed bearer material cannot
 create a second connection-bound principal after first login.
 
@@ -342,8 +363,9 @@ grant key that differs from the authorization key the server will later check.
 
 Human approval is app-owned through `AppIPCPermissionApprovalPort`. The broker
 can route a `.humanPrompt` request to that port, but the port implementation
-belongs in `AgentStudio/App/IPCComposition` so the reusable AppIPC target does
-not import concrete UI owners.
+belongs in the app composition layer so the reusable AppIPC target does not
+import concrete UI owners. The current app-owned port returns `.ask`, leaving
+requests pending until an explicit app/user/policy approver flow is implemented.
 
 ## Boundary Rules
 

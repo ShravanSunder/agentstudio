@@ -138,6 +138,12 @@ Sources/AgentStudioIPCClient/
 Sources/AgentStudio/App/IPCComposition/
   Concrete adapters from AgentStudioAppIPC protocol ports into PaneCoordinator,
   RuntimeRegistry, PaneRuntime, and app-owned state.
+
+Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift
+  App-owned live IPC server composition and lifecycle. It may import
+  AgentStudioAppIPC and concrete app owners because it is in the executable
+  target; reusable AppIPC policy and protocol code still belongs in
+  Sources/AgentStudioAppIPC/.
 ```
 
 This target split keeps `App/IPC` from becoming a god box. IPC services own

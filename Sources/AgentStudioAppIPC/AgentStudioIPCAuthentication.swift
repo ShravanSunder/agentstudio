@@ -2,6 +2,10 @@ import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 
+#if canImport(Darwin)
+    import Darwin
+#endif
+
 public struct AgentStudioIPCSubjectToken: RawRepresentable, Codable, Hashable, Sendable {
     public let rawValue: String
 
@@ -179,11 +183,183 @@ public struct AgentStudioIPCPeerCredentialGate: Sendable {
 public struct AgentStudioIPCSpawnEnvironment: Equatable, Sendable {
     public let variables: [String: String]
 
-    public init(socketPath: String, runtimeId: UUID) {
-        variables = [
+    public init(socketPath: String, runtimeId: UUID, bootstrapFileDescriptor: Int32? = nil) {
+        var variables = [
             "AGENTSTUDIO_IPC_SOCKET": socketPath,
             "AGENTSTUDIO_IPC_RUNTIME_ID": runtimeId.uuidString,
         ]
+        if let bootstrapFileDescriptor {
+            variables["AGENTSTUDIO_IPC_BOOTSTRAP_FD"] = String(bootstrapFileDescriptor)
+        }
+        self.variables = variables
+    }
+}
+
+public struct AgentStudioIPCPaneBootstrapDescriptor: Equatable, Sendable {
+    public let environment: AgentStudioIPCSpawnEnvironment
+    public let tokenReadFileDescriptor: Int32
+
+    public init(environment: AgentStudioIPCSpawnEnvironment, tokenReadFileDescriptor: Int32) {
+        self.environment = environment
+        self.tokenReadFileDescriptor = tokenReadFileDescriptor
+    }
+}
+
+public struct AgentStudioIPCPaneBootstrapError: Error, Equatable, Sendable {
+    public enum Reason: String, Equatable, Sendable {
+        case unsupportedPlatform
+        case pipeCreationFailed
+        case pipeConfigurationFailed
+        case tokenWriteFailed
+    }
+
+    public let reason: Reason
+    public let errnoCode: Int32
+
+    public init(reason: Reason, errnoCode: Int32 = 0) {
+        self.reason = reason
+        self.errnoCode = errnoCode
+    }
+}
+
+public final class AgentStudioIPCPaneBootstrap: @unchecked Sendable {
+    public let descriptor: AgentStudioIPCPaneBootstrapDescriptor
+
+    private let readFileDescriptor: Int32
+    private let writeFileDescriptor: Int32
+    private let lock = NSLock()
+    private var isReadClosed = false
+    private var isWriteClosed = false
+
+    public init(descriptor: AgentStudioIPCPaneBootstrapDescriptor, writeFileDescriptor: Int32) {
+        self.descriptor = descriptor
+        self.readFileDescriptor = descriptor.tokenReadFileDescriptor
+        self.writeFileDescriptor = writeFileDescriptor
+    }
+
+    deinit {
+        close()
+        closeTokenReadFileDescriptor()
+    }
+
+    public func writeTokenAndClose(_ token: AgentStudioIPCSubjectToken) throws {
+        #if canImport(Darwin)
+            let bytes = Array(token.rawValue.utf8) + [UInt8(ascii: "\n")]
+            try bytes.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else { return }
+                var writtenByteCount = 0
+                while writtenByteCount < rawBuffer.count {
+                    let result = Darwin.write(
+                        writeFileDescriptor,
+                        baseAddress.advanced(by: writtenByteCount),
+                        rawBuffer.count - writtenByteCount
+                    )
+                    if result < 0 {
+                        if errno == EINTR {
+                            continue
+                        }
+                        throw AgentStudioIPCPaneBootstrapError(reason: .tokenWriteFailed, errnoCode: errno)
+                    }
+                    writtenByteCount += result
+                }
+            }
+            close()
+        #else
+            throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
+        #endif
+    }
+
+    public func close() {
+        #if canImport(Darwin)
+            lock.withLock {
+                guard !isWriteClosed else { return }
+                _ = Darwin.close(writeFileDescriptor)
+                isWriteClosed = true
+            }
+        #endif
+    }
+
+    public func closeTokenReadFileDescriptor() {
+        #if canImport(Darwin)
+            lock.withLock {
+                guard !isReadClosed else { return }
+                _ = Darwin.close(readFileDescriptor)
+                isReadClosed = true
+            }
+        #endif
+    }
+}
+
+public struct AgentStudioIPCPaneBootstrapFactory: Sendable {
+    private let registry: AgentStudioIPCPrincipalRegistry
+    private let socketPath: String
+    private let runtimeId: UUID
+
+    public init(registry: AgentStudioIPCPrincipalRegistry, socketPath: String, runtimeId: UUID) {
+        self.registry = registry
+        self.socketPath = socketPath
+        self.runtimeId = runtimeId
+    }
+
+    public func makePaneBootstrap(
+        boundPaneId: String,
+        boundWorkspaceId: UUID?,
+        approvalAuthority: IPCApprovalAuthority = .noApprovalAuthority
+    ) throws -> AgentStudioIPCPaneBootstrap {
+        #if canImport(Darwin)
+            var fileDescriptors: [Int32] = [0, 0]
+            guard pipe(&fileDescriptors) == 0 else {
+                throw AgentStudioIPCPaneBootstrapError(reason: .pipeCreationFailed, errnoCode: errno)
+            }
+
+            let readFileDescriptor = fileDescriptors[0]
+            let writeFileDescriptor = fileDescriptors[1]
+            do {
+                try configureCloseOnExec(fileDescriptor: readFileDescriptor)
+                try configureCloseOnExec(fileDescriptor: writeFileDescriptor)
+                let principal = IPCPrincipal(
+                    principalId: UUID(),
+                    runtimeId: runtimeId,
+                    accessMode: .agentStudioOnly,
+                    kind: .spawnedPaneAgent(boundPaneId: boundPaneId, boundWorkspaceId: boundWorkspaceId),
+                    approvalAuthority: approvalAuthority
+                )
+                let token = try registry.issueSubjectToken(for: principal)
+                let bootstrap = AgentStudioIPCPaneBootstrap(
+                    descriptor: AgentStudioIPCPaneBootstrapDescriptor(
+                        environment: AgentStudioIPCSpawnEnvironment(
+                            socketPath: socketPath,
+                            runtimeId: runtimeId,
+                            bootstrapFileDescriptor: readFileDescriptor
+                        ),
+                        tokenReadFileDescriptor: readFileDescriptor
+                    ),
+                    writeFileDescriptor: writeFileDescriptor
+                )
+                try bootstrap.writeTokenAndClose(token)
+                return bootstrap
+            } catch {
+                _ = Darwin.close(readFileDescriptor)
+                _ = Darwin.close(writeFileDescriptor)
+                throw error
+            }
+        #else
+            throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
+        #endif
+    }
+
+    private func configureCloseOnExec(fileDescriptor: Int32) throws {
+        #if canImport(Darwin)
+            let flags = fcntl(fileDescriptor, F_GETFD)
+            guard flags >= 0 else {
+                throw AgentStudioIPCPaneBootstrapError(reason: .pipeConfigurationFailed, errnoCode: errno)
+            }
+            guard fcntl(fileDescriptor, F_SETFD, flags | FD_CLOEXEC) == 0 else {
+                throw AgentStudioIPCPaneBootstrapError(reason: .pipeConfigurationFailed, errnoCode: errno)
+            }
+        #else
+            throw AgentStudioIPCPaneBootstrapError(reason: .unsupportedPlatform)
+        #endif
     }
 }
 
