@@ -33,15 +33,18 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
     private let workspaceStore: WorkspaceStore
     private let runtimeRegistry: RuntimeRegistry
     private let commandDispatcher: any AppIPCRuntimeCommandDispatching
+    private let eventBus: EventBus<RuntimeEnvelope>
 
     init(
         workspaceStore: WorkspaceStore,
         runtimeRegistry: RuntimeRegistry,
-        commandDispatcher: any AppIPCRuntimeCommandDispatching
+        commandDispatcher: any AppIPCRuntimeCommandDispatching,
+        eventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) {
         self.workspaceStore = workspaceStore
         self.runtimeRegistry = runtimeRegistry
         self.commandDispatcher = commandDispatcher
+        self.eventBus = eventBus
     }
 
     func terminalStatus(_ handle: IPCHandle) throws -> IPCTerminalStatusResult {
@@ -88,6 +91,38 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             correlationId: correlationId
         )
         return try mapTerminalSendResult(result, paneId: paneId, correlationId: correlationId)
+    }
+
+    func waitForTerminal(
+        _ handle: IPCHandle,
+        condition: IPCTerminalWaitCondition,
+        timeout: Duration
+    ) async throws -> IPCTerminalWaitResult {
+        let paneId = try resolveTerminalPaneId(handle)
+        let runtime = try terminalRuntime(for: paneId)
+        if condition == .attachReady, runtime.lifecycle == .ready {
+            return IPCTerminalWaitResult(
+                paneId: paneId,
+                condition: condition,
+                eventName: .terminalAttachReady,
+                commandId: nil,
+                correlationId: nil,
+                exitCode: nil,
+                duration: nil,
+                healthy: nil
+            )
+        }
+
+        guard
+            let result = await eventBus.waitForFirst(
+                timeout: timeout,
+                { envelope in
+                    Self.terminalWaitResult(from: envelope, paneId: paneId, condition: condition)
+                })
+        else {
+            throw AppIPCRuntimeError(reason: .timeout)
+        }
+        return result
     }
 
     private func terminalRuntimeSnapshot(for paneId: UUID) throws -> PaneRuntimeSnapshot {
@@ -174,6 +209,63 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             }
         }
         .sorted()
+    }
+
+    private nonisolated static func terminalWaitResult(
+        from envelope: RuntimeEnvelope,
+        paneId: UUID,
+        condition: IPCTerminalWaitCondition
+    ) -> IPCTerminalWaitResult? {
+        guard case .pane(let paneEnvelope) = envelope,
+            paneEnvelope.paneId.uuid == paneId,
+            paneEnvelope.paneKind == .terminal,
+            case .terminal(let event) = paneEnvelope.event
+        else {
+            return nil
+        }
+
+        switch (condition, event) {
+        case (.commandFinished, .commandFinished(let exitCode, let duration)):
+            return waitResult(
+                paneEnvelope,
+                condition: condition,
+                eventName: .terminalCommandFinished,
+                exitCode: exitCode,
+                duration: duration
+            )
+        case (.rendererHealthy, .rendererHealthChanged(let healthy)) where healthy:
+            return waitResult(paneEnvelope, condition: condition, eventName: .terminalRendererHealthy, healthy: healthy)
+        case (.titleChanged, .titleChanged), (.titleChanged, .tabTitleChanged):
+            return waitResult(paneEnvelope, condition: condition, eventName: .terminalTitleChanged)
+        case (.cwdChanged, .cwdChanged):
+            return waitResult(paneEnvelope, condition: condition, eventName: .terminalCwdChanged)
+        case (.progressChanged, .progressReportUpdated):
+            return waitResult(paneEnvelope, condition: condition, eventName: .terminalProgressChanged)
+        case (.attachReady, _):
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private nonisolated static func waitResult(
+        _ paneEnvelope: PaneEnvelope,
+        condition: IPCTerminalWaitCondition,
+        eventName: IPCEventName,
+        exitCode: Int? = nil,
+        duration: UInt64? = nil,
+        healthy: Bool? = nil
+    ) -> IPCTerminalWaitResult {
+        IPCTerminalWaitResult(
+            paneId: paneEnvelope.paneId.uuid,
+            condition: condition,
+            eventName: eventName,
+            commandId: paneEnvelope.commandId,
+            correlationId: paneEnvelope.correlationId,
+            exitCode: exitCode,
+            duration: duration,
+            healthy: healthy
+        )
     }
 }
 

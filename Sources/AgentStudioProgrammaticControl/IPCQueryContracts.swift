@@ -314,3 +314,43 @@ public struct IPCTerminalSendInputResult: Codable, Equatable, Sendable {
         self.queuePosition = queuePosition
     }
 }
+
+public enum IPCTerminalWaitCondition: String, Codable, Equatable, Sendable {
+    case attachReady
+    case commandFinished
+    case rendererHealthy
+    case titleChanged
+    case cwdChanged
+    case progressChanged
+}
+
+public struct IPCTerminalWaitResult: Codable, Equatable, Sendable {
+    public let paneId: UUID
+    public let condition: IPCTerminalWaitCondition
+    public let eventName: IPCEventName
+    public let commandId: UUID?
+    public let correlationId: UUID?
+    public let exitCode: Int?
+    public let duration: UInt64?
+    public let healthy: Bool?
+
+    public init(
+        paneId: UUID,
+        condition: IPCTerminalWaitCondition,
+        eventName: IPCEventName,
+        commandId: UUID?,
+        correlationId: UUID?,
+        exitCode: Int?,
+        duration: UInt64?,
+        healthy: Bool?
+    ) {
+        self.paneId = paneId
+        self.condition = condition
+        self.eventName = eventName
+        self.commandId = commandId
+        self.correlationId = correlationId
+        self.exitCode = exitCode
+        self.duration = duration
+        self.healthy = healthy
+    }
+}

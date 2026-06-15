@@ -113,6 +113,85 @@ struct AgentStudioIPCRuntimeAdapterTests {
         }
     }
 
+    @Test("terminal wait attachReady resolves from ready runtime lifecycle")
+    func terminalWaitAttachReadyResolvesFromReadyRuntimeLifecycle() async throws {
+        let harness = RuntimeAdapterHarness()
+        let pane = harness.createTerminalPane()
+        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id)))
+
+        let result = try await harness.adapter.waitForTerminal(
+            IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
+            condition: .attachReady,
+            timeout: .milliseconds(1)
+        )
+
+        #expect(result.paneId == pane.id)
+        #expect(result.condition == .attachReady)
+        #expect(result.eventName == .terminalAttachReady)
+    }
+
+    @Test("terminal wait commandFinished resolves from pane runtime event")
+    func terminalWaitCommandFinishedResolvesFromPaneRuntimeEvent() async throws {
+        let eventBus = EventBus<RuntimeEnvelope>()
+        let harness = RuntimeAdapterHarness(eventBus: eventBus)
+        let pane = harness.createTerminalPane()
+        let paneId = PaneId(uuid: pane.id)
+        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: paneId))
+        let commandId = UUID()
+        let correlationId = UUID()
+
+        let waitTask = Task {
+            try await harness.adapter.waitForTerminal(
+                IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
+                condition: .commandFinished,
+                timeout: .milliseconds(100)
+            )
+        }
+        await waitForRuntimeEventSubscriber(on: eventBus)
+        await eventBus.post(
+            RuntimeEnvelope.pane(
+                PaneEnvelope(
+                    source: .pane(paneId),
+                    seq: 1,
+                    timestamp: ContinuousClock.now,
+                    correlationId: correlationId,
+                    commandId: commandId,
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    event: .terminal(.commandFinished(exitCode: 7, duration: 42))
+                )
+            )
+        )
+
+        let result = try await waitTask.value
+        #expect(result.paneId == pane.id)
+        #expect(result.condition == .commandFinished)
+        #expect(result.eventName == .terminalCommandFinished)
+        #expect(result.commandId == commandId)
+        #expect(result.correlationId == correlationId)
+        #expect(result.exitCode == 7)
+        #expect(result.duration == 42)
+    }
+
+    @Test("terminal wait times out when no exported fact matches")
+    func terminalWaitTimesOutWhenNoExportedFactMatches() async throws {
+        let eventBus = EventBus<RuntimeEnvelope>()
+        let harness = RuntimeAdapterHarness(eventBus: eventBus)
+        let pane = harness.createTerminalPane()
+        harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id)))
+
+        do {
+            _ = try await harness.adapter.waitForTerminal(
+                IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
+                condition: .commandFinished,
+                timeout: .milliseconds(1)
+            )
+            Issue.record("terminal.wait unexpectedly succeeded without a matching event")
+        } catch let error as AppIPCRuntimeError {
+            #expect(error.reason == .timeout)
+        }
+    }
+
     @Test("terminal send reports missing runtime separately from missing pane")
     func terminalSendReportsMissingRuntimeSeparatelyFromMissingPane() async throws {
         let harness = RuntimeAdapterHarness()
@@ -211,7 +290,8 @@ private struct RuntimeAdapterHarness {
 
     init(
         commandDispatcher: any AppIPCRuntimeCommandDispatching = StaticRuntimeCommandDispatcher(
-            result: .success(commandId: UUID()))
+            result: .success(commandId: UUID())),
+        eventBus: EventBus<RuntimeEnvelope> = EventBus<RuntimeEnvelope>()
     ) {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-ipc-runtime-adapter-\(UUID().uuidString)")
@@ -220,7 +300,8 @@ private struct RuntimeAdapterHarness {
         adapter = AgentStudioIPCRuntimeAdapter(
             workspaceStore: workspaceStore,
             runtimeRegistry: runtimeRegistry,
-            commandDispatcher: commandDispatcher
+            commandDispatcher: commandDispatcher,
+            eventBus: eventBus
         )
     }
 
@@ -301,4 +382,13 @@ private final class RecordingTerminalIPCRuntime: PaneRuntime {
 private func encodedJSONString<T: Encodable>(_ value: T) throws -> String {
     let data = try JSONEncoder().encode(value)
     return try #require(String(data: data, encoding: .utf8))
+}
+
+private func waitForRuntimeEventSubscriber(on bus: EventBus<RuntimeEnvelope>, maxTurns: Int = 50) async {
+    for _ in 0..<maxTurns {
+        if await bus.subscriberCount > 0 {
+            return
+        }
+        await Task.yield()
+    }
 }

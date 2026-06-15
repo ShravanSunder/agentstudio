@@ -76,6 +76,11 @@ public protocol AppIPCRuntimePort: Sendable {
         input: String,
         correlationId: UUID?
     ) async throws -> IPCTerminalSendInputResult
+    func waitForTerminal(
+        _ handle: IPCHandle,
+        condition: IPCTerminalWaitCondition,
+        timeout: Duration
+    ) async throws -> IPCTerminalWaitResult
 }
 
 public protocol AppIPCPermissionApprovalPort: Sendable {
