@@ -74,6 +74,8 @@ extension AppDelegate {
                     await self.runCrossTabMoveGeometrySmokeDiagnostic(action: action)
                 case .ipcTerminalSmoke:
                     await self.runIPCTerminalSmokeDiagnostic(action: action)
+                case .bridgeReviewObservabilitySmoke:
+                    await self.runBridgeReviewObservabilitySmokeDiagnostic(action: action)
             #endif
             case .addWatchFolder:
                 guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {
@@ -173,6 +175,86 @@ extension AppDelegate {
                     ].merging(renderProof.attributes) { _, newValue in newValue }
                 ) { _, newValue in newValue }
             )
+        }
+
+        private func runBridgeReviewObservabilitySmokeDiagnostic(
+            action: AgentStudioStartupDiagnosticAction
+        ) async {
+            guard let pane = paneCoordinator.openBridgeReviewObservabilitySmoke() else {
+                startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.blocked",
+                    phase: "startup_diagnostic_action",
+                    outcome: "blocked",
+                    attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                        "agentstudio.startup_diagnostic.skip_reason": .string("bridge_pane_creation_failed")
+                    ]) { _, newValue in newValue }
+                )
+                return
+            }
+
+            guard
+                let bridgeView = viewRegistry.view(for: pane.id)?
+                    .mountedContent(as: BridgePaneMountView.self)
+            else {
+                startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.blocked",
+                    phase: "startup_diagnostic_action",
+                    outcome: "blocked",
+                    attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                        "agentstudio.startup_diagnostic.skip_reason": .string("bridge_view_missing")
+                    ]) { _, newValue in newValue }
+                )
+                return
+            }
+
+            let commandId = UUIDv7.generate()
+            let result = await bridgeView.controller.handleDiffCommand(
+                .loadDiff(
+                    DiffArtifact(
+                        diffId: BridgeObservabilitySmokeReviewSourceProvider.diffId,
+                        worktreeId: BridgeObservabilitySmokeReviewSourceProvider.worktreeId,
+                        patchData: Data()
+                    )
+                ),
+                commandId: commandId,
+                correlationId: nil
+            )
+            let outcome: String
+            switch result {
+            case .success:
+                outcome = "succeeded"
+            case .queued:
+                outcome = "queued"
+            case .failure:
+                outcome = "blocked"
+            }
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.command_exercised",
+                phase: "startup_diagnostic_action",
+                outcome: outcome,
+                attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                    bridgeReviewObservabilitySmokeTraceAttributes(succeeded: outcome == "succeeded")
+                ) { _, newValue in newValue }
+            )
+            startupTraceRecorder.recordAppStartup(
+                outcome == "succeeded"
+                    ? "app.startup_diagnostic_action.completed"
+                    : "app.startup_diagnostic_action.blocked",
+                phase: "startup_diagnostic_action",
+                outcome: outcome,
+                attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                    bridgeReviewObservabilitySmokeTraceAttributes(succeeded: outcome == "succeeded")
+                ) { _, newValue in newValue }
+            )
+        }
+
+        private func bridgeReviewObservabilitySmokeTraceAttributes(
+            succeeded: Bool
+        ) -> [String: AgentStudioTraceValue] {
+            [
+                "agentstudio.startup_diagnostic.expected_visible_pane.count": .int(1),
+                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(succeeded),
+            ]
         }
     #endif
 

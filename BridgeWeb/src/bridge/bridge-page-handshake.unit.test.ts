@@ -67,4 +67,85 @@ describe('bridge page handshake', () => {
 
 		expect(session.getPushNonce()).toBe('push-1');
 	});
+
+	test('retains telemetry config from the first valid handshake config', () => {
+		const target = new EventTarget();
+
+		target.addEventListener('__bridge_handshake_request', () => {
+			target.dispatchEvent(
+				new CustomEvent('__bridge_handshake', {
+					detail: {
+						pushNonce: 'push-1',
+						telemetryConfig: {
+							enabledScopes: ['web', 'webkit'],
+							maxSamplesPerBatch: 64,
+							maxEncodedBatchBytes: 16_384,
+							minimumFlushIntervalMilliseconds: 250,
+							rpcMethodName: 'system.bridgeTelemetry',
+							scenario: 'bridge-runtime',
+						},
+					},
+				}),
+			);
+		});
+
+		const session = installBridgePageHandshakeSession(target);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: {
+					pushNonce: 'push-2',
+					telemetryConfig: null,
+				},
+			}),
+		);
+		session.uninstall();
+
+		expect(session.getTelemetryConfig()?.enabledScopes.has('web')).toBe(true);
+		expect(session.getTelemetryConfig()?.rpcMethodName).toBe('system.bridgeTelemetry');
+	});
+
+	test('notifies when the first valid telemetry config arrives after install', () => {
+		const target = new EventTarget();
+		const scenarios: string[] = [];
+
+		const session = installBridgePageHandshakeSession(target, {
+			onTelemetryConfig: (telemetryConfig): void => {
+				scenarios.push(telemetryConfig.scenario);
+			},
+		});
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: {
+					pushNonce: 'push-1',
+					telemetryConfig: {
+						enabledScopes: ['web'],
+						maxSamplesPerBatch: 8,
+						maxEncodedBatchBytes: 16_384,
+						minimumFlushIntervalMilliseconds: 1,
+						rpcMethodName: 'system.bridgeTelemetry',
+						scenario: 'package_apply_content_fetch_v1',
+					},
+				},
+			}),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: {
+					pushNonce: 'push-2',
+					telemetryConfig: {
+						enabledScopes: ['web'],
+						maxSamplesPerBatch: 8,
+						maxEncodedBatchBytes: 16_384,
+						minimumFlushIntervalMilliseconds: 1,
+						rpcMethodName: 'system.bridgeTelemetry',
+						scenario: 'ignored_later_config',
+					},
+				},
+			}),
+		);
+		session.uninstall();
+
+		expect(scenarios).toEqual(['package_apply_content_fetch_v1']);
+		expect(session.getTelemetryConfig()?.scenario).toBe('package_apply_content_fetch_v1');
+	});
 });

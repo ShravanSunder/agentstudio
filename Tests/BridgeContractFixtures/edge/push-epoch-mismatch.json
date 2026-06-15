@@ -5,6 +5,7 @@
   "__epoch": 2,
   "store": "diff",
   "op": "replace",
-  "level": "cold",
+  "level": "hot",
+  "slice": "diff_status",
   "data": { "status": "idle", "error": null, "epoch": 2 }
 }

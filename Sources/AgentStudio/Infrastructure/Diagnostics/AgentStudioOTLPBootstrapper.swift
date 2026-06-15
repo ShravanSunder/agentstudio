@@ -22,11 +22,7 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
             return
         }
 
-        state.logger.log(
-            level: Logger.Level(record.severityText),
-            "\(record.body)",
-            metadata: Self.metadata(from: record.attributes)
-        )
+        Self.emitLog(record, state: state)
         state.performanceMetrics.record(record)
     }
 
@@ -58,8 +54,9 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
             let configuration = Self.otelConfiguration(record: record, context: context)
             let loggingBackend = try OTel.makeLoggingBackend(configuration: configuration)
             let metricsBackend = try OTel.makeMetricsBackend(configuration: configuration)
+            let tracingBackend = try AgentStudioOTLPTracingBackend(configuration: configuration)
             let serviceGroup = ServiceGroup(
-                services: [loggingBackend.service, metricsBackend.service],
+                services: [loggingBackend.service, metricsBackend.service, tracingBackend.service],
                 logger: Logger(label: "agentstudio.otlp.service", factory: StreamLogHandler.standardError(label:))
             )
             let runTask = Task {
@@ -73,12 +70,14 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
                 serviceGroup: serviceGroup,
                 runTask: runTask,
                 logger: Logger(label: "agentstudio.otlp", factory: loggingBackend.factory),
-                performanceMetrics: AgentStudioOTLPPerformanceMetrics(factory: metricsBackend.factory)
+                performanceMetrics: AgentStudioOTLPPerformanceMetrics(factory: metricsBackend.factory),
+                tracingBackend: tracingBackend
             )
             self.state = state
             Self.writeStartupDiagnostic(
                 "AgentStudio OTLP export enabled: logs=\(Self.logsEndpoint(from: context.endpoint)) "
-                    + "metrics=\(Self.metricsEndpoint(from: context.endpoint))"
+                    + "metrics=\(Self.metricsEndpoint(from: context.endpoint)) "
+                    + "traces=\(Self.tracesEndpoint(from: context.endpoint))"
             )
             return state
         } catch {
@@ -103,7 +102,12 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
         configuration.metrics.exportTimeout = .seconds(2)
         configuration.metrics.valueHistogramBuckets[AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel] =
             AgentStudioOTLPPerformanceMetrics.elapsedHistogramBuckets
-        configuration.traces.enabled = false
+        configuration.traces.enabled = true
+        configuration.traces.exporter = .otlp
+        configuration.traces.otlpExporter.endpoint = Self.tracesEndpoint(from: context.endpoint)
+        configuration.traces.otlpExporter.protocol = .httpProtobuf
+        configuration.traces.batchSpanProcessor.scheduleDelay = .milliseconds(200)
+        configuration.traces.batchSpanProcessor.exportTimeout = .seconds(2)
         configuration.logs.enabled = true
         configuration.logs.level = .trace
         configuration.logs.exporter = .otlp
@@ -158,6 +162,73 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
         return components.url?.absoluteString ?? endpoint.absoluteString
     }
 
+    private static func tracesEndpoint(from endpoint: URL) -> String {
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            return endpoint.absoluteString
+        }
+
+        let path = components.path
+        guard !path.hasSuffix("/v1/traces") else {
+            return endpoint.absoluteString
+        }
+
+        if path.isEmpty || path == "/" {
+            components.path = "/v1/traces"
+        } else if path.hasSuffix("/") {
+            components.path = "\(path)v1/traces"
+        } else {
+            components.path = "\(path)/v1/traces"
+        }
+        return components.url?.absoluteString ?? endpoint.absoluteString
+    }
+
+    private static func emitLog(
+        _ record: AgentStudioOTLPProjectedLogRecord,
+        state: AgentStudioOTLPServiceState
+    ) {
+        let metadata = Self.metadata(from: record.attributes)
+        guard let parentTraceparent = Self.traceparent(from: record) else {
+            state.logger.log(
+                level: Logger.Level(record.severityText),
+                "\(record.body)",
+                metadata: metadata
+            )
+            return
+        }
+
+        state.tracingBackend.withSpan(
+            operationName: record.body,
+            parentTraceparent: parentTraceparent,
+            startTimeUnixNano: record.timeUnixNano,
+            durationMilliseconds: Self.elapsedMilliseconds(from: record),
+            attributes: record.attributes
+        ) {
+            state.logger.log(
+                level: Logger.Level(record.severityText),
+                "\(record.body)",
+                metadata: metadata
+            )
+        }
+    }
+
+    private static func traceparent(from record: AgentStudioOTLPProjectedLogRecord) -> String? {
+        guard let traceID = record.traceID, let spanID = record.parentSpanID ?? record.spanID else {
+            return nil
+        }
+        return "00-\(traceID)-\(spanID)-01"
+    }
+
+    private static func elapsedMilliseconds(from record: AgentStudioOTLPProjectedLogRecord) -> Double? {
+        switch record.attributes["agentstudio.performance.elapsed_ms"] {
+        case .double(let doubleValue):
+            doubleValue
+        case .int(let intValue):
+            Double(intValue)
+        case .bool, .string, .stringArray, .none:
+            nil
+        }
+    }
+
     private static func metadata(
         from attributes: [String: AgentStudioTraceValue]
     ) -> Logger.Metadata {
@@ -178,6 +249,7 @@ private struct AgentStudioOTLPServiceState: Sendable {
     let runTask: Task<Void, Never>
     let logger: Logger
     let performanceMetrics: AgentStudioOTLPPerformanceMetrics
+    let tracingBackend: AgentStudioOTLPTracingBackend
 }
 
 extension Logger.Level {

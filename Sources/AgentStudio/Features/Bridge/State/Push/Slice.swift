@@ -27,6 +27,7 @@ struct AnyPushSlice<State: Observable & AnyObject> {
 /// See bridge push architecture docs for slice semantics.
 struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Sendable> {
     let name: String
+    let telemetrySlice: BridgeTelemetrySlice
     let store: StoreKey
     let level: PushLevel
     let op: PushOp
@@ -34,12 +35,14 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
 
     init(
         _ name: String,
+        telemetrySlice: BridgeTelemetrySlice,
         store: StoreKey,
         level: PushLevel,
         op: PushOp = .replace,
         capture: @escaping @MainActor @Sendable (State) -> Snapshot
     ) {
         self.name = name
+        self.telemetrySlice = telemetrySlice
         self.store = store
         self.level = level
         self.op = op
@@ -63,6 +66,7 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
         let op = self.op
         let store = self.store
         let name = self.name
+        let telemetrySlice = self.telemetrySlice
         let debounceClock = debounceClock
 
         return AnyPushSlice(name: name) { state, transport, revisions, epochProvider in
@@ -99,8 +103,15 @@ struct Slice<State: Observable & AnyObject, Snapshot: Encodable & Equatable & Se
                     prev = snapshot
 
                     await transport.pushJSON(
-                        store: store, op: op, level: level,
-                        revision: revision, epoch: epoch, json: data
+                        metadata: BridgePushEnvelopeMetadata(
+                            store: store,
+                            op: op,
+                            level: level,
+                            slice: telemetrySlice,
+                            revision: revision,
+                            epoch: epoch
+                        ),
+                        json: data
                     )
                 }
             }

@@ -5,6 +5,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         let tag: AgentStudioTraceTag
         let body: String
         let traceID: String?
+        let spanID: String?
         let parentSpanID: String?
         let eventTimeUnixNano: UInt64?
         let attributes: [String: AgentStudioTraceValue]
@@ -28,6 +29,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         tag: AgentStudioTraceTag,
         body: String,
         traceID: String? = nil,
+        spanID: String? = nil,
         parentSpanID: String? = nil,
         eventTimeUnixNano: UInt64? = nil,
         attributes: [String: AgentStudioTraceValue]
@@ -36,6 +38,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
             tag: tag,
             body: body,
             traceID: traceID,
+            spanID: spanID,
             parentSpanID: parentSpanID,
             eventTimeUnixNano: eventTimeUnixNano,
             attributes: attributes
@@ -99,6 +102,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
                     tag: request.tag,
                     body: request.body,
                     traceID: request.traceID,
+                    spanID: request.spanID,
                     parentSpanID: request.parentSpanID,
                     eventTimeUnixNano: request.eventTimeUnixNano,
                     attributes: request.attributes

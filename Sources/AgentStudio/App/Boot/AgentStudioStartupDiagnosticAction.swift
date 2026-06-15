@@ -10,6 +10,7 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
         #if DEBUG
             case crossTabMoveGeometrySmoke = "cross-tab-move-geometry-smoke"
             case ipcTerminalSmoke = "ipc-terminal-smoke"
+            case bridgeReviewObservabilitySmoke = "bridge-review-observability-smoke"
         #endif
         case addWatchFolder = "add-watch-folder"
     }
@@ -27,6 +28,8 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "crossTabMoveGeometrySmoke"
             case .ipcTerminalSmoke:
                 "ipcTerminalSmoke"
+            case .bridgeReviewObservabilitySmoke:
+                "bridgeReviewObservabilitySmoke"
         #endif
         case .addWatchFolder:
             "addWatchFolder"

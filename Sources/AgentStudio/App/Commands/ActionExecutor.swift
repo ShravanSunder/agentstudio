@@ -73,6 +73,12 @@ final class ActionExecutor {
         coordinator.openWebview(url: url)
     }
 
+    /// Open a new read-only Bridge review pane in a new tab.
+    @discardableResult
+    func openBridgeReview() -> Pane? {
+        coordinator.openBridgeReview()
+    }
+
     @discardableResult
     func openContextualWebviewInPane(
         sourcePaneId: UUID,

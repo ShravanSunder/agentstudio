@@ -236,6 +236,13 @@ logsql_exact_filter() {
   printf '%s:="%s"' "$field_name" "$(logsql_escape_exact_value "$field_value")"
 }
 
+json_truthy_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  grep -q "\"$field\":true" <<<"$payload" ||
+    grep -q "\"$field\":\"true\"" <<<"$payload"
+}
+
 QUERY_START="${AGENTSTUDIO_OBSERVABILITY_QUERY_START:-${state_query_start:-$(portable_utc_time -4H '4 hours ago')}}"
 QUERY_END="${AGENTSTUDIO_OBSERVABILITY_QUERY_END:-$(portable_utc_time +5M '5 minutes')}"
 
@@ -298,7 +305,8 @@ fi
 
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-$state_startup_diagnostic_action}"
 if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
-  [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ]; then
+  [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
   startup_diagnostic_action_filter="$(
     logsql_exact_filter agentstudio.startup_diagnostic.action "$startup_diagnostic_action"
   )"
@@ -309,6 +317,9 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   fi
   if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
     diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.fixture.terminal_view.count,agentstudio.startup_diagnostic.fixture.surface_reference.count,agentstudio.startup_diagnostic.fixture.surface.count,agentstudio.startup_diagnostic.fixture.valid_geometry.count,agentstudio.startup_diagnostic.render_proof.succeeded"
+  fi
+  if [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.render_proof.succeeded"
   fi
   diagnostic_command_response="$(query_logs "$diagnostic_query _msg:app.startup_diagnostic_action.command_exercised | fields $diagnostic_fields | limit 5")"
   if [ -z "$diagnostic_command_response" ]; then
@@ -341,14 +352,9 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     echo "$diagnostic_completed_response" >&2
     exit 1
   fi
-  if [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ] &&
-    ! grep -Eq '"agentstudio.startup_diagnostic.render_proof.succeeded":("?true"?)([,}[:space:]]|$)' <<<"$diagnostic_completed_response"; then
-    echo "startup diagnostic completed without successful IPC terminal render proof for action $startup_diagnostic_action" >&2
-    echo "$diagnostic_completed_response" >&2
-    exit 1
-  fi
-  if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] &&
-    ! grep -Eq '"agentstudio.startup_diagnostic.render_proof.succeeded":("?true"?)([,}[:space:]]|$)' <<<"$diagnostic_completed_response"; then
+  if ! json_truthy_field \
+    "agentstudio.startup_diagnostic.render_proof.succeeded" \
+    "$diagnostic_completed_response"; then
     echo "startup diagnostic completed without successful render proof for action $startup_diagnostic_action" >&2
     echo "$diagnostic_completed_response" >&2
     exit 1

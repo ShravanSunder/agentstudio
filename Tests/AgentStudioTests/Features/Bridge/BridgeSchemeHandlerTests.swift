@@ -11,6 +11,23 @@ import WebKit
 /// pure logic layer without requiring a live WebKit instance.
 @Suite(.serialized)
 final class BridgeSchemeHandlerTests {
+    private actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
+        private var recordedSamples: [BridgeTelemetrySample] = []
+
+        func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
+            recordedSamples.append(sample)
+        }
+
+        func recordDrop(
+            reason: BridgeTelemetryDropReason,
+            droppedCount: Int,
+            receivedAtUnixNano: UInt64
+        ) async {}
+
+        func samples() -> [BridgeTelemetrySample] {
+            recordedSamples
+        }
+    }
 
     // MARK: - MIME type resolution
 
@@ -293,9 +310,99 @@ final class BridgeSchemeHandlerTests {
     }
 
     @Test
+    func test_contentRoute_recordsTraceparentCorrelatedTelemetry() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("hello bridge")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "hello bridge")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        let recorder = BridgeTelemetryRecorderSpy()
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let handler = BridgeSchemeHandler(
+            paneId: UUID(),
+            contentStore: contentStore,
+            telemetryRecorder: recorder
+        )
+        var request = URLRequest(url: URL(string: handle.resourceUrl)!)
+        request.setValue(
+            "00-11111111111111111111111111111111-2222222222222222-01",
+            forHTTPHeaderField: "traceparent"
+        )
+
+        for try await _ in handler.reply(for: request) {}
+
+        let sample = try #require(await recorder.samples().first)
+        #expect(sample.name == "performance.bridge.swift.content_load")
+        #expect(sample.scope == .swift)
+        #expect(sample.traceContext?.traceId == "11111111111111111111111111111111")
+        #expect(sample.stringAttributes["agentstudio.bridge.content.correlation_mode"] == "traceparent")
+        #expect(sample.stringAttributes["agentstudio.bridge.cache.result"] == "provider_load")
+        #expect(sample.stringAttributes["agentstudio.bridge.plane"] == "data")
+        #expect(sample.stringAttributes["agentstudio.bridge.priority"] == "hot")
+        #expect(sample.stringAttributes["agentstudio.bridge.slice"] == "content_fetch")
+        #expect(sample.stringAttributes["agentstudio.bridge.transport"] == "content")
+        #expect(sample.booleanAttributes["agentstudio.bridge.header_supported"] == true)
+        #expect(sample.booleanAttributes["agentstudio.bridge.header_missing"] == false)
+    }
+
+    @Test
+    func test_contentRoute_recordsSummaryTelemetryWhenTraceparentHeaderMissing() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("hello bridge")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "hello bridge")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        let recorder = BridgeTelemetryRecorderSpy()
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let handler = BridgeSchemeHandler(
+            paneId: UUID(),
+            contentStore: contentStore,
+            telemetryRecorder: recorder
+        )
+        let request = URLRequest(url: URL(string: handle.resourceUrl)!)
+
+        for try await _ in handler.reply(for: request) {}
+
+        let sample = try #require(await recorder.samples().first)
+        #expect(sample.traceContext == nil)
+        #expect(sample.stringAttributes["agentstudio.bridge.content.correlation_mode"] == "summary")
+        #expect(sample.booleanAttributes["agentstudio.bridge.header_supported"] == false)
+        #expect(sample.booleanAttributes["agentstudio.bridge.header_missing"] == true)
+    }
+
+    @Test
     func test_contentRouteUnknownHandleFailsThroughSchemeHandler() async throws {
         let contentStore = BridgeContentStore()
-        let handler = BridgeSchemeHandler(paneId: UUID(), contentStore: contentStore)
+        let recorder = BridgeTelemetryRecorderSpy()
+        let handler = BridgeSchemeHandler(
+            paneId: UUID(),
+            contentStore: contentStore,
+            telemetryRecorder: recorder
+        )
         let request = URLRequest(url: URL(string: "agentstudio://resource/content/missing?generation=7")!)
 
         do {
@@ -306,6 +413,9 @@ final class BridgeSchemeHandlerTests {
         } catch {
             Issue.record("Expected BridgeProviderFailure, got \(error)")
         }
+        let sample = try #require(await recorder.samples().first)
+        #expect(sample.stringAttributes["agentstudio.bridge.phase"] == "error")
+        #expect(sample.stringAttributes["agentstudio.bridge.cache.result"] == "rejected")
     }
 
     @Test

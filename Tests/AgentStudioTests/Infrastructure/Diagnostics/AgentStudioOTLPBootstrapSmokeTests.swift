@@ -29,7 +29,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
             configuration: AgentStudioTraceConfiguration.from(environment: [
                 "AGENTSTUDIO_TRACE_BACKEND": "otlp",
                 "AGENTSTUDIO_TRACE_NAME": "live-otlp-smoke",
-                "AGENTSTUDIO_TRACE_TAGS": "app.startup,runtime,performance",
+                "AGENTSTUDIO_TRACE_TAGS": "app.startup,runtime,performance,bridge.performance.webkit",
                 "OTEL_EXPORTER_OTLP_ENDPOINT": try collector.endpoint().absoluteString,
             ]),
             processIdentifier: 951,
@@ -61,6 +61,22 @@ struct AgentStudioOTLPBootstrapSmokeTests {
                 "agentstudio.performance.git.running.count": .int(3),
             ]
         )
+        await runtime.record(
+            tag: .bridgePerformanceWebKit,
+            body: "performance.bridge.webkit.package_push",
+            traceID: "11111111111111111111111111111111",
+            spanID: "2222222222222222",
+            attributes: [
+                "agentstudio.bridge.content.byte_size_bucket": .int(100_000),
+                "agentstudio.bridge.content.line_count_bucket": .int(500),
+                "agentstudio.bridge.phase": .string("package_push"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("cold"),
+                "agentstudio.bridge.slice": .string("diff_package_metadata"),
+                "agentstudio.bridge.transport": .string("push"),
+                "agentstudio.performance.elapsed_ms": .double(8.5),
+            ]
+        )
         try await runtime.shutdown()
 
         let request = try #require(
@@ -85,6 +101,32 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         #expect(metricsRequest.bodyContains("performance.git.status"))
         #expect(metricsRequest.bodyContains("agentstudio_performance_event_elapsed_ms"))
         #expect(metricsRequest.bodyContains("agentstudio_performance_git_pending_count"))
+        #expect(metricsRequest.bodyContains("diff_package_metadata"))
+
+        try await assertBridgeOTLPTraceRequests(collector)
+    }
+
+    private func assertBridgeOTLPTraceRequests(_ collector: LoopbackOTLPHTTPCollector) async throws {
+        let bridgeLogRequest = try #require(
+            await collector.waitForRequest(
+                pathSuffix: "/v1/logs",
+                containing: "performance.bridge.webkit.package_push",
+                timeout: .seconds(5)
+            )
+        )
+        #expect(bridgeLogRequest.bodyContains(hexEncodedBytes: "11111111111111111111111111111111"))
+
+        let bridgeTraceRequest = try #require(
+            await collector.waitForRequest(
+                pathSuffix: "/v1/traces",
+                containing: "performance.bridge.webkit.package_push",
+                timeout: .seconds(5)
+            )
+        )
+        #expect(bridgeTraceRequest.method == "POST")
+        #expect(bridgeTraceRequest.path.hasSuffix("/v1/traces"))
+        #expect(bridgeTraceRequest.bodyContains(hexEncodedBytes: "11111111111111111111111111111111"))
+        #expect(bridgeTraceRequest.bodyContains(hexEncodedBytes: "2222222222222222"))
     }
 
     private static func isolatedOTLPSinkFactory() -> AgentStudioTraceSinkFactory {
@@ -108,6 +150,13 @@ private struct LoopbackOTLPHTTPRequest: Equatable, Sendable {
     func bodyContains(_ value: String) -> Bool {
         let needle = Array(value.utf8)
         guard !needle.isEmpty else { return true }
+        return body.indices.contains { index in
+            body[index...].starts(with: needle)
+        }
+    }
+
+    func bodyContains(hexEncodedBytes value: String) -> Bool {
+        guard let needle = Data(hexEncoded: value), !needle.isEmpty else { return false }
         return body.indices.contains { index in
             body[index...].starts(with: needle)
         }
@@ -244,6 +293,45 @@ private final class LoopbackOTLPHTTPCollector: @unchecked Sendable {
         }
     }
 
+    func waitForRequest(
+        pathSuffix: String,
+        containing value: String,
+        timeout: Duration
+    ) async -> LoopbackOTLPHTTPRequest? {
+        if let request = firstRecordedRequest(pathSuffix: pathSuffix, containing: value) {
+            return request
+        }
+
+        let clock = ContinuousClock()
+        return await withTaskGroup(of: LoopbackOTLPHTTPRequest?.self) { group in
+            group.addTask { [requestStream] in
+                for await request in requestStream {
+                    if request.path.hasSuffix(pathSuffix), request.bodyContains(value) {
+                        return request
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                do {
+                    try await clock.sleep(for: timeout)
+                } catch {
+                    return nil
+                }
+                return nil
+            }
+
+            let result = await group.next()
+            group.cancelAll()
+            switch result {
+            case .some(.some(let request)):
+                return request
+            case .some(.none), .none:
+                return nil
+            }
+        }
+    }
+
     private func waitForReady(timeout: Duration) async -> Bool {
         let clock = ContinuousClock()
         return await withTaskGroup(of: Bool.self) { group in
@@ -339,6 +427,14 @@ private final class LoopbackOTLPHTTPCollector: @unchecked Sendable {
         return recordedRequests.first { $0.bodyContains(value) }
     }
 
+    private func firstRecordedRequest(pathSuffix: String, containing value: String) -> LoopbackOTLPHTTPRequest? {
+        requestLock.lock()
+        defer { requestLock.unlock() }
+        return recordedRequests.first { request in
+            request.path.hasSuffix(pathSuffix) && request.bodyContains(value)
+        }
+    }
+
     private static func parseRequest(_ data: Data) -> LoopbackOTLPHTTPRequest? {
         let headerTerminator = Data("\r\n\r\n".utf8)
         guard let headerRange = data.range(of: headerTerminator) else { return nil }
@@ -375,4 +471,25 @@ private final class LoopbackOTLPHTTPCollector: @unchecked Sendable {
 private enum LoopbackOTLPHTTPCollectorError: Error {
     case missingPort
     case notReady
+}
+
+extension Data {
+    fileprivate init?(hexEncoded value: String) {
+        guard value.count.isMultiple(of: 2) else { return nil }
+
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(value.count / 2)
+
+        var currentIndex = value.startIndex
+        while currentIndex < value.endIndex {
+            let nextIndex = value.index(currentIndex, offsetBy: 2)
+            guard let byte = UInt8(value[currentIndex..<nextIndex], radix: 16) else {
+                return nil
+            }
+            bytes.append(byte)
+            currentIndex = nextIndex
+        }
+
+        self.init(bytes)
+    }
 }

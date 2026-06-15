@@ -22,7 +22,7 @@ final class SliceTests {
         let clock = RevisionClock()
 
         let slice = Slice<TestState, String>(
-            "testStatus", store: .diff, level: .hot
+            "testStatus", telemetrySlice: .diffStatus, store: .diff, level: .hot
         ) { state in
             state.status
         }
@@ -60,7 +60,7 @@ final class SliceTests {
         let clock = RevisionClock()
 
         let slice = Slice<TestState, String>(
-            "testStatus", store: .diff, level: .hot
+            "testStatus", telemetrySlice: .diffStatus, store: .diff, level: .hot
         ) { state in
             state.status
         }
@@ -92,7 +92,7 @@ final class SliceTests {
         let clock = RevisionClock()
 
         let task = Slice<TestState, String>(
-            "testStatus", store: .diff, level: .hot
+            "testStatus", telemetrySlice: .diffStatus, store: .diff, level: .hot
         ) { state in state.status }
         .erased().makeTask(state, transport, clock) { 1 }
 
@@ -128,20 +128,22 @@ final class MockPushTransport: PushTransport {
     var lastStore: StoreKey?
     var lastOp: PushOp?
     var lastLevel: PushLevel?
+    var lastSlice: BridgeTelemetrySlice?
     var lastRevision: Int?
     var lastEpoch: Int?
     var lastJSON: Data?
 
     func pushJSON(
-        store: StoreKey, op: PushOp, level: PushLevel,
-        revision: Int, epoch: Int, json: Data
+        metadata: BridgePushEnvelopeMetadata,
+        json: Data
     ) async {
         pushCount += 1
-        lastStore = store
-        lastOp = op
-        lastLevel = level
-        lastRevision = revision
-        lastEpoch = epoch
+        lastStore = metadata.store
+        lastOp = metadata.op
+        lastLevel = metadata.level
+        lastSlice = metadata.slice
+        lastRevision = metadata.revision
+        lastEpoch = metadata.epoch
         lastJSON = json
     }
 

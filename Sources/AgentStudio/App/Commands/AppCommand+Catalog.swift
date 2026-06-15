@@ -3,18 +3,6 @@ import Foundation
 // MARK: - AppCommand Helpers
 
 extension AppCommand {
-    private enum CommandBarGroupPriority {
-        static let terminal = 0
-        static let pane = 1
-        static let focus = 2
-        static let tab = 3
-        static let repo = 4
-        static let window = 5
-        static let webview = 6
-        static let auth = 7
-        static let miscellaneous = 8
-    }
-
     /// Ordered array of tab selection commands (⌘1 through ⌘9)
     static let selectTabCommands: [AppCommand] = [
         .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
@@ -857,6 +845,15 @@ extension AppCommand {
                 icon: .system(.globe),
                 helpText: "Open a new webview tab",
                 commandBarGroupName: "Webview",
+                commandBarGroupPriority: CommandBarGroupPriority.webview
+            )
+        case .openBridgeReview:
+            return CommandSpec(
+                command: self,
+                label: "Open Bridge Review",
+                icon: .system(.rectangleSplit2x1),
+                helpText: "Open the read-only Bridge review pane",
+                commandBarGroupName: "Bridge",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )
         case .signInGitHub:

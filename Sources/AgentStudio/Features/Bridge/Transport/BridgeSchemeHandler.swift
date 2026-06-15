@@ -10,15 +10,18 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     let paneId: UUID
     let contentStore: BridgeContentStore
     let appAssetStore: BridgeAppAssetStore
+    let telemetryRecorder: (any BridgePerformanceTraceRecording)?
 
     init(
         paneId: UUID,
         contentStore: BridgeContentStore = BridgeContentStore(),
-        appAssetStore: BridgeAppAssetStore = BridgeAppAssetStore()
+        appAssetStore: BridgeAppAssetStore = BridgeAppAssetStore(),
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) {
         self.paneId = paneId
         self.contentStore = contentStore
         self.appAssetStore = appAssetStore
+        self.telemetryRecorder = telemetryRecorder
     }
 
     // MARK: - URLSchemeHandler
@@ -58,10 +61,21 @@ struct BridgeSchemeHandler: URLSchemeHandler {
 
             case .content(let handleId, let generation):
                 let task = Task {
+                    let traceContext = Self.traceContext(from: request)
+                    let hasTraceparentHeader = Self.traceparentHeader(from: request) != nil
+                    let loadStart = ContinuousClock.now
                     do {
-                        let result = try await contentStore.load(
+                        let observed = try await contentStore.loadObserved(
                             handleId: handleId,
                             requestedGeneration: generation
+                        )
+                        let result = observed.result
+                        await recordContentLoadTelemetry(
+                            observation: observed.observation,
+                            traceContext: traceContext,
+                            hasTraceparentHeader: hasTraceparentHeader,
+                            phase: "success",
+                            durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
                         )
                         try Task.checkCancellation()
                         continuation.yield(
@@ -75,6 +89,15 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                         try Task.checkCancellation()
                         continuation.yield(.data(result.data))
                         continuation.finish()
+                    } catch let failure as BridgeContentLoadObservedFailure {
+                        await recordContentLoadTelemetry(
+                            observation: failure.observation,
+                            traceContext: traceContext,
+                            hasTraceparentHeader: hasTraceparentHeader,
+                            phase: "error",
+                            durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
+                        )
+                        continuation.finish(throwing: failure.underlyingError)
                     } catch {
                         continuation.finish(throwing: error)
                     }
@@ -163,6 +186,64 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             return nil
         }
         return generation
+    }
+
+    private static func traceContext(from request: URLRequest) -> BridgeTraceContext? {
+        guard let traceparent = traceparentHeader(from: request) else {
+            return nil
+        }
+        return try? BridgeTraceContext.parseTraceparent(traceparent)
+    }
+
+    private static func traceparentHeader(from request: URLRequest) -> String? {
+        request.value(forHTTPHeaderField: "traceparent")
+    }
+
+    private func recordContentLoadTelemetry(
+        observation: BridgeContentLoadObservation,
+        traceContext: BridgeTraceContext?,
+        hasTraceparentHeader: Bool,
+        phase: String,
+        durationMilliseconds: Double
+    ) async {
+        guard let telemetryRecorder else {
+            return
+        }
+        await telemetryRecorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .swift,
+                name: "performance.bridge.swift.content_load",
+                durationMilliseconds: durationMilliseconds,
+                traceContext: traceContext,
+                stringAttributes: [
+                    "agentstudio.bridge.cache.result": observation.cacheResult.rawValue,
+                    "agentstudio.bridge.content.correlation_mode": traceContext == nil ? "summary" : "traceparent",
+                    "agentstudio.bridge.content.role": observation.role?.rawValue ?? "unknown",
+                    "agentstudio.bridge.generation.relation": observation.generationRelation.rawValue,
+                    "agentstudio.bridge.phase": phase,
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.hot.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.contentFetch.rawValue,
+                    "agentstudio.bridge.transport": "content",
+                ],
+                numericAttributes: [
+                    "agentstudio.bridge.content.byte_size_bucket": Double(observation.byteSizeBucket),
+                    "agentstudio.bridge.content.line_count_bucket": Double(observation.lineCountBucket),
+                ],
+                booleanAttributes: [
+                    "agentstudio.bridge.cache_hit": observation.cacheResult == .cacheHit,
+                    "agentstudio.bridge.content.binary": observation.isBinary,
+                    "agentstudio.bridge.content.stale": observation.isStale,
+                    "agentstudio.bridge.header_missing": !hasTraceparentHeader,
+                    "agentstudio.bridge.header_supported": traceContext != nil,
+                ]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
+    }
+
+    private static func milliseconds(from duration: Duration) -> Double {
+        AgentStudioPerformanceTraceRecorder.milliseconds(from: duration)
     }
 
     // MARK: - MIME Type Resolution

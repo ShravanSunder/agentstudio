@@ -92,6 +92,41 @@ struct BridgeContentStoreTests {
         #expect(await provider.recordedContentRequestsCount() == 1)
     }
 
+    @Test("content store observations identify provider load then cache hit")
+    func contentStoreObservationsIdentifyProviderLoadThenCacheHit() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("lazy")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "lazy")
+            ]
+        )
+        let store = BridgeContentStore(provider: provider)
+        await store.activate(handles: [handle], reviewGeneration: 7)
+
+        let firstLoad = try await store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+        let secondLoad = try await store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+
+        #expect(firstLoad.observation.cacheResult == .providerLoad)
+        #expect(firstLoad.observation.role == .head)
+        #expect(firstLoad.observation.generationRelation == .current)
+        #expect(firstLoad.observation.byteSizeBucket == 1024)
+        #expect(firstLoad.observation.lineCountBucket == 1)
+        #expect(firstLoad.observation.isBinary == false)
+        #expect(firstLoad.observation.isStale == false)
+        #expect(secondLoad.observation.cacheResult == .cacheHit)
+        #expect(secondLoad.result.data == Data("lazy".utf8))
+    }
+
     @Test("content store coalesces concurrent loads for the same handle")
     func contentStoreCoalescesConcurrentLoadsForSameHandle() async throws {
         let handle = makeBridgeContentHandle(
@@ -124,6 +159,40 @@ struct BridgeContentStoreTests {
         let loaded = try await [firstLoad, secondLoad, thirdLoad]
 
         #expect(loaded.map { $0.data } == Array(repeating: Data("coalesced".utf8), count: 3))
+        #expect(await provider.recordedContentRequestsCount() == 1)
+    }
+
+    @Test("content store observations identify in-flight coalesced loads")
+    func contentStoreObservationsIdentifyInFlightCoalescedLoads() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("coalesced")
+        )
+        let gate = BridgeContentLoadGate()
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "coalesced")
+            ],
+            contentLoadGate: gate
+        )
+        let store = BridgeContentStore(provider: provider)
+        await store.activate(handles: [handle], reviewGeneration: 7)
+
+        async let firstLoad = try store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+        await gate.waitForStartedLoadCount(1)
+        async let secondLoad = try store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+        await gate.releaseAll()
+
+        let observations = try await [firstLoad.observation, secondLoad.observation]
+        #expect(observations.map(\.cacheResult).contains(.providerLoad))
+        #expect(observations.map(\.cacheResult).contains(.inFlightCoalesced))
         #expect(await provider.recordedContentRequestsCount() == 1)
     }
 
@@ -248,6 +317,31 @@ struct BridgeContentStoreTests {
         #expect(await provider.recordedContentRequestsCount() == 0)
     }
 
+    @Test("content store observations identify binary rejections")
+    func contentStoreObservationsIdentifyBinaryRejections() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("binary"),
+            isBinary: true
+        )
+        let store = BridgeContentStore()
+        await store.activate(handles: [handle], reviewGeneration: 7)
+
+        do {
+            _ = try await store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+            Issue.record("Expected binary content failure")
+        } catch let failure as BridgeContentLoadObservedFailure {
+            #expect(failure.underlyingError as? BridgeProviderFailure == .binaryContent(handleId: handle.handleId))
+            #expect(failure.observation.cacheResult == .rejected)
+            #expect(failure.observation.isBinary == true)
+            #expect(failure.observation.isStale == false)
+        } catch {
+            Issue.record("Expected BridgeContentLoadObservedFailure, got \(error)")
+        }
+    }
+
     @Test("content store rejects payloads larger than per-item byte cap")
     func contentStoreRejectsPayloadsLargerThanPerItemByteCap() async throws {
         let handle = makeBridgeContentHandle(
@@ -277,6 +371,72 @@ struct BridgeContentStoreTests {
             #expect(failure == .oversizedContent(handleId: handle.handleId, sizeBytes: 7))
         } catch {
             Issue.record("Expected BridgeProviderFailure, got \(error)")
+        }
+    }
+
+    @Test("content store observations identify oversized provider bytes")
+    func contentStoreObservationsIdentifyOversizedProviderBytes() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("seven!!"),
+            sizeBytes: 7
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "seven!!")
+            ]
+        )
+        let store = BridgeContentStore(provider: provider, contentMaxBytesPerItem: 6)
+        await store.activate(handles: [handle], reviewGeneration: 7)
+
+        do {
+            _ = try await store.loadObserved(handleId: handle.handleId, requestedGeneration: 7)
+            Issue.record("Expected oversized content failure")
+        } catch let failure as BridgeContentLoadObservedFailure {
+            let expected = BridgeProviderFailure.oversizedContent(
+                handleId: handle.handleId,
+                sizeBytes: 7
+            )
+            #expect(failure.underlyingError as? BridgeProviderFailure == expected)
+            #expect(failure.observation.cacheResult == .providerLoad)
+            #expect(failure.observation.byteSizeBucket == 1024)
+            #expect(failure.observation.isBinary == false)
+        } catch {
+            Issue.record("Expected BridgeContentLoadObservedFailure, got \(error)")
+        }
+    }
+
+    @Test("content store observations identify stale generation rejections")
+    func contentStoreObservationsIdentifyStaleGenerationRejections() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("hello")
+        )
+        let store = BridgeContentStore()
+        try await store.register(makeContentResult(handle: handle, data: "hello"))
+
+        do {
+            _ = try await store.loadObserved(handleId: handle.handleId, requestedGeneration: 6)
+            Issue.record("Expected stale content failure")
+        } catch let failure as BridgeContentLoadObservedFailure {
+            #expect(
+                failure.underlyingError as? BridgeProviderFailure
+                    == .staleReviewGeneration(storedGeneration: 7, requestedGeneration: 6)
+            )
+            #expect(failure.observation.cacheResult == .rejected)
+            #expect(failure.observation.generationRelation == .stale)
+            #expect(failure.observation.isStale == true)
+        } catch {
+            Issue.record("Expected BridgeContentLoadObservedFailure, got \(error)")
         }
     }
 

@@ -66,6 +66,81 @@ struct ActionExecutorTestsQuick {
         #expect(pane?.metadata.cwd == nil)
     }
 
+    @Test("openBridgeReview creates a generic read-only review tab")
+    func openBridgeReview_addsGenericBridgeTabAndRegistersView() {
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let pane = executor.openBridgeReview()
+
+        #expect(pane != nil)
+        #expect(store.tabs.count == 1)
+        #expect(store.activeTabId == store.tabs[0].id)
+        #expect(viewRegistry.view(for: pane!.id) != nil)
+        #expect(viewRegistry.view(for: pane!.id)?.mountedContentViewForTesting is BridgePaneMountView)
+        guard case .bridgePanel(let state) = pane?.content else {
+            Issue.record("Expected bridge panel content")
+            return
+        }
+        #expect(state.panelKind == .diffViewer)
+        #expect(state.source == nil)
+        #expect(pane?.metadata.title == "Bridge Review")
+        #expect(pane?.metadata.contentType == .diff)
+        #expect(pane?.repoId == nil)
+        #expect(pane?.worktreeId == nil)
+        #expect(pane?.metadata.cwd == nil)
+    }
+
+    @Test("openBridgeReview inherits active pane worktree context")
+    func openBridgeReview_inheritsActivePaneWorktreeContext() {
+        let harness = makeHarness()
+        let store = harness.store
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+        guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
+            Issue.record("Expected main worktree")
+            return
+        }
+        let sourcePane = store.createPane(
+            launchDirectory: worktree.path,
+            title: "Source",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: worktree.path
+            )
+        )
+        let tab = Tab(paneId: sourcePane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let pane = executor.openBridgeReview()
+
+        #expect(pane != nil)
+        #expect(store.tabs.count == 2)
+        #expect(store.activeTabId == store.tabs[1].id)
+        #expect(pane?.repoId == repo.id)
+        #expect(pane?.worktreeId == worktree.id)
+        #expect(pane?.metadata.cwd == worktree.path)
+        guard case .bridgePanel(let state) = pane?.content,
+            case .workspace(let rootPath, let baseline) = state.source
+        else {
+            Issue.record("Expected Bridge workspace source")
+            return
+        }
+        #expect(rootPath == worktree.path.path)
+        #expect(baseline == .unstaged)
+    }
+
     @Test("openContextualWebviewInPane creates a split browser pane with inherited workspace association")
     func openContextualWebviewInPane_addsSplitPaneWithAssociation() {
         let harness = makeHarness()

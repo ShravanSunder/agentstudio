@@ -112,16 +112,16 @@ private final class StopGuardedTransport<State: Observable & AnyObject>: PushTra
     }
 
     func pushJSON(
-        store: StoreKey, op: PushOp, level: PushLevel,
-        revision: Int, epoch: Int, json: Data
+        metadata: BridgePushEnvelopeMetadata,
+        json: Data
     ) async {
         guard let plan, !plan.isStopped, plan.generation == validGeneration else {
             logger.debug("StopGuardedTransport dropped push for stale generation or stopped plan")
             return
         }
         await inner.pushJSON(
-            store: store, op: op, level: level,
-            revision: revision, epoch: epoch, json: json
+            metadata: metadata,
+            json: json
         )
     }
 }

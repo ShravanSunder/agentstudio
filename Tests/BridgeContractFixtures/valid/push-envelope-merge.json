@@ -5,6 +5,18 @@
   "__epoch": 1,
   "store": "diff",
   "op": "merge",
-  "level": "cold",
-  "data": { "status": "running", "error": null, "epoch": 1 }
+  "level": "warm",
+  "slice": "diff_package_delta",
+  "data": {
+    "delta": {
+      "packageId": "package-33733733-7337-4337-9337-337337337337",
+      "reviewGeneration": 1,
+      "revision": 2,
+      "operations": {
+        "addItems": [],
+        "updateItems": [],
+        "removeItems": []
+      }
+    }
+  }
 }

@@ -98,6 +98,7 @@ enum AppCommand: String, CaseIterable {
     case showCommandBarRepos
     // Webview commands
     case openWebview
+    case openBridgeReview
     case signInGitHub
     case signInGoogle
     // Sidebar commands

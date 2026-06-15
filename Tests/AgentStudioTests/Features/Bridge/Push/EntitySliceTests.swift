@@ -92,6 +92,7 @@ final class EntitySliceTests {
 
         let slice = EntitySlice<TestState, UUID, TestEntity>(
             "testItems",
+            telemetrySlice: .reviewThreads,
             store: .review,
             level: .hot,
             capture: { state in state.items },
@@ -135,7 +136,7 @@ final class EntitySliceTests {
         state.items[id1] = TestEntity(name: "original", version: 1)
 
         let slice = EntitySlice<TestState, UUID, TestEntity>(
-            "testItems", store: .review, level: .hot,
+            "testItems", telemetrySlice: .reviewThreads, store: .review, level: .hot,
             capture: { state in state.items },
             version: { entity in entity.version },
             keyToString: { $0.uuidString }
@@ -172,6 +173,7 @@ final class EntitySliceTests {
 
         let slice = EntitySlice<TestState, UUID, TestEntity>(
             "testItems",
+            telemetrySlice: .reviewThreads,
             store: .review,
             level: .hot,
             capture: { testState in testState.items },

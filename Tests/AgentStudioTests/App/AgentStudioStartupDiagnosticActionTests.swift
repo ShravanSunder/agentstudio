@@ -61,6 +61,17 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(action.commandName == "ipcTerminalSmoke")
     }
 
+    @Test("startup diagnostic action parses bridge review observability smoke command")
+    func parsesBridgeReviewObservabilitySmokeCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: " bridge-review-observability-smoke "
+            ]))
+
+        #expect(action.kind == .bridgeReviewObservabilitySmoke)
+        #expect(action.commandName == "bridgeReviewObservabilitySmoke")
+    }
+
     @Test("startup diagnostic action parses add watch folder command and path")
     func parsesAddWatchFolderCommandAndPath() throws {
         let action = try #require(

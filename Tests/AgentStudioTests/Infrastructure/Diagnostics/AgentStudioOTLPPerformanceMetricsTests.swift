@@ -14,6 +14,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             body: "performance.git.status",
             traceID: nil,
             spanID: nil,
+            parentSpanID: nil,
             resource: ["service.name": "AgentStudio"],
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
@@ -30,39 +31,27 @@ struct AgentStudioOTLPPerformanceMetricsTests {
 
         #expect(metricEvent.eventName == "performance.git.status")
         #expect(metricEvent.elapsedMilliseconds == 15.5)
+        let expectedDimensions = [
+            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.git.status")
+        ]
         #expect(
             metricEvent.samples == [
                 AgentStudioOTLPPerformanceMetricSample(
                     eventName: "performance.git.status",
                     label: "agentstudio_performance_git_has_git_internal_changes",
-                    dimensions: [
-                        AgentStudioOTLPPerformanceMetricDimension(
-                            name: "event",
-                            value: "performance.git.status"
-                        )
-                    ],
+                    dimensions: expectedDimensions,
                     value: 1
                 ),
                 AgentStudioOTLPPerformanceMetricSample(
                     eventName: "performance.git.status",
                     label: "agentstudio_performance_git_pending_count",
-                    dimensions: [
-                        AgentStudioOTLPPerformanceMetricDimension(
-                            name: "event",
-                            value: "performance.git.status"
-                        )
-                    ],
+                    dimensions: expectedDimensions,
                     value: 64
                 ),
                 AgentStudioOTLPPerformanceMetricSample(
                     eventName: "performance.git.status",
                     label: "agentstudio_performance_git_running_count",
-                    dimensions: [
-                        AgentStudioOTLPPerformanceMetricDimension(
-                            name: "event",
-                            value: "performance.git.status"
-                        )
-                    ],
+                    dimensions: expectedDimensions,
                     value: 4
                 ),
             ])
@@ -76,6 +65,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             body: "performance.git.status_unavailable",
             traceID: nil,
             spanID: nil,
+            parentSpanID: nil,
             resource: ["service.name": "AgentStudio"],
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
@@ -107,6 +97,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             body: "performance.atom.read",
             traceID: nil,
             spanID: nil,
+            parentSpanID: nil,
             resource: ["service.name": "AgentStudio"],
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
@@ -122,10 +113,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
 
         #expect(metricEvent.eventName == "performance.atom.read")
         let expectedDimensions = [
-            AgentStudioOTLPPerformanceMetricDimension(
-                name: "event",
-                value: "performance.atom.read"
-            )
+            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.atom.read")
         ]
         #expect(
             metricEvent.samples == [
@@ -148,6 +136,100 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                     value: 2
                 ),
             ])
+    }
+
+    @Test
+    func bridgePerformanceRecordProjectsOnlySafeBridgeMetrics() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 124,
+            severityText: .info,
+            body: "performance.bridge.webkit.package_push",
+            traceID: "11111111111111111111111111111111",
+            spanID: "2222222222222222",
+            parentSpanID: "3333333333333333",
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.content.byte_size_bucket": .int(100_000),
+                "agentstudio.bridge.content.line_count_bucket": .int(500),
+                "agentstudio.bridge.item_id": .string("private-item-id"),
+                "agentstudio.bridge.phase": .string("transport"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("cold"),
+                "agentstudio.bridge.slice": .string("diff_package_metadata"),
+                "agentstudio.performance.elapsed_ms": .double(8.5),
+                "agentstudio.trace.tag": .string("bridge.performance.webkit"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+        let expectedDimensions = [
+            AgentStudioOTLPPerformanceMetricDimension(
+                name: "event",
+                value: "performance.bridge.webkit.package_push"
+            ),
+            AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "transport"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "plane", value: "data"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "priority", value: "cold"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "diff_package_metadata"),
+        ]
+
+        #expect(metricEvent.eventName == "performance.bridge.webkit.package_push")
+        #expect(metricEvent.elapsedMilliseconds == 8.5)
+        #expect(metricEvent.dimensions == expectedDimensions)
+        #expect(
+            metricEvent.samples == [
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.bridge.webkit.package_push",
+                    label: "agentstudio_bridge_content_byte_size_bucket",
+                    dimensions: expectedDimensions,
+                    value: 100_000
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.bridge.webkit.package_push",
+                    label: "agentstudio_bridge_content_line_count_bucket",
+                    dimensions: expectedDimensions,
+                    value: 500
+                ),
+            ])
+    }
+
+    @Test
+    func bridgePerformanceRecordRequiresCompleteFiniteTaxonomy() {
+        let missingPhase = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 124,
+            severityText: .info,
+            body: "performance.bridge.webkit.package_push",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("cold"),
+                "agentstudio.bridge.slice": .string("diff_package_metadata"),
+            ]
+        )
+        let invalidSlice = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 125,
+            severityText: .info,
+            body: "performance.bridge.webkit.package_push",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("transport"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("cold"),
+                "agentstudio.bridge.slice": .string("not_a_slice"),
+            ]
+        )
+
+        #expect(AgentStudioOTLPPerformanceMetricEvent(record: missingPhase) == nil)
+        #expect(AgentStudioOTLPPerformanceMetricEvent(record: invalidSlice) == nil)
     }
 
     @Test
@@ -205,6 +287,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             body: "persistence.operation.phase",
             traceID: nil,
             spanID: nil,
+            parentSpanID: nil,
             resource: ["service.name": "AgentStudio"],
             scope: .init(name: "agentstudio.persistence", version: "0.1.0"),
             attributes: [
@@ -222,6 +305,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             body: "performance.git.status_unavailable",
             traceID: nil,
             spanID: nil,
+            parentSpanID: nil,
             resource: ["service.name": "AgentStudio"],
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [

@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import type {
 	BridgeContentFetch,
 	BridgeContentResource,
+	LoadBridgeContentResourceProps,
 } from '../../foundation/content/content-resource-loader.js';
 import { loadBridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import {
@@ -16,6 +17,8 @@ import type {
 	BridgeSourceEndpoint,
 	BridgeSourceEndpointKind,
 } from '../../foundation/review-package/bridge-review-package.js';
+import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
+import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 
 export interface ReviewViewerShellProps {
 	readonly reviewPackage: BridgeReviewPackage;
@@ -28,6 +31,24 @@ export interface LoadSelectedReviewItemContentProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly selectedItemId: string | null;
 	readonly fetchContent?: BridgeContentFetch;
+	readonly traceContext?: BridgeTraceContext | null;
+	readonly sendTraceparentHeader?: boolean;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder;
+}
+
+export function BridgeReviewEmptyShell(): ReactElement {
+	return (
+		<main data-testid="bridge-review-empty-shell">
+			<section aria-label="Review summary">
+				<p>Bridge Review</p>
+				<p>Waiting for review package</p>
+			</section>
+			<nav aria-label="Changed files" />
+			<section aria-label="Selected content">
+				<pre />
+			</section>
+		</main>
+	);
 }
 
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
@@ -92,7 +113,16 @@ export async function loadSelectedReviewItemContent(
 	if (contentHandle === null) {
 		return null;
 	}
-	return await loadBridgeContentResource(contentHandle, props.fetchContent);
+	const loadProps: LoadBridgeContentResourceProps = {
+		handle: contentHandle,
+		traceContext: props.traceContext ?? null,
+		sendTraceparentHeader: props.sendTraceparentHeader ?? false,
+		...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+		...(props.telemetryRecorder === undefined
+			? {}
+			: { telemetryRecorder: props.telemetryRecorder }),
+	};
+	return await loadBridgeContentResource(loadProps);
 }
 
 function preferredContentHandle(item: BridgeReviewItemDescriptor): BridgeContentHandle | null {

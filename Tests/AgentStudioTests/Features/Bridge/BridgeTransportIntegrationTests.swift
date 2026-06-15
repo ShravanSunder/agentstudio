@@ -22,6 +22,85 @@ extension WebKitSerializedTests {
             installTestAtomRegistryIfNeeded()
         }
 
+        private actor TraceparentHeaderCapture {
+            private var didRecordResourceRequest = false
+            private var traceparentHeader: String?
+
+            func recordResourceRequest(_ request: URLRequest) {
+                didRecordResourceRequest = true
+                traceparentHeader = request.value(forHTTPHeaderField: "traceparent")
+            }
+
+            func didRecord() -> Bool {
+                didRecordResourceRequest
+            }
+
+            func traceparent() -> String? {
+                traceparentHeader
+            }
+        }
+
+        private struct TraceparentCaptureSchemeHandler: URLSchemeHandler {
+            let capture: TraceparentHeaderCapture
+
+            func reply(for request: URLRequest) -> some AsyncSequence<URLSchemeTaskResult, any Error> {
+                AsyncThrowingStream<URLSchemeTaskResult, any Error> { continuation in
+                    guard let url = request.url else {
+                        continuation.finish(throwing: BridgeSchemeError.invalidRequest("Missing URL"))
+                        return
+                    }
+
+                    if url.host() == "resource" {
+                        Task {
+                            await capture.recordResourceRequest(request)
+                        }
+                        let data = Data("content".utf8)
+                        continuation.yield(
+                            .response(
+                                URLResponse(
+                                    url: url,
+                                    mimeType: "text/plain",
+                                    expectedContentLength: data.count,
+                                    textEncodingName: "utf-8"
+                                )))
+                        continuation.yield(.data(data))
+                        continuation.finish()
+                        return
+                    }
+
+                    let html = """
+                        <html>
+                          <head><title>Traceparent Fetch</title></head>
+                          <body>
+                            <script>
+                              fetch('agentstudio://resource/content/handle?generation=1', {
+                                headers: {
+                                  traceparent: '00-11111111111111111111111111111111-2222222222222222-01'
+                                }
+                              }).then(function() {
+                                document.title = 'Traceparent Fetch Done';
+                              }).catch(function() {
+                                document.title = 'Traceparent Fetch Failed';
+                              });
+                            </script>
+                          </body>
+                        </html>
+                        """
+                    let data = Data(html.utf8)
+                    continuation.yield(
+                        .response(
+                            URLResponse(
+                                url: url,
+                                mimeType: "text/html",
+                                expectedContentLength: data.count,
+                                textEncodingName: "utf-8"
+                            )))
+                    continuation.yield(.data(data))
+                    continuation.finish()
+                }
+            }
+        }
+
         // MARK: - Test 1: Bridge.ready handshake gating
 
         /// Verify that `isBridgeReady` starts false, becomes true after `handleBridgeReady()`,
@@ -198,6 +277,32 @@ extension WebKitSerializedTests {
             }
         }
 
+        @Test
+        func test_contentFetch_traceparentHeaderReachesCustomSchemeHandler() async throws {
+            guard isTraceparentFetchProofEnabled() else { return }
+            let capture = TraceparentHeaderCapture()
+            var config = WebPageTestHarness.makeConfiguration()
+            config.urlSchemeHandlers[URLScheme("agentstudio")!] = TraceparentCaptureSchemeHandler(capture: capture)
+            let page = WebPage(
+                configuration: config,
+                navigationDecider: BridgeNavigationDecider(),
+                dialogPresenter: WebviewDialogHandler()
+            )
+
+            try await WebPageTestHarness.withManagedPage(page) { page in
+                _ = page.load(URL(string: "agentstudio://app/traceparent.html")!)
+                let didRecordResourceRequest = await waitUntil {
+                    await capture.didRecord()
+                }
+
+                #expect(didRecordResourceRequest, "Expected fetch to reach the custom resource scheme handler")
+                #expect(
+                    await capture.traceparent()
+                        == "00-11111111111111111111111111111111-2222222222222222-01",
+                    "WebKit should preserve traceparent on agentstudio://resource/content fetches")
+            }
+        }
+
         // MARK: - Helpers
 
         private func waitForTitle(
@@ -243,6 +348,10 @@ extension WebKitSerializedTests {
             for _ in 0..<turns {
                 await Task.yield()
             }
+        }
+
+        private func isTraceparentFetchProofEnabled() -> Bool {
+            ProcessInfo.processInfo.environment["AGENT_STUDIO_WEBKIT_TRACEPARENT_FETCH_PROOF"] == "on"
         }
     }
 

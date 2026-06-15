@@ -81,6 +81,25 @@ final class RPCMessageHandlerTests {
     }
 
     @Test
+    func test_accepts_large_json_for_router_level_semantic_limits() {
+        // Arrange
+        let oversizedParams = String(
+            repeating: "a",
+            count: BridgeTelemetryLimits.maxEncodedBatchBytes
+        )
+        let oversizedJSON =
+            #"{"jsonrpc":"2.0","method":"test.probe","params":{"body":""#
+            + oversizedParams
+            + #""}}"#
+
+        // Act
+        let result = RPCMessageHandler.extractJSON(from: oversizedJSON)
+
+        // Assert
+        #expect(result == oversizedJSON)
+    }
+
+    @Test
     func test_rejects_dictionary_body() {
         // Arrange — JS object arrives as NSDictionary, not string
         let dictBody: Any = ["method": "test"]
