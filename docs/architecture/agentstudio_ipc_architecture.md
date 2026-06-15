@@ -14,6 +14,9 @@ The phase-1 foundation currently owns:
 - Unix-domain socket transport primitives and peer-credential checks.
 - Socket path and runtime metadata trust checks.
 - Subject-token authentication, principal registry, and redaction helpers.
+- Debug-only unsafe no-auth mode and debug-token escrow mode for local live
+  control proof. Both are gated to debug runtime channel composition and are not
+  beta/stable access modes.
 - Phase-1 method catalog, handle parsing, authorization, grant ledger, and
   permission broker policy/delegation primitives.
 - Concrete app query adapter for system/window/workspace/pane read snapshots.
@@ -21,9 +24,14 @@ The phase-1 foundation currently owns:
   chain.
 - Concrete terminal runtime adapter for `terminal.status`,
   `terminal.snapshot`, and `terminal.send`.
+- Narrow command-spec adapter for `command.list` and `command.execute` over the
+  public allowlist: quick find, command palette, pane picker, and repo/worktree
+  picker.
 - App-owned Unix socket server lifecycle from `AppDelegate`, including runtime
   metadata publication, same-UID peer gate, pre-auth ping/login, per-connection
   principals, request dispatch, and shutdown cleanup.
+- Debug launcher support for owner-only IPC roots, a short trusted socket
+  directory, and explicit forwarding of debug IPC auth environment variables.
 - Pane-agent bootstrap primitive that delivers a single-use subject token
   through a close-on-exec file descriptor while environment variables carry
   only socket/runtime routing metadata.
@@ -34,11 +42,18 @@ The phase-1 foundation currently owns:
 - Event broker subscription state, notification encoding, visibility filtering,
   inbound server-event rejection, and slow-subscriber ejection.
 
-The remaining app integration boundary is concrete pane process-spawn fd
-handoff. `AgentStudioAppIPCServer.makePaneBootstrap(...)` can mint the
-principal and write the token to a close-on-exec parent descriptor, but the
-current terminal/zmx launch path does not yet have a named adapter that
-deliberately remaps that descriptor into a child pane-agent process.
+The remaining app integration boundaries are:
+
+- concrete pane process-spawn fd handoff:
+  `AgentStudioAppIPCServer.makePaneBootstrap(...)` can mint the principal and
+  write the token to a close-on-exec parent descriptor, but the current
+  terminal/zmx launch path does not yet have a named adapter that deliberately
+  remaps that descriptor into a child pane-agent process.
+- terminal completion/readback proof:
+  live debug proof shows `terminal.status`, `terminal.wait(attachReady)`, and
+  `terminal.send` reach a ready runtime. It does not yet prove command
+  completion, shell output, title/cwd changes, or prompt readiness through
+  exported events.
 
 ## Target Ownership
 
@@ -175,13 +190,16 @@ It does not mean the shell command completed, produced output, or reached a
 particular prompt. Those higher-level observations belong to `terminal.wait`
 conditions and runtime events.
 
-`terminal.wait` resolves only stable exported facts. `attachReady` can be
-satisfied immediately from a ready registered runtime. `commandFinished`,
-`rendererHealthy`, `titleChanged`, `cwdChanged`, and `progressChanged` wait on
-matching `RuntimeEnvelope.pane` terminal facts for the resolved pane. Wait
-results carry command/correlation ids and safe scalar data such as exit code,
-duration, and renderer health; they do not expose terminal titles, cwd paths, or
-progress payload text.
+`terminal.wait` resolves only stable exported facts. `attachReady` is currently
+proven from a ready registered runtime. `commandFinished`, `rendererHealthy`,
+`titleChanged`, `cwdChanged`, and `progressChanged` are the intended exported
+conditions, but live proof on 2026-06-15 showed `commandFinished` and
+`titleChanged` timing out after accepted `terminal.send` calls. Treat those
+conditions as not product-proven until the runtime emits the matching facts or
+the wait contract is narrowed. Wait results must carry only
+command/correlation ids and safe scalar data such as exit code, duration, and
+renderer health; they must not expose terminal titles, cwd paths, or progress
+payload text.
 
 The terminal DTOs intentionally omit terminal output, scrollback, raw PTY bytes,
 cwd/launch paths, command lines, zmx session identifiers, raw runtime objects,
@@ -315,6 +333,14 @@ auth uses `--token-stdin`; app-spawned pane agents should receive their
 pane-bound credential through an explicitly remapped bootstrap fd once a
 concrete pane-agent spawn adapter exists.
 
+The current client surface includes query/control verbs for debug proof:
+`auth-status`, `identify`, `capabilities`, `list-windows`, `list-workspaces`,
+`list-panes`, `pane-focus`, `terminal-status`, `terminal-snapshot`,
+`terminal-send`, `terminal-wait`, `command-list`, and `command-execute`.
+`command-execute` accepts only the public command ids defined in
+`AgentStudioProgrammaticControl`; it does not expose arbitrary `AppCommand`
+cases.
+
 ## Auth And Permissions
 
 Authentication and authorization are separate:
@@ -334,6 +360,18 @@ credential by reading the fd written by `AgentStudioIPCPaneBootstrapFactory`;
 caller cannot upgrade itself by passing a different pane hint. Tokens are
 single-use in the current phase-1 foundation so replayed bearer material cannot
 create a second connection-bound principal after first login.
+
+Debug channel composition has two explicit proof modes:
+
+- unsafe no-auth: `AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1` creates an
+  `.unsafeDebugClient` principal per connection only when the server channel is
+  debug.
+- debug token escrow: `AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1` writes a one-shot
+  owner-only token file at the debug IPC path, exercises the same `auth.login`
+  path as real clients, and removes the file after successful login.
+
+Both modes use the debug unsafe method allowlist, cannot grant
+`.debugUnsafe`, and must be ignored by beta/stable channel composition.
 
 Baseline authority is intentionally small. A pane-bound agent gets self-pane
 authority for low-risk introspection and scoped terminal operations. Anything

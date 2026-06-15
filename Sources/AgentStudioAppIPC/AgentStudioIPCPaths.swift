@@ -1,3 +1,4 @@
+import AgentStudioProgrammaticControl
 import Foundation
 
 #if canImport(Darwin)
@@ -7,27 +8,41 @@ import Foundation
 public struct AgentStudioIPCPaths: Equatable, Sendable {
     public let rootDirectory: URL
     public let ipcDirectory: URL
+    public let socketDirectory: URL
     public let metadataURL: URL
     public let socketURL: URL
+    public let debugTokenURL: URL
 
-    public init(rootDirectory: URL, ipcDirectory: URL, metadataURL: URL, socketURL: URL) {
+    public init(
+        rootDirectory: URL,
+        ipcDirectory: URL,
+        socketDirectory: URL,
+        metadataURL: URL,
+        socketURL: URL,
+        debugTokenURL: URL
+    ) {
         self.rootDirectory = rootDirectory
         self.ipcDirectory = ipcDirectory
+        self.socketDirectory = socketDirectory
         self.metadataURL = metadataURL
         self.socketURL = socketURL
+        self.debugTokenURL = debugTokenURL
     }
 }
 
 public struct AgentStudioIPCPathResolver: Sendable {
     public init() {}
 
-    public func paths(rootDirectory: URL) -> AgentStudioIPCPaths {
+    public func paths(rootDirectory: URL, socketDirectory: URL? = nil) -> AgentStudioIPCPaths {
         let ipcDirectory = rootDirectory.appendingPathComponent("ipc", isDirectory: true)
+        let resolvedSocketDirectory = socketDirectory ?? ipcDirectory
         return AgentStudioIPCPaths(
             rootDirectory: rootDirectory,
             ipcDirectory: ipcDirectory,
+            socketDirectory: resolvedSocketDirectory,
             metadataURL: ipcDirectory.appendingPathComponent("runtime.json"),
-            socketURL: ipcDirectory.appendingPathComponent("agentstudio.sock")
+            socketURL: resolvedSocketDirectory.appendingPathComponent("agentstudio.sock"),
+            debugTokenURL: ipcDirectory.appendingPathComponent("debug-token")
         )
     }
 }
@@ -109,6 +124,28 @@ public enum AgentStudioIPCFilesystem {
         }
 
         try validateTrustedExistingPath(paths.ipcDirectory, requireDirectory: true)
+
+        if paths.socketDirectory != paths.ipcDirectory {
+            if FileManager.default.fileExists(atPath: paths.socketDirectory.path) {
+                try validateTrustedExistingPath(paths.socketDirectory, requireDirectory: true)
+            } else {
+                do {
+                    try FileManager.default.createDirectory(
+                        at: paths.socketDirectory, withIntermediateDirectories: false)
+                    try chmodOwnerOnly(paths.socketDirectory, mode: 0o700)
+                } catch let error as AgentStudioIPCFilesystemTrustError {
+                    throw error
+                } catch {
+                    throw AgentStudioIPCFilesystemTrustError(
+                        reason: .directoryCreationFailed,
+                        path: paths.socketDirectory.path,
+                        errnoCode: errno
+                    )
+                }
+            }
+
+            try validateTrustedExistingPath(paths.socketDirectory, requireDirectory: true)
+        }
     }
 
     public static func writeMetadata(_ metadata: AgentStudioIPCRuntimeMetadata, paths: AgentStudioIPCPaths) throws {
@@ -148,6 +185,45 @@ public enum AgentStudioIPCFilesystem {
                 errnoCode: errno
             )
         }
+    }
+
+    public static func writeDebugToken(
+        _ token: AgentStudioIPCSubjectToken,
+        paths: AgentStudioIPCPaths
+    ) throws {
+        try validateTrustedExistingPath(paths.ipcDirectory, requireDirectory: true)
+        if FileManager.default.fileExists(atPath: paths.debugTokenURL.path) {
+            try validateTrustedExistingPath(paths.debugTokenURL, requireDirectory: false)
+        }
+
+        let temporaryURL = paths.ipcDirectory.appendingPathComponent(".debug-token.\(UUID().uuidString).tmp")
+        let data = Data((token.rawValue + "\n").utf8)
+        do {
+            try data.write(to: temporaryURL)
+            try chmodOwnerOnly(temporaryURL, mode: 0o600)
+            if rename(temporaryURL.path, paths.debugTokenURL.path) != 0 {
+                throw AgentStudioIPCFilesystemTrustError(
+                    reason: .metadataWriteFailed,
+                    path: paths.debugTokenURL.path,
+                    errnoCode: errno
+                )
+            }
+            try chmodOwnerOnly(paths.debugTokenURL, mode: 0o600)
+        } catch let error as AgentStudioIPCFilesystemTrustError {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw AgentStudioIPCFilesystemTrustError(
+                reason: .metadataWriteFailed,
+                path: paths.debugTokenURL.path,
+                errnoCode: errno
+            )
+        }
+    }
+
+    public static func removeDebugToken(paths: AgentStudioIPCPaths) {
+        try? FileManager.default.removeItem(at: paths.debugTokenURL)
     }
 
     private static func validateTrustedExistingPath(_ url: URL, requireDirectory: Bool) throws {

@@ -65,6 +65,7 @@ public struct PermissionBrokerError: Error, Equatable, Sendable {
         case unauthorizedApprover
         case selfApprovalNotAllowed
         case unsupportedResolutionDecision
+        case debugUnsafeNotGrantable
     }
 
     public let reason: Reason
@@ -97,6 +98,9 @@ public struct PermissionBroker: Sendable {
         requester: IPCPrincipal
     ) throws -> IPCPermissionRequestResult {
         let canonicalScope = try canonicalizer.canonicalize(params.scope, for: requester)
+        guard canonicalScope.privilege != .debugUnsafe else {
+            throw PermissionBrokerError(reason: .debugUnsafeNotGrantable)
+        }
         let pendingRecord = PermissionRecord(
             requestId: UUID(),
             requesterPrincipalId: requester.principalId,

@@ -28,6 +28,8 @@ public struct AppIPCMethodRegistry: Sendable {
             Self.method("terminal.send", .terminalInputWrite, .runtimeCommand),
             Self.method("terminal.snapshot", .terminalSnapshotRead, .runtimeCommand),
             Self.method("terminal.wait", .terminalWait, .runtimeCommand, resultSemantics: .accepted),
+            Self.method("command.list", .debugUnsafe, .appCommand),
+            Self.method("command.execute", .debugUnsafe, .appCommand),
             Self.method("permission.request", .permissionRequest, .permissionBroker, resultSemantics: .accepted),
             Self.method("permission.requestStatus", .permissionRead, .permissionBroker),
             Self.method("permission.grantStatus", .permissionRead, .permissionBroker),
@@ -236,6 +238,10 @@ public struct AuthorizationService: Sendable {
             throw AuthorizationError(reason: .methodNotFound)
         }
 
+        if unsafeDebugAllows(methodName: methodName, definition: definition, for: principal) {
+            return
+        }
+
         for privilege in definition.privilegeClasses {
             let requestedScope = IPCPermissionScope(
                 privilege: privilege,
@@ -248,12 +254,42 @@ public struct AuthorizationService: Sendable {
                 continue
             }
 
+            if canonicalScope.privilege == .debugUnsafe {
+                throw AuthorizationError(reason: .unauthorized)
+            }
+
             if grantLedger.contains(canonicalScope, for: principal.principalId) {
                 continue
             }
 
             throw AuthorizationError(reason: .unauthorized)
         }
+    }
+
+    private func unsafeDebugAllows(
+        methodName: String,
+        definition: IPCMethodDefinition,
+        for principal: IPCPrincipal
+    ) -> Bool {
+        guard principal.accessMode == .unsafeDebug else {
+            return false
+        }
+
+        switch principal.kind {
+        case .unsafeDebugClient, .automationClient:
+            break
+        case .spawnedPaneAgent, .futureMCPClient:
+            return false
+        }
+
+        guard Self.unsafeDebugMethodAllowlist.contains(methodName) else {
+            return false
+        }
+
+        return !definition.privilegeClasses.contains(.grantApprove)
+            && !definition.privilegeClasses.contains(.permissionRequest)
+            && !definition.privilegeClasses.contains(.permissionRead)
+            && !definition.privilegeClasses.contains(.eventsRead)
     }
 
     private func baselineAllows(_ scope: IPCPermissionScope, for principal: IPCPrincipal) -> Bool {
@@ -278,6 +314,26 @@ public struct AuthorizationService: Sendable {
         .terminalSnapshotRead,
         .terminalStatusRead,
         .terminalWait,
+    ]
+
+    private static let unsafeDebugMethodAllowlist: Set<String> = [
+        "system.identify",
+        "system.version",
+        "system.capabilities",
+        "window.list",
+        "window.current",
+        "workspace.list",
+        "workspace.current",
+        "pane.list",
+        "pane.current",
+        "pane.focus",
+        "pane.snapshot",
+        "terminal.status",
+        "terminal.send",
+        "terminal.snapshot",
+        "terminal.wait",
+        "command.list",
+        "command.execute",
     ]
 }
 

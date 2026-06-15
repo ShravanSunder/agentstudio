@@ -10,13 +10,21 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "bridge.", "orchestration."]
 
-        #expect(registry.definitions.count == 25)
+        #expect(registry.definitions.count == 27)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
             #expect(!definition.resultSchema.name.isEmpty)
             #expect(!definition.privilegeClasses.isEmpty)
             #expect(!forbiddenPrefixes.contains { definition.name.hasPrefix($0) })
         }
+
+        let commandList = try #require(registry.definition(named: "command.list"))
+        #expect(commandList.privilegeClasses == [.debugUnsafe])
+        #expect(commandList.executionOwner == .appCommand)
+
+        let commandExecute = try #require(registry.definition(named: "command.execute"))
+        #expect(commandExecute.privilegeClasses == [.debugUnsafe])
+        #expect(commandExecute.executionOwner == .appCommand)
     }
 
     @Test("authorizes selfPane terminal send from the bound principal pane")
@@ -117,6 +125,45 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             requestedTarget: .selfPane,
             activePaneId: nil
         )
+    }
+
+    @Test("unsafe debug allows command methods but grants cannot authorize debug unsafe privilege")
+    func unsafeDebugAllowsCommandMethodsButGrantsCannotAuthorizeDebugUnsafePrivilege() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let grantLedger = GrantLedger()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: grantLedger,
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let unsafeDebug = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: UUID(),
+            accessMode: .unsafeDebug,
+            kind: .unsafeDebugClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+        let spawnedPane = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+
+        try service.authorize(
+            principal: unsafeDebug,
+            methodName: "command.list",
+            requestedTarget: .app,
+            activePaneId: nil
+        )
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .debugUnsafe, target: .app, dataScope: .unspecified),
+            to: spawnedPane.principalId
+        )
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: spawnedPane,
+                methodName: "command.execute",
+                requestedTarget: .app,
+                activePaneId: "pane-1"
+            )
+        }
     }
 }
 

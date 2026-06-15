@@ -473,10 +473,13 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
               fi
             done
             printf "data=%s\\n" "$AGENTSTUDIO_DATA_DIR" > "\(fixture.url("launched-env").path)"
+            printf "ipc_socket_dir=%s\\n" "$AGENTSTUDIO_IPC_SOCKET_DIR" >> "\(fixture.url("launched-env").path)"
             printf "backend=%s\\n" "$AGENTSTUDIO_TRACE_BACKEND" >> "\(fixture.url("launched-env").path)"
             printf "marker=%s\\n" "$AGENTSTUDIO_TRACE_NAME" >> "\(fixture.url("launched-env").path)"
             printf "restore_trace=%s\\n" "${AGENTSTUDIO_RESTORE_TRACE:-}" >> "\(fixture.url("launched-env").path)"
             printf "diagnostic=%s\\n" "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" >> "\(fixture.url("launched-env").path)"
+            printf "ipc_no_auth=%s\\n" "${AGENTSTUDIO_IPC_UNSAFE_NO_AUTH:-}" >> "\(fixture.url("launched-env").path)"
+            printf "ipc_escrow=%s\\n" "${AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW:-}" >> "\(fixture.url("launched-env").path)"
             sleep 30
             """
         )
@@ -517,6 +520,8 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
                 "AGENTSTUDIO_DEBUG_DATA_DIR": hostileDataRoot.path,
                 "AGENTSTUDIO_RESTORE_TRACE": "1",
                 "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "cross-tab-move-geometry-smoke",
+                "AGENTSTUDIO_IPC_UNSAFE_NO_AUTH": "1",
+                "AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW": "1",
                 "ZMX_DIR": "/tmp/hostile-zmx-dir",
                 "ZMX_SESSION": "hostile-session",
                 "ZMX_SESSION_PREFIX": "hostile-prefix",
@@ -533,28 +538,16 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
                 kill(pid_t(pid) ?? -1, SIGTERM)
             }
         }
-        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=running"))
-        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
-        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE="))
-        #expect(state.contains("AgentStudio\\ Debug\\ "))
-        #expect(state.contains("/runs/debug-observability-"))
-        let buildExecutable = shellEscapedStateValue(buildPath.appending(path: "debug/AgentStudio").path)
-        #expect(!state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=\(buildExecutable)"))
-        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_DATA_DIR="))
-        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR="))
-        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
-        #expect(!state.contains(hostileDataRoot.path))
 
+        try expectDirectExecutableFallbackState(
+            state,
+            buildExecutable: buildPath.appending(path: "debug/AgentStudio"),
+            hostileDataRoot: hostileDataRoot
+        )
         try fixture.waitForFile(
             fixture.url("launched-env"), containing: "diagnostic=cross-tab-move-geometry-smoke", timeoutSeconds: 5)
         let launchedEnv = try String(contentsOf: fixture.url("launched-env"), encoding: .utf8)
-        #expect(launchedEnv.contains("data=/"))
-        #expect(launchedEnv.contains("/runs/debug-observability-"))
-        #expect(launchedEnv.contains("backend=otlp"))
-        #expect(launchedEnv.contains("marker=debug-observability-"))
-        #expect(launchedEnv.contains("restore_trace=1"))
-        #expect(launchedEnv.contains("diagnostic=cross-tab-move-geometry-smoke"))
-        #expect(!launchedEnv.contains(hostileDataRoot.path))
+        try expectDirectExecutableFallbackLaunchEnvironment(launchedEnv, hostileDataRoot: hostileDataRoot)
         #expect(!FileManager.default.fileExists(atPath: fixture.url("leaked-env").path))
     }
 
@@ -627,6 +620,8 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
                 "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
                 "AGENTSTUDIO_RESTORE_TRACE": "1",
                 "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "cross-tab-move-geometry-smoke",
+                "AGENTSTUDIO_IPC_UNSAFE_NO_AUTH": "1",
+                "AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW": "1",
             ]
         )
 
@@ -641,8 +636,20 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         let openArgs = try String(contentsOf: openArgsURL, encoding: .utf8)
         #expect(openArgs.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
         #expect(openArgs.contains("AGENTSTUDIO_RESTORE_TRACE=1"))
+        #expect(openArgs.contains("AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1"))
+        #expect(openArgs.contains("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"))
         #expect(openArgs.contains("AGENTSTUDIO_DATA_DIR="))
+        #expect(openArgs.contains("AGENTSTUDIO_IPC_SOCKET_DIR="))
+        #expect(openArgs.contains("/ipc-socket"))
         #expect(openArgs.contains("/runs/debug-observability-"))
+        try expectOwnerOnlyDirectory(stateValue("AGENTSTUDIO_OBSERVABILITY_DATA_DIR", in: state))
+        try expectOwnerOnlyDirectory(stateValue("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR", in: state))
+        try expectOwnerOnlyDirectory(
+            openArgs
+                .split(separator: "\n")
+                .map(String.init)
+                .first { $0.hasPrefix("AGENTSTUDIO_IPC_SOCKET_DIR=") }?
+                .replacingOccurrences(of: "AGENTSTUDIO_IPC_SOCKET_DIR=", with: "") ?? "")
     }
 
     @Test("debug observability verifier requires requested startup diagnostic telemetry")
@@ -934,4 +941,55 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         #expect(!verifierScript.contains("\nbash \"$ROOT_DIR/scripts/inject-bundle-version.sh\""))
         #expect(verifierScript.contains("/bin/bash \"$ROOT_DIR/scripts/inject-bundle-version.sh\""))
     }
+}
+
+private func expectDirectExecutableFallbackState(
+    _ state: String,
+    buildExecutable: URL,
+    hostileDataRoot: URL
+) throws {
+    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=running"))
+    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
+    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE="))
+    #expect(state.contains("AgentStudio\\ Debug\\ "))
+    #expect(state.contains("/runs/debug-observability-"))
+    #expect(!state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=\(shellEscapedStateValue(buildExecutable.path))"))
+    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_DATA_DIR="))
+    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR="))
+    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
+    #expect(!state.contains(hostileDataRoot.path))
+    try expectOwnerOnlyDirectory(stateValue("AGENTSTUDIO_OBSERVABILITY_DATA_DIR", in: state))
+    try expectOwnerOnlyDirectory(stateValue("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR", in: state))
+}
+
+private func expectDirectExecutableFallbackLaunchEnvironment(
+    _ launchedEnv: String,
+    hostileDataRoot: URL
+) throws {
+    #expect(launchedEnv.contains("data=/"))
+    #expect(launchedEnv.contains("ipc_socket_dir=/"))
+    #expect(launchedEnv.contains("/ipc-socket"))
+    #expect(launchedEnv.contains("/runs/debug-observability-"))
+    #expect(launchedEnv.contains("backend=otlp"))
+    #expect(launchedEnv.contains("marker=debug-observability-"))
+    #expect(launchedEnv.contains("restore_trace=1"))
+    #expect(launchedEnv.contains("diagnostic=cross-tab-move-geometry-smoke"))
+    #expect(launchedEnv.contains("ipc_no_auth=1"))
+    #expect(launchedEnv.contains("ipc_escrow=1"))
+    #expect(!launchedEnv.contains(hostileDataRoot.path))
+    try expectOwnerOnlyDirectory(stateValue("ipc_socket_dir", in: launchedEnv))
+}
+
+private func stateValue(_ key: String, in state: String) -> String {
+    state.split(separator: "\n")
+        .first { $0.hasPrefix("\(key)=") }
+        .map { String($0.dropFirst(key.count + 1)).replacingOccurrences(of: "\\ ", with: " ") } ?? ""
+}
+
+private func expectOwnerOnlyDirectory(_ rawPath: String) throws {
+    var statBuffer = stat()
+    #expect(!rawPath.isEmpty)
+    #expect(lstat(rawPath, &statBuffer) == 0)
+    #expect((statBuffer.st_mode & S_IFMT) == S_IFDIR)
+    #expect((statBuffer.st_mode & 0o077) == 0)
 }

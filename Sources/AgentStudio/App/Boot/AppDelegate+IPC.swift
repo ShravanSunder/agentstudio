@@ -9,9 +9,12 @@ extension AppDelegate {
         do {
             let methodRegistry = try AppIPCMethodRegistry.phaseOne()
             let runtimeId = UUID()
-            let accessMode = IPCAccessMode.agentStudioOnly
+            let accessMode = Self.appIPCAccessMode()
             let rootDirectory = AppDataPaths.rootDirectory()
-            let paths = AgentStudioIPCPathResolver().paths(rootDirectory: rootDirectory)
+            let paths = AgentStudioIPCPathResolver().paths(
+                rootDirectory: rootDirectory,
+                socketDirectory: Self.appIPCSocketDirectory()
+            )
             let windowLifecycleReader = WorkspaceWindowLifecycleReader(lifecycleStore: windowLifecycleStore)
             guard let paneFocusControl = mainWindowController?.makePaneFocusAppControl(store: store) else {
                 appLogger.warning("App IPC server skipped: pane focus control is unavailable")
@@ -22,7 +25,8 @@ extension AppDelegate {
                 configuration: AgentStudioAppIPCConfiguration(
                     runtimeId: runtimeId,
                     accessMode: accessMode,
-                    methodDefinitions: methodRegistry.definitions
+                    methodDefinitions: methodRegistry.definitions,
+                    debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled()
                 ),
                 ports: AgentStudioAppIPCPorts(
                     queryPort: AgentStudioIPCQueryAdapter(
@@ -42,6 +46,10 @@ extension AppDelegate {
                         workspaceStore: store,
                         runtimeRegistry: paneCoordinator.runtimeRegistry,
                         commandDispatcher: ActionExecutorRuntimeCommandDispatcher(actionExecutor: executor)
+                    ),
+                    commandPort: AgentStudioIPCCommandAdapter(
+                        windowLifecycleReader: windowLifecycleReader,
+                        commandBarSurface: atomStore.commandBarSurface
                     ),
                     permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
                 )
@@ -78,6 +86,40 @@ extension AppDelegate {
             case .beta:
                 return .beta
             }
+        #endif
+    }
+
+    private static func appIPCAccessMode() -> IPCAccessMode {
+        #if DEBUG
+            if ProcessInfo.processInfo.environment["AGENTSTUDIO_IPC_UNSAFE_NO_AUTH"] == "1" {
+                return .unsafeDebug
+            }
+        #endif
+        return .agentStudioOnly
+    }
+
+    private static func appIPCDebugTokenEscrowEnabled() -> Bool {
+        #if DEBUG
+            return ProcessInfo.processInfo.environment["AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW"] == "1"
+        #else
+            return false
+        #endif
+    }
+
+    private static func appIPCSocketDirectory() -> URL? {
+        #if DEBUG
+            guard
+                let rawPath = ProcessInfo.processInfo.environment["AGENTSTUDIO_IPC_SOCKET_DIR"]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !rawPath.isEmpty
+            else {
+                return nil
+            }
+
+            return URL(fileURLWithPath: NSString(string: rawPath).expandingTildeInPath)
+                .standardizedFileURL
+        #else
+            return nil
         #endif
     }
 }

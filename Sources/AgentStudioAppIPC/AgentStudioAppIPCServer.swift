@@ -54,8 +54,10 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let peerCredentialGate: AgentStudioIPCPeerCredentialGate
     private let maxFrameBytes: Int
     private let lifecycleLock = NSLock()
+    private let debugEscrowLock = NSLock()
     private var isRunning = false
     private var activeConnections: [Int32: UnixSocketConnection] = [:]
+    private var debugEscrowPrincipalId: UUID?
 
     public init(
         service: AgentStudioAppIPCService,
@@ -108,6 +110,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
         try AgentStudioIPCFilesystem.prepare(paths: paths)
         try resolveExistingSocketBeforeBind()
+        try installDebugTokenEscrowIfNeeded()
         setRunning(true)
         do {
             try listener.start { [self] connection in
@@ -126,6 +129,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             try AgentStudioIPCFilesystem.writeMetadata(metadata, paths: paths)
         } catch {
             stopListenerAndConnections()
+            AgentStudioIPCFilesystem.removeDebugToken(paths: paths)
             throw error
         }
     }
@@ -135,6 +139,10 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         principalRegistry.rotateTokens()
         principalRegistry.revokeAllGrants()
         try? FileManager.default.removeItem(at: paths.metadataURL)
+        AgentStudioIPCFilesystem.removeDebugToken(paths: paths)
+        debugEscrowLock.withLock {
+            debugEscrowPrincipalId = nil
+        }
     }
 
     public func makePaneBootstrap(
@@ -223,6 +231,16 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             throw AgentStudioAppIPCRequestError.unauthenticated
         }
 
+        if connectionState.principal == nil, allowsUnsafeDebugNoAuthentication {
+            connectionState.principal = IPCPrincipal(
+                principalId: UUID(),
+                runtimeId: service.configuration.runtimeId,
+                accessMode: .unsafeDebug,
+                kind: .unsafeDebugClient,
+                approvalAuthority: .noApprovalAuthority
+            )
+        }
+
         if !AgentStudioIPCPreAuthMethods.isAllowed(request.method) {
             guard connectionState.principal != nil else {
                 throw AgentStudioAppIPCRequestError.unauthenticated
@@ -243,6 +261,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 callerSuppliedPaneHint: params.paneHint
             )
             connectionState.principal = result.principal
+            consumeDebugEscrowIfNeeded(for: result.principal)
             return principalResult(result.principal)
 
         case "auth.status":
@@ -325,6 +344,17 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 timeout: timeout
             )
             return try encodeResult(result)
+        case "command.list":
+            let result = try await MainActor.run {
+                try service.ports.commandPort.listCommands()
+            }
+            return try encodeResult(result)
+        case "command.execute":
+            let params = try decodeParams(IPCCommandExecuteParams.self, from: request.params)
+            let result = try await MainActor.run {
+                try service.ports.commandPort.executeCommand(params)
+            }
+            return try encodeResult(result)
         case "permission.request":
             let params = try decodeParams(IPCPermissionRequestParams.self, from: request.params)
             let result = try permissionBroker.requestPermission(params, requester: principal)
@@ -371,7 +401,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         case "permission.request":
             return principal.boundPaneTarget ?? .app
         case "permission.requestStatus", "permission.grantStatus", "permission.pendingApprovals",
-            "permission.resolveRequest", "events.subscribe", "events.unsubscribe":
+            "permission.resolveRequest", "events.subscribe", "events.unsubscribe", "command.list", "command.execute":
             return principal.boundPaneTarget ?? .app
         default:
             return .app
@@ -489,6 +519,51 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private func serverIsRunning() -> Bool {
         lifecycleLock.withLock {
             isRunning
+        }
+    }
+
+    private var allowsUnsafeDebugNoAuthentication: Bool {
+        service.configuration.accessMode == .unsafeDebug && channel == .debug
+    }
+
+    private var allowsDebugTokenEscrow: Bool {
+        service.configuration.debugTokenEscrowEnabled && channel == .debug
+    }
+
+    private func installDebugTokenEscrowIfNeeded() throws {
+        AgentStudioIPCFilesystem.removeDebugToken(paths: paths)
+        debugEscrowLock.withLock {
+            debugEscrowPrincipalId = nil
+        }
+
+        guard allowsDebugTokenEscrow else {
+            return
+        }
+
+        let principal = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: service.configuration.runtimeId,
+            accessMode: .unsafeDebug,
+            kind: .automationClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+        let token = try principalRegistry.issueSubjectToken(for: principal)
+        try AgentStudioIPCFilesystem.writeDebugToken(token, paths: paths)
+        debugEscrowLock.withLock {
+            debugEscrowPrincipalId = principal.principalId
+        }
+    }
+
+    private func consumeDebugEscrowIfNeeded(for principal: IPCPrincipal) {
+        let shouldRemove = debugEscrowLock.withLock {
+            guard debugEscrowPrincipalId == principal.principalId else {
+                return false
+            }
+            debugEscrowPrincipalId = nil
+            return true
+        }
+        if shouldRemove {
+            AgentStudioIPCFilesystem.removeDebugToken(paths: paths)
         }
     }
 
@@ -638,54 +713,89 @@ extension AgentStudioAppIPCRequestError {
     fileprivate init(_ error: Error) {
         switch error {
         case let authorizationError as AuthorizationError:
-            switch authorizationError.reason {
-            case .methodNotFound:
-                self = .methodNotFound
-            case .unauthorized, .noBoundPane:
-                self = .unauthorized
-            }
+            self.init(authorizationError.reason)
         case let queryError as AppIPCQueryError:
-            switch queryError.reason {
-            case .noActiveWindow:
-                self = Self(code: -32_006, message: "no active window")
-            case .targetNotFound:
-                self = Self(code: -32_004, message: "target not found")
-            }
+            self.init(queryError.reason)
         case let layoutError as AppIPCLayoutError:
-            switch layoutError.reason {
-            case .noActiveWindow:
-                self = Self(code: -32_006, message: "no active window")
-            case .targetNotFound:
-                self = Self(code: -32_004, message: "target not found")
-            case .validationRejected:
-                self = Self(code: -32_007, message: "validation rejected")
-            }
+            self.init(layoutError.reason)
         case let runtimeError as AppIPCRuntimeError:
-            switch runtimeError.reason {
-            case .targetNotFound:
-                self = Self(code: -32_004, message: "target not found")
-            case .noRuntime, .runtimeNotReady:
-                self = Self(code: -32_005, message: "runtime not ready")
-            case .unsupportedCommand:
-                self = Self(code: -32_003, message: "unsupported capability")
-            case .backendUnavailable:
-                self = Self(code: -32_005, message: "backend unavailable")
-            case .validationRejected:
-                self = Self(code: -32_007, message: "validation rejected")
-            case .timeout:
-                self = Self(code: -32_009, message: "timeout")
-            }
+            self.init(runtimeError.reason)
+        case let commandError as AppIPCCommandError:
+            self.init(commandError.reason)
         case let authError as AgentStudioIPCAuthenticationError:
-            switch authError.reason {
-            case .unauthenticated, .runtimeMismatch, .peerUserMismatch:
-                self = .unauthenticated
-            }
+            self.init(authError.reason)
         case is PermissionBrokerError, is IPCEventBrokerError:
             self = .unauthorized
         case is IPCHandleError:
             self = Self(code: -32_004, message: "target not found")
         default:
             self = Self(code: -32_603, message: "internal error")
+        }
+    }
+
+    private init(_ reason: AuthorizationError.Reason) {
+        switch reason {
+        case .methodNotFound:
+            self = .methodNotFound
+        case .unauthorized, .noBoundPane:
+            self = .unauthorized
+        }
+    }
+
+    private init(_ reason: AppIPCQueryError.Reason) {
+        switch reason {
+        case .noActiveWindow:
+            self = Self(code: -32_006, message: "no active window")
+        case .targetNotFound:
+            self = Self(code: -32_004, message: "target not found")
+        }
+    }
+
+    private init(_ reason: AppIPCLayoutError.Reason) {
+        switch reason {
+        case .noActiveWindow:
+            self = Self(code: -32_006, message: "no active window")
+        case .targetNotFound:
+            self = Self(code: -32_004, message: "target not found")
+        case .validationRejected:
+            self = Self(code: -32_007, message: "validation rejected")
+        }
+    }
+
+    private init(_ reason: AppIPCRuntimeError.Reason) {
+        switch reason {
+        case .targetNotFound:
+            self = Self(code: -32_004, message: "target not found")
+        case .noRuntime, .runtimeNotReady:
+            self = Self(code: -32_005, message: "runtime not ready")
+        case .unsupportedCommand:
+            self = Self(code: -32_003, message: "unsupported capability")
+        case .backendUnavailable:
+            self = Self(code: -32_005, message: "backend unavailable")
+        case .validationRejected:
+            self = Self(code: -32_007, message: "validation rejected")
+        case .timeout:
+            self = Self(code: -32_009, message: "timeout")
+        }
+    }
+
+    private init(_ reason: AppIPCCommandError.Reason) {
+        switch reason {
+        case .noActiveWindow:
+            self = Self(code: -32_006, message: "no active window")
+        case .targetNotFound:
+            self = Self(code: -32_004, message: "target not found")
+        case .unsupportedCommand:
+            self = Self(code: -32_003, message: "unsupported capability")
+        case .validationRejected:
+            self = Self(code: -32_007, message: "validation rejected")
+        }
+    }
+
+    private init(_ reason: AgentStudioIPCAuthenticationError.Reason) {
+        switch reason {
+        case .unauthenticated, .runtimeMismatch, .peerUserMismatch:
+            self = .unauthenticated
         }
     }
 }

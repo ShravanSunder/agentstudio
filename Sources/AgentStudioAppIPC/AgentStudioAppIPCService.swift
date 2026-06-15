@@ -83,6 +83,27 @@ public protocol AppIPCRuntimePort: Sendable {
     ) async throws -> IPCTerminalWaitResult
 }
 
+public struct AppIPCCommandError: Error, Equatable, Sendable {
+    public enum Reason: String, Equatable, Sendable {
+        case noActiveWindow
+        case targetNotFound
+        case unsupportedCommand
+        case validationRejected
+    }
+
+    public let reason: Reason
+
+    public init(reason: Reason) {
+        self.reason = reason
+    }
+}
+
+@MainActor
+public protocol AppIPCCommandPort: Sendable {
+    func listCommands() throws -> IPCCommandListResult
+    func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult
+}
+
 public protocol AppIPCPermissionApprovalPort: Sendable {
     func decision(for record: PermissionRecord, requester: IPCPrincipal) -> ApprovalPolicyDecision
 }
@@ -91,17 +112,20 @@ public struct AgentStudioAppIPCPorts: Sendable {
     public let queryPort: any AppIPCQueryPort
     public let layoutPort: any AppIPCLayoutPort
     public let runtimePort: any AppIPCRuntimePort
+    public let commandPort: any AppIPCCommandPort
     public let permissionApprovalPort: any AppIPCPermissionApprovalPort
 
     public init(
         queryPort: any AppIPCQueryPort,
         layoutPort: any AppIPCLayoutPort,
         runtimePort: any AppIPCRuntimePort,
+        commandPort: any AppIPCCommandPort,
         permissionApprovalPort: any AppIPCPermissionApprovalPort
     ) {
         self.queryPort = queryPort
         self.layoutPort = layoutPort
         self.runtimePort = runtimePort
+        self.commandPort = commandPort
         self.permissionApprovalPort = permissionApprovalPort
     }
 }
@@ -110,11 +134,18 @@ public struct AgentStudioAppIPCConfiguration: Equatable, Sendable {
     public let runtimeId: UUID
     public let accessMode: IPCAccessMode
     public let methodDefinitions: [IPCMethodDefinition]
+    public let debugTokenEscrowEnabled: Bool
 
-    public init(runtimeId: UUID, accessMode: IPCAccessMode, methodDefinitions: [IPCMethodDefinition]) {
+    public init(
+        runtimeId: UUID,
+        accessMode: IPCAccessMode,
+        methodDefinitions: [IPCMethodDefinition],
+        debugTokenEscrowEnabled: Bool = false
+    ) {
         self.runtimeId = runtimeId
         self.accessMode = accessMode
         self.methodDefinitions = methodDefinitions
+        self.debugTokenEscrowEnabled = debugTokenEscrowEnabled
     }
 }
 

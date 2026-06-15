@@ -71,6 +71,8 @@ extension AppDelegate {
             #if DEBUG
                 case .crossTabMoveGeometrySmoke:
                     await self.runCrossTabMoveGeometrySmokeDiagnostic(action: action)
+                case .ipcTerminalSmoke:
+                    await self.runIPCTerminalSmokeDiagnostic(action: action)
             #endif
             case .addWatchFolder:
                 guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {
@@ -87,6 +89,70 @@ extension AppDelegate {
             }
         }
     }
+
+    #if DEBUG
+        private func runIPCTerminalSmokeDiagnostic(
+            action: AgentStudioStartupDiagnosticAction
+        ) async {
+            guard let terminalContainerBounds = await startupDiagnosticLaunchRestoreBounds() else {
+                startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.skipped",
+                    phase: "startup_diagnostic_action",
+                    outcome: "skipped",
+                    attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                        "agentstudio.startup_diagnostic.skip_reason": .string("missing_bounds")
+                    ]) { _, newValue in newValue }
+                )
+                return
+            }
+
+            if !launchRestoreObservationState.didComplete {
+                await finishLaunchRestore(
+                    using: terminalContainerBounds,
+                    source: "ipcTerminalSmokePreflight"
+                )
+            }
+
+            guard
+                let pane = paneCoordinator.openFloatingTerminal(
+                    launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                    title: "IPC Smoke Terminal"
+                )
+            else {
+                startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.blocked",
+                    phase: "startup_diagnostic_action",
+                    outcome: "blocked",
+                    attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                        "agentstudio.startup_diagnostic.skip_reason": .string("terminal_open_failed")
+                    ]) { _, newValue in newValue }
+                )
+                return
+            }
+
+            await paneCoordinator.restoreAllViews(in: terminalContainerBounds)
+            await Task.yield()
+            mainWindowController?.syncVisibleTerminalGeometry(reason: "ipcTerminalSmoke")
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.command_exercised",
+                phase: "startup_diagnostic_action",
+                outcome: "succeeded",
+                attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                    "agentstudio.startup_diagnostic.created_pane.count": .int(1),
+                    "agentstudio.startup_diagnostic.pane.id": .string(pane.id.uuidString),
+                ]) { _, newValue in newValue }
+            )
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.completed",
+                phase: "startup_diagnostic_action",
+                outcome: "succeeded",
+                attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                    "agentstudio.startup_diagnostic.created_pane.count": .int(1),
+                    "agentstudio.startup_diagnostic.pane.id": .string(pane.id.uuidString),
+                ]) { _, newValue in newValue }
+            )
+        }
+    #endif
 
     private func runCrossTabMoveGeometrySmokeDiagnostic(
         action: AgentStudioStartupDiagnosticAction

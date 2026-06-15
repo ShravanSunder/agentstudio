@@ -72,6 +72,7 @@ public struct AgentStudioIPCClientError: Error, Equatable, Sendable {
 
 public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     case authLogin
+    case authStatus
     case identify
     case capabilities
     case listWindows
@@ -79,6 +80,9 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     case listPanes
     case currentPane
     case paneFocus(handle: String)
+    case commandList
+    case commandExecute(IPCCommandExecuteParams)
+    case terminalStatus(handle: String)
     case terminalSend(handle: String, input: String, correlationId: UUID?)
     case terminalWait(handle: String, condition: IPCTerminalWaitCondition, timeoutSeconds: Double)
     case eventsSubscribe(eventNames: [IPCEventName])
@@ -88,6 +92,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         switch self {
         case .authLogin:
             "auth.login"
+        case .authStatus:
+            "auth.status"
         case .identify:
             "system.identify"
         case .capabilities:
@@ -102,6 +108,12 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             "pane.current"
         case .paneFocus:
             "pane.focus"
+        case .commandList:
+            "command.list"
+        case .commandExecute:
+            "command.execute"
+        case .terminalStatus:
+            "terminal.status"
         case .terminalSend:
             "terminal.send"
         case .terminalWait:
@@ -117,8 +129,9 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         switch self {
         case .eventsSubscribe:
             true
-        case .authLogin, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes, .currentPane,
-            .paneFocus, .terminalSend, .terminalWait, .eventsUnsubscribe:
+        case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
+            .currentPane, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend, .terminalWait,
+            .eventsUnsubscribe:
             false
         }
     }
@@ -130,9 +143,14 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
                 throw AgentStudioIPCClientError(reason: .invalidArguments)
             }
             return .object(["token": .string(authToken)])
-        case .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes, .currentPane:
+        case .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes, .currentPane,
+            .commandList:
             return .object([:])
         case .paneFocus(let handle):
+            return .object(["handle": .string(handle)])
+        case .commandExecute(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .terminalStatus(let handle):
             return .object(["handle": .string(handle)])
         case .terminalSend(let handle, let input, let correlationId):
             var params: [String: JSONValue] = [

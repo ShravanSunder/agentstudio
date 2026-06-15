@@ -34,6 +34,10 @@ struct AgentStudioIPCClientCoreTests {
 
     @Test("parses terminal wait and event subscribe commands")
     func parsesTerminalWaitAndEventSubscribeCommands() throws {
+        let statusInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "terminal-status", "pane:1"],
+            environment: [:]
+        )
         let waitInvocation = try AgentStudioIPCClientArguments.parse(
             ["--socket", "/tmp/app.sock", "terminal-wait", "pane:1", "commandFinished", "5"],
             environment: [:]
@@ -43,6 +47,7 @@ struct AgentStudioIPCClientCoreTests {
             environment: [:]
         )
 
+        #expect(statusInvocation.command == .terminalStatus(handle: "pane:1"))
         #expect(waitInvocation.configuration.socketPath == "/tmp/app.sock")
         #expect(
             waitInvocation.command
@@ -51,6 +56,29 @@ struct AgentStudioIPCClientCoreTests {
         #expect(
             subscribeInvocation.command
                 == .eventsSubscribe(eventNames: [.terminalCommandFinished, .permissionRequestCreated])
+        )
+    }
+
+    @Test("parses auth status and command control commands")
+    func parsesAuthStatusAndCommandControlCommands() throws {
+        let statusInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "auth-status"],
+            environment: [:]
+        )
+        let listInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "command-list"],
+            environment: [:]
+        )
+        let executeInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "command-execute", "commandPalette"],
+            environment: [:]
+        )
+
+        #expect(statusInvocation.command == .authStatus)
+        #expect(listInvocation.command == .commandList)
+        #expect(
+            executeInvocation.command
+                == .commandExecute(IPCCommandExecuteParams(commandId: .commandPalette, targetHandle: nil))
         )
     }
 
@@ -103,6 +131,28 @@ struct AgentStudioIPCClientCoreTests {
         #expect(params["handle"] == .string("pane:1"))
         #expect(params["input"] == .string("echo hello\n"))
         #expect(params["correlationId"] == .string("00000000-0000-0000-0000-000000000201"))
+    }
+
+    @Test("builds command execute request frame")
+    func buildsCommandExecuteRequestFrame() throws {
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+        )
+
+        let frame = try client.requestFrame(
+            .commandExecute(IPCCommandExecuteParams(commandId: .panePicker, targetHandle: nil)),
+            requestId: 10
+        )
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(10))
+        #expect(request.method == "command.execute")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["commandId"] == .string("panePicker"))
+        #expect(params["targetHandle"] == nil)
     }
 
     @Test("round trips one request against a local Unix socket test server")

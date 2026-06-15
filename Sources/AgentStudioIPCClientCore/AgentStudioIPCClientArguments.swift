@@ -70,6 +70,9 @@ public enum AgentStudioIPCClientArguments {
         case "auth-login":
             try requireCount(remainingArguments, 0)
             return .authLogin
+        case "auth-status":
+            try requireCount(remainingArguments, 0)
+            return .authStatus
         case "identify":
             try requireCount(remainingArguments, 0)
             return .identify
@@ -91,6 +94,18 @@ public enum AgentStudioIPCClientArguments {
         case "pane-focus":
             let values = try requireCount(remainingArguments, 1)
             return .paneFocus(handle: values[0])
+        case "command-list":
+            try requireCount(remainingArguments, 0)
+            return .commandList
+        case "command-execute":
+            let values = try requireCount(remainingArguments, 1)
+            guard let commandId = IPCCommandIdentifier(rawValue: values[0]) else {
+                throw AgentStudioIPCClientError(reason: .invalidArguments)
+            }
+            return .commandExecute(IPCCommandExecuteParams(commandId: commandId, targetHandle: nil))
+        case "terminal-status":
+            let values = try requireCount(remainingArguments, 1)
+            return .terminalStatus(handle: values[0])
         case "terminal-send":
             let values = try requireCount(remainingArguments, 2)
             return .terminalSend(handle: values[0], input: values[1], correlationId: nil)

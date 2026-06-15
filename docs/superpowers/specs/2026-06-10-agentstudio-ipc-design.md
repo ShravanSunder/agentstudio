@@ -23,6 +23,22 @@ decisions must move into `docs/architecture/`:
 Architecture promotion is part of the implementation closeout. This spec should
 then become implementation history, not the permanent architecture entrypoint.
 
+Implementation checkpoint on 2026-06-15:
+
+- Debug unsafe no-auth and debug token escrow are implemented for debug-channel
+  live-control proof only. They are not beta/stable access modes.
+- `command.list` and `command.execute` are implemented as a narrow public
+  command-spec allowlist, not arbitrary `AppCommand` execution.
+- A DEBUG-only `ipc-terminal-smoke` startup diagnostic can create a real
+  floating terminal pane that becomes visible to IPC runtime methods.
+- Live proof has shown `terminal.status`, `terminal.wait(attachReady)`, and
+  `terminal.send` against a ready runtime.
+- Live proof has not shown command completion, title/cwd/readback, or prompt
+  readiness through exported events; `terminal.wait(commandFinished)` and
+  `terminal.wait(titleChanged)` timed out after accepted input.
+- The app-spawned pane-agent fd remap adapter and stale-principal revocation
+  smoke remain open implementation work.
+
 ## Goal
 
 Add an AgentStudio app-level IPC surface for local agents and CLI automation.

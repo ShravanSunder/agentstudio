@@ -32,6 +32,7 @@ struct AgentStudioAppIPCServiceTests {
                 queryPort: FakeQueryPort(),
                 layoutPort: FakeLayoutPort(),
                 runtimePort: FakeRuntimePort(),
+                commandPort: FakeCommandPort(),
                 permissionApprovalPort: FakePermissionApprovalPort()
             ),
             eventBroker: eventBroker
@@ -137,6 +138,308 @@ struct AgentStudioAppIPCServiceTests {
         #expect(response.id == .number(2))
         #expect(response.error?.code == -32_001)
         #expect(response.error?.message == "unauthenticated")
+    }
+
+    @Test("debug unsafe no-auth reports an explicit unsafe debug principal")
+    func debugUnsafeNoAuthReportsExplicitUnsafeDebugPrincipal() throws {
+        let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(id: .number(60), method: "auth.status", params: .object([:]))
+        )
+
+        #expect(response.id == .number(60))
+        #expect(response.error == nil)
+        guard case .object(let result)? = response.result else {
+            Issue.record("expected auth status result")
+            return
+        }
+        #expect(result["authenticated"] == .bool(true))
+        #expect(result["accessMode"] == .string(IPCAccessMode.unsafeDebug.rawValue))
+    }
+
+    @Test("debug unsafe no-auth authorizes terminal send without login")
+    func debugUnsafeNoAuthAuthorizesTerminalSendWithoutLogin() throws {
+        let paneId = UUID()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1)],
+            runtimePort: FakeRuntimePort(successfulPaneId: paneId)
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(61),
+                method: "terminal.send",
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "input": .string("echo unsafe-debug\n"),
+                ])
+            )
+        )
+
+        #expect(response.id == .number(61))
+        #expect(response.error == nil)
+        let result = try decodeResponseResult(IPCTerminalSendInputResult.self, from: response)
+        #expect(result.paneId == paneId)
+        #expect(result.disposition == .accepted)
+    }
+
+    @Test("non-debug server channels ignore unsafe no-auth access mode")
+    func nonDebugServerChannelsIgnoreUnsafeNoAuthAccessMode() throws {
+        let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .beta)
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let status = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(id: .number(62), method: "auth.status", params: .object([:]))
+        )
+        #expect(status.error == nil)
+        guard case .object(let statusResult)? = status.result else {
+            Issue.record("expected auth status result")
+            return
+        }
+        #expect(statusResult["authenticated"] == .bool(false))
+
+        let send = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(63),
+                method: "terminal.send",
+                params: .object(["handle": .string("pane:1"), "input": .string("echo denied\n")])
+            )
+        )
+        #expect(send.error?.code == -32_001)
+        #expect(send.error?.message == "unauthenticated")
+    }
+
+    @Test("debug unsafe no-auth denies permission methods by default")
+    func debugUnsafeNoAuthDeniesPermissionMethodsByDefault() throws {
+        let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let requestParams = IPCPermissionRequestParams(
+            scope: IPCPermissionScope(
+                privilege: .terminalInputWrite, target: .pane(UUID().uuidString), dataScope: .terminalInput),
+            reason: "unsafe debug must not request grants",
+            approvalRoute: .humanPrompt
+        )
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(64),
+                method: "permission.request",
+                params: try JSONRPCCodec.encodeJSONValue(requestParams)
+            )
+        )
+
+        #expect(response.id == .number(64))
+        #expect(response.error?.code == -32_002)
+        #expect(response.error?.message == "unauthorized")
+    }
+
+    @Test("debug token escrow writes owner-only token and removes it after login")
+    func debugTokenEscrowWritesOwnerOnlyTokenAndRemovesItAfterLogin() throws {
+        let fixture = try LiveServerFixture(
+            channel: .debug,
+            debugTokenEscrowEnabled: true
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start(processIdentifier: 12_346, startedAt: Date(timeIntervalSince1970: 1_800_000_001))
+
+        #expect(FileManager.default.fileExists(atPath: fixture.paths.debugTokenURL.path))
+        #expect(try fileMode(for: fixture.paths.debugTokenURL) & 0o777 == 0o600)
+
+        let token = try String(contentsOf: fixture.paths.debugTokenURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(!token.isEmpty)
+
+        let metadata = try String(contentsOf: fixture.paths.metadataURL, encoding: .utf8)
+        #expect(!metadata.contains(token))
+        #expect(!metadata.contains(fixture.paths.debugTokenURL.path))
+
+        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+        defer {
+            connection.close()
+        }
+        var reader = TestFrameReader()
+        try sendRequest(
+            connection: connection,
+            request: JSONRPCClientRequest(
+                id: .number(65),
+                method: "auth.login",
+                params: .object(["token": .string(token)])
+            )
+        )
+        let loginResponse = try reader.receiveResponse(connection: connection)
+        #expect(loginResponse.error == nil)
+        guard case .object(let loginResult)? = loginResponse.result else {
+            Issue.record("expected auth login result")
+            return
+        }
+        #expect(loginResult["authenticated"] == .bool(true))
+        #expect(loginResult["accessMode"] == .string(IPCAccessMode.unsafeDebug.rawValue))
+        #expect(!FileManager.default.fileExists(atPath: fixture.paths.debugTokenURL.path))
+
+        let replay = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(66),
+                method: "auth.login",
+                params: .object(["token": .string(token)])
+            )
+        )
+        #expect(replay.error?.code == -32_001)
+        #expect(replay.error?.message == "unauthenticated")
+    }
+
+    @Test("non-debug server channels ignore debug token escrow")
+    func nonDebugServerChannelsIgnoreDebugTokenEscrow() throws {
+        let fixture = try LiveServerFixture(
+            channel: .stable,
+            debugTokenEscrowEnabled: true
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        #expect(!FileManager.default.fileExists(atPath: fixture.paths.debugTokenURL.path))
+    }
+
+    @Test("unsafe debug client can list and execute command allowlist")
+    func unsafeDebugClientCanListAndExecuteCommandAllowlist() throws {
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            commandPort: FakeCommandPort(workspaceWindowId: UUID(), activeScope: .commands)
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let list = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(id: .number(67), method: "command.list", params: .object([:]))
+        )
+        #expect(list.error == nil)
+        let listResult = try decodeResponseResult(IPCCommandListResult.self, from: list)
+        #expect(listResult.commands.map(\.id) == [.quickFind, .commandPalette, .panePicker, .repoWorktreePicker])
+
+        let execute = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(68),
+                method: "command.execute",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCCommandExecuteParams(commandId: .commandPalette, targetHandle: nil)
+                )
+            )
+        )
+        #expect(execute.error == nil)
+        let executeResult = try decodeResponseResult(IPCCommandExecuteResult.self, from: execute)
+        #expect(executeResult.commandId == .commandPalette)
+        #expect(executeResult.applied)
+        #expect(executeResult.commandBar?.scope == .commands)
+    }
+
+    @Test("spawned pane agents cannot execute command methods")
+    func spawnedPaneAgentsCannotExecuteCommandMethods() throws {
+        let fixture = try LiveServerFixture(
+            commandPort: FakeCommandPort(workspaceWindowId: UUID(), activeScope: .commands)
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+        let principal = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: fixture.runtimeId,
+            accessMode: .agentStudioOnly,
+            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
+            approvalAuthority: .noApprovalAuthority
+        )
+        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
+        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+        defer {
+            connection.close()
+        }
+        var reader = TestFrameReader()
+        try login(connection: connection, token: token, requestId: 69, reader: &reader)
+
+        try sendRequest(
+            connection: connection,
+            request: JSONRPCClientRequest(
+                id: .number(70),
+                method: "command.execute",
+                params: try JSONRPCCodec.encodeJSONValue(
+                    IPCCommandExecuteParams(commandId: .commandPalette, targetHandle: nil)
+                )
+            )
+        )
+        let execute = try reader.receiveResponse(connection: connection)
+        #expect(execute.error?.code == -32_002)
+        #expect(execute.error?.message == "unauthorized")
+    }
+
+    @Test("debug unsafe privilege cannot be requested through permission broker")
+    func debugUnsafePrivilegeCannotBeRequestedThroughPermissionBroker() throws {
+        let fixture = try LiveServerFixture()
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+        let principal = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: fixture.runtimeId,
+            accessMode: .agentStudioOnly,
+            kind: .spawnedPaneAgent(boundPaneId: fixture.boundPaneId.uuidString, boundWorkspaceId: nil),
+            approvalAuthority: .noApprovalAuthority
+        )
+        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
+        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+        defer {
+            connection.close()
+        }
+        var reader = TestFrameReader()
+        try login(connection: connection, token: token, requestId: 71, reader: &reader)
+
+        let requestParams = IPCPermissionRequestParams(
+            scope: IPCPermissionScope(privilege: .debugUnsafe, target: .app, dataScope: .unspecified),
+            reason: "commands are not grantable",
+            approvalRoute: .humanPrompt
+        )
+        try sendRequest(
+            connection: connection,
+            request: JSONRPCClientRequest(
+                id: .number(72),
+                method: "permission.request",
+                params: try JSONRPCCodec.encodeJSONValue(requestParams)
+            )
+        )
+        let response = try reader.receiveResponse(connection: connection)
+        #expect(response.error?.code == -32_002)
+        #expect(response.error?.message == "unauthorized")
     }
 
     @Test("server authorizes friendly pane ordinals as concrete panes before terminal dispatch")
@@ -314,7 +617,14 @@ private struct LiveServerFixture {
     let paths: AgentStudioIPCPaths
     let server: AgentStudioAppIPCServer
 
-    init(panes: [IPCPaneSummary] = []) throws {
+    init(
+        accessMode: IPCAccessMode = .agentStudioOnly,
+        channel: AgentStudioIPCChannel = .debug,
+        panes: [IPCPaneSummary] = [],
+        runtimePort: any AppIPCRuntimePort = FakeRuntimePort(),
+        commandPort: any AppIPCCommandPort = FakeCommandPort(),
+        debugTokenEscrowEnabled: Bool = false
+    ) throws {
         rootURL = URL(fileURLWithPath: "/tmp/asipc-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         #if canImport(Darwin)
@@ -325,17 +635,19 @@ private struct LiveServerFixture {
         let service = AgentStudioAppIPCService(
             configuration: AgentStudioAppIPCConfiguration(
                 runtimeId: runtimeId,
-                accessMode: .agentStudioOnly,
-                methodDefinitions: methodRegistry.definitions
+                accessMode: accessMode,
+                methodDefinitions: methodRegistry.definitions,
+                debugTokenEscrowEnabled: debugTokenEscrowEnabled
             ),
             ports: AgentStudioAppIPCPorts(
                 queryPort: FakeQueryPort(runtimeId: runtimeId, panes: panes),
                 layoutPort: FakeLayoutPort(),
-                runtimePort: FakeRuntimePort(),
+                runtimePort: runtimePort,
+                commandPort: commandPort,
                 permissionApprovalPort: FakePermissionApprovalPort()
             )
         )
-        server = AgentStudioAppIPCServer(service: service, paths: paths, channel: .debug)
+        server = AgentStudioAppIPCServer(service: service, paths: paths, channel: channel)
     }
 
     func cleanup() {
@@ -601,98 +913,10 @@ private func isCloseOnExec(fileDescriptor: Int32) throws -> Bool {
     #endif
 }
 
-private struct FakeQueryPort: AppIPCQueryPort {
-    let runtimeId: UUID
-    let panes: [IPCPaneSummary]
-
-    nonisolated init(runtimeId: UUID = UUID(), panes: [IPCPaneSummary] = []) {
-        self.runtimeId = runtimeId
-        self.panes = panes
+private func fileMode(for url: URL) throws -> mode_t {
+    var statBuffer = stat()
+    guard lstat(url.path, &statBuffer) == 0 else {
+        throw POSIXError(.ENOENT)
     }
-
-    func systemIdentify() throws -> IPCSystemIdentifyResult {
-        IPCSystemIdentifyResult(runtimeId: runtimeId, accessMode: .agentStudioOnly, appVersion: "test")
-    }
-
-    func systemVersion() throws -> IPCSystemVersionResult {
-        IPCSystemVersionResult(appVersion: "test")
-    }
-
-    func systemCapabilities() throws -> IPCSystemCapabilitiesResult {
-        IPCSystemCapabilitiesResult(methods: [])
-    }
-
-    func listWindows() throws -> IPCWindowListResult {
-        IPCWindowListResult(windows: [])
-    }
-
-    func currentWindow() throws -> IPCCurrentWindowResult {
-        throw AppIPCQueryError(reason: .noActiveWindow)
-    }
-
-    func listWorkspaces() throws -> IPCWorkspaceListResult {
-        IPCWorkspaceListResult(workspaces: [])
-    }
-
-    func currentWorkspace() throws -> IPCCurrentWorkspaceResult {
-        throw AppIPCQueryError(reason: .noActiveWindow)
-    }
-
-    func listPanes() throws -> IPCPaneListResult {
-        IPCPaneListResult(panes: panes)
-    }
-
-    func currentPane() throws -> IPCPaneSnapshotResult {
-        throw AppIPCQueryError(reason: .noActiveWindow)
-    }
-
-    func snapshotPane(_: UUID) throws -> IPCPaneSnapshotResult {
-        throw AppIPCQueryError(reason: .targetNotFound)
-    }
-}
-
-private struct FakeLayoutPort: AppIPCLayoutPort {
-    func focusPane(_: IPCHandle) throws -> IPCPaneFocusResult {
-        throw AppIPCLayoutError(reason: .targetNotFound)
-    }
-}
-
-private struct FakeRuntimePort: AppIPCRuntimePort {
-    func terminalStatus(_ handle: IPCHandle) throws -> IPCTerminalStatusResult {
-        throw AppIPCRuntimeError(reason: .noRuntime)
-    }
-
-    func terminalSnapshot(_ handle: IPCHandle) throws -> IPCTerminalSnapshotResult {
-        throw AppIPCRuntimeError(reason: .noRuntime)
-    }
-
-    func sendTerminalInput(
-        to handle: IPCHandle,
-        input: String,
-        correlationId: UUID?
-    ) async throws -> IPCTerminalSendInputResult {
-        throw AppIPCRuntimeError(reason: .noRuntime)
-    }
-
-    func waitForTerminal(
-        _ handle: IPCHandle,
-        condition: IPCTerminalWaitCondition,
-        timeout: Duration
-    ) async throws -> IPCTerminalWaitResult {
-        throw AppIPCRuntimeError(reason: .timeout)
-    }
-}
-
-private struct FakePermissionApprovalPort: AppIPCPermissionApprovalPort {
-    func decision(for _: PermissionRecord, requester _: IPCPrincipal) -> ApprovalPolicyDecision {
-        .ask
-    }
-}
-
-extension JSONDecoder {
-    fileprivate static var iso8601: JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }
+    return statBuffer.st_mode
 }

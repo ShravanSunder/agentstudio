@@ -10,8 +10,30 @@ struct AgentStudioIPCPathResolverTests {
         let paths = AgentStudioIPCPathResolver().paths(rootDirectory: root)
 
         #expect(paths.ipcDirectory == root.appendingPathComponent("ipc", isDirectory: true))
+        #expect(paths.socketDirectory == paths.ipcDirectory)
         #expect(paths.metadataURL == root.appendingPathComponent("ipc/runtime.json"))
         #expect(paths.socketURL == root.appendingPathComponent("ipc/agentstudio.sock"))
+        #expect(paths.debugTokenURL == root.appendingPathComponent("ipc/debug-token"))
+    }
+
+    @Test("can keep metadata under root while binding socket in a separate trusted directory")
+    func canKeepMetadataUnderRootWhileBindingSocketInSeparateTrustedDirectory() throws {
+        let fixture = try IPCPathFixture()
+        defer { fixture.cleanup() }
+        let socketDirectory = fixture.root.appendingPathComponent("short-socket", isDirectory: true)
+        let paths = AgentStudioIPCPathResolver().paths(
+            rootDirectory: fixture.root,
+            socketDirectory: socketDirectory
+        )
+
+        try AgentStudioIPCFilesystem.prepare(paths: paths)
+
+        #expect(paths.ipcDirectory == fixture.root.appendingPathComponent("ipc", isDirectory: true))
+        #expect(paths.metadataURL == fixture.root.appendingPathComponent("ipc/runtime.json"))
+        #expect(paths.debugTokenURL == fixture.root.appendingPathComponent("ipc/debug-token"))
+        #expect(paths.socketDirectory == socketDirectory)
+        #expect(paths.socketURL == socketDirectory.appendingPathComponent("agentstudio.sock"))
+        #expect(try fixture.mode(for: paths.socketDirectory) & 0o777 == 0o700)
     }
 
     @Test("creates owner-only ipc directory")
