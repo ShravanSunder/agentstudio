@@ -20,10 +20,14 @@ The phase-1 foundation currently owns:
   chain.
 - Concrete terminal runtime adapter for `terminal.status`,
   `terminal.snapshot`, and `terminal.send`.
+- Public event-name contracts and permission-event DTOs for phase-1 exported
+  notifications.
+- Permission recovery queries for requester-owned request/grant state and
+  delegated approval visibility.
 
 Follow-up implementation slices still own socket-server lifecycle wiring,
-CLI/client commands, event subscription delivery, terminal waits, and promotion
-of completed design material from the temporary spec/plan docs.
+CLI/client commands, live event subscription delivery, terminal waits, and
+promotion of completed design material from the temporary spec/plan docs.
 
 ## Target Ownership
 
@@ -143,6 +147,47 @@ and content-bearing UI state such as search/progress details. The adapter maps
 missing panes, missing runtimes, runtime-not-ready, unsupported command,
 backend-unavailable, validation-rejected, and timeout outcomes into AppIPC
 runtime errors for the future JSON-RPC layer.
+
+## Event And Permission Recovery Boundary
+
+Phase 1 exposes a stable event vocabulary in `AgentStudioProgrammaticControl`.
+The exported names are semantic app/runtime facts, not internal enum cases:
+
+```
+permission.requestCreated
+permission.requestResolved
+permission.grantRevoked
+permission.grantExpired
+terminal.attachReady
+terminal.commandFinished
+terminal.rendererHealthy
+terminal.titleChanged
+terminal.cwdChanged
+terminal.progressChanged
+```
+
+Permission event payloads are built from broker records and scoped through
+`PermissionEventProjector`. Visibility is intentionally narrower than ordinary
+event subscription:
+
+```
+permission record
+  -> PermissionEventProjector
+  -> requester principal
+       always sees its own request/grant events
+  -> delegated approver principal
+       sees routed requests only when token authority covers the full scope
+  -> app/policy approval principal
+       sees app/human approval requests only when policy authority covers scope
+  -> unrelated principal
+       sees nothing
+```
+
+Missed permission events are recoverable through explicit queries rather than a
+durable event log. Requesters recover their own state through
+`permission.requestStatus` and `permission.grantStatus`; delegated approvers
+recover routed pending requests through `permission.pendingApprovals`. Live
+event subscription delivery and terminal waits are separate follow-up slices.
 
 ## Request Authority Path
 

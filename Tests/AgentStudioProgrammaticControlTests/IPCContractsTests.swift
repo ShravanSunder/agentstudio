@@ -71,4 +71,38 @@ struct IPCContractsTests {
             try IPCHandle.parse("zmx:1")
         }
     }
+
+    @Test("exports stable event names and codable permission payloads")
+    func exportsStableEventNamesAndCodablePermissionPayloads() throws {
+        let requestId = UUID()
+        let principalId = UUID()
+        let approverId = UUID()
+        let payload = IPCPermissionEventPayload(
+            requestId: requestId,
+            state: .pending,
+            principalId: principalId,
+            requestedScope: IPCPermissionScope(
+                privilege: .terminalInputWrite,
+                target: .pane("pane-2"),
+                dataScope: .terminalInput
+            ),
+            approvalRoute: .delegatedPrincipal(approverId)
+        )
+        let notification = IPCPermissionEventNotification(
+            eventId: UUID(),
+            name: .permissionRequestCreated,
+            occurredAt: Date(timeIntervalSince1970: 1_800_000_000),
+            payload: payload
+        )
+
+        let decoded = try JSONDecoder().decode(
+            IPCPermissionEventNotification.self,
+            from: try JSONEncoder().encode(notification)
+        )
+
+        #expect(decoded == notification)
+        #expect(IPCEventName.allCases.map(\.rawValue).contains("permission.requestResolved"))
+        #expect(IPCEventName.allCases.map(\.rawValue).contains("terminal.commandFinished"))
+        #expect(!IPCEventName.allCases.map(\.rawValue).contains { $0.hasPrefix("zmx.") })
+    }
 }
