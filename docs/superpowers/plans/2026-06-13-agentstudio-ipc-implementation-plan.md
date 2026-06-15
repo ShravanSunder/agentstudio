@@ -11,7 +11,7 @@ Implement the first Agent Studio app-level IPC slice: local Unix-domain socket,
 strict JSON-RPC 2.0 framing, `agentStudioOnly` subject-token auth, principal
 binding, scoped grants, permission requests, method registry, pane-first handles,
 read/query methods, pane focus, terminal status/snapshot/send/wait, event
-subscriptions, and a local CLI client.
+subscriptions, and a dedicated local CLI executable target for smoke/use.
 
 The implementation must route through existing app and runtime owners. It must
 not introduce a new mutation owner, command bus, public zmx API, or phase-1 MCP
@@ -53,7 +53,9 @@ Live repo evidence checked:
   `Sources/AgentStudio/Features/Bridge/Transport/RPCRouter.swift`,
   `Tests/AgentStudioTests/Features/Bridge/RPCRouterTests.swift`.
 - `Package.swift` currently has one executable target (`AgentStudio`) and one
-  test target; adding a CLI requires an explicit package/product decision.
+  test target. The IPC module split requires explicit SwiftPM target changes even
+  if the CLI is deferred; adding a CLI remains a separate package/product
+  decision.
 
 ## Non-Goals
 
@@ -97,12 +99,52 @@ This plan intentionally keeps three boundaries separate:
 4. The executable target implements concrete ports into existing app/runtime
    owners.
 
+The folder layout is not sufficient by itself. T1 must first add the SwiftPM
+target graph that makes these boundaries compile-time-visible:
+
+```text
+AgentStudioIPCTransport
+  no AgentStudio product dependencies
+
+AgentStudioProgrammaticControl
+  no AppKit, SwiftUI, AgentStudio executable, Feature, or runtime-owner deps
+
+AgentStudioAppIPC
+  depends on AgentStudioIPCTransport and AgentStudioProgrammaticControl
+  exposes ports, auth, grants, registry assembly, and service lifecycle only
+
+AgentStudio executable
+  depends on AgentStudioAppIPC
+  implements ports under Sources/AgentStudio/App/IPCComposition/
+
+AgentStudioIPCClient, if T9 remains in phase 1
+  executable target for local CLI/smoke use
+  depends only on AgentStudioIPCTransport and AgentStudioProgrammaticControl
+  never imports AgentStudioAppIPC or the AgentStudio executable target
+```
+
+The architecture lint layer then guards the edges SwiftPM cannot express: no
+direct atom mutation from IPC adapters, no `zmx.*` public registry methods, no
+raw runtime/zmx DTO leakage, no AppKit/SwiftUI or app/feature/runtime-owner
+imports from `AgentStudioProgrammaticControl`, no concrete
+app/feature/runtime-owner imports from `AgentStudioAppIPC`, and concrete AppIPC
+port implementations only under `Sources/AgentStudio/App/IPCComposition/`.
+
+Boundary tests must also use the target graph. Do not prove transport/contracts
+with only the broad `AgentStudioTests` target, because that target can see the
+executable target. T1 adds narrow test targets for transport, contracts, and
+AppIPC service logic; the existing broad test target remains for executable
+composition/integration tests.
+
 ## Requirements And Proof Matrix
 
 | Requirement / claim | Owning task | Proof owner | Proof gate | Layer | Stale-proof guard | Red/green required | Sized to pass? |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Unix socket JSON-RPC accepts one newline-delimited request per frame and rejects invalid JSON, missing `jsonrpc`, non-object params, oversize frames, and batch arrays | T1 | `AgentStudioIPCTransport` tests | Focused Swift tests for codec/framer/listener fakes | Unit/integration | Tests use real newline chunking and malformed fixtures, not Bridge router assumptions | Yes | Yes |
+| `Package.swift` declares the IPC target graph before implementation code lands, and the executable/test targets depend on the new modules deliberately | T1 | SwiftPM package graph and build | `swift package describe`, package compile, targeted tests | Compile | The CLI target decision is separate; the library target split is mandatory for AppIPC boundaries | No | Yes |
 | `AgentStudioIPCTransport` has no product imports and target edges prevent transport from depending on contracts/app/features | T1 | SwiftPM target graph plus architecture lint | Package compile and IPC-specific architecture lint rules | Lint/compile | PR #175 runner is extended with IPC rules instead of adding shell/rg guards | No | Yes |
+| IPC-specific SwiftSyntax architecture rules are added to the pinned AgentStudio SwiftLint toolchain, verified by fixtures, and documented in the architecture lint inventory | T1/T10 | ai-tools SwiftLint fixtures, runner pin, inventory docs | `scripts/run-agentstudio-architecture-swiftlint.sh --verify-fixtures`, `mise run lint`, inventory diff review | Lint/docs | Rule source lives in ai-tools; this repo must update the pin/config/tests or block before implementation if the rule ref is unavailable | No | Yes |
+| Narrow IPC test targets prove transport/contracts/AppIPC boundaries without depending on the AgentStudio executable target | T1/T4 | SwiftPM test target graph | `swift test --filter` or targeted test run for dedicated IPC test targets | Compile/test | Existing `AgentStudioTests` remains for executable integration only, not boundary proof | No | Yes |
 | App IPC metadata and socket paths are derived from `AppDataPaths.rootDirectory()` under `<root>/ipc` | T2 | `AgentStudioAppIPC` service tests | Unit tests with injected environment/root/channel | Unit | Tests assert stable/beta/debug/env override paths and owner-only metadata mode | Yes | Yes |
 | Filesystem trust fails closed for symlinks, wrong owner, group/world access, and stale live socket ownership | T2 | `AgentStudioAppIPC` filesystem trust tests | Temp-dir tests with permission fixtures where platform allows | Integration | Permission checks skipped only when Darwin cannot set a mode, with explicit assertions for supported paths | Yes | Yes |
 | `agentStudioOnly` subject tokens are memory-only, minted before session env construction, and map to server-bound principals | T3 | Auth service and session env tests | Unit tests for subject-token registry plus environment-construction tests | Unit/integration | Tests scan metadata output for token absence and assert env contains socket/token/runtime id; `auth.login` never trusts caller pane hints | Yes | Yes |
@@ -112,6 +154,8 @@ This plan intentionally keeps three boundaries separate:
 | Public handles are pane-first, UUID-canonical, and friendly refs are runtime-local conveniences | T4 | Handle resolver tests | Unit tests with stable fake app snapshot | Unit | Tests prove ordinals are not persisted and responses echo canonical UUID targets | Yes | Yes |
 | Baseline grants permit a spawned pane agent to operate on selfPane without interactive approval and deny cross-pane/global authority by default | T4 | Authorization tests | Unit tests over principals, grants, canonical targets, and focus changes | Unit | `selfPane` is principal-bound, not active focus or caller params | Yes | Yes |
 | Permission requests are commands and approval is policy-routed through app policy, human prompt, or delegated principals with `grantApprove` | T4/T8 | PermissionBroker and GrantLedger tests | Unit/integration tests over appPolicy, humanPrompt fake, delegated approver, denial paths | Unit/integration | Event notifications cannot approve/deny/revoke; `permission.resolveRequest` requires `grantApprove` for canonical scope | Yes | Yes |
+| Delegated approval is recoverable after missed events without granting observer access to unrelated principals | T4/T8 | Permission query and visibility tests | `permission.pendingApprovals` tests plus permission event tests | Unit/integration | Requester status methods return own state; delegated approver query returns only routed pending requests within `grantApprove` scope | Yes | Yes |
+| Subject tokens are never persisted, logged, traced, echoed, or serialized in public DTOs/errors/events | T3/T8 | Auth/redaction tests | Metadata, error, audit/log sink, DTO, and event serialization tests | Unit/integration | Tests use a sentinel token value and scan emitted payloads/log test sinks for absence | Yes | Yes |
 | Query methods read snapshots without mutating atoms | T5 | Query adapter tests | Snapshot tests over `WorkspaceStore` fixtures | Unit | Tests use read-only fixtures and no mutation method calls in adapter | Yes | Yes |
 | `pane.focus` routes through a deliberate app-control seam rather than private view-controller methods | T6 | Layout adapter tests | Focused tests on action seam and no-active-window error | Unit/integration | Task cannot pass until seam has a named owner chain and no-direct-atom-mutation proof | Yes | Yes |
 | `terminal.send` routes through `ActionExecutor -> PaneCoordinator -> RuntimeRegistry -> PaneRuntime` and means bytes accepted by surface, not shell completion | T7 | Runtime adapter tests | Existing coordinator dispatch tests plus new IPC adapter tests | Unit/integration | Test maps `ActionResult` to JSON-RPC and does not wait for shell output | Yes | Yes |
@@ -120,6 +164,7 @@ This plan intentionally keeps three boundaries separate:
 | `events.subscribe` streams only allowlisted public event DTOs and disconnects/errs slow subscribers | T8 | Event broker tests | Fake subscriber/backpressure tests | Integration | Tests assert no raw `RuntimeEnvelope`, terminal output payload, permission token, grant secret, or zmx internal is serialized | Yes | Yes |
 | Permission events are visibility-scoped and status methods recover missed permission events | T8 | Permission event/status tests | Fake subscriber tests plus request/grant status queries | Unit/integration | Requesting principal, app approval surface, delegated approver, and unrelated principal visibility are tested separately | Yes | Yes |
 | CLI can discover socket metadata, authenticate, call read methods, send terminal input, and subscribe/unsubscribe | T9 | CLI smoke tests | CLI unit tests plus local smoke against test IPC server | Smoke | Smoke uses isolated `AGENTSTUDIO_DATA_DIR` and does not touch user's running app | Yes | Yes |
+| If the local CLI ships in phase 1, it is a dedicated executable target with no dependency on `AgentStudioAppIPC` or the AgentStudio executable target | T9 | SwiftPM target graph and CLI tests | `swift package describe`, CLI target build, CLI smoke | Compile/smoke | No committed support client outside a target unless T9 is explicitly removed from phase 1 | No | Yes |
 | Phase-1 implementation does not expose zmx public methods or zmx internals | T4/T7/T8 | Registry/schema tests | Namespace denylist and snapshot/event sensitive-field tests | Unit | Tests explicitly deny `zmx.*`, socket path, session name, history, raw `Info` bytes | Yes | Yes |
 | Architecture docs are promoted after implementation and spec becomes history | T10 | Docs proof | `rg` checks plus docs diff review | Docs/lint | Docs reference real implemented file paths and remove stale open decisions | No | Yes |
 
@@ -146,15 +191,42 @@ Exit proof:
 - Open questions below are either answered or explicitly moved to implementation
   gates.
 
-### T1. Generic Unix JSON-RPC Transport
+### T1. SwiftPM Target Split And Generic Unix JSON-RPC Transport
 
 Write surfaces:
 
+- `Package.swift`
 - `Sources/AgentStudioIPCTransport/`
 - `Tests/AgentStudioTests/Infrastructure/IPC/`
+- `Tests/AgentStudioTests/Scripts/ArchitectureSwiftLintRulesTests.swift`
+- `scripts/agentstudio-architecture-swiftlint.env` whenever the pinned ai-tools
+  architecture-rule commit or ref changes
+- `docs/architecture/architecture_lint_inventory.md`
+
+Prerequisite:
+
+- Land the IPC-specific SwiftSyntax rules in the external ai-tools architecture
+  SwiftLint source before implementing IPC code in this repo. Record the resulting
+  pinned commit/ref in `scripts/agentstudio-architecture-swiftlint.env`, update
+  `ArchitectureSwiftLintRulesTests.swift` pin assertions and fixture-output
+  assertions, and update `docs/architecture/architecture_lint_inventory.md`.
 
 Implement:
 
+- Add the library target graph for `AgentStudioIPCTransport`,
+  `AgentStudioProgrammaticControl`, and `AgentStudioAppIPC` before placing
+  implementation code in those folders.
+- Update the `AgentStudio` executable target dependency list so concrete
+  composition code can import `AgentStudioAppIPC`.
+- Add dedicated narrow test targets with minimal dependencies:
+  - `AgentStudioIPCTransportTests` depends only on `AgentStudioIPCTransport`.
+  - `AgentStudioProgrammaticControlTests` depends only on
+    `AgentStudioProgrammaticControl`.
+  - `AgentStudioAppIPCTests` depends on `AgentStudioAppIPC`,
+    `AgentStudioIPCTransport`, and `AgentStudioProgrammaticControl`, but not the
+    `AgentStudio` executable target.
+  - Existing `AgentStudioTests` may depend on `AgentStudio` for executable
+    composition/integration tests only.
 - `JSONRPCRequest`, `JSONRPCResponse`, `JSONRPCError`, and `JSONRPCIdentifier`.
 - Strict JSON-RPC 2.0 codec with app error-code range support.
 - NDJSON frame reader/writer with max frame size and invalid UTF-8 handling.
@@ -162,13 +234,30 @@ Implement:
   endpoint.
 - Peer credential abstraction for Darwin same-uid checks.
 - No product method registry in this layer.
+- Consume the pinned ai-tools SwiftSyntax architecture rules that cover IPC
+  target edges, forbidden AppKit/SwiftUI and app/feature/runtime imports from
+  `AgentStudioProgrammaticControl`, forbidden concrete imports from
+  `AgentStudioAppIPC`, AppIPC port implementations outside
+  `Sources/AgentStudio/App/IPCComposition/`, public `zmx.*` denial, no direct atom
+  mutation from IPC adapters, and no raw runtime/zmx DTO exposure. If those rules
+  are not available in the pinned toolchain, stop before implementation and split
+  the tooling prerequisite explicitly.
 
 Proof:
 
+- `swift package describe` shows the intended IPC target graph and no accidental
+  CLI executable target unless the CLI decision has been made.
 - Unit tests for valid/invalid JSON-RPC, batch rejection, params-object rule,
   response `result` xor `error`, request-size bounds, and chunked NDJSON frames.
 - Integration tests for connect/send/read/close against a temp Unix socket.
 - SwiftPM target edges and architecture lint prove no product imports.
+- `scripts/run-agentstudio-architecture-swiftlint.sh --verify-fixtures` proves
+  the pinned SwiftSyntax rules reject the IPC boundary violations, and
+  `docs/architecture/architecture_lint_inventory.md` lists the new rule ids.
+- `ArchitectureSwiftLintRulesTests.swift` asserts the pinned commit/ref and the
+  IPC-specific rule ids or fixture names reported by `--verify-fixtures`.
+- Dedicated IPC test targets compile without any dependency on the AgentStudio
+  executable target.
 
 ### T2. IPC Service Paths, Metadata, And Filesystem Trust
 
@@ -222,6 +311,8 @@ Implement:
   and token rotation.
 - Audit logging that records method, target, privilege class, and correlation id
   without token or sensitive payload values.
+- Token redaction policy for logs, traces, telemetry, audit payloads, JSON-RPC
+  errors, `auth.status`, and all public DTO/event serialization.
 
 Proof:
 
@@ -235,15 +326,27 @@ Proof:
   `AGENTSTUDIO_IPC_SOCKET`, `AGENTSTUDIO_IPC_TOKEN`, and
   `AGENTSTUDIO_IPC_RUNTIME_ID`.
 - Metadata tests prove the subject token is not persisted in `agentStudioOnly`.
+- Redaction tests use a sentinel token and prove it is absent from logs, traces,
+  telemetry/audit payloads, JSON-RPC errors, `auth.status`, and events.
 
 ### T4. Programmatic Control Contracts, Registry, Handles, Capabilities
+
+Entry gate:
+
+- Decide the phase-1 approval-policy storage home before implementing
+  `ApprovalPolicyStore`: settings-backed persistence, workspace-local config, or
+  runtime-only developer config. The chosen home must be app-owned/user-configured
+  and must not be encoded inside bearer tokens or zmx state.
+- Delegated approval is in phase 1. If this becomes too large during execution,
+  stop and replan instead of silently unregistering `permission.resolveRequest`.
 
 Write surfaces:
 
 - `Sources/AgentStudioProgrammaticControl/`
 - `Sources/AgentStudioAppIPC/`
-- `Tests/AgentStudioTests/Core/ProgrammaticControl/`
-- `Tests/AgentStudioTests/App/IPC/`
+- `Tests/AgentStudioProgrammaticControlTests/`
+- `Tests/AgentStudioAppIPCTests/`
+- `Tests/AgentStudioTests/App/IPC/` for executable composition only
 
 Implement:
 
@@ -251,20 +354,74 @@ Implement:
   `system.*`, `auth.*`, `window.*`, `workspace.*`, `pane.*`,
   `terminal.*`, `permission.*`, `events.*`.
 - Privilege classes, target/data scopes, and execution-owner metadata.
+- Finer-grained phase-1 privilege vocabulary from the spec:
+  `paneContextRead`, `terminalStatusRead`, `terminalSnapshotRead`,
+  `terminalInputWrite`, `terminalWait`, and `grantApprove`, in addition to the
+  broader registry classes.
 - Result semantics metadata (`applied` default, `accepted` only when justified).
 - Handle model: canonical UUIDs plus runtime-local friendly refs for
   `window:*`, `workspace:*`, `tab:*`, `pane:*`.
 - Baseline selfPane grant derivation for spawned pane principals.
+- Exact selfPane allowed/denied method table so baseline authorization does not
+  depend on broad terminal read/write interpretation.
 - `GrantLedger`, `PermissionBroker`, `AuthorizationService`, and
   `PermissionScopeCanonicalizer`.
+- Grant lifetime policies for baseline principal-bound grants, read-only elevated
+  grants, connection-bound elevated mutating grants, and one-shot elevated
+  mutating grants.
 - Approval routes:
   `appPolicy`, `humanPrompt`, and `delegatedPrincipal`.
 - `ApprovalPolicyStore` and `PermissionApprovalPort` protocols, with concrete
   implementations in `App/IPCComposition`.
 - `permission.request`, `permission.requestStatus`, `permission.grantStatus`,
-  and guarded/reserved `permission.resolveRequest`.
+  `permission.pendingApprovals`, and `permission.resolveRequest`.
 - Registry capability export for future MCP mapping without implementing MCP.
 - Namespace denylist for deferred groups, especially `zmx.*`.
+
+Symbol ownership:
+
+```text
+AgentStudioProgrammaticControl
+  IPCMethodDefinition
+  IPCMethodRegistryDescription
+  JSON-schema descriptions or schema source metadata
+  IPCPrivilege
+  IPCDataScope
+  IPCTargetScope
+  IPCTargetRef
+  IPCHandle
+  IPCPrincipalKind / principal DTOs that contain no bearer token material
+  PermissionRequestParams
+  PermissionRequestResult
+  PermissionStatusResult
+  PermissionEvent DTOs
+  public result/error DTOs
+
+AgentStudioAppIPC
+  IPCService
+  IPCConnectionAuthState
+  SubjectTokenRegistry
+  PrincipalRegistry
+  GrantLedger
+  PermissionBroker
+  AuthorizationService
+  PermissionScopeCanonicalizer
+  AppIPCMethodRegistry assembly
+  ApprovalPolicyStore protocol
+  PermissionApprovalPort protocol
+  query/layout/runtime/event port protocols
+
+AgentStudio executable / App/IPCComposition
+  concrete ApprovalPolicyStore implementation
+  concrete PermissionApprovalPort implementation
+  concrete query/layout/runtime/event port implementations
+  adapters to CommandDispatcher / ActionExecutor / WorkspaceCommandValidator
+  adapters to PaneCoordinator / RuntimeRegistry / PaneRuntime
+```
+
+Stateful auth, ledger, authorization, and approval routing must not live in
+`AgentStudioProgrammaticControl`. Concrete app-owner adapters must not live in
+`AgentStudioAppIPC`.
 
 Proof:
 
@@ -279,8 +436,14 @@ Proof:
   affect selfPane, cross-pane send is denied without an active grant, and
   canonicalization happens before grant comparison.
 - Permission tests prove app-policy auto-approve/deny/ask behavior, delegated
-  approval with `grantApprove`, rejected self/unauthorized approval, status
-  recovery, TTL/close/restart revocation, and non-persistence.
+  approval with `grantApprove`, `permission.pendingApprovals` recovery for
+  delegated approvers, rejected self/unauthorized approval, requester status
+  recovery, TTL/close/restart revocation, connection-close revocation,
+  one-shot-consumption, reconnect denial for elevated mutating grants, and
+  non-persistence.
+- Target-specific tests prove contract DTOs compile without AppIPC, AppIPC tests
+  compile without the AgentStudio executable target, and executable adapter tests
+  are the only tests that import concrete app/runtime owners.
 
 ### T5. App Query And Snapshot Adapters
 
@@ -383,6 +546,12 @@ Implement:
   `permission.grantRevoked`, and `permission.grantExpired`.
 - Permission event visibility for requesting principal, app approval surface,
   delegated approving principal, and unrelated principals.
+- Permission recovery semantics:
+  - requesters recover their own request/grant state through
+    `permission.requestStatus` and `permission.grantStatus`;
+  - delegated approvers recover routed pending requests through
+    `permission.pendingApprovals`;
+  - unrelated principals recover nothing by default.
 - Rejection of inbound client notifications that pretend to be server events.
 - Bounded non-durable replay only when a source supports it; replay gap maps to
   `-32010`.
@@ -397,8 +566,11 @@ Proof:
 - Event subscribe/unsubscribe tests.
 - Allowlist tests for event names and payloads.
 - Permission event visibility tests.
-- Status-query tests prove missed permission events are recoverable through
-  `permission.requestStatus` and `permission.grantStatus`.
+- Status-query tests prove requester-owned missed permission events are
+  recoverable through `permission.requestStatus` and `permission.grantStatus`.
+- Approver-query tests prove missed delegated approval events are recoverable
+  through `permission.pendingApprovals` only for routed requests covered by
+  `grantApprove`.
 - Inbound `events.notification` / `permission.requestResolved` frames cannot
   mutate grants.
 - Slow subscriber/backpressure tests.
@@ -412,11 +584,17 @@ Split/replan trigger:
 
 ### T9. CLI Client And Smoke Harness
 
+Entry gate:
+
+- T9 remains in phase 1 only as a dedicated Swift executable target. If that is
+  too much for the first implementation slice, remove CLI from phase 1 and keep
+  only test-owned smoke clients.
+
 Write surfaces:
 
-- Package-level CLI target if approved, or a temporary-but-committed support
-  client under a repo-owned test/support location until packaging is decided.
-- `Tests/AgentStudioTests/App/IPC/` or CLI-specific test target if added.
+- `Package.swift` for the dedicated CLI executable target and product.
+- `Sources/AgentStudioIPCClient/`
+- `Tests/AgentStudioIPCClientTests/`
 - README/guide snippets only after behavior exists.
 
 Implement:
@@ -425,10 +603,15 @@ Implement:
 - Auth from `AGENTSTUDIO_IPC_TOKEN` or explicit token input.
 - Commands for identify/capabilities/list/current/pane focus/terminal send/wait.
 - Machine-readable output by default; optional human output can follow later.
+- No imports of `AgentStudioAppIPC` or the AgentStudio executable target. The CLI
+  depends only on transport/client mechanics and public programmatic-control
+  contracts.
 
 Proof:
 
 - CLI unit tests for discovery and request serialization.
+- SwiftPM target graph proves the CLI target depends only on
+  `AgentStudioIPCTransport` and `AgentStudioProgrammaticControl`.
 - Smoke test against an isolated test IPC server.
 - Optional app smoke only if a safe debug/beta app instance can be launched
   without disturbing the user's running app.
@@ -467,19 +650,30 @@ Expected new areas:
 - `Sources/AgentStudioIPCTransport/`
 - `Sources/AgentStudioProgrammaticControl/`
 - `Sources/AgentStudioAppIPC/`
+- `Sources/AgentStudioIPCClient/` if T9 remains in phase 1
 - `Sources/AgentStudio/App/IPCComposition/`
-- `Tests/AgentStudioTests/Infrastructure/IPC/`
-- `Tests/AgentStudioTests/Core/ProgrammaticControl/`
-- `Tests/AgentStudioTests/App/IPC/`
+- `Tests/AgentStudioIPCTransportTests/`
+- `Tests/AgentStudioProgrammaticControlTests/`
+- `Tests/AgentStudioAppIPCTests/`
+- `Tests/AgentStudioIPCClientTests/` if T9 remains in phase 1
+- `Tests/AgentStudioTests/App/IPC/` for executable composition/integration only
 
 Expected existing areas touched narrowly:
 
+- `Package.swift` for required IPC library target split and test-target
+  dependencies. If T9 remains in phase 1, it also adds a dedicated CLI executable
+  target; otherwise no committed non-target CLI client is allowed.
 - `Sources/AgentStudio/Infrastructure/AppDataPaths.swift` for optional
   `ipcDirectory()` / `ipcRuntimeMetadataURL()` helpers.
 - `Sources/AgentStudio/App/Boot/AppDelegate.swift` or an extension for service
   lifecycle wiring.
 - Existing terminal session environment construction path for IPC env injection.
-- `Package.swift` only if the CLI ships as a Swift executable target in phase 1.
+- `scripts/agentstudio-architecture-swiftlint.env`,
+  `Tests/AgentStudioTests/Scripts/ArchitectureSwiftLintRulesTests.swift`, and
+  `docs/architecture/architecture_lint_inventory.md` when IPC SwiftSyntax rules
+  require a new pinned ai-tools architecture-lint commit or ref. The pin file,
+  test assertions, verifier fixture output assertions, and inventory rule ids
+  must move together.
 
 No expected changes:
 
@@ -493,7 +687,18 @@ No expected changes:
 Required during implementation slices:
 
 1. `git diff --check`
-2. Focused unit tests for each slice:
+2. Compile/lint architecture gates:
+   - `swift package describe` for target graph inspection after T1
+   - package compile or targeted Swift tests for the new IPC modules
+   - dedicated IPC test targets compile without depending on the AgentStudio
+     executable target
+   - CLI target graph/build proves CLI depends only on transport/contracts if T9
+     remains in phase 1
+   - `scripts/run-agentstudio-architecture-swiftlint.sh --verify-fixtures` after
+     adding IPC SwiftSyntax rules or updating the pinned rule commit/ref
+   - `ArchitectureSwiftLintRulesTests.swift` asserts the new IPC rule ids or
+     fixture names appear in the pinned verifier output
+3. Focused unit tests for each slice:
    - IPC codec/framer/listener
    - filesystem trust/auth/principals
    - method registry/handles/schemas/grants
@@ -503,7 +708,7 @@ Required during implementation slices:
    - terminal adapter
    - events/permission events/waits
    - CLI discovery/client
-3. Existing relevant suites:
+4. Existing relevant suites:
    - `Tests/AgentStudioTests/Infrastructure/AppDataPathsTests.swift`
    - `Tests/AgentStudioTests/App/ActionExecutorTests*.swift`
    - `Tests/AgentStudioTests/App/PaneCoordinatorRuntimeDispatchTests.swift`
@@ -513,9 +718,9 @@ Required during implementation slices:
    - `Tests/AgentStudioTests/Features/Terminal/Runtime/TerminalRuntimeTests.swift`
    - `Tests/AgentStudioTests/Features/Bridge/RPCRouterTests.swift` only as
      prior-art regression for JSON-RPC behavior, not as app IPC proof.
-4. `mise run lint`
-5. `mise run test`
-6. Smoke gate:
+5. `mise run lint`
+6. `mise run test`
+7. Smoke gate:
    - local IPC smoke against an isolated test listener;
    - app-level smoke only in a separate debug/beta instance if the running user
      app must not be disturbed.
@@ -537,8 +742,9 @@ Current tooling proof from this planning pass after merging PR #175:
 - Stale dead sockets can be unlinked after probe.
 - Listener shutdown removes runtime metadata and closes connections.
 - Event subscriptions are non-durable; clients recover by refreshing snapshots.
-- Permission events are non-durable; clients recover through
-  `permission.requestStatus` and `permission.grantStatus`.
+- Permission events are non-durable; requesters recover through
+  `permission.requestStatus` / `permission.grantStatus`, while delegated
+  approvers recover routed pending approvals through `permission.pendingApprovals`.
 
 ## Risks
 
@@ -566,8 +772,8 @@ Current tooling proof from this planning pass after merging PR #175:
 
 ## Open Questions
 
-1. Should the first committed CLI be a Swift executable target in `Package.swift`,
-   or should phase 1 ship the app service plus a test/support client first?
+1. Does T9 remain in phase 1 as a dedicated Swift executable target, or is CLI
+   removed from phase 1 and limited to test-owned smoke clients?
 2. Is `system.ping` pre-auth allowed with a content-free response, or should
    `auth.login` be the only pre-auth method?
 3. Which exact `terminal.wait` conditions earn phase-1 support after mapping to
@@ -575,10 +781,9 @@ Current tooling proof from this planning pass after merging PR #175:
 4. What is the minimum useful `terminal.snapshot` DTO for the first consumer?
 5. Is `automationSameUser` included in phase 1, or kept as a follow-up after
    `agentStudioOnly` works for spawned agents?
-6. Does the first implementation slice register `permission.resolveRequest`, or
-   reserve it while shipping only app-policy and human-prompt routes?
-7. Where does the first user-configured approval policy live: settings-backed
-   persistence, workspace-local config, or runtime-only developer config?
+6. Before T4 starts, choose where the first user-configured approval policy
+   lives: settings-backed persistence, workspace-local config, or runtime-only
+   developer config.
 
 ## Next Skill
 
