@@ -494,14 +494,32 @@ systemRead
 workspaceRead
   list/current windows, workspaces, tabs, panes, and runtime summaries
 
+paneContextRead
+  pane identity, focus, runtime attachment status, and redacted pane context
+
 layoutMutate
   focus, split, close, select, move
 
 terminalRead
-  terminal status and bounded snapshots
+  reserved broad terminal read class; phase-1 grants should prefer the narrower
+  terminalStatusRead, terminalSnapshotRead, and terminalWait classes
 
 terminalWrite
-  send input and supported terminal runtime commands
+  reserved broad terminal write class; phase-1 grants should prefer the narrower
+  terminalInputWrite class
+
+terminalStatusRead
+  terminal/runtime status without terminal output
+
+terminalSnapshotRead
+  bounded redacted snapshots without raw output, scrollback, zmx, paths, URLs, or
+  secrets unless explicitly redacted
+
+terminalInputWrite
+  send input bytes or supported input-like terminal runtime commands
+
+terminalWait
+  wait on exported terminal condition enum values
 
 eventsRead
   subscribe to lifecycle/status event streams
@@ -514,7 +532,7 @@ permissionRead
 
 grantApprove
   approve or deny delegated permission requests within an explicitly configured
-  approval scope
+  approval scope, and list pending requests routed to the approver
 
 debugUnsafe
   debug-only operations
@@ -563,6 +581,7 @@ privileges
   systemRead
   paneContextRead
   terminalStatusRead
+  terminalSnapshotRead
   terminalInputWrite
   terminalWait
   eventsRead
@@ -706,16 +725,20 @@ permission.requestStatus
 permission.grantStatus
   read the caller's own active/expired/revoked grants
 
+permission.pendingApprovals
+  list pending requests routed to this delegated approver
+  allowed only for principals with grantApprove over the returned canonical scope
+
 permission.resolveRequest
   approve or deny a delegated request
   allowed only for principals with grantApprove over the requested scope
 ```
 
-`permission.resolveRequest` is not a general admin method. If delegated approval
-is not implemented in the first code slice, the method must remain unregistered
-but the contract stays reserved so later automation can add it without changing
-the grant model. Approval through preconfigured app policy and human prompt still
-flows through the app-owned `PermissionApprovalPort`.
+`permission.pendingApprovals` and `permission.resolveRequest` are not general
+admin methods. They expose only requests routed to the authenticated approver and
+only when that approver has `grantApprove` over the canonical requested scope.
+Approval through preconfigured app policy and human prompt still flows through
+the app-owned `PermissionApprovalPort`.
 
 `permission.request` has `accepted` result semantics because the requested grant
 may resolve after policy or delegated approval. The immediate response returns
@@ -741,6 +764,9 @@ A client that disconnects after `permission.request` can later authenticate as
 the same principal and call `permission.requestStatus(requestId)` or
 `permission.grantStatus(...)`. These methods return only the caller's own
 permission state unless a future privileged observer model is explicitly added.
+Delegated approvers recover missed routed requests with
+`permission.pendingApprovals`, which returns only pending requests that are
+routed to that authenticated principal and covered by its `grantApprove` scope.
 
 Grant lifetime is split by risk:
 
@@ -903,7 +929,8 @@ terminal.wait
 permission.request
 permission.requestStatus
 permission.grantStatus
-permission.resolveRequest, only if delegated approval ships in the first slice
+permission.pendingApprovals
+permission.resolveRequest
 
 events.subscribe
 events.unsubscribe
@@ -1297,6 +1324,8 @@ auth tests
   automationSameUser bootstrap material is never present in agentStudioOnly
   subject token maps to a server-bound principal, never caller-supplied pane hints
   bound pane close invalidates the principal and future auth attempts
+  subject token is absent from logs, traces, telemetry, errors, events, and public
+  DTOs such as auth.status
 
 grant tests
   baseline selfPane grants are derived after authentication
@@ -1304,6 +1333,8 @@ grant tests
   terminal.send to another pane is denied without a matching grant
   appPolicy can auto-approve, auto-deny, or ask according to configured rules
   delegated approval requires grantApprove over the canonical requested scope
+  permission.pendingApprovals returns only routed pending requests within the
+  delegated approver's grantApprove scope
   permission.resolveRequest cannot approve a request without grantApprove
   cross-pane/global mutating grants are connection-bound or one-shot by default
   grant state is not persisted in phase 1
@@ -1366,9 +1397,9 @@ the threat model or first consumer.
 Human-in-the-loop approval is not required for every permission request. The
 target model allows user-configured app policy to auto-approve, auto-deny, or ask
 for grants, and allows delegated approval by principals with `grantApprove` over
-the requested canonical scope. If delegated approval is too large for the first
-code slice, keep `permission.resolveRequest` reserved/unregistered while still
-shipping app-policy and human-prompt routes through the same approval model.
+the requested canonical scope. Phase 1 includes delegated approval in the
+contract: delegated approvers can list routed pending requests through
+`permission.pendingApprovals` and resolve them through `permission.resolveRequest`.
 
 Phase-1 expansion methods `workspace.select`, `pane.split`, `pane.close`, and
 `terminal.interrupt` stay deferred until the spec names their exact owner chain
