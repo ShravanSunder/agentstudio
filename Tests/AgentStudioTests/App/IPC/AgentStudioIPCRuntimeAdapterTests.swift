@@ -132,7 +132,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
 
     @Test("terminal wait commandFinished resolves from pane runtime event")
     func terminalWaitCommandFinishedResolvesFromPaneRuntimeEvent() async throws {
-        let eventBus = EventBus<RuntimeEnvelope>()
+        let eventBus = makeTestPaneRuntimeEventBus()
         let harness = RuntimeAdapterHarness(eventBus: eventBus)
         let pane = harness.createTerminalPane()
         let paneId = PaneId(uuid: pane.id)
@@ -147,7 +147,6 @@ struct AgentStudioIPCRuntimeAdapterTests {
                 timeout: .milliseconds(100)
             )
         }
-        await waitForRuntimeEventSubscriber(on: eventBus)
         await eventBus.post(
             RuntimeEnvelope.pane(
                 PaneEnvelope(
@@ -175,7 +174,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
 
     @Test("terminal wait times out when no exported fact matches")
     func terminalWaitTimesOutWhenNoExportedFactMatches() async throws {
-        let eventBus = EventBus<RuntimeEnvelope>()
+        let eventBus = makeTestPaneRuntimeEventBus()
         let harness = RuntimeAdapterHarness(eventBus: eventBus)
         let pane = harness.createTerminalPane()
         harness.runtimeRegistry.register(RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id)))
@@ -291,7 +290,7 @@ private struct RuntimeAdapterHarness {
     init(
         commandDispatcher: any AppIPCRuntimeCommandDispatching = StaticRuntimeCommandDispatcher(
             result: .success(commandId: UUID())),
-        eventBus: EventBus<RuntimeEnvelope> = EventBus<RuntimeEnvelope>()
+        eventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus()
     ) {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-ipc-runtime-adapter-\(UUID().uuidString)")
@@ -382,13 +381,4 @@ private final class RecordingTerminalIPCRuntime: PaneRuntime {
 private func encodedJSONString<T: Encodable>(_ value: T) throws -> String {
     let data = try JSONEncoder().encode(value)
     return try #require(String(data: data, encoding: .utf8))
-}
-
-private func waitForRuntimeEventSubscriber(on bus: EventBus<RuntimeEnvelope>, maxTurns: Int = 50) async {
-    for _ in 0..<maxTurns {
-        if await bus.subscriberCount > 0 {
-            return
-        }
-        await Task.yield()
-    }
 }
