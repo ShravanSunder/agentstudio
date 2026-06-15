@@ -550,10 +550,44 @@ final class SurfaceManager {
         }
 
         return withSurface(surfaceId) { surface in
-            input.withCString { ptr in
-                ghostty_surface_text(surface, ptr, UInt(input.utf8.count))
-            }
+            sendInputAsText(input, to: surface)
         }.map { _ in () }
+    }
+
+    private func sendInputAsText(_ input: String, to surface: ghostty_surface_t) {
+        var textChunk = ""
+        for character in input {
+            if character == "\n" || character == "\r" {
+                sendTextChunk(textChunk, to: surface)
+                textChunk.removeAll(keepingCapacity: true)
+                sendEnterKeyEvent(to: surface)
+            } else {
+                textChunk.append(character)
+            }
+        }
+
+        sendTextChunk(textChunk, to: surface)
+    }
+
+    private func sendTextChunk(_ text: String, to surface: ghostty_surface_t) {
+        let length = text.utf8.count
+        guard length > 0 else { return }
+
+        text.withCString { ptr in
+            ghostty_surface_text(surface, ptr, UInt(length))
+        }
+    }
+
+    private func sendEnterKeyEvent(to surface: ghostty_surface_t) {
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.keycode = 36
+        keyEvent.text = nil
+        keyEvent.unshifted_codepoint = 13
+        keyEvent.composing = false
+        ghostty_surface_key(surface, keyEvent)
     }
 
     func clearScrollback(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
@@ -621,6 +655,8 @@ final class SurfaceManager {
         try? FileManager.default.removeItem(at: checkpointURL)
     }
 }
+
+extension SurfaceManager: TerminalSurfaceCommandDispatching {}
 
 // MARK: - Health Monitoring
 

@@ -65,9 +65,13 @@ struct ApplicationEntrypointArchitectureTests {
         let actionDebugGuardIndex = try #require(diagnosticActionSource.range(of: "#if DEBUG")?.lowerBound)
         let actionSmokeCaseIndex = try #require(
             diagnosticActionSource.range(of: "case crossTabMoveGeometrySmoke")?.lowerBound)
+        let actionIPCSmokeCaseIndex = try #require(
+            diagnosticActionSource.range(of: "case ipcTerminalSmoke")?.lowerBound)
         let actionDebugEndIndex = try #require(diagnosticActionSource.range(of: "#endif")?.lowerBound)
         #expect(actionDebugGuardIndex < actionSmokeCaseIndex)
         #expect(actionSmokeCaseIndex < actionDebugEndIndex)
+        #expect(actionDebugGuardIndex < actionIPCSmokeCaseIndex)
+        #expect(actionIPCSmokeCaseIndex < actionDebugEndIndex)
         #expect(startupDiagnosticsSource.contains("AgentStudioStartupDiagnosticAction.fromEnvironment()"))
         #expect(startupDiagnosticsSource.contains("CommandDispatcher.shared.dispatch(.newTab)"))
         #expect(startupDiagnosticsSource.contains("CommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
@@ -76,11 +80,16 @@ struct ApplicationEntrypointArchitectureTests {
         let dispatchDebugGuardIndex = try #require(startupDiagnosticsSource.range(of: "#if DEBUG")?.lowerBound)
         let dispatchSmokeCaseIndex = try #require(
             startupDiagnosticsSource.range(of: "case .crossTabMoveGeometrySmoke")?.lowerBound)
+        let dispatchIPCSmokeCaseIndex = try #require(
+            startupDiagnosticsSource.range(of: "case .ipcTerminalSmoke")?.lowerBound)
         let dispatchDebugEndIndex = try #require(startupDiagnosticsSource.range(of: "#endif")?.lowerBound)
         #expect(dispatchDebugGuardIndex < dispatchSmokeCaseIndex)
         #expect(dispatchSmokeCaseIndex < dispatchDebugEndIndex)
+        #expect(dispatchDebugGuardIndex < dispatchIPCSmokeCaseIndex)
+        #expect(dispatchIPCSmokeCaseIndex < dispatchDebugEndIndex)
         #expect(startupDiagnosticsSource.contains("WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)"))
         #expect(startupDiagnosticsSource.contains("isReadyForLaunchRestore"))
+        #expect(startupDiagnosticsSource.contains("paneCoordinator.openFloatingTerminal("))
         #expect(startupDiagnosticsSource.contains("provider: .zmx"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.command_exercised"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.blocked"))
@@ -105,5 +114,44 @@ struct ApplicationEntrypointArchitectureTests {
 
         #expect(appDelegateSource.contains(secureRestorationDisabled))
         #expect(mainWindowControllerSource.contains("window.isRestorable = false"))
+    }
+
+    @Test("App IPC server is composed at app boot and stopped on termination")
+    func appIPCServerIsComposedAtAppBootAndStoppedOnTermination() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift")
+        let ipcBootURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift")
+        let terminationURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+Termination.swift")
+        let mainWindowControllerURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Windows/MainWindowController.swift")
+        let splitViewControllerURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Windows/MainSplitViewController.swift")
+
+        let appDelegateSource = try String(contentsOf: appDelegateURL, encoding: .utf8)
+        let ipcBootSource = try String(contentsOf: ipcBootURL, encoding: .utf8)
+        let terminationSource = try String(contentsOf: terminationURL, encoding: .utf8)
+        let mainWindowControllerSource = try String(contentsOf: mainWindowControllerURL, encoding: .utf8)
+        let splitViewControllerSource = try String(contentsOf: splitViewControllerURL, encoding: .utf8)
+
+        let lifecycleConsumerIndex = try #require(appDelegateSource.range(of: "wireLifecycleConsumers()")?.lowerBound)
+        let appIPCStartIndex = try #require(appDelegateSource.range(of: "startAppIPCServer()")?.lowerBound)
+        let appIPCStopIndex = try #require(terminationSource.range(of: "stopAppIPCServer()")?.lowerBound)
+        let flushStoresIndex = try #require(terminationSource.range(of: "await store.flushAsync()")?.lowerBound)
+
+        #expect(appDelegateSource.contains("import AgentStudioAppIPC"))
+        #expect(appDelegateSource.contains("var appIPCServer: AgentStudioAppIPCServer?"))
+        #expect(lifecycleConsumerIndex < appIPCStartIndex)
+        #expect(ipcBootSource.contains("import AgentStudioAppIPC"))
+        #expect(ipcBootSource.contains("import AgentStudioProgrammaticControl"))
+        #expect(ipcBootSource.contains("AppIPCMethodRegistry.phaseOne()"))
+        #expect(ipcBootSource.contains("let rootDirectory = AppDataPaths.rootDirectory()"))
+        #expect(ipcBootSource.contains("socketDirectory: Self.appIPCSocketDirectory()"))
+        #expect(ipcBootSource.contains("ProcessInfo.processInfo.environment[\"AGENTSTUDIO_IPC_SOCKET_DIR\"]"))
+        #expect(ipcBootSource.contains("makePaneFocusAppControl(store: store)"))
+        #expect(ipcBootSource.contains("server.start()"))
+        #expect(appIPCStopIndex < flushStoresIndex)
+        #expect(mainWindowControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
+        #expect(splitViewControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
+        #expect(splitViewControllerSource.contains("PaneTabViewControllerPaneFocusAppControl"))
     }
 }

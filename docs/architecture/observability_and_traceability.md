@@ -112,6 +112,21 @@ tests    trace config, projection, metric mapping, and emitter tests pass
 Do not accept stale Victoria rows, old JSONL files, screenshots, or unmarked
 records as proof.
 
+Use proof layers deliberately:
+
+```text
+unit/focused tests    -> deterministic logic and source projection
+integration tests     -> real boundaries such as sinks, stores, processes
+debug observability   -> debug app launch with marker-scoped Victoria proof
+performance proof     -> VictoriaMetrics under the current workload marker
+native UI proof       -> Peekaboo against a debug/beta app by PID
+```
+
+Peekaboo is visual/native interaction evidence. It can prove that a debug or
+beta app launched, rendered, and accepted a UI interaction, but it does not
+replace marker-scoped VictoriaLogs/VictoriaMetrics proof for telemetry or
+focused tests for source-side projection and safety rules.
+
 ## Progressive Disclosure For Debugging
 
 When explaining or debugging AgentStudio observability, start by separating the

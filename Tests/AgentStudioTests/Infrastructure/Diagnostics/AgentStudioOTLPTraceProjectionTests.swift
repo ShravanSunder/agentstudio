@@ -195,11 +195,13 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.command.name": .string("cross-tab-move-geometry-smoke"),
                 "agentstudio.command.source": .string("startup_diagnostic"),
                 "agentstudio.startup_diagnostic.action": .string("cross-tab-move-geometry-smoke"),
+                "agentstudio.startup_diagnostic.created_pane.count": .int(1),
                 "agentstudio.startup_diagnostic.expected_visible_pane.count": .int(3),
                 "agentstudio.startup_diagnostic.fixture.surface.count": .int(0),
                 "agentstudio.startup_diagnostic.fixture.surface_reference.count": .int(1),
                 "agentstudio.startup_diagnostic.fixture.terminal_view.count": .int(3),
                 "agentstudio.startup_diagnostic.fixture.valid_geometry.count": .int(0),
+                "agentstudio.startup_diagnostic.pane.id": .string("019ECB5A-7A66-7109-B45E-ED52BC59DA78"),
                 "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(false),
                 "agentstudio.startup_diagnostic.skip_reason": .string("missing_bounds"),
                 "agentstudio.trace.tag": .string("app.startup"),
@@ -214,11 +216,13 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(
             projection.attributes["agentstudio.startup_diagnostic.action"]
                 == .string("cross-tab-move-geometry-smoke"))
+        #expect(projection.attributes["agentstudio.startup_diagnostic.created_pane.count"] == .int(1))
         #expect(projection.attributes["agentstudio.startup_diagnostic.expected_visible_pane.count"] == .int(3))
         #expect(projection.attributes["agentstudio.startup_diagnostic.fixture.surface.count"] == .int(0))
         #expect(projection.attributes["agentstudio.startup_diagnostic.fixture.surface_reference.count"] == .int(1))
         #expect(projection.attributes["agentstudio.startup_diagnostic.fixture.terminal_view.count"] == .int(3))
         #expect(projection.attributes["agentstudio.startup_diagnostic.fixture.valid_geometry.count"] == .int(0))
+        #expect(projection.attributes["agentstudio.startup_diagnostic.pane.id"] == nil)
         #expect(projection.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
         #expect(projection.attributes["agentstudio.startup_diagnostic.skip_reason"] == .string("missing_bounds"))
     }

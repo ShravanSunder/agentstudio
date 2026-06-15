@@ -227,9 +227,6 @@ private struct UnexpectedMissingPaneHostPlaceholder: View {
 
     private static func reportUnexpectedMissingHost(paneId: UUID) {
         let message = "FlatPaneStripContent: missing host for non-retired pane \(paneId)"
-        #if DEBUG
-            assertionFailure(message)
-        #endif
         flatPaneStripLogger.error(
             "FlatPaneStripContent: missing host for non-retired pane \(paneId.uuidString, privacy: .public)"
         )

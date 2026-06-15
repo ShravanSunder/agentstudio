@@ -26,6 +26,8 @@ Sources/AgentStudio/
 │   ├── Events/                       # App-scoped notification bus types
 │   ├── Lifecycle/                    # ApplicationLifecycleMonitor, ManagementLayerMonitor,
 │   │                                 #   ManagementLayerToolbarButton, WindowRestoreBridge
+│   ├── PaneAgents/                   # App-owned pane-agent process launch,
+│   │                                 #   fd bootstrap remap, lifecycle cleanup
 │   ├── Panes/                        # App-owned pane hosting, tab management, empty states
 │   │   ├── Hosting/                  # PaneHostView, management-layer drag shield
 │   │   ├── Status/                   # Workspace status chips
@@ -102,6 +104,67 @@ Sources/AgentStudio/
 ```
 
 > **Note on existing feature directories:** the tree above shows the target convention. Existing features like `Features/Bridge/State/` (without the `MainActor/` subpath), `Features/InboxNotification/State/`, and `Features/EditorChooser/State/` are grandfathered — they predate the convention and migrate in follow-up tickets. All NEW features adopt the full `State/MainActor/{Atoms,Persistence}/` path from day one.
+
+---
+
+## SwiftPM IPC Target Split
+
+Most AgentStudio code still lives in the `AgentStudio` executable target and
+uses the folder rules below. App IPC adds smaller SwiftPM targets so the
+compiler can enforce boundaries before lint or review:
+
+```
+Sources/AgentStudioIPCTransport/
+  Unix sockets, peer credentials, NDJSON framing, JSON-RPC codec.
+  No AgentStudio product imports.
+
+Sources/AgentStudioProgrammaticControl/
+  Public semantic contracts: method metadata, handles, principals, permission
+  scopes, schema descriptions.
+  No SwiftUI/AppKit, product state, runtime owners, or app composition.
+
+Sources/AgentStudioAppIPC/
+  App IPC service shell, auth, method registry, authorization, grant ledger,
+  permission broker, event broker, and protocol ports into app/runtime owners.
+  No concrete app/runtime owner imports and no direct atom reads.
+
+Sources/AgentStudioIPCClientCore/
+  CLI socket discovery, command-to-JSON-RPC request mapping, and one-shot
+  Unix socket client calls.
+  Depends only on transport and public programmatic-control contracts.
+
+Sources/AgentStudioIPCClient/
+  Thin `agentstudio-ipc` executable entrypoint.
+  Depends only on the client core.
+
+Sources/AgentStudioPaneAgent/
+  Thin `agentstudio-pane-agent` helper. Reads the app-supplied bootstrap fd
+  once, authenticates with `auth.login`, and verifies runtime identity.
+  Depends only on the client core.
+
+Sources/AgentStudio/App/IPCComposition/
+  Concrete adapters from AgentStudioAppIPC protocol ports into PaneCoordinator,
+  RuntimeRegistry, PaneRuntime, and app-owned state.
+
+Sources/AgentStudio/App/PaneAgents/
+  App-owned launch and lifecycle surface for pane-agent child processes.
+  Requests bootstrap descriptors from AgentStudioAppIPC, remaps the token fd
+  into the helper, cancels unused bootstraps on spawn failure, and calls the
+  server revocation seam when pane-agent authority must end.
+
+Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift
+  App-owned live IPC server composition and lifecycle. It may import
+  AgentStudioAppIPC and concrete app owners because it is in the executable
+  target; reusable AppIPC policy and protocol code still belongs in
+  Sources/AgentStudioAppIPC/.
+```
+
+This target split keeps `App/IPC` from becoming a god box. IPC services own
+transport-adjacent policy and protocol contracts; app behavior still belongs to
+the existing app/runtime owners behind narrow ports.
+
+See [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) for the
+request authority path, auth model, permission grants, and zmx boundary.
 
 ---
 

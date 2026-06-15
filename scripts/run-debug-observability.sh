@@ -634,11 +634,13 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
   launch_data_root="$debug_root/runs/$trace_name"
 fi
 launch_zmx_dir="$launch_data_root/z"
+launch_ipc_socket_dir="${AGENTSTUDIO_IPC_SOCKET_DIR:-$debug_root/ipc-socket}"
 otlp_endpoint="$(/usr/bin/env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$STACK_HELPER" collector-url)"
 otlp_protocol=http/protobuf
 
 launch_log="${AGENTSTUDIO_OBSERVABILITY_LAUNCH_LOG:-$debug_root/logs/$trace_name.log}"
-mkdir -p "$(dirname "$launch_log")" "$(dirname "$state_file")" "$trace_dir" "$debug_root" "$launch_data_root" "$launch_zmx_dir"
+mkdir -p "$(dirname "$launch_log")" "$(dirname "$state_file")" "$trace_dir" "$debug_root" "$launch_data_root" "$launch_zmx_dir" "$launch_ipc_socket_dir"
+chmod 700 "$debug_root" "$launch_data_root" "$launch_zmx_dir" "$launch_ipc_socket_dir"
 : >"$launch_log"
 query_start="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -662,6 +664,7 @@ clean_open_env=(
 
 open_env_args=(
     --env "AGENTSTUDIO_DATA_DIR=$launch_data_root" \
+    --env "AGENTSTUDIO_IPC_SOCKET_DIR=$launch_ipc_socket_dir" \
     --env "AGENTSTUDIO_TRACE_TAGS=$trace_tags" \
     --env "AGENTSTUDIO_TRACE_FLUSH=$trace_flush" \
     --env "AGENTSTUDIO_TRACE_BACKEND=$trace_backend" \
@@ -677,6 +680,12 @@ fi
 if [ -n "${AGENTSTUDIO_RESTORE_TRACE:-}" ]; then
   open_env_args+=(--env "AGENTSTUDIO_RESTORE_TRACE=$AGENTSTUDIO_RESTORE_TRACE")
 fi
+if [ -n "${AGENTSTUDIO_IPC_UNSAFE_NO_AUTH:-}" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=$AGENTSTUDIO_IPC_UNSAFE_NO_AUTH")
+fi
+if [ -n "${AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW:-}" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=$AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW")
+fi
 
 direct_launch_env=(
   /usr/bin/env
@@ -688,6 +697,7 @@ direct_launch_env=(
   "TMPDIR=${TMPDIR:-/tmp}"
   "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
   "AGENTSTUDIO_DATA_DIR=$launch_data_root"
+  "AGENTSTUDIO_IPC_SOCKET_DIR=$launch_ipc_socket_dir"
   "AGENTSTUDIO_TRACE_TAGS=$trace_tags"
   "AGENTSTUDIO_TRACE_FLUSH=$trace_flush"
   "AGENTSTUDIO_TRACE_BACKEND=$trace_backend"
@@ -702,6 +712,12 @@ if [ -n "$startup_diagnostic_action" ]; then
 fi
 if [ -n "${AGENTSTUDIO_RESTORE_TRACE:-}" ]; then
   direct_launch_env+=("AGENTSTUDIO_RESTORE_TRACE=$AGENTSTUDIO_RESTORE_TRACE")
+fi
+if [ -n "${AGENTSTUDIO_IPC_UNSAFE_NO_AUTH:-}" ]; then
+  direct_launch_env+=("AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=$AGENTSTUDIO_IPC_UNSAFE_NO_AUTH")
+fi
+if [ -n "${AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW:-}" ]; then
+  direct_launch_env+=("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=$AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW")
 fi
 
 launch_method=launchservices

@@ -45,9 +45,10 @@ final class ActionExecutor {
 
     func dispatchRuntimeCommand(
         _ command: RuntimeCommand,
-        target: RuntimeCommandTarget
+        target: RuntimeCommandTarget,
+        correlationId: UUID? = nil
     ) async -> ActionResult {
-        await coordinator.dispatchRuntimeCommand(command, target: target)
+        await coordinator.dispatchRuntimeCommand(command, target: target, correlationId: correlationId)
     }
 
     // MARK: - High-Level Operations
@@ -134,7 +135,8 @@ final class ActionExecutor {
     }
 
     /// Validate/canonicalize a PaneActionCommand against current state, then execute it.
-    func execute(_ action: PaneActionCommand) {
+    @discardableResult
+    func execute(_ action: PaneActionCommand) -> Bool {
         let tabLayout = store.tabLayoutAtom
         let repositoryTopology = store.repositoryTopologyAtom
         let snapshot = WorkspaceCommandResolver.snapshot(
@@ -152,10 +154,12 @@ final class ActionExecutor {
         switch WorkspaceCommandValidator.validate(action, state: snapshot) {
         case .success(let validated):
             coordinator.execute(validated.action)
+            return true
         case .failure(let error):
             Self.logger.warning(
                 "Action rejected: \(String(describing: action), privacy: .public) reason=\(String(describing: error), privacy: .public)"
             )
+            return false
         }
     }
 

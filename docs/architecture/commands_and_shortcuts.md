@@ -92,6 +92,15 @@ keyboard shortcuts. If a command works from a button but not from
 `Cmd-P`, the execution owner is probably wrong or the command is using a
 side channel instead of the same binding/state model as the button.
 
+Programmatic control uses the same command metadata, but it does not treat
+command-bar presentation as command execution. App IPC reserves `command.*` for
+headless semantic commands and exposes command-bar presentation explicitly as
+`ui.commandBar.open`; see
+[AgentStudio IPC Architecture](agentstudio_ipc_architecture.md#command-and-ui-presentation-boundary).
+If a command row only opens a chooser or requires interactive input, add a
+semantic IPC method with explicit parameters before exposing it through
+`command.execute`.
+
 ## Navigation And Terminal Shortcut Map
 
 | Command | Shortcut | Owner | Notes |

@@ -592,6 +592,7 @@ extension PaneCoordinator {
                 .path
             if let drawerPane = store.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) {
                 prepareTerminalPaneSlot(drawerPane)
+                registerTerminalPlaceholderIfNeeded(for: drawerPane, mode: .preparing)
                 guard let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId else {
                     Self.logger.error("addDrawerPane: parent pane \(parentPaneId) has no drawer after pane creation")
                     store.paneAtom.removeDrawerPane(drawerPane.id, from: parentPaneId)

@@ -18,6 +18,8 @@ private final class TerminationDrainCompletion: @unchecked Sendable {
 
 extension AppDelegate {
     func flushApplicationStateBeforeTermination(store: WorkspaceStore) async {
+        stopAppIPCServer()
+
         do {
             try await repoCacheStore.flushAsync(for: store.identityAtom.workspaceId)
         } catch {

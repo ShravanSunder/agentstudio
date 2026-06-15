@@ -22,6 +22,35 @@ First-time setup: `mise install && mise run doctor-mac && mise run setup && mise
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint automatically after every Edit/Write on `.swift` files.
 
+## Progressive Disclosure For Agents
+
+Use repo knowledge in layers. Start from the smallest source of truth that owns
+the question, then inspect current code/tests before making claims.
+
+1. Orientation: this file is the repo operating contract. Use
+   [Agent Resources](docs/guides/agent_resources.md) for bootstrap and research
+   sources, and [Architecture Overview](docs/architecture/README.md) for the
+   architecture index.
+2. Architecture: open the one architecture doc for the concern before broad
+   searching. Examples: [Directory Structure](docs/architecture/directory_structure.md)
+   for placement, [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md)
+   for command routing, [Observability And Traceability](docs/architecture/observability_and_traceability.md)
+   for trace/proof rules, and [AgentStudio IPC Architecture](docs/architecture/agentstudio_ipc_architecture.md)
+   for programmatic-control boundaries.
+3. Testing: climb the proof pyramid. Start with focused Swift tests for the
+   changed code, then `mise run lint`; use `mise run test` for broad repo
+   health when the scope calls for it. Do not call unit tests, mocks, or fake
+   integration coverage a smoke. If a higher proof layer is blocked, report the
+   blocker separately from the passing lower-layer proof.
+4. Observability: use the shared Victoria path below. AgentStudio produces
+   telemetry; the shared stack owns VictoriaMetrics, VictoriaLogs, and
+   VictoriaTraces. Prefer marker-scoped verifiers over screenshots, stale JSONL,
+   or ad hoc log scraping.
+5. Native UI debugging: prefer headless proof first. When visual/native
+   interaction proof is required, run a debug or beta app and use Peekaboo with
+   PID targeting. Treat Peekaboo evidence as visual/render/interaction proof,
+   not a replacement for unit, integration, or observability proof.
+
 ## Local Observability
 
 AgentStudio is an observability producer only. Do not add Docker Compose,
@@ -405,7 +434,12 @@ Swift compile times are long. A wrong UX assumption wastes minutes per iteration
 
 ### Visual Verification
 
-Agents **must** visually verify all UI/UX changes using Peekaboo. **Never target apps by name** when testing debug builds — use PID targeting. **Never `pkill` AgentStudio** — it kills the user's running app. The build dir is auto-allocated by `mise run build` (see [Running Swift Commands — Detail](#running-swift-commands--detail)); locate the binary and launch from there:
+Agents **must** visually verify all UI/UX changes using Peekaboo after the
+lower proof layers that apply to the change. **Never target apps by name** when
+testing debug builds — use PID targeting. **Never `pkill` AgentStudio** — it
+kills the user's running app. The build dir is auto-allocated by `mise run build`
+(see [Running Swift Commands — Detail](#running-swift-commands--detail)); locate
+the binary and launch from there:
 
 ```bash
 mise run build                              # claims a slot, prints "[swift-build-slot] using .build-agent-N"

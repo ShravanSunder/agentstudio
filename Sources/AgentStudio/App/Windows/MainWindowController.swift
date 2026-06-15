@@ -124,6 +124,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         applicationLifecycleMonitor.handleWindowDidResignKey(windowId)
     }
 
+    func makePaneFocusAppControl(store: WorkspaceStore) -> (any PaneFocusAppControlling)? {
+        splitViewController?.makePaneFocusAppControl(store: store)
+    }
+
     private func saveWindowFrame() {
         guard let frame = window?.frame else { return }
         workspaceWindowMemoryAtom.setWindowFrame(frame)
