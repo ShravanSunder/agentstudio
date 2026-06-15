@@ -203,7 +203,7 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             guard start.duration(to: ContinuousClock.now) <= timeout else {
                 throw AppIPCRuntimeError(reason: .timeout)
             }
-            try? await Task.sleep(for: .milliseconds(10))
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 

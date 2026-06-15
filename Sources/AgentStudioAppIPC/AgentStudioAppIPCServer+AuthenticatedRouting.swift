@@ -104,7 +104,7 @@ extension AgentStudioAppIPCServer {
         case "terminal.wait":
             let params = try decodeParams(TerminalWaitParams.self, from: request.params)
             let handle = try IPCHandle.parse(params.handle)
-            let timeout = Duration.milliseconds(Int64((params.timeoutSeconds * 1000).rounded(.up)))
+            let timeout = try Self.validatedTimeout(from: params.timeoutSeconds)
             let result = try await service.ports.runtimePort.waitForTerminal(
                 handle,
                 condition: params.condition,
@@ -115,6 +115,18 @@ extension AgentStudioAppIPCServer {
         default:
             throw AgentStudioAppIPCRequestError.methodNotFound
         }
+    }
+
+    private static func validatedTimeout(from timeoutSeconds: Double) throws -> Duration {
+        let maxTimeoutMilliseconds: Int64 = 86_400_000
+        guard timeoutSeconds.isFinite, timeoutSeconds >= 0 else {
+            throw AgentStudioAppIPCRequestError.invalidParams
+        }
+        let timeoutMilliseconds = (timeoutSeconds * 1000).rounded(.up)
+        guard timeoutMilliseconds <= Double(maxTimeoutMilliseconds) else {
+            throw AgentStudioAppIPCRequestError.invalidParams
+        }
+        return .milliseconds(Int64(timeoutMilliseconds))
     }
 
     private func processCommandOrUIRequest(_ request: JSONRPCRequest) async throws -> JSONValue {

@@ -570,11 +570,11 @@ final class SurfaceManager {
     }
 
     private func sendTextChunk(_ text: String, to surface: ghostty_surface_t) {
-        let length = text.utf8CString.count
-        guard length > 1 else { return }
+        let length = text.utf8.count
+        guard length > 0 else { return }
 
         text.withCString { ptr in
-            ghostty_surface_text(surface, ptr, UInt(length - 1))
+            ghostty_surface_text(surface, ptr, UInt(length))
         }
     }
 

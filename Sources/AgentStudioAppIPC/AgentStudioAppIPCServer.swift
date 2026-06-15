@@ -205,7 +205,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
         while true {
             do {
-                let data = try connection.receive(maxBytes: min(maxFrameBytes, 16_384))
+                let data = try await receiveFrameData(from: connection)
                 guard !data.isEmpty else { return }
                 let frames = try decoder.append(data)
                 for frame in frames {
@@ -579,6 +579,19 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         lifecycleLock.withLock {
             _ = activeConnections.removeValue(forKey: connection.fileDescriptor)
             _ = activeConnectionPrincipals.removeValue(forKey: connection.fileDescriptor)
+        }
+    }
+
+    private func receiveFrameData(from connection: UnixSocketConnection) async throws -> Data {
+        let readLimit = min(maxFrameBytes, 16_384)
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    continuation.resume(returning: try connection.receive(maxBytes: readLimit))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
     }
 

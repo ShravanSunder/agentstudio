@@ -284,6 +284,41 @@ struct AgentStudioAppIPCServiceTests {
         #expect(result.condition == .commandFinished)
     }
 
+    @Test("terminal wait rejects out-of-range timeout before runtime dispatch")
+    func terminalWaitRejectsOutOfRangeTimeoutBeforeRuntimeDispatch() throws {
+        let paneId = UUID()
+        let runtimePort = RecordingWaitRuntimePort(successfulPaneId: paneId)
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1)],
+            runtimePort: runtimePort
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(65),
+                method: "terminal.wait",
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "condition": .string(IPCTerminalWaitCondition.commandFinished.rawValue),
+                    "timeoutSeconds": .number(86_400.001),
+                ])
+            )
+        )
+
+        #expect(response.id == .number(65))
+        #expect(response.error?.code == -32_602)
+        #expect(response.error?.message == "invalid params")
+        #expect(response.result == nil)
+        #expect(runtimePort.lastHandle == nil)
+    }
+
     @Test("non-debug server channels ignore unsafe no-auth access mode")
     func nonDebugServerChannelsIgnoreUnsafeNoAuthAccessMode() throws {
         let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .beta)
