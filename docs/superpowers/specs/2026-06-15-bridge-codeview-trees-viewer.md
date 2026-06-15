@@ -26,6 +26,80 @@ Annotation anchors may be rendered later through CodeView line/range metadata,
 but durable comment bodies, markdown note editing, and review artifact
 persistence are not part of this milestone.
 
+## App IPC Control Boundary
+
+The merged AgentStudio IPC foundation is now available to LUNA-338. Bridge
+should use it for headless e2e testing and future agent control, but IPC
+integrates with Bridge as a product capability, not as BridgeWeb control.
+
+The ownership model is:
+
+```
+External client
+  -> AgentStudio IPC JSON-RPC method
+  -> authentication, authorization, handle/target resolution
+  -> Bridge capability port
+  -> Bridge app/runtime owner
+  -> BridgeWeb transport only if the Bridge owner chooses to update WebKit
+```
+
+BridgeWeb remains a pane renderer and page transport. It must not become an IPC
+subsystem. IPC must not expose generic methods such as
+`webview.evaluateJavaScript`, `bridge.rawPostMessage`, `bridge.rawPush`,
+`eventBus.publish`, or `zmx.*`.
+
+Bridge IPC methods should be semantic and typed in
+`AgentStudioProgrammaticControl`. Preferred initial methods are:
+
+- `bridge.review.open`
+- `bridge.review.refresh`
+- `bridge.review.getPackage`
+- `bridge.review.selectFile`
+- `bridge.review.markViewed`
+- `bridge.content.get`
+- `bridge.telemetry.flush`
+
+Only methods with real product owners should enter the method catalog. A method
+that would need a fake success, a raw WebKit call, command-bar UI automation, or
+EventBus command routing is out of scope until a semantic Bridge capability port
+exists.
+
+Bridge IPC authorization must be capability-scoped through the repo's closed
+`IPCPrivilegeClass`, `IPCDataScope`, and `IPCPermissionScope` model. The design
+intent maps to these privileges:
+
+- Bridge review metadata read
+- Bridge content-handle read
+- Bridge control: open, refresh, select, mark viewed
+- Bridge telemetry read
+- Bridge telemetry flush
+
+Pane-bound agents should normally have only self-pane Bridge access. Cross-pane
+or workspace/global Bridge access requires explicit delegated policy or grants.
+
+Target resolution must land on a live Bridge pane. Existing `pane:<id>` and
+friendly pane handles are acceptable for the first slice. If the implementation
+needs active/current pane handles or `surface:<id>`, extend the IPC handle model
+explicitly and test it. A terminal, webview, or missing pane target must fail
+with a typed unsupported-target outcome instead of fallback behavior.
+
+Content access should prefer Bridge content handles over raw paths. A package
+read may return item metadata and handles. `bridge.content.get` validates the
+handle, package id, review generation, role, and bounds before returning
+content. Raw filesystem paths, arbitrary refs, hashes, prompt text, or source
+paths must not become IPC payload shortcuts.
+
+Bridge IPC events are notification-only facts:
+
+- `bridge.review.updated`
+- `bridge.file.selected`
+- `bridge.content.ready`
+- `bridge.telemetry.sampled`
+
+Events must not be used as command routing. Commands go through the IPC method
+registry, authorization, target resolution, and Bridge capability ports. Events
+are emitted after Bridge owners mutate state.
+
 ## Current State
 
 `LUNA-337` established the source-provider-neutral review foundation:
@@ -43,6 +117,12 @@ persistence are not part of this milestone.
 BridgeWeb currently renders a plain shell: package summary, visible file list,
 selection, and selected-item content in a text block. It does not yet depend on
 `@pierre/diffs`, `@pierre/trees`, or worker-backed Shiki highlighting.
+
+`origin/main` now also includes the phase-one AgentStudio IPC foundation:
+typed JSON-RPC contracts, method definitions, permission scopes, event
+subscriptions, command/UI separation, and app composition adapters. The current
+IPC method catalog does not yet include Bridge semantic methods, so LUNA-338's
+implementation plan must add them explicitly if the e2e proof needs Bridge IPC.
 
 That means `LUNA-338` is not a cosmetic swap of one component. It must add the
 viewer ownership layers that sit between the review package and Pierre's
@@ -1769,6 +1849,12 @@ Implementation planning must include at least these gates:
   requesting a new package or fetching content.
 - Unit: telemetry validator accepts the new low-cardinality viewer event names
   and rejects unknown or high-cardinality event names/attributes.
+- Unit: Bridge IPC method definitions and DTOs expose only semantic `bridge.*`
+  methods with typed params/results and closed privilege/data scopes.
+- Unit: Bridge IPC target resolution accepts Bridge panes and rejects terminal,
+  webview, missing, or unsupported targets with typed errors.
+- Unit: Bridge IPC registry/routing tests prove generic WebKit/raw-post,
+  EventBus command, and `zmx.*` methods are absent.
 - Unit: dependency/export smoke imports the installed Pierre package entry
   points used by BridgeWeb.
 - Unit: out-of-scope handle-resolution, `openFile`, and `readTree` requests
@@ -1798,10 +1884,20 @@ Implementation planning must include at least these gates:
 - Integration: unmount one of two mounted Bridge panes, then verify the
   remaining pane still completes a worker-backed highlight and survives a
   follow-up CodeView item update.
+- Integration: Bridge IPC can resolve a Bridge pane, read package metadata,
+  select a file, and fetch selected content through a Bridge content handle
+  without raw paths.
+- Integration: pane-bound IPC principals can access their own Bridge pane but
+  cannot read another pane's Bridge content without an explicit grant.
+- Integration: Bridge IPC events are emitted after Bridge-owned state changes
+  and are not used as command routing.
 - WKWebView smoke: packaged app JS, CSS, and worker chunks load from
   `agentstudio://app/*`.
 - WKWebView smoke: selected worker factory path creates a worker and completes
   a real highlight task inside the packaged macOS pane.
+- IPC e2e smoke: a debug IPC client can create or target a Bridge pane,
+  refresh/load a review package, list files, select a file, fetch selected
+  content, observe Bridge events, and prove command-bar UI was not opened.
 - Observability proof: viewer metrics appear through the existing debug OTLP
   path with trace correlation across package push, content fetch, and worker
   highlight.

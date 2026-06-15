@@ -511,6 +511,15 @@ requests pending until an explicit app/user/policy approver flow is implemented.
 - Do not implement MCP in the phase-1 IPC server. MCP should be an adapter over
   the same semantic method registry after the local RPC contract is stable.
 
+Future product capabilities such as Bridge should follow the same semantic
+port pattern. IPC may expose typed product methods such as `bridge.review.*` or
+`bridge.content.*`, but it must not expose renderer transports such as raw
+WebKit JavaScript evaluation, raw BridgeWeb post messages, app event-bus command
+routing, raw filesystem paths, or backend-daemon namespaces. IPC owns
+authentication, authorization, handle resolution, and permission checks. The
+product capability owner decides how to satisfy the request and whether any
+renderer transport needs to be updated.
+
 ## Enforcement
 
 Compile-time target boundaries provide the first guardrail:

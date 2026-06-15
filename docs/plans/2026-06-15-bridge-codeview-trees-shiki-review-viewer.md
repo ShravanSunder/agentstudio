@@ -2,7 +2,7 @@
 
 Planned at: `luna-338-pierreshikitrees-review-viewer`
 Repo: `/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start`
-Status: reviewed, ready for implementation-execute-plan
+Status: implementation in progress; IPC merge follow-up added after `origin/main`
 Linear: `LUNA-338`
 
 ## Goal
@@ -17,6 +17,12 @@ The implementation must keep the Bridge data model intact: Swift pushes compact
 metadata and validates privileged reads; BridgeWeb owns projection, selection,
 renderer adapters, and visible-content hydration; Pierre owns rendering and
 syntax-highlighting primitives only.
+
+After the merge of the AgentStudio IPC foundation from `origin/main`, LUNA-338
+also needs a semantic Bridge IPC/e2e lane. IPC must integrate with Bridge as a
+product capability through typed app-level methods and ports. It must not expose
+BridgeWeb/WebKit transport internals, drive command-palette UI, publish command
+events, or bypass Bridge's content-handle and telemetry boundaries.
 
 ## Source Coverage
 
@@ -43,6 +49,10 @@ Related live repo evidence inspected:
 - `.mise.toml` BridgeWeb, WebKit, benchmark, and observability tasks
 - `Sources/AgentStudio/Features/Bridge/**`
 - `Tests/AgentStudioTests/Features/Bridge/**`
+- `Sources/AgentStudioProgrammaticControl/IPC*.swift`
+- `Sources/AgentStudioAppIPC/**`
+- `Sources/AgentStudio/App/IPCComposition/**`
+- `docs/architecture/agentstudio_ipc_architecture.md`
 - Pierre local reference files under
   `/Users/shravansunder/Documents/dev/open-source/libs-react/pierre`
 
@@ -79,6 +89,12 @@ Pierre reference anchors:
   `Tests/AgentStudioTests/Features/Bridge`.
 - Existing `test-benchmark` is Swift push benchmark oriented; this plan must
   extend benchmark proof for the viewer rather than relabeling that gate.
+- After the `origin/main` merge, phase-one AgentStudio IPC exists with typed
+  JSON-RPC contracts, method definitions, privilege/data scopes, event
+  subscriptions, command/UI separation, and app composition adapters. The
+  current method catalog does not yet expose `bridge.*` methods. Bridge IPC must
+  be added as a new product capability port rather than by calling raw WebKit,
+  command-bar presentation, or EventBus command routing.
 
 ## Non-Goals
 
@@ -94,6 +110,10 @@ Pierre reference anchors:
 - No runtime benchmark fixture generation in packaged app code.
 - No replacement of `BridgeReviewPackage`, `BridgeReviewDelta`, or content
   handle contracts with Pierre-specific DTOs.
+- No public IPC methods such as `webview.evaluateJavaScript`,
+  `bridge.rawPostMessage`, `bridge.rawPush`, `eventBus.publish`, or `zmx.*`.
+  IPC can call only semantic Bridge capability methods whose params/results are
+  typed in `AgentStudioProgrammaticControl`.
 
 ## Requirements / Proof Matrix
 
@@ -127,6 +147,25 @@ Proof layer:
 unit, lint/check.
 Red/green:
 required for at least one forbidden `review-viewer/state` effect import/call.
+
+Requirement / claim:
+AgentStudio IPC exposes Bridge only through semantic capability methods and
+typed ports, not through BridgeWeb/WebKit internals or command-palette UI.
+Proof source:
+`AgentStudioProgrammaticControl` Bridge IPC DTOs and method definitions,
+`AgentStudioAppIPC` registry/routing tests, `AgentStudio/App/IPCComposition`
+Bridge adapter tests, IPC permission tests, and debug IPC e2e proof.
+Proof owner:
+Swift IPC/Bridge tests and implementation parent.
+Stale-proof guard:
+capabilities query from the current debug app must list the implemented
+`bridge.*` methods; negative tests prove generic WebKit/raw-post/event-bus
+methods are absent.
+Proof layer:
+unit, integration, IPC e2e/smoke.
+Red/green:
+required for unsupported-target, unauthorized cross-pane content, and
+command-bar-not-opened behavior.
 
 Requirement / claim:
 New LUNA-338 viewer-local TypeScript contracts follow Zod model conventions:
@@ -886,6 +925,124 @@ mise run run-debug-observability -- --detach
 - `mise run verify-bridge-observability`
 - `mise run bridge-viewer-benchmark`
 
+### Task 10: Semantic Bridge IPC Capability And E2E Proof
+
+Purpose:
+use the merged AgentStudio IPC foundation for headless Bridge testing and future
+agent control without turning BridgeWeb into the IPC subsystem.
+
+Likely write surfaces:
+
+- `Sources/AgentStudioProgrammaticControl/IPCBridgeContracts.swift` or adjacent
+  IPC contract files
+- `Sources/AgentStudioProgrammaticControl/IPCContracts.swift`
+- `Sources/AgentStudioProgrammaticControl/IPCEventContracts.swift`
+- `Sources/AgentStudioAppIPC/AgentStudioIPCRegistryAuthorization.swift`
+- `Sources/AgentStudioAppIPC/AgentStudioAppIPCServer+AuthenticatedRouting.swift`
+- `Sources/AgentStudioAppIPC/AgentStudioAppIPCService.swift` only for port
+  shape if needed
+- `Sources/AgentStudio/App/IPCComposition/AgentStudioIPCBridgeAdapter.swift`
+- `Sources/AgentStudio/Features/Bridge/**` only for explicit capability ports
+  and runtime/controller seams
+- `Sources/AgentStudioIPCClientCore/**` only if the CLI needs first-class
+  bridge verbs for e2e proof
+- `Tests/AgentStudioAppIPCTests/**`
+- `Tests/AgentStudioProgrammaticControlTests/**`
+- `Tests/AgentStudioTests/App/IPC/**`
+- `Tests/AgentStudioTests/Features/Bridge/**`
+- `docs/architecture/agentstudio_ipc_architecture.md` after implementation
+
+Work:
+
+1. Keep BridgeWeb as a pane renderer. IPC targets Bridge the product
+   capability, then the Bridge owner decides whether to push WebKit state,
+   refresh package state, read cached metadata, or resolve content handles.
+2. Add a Bridge capability port under `AgentStudioAppIPC` and a concrete
+   `AgentStudioIPCBridgeAdapter` under app IPC composition. The reusable IPC
+   target owns policy and port protocols only; concrete Bridge controller,
+   pane, runtime, and app-state imports belong in the app composition adapter or
+   Bridge feature owners.
+3. Add typed public IPC contracts for the first semantic methods. Preferred
+   initial surface:
+   - `bridge.review.open`
+   - `bridge.review.refresh`
+   - `bridge.review.getPackage`
+   - `bridge.review.selectFile`
+   - `bridge.review.markViewed`
+   - `bridge.content.get`
+   - `bridge.telemetry.flush`
+
+   If a method lacks a real product owner in this slice, do not stub it as a
+   fake success. Leave it out of the method catalog and record the follow-up.
+4. Extend capability-scoped authorization with closed privilege/data scopes for
+   Bridge, for example:
+   - `bridgeRead` for review package metadata, selected item, and status
+   - `bridgeContentRead` for content-handle reads
+   - `bridgeControl` for refresh, select file, mark viewed, and open
+   - `bridgeTelemetryRead` for Bridge health summaries
+   - `bridgeTelemetryFlush` for explicit telemetry flush
+
+   Use the repo's actual `IPCPrivilegeClass`, `IPCDataScope`, and
+   `IPCPermissionScope` model. Do not implement stringly permission atoms
+   outside those closed enums.
+5. Resolve targets through IPC handles before touching Bridge:
+   - active/current pane when the IPC target model supports it
+   - `pane:<id>` and friendly pane handles
+   - optional `surface:<id>` only if the IPC handle model is explicitly extended
+
+   The resolver must prove the target is a live Bridge pane. Non-Bridge panes
+   fail with a typed unsupported-target error, not fallback magic.
+6. Prefer stable Bridge content handles over raw paths. `bridge.review.getPackage`
+   may return package item metadata and handles; `bridge.content.get` validates
+   the handle, package id, review generation, role, and content bounds before
+   returning content. Raw filesystem paths, arbitrary refs, and private hashes
+   must not cross IPC.
+7. Add Bridge IPC events as notifications only, not command routing:
+   - `bridge.review.updated`
+   - `bridge.file.selected`
+   - `bridge.content.ready`
+   - `bridge.telemetry.sampled`
+
+   Events describe facts after Bridge owners mutate state. IPC requests must
+   still go through method registry, authorization, target resolution, and
+   capability ports.
+8. Keep command/UI separation:
+   - do not make `command.execute` open Bridge through command-bar UI
+   - do not make Bridge IPC call `ui.commandBar.open`
+   - if `bridge.review.open` is added, it routes to the same semantic owner as
+     `ActionExecutor.openBridgeReview()` or a narrower Bridge pane-opening port
+9. Add app/IPC tests proving:
+   - method catalog lists only the implemented `bridge.*` semantic methods
+   - generic WebKit/raw-post/event-bus methods are not present
+   - target resolution accepts Bridge panes and rejects terminal/webview panes
+   - pane-bound principals can access their own Bridge pane only by default
+   - unauthorized pane agents cannot read another pane's Bridge content
+   - `command.execute` does not present command-bar UI for Bridge behavior
+10. Add debug IPC e2e proof after the viewer surface is mounted:
+   - create/open a Bridge pane
+   - refresh or load a review package
+   - list current package/files
+   - select a file headlessly
+   - fetch selected file/diff content through a content handle
+   - observe a Bridge update/selection/content event
+   - verify no command-bar UI was opened
+   - verify unauthorized cross-pane Bridge content read is rejected
+
+Proof:
+
+- `mise run test -- --filter IPCContracts`
+- `mise run test -- --filter AgentStudioAppIPC`
+- `mise run test -- --filter AgentStudioIPCBridge`
+- debug IPC e2e/smoke command once the CLI or JSON-RPC harness has Bridge verbs
+- `mise run lint`
+
+Commands:
+
+- `mise run test -- --filter IPCContracts`
+- `mise run test -- --filter AgentStudioAppIPC`
+- `mise run test -- --filter AgentStudioIPCBridge`
+- `mise run lint`
+
 ## Validation Pyramid
 
 Unit:
@@ -898,6 +1055,8 @@ Unit:
 - Trees controller update decisions
 - architecture boundary checker
 - telemetry validator allowlist
+- Bridge IPC contract DTOs and method definitions
+- Bridge IPC authorization scopes and target resolver unsupported-target cases
 
 Integration:
 
@@ -908,6 +1067,10 @@ Integration:
 - medium-review fixture projections/filters with no eager content fetch
 - large-tree projection/Tree model without raw bodies in Zustand
 - multi-pane worker-pool isolation
+- Bridge IPC adapter resolves Bridge panes and rejects non-Bridge panes
+- Bridge IPC content reads validate handles instead of raw paths
+- Bridge IPC event notifications are emitted only after Bridge-owned state
+  changes
 
 Smoke / WebKit:
 
@@ -915,6 +1078,8 @@ Smoke / WebKit:
 - packaged Pierre worker loads and highlights inside WKWebView
 - selected resource content loads from `agentstudio://resource/content/...`
 - debug app smoke shows the viewer without breaking existing Bridge shell
+- debug IPC e2e opens/targets Bridge, selects a file, fetches content, observes
+  Bridge events, and proves command-bar UI was not used
 
 Benchmark:
 
@@ -938,6 +1103,10 @@ Observability:
   follow-up instead.
 - Stop if handle resolution requires broader source-provider APIs than active
   package item/endpoint/path validation.
+- Stop if Bridge IPC would require exposing raw WebKit evaluation/post-message,
+  EventBus command routing, raw filesystem paths, or command-palette UI
+  automation. Return to spec/design and add a semantic Bridge capability port
+  instead.
 - Stop if benchmark proof cannot be wired at the task size; split benchmark
   route/harness work rather than weakening the proof gate.
 - Stop before any source mutation, annotation persistence, editor behavior, or
@@ -973,13 +1142,18 @@ Observability:
   driven through the existing Swift `test-benchmark` lane?
 - Are existing descriptor content roles sufficient for slice 1, or is
   `review.resolveContentHandle` required?
+- Should Bridge IPC extend the handle model with an explicit active/current
+  pane target and/or `surface:<id>`, or should slice 1 accept only existing
+  `pane:<id>` and friendly pane handles?
+- Which initial `bridge.*` methods have real product owners in this slice, and
+  which should remain out of the method catalog until the owner exists?
 
 ## Next Workflow
 
 Run `shravan-dev-workflow:implementation-execute-plan` under
 `shravan-dev-workflow:orchestrator-goal`. Start with Task 0, then execute the
 tasks in order. Do not skip the dependency/export, packaged WKWebView,
-observability, benchmark, and boundary-check proof gates.
+observability, benchmark, semantic IPC, and boundary-check proof gates.
 
 ## Handoff Prompt
 
@@ -1000,6 +1174,10 @@ Required reading:
 - BridgeWeb/src/app/bridge-app.tsx
 - BridgeWeb/src/foundation/**
 - BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx
+- Sources/AgentStudioProgrammaticControl/IPC*.swift
+- Sources/AgentStudioAppIPC/**
+- Sources/AgentStudio/App/IPCComposition/**
+- docs/architecture/agentstudio_ipc_architecture.md
 - .mise.toml BridgeWeb/test-webkit/test-benchmark/observability tasks
 - Pierre reference files listed in the plan's Source Coverage section
 
@@ -1013,8 +1191,16 @@ Execution gates:
 - prove packaged Shiki worker loading in WKWebView
 - expand debug-only telemetry through Swift validator and Victoria proof
 - add and run bridge-viewer-benchmark before closing implementation
+- after the merged IPC foundation is present, add semantic Bridge IPC methods
+  through typed ProgrammaticControl contracts, AppIPC ports, and app composition
+  adapters; do not expose raw WebKit/postMessage/EventBus command routes
+- prove Bridge IPC e2e can open/target Bridge, select/fetch content, observe
+  Bridge events, and reject unauthorized cross-pane reads without opening
+  command-bar UI
 
 Do not add source editing, patch apply, annotation persistence, direct browser
 OTLP, cross-pane worker-pool singletons, package-private Pierre imports, or
-parallel old/new Bridge contract models.
+parallel old/new Bridge contract models. Do not expose generic IPC methods such
+as `webview.evaluateJavaScript`, `bridge.rawPostMessage`, `eventBus.publish`, or
+`zmx.*`.
 ```
