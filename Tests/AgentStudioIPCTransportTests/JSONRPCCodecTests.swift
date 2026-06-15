@@ -15,6 +15,27 @@ struct JSONRPCCodecTests {
         #expect(request.params == .object([:]))
     }
 
+    @Test("encodes client requests and decodes responses")
+    func encodesClientRequestsAndDecodesResponses() throws {
+        let request = try JSONRPCClientRequest(
+            id: .number(7),
+            method: "terminal.wait",
+            params: .object(["condition": .string("commandFinished")])
+        )
+
+        let encodedRequest = try JSONRPCCodec.encodeRequest(request)
+        let decodedRequest = try JSONRPCCodec.decodeRequest(encodedRequest)
+        let encodedResponse = try JSONRPCCodec.encodeResponse(
+            .success(id: .number(7), result: .object(["ok": .bool(true)]))
+        )
+        let decodedResponse = try JSONRPCCodec.decodeResponse(encodedResponse)
+
+        #expect(decodedRequest.id == .number(7))
+        #expect(decodedRequest.method == "terminal.wait")
+        #expect(decodedResponse.id == .number(7))
+        #expect(decodedResponse.result == .object(["ok": .bool(true)]))
+    }
+
     @Test("rejects batch arrays")
     func rejectsBatchArrays() throws {
         let payload = #"[{"jsonrpc":"2.0","id":"1","method":"system.identify","params":{}}]"#

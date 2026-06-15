@@ -89,6 +89,24 @@ public struct JSONRPCRequest: Equatable, Sendable {
     }
 }
 
+public struct JSONRPCClientRequest: Encodable, Equatable, Sendable {
+    public let jsonrpc: String
+    public let id: JSONRPCIdentifier
+    public let method: String
+    public let params: JSONValue?
+
+    public init(id: JSONRPCIdentifier, method: String, params: JSONValue?) throws {
+        guard !method.isEmpty else {
+            throw JSONRPCError(reason: .invalidMethod, message: "JSON-RPC request method must be non-empty")
+        }
+
+        jsonrpc = "2.0"
+        self.id = id
+        self.method = method
+        self.params = params
+    }
+}
+
 public struct JSONRPCError: Error, Equatable, Sendable {
     public enum Reason: String, Equatable, Sendable {
         case invalidJSON
@@ -172,6 +190,38 @@ public struct JSONRPCResponse: Encodable, Equatable, Sendable {
     }
 }
 
+public struct JSONRPCResponseMessage: Codable, Equatable, Sendable {
+    public let jsonrpc: String
+    public let id: JSONRPCIdentifier?
+    public let result: JSONValue?
+    public let error: JSONRPCErrorPayload?
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        jsonrpc = try container.decode(String.self, forKey: .jsonrpc)
+        id = try container.decodeIfPresent(JSONRPCIdentifier.self, forKey: .id)
+        result = try container.decodeIfPresent(JSONValue.self, forKey: .result)
+        error = try container.decodeIfPresent(JSONRPCErrorPayload.self, forKey: .error)
+
+        guard jsonrpc == "2.0" else {
+            throw JSONRPCError(reason: .invalidJSONRPCVersion, message: "JSON-RPC response version must be 2.0")
+        }
+        guard (result == nil) != (error == nil) else {
+            throw JSONRPCError(
+                reason: .invalidResponse,
+                message: "JSON-RPC response must include exactly one of result or error"
+            )
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case jsonrpc
+        case id
+        case result
+        case error
+    }
+}
+
 public struct JSONRPCNotification: Encodable, Equatable, Sendable {
     public let jsonrpc: String
     public let method: String
@@ -189,6 +239,28 @@ public struct JSONRPCNotification: Encodable, Equatable, Sendable {
 }
 
 public enum JSONRPCCodec {
+    public static func encodeRequest(_ request: JSONRPCClientRequest) throws -> String {
+        let encoder = JSONEncoder()
+
+        do {
+            let data = try encoder.encode(request)
+            guard let encoded = String(data: data, encoding: .utf8) else {
+                throw JSONRPCError(
+                    reason: .responseEncodingFailed,
+                    message: "JSON-RPC request was not valid UTF-8"
+                )
+            }
+            return encoded
+        } catch let error as JSONRPCError {
+            throw error
+        } catch {
+            throw JSONRPCError(
+                reason: .responseEncodingFailed,
+                message: "JSON-RPC request could not be encoded"
+            )
+        }
+    }
+
     public static func decodeRequest(_ payload: String) throws -> JSONRPCRequest {
         try decodeRequestPayload(payload, maxBytes: nil)
     }
@@ -257,6 +329,16 @@ public enum JSONRPCCodec {
                 reason: .responseEncodingFailed,
                 message: "JSON-RPC response could not be encoded"
             )
+        }
+    }
+
+    public static func decodeResponse(_ payload: String) throws -> JSONRPCResponseMessage {
+        do {
+            return try JSONDecoder().decode(JSONRPCResponseMessage.self, from: Data(payload.utf8))
+        } catch let error as JSONRPCError {
+            throw error
+        } catch {
+            throw JSONRPCError(reason: .invalidResponse, message: "Response body is not a valid JSON-RPC response")
         }
     }
 

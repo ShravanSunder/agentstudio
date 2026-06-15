@@ -7,7 +7,8 @@ let package = Package(
         .macOS(.v26)
     ],
     products: [
-        .executable(name: "AgentStudio", targets: ["AgentStudio"])
+        .executable(name: "AgentStudio", targets: ["AgentStudio"]),
+        .executable(name: "agentstudio-ipc", targets: ["AgentStudioIPCClient"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
@@ -98,6 +99,27 @@ let package = Package(
                 .swiftLanguageMode(.v6)
             ]
         ),
+        .target(
+            name: "AgentStudioIPCClientCore",
+            dependencies: [
+                "AgentStudioIPCTransport",
+                "AgentStudioProgrammaticControl",
+            ],
+            path: "Sources/AgentStudioIPCClientCore",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .executableTarget(
+            name: "AgentStudioIPCClient",
+            dependencies: [
+                "AgentStudioIPCClientCore"
+            ],
+            path: "Sources/AgentStudioIPCClient",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .testTarget(
             name: "AgentStudioIPCTransportTests",
             dependencies: [
@@ -126,6 +148,18 @@ let package = Package(
                 "AgentStudioProgrammaticControl",
             ],
             path: "Tests/AgentStudioAppIPCTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioIPCClientTests",
+            dependencies: [
+                "AgentStudioIPCClientCore",
+                "AgentStudioIPCTransport",
+                "AgentStudioProgrammaticControl",
+            ],
+            path: "Tests/AgentStudioIPCClientTests",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

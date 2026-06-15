@@ -28,9 +28,8 @@ The phase-1 foundation currently owns:
 - Event broker subscription state, notification encoding, visibility filtering,
   inbound server-event rejection, and slow-subscriber ejection.
 
-Follow-up implementation slices still own socket-server lifecycle wiring,
-CLI/client commands, and promotion of completed design material from the
-temporary spec/plan docs.
+Follow-up implementation slices still own socket-server lifecycle wiring and
+promotion of completed design material from the temporary spec/plan docs.
 
 ## Target Ownership
 
@@ -60,6 +59,17 @@ AgentStudio/App/IPCComposition
             PaneCoordinator, RuntimeRegistry, PaneRuntime, and app state
             owners.
   Imports:  AgentStudioAppIPC plus the concrete app modules it adapts.
+
+AgentStudioIPCClientCore
+  Owns:     CLI socket discovery, command-to-JSON-RPC request mapping, and
+            one-shot Unix socket client calls for smoke/use.
+  Imports:  AgentStudioIPCTransport and AgentStudioProgrammaticControl.
+  Must not: Import AgentStudioAppIPC or the AgentStudio executable target.
+
+AgentStudioIPCClient
+  Owns:     Thin `agentstudio-ipc` executable entrypoint.
+  Imports:  AgentStudioIPCClientCore.
+  Must not: Import app/runtime owner targets.
 ```
 
 The target split is intentionally stricter than the folder split. A file in
@@ -257,6 +267,27 @@ local client
 IPC methods are not command-bus messages. The app IPC layer validates method
 identity, principal authority, target scope, and grants before calling the
 smallest app-owned protocol port that can satisfy the operation.
+
+## CLI Boundary
+
+The phase-1 CLI ships as the `agentstudio-ipc` Swift executable product. Its
+implementation is split so tests can prove the dependency boundary:
+
+```
+agentstudio-ipc executable
+  -> AgentStudioIPCClientCore
+       discovers socket from --socket, AGENTSTUDIO_IPC_SOCKET,
+       AGENTSTUDIO_IPC_SOCKET_PATH, or --metadata runtime.json
+       maps CLI verbs to public method names and JSON params
+       sends one JSON-RPC request over Unix socket + NDJSON
+       validates one JSON-RPC response id
+  -> AgentStudioIPCTransport
+  -> AgentStudioProgrammaticControl
+```
+
+The CLI is a client/smoke surface, not an app-control owner. It cannot import
+`AgentStudioAppIPC` or the app executable target, so it cannot bypass auth,
+authorization, grants, or app/runtime owner ports.
 
 ## Auth And Permissions
 
