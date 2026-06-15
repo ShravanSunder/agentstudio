@@ -355,7 +355,11 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   if ! json_truthy_field \
     "agentstudio.startup_diagnostic.render_proof.succeeded" \
     "$diagnostic_completed_response"; then
-    echo "startup diagnostic completed without successful render proof for action $startup_diagnostic_action" >&2
+    if [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ]; then
+      echo "startup diagnostic completed without successful IPC terminal render proof for action $startup_diagnostic_action" >&2
+    else
+      echo "startup diagnostic completed without successful render proof for action $startup_diagnostic_action" >&2
+    fi
     echo "$diagnostic_completed_response" >&2
     exit 1
   fi
