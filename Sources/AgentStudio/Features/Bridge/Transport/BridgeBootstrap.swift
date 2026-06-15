@@ -41,11 +41,12 @@ enum BridgeBootstrap {
                     // Push state to page world via CustomEvent.
                     // Envelope metadata (__revision, __epoch) is lifted to detail level
                     // so receiver-side stale/epoch guards work without nested unwrapping.
-                    merge: function(store, data, revision, epoch, traceContext) {
+                    merge: function(store, data, revision, epoch, slice, traceContext) {
                         document.dispatchEvent(new CustomEvent('__bridge_push', {
                             detail: {
                                 op: 'merge',
                                 store: store,
+                                slice: slice,
                                 data: data,
                                 __revision: revision,
                                 __epoch: epoch,
@@ -54,11 +55,12 @@ enum BridgeBootstrap {
                             }
                         }));
                     },
-                    replace: function(store, data, revision, epoch, traceContext) {
+                    replace: function(store, data, revision, epoch, slice, traceContext) {
                         document.dispatchEvent(new CustomEvent('__bridge_push', {
                             detail: {
                                 op: 'replace',
                                 store: store,
+                                slice: slice,
                                 data: data,
                                 __revision: revision,
                                 __epoch: epoch,
@@ -71,6 +73,7 @@ enum BridgeBootstrap {
                         const op = envelope.op || 'replace';
                         const revision = envelope.__revision;
                         const epoch = envelope.__epoch;
+                        const slice = envelope.slice;
                         const traceContext = envelope.__traceContext || null;
                         const store = envelope.store;
                         const payload = envelope.payload !== undefined ? envelope.payload : envelope.data;
@@ -80,9 +83,9 @@ enum BridgeBootstrap {
                         }
                         // Forward envelope as data with metadata lifted to detail level.
                         if (op === 'merge') {
-                            this.merge(store, payload, revision, epoch, traceContext);
+                            this.merge(store, payload, revision, epoch, slice, traceContext);
                         } else {
-                            this.replace(store, payload, revision, epoch, traceContext);
+                            this.replace(store, payload, revision, epoch, slice, traceContext);
                         }
                     },
                     appendAgentEvents: function(events) {

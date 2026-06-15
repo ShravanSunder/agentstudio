@@ -70,5 +70,8 @@ final class RPCRouterTelemetryTests {
             telemetryBatch?.stringAttributes["agentstudio.bridge.telemetry.drop_reason"]
                 == BridgeTelemetryDropReason.encodedBatchTooLarge.rawValue
         )
+        #expect(telemetryBatch?.stringAttributes["agentstudio.bridge.plane"] == "observability")
+        #expect(telemetryBatch?.stringAttributes["agentstudio.bridge.priority"] == "best_effort")
+        #expect(telemetryBatch?.stringAttributes["agentstudio.bridge.slice"] == "telemetry_batch")
     }
 }

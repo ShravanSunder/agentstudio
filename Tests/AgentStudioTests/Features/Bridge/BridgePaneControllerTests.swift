@@ -542,11 +542,7 @@ extension WebKitSerializedTests {
             controller.paneState.connection.setHealth(.connected)
 
             await controller.pushJSON(
-                store: .diff,
-                op: .merge,
-                level: .hot,
-                revision: 1,
-                epoch: 1,
+                metadata: makePushMetadata(revision: 1),
                 json: Data([0xFF])
             )
 
@@ -561,11 +557,7 @@ extension WebKitSerializedTests {
 
             let validPayload = try JSONEncoder().encode(["ok": true])
             await controller.pushJSON(
-                store: .diff,
-                op: .merge,
-                level: .hot,
-                revision: 1,
-                epoch: 1,
+                metadata: makePushMetadata(revision: 1),
                 json: validPayload
             )
 
@@ -580,11 +572,7 @@ extension WebKitSerializedTests {
 
             controller.paneState.connection.setHealth(.connected)
             await controller.pushJSON(
-                store: .diff,
-                op: .merge,
-                level: .hot,
-                revision: 1,
-                epoch: 1,
+                metadata: makePushMetadata(revision: 1),
                 json: validPayload
             )
             #expect(controller.paneState.connection.health == .error)
@@ -593,11 +581,7 @@ extension WebKitSerializedTests {
             // transport, this call would be skipped and health would stay connected.
             controller.paneState.connection.setHealth(.connected)
             await controller.pushJSON(
-                store: .diff,
-                op: .merge,
-                level: .hot,
-                revision: 2,
-                epoch: 1,
+                metadata: makePushMetadata(revision: 2),
                 json: validPayload
             )
             #expect(controller.paneState.connection.health == .error)
@@ -913,6 +897,17 @@ extension WebKitSerializedTests {
             #expect(controller.paneState.diff.status == .error)
             #expect(controller.paneState.diff.error == "providerUnavailable")
             #expect(controller.paneState.diff.packageMetadata == nil)
+        }
+
+        private func makePushMetadata(revision: Int) -> BridgePushEnvelopeMetadata {
+            BridgePushEnvelopeMetadata(
+                store: .diff,
+                op: .merge,
+                level: .hot,
+                slice: .diffStatus,
+                revision: revision,
+                epoch: 1
+            )
         }
     }
 }

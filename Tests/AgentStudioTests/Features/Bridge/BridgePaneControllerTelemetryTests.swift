@@ -70,8 +70,17 @@ extension WebKitSerializedTests {
             #expect(deltaBuild.traceContext?.parentSpanId == packageBuild.traceContext?.spanId)
             #expect(contentRegister.traceContext?.parentSpanId == packageBuild.traceContext?.spanId)
             #expect(packageBuild.stringAttributes["agentstudio.bridge.phase"] == "package_build")
+            #expect(packageBuild.stringAttributes["agentstudio.bridge.plane"] == "data")
+            #expect(packageBuild.stringAttributes["agentstudio.bridge.priority"] == "cold")
+            #expect(packageBuild.stringAttributes["agentstudio.bridge.slice"] == "diff_package_metadata")
             #expect(deltaBuild.stringAttributes["agentstudio.bridge.phase"] == "delta_build")
+            #expect(deltaBuild.stringAttributes["agentstudio.bridge.plane"] == "data")
+            #expect(deltaBuild.stringAttributes["agentstudio.bridge.priority"] == "warm")
+            #expect(deltaBuild.stringAttributes["agentstudio.bridge.slice"] == "diff_package_delta")
             #expect(contentRegister.stringAttributes["agentstudio.bridge.phase"] == "content_register")
+            #expect(contentRegister.stringAttributes["agentstudio.bridge.plane"] == "data")
+            #expect(contentRegister.stringAttributes["agentstudio.bridge.priority"] == "cold")
+            #expect(contentRegister.stringAttributes["agentstudio.bridge.slice"] == "diff_package_metadata")
         }
 
         @Test("release-style telemetry policy disables bridge telemetry wiring")
@@ -94,7 +103,7 @@ extension WebKitSerializedTests {
             await controller.recordSwiftTelemetry(
                 name: "performance.bridge.swift.package_build",
                 phase: "package_build",
-                lane: .warm,
+                priorityHint: .warm,
                 traceContext: nil,
                 durationMilliseconds: 1
             )

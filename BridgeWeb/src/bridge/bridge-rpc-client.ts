@@ -47,9 +47,11 @@ export function createBridgeRPCClient(props: CreateBridgeRPCClientProps = {}): B
 					durationMilliseconds: null,
 					traceContext,
 					stringAttributes: {
-						'agentstudio.bridge.lane': 'warm',
 						'agentstudio.bridge.phase': 'send',
+						'agentstudio.bridge.plane': 'control',
+						'agentstudio.bridge.priority': 'warm',
 						'agentstudio.bridge.rpc.method_class': rpcMethodClass(command.method),
+						'agentstudio.bridge.slice': 'review_rpc',
 						'agentstudio.bridge.transport': 'rpc',
 					},
 					numericAttributes: {},

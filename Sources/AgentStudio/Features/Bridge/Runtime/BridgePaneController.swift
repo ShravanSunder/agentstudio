@@ -571,17 +571,29 @@ final class BridgePaneController {
             revisions: revisionClock,
             epoch: { [paneState] in paneState.diff.epoch },
             slices: {
-                Slice("diffStatus", store: .diff, level: .hot) { state in
+                Slice("diffStatus", telemetrySlice: .diffStatus, store: .diff, level: .hot) { state in
                     DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
                 }
-                Slice("diffPackageMetadata", store: .diff, level: .cold, op: .replace) { state in
+                Slice(
+                    "diffPackageMetadata",
+                    telemetrySlice: .diffPackageMetadata,
+                    store: .diff,
+                    level: .cold,
+                    op: .replace
+                ) { state in
                     DiffPackageMetadataSlice(package: state.packageMetadata)
                 }
-                Slice("diffPackageDelta", store: .diff, level: .warm, op: .merge) { state in
+                Slice(
+                    "diffPackageDelta",
+                    telemetrySlice: .diffPackageDelta,
+                    store: .diff,
+                    level: .warm,
+                    op: .merge
+                ) { state in
                     DiffPackageDeltaSlice(delta: state.packageDelta)
                 }
                 EntitySlice(
-                    "diffFiles", store: .diff, level: .cold,
+                    "diffFiles", telemetrySlice: .diffFiles, store: .diff, level: .cold,
                     capture: { state in state.files },
                     version: { file in file.version },
                     keyToString: { $0 }
@@ -600,12 +612,17 @@ final class BridgePaneController {
             epoch: { [paneState] in paneState.diff.epoch },
             slices: {
                 EntitySlice(
-                    "reviewThreads", store: .review, level: .warm,
+                    "reviewThreads", telemetrySlice: .reviewThreads, store: .review, level: .warm,
                     capture: { state in state.threads },
                     version: { thread in thread.version },
                     keyToString: { $0.uuidString }
                 )
-                Slice("reviewViewedFiles", store: .review, level: .warm) { state in
+                Slice(
+                    "reviewViewedFiles",
+                    telemetrySlice: .reviewViewedFiles,
+                    store: .review,
+                    level: .warm
+                ) { state in
                     state.viewedFiles.sorted()
                 }
             }
@@ -619,7 +636,7 @@ final class BridgePaneController {
             revisions: revisionClock,
             epoch: { 0 },
             slices: {
-                Slice("connectionHealth", store: .connection, level: .hot) { state in
+                Slice("connectionHealth", telemetrySlice: .connectionHealth, store: .connection, level: .hot) { state in
                     ConnectionSlice(health: state.connection.health, latencyMs: state.connection.latencyMs)
                 }
             }
@@ -633,7 +650,7 @@ final class BridgePaneController {
             revisions: revisionClock,
             epoch: { 0 },
             slices: {
-                Slice("commandAcks", store: .agent, level: .warm) { state in
+                Slice("commandAcks", telemetrySlice: .commandAcks, store: .agent, level: .warm) { state in
                     state.commandAcks
                 }
             }
@@ -701,11 +718,7 @@ private struct DedupEntry {
 
 extension BridgePaneController: PushTransport {
     func pushJSON(
-        store: StoreKey,
-        op: PushOp,
-        level: PushLevel,
-        revision: Int,
-        epoch: Int,
+        metadata: BridgePushEnvelopeMetadata,
         json: Data
     ) async {
         // Content guard — skip identical pushes to same store+op within the same epoch.
@@ -714,9 +727,9 @@ extension BridgePaneController: PushTransport {
         // identical bytes, because React needs to see epoch transitions for tracking.
         // Including op ensures .replace and .merge with identical bytes are not
         // deduplicated (they have different semantics).
-        let dedupKey = "\(store.rawValue):\(op.rawValue)"
+        let dedupKey = "\(metadata.store.rawValue):\(metadata.op.rawValue)"
         if let previous = lastPushed[dedupKey],
-            previous.epoch == epoch,
+            previous.epoch == metadata.epoch,
             previous.payload == json
         {
             return
@@ -724,17 +737,18 @@ extension BridgePaneController: PushTransport {
 
         // Phase 1: encode the push envelope (encoding bugs are NOT connection errors).
         let envelopeString: String
-        let traceContext = makePushTraceContext(for: store)
+        let traceContext = makePushTraceContext(for: metadata.store)
         do {
             let payload = try JSONSerialization.jsonObject(with: json)
             var envelope: [String: Any] = [
                 "__v": 1,
-                "__revision": revision,
-                "__epoch": epoch,
+                "__revision": metadata.revision,
+                "__epoch": metadata.epoch,
                 "__pushId": UUID().uuidString,
-                "store": store.rawValue,
-                "op": op.rawValue,
-                "level": level.rawValue,
+                "store": metadata.store.rawValue,
+                "op": metadata.op.rawValue,
+                "level": metadata.level.rawValue,
+                "slice": metadata.slice.rawValue,
                 "payload": payload,
             ]
             if let traceContext {
@@ -748,7 +762,7 @@ extension BridgePaneController: PushTransport {
             envelopeString = encoded
         } catch {
             bridgeControllerLogger.error(
-                "[Bridge] envelope encoding bug store=\(store.rawValue) rev=\(revision): \(error)"
+                "[Bridge] envelope encoding bug store=\(metadata.store.rawValue) rev=\(metadata.revision): \(error)"
             )
             return
         }
@@ -760,20 +774,20 @@ extension BridgePaneController: PushTransport {
                 arguments: ["json": envelopeString],
                 contentWorld: bridgeWorld
             )
-            lastPushed[dedupKey] = DedupEntry(epoch: epoch, payload: json)
+            lastPushed[dedupKey] = DedupEntry(epoch: metadata.epoch, payload: json)
             await recordPackagePushTelemetry(
-                level: level,
+                slice: metadata.slice,
                 traceContext: traceContext,
                 durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                     from: pushStart.duration(to: ContinuousClock.now)
                 )
             )
             bridgeControllerLogger.debug(
-                "[BridgePaneController] pushJSON store=\(store.rawValue) op=\(op.rawValue) level=\(String(describing: level)) rev=\(revision) epoch=\(epoch) bytes=\(json.count)"
+                "[BridgePaneController] pushJSON store=\(metadata.store.rawValue) op=\(metadata.op.rawValue) level=\(String(describing: metadata.level)) rev=\(metadata.revision) epoch=\(metadata.epoch) bytes=\(json.count)"
             )
         } catch {
             bridgeControllerLogger.warning(
-                "[Bridge] JS transport failed store=\(store.rawValue) rev=\(revision) epoch=\(epoch): \(error)"
+                "[Bridge] JS transport failed store=\(metadata.store.rawValue) rev=\(metadata.revision) epoch=\(metadata.epoch): \(error)"
             )
             paneState.connection.setHealth(.error)
         }
@@ -806,7 +820,7 @@ extension BridgePaneController: PushTransport {
     func recordSwiftTelemetry(
         name: String,
         phase: String,
-        lane: PushLevel,
+        priorityHint: PushLevel,
         traceContext: BridgeTraceContext?,
         durationMilliseconds: Double?
     ) async {
@@ -820,8 +834,15 @@ extension BridgePaneController: PushTransport {
                 durationMilliseconds: durationMilliseconds,
                 traceContext: traceContext,
                 stringAttributes: [
-                    "agentstudio.bridge.lane": lane.rawValue,
                     "agentstudio.bridge.phase": phase,
+                    "agentstudio.bridge.plane": nativeTelemetryPlane(
+                        for: name
+                    ).rawValue,
+                    "agentstudio.bridge.priority": nativeTelemetryPriority(
+                        for: name,
+                        fallback: priorityHint
+                    ).rawValue,
+                    "agentstudio.bridge.slice": nativeTelemetrySlice(for: name).rawValue,
                     "agentstudio.bridge.transport": "swift",
                 ],
                 numericAttributes: [:],
@@ -832,7 +853,7 @@ extension BridgePaneController: PushTransport {
     }
 
     private func recordPackagePushTelemetry(
-        level: PushLevel,
+        slice: BridgeTelemetrySlice,
         traceContext: BridgeTraceContext?,
         durationMilliseconds: Double
     ) async {
@@ -846,8 +867,10 @@ extension BridgePaneController: PushTransport {
                 durationMilliseconds: durationMilliseconds,
                 traceContext: traceContext,
                 stringAttributes: [
-                    "agentstudio.bridge.lane": level.rawValue,
                     "agentstudio.bridge.phase": "transport",
+                    "agentstudio.bridge.plane": pushTelemetryPlane(for: slice).rawValue,
+                    "agentstudio.bridge.priority": pushTelemetryPriority(for: slice).rawValue,
+                    "agentstudio.bridge.slice": slice.rawValue,
                     "agentstudio.bridge.transport": "push",
                 ],
                 numericAttributes: [:],
@@ -855,6 +878,81 @@ extension BridgePaneController: PushTransport {
             ),
             receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
         )
+    }
+
+    private func nativeTelemetryPlane(for name: String) -> BridgeTelemetryPlane {
+        switch name {
+        case "performance.bridge.swift.telemetry_ingest":
+            .observability
+        default:
+            .data
+        }
+    }
+
+    private func nativeTelemetryPriority(
+        for name: String,
+        fallback: PushLevel
+    ) -> BridgeTelemetryPriority {
+        switch name {
+        case "performance.bridge.swift.content_load":
+            .hot
+        case "performance.bridge.swift.delta_build":
+            .warm
+        case "performance.bridge.swift.package_build",
+            "performance.bridge.swift.content_register":
+            .cold
+        case "performance.bridge.swift.telemetry_ingest":
+            .bestEffort
+        default:
+            switch fallback {
+            case .hot:
+                .hot
+            case .warm:
+                .warm
+            case .cold:
+                .cold
+            }
+        }
+    }
+
+    private func nativeTelemetrySlice(for name: String) -> BridgeTelemetrySlice {
+        switch name {
+        case "performance.bridge.swift.package_build",
+            "performance.bridge.swift.content_register":
+            .diffPackageMetadata
+        case "performance.bridge.swift.delta_build":
+            .diffPackageDelta
+        case "performance.bridge.swift.content_load":
+            .contentFetch
+        case "performance.bridge.swift.telemetry_ingest":
+            .telemetryIngest
+        default:
+            .unknown
+        }
+    }
+
+    private func pushTelemetryPlane(for slice: BridgeTelemetrySlice) -> BridgeTelemetryPlane {
+        switch slice {
+        case .connectionHealth, .commandAcks, .reviewRPC:
+            .control
+        case .telemetryBatch, .telemetryDrop, .telemetryIngest:
+            .observability
+        default:
+            .data
+        }
+    }
+
+    private func pushTelemetryPriority(for slice: BridgeTelemetrySlice) -> BridgeTelemetryPriority {
+        switch slice {
+        case .diffStatus, .connectionHealth:
+            .hot
+        case .diffPackageDelta, .reviewThreads, .reviewViewedFiles, .commandAcks, .reviewRPC:
+            .warm
+        case .diffPackageMetadata, .diffFiles, .contentFetch, .unknown:
+            .cold
+        case .telemetryBatch, .telemetryDrop, .telemetryIngest:
+            .bestEffort
+        }
     }
 }
 

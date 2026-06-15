@@ -302,6 +302,9 @@ final class RPCRouterTests {
         #expect(samples.map(\.name).contains("performance.bridge.webkit.rpc_response"))
         #expect(samples.allSatisfy { $0.traceContext?.traceId == "11111111111111111111111111111111" })
         #expect(samples.allSatisfy { $0.stringAttributes["agentstudio.bridge.rpc.method_class"] == "review" })
+        #expect(samples.allSatisfy { $0.stringAttributes["agentstudio.bridge.plane"] == "control" })
+        #expect(samples.allSatisfy { $0.stringAttributes["agentstudio.bridge.priority"] == "warm" })
+        #expect(samples.allSatisfy { $0.stringAttributes["agentstudio.bridge.slice"] == "review_rpc" })
     }
 
     @Test

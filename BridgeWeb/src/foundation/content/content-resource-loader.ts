@@ -47,8 +47,10 @@ export async function loadBridgeContentResource(
 				'agentstudio.bridge.content.correlation_mode':
 					props.sendTraceparentHeader === true && traceContext !== null ? 'traceparent' : 'summary',
 				'agentstudio.bridge.content.role': props.handle.role,
-				'agentstudio.bridge.lane': 'cold',
 				'agentstudio.bridge.phase': 'fetch',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.slice': 'content_fetch',
 				'agentstudio.bridge.transport': 'content',
 			},
 			numericAttributes: {},

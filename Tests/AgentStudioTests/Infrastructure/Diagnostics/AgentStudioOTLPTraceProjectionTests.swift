@@ -52,6 +52,7 @@ struct AgentStudioOTLPTraceProjectionTests {
 
     @Test
     func bridgeProjectionPreservesValidTraceFieldsAndSafeAttributes() {
+        let historicalBridgeLane = ["agentstudio", "bridge", "lane"].joined(separator: ".")
         let record = AgentStudioTraceRecord(
             timeUnixNano: 125,
             severityText: .info,
@@ -69,8 +70,11 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.bridge.content.line_count_bucket": .int(500),
                 "agentstudio.bridge.header_supported": .bool(true),
                 "agentstudio.bridge.item_id": .string("private-item-id"),
-                "agentstudio.bridge.lane": .string("warm"),
+                historicalBridgeLane: .string("warm"),
                 "agentstudio.bridge.phase": .string("package_push"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("cold"),
+                "agentstudio.bridge.slice": .string("diff_package_metadata"),
                 "agentstudio.bridge.transport": .string("push"),
                 "agentstudio.performance.elapsed_ms": .double(4.25),
                 "agentstudio.trace.tag": .string("bridge.performance.webkit"),
@@ -86,8 +90,11 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.bridge.content.byte_size_bucket"] == .int(100_000))
         #expect(projection.attributes["agentstudio.bridge.content.line_count_bucket"] == .int(500))
         #expect(projection.attributes["agentstudio.bridge.header_supported"] == .bool(true))
-        #expect(projection.attributes["agentstudio.bridge.lane"] == .string("warm"))
+        #expect(projection.attributes[historicalBridgeLane] == nil)
         #expect(projection.attributes["agentstudio.bridge.phase"] == .string("package_push"))
+        #expect(projection.attributes["agentstudio.bridge.plane"] == .string("data"))
+        #expect(projection.attributes["agentstudio.bridge.priority"] == .string("cold"))
+        #expect(projection.attributes["agentstudio.bridge.slice"] == .string("diff_package_metadata"))
         #expect(projection.attributes["agentstudio.bridge.transport"] == .string("push"))
         #expect(projection.attributes["agentstudio.performance.elapsed_ms"] == .double(4.25))
         #expect(projection.attributes["agentstudio.bridge.item_id"] == nil)
@@ -95,7 +102,41 @@ struct AgentStudioOTLPTraceProjectionTests {
     }
 
     @Test
+    func bridgeProjectionDropsInvalidTaxonomyValues() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 126,
+            severityText: .info,
+            body: "performance.bridge.webkit.package_push",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.bridge.performance.webkit", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("package_push"),
+                "agentstudio.bridge.plane": .string("file:///Users/private/repo"),
+                "agentstudio.bridge.priority": .string("urgent"),
+                "agentstudio.bridge.slice": .string("Sources/App/View.swift"),
+                "agentstudio.trace.tag": .string("bridge.performance.webkit"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.attributes["agentstudio.bridge.phase"] == .string("package_push"))
+        #expect(projection.attributes["agentstudio.bridge.plane"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.priority"] == nil)
+        #expect(projection.attributes["agentstudio.bridge.slice"] == nil)
+        #expect(!renderedProjection.contains("/Users/private/repo"))
+        #expect(!renderedProjection.contains("Sources/App/View.swift"))
+    }
+
+    @Test
     func bridgeProjectionDropsInvalidTraceFields() {
+        let historicalBridgeLane = ["agentstudio", "bridge", "lane"].joined(separator: ".")
         let record = AgentStudioTraceRecord(
             timeUnixNano: 126,
             severityText: .info,
@@ -108,7 +149,7 @@ struct AgentStudioOTLPTraceProjectionTests {
             ],
             scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
             attributes: [
-                "agentstudio.bridge.lane": .string("warm"),
+                historicalBridgeLane: .string("warm"),
                 "agentstudio.bridge.phase": .string("package_apply"),
                 "agentstudio.trace.tag": .string("bridge.performance.web"),
             ]

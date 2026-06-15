@@ -136,7 +136,16 @@ final class BridgeBootstrapTests {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
         #expect(script.contains("envelope.__traceContext"))
         #expect(script.contains("__traceContext: traceContext || null"))
-        #expect(script.contains("this.merge(store, payload, revision, epoch, traceContext)"))
-        #expect(script.contains("this.replace(store, payload, revision, epoch, traceContext)"))
+        #expect(script.contains("this.merge(store, payload, revision, epoch, slice, traceContext)"))
+        #expect(script.contains("this.replace(store, payload, revision, epoch, slice, traceContext)"))
+    }
+
+    @Test
+    func test_applyEnvelope_preserves_slice_at_detail_level() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(script.contains("const slice = envelope.slice"))
+        #expect(script.contains("slice: slice"))
+        #expect(script.contains("merge: function(store, data, revision, epoch, slice, traceContext)"))
+        #expect(script.contains("replace: function(store, data, revision, epoch, slice, traceContext)"))
     }
 }

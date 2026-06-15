@@ -69,8 +69,10 @@ struct AgentStudioOTLPBootstrapSmokeTests {
             attributes: [
                 "agentstudio.bridge.content.byte_size_bucket": .int(100_000),
                 "agentstudio.bridge.content.line_count_bucket": .int(500),
-                "agentstudio.bridge.lane": .string("warm"),
                 "agentstudio.bridge.phase": .string("package_push"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("cold"),
+                "agentstudio.bridge.slice": .string("diff_package_metadata"),
                 "agentstudio.bridge.transport": .string("push"),
                 "agentstudio.performance.elapsed_ms": .double(8.5),
             ]
@@ -99,6 +101,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         #expect(metricsRequest.bodyContains("performance.git.status"))
         #expect(metricsRequest.bodyContains("agentstudio_performance_event_elapsed_ms"))
         #expect(metricsRequest.bodyContains("agentstudio_performance_git_pending_count"))
+        #expect(metricsRequest.bodyContains("diff_package_metadata"))
 
         try await assertBridgeOTLPTraceRequests(collector)
     }

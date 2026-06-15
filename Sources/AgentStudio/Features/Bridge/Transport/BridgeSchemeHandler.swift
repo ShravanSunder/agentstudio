@@ -220,8 +220,10 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     "agentstudio.bridge.content.correlation_mode": traceContext == nil ? "summary" : "traceparent",
                     "agentstudio.bridge.content.role": observation.role?.rawValue ?? "unknown",
                     "agentstudio.bridge.generation.relation": observation.generationRelation.rawValue,
-                    "agentstudio.bridge.lane": "cold",
                     "agentstudio.bridge.phase": phase,
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.hot.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.contentFetch.rawValue,
                     "agentstudio.bridge.transport": "content",
                 ],
                 numericAttributes: [

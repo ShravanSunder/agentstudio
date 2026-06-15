@@ -4,8 +4,8 @@ import Metrics
 final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
     private let factory: any MetricsFactory
     private let lock = NSLock()
-    private var eventCounters: [String: Counter] = [:]
-    private var elapsedRecorders: [String: Recorder] = [:]
+    private var eventCounters: [MetricInstrumentKey: Counter] = [:]
+    private var elapsedRecorders: [MetricInstrumentKey: Recorder] = [:]
     private var numericGauges: [MetricGaugeKey: Gauge] = [:]
 
     init(factory: any MetricsFactory) {
@@ -16,10 +16,10 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
         guard let metricEvent = AgentStudioOTLPPerformanceMetricEvent(record: record) else { return }
 
         lock.withLock {
-            counter(for: metricEvent.eventName).increment()
+            counter(for: metricEvent).increment()
 
             if let elapsedMilliseconds = metricEvent.elapsedMilliseconds {
-                recorder(for: metricEvent.eventName).record(elapsedMilliseconds)
+                recorder(for: metricEvent).record(elapsedMilliseconds)
             }
 
             for sample in metricEvent.samples {
@@ -28,43 +28,49 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
         }
     }
 
-    private func counter(for eventName: String) -> Counter {
-        if let counter = eventCounters[eventName] {
+    private func counter(for event: AgentStudioOTLPPerformanceMetricEvent) -> Counter {
+        let key = MetricInstrumentKey(eventName: event.eventName, dimensions: event.dimensions)
+        if let counter = eventCounters[key] {
             return counter
         }
 
         let counter = Counter(
             label: "agentstudio_performance_events_total",
-            dimensions: [("event", eventName)],
+            dimensions: event.metricsDimensions,
             factory: factory
         )
-        eventCounters[eventName] = counter
+        eventCounters[key] = counter
         return counter
     }
 
-    private func recorder(for eventName: String) -> Recorder {
-        if let recorder = elapsedRecorders[eventName] {
+    private func recorder(for event: AgentStudioOTLPPerformanceMetricEvent) -> Recorder {
+        let key = MetricInstrumentKey(eventName: event.eventName, dimensions: event.dimensions)
+        if let recorder = elapsedRecorders[key] {
             return recorder
         }
 
         let recorder = Recorder(
             label: "agentstudio_performance_event_elapsed_ms",
-            dimensions: [("event", eventName)],
+            dimensions: event.metricsDimensions,
             factory: factory
         )
-        elapsedRecorders[eventName] = recorder
+        elapsedRecorders[key] = recorder
         return recorder
     }
 
     private func gauge(for sample: AgentStudioOTLPPerformanceMetricSample) -> Gauge {
-        let key = MetricGaugeKey(eventName: sample.eventName, label: sample.label)
+        let key = MetricGaugeKey(
+            eventName: sample.eventName,
+            dimensions: sample.dimensions,
+            label: sample.label
+        )
         if let gauge = numericGauges[key] {
             return gauge
         }
 
         let gauge = Gauge(
             label: sample.label,
-            dimensions: [("event", sample.eventName)],
+            dimensions: sample.metricsDimensions,
             factory: factory
         )
         numericGauges[key] = gauge
@@ -74,13 +80,23 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
 
 struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     let eventName: String
+    let dimensions: [AgentStudioOTLPMetricDimension]
     let elapsedMilliseconds: Double?
     let samples: [AgentStudioOTLPPerformanceMetricSample]
 
+    var metricsDimensions: [(String, String)] {
+        dimensions.map { ($0.name, $0.value) }
+    }
+
     init?(record: AgentStudioOTLPProjectedLogRecord) {
         guard record.body.hasPrefix("performance.") else { return nil }
+        if record.body.hasPrefix("performance.bridge.") {
+            guard Self.hasCompleteBridgeMetricTaxonomy(record) else { return nil }
+        }
 
+        let dimensions = Self.metricDimensions(for: record)
         self.eventName = record.body
+        self.dimensions = dimensions
         self.elapsedMilliseconds = Self.doubleValue(
             record.attributes["agentstudio.performance.elapsed_ms"]
         )
@@ -90,6 +106,7 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             guard let metricLabel = Self.metricLabel(for: key) else { return nil }
             return AgentStudioOTLPPerformanceMetricSample(
                 eventName: record.body,
+                dimensions: dimensions,
                 label: metricLabel,
                 value: numericValue
             )
@@ -154,15 +171,88 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         "agentstudio.bridge.content.line_count_bucket",
         "agentstudio.bridge.telemetry.dropped_count",
     ]
+
+    private static func metricDimensions(for record: AgentStudioOTLPProjectedLogRecord)
+        -> [AgentStudioOTLPMetricDimension]
+    {
+        guard record.body.hasPrefix("performance.bridge.") else {
+            return [AgentStudioOTLPMetricDimension(name: "event", value: record.body)]
+        }
+
+        var dimensions = [AgentStudioOTLPMetricDimension(name: "event", value: record.body)]
+        appendStringAttributeDimension(
+            name: "phase",
+            attributeKey: "agentstudio.bridge.phase",
+            record: record,
+            dimensions: &dimensions
+        )
+        appendStringAttributeDimension(
+            name: "plane",
+            attributeKey: "agentstudio.bridge.plane",
+            record: record,
+            dimensions: &dimensions
+        )
+        appendStringAttributeDimension(
+            name: "priority",
+            attributeKey: "agentstudio.bridge.priority",
+            record: record,
+            dimensions: &dimensions
+        )
+        appendStringAttributeDimension(
+            name: "slice",
+            attributeKey: "agentstudio.bridge.slice",
+            record: record,
+            dimensions: &dimensions
+        )
+        return dimensions
+    }
+
+    private static func hasCompleteBridgeMetricTaxonomy(_ record: AgentStudioOTLPProjectedLogRecord) -> Bool {
+        stringAttribute(record, "agentstudio.bridge.phase") != nil
+            && BridgeTelemetryPlane(rawValue: stringAttribute(record, "agentstudio.bridge.plane") ?? "") != nil
+            && BridgeTelemetryPriority(rawValue: stringAttribute(record, "agentstudio.bridge.priority") ?? "") != nil
+            && BridgeTelemetrySlice(rawValue: stringAttribute(record, "agentstudio.bridge.slice") ?? "") != nil
+    }
+
+    private static func stringAttribute(_ record: AgentStudioOTLPProjectedLogRecord, _ key: String) -> String? {
+        guard case .string(let value) = record.attributes[key] else { return nil }
+        return value
+    }
+
+    private static func appendStringAttributeDimension(
+        name: String,
+        attributeKey: String,
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPMetricDimension]
+    ) {
+        guard case .string(let value) = record.attributes[attributeKey] else { return }
+        dimensions.append(AgentStudioOTLPMetricDimension(name: name, value: value))
+    }
+}
+
+struct AgentStudioOTLPMetricDimension: Equatable, Hashable, Sendable {
+    let name: String
+    let value: String
 }
 
 struct AgentStudioOTLPPerformanceMetricSample: Equatable, Sendable {
     let eventName: String
+    let dimensions: [AgentStudioOTLPMetricDimension]
     let label: String
     let value: Double
+
+    var metricsDimensions: [(String, String)] {
+        dimensions.map { ($0.name, $0.value) }
+    }
+}
+
+private struct MetricInstrumentKey: Hashable {
+    let eventName: String
+    let dimensions: [AgentStudioOTLPMetricDimension]
 }
 
 private struct MetricGaugeKey: Hashable {
     let eventName: String
+    let dimensions: [AgentStudioOTLPMetricDimension]
     let label: String
 }

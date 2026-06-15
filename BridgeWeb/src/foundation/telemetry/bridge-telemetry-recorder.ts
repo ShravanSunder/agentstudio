@@ -121,7 +121,12 @@ function makeTelemetryDropSample(droppedCount: number): BridgeTelemetrySample {
 		durationMilliseconds: null,
 		traceContext: null,
 		stringAttributes: {
+			'agentstudio.bridge.phase': 'dropped',
+			'agentstudio.bridge.plane': 'observability',
+			'agentstudio.bridge.priority': 'best_effort',
+			'agentstudio.bridge.slice': 'telemetry_drop',
 			'agentstudio.bridge.telemetry.drop_reason': 'queue_saturated',
+			'agentstudio.bridge.transport': 'rpc',
 		},
 		numericAttributes: {
 			'agentstudio.bridge.telemetry.dropped_count': droppedCount,

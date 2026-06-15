@@ -58,9 +58,11 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.content.correlation_mode",
         "agentstudio.bridge.content.role",
         "agentstudio.bridge.generation.relation",
-        "agentstudio.bridge.lane",
         "agentstudio.bridge.phase",
+        "agentstudio.bridge.plane",
+        "agentstudio.bridge.priority",
         "agentstudio.bridge.rpc.method_class",
+        "agentstudio.bridge.slice",
         "agentstudio.bridge.telemetry.drop_reason",
         "agentstudio.bridge.test.scenario",
         "agentstudio.bridge.transport",
@@ -196,7 +198,8 @@ enum AgentStudioOTLPTraceProjection {
             guard
                 !isPayloadKey(key),
                 allowedStringAttributeKeys.contains(key),
-                isSafeControlledString(stringValue)
+                isSafeControlledString(stringValue),
+                isAllowedControlledStringValue(key: key, value: stringValue)
             else { return nil }
             return .string(stringValue)
         case .int:
@@ -267,6 +270,21 @@ enum AgentStudioOTLPTraceProjection {
 
     private static func isSafeControlledString(_ value: String) -> Bool {
         isSafeEventName(value)
+    }
+
+    private static func isAllowedControlledStringValue(key: String, value: String) -> Bool {
+        switch key {
+        case "agentstudio.bridge.plane":
+            BridgeTelemetryPlane(rawValue: value) != nil
+        case "agentstudio.bridge.priority":
+            BridgeTelemetryPriority(rawValue: value) != nil
+        case "agentstudio.bridge.slice":
+            BridgeTelemetrySlice(rawValue: value) != nil
+        case "agentstudio.bridge.telemetry.drop_reason":
+            BridgeTelemetryDropReason(rawValue: value) != nil
+        default:
+            true
+        }
     }
 
     private static func isSafeResourceValue(_ value: String) -> Bool {

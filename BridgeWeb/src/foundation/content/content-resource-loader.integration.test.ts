@@ -90,9 +90,35 @@ describe('content resource loader', () => {
 		expect(samples[0]?.stringAttributes['agentstudio.bridge.content.correlation_mode']).toBe(
 			'summary',
 		);
+		expect(samples[0]?.stringAttributes).toMatchObject({
+			'agentstudio.bridge.plane': 'data',
+			'agentstudio.bridge.priority': 'hot',
+			'agentstudio.bridge.slice': 'content_fetch',
+		});
+		expect(samples[0]?.stringAttributes).not.toHaveProperty(
+			['agentstudio', 'bridge', 'lane'].join('.'),
+		);
 		expect(samples[0]?.booleanAttributes['agentstudio.bridge.header_missing']).toBe(true);
 		expect(flushCount).toBe(1);
 		expect(flushForces).toEqual([true]);
+	});
+
+	test('loads content when telemetry flush fails', async () => {
+		const handle = makeBridgeContentHandle('item-source', 'head');
+		const samples: BridgeTelemetrySample[] = [];
+		const loaded = await loadBridgeContentResource({
+			handle,
+			telemetryRecorder: makeRecorder(samples, (): boolean => false),
+			fetchContent: async (url: string): Promise<Response> => {
+				expect(url).toBe(handle.resourceUrl);
+				return new Response('hello despite telemetry failure');
+			},
+		});
+
+		expect(loaded.text).toBe('hello despite telemetry failure');
+		expect(samples.map((sample: BridgeTelemetrySample): string => sample.name)).toEqual([
+			'performance.bridge.web.content_fetch',
+		]);
 	});
 });
 

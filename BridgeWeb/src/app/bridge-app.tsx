@@ -21,6 +21,11 @@ import {
 	type BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
+	planeForBridgeTelemetrySlice,
+	priorityForBridgeTelemetrySlice,
+	type BridgeTelemetrySlice,
+} from '../foundation/telemetry/bridge-telemetry-taxonomy.js';
+import {
 	createBridgeChildTraceContext,
 	type BridgeTraceContext,
 } from '../foundation/telemetry/bridge-trace-context.js';
@@ -35,13 +40,22 @@ export interface BridgeAppProps {
 	readonly fetchContent?: BridgeContentFetch;
 }
 
+interface BridgeReviewPackageTelemetryContext {
+	readonly slice: BridgeTelemetrySlice;
+	readonly traceContext: BridgeTraceContext | null;
+}
+
 export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const target = props.target ?? document;
 	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
 	const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 	const [selectedContentText, setSelectedContentText] = useState<string | null>(null);
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
-	const lastReviewPushTraceContextRef = useRef<BridgeTraceContext | null>(null);
+	const currentReviewPackageTelemetryContextRef =
+		useRef<BridgeReviewPackageTelemetryContext | null>(null);
+	const reviewPackageTelemetryContextRef = useRef<Map<string, BridgeReviewPackageTelemetryContext>>(
+		new Map(),
+	);
 	const lastTelemetryMarkedItemRef = useRef<string | null>(null);
 	const lastFirstRenderPackageRef = useRef<string | null>(null);
 	const rpcClient = useMemo(
@@ -50,7 +64,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				target,
 				getTraceContext: (): BridgeTraceContext | null =>
 					telemetryRecorderRef.current.isEnabled('web')
-						? createChildTraceContext(lastReviewPushTraceContextRef.current)
+						? createChildTraceContext(
+								currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+							)
 						: null,
 				telemetryRecorder: {
 					isEnabled: (scope) => telemetryRecorderRef.current.isEnabled(scope),
@@ -78,11 +94,14 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			target,
 			getPushNonce: (): string | null => handshakeSession?.getPushNonce() ?? null,
 			onEnvelope: (envelope: BridgePushEnvelope): void => {
-				if (envelope.store === 'diff') {
-					lastReviewPushTraceContextRef.current = envelope.traceContext;
-				}
 				recordPackageApplyTelemetry(telemetryRecorderRef.current, envelope);
-				applyReviewEnvelope(envelope, setReviewPackage, setSelectedItemId);
+				applyReviewEnvelope(
+					envelope,
+					setReviewPackage,
+					setSelectedItemId,
+					reviewPackageTelemetryContextRef.current,
+					currentReviewPackageTelemetryContextRef,
+				);
 			},
 		});
 		handshakeSession = installBridgePageHandshakeSession(target, {
@@ -109,7 +128,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						reviewPackage,
 						selectedItemId,
 						traceContext: telemetryRecorderRef.current.isEnabled('web')
-							? createChildTraceContext(lastReviewPushTraceContextRef.current)
+							? createChildTraceContext(
+									currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+								)
 							: null,
 						telemetryRecorder: telemetryRecorderRef.current,
 					}
@@ -118,7 +139,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						selectedItemId,
 						fetchContent: props.fetchContent,
 						traceContext: telemetryRecorderRef.current.isEnabled('web')
-							? createChildTraceContext(lastReviewPushTraceContextRef.current)
+							? createChildTraceContext(
+									currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+								)
 							: null,
 						telemetryRecorder: telemetryRecorderRef.current,
 					};
@@ -141,14 +164,17 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			return;
 		}
 		lastFirstRenderPackageRef.current = packageKey;
+		const telemetryContext = reviewPackageTelemetryContextRef.current.get(packageKey);
 		telemetryRecorderRef.current.record({
 			scope: 'web',
 			name: 'performance.bridge.web.first_render',
 			durationMilliseconds: null,
-			traceContext: createChildTraceContext(lastReviewPushTraceContextRef.current),
+			traceContext: createChildTraceContext(telemetryContext?.traceContext ?? null),
 			stringAttributes: {
-				'agentstudio.bridge.lane': 'warm',
 				'agentstudio.bridge.phase': 'render',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.slice': telemetryContext?.slice ?? 'unknown',
 				'agentstudio.bridge.transport': 'push',
 			},
 			numericAttributes: {},
@@ -207,21 +233,24 @@ function makeTelemetryMarkedItemKey(reviewPackage: BridgeReviewPackage, itemId: 
 	return `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}:${itemId}`;
 }
 
+function makeTelemetryPackageKey(reviewPackage: BridgeReviewPackage): string {
+	return `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}`;
+}
+
 function recordPackageApplyTelemetry(
 	telemetryRecorder: BridgeTelemetryRecorder,
 	envelope: BridgePushEnvelope,
 ): void {
-	if (envelope.store !== 'diff') {
-		return;
-	}
 	telemetryRecorder.record({
 		scope: 'web',
 		name: 'performance.bridge.web.package_apply',
 		durationMilliseconds: null,
 		traceContext: envelope.traceContext,
 		stringAttributes: {
-			'agentstudio.bridge.lane': envelope.level ?? 'cold',
 			'agentstudio.bridge.phase': 'apply',
+			'agentstudio.bridge.plane': planeForBridgeTelemetrySlice(envelope.slice),
+			'agentstudio.bridge.priority': priorityForBridgeTelemetrySlice(envelope.slice),
+			'agentstudio.bridge.slice': envelope.slice,
 			'agentstudio.bridge.transport': 'push',
 		},
 		numericAttributes: {},
@@ -236,12 +265,22 @@ function applyReviewEnvelope(
 		update: (current: BridgeReviewPackage | null) => BridgeReviewPackage | null,
 	) => void,
 	setSelectedItemId: (update: (current: string | null) => string | null) => void,
+	telemetryContextByPackageKey: Map<string, BridgeReviewPackageTelemetryContext>,
+	currentReviewPackageTelemetryContextRef: {
+		current: BridgeReviewPackageTelemetryContext | null;
+	},
 ): void {
 	if (envelope.store !== 'diff') {
 		return;
 	}
 	const packagePayload = extractReviewPackage(envelope.data);
 	if (packagePayload !== null) {
+		const telemetryContext = {
+			slice: envelope.slice,
+			traceContext: envelope.traceContext,
+		};
+		telemetryContextByPackageKey.set(makeTelemetryPackageKey(packagePayload), telemetryContext);
+		currentReviewPackageTelemetryContextRef.current = telemetryContext;
 		setReviewPackage((): BridgeReviewPackage => packagePayload);
 		setSelectedItemId((current: string | null): string | null =>
 			current === null || !(current in packagePayload.itemsById)
@@ -254,6 +293,10 @@ function applyReviewEnvelope(
 	if (deltaPayload === null) {
 		return;
 	}
+	const telemetryContext = {
+		slice: envelope.slice,
+		traceContext: envelope.traceContext,
+	};
 	setReviewPackage((current: BridgeReviewPackage | null): BridgeReviewPackage | null => {
 		if (current === null) {
 			return null;
@@ -265,6 +308,11 @@ function applyReviewEnvelope(
 		if (!result.accepted) {
 			return current;
 		}
+		telemetryContextByPackageKey.set(
+			makeTelemetryPackageKey(result.registry.reviewPackage),
+			telemetryContext,
+		);
+		currentReviewPackageTelemetryContextRef.current = telemetryContext;
 		setSelectedItemId((selectedItemId: string | null): string | null =>
 			selectedItemId === null || !(selectedItemId in result.registry.reviewPackage.itemsById)
 				? firstVisibleItemId(result.registry.reviewPackage)

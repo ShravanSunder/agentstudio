@@ -80,6 +80,14 @@ describe('bridge telemetry recorder', () => {
 			'performance.bridge.web.first_render',
 			'performance.bridge.web.telemetry_drop',
 		]);
+		expect(batches[0]?.samples[1]?.stringAttributes).toMatchObject({
+			'agentstudio.bridge.phase': 'dropped',
+			'agentstudio.bridge.plane': 'observability',
+			'agentstudio.bridge.priority': 'best_effort',
+			'agentstudio.bridge.slice': 'telemetry_drop',
+			'agentstudio.bridge.telemetry.drop_reason': 'queue_saturated',
+			'agentstudio.bridge.transport': 'rpc',
+		});
 	});
 
 	test('throttles burst flushes unless a boundary forces delivery', () => {

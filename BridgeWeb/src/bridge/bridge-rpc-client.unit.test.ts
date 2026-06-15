@@ -137,8 +137,50 @@ describe('bridge RPC client', () => {
 		expect(recordedSamples[0]?.stringAttributes['agentstudio.bridge.rpc.method_class']).toBe(
 			'review',
 		);
+		expect(recordedSamples[0]?.stringAttributes).toMatchObject({
+			'agentstudio.bridge.plane': 'control',
+			'agentstudio.bridge.priority': 'warm',
+			'agentstudio.bridge.slice': 'review_rpc',
+		});
+		expect(recordedSamples[0]?.stringAttributes).not.toHaveProperty(
+			['agentstudio', 'bridge', 'lane'].join('.'),
+		);
 		expect(flushCount).toBe(1);
 		expect(flushForces).toEqual([true]);
+	});
+
+	test('dispatches RPC command when telemetry flush fails', () => {
+		const target = new EventTarget();
+		const sentDetails: unknown[] = [];
+		const recordedSamples: BridgeTelemetrySample[] = [];
+		target.addEventListener('__bridge_command', (event: Event): void => {
+			sentDetails.push(extractEventDetail(event));
+		});
+		const client = createBridgeRPCClient({
+			target,
+			getBridgeNonce: () => 'bridge-nonce',
+			createCommandId: () => 'cmd-fixed',
+			telemetryRecorder: makeRecorder(recordedSamples, (): boolean => false),
+		});
+
+		const didSend = client.sendCommand({
+			method: 'review.markFileViewed',
+			params: { fileId: 'item-source' },
+		});
+
+		expect(didSend).toBe(true);
+		expect(sentDetails).toEqual([
+			{
+				jsonrpc: '2.0',
+				method: 'review.markFileViewed',
+				params: { fileId: 'item-source' },
+				__nonce: 'bridge-nonce',
+				__commandId: 'cmd-fixed',
+			},
+		]);
+		expect(recordedSamples.map((sample: BridgeTelemetrySample): string => sample.name)).toEqual([
+			'performance.bridge.web.rpc_send',
+		]);
 	});
 
 	test('does not attach trace context or record RPC telemetry for telemetry batches', () => {

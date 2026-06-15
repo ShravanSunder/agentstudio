@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
 import {
+	bridgeTelemetrySliceSchema,
+	type BridgeTelemetrySlice,
+} from '../foundation/telemetry/bridge-telemetry-taxonomy.js';
+import {
 	decodeBridgeTraceContext,
 	type BridgeTraceContext,
 } from '../foundation/telemetry/bridge-trace-context.js';
@@ -17,6 +21,7 @@ export interface BridgePushEnvelope {
 	readonly store: BridgePushStore;
 	readonly op: BridgePushOp;
 	readonly level: BridgePushLevel | null;
+	readonly slice: BridgeTelemetrySlice;
 	readonly traceContext: BridgeTraceContext | null;
 	readonly data: unknown;
 }
@@ -31,6 +36,7 @@ const bridgePushEnvelopeSchema = z
 		store: z.enum(['diff', 'review', 'agent', 'connection']),
 		op: z.enum(['merge', 'replace']),
 		level: z.enum(['hot', 'warm', 'cold']).optional(),
+		slice: bridgeTelemetrySliceSchema,
 		data: z.unknown().optional(),
 		payload: z.unknown().optional(),
 	})
@@ -67,6 +73,7 @@ export function decodeBridgePushEnvelope(value: unknown): BridgePushEnvelope {
 		store: parsedEnvelope.store,
 		op: parsedEnvelope.op,
 		level: parsedEnvelope.level ?? null,
+		slice: parsedEnvelope.slice,
 		traceContext,
 		data,
 	};

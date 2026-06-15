@@ -22,7 +22,11 @@ struct BridgeTelemetryIngestorTests {
                     durationMilliseconds: 3,
                     traceContext: nil,
                     stringAttributes: [
-                        "agentstudio.bridge.phase": "package_apply"
+                        "agentstudio.bridge.phase": "apply",
+                        "agentstudio.bridge.plane": "data",
+                        "agentstudio.bridge.priority": "cold",
+                        "agentstudio.bridge.slice": "diff_package_metadata",
+                        "agentstudio.bridge.transport": "push",
                     ],
                     numericAttributes: [:],
                     booleanAttributes: [:]
@@ -69,7 +73,11 @@ struct BridgeTelemetryIngestorTests {
                     durationMilliseconds: 3,
                     traceContext: nil,
                     stringAttributes: [
-                        "agentstudio.bridge.phase": "package_apply"
+                        "agentstudio.bridge.phase": "apply",
+                        "agentstudio.bridge.plane": "data",
+                        "agentstudio.bridge.priority": "cold",
+                        "agentstudio.bridge.slice": "diff_package_metadata",
+                        "agentstudio.bridge.transport": "push",
                     ],
                     numericAttributes: [:],
                     booleanAttributes: [:]
@@ -90,6 +98,11 @@ struct BridgeTelemetryIngestorTests {
         #expect(
             samples.last?.numericAttributes["agentstudio.bridge.batch.sample_count"] == 1
         )
+        #expect(samples.last?.stringAttributes["agentstudio.bridge.phase"] == "accepted")
+        #expect(samples.last?.stringAttributes["agentstudio.bridge.plane"] == "observability")
+        #expect(samples.last?.stringAttributes["agentstudio.bridge.priority"] == "best_effort")
+        #expect(samples.last?.stringAttributes["agentstudio.bridge.slice"] == "telemetry_ingest")
+        #expect(samples.last?.stringAttributes["agentstudio.bridge.transport"] == "swift")
     }
 }
 

@@ -28,10 +28,10 @@ final class PushPlanTests {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                Slice("status", telemetrySlice: .diffStatus, store: .diff, level: .hot) { (s: TestState) in
                     s.status
                 }
-                Slice("count", store: .diff, level: .cold) { (s: TestState) in
+                Slice("count", telemetrySlice: .diffPackageMetadata, store: .diff, level: .cold) { (s: TestState) in
                     s.count
                 }
             }
@@ -58,7 +58,7 @@ final class PushPlanTests {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                Slice("status", telemetrySlice: .diffStatus, store: .diff, level: .hot) { (s: TestState) in
                     s.status
                 }
             }
@@ -86,11 +86,11 @@ final class PushPlanTests {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                Slice("status", telemetrySlice: .diffStatus, store: .diff, level: .hot) { (s: TestState) in
                     s.status
                 }
                 EntitySlice(
-                    "items", store: .review, level: .warm,
+                    "items", telemetrySlice: .reviewThreads, store: .review, level: .warm,
                     capture: { (s: TestState) in s.items },
                     version: { (_ entity: String) in 1 },
                     keyToString: { (key: UUID) in key.uuidString }
@@ -125,7 +125,7 @@ final class PushPlanTests {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                Slice("status", telemetrySlice: .diffStatus, store: .diff, level: .hot) { (s: TestState) in
                     s.status
                 }
             }
@@ -174,7 +174,7 @@ final class PushPlanTests {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                Slice("status", telemetrySlice: .diffStatus, store: .diff, level: .hot) { (s: TestState) in
                     s.status
                 }
             }
@@ -230,7 +230,7 @@ final class PushPlanTests {
             revisions: clock,
             epoch: { 1 },
             slices: {
-                Slice("status", store: .diff, level: .hot) { (s: TestState) in
+                Slice("status", telemetrySlice: .diffStatus, store: .diff, level: .hot) { (s: TestState) in
                     s.status
                 }
             }
@@ -268,6 +268,7 @@ final class PushPlanTests {
             slices: {
                 Slice(
                     "status",
+                    telemetrySlice: .diffStatus,
                     store: .diff,
                     level: .warm,
                     capture: { (s: TestState) in s.status }
@@ -325,7 +326,7 @@ final class PushPlanTests {
             epoch: { 1 },
             slices: {
                 EntitySlice(
-                    "items", store: .review, level: .cold,
+                    "items", telemetrySlice: .reviewThreads, store: .review, level: .cold,
                     capture: { (s: TestState) in s.items },
                     version: { (_ entity: String) in 1 },
                     keyToString: { (key: UUID) in key.uuidString }

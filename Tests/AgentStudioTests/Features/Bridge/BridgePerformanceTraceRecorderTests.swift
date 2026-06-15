@@ -102,6 +102,40 @@ struct BridgePerformanceTraceRecorderTests {
         #expect(!FileManager.default.fileExists(atPath: outputFileURL.path))
     }
 
+    @Test
+    func recorderLabelsDropSummariesAsBestEffortObservability() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "bridge-recorder-drop",
+                "AGENTSTUDIO_TRACE_TAGS": "bridge.performance.web",
+            ]),
+            processIdentifier: 339,
+            timeUnixNano: { 125 }
+        )
+        let recorder = BridgePerformanceTraceRecorder(traceRuntime: runtime)
+
+        await recorder.recordDrop(
+            reason: .queueSaturated,
+            droppedCount: 3,
+            receivedAtUnixNano: 125
+        )
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.bridge.web.telemetry_drop\""))
+        #expect(contents.contains("\"agentstudio.bridge.phase\":\"dropped\""))
+        #expect(contents.contains("\"agentstudio.bridge.plane\":\"observability\""))
+        #expect(contents.contains("\"agentstudio.bridge.priority\":\"best_effort\""))
+        #expect(contents.contains("\"agentstudio.bridge.slice\":\"telemetry_drop\""))
+        #expect(contents.contains("\"agentstudio.bridge.telemetry.drop_reason\":\"queue_saturated\""))
+        #expect(contents.contains("\"agentstudio.bridge.transport\":\"rpc\""))
+        #expect(contents.contains("\"agentstudio.bridge.telemetry.dropped_count\":3"))
+    }
+
     private func temporaryTraceDirectoryURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-bridge-performance-recorder-tests", isDirectory: true)

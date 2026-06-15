@@ -600,9 +600,11 @@ final class RPCRouter {
                 durationMilliseconds: durationMilliseconds,
                 traceContext: traceContext,
                 stringAttributes: [
-                    "agentstudio.bridge.lane": "warm",
                     "agentstudio.bridge.phase": phase,
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.control.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.warm.rawValue,
                     "agentstudio.bridge.rpc.method_class": methodClass,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewRPC.rawValue,
                     "agentstudio.bridge.transport": "rpc",
                 ],
                 numericAttributes: [:],
@@ -632,8 +634,10 @@ final class RPCRouter {
         }
 
         var stringAttributes = [
-            "agentstudio.bridge.lane": "warm",
             "agentstudio.bridge.phase": phase,
+            "agentstudio.bridge.plane": BridgeTelemetryPlane.observability.rawValue,
+            "agentstudio.bridge.priority": BridgeTelemetryPriority.bestEffort.rawValue,
+            "agentstudio.bridge.slice": BridgeTelemetrySlice.telemetryBatch.rawValue,
             "agentstudio.bridge.transport": "rpc",
         ]
         if let dropReason {

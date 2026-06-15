@@ -29,7 +29,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 await recordSwiftTelemetry(
                     name: "performance.bridge.swift.package_build",
                     phase: "package_build",
-                    lane: .cold,
+                    priorityHint: .cold,
                     traceContext: packageTraceContext,
                     durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                         from: packageBuildStart.duration(to: ContinuousClock.now)
@@ -44,7 +44,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 await recordSwiftTelemetry(
                     name: "performance.bridge.swift.delta_build",
                     phase: "delta_build",
-                    lane: .warm,
+                    priorityHint: .warm,
                     traceContext: makeChildTraceContext(parent: packageTraceContext),
                     durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                         from: deltaBuildStart.duration(to: ContinuousClock.now)
@@ -58,7 +58,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 await recordSwiftTelemetry(
                     name: "performance.bridge.swift.content_register",
                     phase: "content_register",
-                    lane: .cold,
+                    priorityHint: .cold,
                     traceContext: makeChildTraceContext(parent: packageTraceContext),
                     durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                         from: contentRegisterStart.duration(to: ContinuousClock.now)
@@ -132,7 +132,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             await recordSwiftTelemetry(
                 name: "performance.bridge.swift.package_build",
                 phase: "package_build",
-                lane: .cold,
+                priorityHint: .cold,
                 traceContext: packageTraceContext,
                 durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                     from: packageBuildStart.duration(to: ContinuousClock.now)
@@ -151,7 +151,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             await recordSwiftTelemetry(
                 name: "performance.bridge.swift.delta_build",
                 phase: "delta_build",
-                lane: .warm,
+                priorityHint: .warm,
                 traceContext: makeChildTraceContext(parent: packageTraceContext),
                 durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                     from: deltaBuildStart.duration(to: ContinuousClock.now)
@@ -165,7 +165,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             await recordSwiftTelemetry(
                 name: "performance.bridge.swift.content_register",
                 phase: "content_register",
-                lane: .cold,
+                priorityHint: .cold,
                 traceContext: makeChildTraceContext(parent: packageTraceContext),
                 durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                     from: contentRegisterStart.duration(to: ContinuousClock.now)

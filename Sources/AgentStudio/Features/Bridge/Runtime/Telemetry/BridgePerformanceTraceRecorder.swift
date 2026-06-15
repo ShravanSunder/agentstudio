@@ -46,7 +46,12 @@ final class BridgePerformanceTraceRecorder: @unchecked Sendable, BridgePerforman
                 durationMilliseconds: nil,
                 traceContext: nil,
                 stringAttributes: [
-                    "agentstudio.bridge.telemetry.drop_reason": reason.rawValue
+                    "agentstudio.bridge.phase": "dropped",
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.observability.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.bestEffort.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.telemetryDrop.rawValue,
+                    "agentstudio.bridge.telemetry.drop_reason": reason.rawValue,
+                    "agentstudio.bridge.transport": "rpc",
                 ],
                 numericAttributes: [
                     "agentstudio.bridge.telemetry.dropped_count": Double(droppedCount)

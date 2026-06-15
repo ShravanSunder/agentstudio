@@ -65,8 +65,10 @@ actor BridgeTelemetryIngestor {
                 durationMilliseconds: nil,
                 traceContext: nil,
                 stringAttributes: [
-                    "agentstudio.bridge.lane": "warm",
                     "agentstudio.bridge.phase": phase,
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.observability.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.bestEffort.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.telemetryIngest.rawValue,
                     "agentstudio.bridge.transport": "swift",
                 ],
                 numericAttributes: ["agentstudio.bridge.batch.sample_count": Double(sampleCount)],

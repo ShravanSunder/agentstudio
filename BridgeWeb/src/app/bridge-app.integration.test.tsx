@@ -70,6 +70,7 @@ describe('BridgeApp', () => {
 						store: 'diff',
 						op: 'replace',
 						level: 'cold',
+						slice: 'diff_package_metadata',
 						nonce: 'push-nonce',
 						data: { package: reviewPackage },
 					},
@@ -153,6 +154,7 @@ describe('BridgeApp', () => {
 						store: 'diff',
 						op: 'replace',
 						level: 'cold',
+						slice: 'diff_package_metadata',
 						nonce: 'push-nonce',
 						data: { package: reviewPackage },
 					},
@@ -176,7 +178,22 @@ describe('BridgeApp', () => {
 		const telemetrySamples = commandDetails.flatMap(extractTelemetrySamples);
 		expect(telemetrySamples).toContainEqual(
 			expect.objectContaining({
+				name: 'performance.bridge.web.package_apply',
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.plane': 'data',
+					'agentstudio.bridge.priority': 'cold',
+					'agentstudio.bridge.slice': 'diff_package_metadata',
+				}),
+			}),
+		);
+		expect(telemetrySamples).toContainEqual(
+			expect.objectContaining({
 				name: 'performance.bridge.web.first_render',
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.plane': 'data',
+					'agentstudio.bridge.priority': 'hot',
+					'agentstudio.bridge.slice': 'diff_package_metadata',
+				}),
 				traceContext: expect.objectContaining({
 					traceId: '11111111111111111111111111111111',
 					parentSpanId: '2222222222222222',
@@ -194,7 +211,130 @@ describe('BridgeApp', () => {
 		);
 	});
 
-	test('review telemetry keeps diff push parent after connection push arrives', async () => {
+	test('package apply telemetry priority is derived from slice, not push level', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const commandDetails: unknown[] = [];
+		document.addEventListener('__bridge_command', (event: Event): void => {
+			commandDetails.push(extractEventDetail(event));
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+
+		await act(async (): Promise<void> => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', {
+					detail: {
+						pushNonce: 'push-nonce',
+						telemetryConfig: {
+							enabledScopes: ['web'],
+							maxSamplesPerBatch: 8,
+							maxEncodedBatchBytes: 16384,
+							minimumFlushIntervalMilliseconds: 1,
+							rpcMethodName: 'system.bridgeTelemetry',
+							scenario: 'package_apply_content_fetch_v1',
+						},
+					},
+				}),
+			);
+			document.dispatchEvent(
+				new CustomEvent('__bridge_push', {
+					detail: {
+						__v: 1,
+						__pushId: 'push-status',
+						__revision: 1,
+						__epoch: 1,
+						store: 'diff',
+						op: 'merge',
+						level: 'cold',
+						slice: 'diff_status',
+						nonce: 'push-nonce',
+						data: { status: 'ready' },
+					},
+				}),
+			);
+			await Promise.resolve();
+		});
+
+		const telemetrySamples = commandDetails.flatMap(extractTelemetrySamples);
+		expect(telemetrySamples).toContainEqual(
+			expect.objectContaining({
+				name: 'performance.bridge.web.package_apply',
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.priority': 'hot',
+					'agentstudio.bridge.slice': 'diff_status',
+				}),
+			}),
+		);
+	});
+
+	test('connection push apply telemetry is classified as control plane', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const commandDetails: unknown[] = [];
+		document.addEventListener('__bridge_command', (event: Event): void => {
+			commandDetails.push(extractEventDetail(event));
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+
+		await act(async (): Promise<void> => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', {
+					detail: {
+						pushNonce: 'push-nonce',
+						telemetryConfig: {
+							enabledScopes: ['web'],
+							maxSamplesPerBatch: 8,
+							maxEncodedBatchBytes: 16384,
+							minimumFlushIntervalMilliseconds: 1,
+							rpcMethodName: 'system.bridgeTelemetry',
+							scenario: 'package_apply_content_fetch_v1',
+						},
+					},
+				}),
+			);
+			document.dispatchEvent(
+				new CustomEvent('__bridge_push', {
+					detail: {
+						__v: 1,
+						__pushId: 'push-connection',
+						__revision: 1,
+						__epoch: 0,
+						store: 'connection',
+						op: 'replace',
+						level: 'hot',
+						slice: 'connection_health',
+						nonce: 'push-nonce',
+						data: { health: 'ready', latencyMs: null },
+					},
+				}),
+			);
+			await Promise.resolve();
+		});
+
+		const telemetrySamples = commandDetails.flatMap(extractTelemetrySamples);
+		expect(telemetrySamples).toContainEqual(
+			expect.objectContaining({
+				name: 'performance.bridge.web.package_apply',
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.plane': 'control',
+					'agentstudio.bridge.priority': 'hot',
+					'agentstudio.bridge.slice': 'connection_health',
+				}),
+			}),
+		);
+	});
+
+	test('review telemetry keeps package parent after hot diff status arrives', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeBridgeReviewPackage();
 		const commandDetails: unknown[] = [];
@@ -245,6 +385,7 @@ describe('BridgeApp', () => {
 						store: 'diff',
 						op: 'replace',
 						level: 'cold',
+						slice: 'diff_package_metadata',
 						nonce: 'push-nonce',
 						data: { package: reviewPackage },
 					},
@@ -254,7 +395,7 @@ describe('BridgeApp', () => {
 				new CustomEvent('__bridge_push', {
 					detail: {
 						__v: 1,
-						__pushId: 'push-connection',
+						__pushId: 'push-status',
 						__revision: 2,
 						__epoch: 1,
 						__traceContext: {
@@ -263,11 +404,12 @@ describe('BridgeApp', () => {
 							parentSpanId: null,
 							sampled: true,
 						},
-						store: 'connection',
-						op: 'merge',
+						store: 'diff',
+						op: 'replace',
 						level: 'hot',
+						slice: 'diff_status',
 						nonce: 'push-nonce',
-						data: { health: 'ready' },
+						data: { status: 'ready', error: null, epoch: 1 },
 					},
 				}),
 			);
@@ -291,6 +433,135 @@ describe('BridgeApp', () => {
 				traceContext: expect.objectContaining({
 					traceId: '11111111111111111111111111111111',
 					parentSpanId: '2222222222222222',
+				}),
+			}),
+		);
+	});
+
+	test('accepted delta refreshes package parent for follow-on telemetry', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeBridgeReviewPackage();
+		const commandDetails: unknown[] = [];
+		document.addEventListener('__bridge_command', (event: Event): void => {
+			commandDetails.push(extractEventDetail(event));
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (): Promise<Response> => new Response('loaded after delta')}
+				/>,
+			);
+		});
+
+		await act(async (): Promise<void> => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', {
+					detail: {
+						pushNonce: 'push-nonce',
+						telemetryConfig: {
+							enabledScopes: ['web'],
+							maxSamplesPerBatch: 16,
+							maxEncodedBatchBytes: 16384,
+							minimumFlushIntervalMilliseconds: 1,
+							rpcMethodName: 'system.bridgeTelemetry',
+							scenario: 'package_apply_content_fetch_v1',
+						},
+					},
+				}),
+			);
+			document.dispatchEvent(
+				new CustomEvent('__bridge_push', {
+					detail: {
+						__v: 1,
+						__pushId: 'push-metadata',
+						__revision: 1,
+						__epoch: 1,
+						__traceContext: {
+							traceId: '11111111111111111111111111111111',
+							spanId: '2222222222222222',
+							parentSpanId: null,
+							sampled: true,
+						},
+						store: 'diff',
+						op: 'replace',
+						level: 'cold',
+						slice: 'diff_package_metadata',
+						nonce: 'push-nonce',
+						data: { package: reviewPackage },
+					},
+				}),
+			);
+			await Promise.resolve();
+			document.dispatchEvent(
+				new CustomEvent('__bridge_push', {
+					detail: {
+						__v: 1,
+						__pushId: 'push-delta',
+						__revision: 2,
+						__epoch: 1,
+						__traceContext: {
+							traceId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+							spanId: 'bbbbbbbbbbbbbbbb',
+							parentSpanId: null,
+							sampled: true,
+						},
+						store: 'diff',
+						op: 'merge',
+						level: 'warm',
+						slice: 'diff_package_delta',
+						nonce: 'push-nonce',
+						data: {
+							delta: {
+								packageId: reviewPackage.packageId,
+								reviewGeneration: reviewPackage.reviewGeneration,
+								revision: reviewPackage.revision + 1,
+								operations: {
+									addItems: [],
+									updateItems: [],
+									removeItems: [],
+									moveItems: [],
+									updateGroups: null,
+									updateSummary: reviewPackage.summary,
+									invalidateContent: [],
+								},
+							},
+						},
+					},
+				}),
+			);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		await act(async (): Promise<void> => {
+			const selectedButton = document.querySelector('button');
+			if (selectedButton === null) {
+				throw new Error('expected selected review item button');
+			}
+			selectedButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await Promise.resolve();
+		});
+
+		expect(commandDetails).toContainEqual(
+			expect.objectContaining({
+				method: 'review.markFileViewed',
+				__traceContext: expect.objectContaining({
+					traceId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+					parentSpanId: 'bbbbbbbbbbbbbbbb',
+				}),
+			}),
+		);
+		const telemetrySamples = commandDetails.flatMap(extractTelemetrySamples);
+		expect(telemetrySamples).toContainEqual(
+			expect.objectContaining({
+				name: 'performance.bridge.web.content_fetch',
+				traceContext: expect.objectContaining({
+					traceId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+					parentSpanId: 'bbbbbbbbbbbbbbbb',
 				}),
 			}),
 		);
@@ -347,6 +618,7 @@ describe('BridgeApp', () => {
 						store: 'diff',
 						op: 'replace',
 						level: 'cold',
+						slice: 'diff_package_metadata',
 						nonce: 'push-nonce',
 						data: { package: reviewPackage },
 					},
@@ -404,6 +676,7 @@ describe('BridgeApp', () => {
 						store: 'diff',
 						op: 'replace',
 						level: 'cold',
+						slice: 'diff_package_metadata',
 						nonce: 'push-nonce',
 						data: {
 							package: {

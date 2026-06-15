@@ -28,7 +28,7 @@ final class PushPipelineIntegrationTests {
             revisions: clock,
             epoch: { diffState.epoch },
             slices: {
-                Slice("diffStatus", store: .diff, level: .hot) { state in
+                Slice("diffStatus", telemetrySlice: .diffStatus, store: .diff, level: .hot) { state in
                     DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
                 }
             }
@@ -56,6 +56,7 @@ final class PushPipelineIntegrationTests {
         #expect(transport.pushCount > baselineCount, "Observable mutation should trigger push via PushPlan")
         #expect(transport.lastStore == .diff)
         #expect(transport.lastLevel == .hot)
+        #expect(transport.lastSlice == .diffStatus)
 
         plan.stop()
     }
@@ -78,7 +79,13 @@ final class PushPipelineIntegrationTests {
             revisions: clock,
             epoch: { diffState.epoch },
             slices: {
-                Slice("diffEpoch", store: .diff, level: .cold, op: .replace) { state in
+                Slice(
+                    "diffEpoch",
+                    telemetrySlice: .diffPackageMetadata,
+                    store: .diff,
+                    level: .cold,
+                    op: .replace
+                ) { state in
                     state.epoch
                 }
                 .erased(debounceClock: debounceClock)
@@ -113,6 +120,7 @@ final class PushPipelineIntegrationTests {
             pushesAfterMutations < 5,
             "Cold debounce should coalesce rapid mutations into fewer pushes (got \(pushesAfterMutations))")
         #expect(pushesAfterMutations >= 1, "At least one push should have fired after the mutations settled")
+        #expect(transport.lastSlice == .diffPackageMetadata)
 
         plan.stop()
     }
@@ -134,7 +142,7 @@ final class PushPipelineIntegrationTests {
             revisions: clock,
             epoch: { 0 },
             slices: {
-                Slice("connectionHealth", store: .connection, level: .hot) { state in
+                Slice("connectionHealth", telemetrySlice: .connectionHealth, store: .connection, level: .hot) { state in
                     ConnectionSlice(
                         health: state.connection.health,
                         latencyMs: state.connection.latencyMs
@@ -186,7 +194,7 @@ final class PushPipelineIntegrationTests {
             revisions: clock,
             epoch: { diffState.epoch },
             slices: {
-                Slice("diffStatus", store: .diff, level: .hot) { state in
+                Slice("diffStatus", telemetrySlice: .diffStatus, store: .diff, level: .hot) { state in
                     DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
                 }
             }
@@ -243,7 +251,7 @@ final class PushPipelineIntegrationTests {
             revisions: clock,
             epoch: { diffState.epoch },
             slices: {
-                Slice("diffStatus", store: .diff, level: .hot) { state in
+                Slice("diffStatus", telemetrySlice: .diffStatus, store: .diff, level: .hot) { state in
                     DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
                 }
             }
