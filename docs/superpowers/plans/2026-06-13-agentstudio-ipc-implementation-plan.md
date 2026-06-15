@@ -8,9 +8,10 @@
 ## Goal
 
 Implement the first Agent Studio app-level IPC slice: local Unix-domain socket,
-strict JSON-RPC 2.0 framing, `agentStudioOnly` auth, method registry,
-pane-first handles, read/query methods, pane focus, terminal status/snapshot/send/wait,
-event subscriptions, and a local CLI client.
+strict JSON-RPC 2.0 framing, `agentStudioOnly` subject-token auth, principal
+binding, scoped grants, permission requests, method registry, pane-first handles,
+read/query methods, pane focus, terminal status/snapshot/send/wait, event
+subscriptions, and a local CLI client.
 
 The implementation must route through existing app and runtime owners. It must
 not introduce a new mutation owner, command bus, public zmx API, or phase-1 MCP
@@ -20,8 +21,8 @@ transport.
 
 Read in full before planning:
 
-- `docs/superpowers/specs/2026-06-10-agentstudio-ipc-design.md`: 945 lines,
-  chunks `1-240`, `241-520`, `521-760`, `761-945`.
+- `docs/superpowers/specs/2026-06-10-agentstudio-ipc-design.md`: 1408 lines,
+  chunks `1-360`, `361-720`, `721-1080`, `1081-1408`.
 - `docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md`: 322 lines,
   chunk `1-322`.
 
@@ -71,12 +72,16 @@ Live repo evidence checked:
 
 ```text
 external agent / CLI
-  -> Infrastructure/IPC
+  -> AgentStudioIPCTransport
        Unix socket, peer credentials, NDJSON, JSON-RPC codec
-  -> Core/ProgrammaticControl
-       method contracts, schemas, privileges, handles, public events/waits
-  -> App/IPC
-       service lifecycle, auth, registry assembly, query/action/runtime adapters
+  -> AgentStudioProgrammaticControl
+       method contracts, schemas, privileges, grant scopes, handles,
+       public events/waits
+  -> AgentStudioAppIPC
+       service lifecycle, auth, principals, GrantLedger, AuthorizationService,
+       registry assembly, protocol ports
+  -> AgentStudio executable / App/IPCComposition
+       concrete policy, approval, query/action/runtime adapters
   -> existing owners
        CommandDispatcher / ActionExecutor / WorkspaceCommandValidator
        PaneCoordinator / RuntimeRegistry / PaneRuntime
@@ -85,27 +90,35 @@ external agent / CLI
 This plan intentionally keeps three boundaries separate:
 
 1. Generic transport mechanics do not import app/product types.
-2. The method registry is product semantics but not socket-specific.
-3. App adapters bridge public methods into existing app/runtime owners.
+2. Programmatic-control contracts define product semantics but are not
+   socket-specific.
+3. `AgentStudioAppIPC` owns auth, authorization, ledger, registry, and protocol
+   ports but does not import app/feature/runtime owners directly.
+4. The executable target implements concrete ports into existing app/runtime
+   owners.
 
 ## Requirements And Proof Matrix
 
 | Requirement / claim | Owning task | Proof owner | Proof gate | Layer | Stale-proof guard | Red/green required | Sized to pass? |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Unix socket JSON-RPC accepts one newline-delimited request per frame and rejects invalid JSON, missing `jsonrpc`, non-object params, oversize frames, and batch arrays | T1 | `Infrastructure/IPC` tests | Focused Swift tests for codec/framer/listener fakes | Unit/integration | Tests use real newline chunking and malformed fixtures, not Bridge router assumptions | Yes | Yes |
-| Generic IPC infrastructure has no Core/App/Feature imports | T1 | Boundary check plus test compile | Existing boundary lint plus targeted import check if needed | Lint | New `Infrastructure/IPC` files are scanned in lint | No | Yes |
-| App IPC metadata and socket paths are derived from `AppDataPaths.rootDirectory()` under `<root>/ipc` | T2 | `App/IPC` service tests | Unit tests with injected environment/root/channel | Unit | Tests assert stable/beta/debug/env override paths and owner-only metadata mode | Yes | Yes |
-| Filesystem trust fails closed for symlinks, wrong owner, group/world access, and stale live socket ownership | T2 | `App/IPC` filesystem trust tests | Temp-dir tests with permission fixtures where platform allows | Integration | Permission checks skipped only when Darwin cannot set a mode, with explicit assertions for supported paths | Yes | Yes |
-| `agentStudioOnly` token is memory-only and injected only into Agent Studio-spawned sessions | T3 | Auth service and session env tests | Unit tests for auth state plus environment-construction tests | Unit/integration | Tests scan metadata output for token absence and assert env contains socket/token/runtime id | Yes | Yes |
+| Unix socket JSON-RPC accepts one newline-delimited request per frame and rejects invalid JSON, missing `jsonrpc`, non-object params, oversize frames, and batch arrays | T1 | `AgentStudioIPCTransport` tests | Focused Swift tests for codec/framer/listener fakes | Unit/integration | Tests use real newline chunking and malformed fixtures, not Bridge router assumptions | Yes | Yes |
+| `AgentStudioIPCTransport` has no product imports and target edges prevent transport from depending on contracts/app/features | T1 | SwiftPM target graph plus architecture lint | Package compile and IPC-specific architecture lint rules | Lint/compile | PR #175 runner is extended with IPC rules instead of adding shell/rg guards | No | Yes |
+| App IPC metadata and socket paths are derived from `AppDataPaths.rootDirectory()` under `<root>/ipc` | T2 | `AgentStudioAppIPC` service tests | Unit tests with injected environment/root/channel | Unit | Tests assert stable/beta/debug/env override paths and owner-only metadata mode | Yes | Yes |
+| Filesystem trust fails closed for symlinks, wrong owner, group/world access, and stale live socket ownership | T2 | `AgentStudioAppIPC` filesystem trust tests | Temp-dir tests with permission fixtures where platform allows | Integration | Permission checks skipped only when Darwin cannot set a mode, with explicit assertions for supported paths | Yes | Yes |
+| `agentStudioOnly` subject tokens are memory-only, minted before session env construction, and map to server-bound principals | T3 | Auth service and session env tests | Unit tests for subject-token registry plus environment-construction tests | Unit/integration | Tests scan metadata output for token absence and assert env contains socket/token/runtime id; `auth.login` never trusts caller pane hints | Yes | Yes |
 | Same-uid peer credential check runs before token auth and auth failures close/reject as specified | T3 | Transport/auth tests | Peer credential abstraction fake tests plus live same-uid happy path if feasible | Unit/integration | Peer credential abstraction is injectable so behavior is not dependent on CI socket support | Yes | Yes |
-| Method registry requires schemas, privilege class, execution owner, and result semantics for every phase-1 method | T4 | Registry tests | Reflection/table tests over registered methods | Unit | Test fails on missing metadata or deferred namespace registration | Yes | Yes |
+| Principal lifetime follows bound pane and runtime identity | T3 | Principal registry tests | Unit tests over pane-close, listener restart, runtime-id change, token rotation | Unit | Closed-pane subject token returns `-32001 unauthenticated` and grants are revoked | Yes | Yes |
+| Method registry requires schemas, privilege class, execution owner, result semantics, and principal availability metadata for every phase-1 method | T4 | Registry tests | Reflection/table tests over registered methods | Unit | Test fails on missing metadata, deferred namespace registration, or method exposure to a principal without a matching grant path | Yes | Yes |
 | Public handles are pane-first, UUID-canonical, and friendly refs are runtime-local conveniences | T4 | Handle resolver tests | Unit tests with stable fake app snapshot | Unit | Tests prove ordinals are not persisted and responses echo canonical UUID targets | Yes | Yes |
+| Baseline grants permit a spawned pane agent to operate on selfPane without interactive approval and deny cross-pane/global authority by default | T4 | Authorization tests | Unit tests over principals, grants, canonical targets, and focus changes | Unit | `selfPane` is principal-bound, not active focus or caller params | Yes | Yes |
+| Permission requests are commands and approval is policy-routed through app policy, human prompt, or delegated principals with `grantApprove` | T4/T8 | PermissionBroker and GrantLedger tests | Unit/integration tests over appPolicy, humanPrompt fake, delegated approver, denial paths | Unit/integration | Event notifications cannot approve/deny/revoke; `permission.resolveRequest` requires `grantApprove` for canonical scope | Yes | Yes |
 | Query methods read snapshots without mutating atoms | T5 | Query adapter tests | Snapshot tests over `WorkspaceStore` fixtures | Unit | Tests use read-only fixtures and no mutation method calls in adapter | Yes | Yes |
 | `pane.focus` routes through a deliberate app-control seam rather than private view-controller methods | T6 | Layout adapter tests | Focused tests on action seam and no-active-window error | Unit/integration | Task cannot pass until seam has a named owner chain and no-direct-atom-mutation proof | Yes | Yes |
 | `terminal.send` routes through `ActionExecutor -> PaneCoordinator -> RuntimeRegistry -> PaneRuntime` and means bytes accepted by surface, not shell completion | T7 | Runtime adapter tests | Existing coordinator dispatch tests plus new IPC adapter tests | Unit/integration | Test maps `ActionResult` to JSON-RPC and does not wait for shell output | Yes | Yes |
 | `terminal.status` and `terminal.snapshot` expose allowlisted DTOs only, with no raw TerminalRuntime, output, scrollback, zmx, paths, URLs, or secrets unless explicitly redacted | T7 | DTO/schema tests | Snapshot serialization tests and sensitive-field denylist tests | Unit | Tests include terminal title/cwd/search/progress examples and assert redaction/omission policy | Yes | Yes |
 | `terminal.wait` accepts only exported condition enum values and uses bounded waits/admission limits | T8 | Wait adapter tests | Fake event stream tests with injected clock/bounded timeout | Unit/integration | Tests reject arbitrary event names and prove timeout cleanup | Yes | Yes |
-| `events.subscribe` streams only allowlisted public event DTOs and disconnects/errs slow subscribers | T8 | Event broker tests | Fake subscriber/backpressure tests | Integration | Tests assert no raw `RuntimeEnvelope` or terminal output payload is serialized | Yes | Yes |
+| `events.subscribe` streams only allowlisted public event DTOs and disconnects/errs slow subscribers | T8 | Event broker tests | Fake subscriber/backpressure tests | Integration | Tests assert no raw `RuntimeEnvelope`, terminal output payload, permission token, grant secret, or zmx internal is serialized | Yes | Yes |
+| Permission events are visibility-scoped and status methods recover missed permission events | T8 | Permission event/status tests | Fake subscriber tests plus request/grant status queries | Unit/integration | Requesting principal, app approval surface, delegated approver, and unrelated principal visibility are tested separately | Yes | Yes |
 | CLI can discover socket metadata, authenticate, call read methods, send terminal input, and subscribe/unsubscribe | T9 | CLI smoke tests | CLI unit tests plus local smoke against test IPC server | Smoke | Smoke uses isolated `AGENTSTUDIO_DATA_DIR` and does not touch user's running app | Yes | Yes |
 | Phase-1 implementation does not expose zmx public methods or zmx internals | T4/T7/T8 | Registry/schema tests | Namespace denylist and snapshot/event sensitive-field tests | Unit | Tests explicitly deny `zmx.*`, socket path, session name, history, raw `Info` bytes | Yes | Yes |
 | Architecture docs are promoted after implementation and spec becomes history | T10 | Docs proof | `rg` checks plus docs diff review | Docs/lint | Docs reference real implemented file paths and remove stale open decisions | No | Yes |
@@ -119,6 +132,9 @@ Purpose: validate this plan before code.
 Actions:
 
 - Run `shravan-dev-workflow:plan-review-swarm` against this plan and both specs.
+- When external Claude review is requested and the CLI model is available, run it
+  through the Claude Code CLI with Opus-level review; do not use Anthropic API
+  calls.
 - Keep phase-1 expansion methods (`workspace.select`, `pane.split`, `pane.close`,
   `terminal.interrupt`) out unless review identifies a complete owner chain.
 - Decide CLI packaging before code: add a Swift executable target or defer the
@@ -134,7 +150,7 @@ Exit proof:
 
 Write surfaces:
 
-- `Sources/AgentStudio/Infrastructure/IPC/`
+- `Sources/AgentStudioIPCTransport/`
 - `Tests/AgentStudioTests/Infrastructure/IPC/`
 
 Implement:
@@ -152,13 +168,14 @@ Proof:
 - Unit tests for valid/invalid JSON-RPC, batch rejection, params-object rule,
   response `result` xor `error`, request-size bounds, and chunked NDJSON frames.
 - Integration tests for connect/send/read/close against a temp Unix socket.
-- Lint/boundary check proves no product imports.
+- SwiftPM target edges and architecture lint prove no product imports.
 
 ### T2. IPC Service Paths, Metadata, And Filesystem Trust
 
 Write surfaces:
 
-- `Sources/AgentStudio/App/IPC/`
+- `Sources/AgentStudioAppIPC/`
+- `Sources/AgentStudio/App/IPCComposition/`
 - `Tests/AgentStudioTests/App/IPC/`
 - Possibly `Sources/AgentStudio/Infrastructure/AppDataPaths.swift` only for an
   `ipcDirectory()` helper if keeping path derivation centralized earns it.
@@ -176,14 +193,15 @@ Proof:
 
 - Temp-root tests for stable/beta/debug/env path derivation.
 - Permission/symlink tests for fail-closed behavior.
-- Metadata serialization test proves no token in `agentStudioOnly`.
+- Metadata serialization test proves no subject token in `agentStudioOnly`.
 
-### T3. Auth, Access Modes, Runtime Token Custody
+### T3. Auth, Access Modes, Subject Tokens, And Principals
 
 Write surfaces:
 
-- `Sources/AgentStudio/Core/ProgrammaticControl/`
-- `Sources/AgentStudio/App/IPC/`
+- `Sources/AgentStudioProgrammaticControl/`
+- `Sources/AgentStudioAppIPC/`
+- `Sources/AgentStudio/App/IPCComposition/` for concrete spawn-env wiring.
 - Terminal spawn environment construction seam where Agent Studio launches
   spawned sessions, if required by current launch code.
 - `Tests/AgentStudioTests/App/IPC/`
@@ -192,11 +210,16 @@ Implement:
 
 - `IPCAccessMode`: `off`, `agentStudioOnly`, `automationSameUser`,
   reserved `password`, `unsafeDebug`.
-- Runtime token generation, rotation, per-connection authenticated state, and
-  pre-auth method allowlist.
+- Subject-token generation before session env construction, token rotation,
+  per-connection authenticated state, and pre-auth method allowlist.
+- In-memory token-to-principal registry.
+- `IPCPrincipal` with `spawnedPaneAgent(boundPaneId:)`, future automation/MCP
+  kinds, and server-side approval authority metadata.
 - `auth.login` and `auth.status`.
 - Peer credential gate before token validation.
 - Token/socket/runtime-id injection for Agent Studio-spawned terminal sessions.
+- Principal invalidation on bound pane close, listener restart, runtime id change,
+  and token rotation.
 - Audit logging that records method, target, privilege class, and correlation id
   without token or sensitive payload values.
 
@@ -204,44 +227,67 @@ Proof:
 
 - Auth unit tests for unauthenticated rejection, invalid token, repeated failure
   close/reject, token rotation, and pre-auth `system.ping` with no metadata.
+- Subject-token tests prove `auth.login` binds only through the in-memory token
+  registry and ignores caller-supplied pane hints.
+- Principal lifetime tests prove bound pane close invalidates future auth and
+  revokes grants.
 - Env injection tests prove the spawned session receives
   `AGENTSTUDIO_IPC_SOCKET`, `AGENTSTUDIO_IPC_TOKEN`, and
   `AGENTSTUDIO_IPC_RUNTIME_ID`.
-- Metadata tests prove the runtime token is not persisted in `agentStudioOnly`.
+- Metadata tests prove the subject token is not persisted in `agentStudioOnly`.
 
 ### T4. Programmatic Control Contracts, Registry, Handles, Capabilities
 
 Write surfaces:
 
-- `Sources/AgentStudio/Core/ProgrammaticControl/`
+- `Sources/AgentStudioProgrammaticControl/`
+- `Sources/AgentStudioAppIPC/`
 - `Tests/AgentStudioTests/Core/ProgrammaticControl/`
+- `Tests/AgentStudioTests/App/IPC/`
 
 Implement:
 
 - Phase-1 method definitions and schemas:
   `system.*`, `auth.*`, `window.*`, `workspace.*`, `pane.*`,
-  `terminal.*`, `events.*`.
-- Privilege classes and execution-owner metadata.
+  `terminal.*`, `permission.*`, `events.*`.
+- Privilege classes, target/data scopes, and execution-owner metadata.
 - Result semantics metadata (`applied` default, `accepted` only when justified).
 - Handle model: canonical UUIDs plus runtime-local friendly refs for
   `window:*`, `workspace:*`, `tab:*`, `pane:*`.
+- Baseline selfPane grant derivation for spawned pane principals.
+- `GrantLedger`, `PermissionBroker`, `AuthorizationService`, and
+  `PermissionScopeCanonicalizer`.
+- Approval routes:
+  `appPolicy`, `humanPrompt`, and `delegatedPrincipal`.
+- `ApprovalPolicyStore` and `PermissionApprovalPort` protocols, with concrete
+  implementations in `App/IPCComposition`.
+- `permission.request`, `permission.requestStatus`, `permission.grantStatus`,
+  and guarded/reserved `permission.resolveRequest`.
 - Registry capability export for future MCP mapping without implementing MCP.
 - Namespace denylist for deferred groups, especially `zmx.*`.
 
 Proof:
 
 - Registry completeness test: every method has params schema, result schema,
-  privilege class, execution owner, and result semantics.
+  privilege class, principal availability metadata, execution owner, and result
+  semantics.
 - Deferred namespace test: no `zmx.*`, `mcp.*`, `browser.*`, `webview.*`,
   `bridge.*`, or phase-1 expansion methods unless explicitly promoted.
 - Handle tests for UUID canonicalization, friendly ref resolution, no reuse
   during a runtime, and error mapping for missing targets.
+- Authorization tests prove selfPane is principal-bound, focus changes do not
+  affect selfPane, cross-pane send is denied without an active grant, and
+  canonicalization happens before grant comparison.
+- Permission tests prove app-policy auto-approve/deny/ask behavior, delegated
+  approval with `grantApprove`, rejected self/unauthorized approval, status
+  recovery, TTL/close/restart revocation, and non-persistence.
 
 ### T5. App Query And Snapshot Adapters
 
 Write surfaces:
 
-- `Sources/AgentStudio/App/IPC/`
+- `Sources/AgentStudioAppIPC/`
+- `Sources/AgentStudio/App/IPCComposition/`
 - `Tests/AgentStudioTests/App/IPC/`
 
 Implement:
@@ -264,7 +310,8 @@ Proof:
 
 Write surfaces:
 
-- `Sources/AgentStudio/App/IPC/`
+- `Sources/AgentStudioAppIPC/`
+- `Sources/AgentStudio/App/IPCComposition/`
 - Possibly a small `App/Commands` or `App/Coordination` seam if current focus
   behavior is too private to expose safely.
 - `Tests/AgentStudioTests/App/IPC/`
@@ -293,7 +340,8 @@ Split/replan trigger:
 
 Write surfaces:
 
-- `Sources/AgentStudio/App/IPC/`
+- `Sources/AgentStudioAppIPC/`
+- `Sources/AgentStudio/App/IPCComposition/`
 - `Tests/AgentStudioTests/App/IPC/`
 - Existing terminal/runtime tests only if new public DTO behavior belongs there.
 
@@ -316,12 +364,13 @@ Proof:
 - Snapshot tests prove no output, scrollback, zmx history, socket path, raw PTY
   bytes, or raw runtime object is serialized.
 
-### T8. Events And Terminal Waits
+### T8. Events, Permission Events, And Terminal Waits
 
 Write surfaces:
 
-- `Sources/AgentStudio/Core/ProgrammaticControl/`
-- `Sources/AgentStudio/App/IPC/`
+- `Sources/AgentStudioProgrammaticControl/`
+- `Sources/AgentStudioAppIPC/`
+- `Sources/AgentStudio/App/IPCComposition/`
 - `Tests/AgentStudioTests/App/IPC/`
 
 Implement:
@@ -329,6 +378,12 @@ Implement:
 - Public exported event names and payload DTOs.
 - `events.subscribe` / `events.unsubscribe` over authenticated connection state.
 - JSON-RPC `events.notification` notifications.
+- Permission event DTOs:
+  `permission.requestCreated`, `permission.requestResolved`,
+  `permission.grantRevoked`, and `permission.grantExpired`.
+- Permission event visibility for requesting principal, app approval surface,
+  delegated approving principal, and unrelated principals.
+- Rejection of inbound client notifications that pretend to be server events.
 - Bounded non-durable replay only when a source supports it; replay gap maps to
   `-32010`.
 - Slow subscriber policy and close/error behavior.
@@ -341,6 +396,11 @@ Proof:
 
 - Event subscribe/unsubscribe tests.
 - Allowlist tests for event names and payloads.
+- Permission event visibility tests.
+- Status-query tests prove missed permission events are recoverable through
+  `permission.requestStatus` and `permission.grantStatus`.
+- Inbound `events.notification` / `permission.requestResolved` frames cannot
+  mutate grants.
 - Slow subscriber/backpressure tests.
 - Wait tests with fake runtime events and injected clocks.
 - Rejection tests for arbitrary internal event names/predicates.
@@ -387,6 +447,7 @@ Write surfaces:
 Implement:
 
 - Promote implemented module ownership, method registry rules, auth defaults,
+  subject-token/principal/grant rules, approval policy/delegation rules,
   event/wait public contract, and app/runtime routing rules.
 - Mark the spec as implementation history after code lands.
 - Keep zmx backend IPC doc separate and still future-facing until implemented.
@@ -395,15 +456,18 @@ Proof:
 
 - `rg` confirms architecture docs point to implemented files.
 - `rg` confirms no durable docs describe public `zmx.*` app methods.
+- `rg` confirms durable docs describe app-level grants/approval as AppIPC state,
+  not zmx or EventBus state.
 - `mise run lint` includes markdown/boundary checks as repo tooling defines.
 
 ## Write Surface Summary
 
 Expected new areas:
 
-- `Sources/AgentStudio/Infrastructure/IPC/`
-- `Sources/AgentStudio/Core/ProgrammaticControl/`
-- `Sources/AgentStudio/App/IPC/`
+- `Sources/AgentStudioIPCTransport/`
+- `Sources/AgentStudioProgrammaticControl/`
+- `Sources/AgentStudioAppIPC/`
+- `Sources/AgentStudio/App/IPCComposition/`
 - `Tests/AgentStudioTests/Infrastructure/IPC/`
 - `Tests/AgentStudioTests/Core/ProgrammaticControl/`
 - `Tests/AgentStudioTests/App/IPC/`
@@ -431,12 +495,13 @@ Required during implementation slices:
 1. `git diff --check`
 2. Focused unit tests for each slice:
    - IPC codec/framer/listener
-   - filesystem trust/auth
-   - method registry/handles/schemas
+   - filesystem trust/auth/principals
+   - method registry/handles/schemas/grants
+   - approval policy, delegated approval, and permission status
    - app query adapters
    - pane focus seam
    - terminal adapter
-   - events/waits
+   - events/permission events/waits
    - CLI discovery/client
 3. Existing relevant suites:
    - `Tests/AgentStudioTests/Infrastructure/AppDataPathsTests.swift`
@@ -455,17 +520,16 @@ Required during implementation slices:
    - app-level smoke only in a separate debug/beta instance if the running user
      app must not be disturbed.
 
-Known current tooling note from this planning pass:
+Current tooling proof from this planning pass after merging PR #175:
 
-- `mise run lint` reached swift-format, swiftlint, and boundary checks
-  successfully, then hung inside `scripts/verify-release-scripts.sh` while
-  rendering the Homebrew cask. Treat that as a repo tooling blocker to report
-  separately if it reproduces during implementation; do not edit release tooling
-  as part of IPC unless explicitly scoped.
+- `mise run lint` completed successfully: swift-format OK, AgentStudio SwiftLint
+  found 0 violations in 1131 Swift files, and release script verification passed.
+  If this regresses during implementation, separate changed-surface proof from
+  unrelated tooling blockers before editing release tooling.
 
 ## Rollout And Recovery
 
-- Default target mode is `agentStudioOnly` with memory-only runtime token.
+- Default target mode is `agentStudioOnly` with memory-only subject tokens.
 - `off` mode must exist for recovery and testing.
 - `automationSameUser` remains opt-in and must be honestly documented as
   same-user local automation if token bootstrap material is discoverable.
@@ -473,11 +537,23 @@ Known current tooling note from this planning pass:
 - Stale dead sockets can be unlinked after probe.
 - Listener shutdown removes runtime metadata and closes connections.
 - Event subscriptions are non-durable; clients recover by refreshing snapshots.
+- Permission events are non-durable; clients recover through
+  `permission.requestStatus` and `permission.grantStatus`.
 
 ## Risks
 
 - Peer PID ancestry is weaker and more platform-specific than token custody.
-  Keep same-uid plus memory-only token as the actual phase-1 enforcement model.
+  Keep same-uid plus memory-only subject token as the actual phase-1 enforcement
+  model.
+- Subject-token leakage is principal impersonation. Keep elevated mutating grants
+  connection-bound or one-shot by default, and keep approval authority server-side
+  on principals/policies rather than inside bearer-token claims.
+- Preconfigured app policy can silently approve too much if its scope language is
+  vague. Canonicalize scopes before issuing and consuming grants, and prefer short
+  TTLs for elevated read grants.
+- Delegated approval can become ambient authority if `grantApprove` is broad.
+  Require canonical target/data scope checks and explicit tests for unauthorized
+  `permission.resolveRequest`.
 - `pane.focus` may require a new app-control seam because current focus behavior
   is partly controller/private. Do not bypass this with direct atom writes.
 - Terminal snapshots can leak secrets through titles, cwd, progress, search
@@ -485,9 +561,8 @@ Known current tooling note from this planning pass:
 - Event subscriptions can become an accidental raw runtime-envelope API. Keep
   public event DTOs separate.
 - CLI packaging may force package/product changes; decide before coding.
-- Full `mise run lint` currently has a release-script hang unrelated to the docs
-  change. Implementation must distinguish changed-surface proof from unrelated
-  tooling blockers.
+- Full `mise run lint` now passes in this worktree after PR #175. Future failures
+  should still distinguish changed-surface proof from unrelated tooling blockers.
 
 ## Open Questions
 
@@ -500,6 +575,10 @@ Known current tooling note from this planning pass:
 4. What is the minimum useful `terminal.snapshot` DTO for the first consumer?
 5. Is `automationSameUser` included in phase 1, or kept as a follow-up after
    `agentStudioOnly` works for spawned agents?
+6. Does the first implementation slice register `permission.resolveRequest`, or
+   reserve it while shipping only app-policy and human-prompt routes?
+7. Where does the first user-configured approval policy live: settings-backed
+   persistence, workspace-local config, or runtime-only developer config?
 
 ## Next Skill
 
