@@ -105,6 +105,41 @@ Sources/AgentStudio/
 
 ---
 
+## SwiftPM IPC Target Split
+
+Most AgentStudio code still lives in the `AgentStudio` executable target and
+uses the folder rules below. App IPC adds three smaller SwiftPM targets so the
+compiler can enforce boundaries before lint or review:
+
+```
+Sources/AgentStudioIPCTransport/
+  Unix sockets, peer credentials, NDJSON framing, JSON-RPC codec.
+  No AgentStudio product imports.
+
+Sources/AgentStudioProgrammaticControl/
+  Public semantic contracts: method metadata, handles, principals, permission
+  scopes, schema descriptions.
+  No SwiftUI/AppKit, product state, runtime owners, or app composition.
+
+Sources/AgentStudioAppIPC/
+  App IPC service shell, auth, method registry, authorization, grant ledger,
+  permission broker, and protocol ports into app/runtime owners.
+  No concrete app/runtime owner imports and no direct atom reads.
+
+Sources/AgentStudio/App/IPCComposition/
+  Concrete adapters from AgentStudioAppIPC protocol ports into PaneCoordinator,
+  RuntimeRegistry, PaneRuntime, and app-owned state.
+```
+
+This target split keeps `App/IPC` from becoming a god box. IPC services own
+transport-adjacent policy and protocol contracts; app behavior still belongs to
+the existing app/runtime owners behind narrow ports.
+
+See [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) for the
+request authority path, auth model, permission grants, and zmx boundary.
+
+---
+
 ## Import Rule (Hard Boundary)
 
 This is the single most important constraint. It determines where every file lives:
