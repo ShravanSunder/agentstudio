@@ -106,4 +106,42 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(appDelegateSource.contains(secureRestorationDisabled))
         #expect(mainWindowControllerSource.contains("window.isRestorable = false"))
     }
+
+    @Test("App IPC server is composed at app boot and stopped on termination")
+    func appIPCServerIsComposedAtAppBootAndStoppedOnTermination() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift")
+        let ipcBootURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+IPC.swift")
+        let terminationURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+Termination.swift")
+        let mainWindowControllerURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Windows/MainWindowController.swift")
+        let splitViewControllerURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Windows/MainSplitViewController.swift")
+
+        let appDelegateSource = try String(contentsOf: appDelegateURL, encoding: .utf8)
+        let ipcBootSource = try String(contentsOf: ipcBootURL, encoding: .utf8)
+        let terminationSource = try String(contentsOf: terminationURL, encoding: .utf8)
+        let mainWindowControllerSource = try String(contentsOf: mainWindowControllerURL, encoding: .utf8)
+        let splitViewControllerSource = try String(contentsOf: splitViewControllerURL, encoding: .utf8)
+
+        let lifecycleConsumerIndex = try #require(appDelegateSource.range(of: "wireLifecycleConsumers()")?.lowerBound)
+        let appIPCStartIndex = try #require(appDelegateSource.range(of: "startAppIPCServer()")?.lowerBound)
+        let appIPCStopIndex = try #require(terminationSource.range(of: "stopAppIPCServer()")?.lowerBound)
+        let flushStoresIndex = try #require(terminationSource.range(of: "await store.flushAsync()")?.lowerBound)
+
+        #expect(appDelegateSource.contains("import AgentStudioAppIPC"))
+        #expect(appDelegateSource.contains("var appIPCServer: AgentStudioAppIPCServer?"))
+        #expect(lifecycleConsumerIndex < appIPCStartIndex)
+        #expect(ipcBootSource.contains("import AgentStudioAppIPC"))
+        #expect(ipcBootSource.contains("import AgentStudioProgrammaticControl"))
+        #expect(ipcBootSource.contains("AppIPCMethodRegistry.phaseOne()"))
+        #expect(ipcBootSource.contains("let rootDirectory = AppDataPaths.rootDirectory()"))
+        #expect(ipcBootSource.contains("let paths = AgentStudioIPCPathResolver().paths(rootDirectory: rootDirectory)"))
+        #expect(ipcBootSource.contains("makePaneFocusAppControl(store: store)"))
+        #expect(ipcBootSource.contains("server.start()"))
+        #expect(appIPCStopIndex < flushStoresIndex)
+        #expect(mainWindowControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
+        #expect(splitViewControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
+        #expect(splitViewControllerSource.contains("PaneTabViewControllerPaneFocusAppControl"))
+    }
 }

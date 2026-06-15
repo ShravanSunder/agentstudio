@@ -72,6 +72,16 @@ class MainSplitViewController: NSSplitViewController {
         paneTabViewController?.syncVisibleTerminalGeometry(reason: reason)
     }
 
+    func makePaneFocusAppControl(store: WorkspaceStore) -> (any PaneFocusAppControlling)? {
+        guard let paneTabViewController else {
+            return nil
+        }
+        return PaneTabViewControllerPaneFocusAppControl(
+            paneTabViewController: paneTabViewController,
+            workspaceStore: store
+        )
+    }
+
     init(
         store: WorkspaceStore,
         workspaceWindowId: UUID? = nil,

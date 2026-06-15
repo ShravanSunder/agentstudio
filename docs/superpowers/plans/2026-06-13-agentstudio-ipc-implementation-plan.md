@@ -1,14 +1,14 @@
 # AgentStudio IPC Implementation Plan
 
 **Date:** 2026-06-13
-**Status:** Foundation implemented on the `programatical-control` branch, with
-review-driven contract fixes applied. T1-T10 target split, contracts,
-auth/permission foundations, app adapters, CLI/client core, and architecture
-docs have landed. The live app listener/bootstrap slice is still unresolved:
-the AgentStudio executable does not yet start an app-owned socket server or
-deliver pane-bound subject tokens through a non-enumerable bootstrap channel.
-This plan remains the proof artifact and the source of the remaining app-boot
-follow-up.
+**Status:** Phase-1 foundation implemented on the `programatical-control`
+branch, with review-driven contract fixes and live app listener wiring applied.
+T1-T10 target split, contracts, auth/permission foundations, app adapters,
+CLI/client core, architecture docs, app-owned socket server lifecycle, and
+fd-based pane bootstrap primitive have landed. The remaining follow-up is
+concrete child-process fd remapping in the future pane-agent spawn adapter; the
+current terminal/zmx launch path does not yet pass the bootstrap fd into a
+child process.
 **Primary spec:** `docs/superpowers/specs/2026-06-10-agentstudio-ipc-design.md`
 **Related backend spec:** `docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md`
 
@@ -89,8 +89,9 @@ external agent / CLI
   -> AgentStudioAppIPC
        service lifecycle, auth, principals, GrantLedger, AuthorizationService,
        registry assembly, protocol ports
-  -> AgentStudio executable / App/IPCComposition
-       concrete policy, approval, query/action/runtime adapters
+  -> AgentStudio executable / App/Boot + App/IPCComposition
+       app listener lifecycle, concrete policy, approval, query/action/runtime
+       adapters
   -> existing owners
        CommandDispatcher / ActionExecutor / WorkspaceCommandValidator
        PaneCoordinator / RuntimeRegistry / PaneRuntime
@@ -122,7 +123,8 @@ AgentStudioAppIPC
 
 AgentStudio executable
   depends on AgentStudioAppIPC
-  implements ports under Sources/AgentStudio/App/IPCComposition/
+  composes the live server under Sources/AgentStudio/App/Boot/
+  implements concrete app/runtime ports under Sources/AgentStudio/App/IPCComposition/
 
 AgentStudioIPCClient, if T9 remains in phase 1
   executable target for local CLI/smoke use
@@ -135,7 +137,7 @@ direct atom mutation from IPC adapters, no `zmx.*` public registry methods, no
 raw runtime/zmx DTO leakage, no AppKit/SwiftUI or app/feature/runtime-owner
 imports from `AgentStudioProgrammaticControl`, no concrete
 app/feature/runtime-owner imports from `AgentStudioAppIPC`, and concrete AppIPC
-port implementations only under `Sources/AgentStudio/App/IPCComposition/`.
+composition only under the app target.
 
 Boundary tests must also use the target graph. Do not prove transport/contracts
 with only the broad `AgentStudioTests` target, because that target can see the
@@ -154,11 +156,11 @@ composition/integration tests.
 | Narrow IPC test targets prove transport/contracts/AppIPC boundaries without depending on the AgentStudio executable target | T1/T4 | SwiftPM test target graph | `swift test --filter` or targeted test run for dedicated IPC test targets | Compile/test | Existing `AgentStudioTests` remains for executable integration only, not boundary proof | No | Yes |
 | App IPC metadata and socket paths are derived from `AppDataPaths.rootDirectory()` under `<root>/ipc` | T2 | `AgentStudioAppIPC` service tests | Unit tests with injected environment/root/channel | Unit | Tests assert stable/beta/debug/env override paths and owner-only metadata mode | Yes | Yes |
 | Filesystem trust fails closed for symlinks, wrong owner, group/world access, and stale live socket ownership | T2 | `AgentStudioAppIPC` filesystem trust tests | Temp-dir tests with permission fixtures where platform allows | Integration | Permission checks skipped only when Darwin cannot set a mode, with explicit assertions for supported paths | Yes | Yes |
-| `agentStudioOnly` subject tokens are memory-only, minted before session spawn, and map to server-bound principals | T3 | Auth service and spawn-bootstrap tests | Unit tests for subject-token registry plus environment-construction tests | Unit/integration | Tests scan metadata and env output for token absence and assert env contains only non-secret socket/runtime id routing data; `auth.login` never trusts caller pane hints | Yes | Yes |
+| `agentStudioOnly` subject tokens are memory-only, minted before session spawn, and map to server-bound principals | T3 | Auth service and spawn-bootstrap tests | Unit tests for subject-token registry plus environment-construction tests | Unit/integration | Tests scan metadata and env output for token absence, assert env contains only non-secret socket/runtime id routing data, and assert bootstrap pipe descriptors are close-on-exec until a spawn adapter deliberately remaps the read end; `auth.login` never trusts caller pane hints | Yes | Yes |
 | Same-uid peer credential check runs before token auth and auth failures close/reject as specified | T3 | Transport/auth tests | Peer credential abstraction fake tests plus live same-uid happy path if feasible | Unit/integration | Peer credential abstraction is injectable so behavior is not dependent on CI socket support | Yes | Yes |
 | Principal lifetime follows bound pane and runtime identity | T3 | Principal registry tests | Unit tests over pane-close, listener restart, runtime-id change, token rotation | Unit | Closed-pane subject token returns `-32001 unauthenticated` and grants are revoked | Yes | Yes |
 | Method registry requires schemas, privilege class, execution owner, result semantics, and principal availability metadata for every phase-1 method | T4 | Registry tests | Reflection/table tests over registered methods | Unit | Test fails on missing metadata, deferred namespace registration, or method exposure to a principal without a matching grant path | Yes | Yes |
-| Public handles are pane-first, UUID-canonical, and friendly refs are runtime-local conveniences | T4 | Handle resolver tests | Unit tests with stable fake app snapshot | Unit | Tests prove ordinals are not persisted and responses echo canonical UUID targets | Yes | Yes |
+| Public handles are pane-first, UUID-canonical, and friendly refs are runtime-local conveniences | T4 | Handle resolver tests | Unit tests with stable fake app snapshot | Unit | Tests prove ordinals are not persisted, responses echo canonical UUID targets, and terminal methods authorize friendly ordinals as the same concrete pane that execution will use | Yes | Yes |
 | Baseline grants permit a spawned pane agent to operate on selfPane without interactive approval and deny cross-pane/global authority by default | T4 | Authorization tests | Unit tests over principals, grants, canonical targets, and focus changes | Unit | `selfPane` is principal-bound, not active focus or caller params | Yes | Yes |
 | Permission requests are commands and approval is policy-routed through app policy, human prompt, or delegated principals with `grantApprove` | T4/T8 | PermissionBroker and GrantLedger tests | Unit/integration tests over appPolicy, humanPrompt fake, delegated approver, denial paths | Unit/integration | Event notifications cannot approve/deny/revoke; `permission.resolveRequest` requires `grantApprove` for canonical scope | Yes | Yes |
 | Delegated approval is recoverable after missed events without granting observer access to unrelated principals | T4/T8 | Permission query and visibility tests | `permission.pendingApprovals` tests plus permission event tests | Unit/integration | Requester status methods return own state; delegated approver query returns only routed pending requests within `grantApprove` scope | Yes | Yes |
@@ -333,7 +335,8 @@ Proof:
   non-secret routing metadata such as `AGENTSTUDIO_IPC_SOCKET` and
   `AGENTSTUDIO_IPC_RUNTIME_ID`.
 - Spawn-bootstrap tests prove the subject token is delivered through a
-  non-enumerable channel, not an environment variable or metadata file.
+  non-enumerable, close-on-exec channel, not an environment variable or metadata
+  file.
 - Metadata tests prove the subject token is not persisted in `agentStudioOnly`.
 - Redaction tests use a sentinel token and prove it is absent from logs, traces,
   telemetry/audit payloads, JSON-RPC errors, `auth.status`, and events.
@@ -800,14 +803,43 @@ Focused proof for the review-driven fixes:
 - `swift test --filter 'AgentStudioIPCClientCoreTests|AgentStudioIPCAuthenticationTests|AgentStudioIPCPermissionBrokerTests|AgentStudioIPCQueryAdapterTests|AgentStudioIPCRuntimeAdapterTests|IPCContractsTests' --build-path .build-agent-1`
   passed with 52 tests in 6 suites.
 
-Remaining blocker before claiming a live phase-1 app-control surface:
+Implementation proof for the live app listener/bootstrap slice:
 
-- App boot still needs to compose the listener service in `AppDelegate`, own
-  socket metadata lifecycle, run the request loop against live app/runtime
-  adapters, and introduce the non-enumerable spawn bootstrap channel for
-  pane-bound subject tokens. Until that exists, the current branch proves the
-  target/contracts/adapters/client foundation but not end-to-end control of a
-  running AgentStudio app.
+- `swift test --filter 'AgentStudioAppIPCServiceTests|AgentStudioIPCAuthenticationTests|AgentStudioIPCPermissionBrokerTests|AgentStudioIPCRegistryAuthorizationTests|ApplicationEntrypointArchitectureTests|AgentStudioIPCLayoutAdapterTests|AgentStudioIPCQueryAdapterTests|AgentStudioIPCRuntimeAdapterTests|AgentStudioIPCClientCoreTests|IPCContractsTests' --build-path .build-agent-1`
+  passed with 75 tests in 10 suites.
+- `SWIFT_TEST_TIMEOUT_SECONDS=120 mise run test` passed after the
+  attach-ready wait loop and review-driven socket/auth fixes. The captured log
+  had no Swift Testing failure markers; WebKit serialized suites passed, while
+  `E2ESerializedTests` and `ZmxE2ETests` were skipped by the repo-default
+  environment (`SWIFT_TEST_INCLUDE_E2E=0`,
+  `SWIFT_TEST_INCLUDE_ZMX_E2E=0`).
+- `mise run format && mise run lint && swift build --product AgentStudio
+  --build-path .build-agent-1 && git diff --check` passed. The lint gate used
+  the pinned AgentStudio SwiftLint architecture runner and reported 0
+  violations across 1172 Swift files.
+- `AgentStudioAppIPCServiceTests` covers a live Unix socket server for
+  pre-auth `system.ping`, same-connection `auth.login` plus
+  `system.identify`, pre-login rejection, delegated permission request/list/
+  resolve/grant-status flow over authenticated sockets, friendly-ordinal
+  terminal authorization against the resolved concrete pane, shutdown of
+  existing authenticated socket sessions, and fd-based pane bootstrap token
+  delivery with no env bearer token and close-on-exec custody.
+- `ApplicationEntrypointArchitectureTests` covers `AppDelegate` server storage,
+  boot order after lifecycle consumers, `AppDelegate+IPC.swift` composition,
+  pane focus control exposure, and shutdown before termination persistence
+  drains.
+- `AgentStudioIPCRuntimeAdapterTests` covers `terminal.wait attachReady` both
+  when the runtime is already ready and when readiness appears after the wait
+  starts. The adapter checks the readiness fact before timing out on each
+  resume so scheduler delay cannot hide an already-ready runtime.
+
+Remaining follow-up before claiming pane-agent child-process bootstrap:
+
+- The server can mint pane-bound principals and deliver one-shot subject tokens
+  through `AgentStudioIPCPaneBootstrapFactory`, but no current pane-agent spawn
+  adapter deliberately remaps that fd into a child process. Keep this as an
+  app-spawn integration follow-up rather than re-opening the public IPC protocol
+  design.
 
 ## Rollout And Recovery
 

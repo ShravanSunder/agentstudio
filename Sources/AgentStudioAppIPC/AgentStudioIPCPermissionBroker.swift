@@ -1,7 +1,7 @@
 import AgentStudioProgrammaticControl
 import Foundation
 
-public enum ApprovalPolicyDecision: String, Equatable, Sendable {
+public enum ApprovalPolicyDecision: String, Codable, Equatable, Sendable {
     case approve
     case deny
     case ask

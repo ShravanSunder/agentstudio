@@ -122,7 +122,7 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
         timeout: Duration
     ) async throws -> IPCTerminalWaitResult {
         let start = ContinuousClock.now
-        while start.duration(to: ContinuousClock.now) <= timeout {
+        while true {
             if runtime.lifecycle == .ready {
                 return IPCTerminalWaitResult(
                     paneId: paneId,
@@ -135,9 +135,11 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
                     healthy: nil
                 )
             }
+            guard start.duration(to: ContinuousClock.now) <= timeout else {
+                throw AppIPCRuntimeError(reason: .timeout)
+            }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        throw AppIPCRuntimeError(reason: .timeout)
     }
 
     private func terminalRuntimeSnapshot(for paneId: UUID) throws -> PaneRuntimeSnapshot {

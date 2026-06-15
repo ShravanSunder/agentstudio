@@ -257,6 +257,10 @@ public struct AuthorizationService: Sendable {
     }
 
     private func baselineAllows(_ scope: IPCPermissionScope, for principal: IPCPrincipal) -> Bool {
+        if scope.privilege == .grantApprove, principal.hasApprovalAuthority {
+            return true
+        }
+
         guard let boundPaneId = principal.boundPaneId, scope.target == .pane(boundPaneId) else {
             return false
         }
@@ -284,6 +288,15 @@ extension IPCPrincipal {
             boundPaneId
         case .automationClient, .futureMCPClient, .unsafeDebugClient:
             nil
+        }
+    }
+
+    fileprivate var hasApprovalAuthority: Bool {
+        switch approvalAuthority {
+        case .delegatedApprover(let scopes), .policyConfigured(let scopes):
+            !scopes.isEmpty
+        case .noApprovalAuthority:
+            false
         }
     }
 }
