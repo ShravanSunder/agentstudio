@@ -151,8 +151,8 @@ composition/integration tests.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Unix socket JSON-RPC accepts one newline-delimited request per frame and rejects invalid JSON, missing `jsonrpc`, non-object params, oversize frames, and batch arrays | T1 | `AgentStudioIPCTransport` tests | Focused Swift tests for codec/framer/listener fakes | Unit/integration | Tests use real newline chunking and malformed fixtures, not Bridge router assumptions | Yes | Yes |
 | `Package.swift` declares the IPC target graph before implementation code lands, and the executable/test targets depend on the new modules deliberately | T1 | SwiftPM package graph and build | `swift package describe`, package compile, targeted tests | Compile | The CLI target decision is separate; the library target split is mandatory for AppIPC boundaries | No | Yes |
-| `AgentStudioIPCTransport` has no product imports and target edges prevent transport from depending on contracts/app/features | T1 | SwiftPM target graph plus architecture lint | Package compile and IPC-specific architecture lint rules | Lint/compile | PR #175 runner is extended with IPC rules instead of adding shell/rg guards | No | Yes |
-| IPC-specific SwiftSyntax architecture rules are added to the pinned AgentStudio SwiftLint toolchain, verified by fixtures, and documented in the architecture lint inventory | T1/T10 | ai-tools SwiftLint fixtures, runner pin, inventory docs | `scripts/run-agentstudio-architecture-swiftlint.sh --verify-fixtures`, `mise run lint`, inventory diff review | Lint/docs | Rule source lives in ai-tools; this repo must update the pin/config/tests or block before implementation if the rule ref is unavailable | No | Yes |
+| `AgentStudioIPCTransport` has no product imports and target edges prevent transport from depending on contracts/app/features | T1 | SwiftPM target graph plus architecture lint | Package compile and IPC-specific architecture lint rules | Lint/compile | PR #177 repo-local architecture linter owns IPC rules instead of shell/rg guards or external SwiftLint forks | No | Yes |
+| IPC-specific SwiftSyntax architecture rules are added to the repo-local AgentStudio architecture linter, verified by fixtures, and documented in the architecture lint inventory | T1/T10 | `Tools/AgentStudioArchitectureLint` fixtures/tests and inventory docs | `swift test --package-path Tools/AgentStudioArchitectureLint`, `mise run lint`, inventory diff review | Lint/docs | Rule source lives in this repo; update the local tool, fixtures, rule inventory tests, and docs together | No | Yes |
 | Narrow IPC test targets prove transport/contracts/AppIPC boundaries without depending on the AgentStudio executable target | T1/T4 | SwiftPM test target graph | `swift test --filter` or targeted test run for dedicated IPC test targets | Compile/test | Existing `AgentStudioTests` remains for executable integration only, not boundary proof | No | Yes |
 | App IPC metadata and socket paths are derived from `AppDataPaths.rootDirectory()` under `<root>/ipc` | T2 | `AgentStudioAppIPC` service tests | Unit tests with injected environment/root/channel | Unit | Tests assert stable/beta/debug/env override paths and owner-only metadata mode | Yes | Yes |
 | Filesystem trust fails closed for symlinks, wrong owner, group/world access, and stale live socket ownership | T2 | `AgentStudioAppIPC` filesystem trust tests | Temp-dir tests with permission fixtures where platform allows | Integration | Permission checks skipped only when Darwin cannot set a mode, with explicit assertions for supported paths | Yes | Yes |
@@ -208,17 +208,17 @@ Write surfaces:
 - `Sources/AgentStudioIPCTransport/`
 - `Tests/AgentStudioTests/Infrastructure/IPC/`
 - `Tests/AgentStudioTests/Scripts/ArchitectureSwiftLintRulesTests.swift`
-- `scripts/agentstudio-architecture-swiftlint.env` whenever the pinned ai-tools
-  architecture-rule commit or ref changes
+- `Tools/AgentStudioArchitectureLint/` whenever IPC architecture rules or
+  fixtures change
 - `docs/architecture/architecture_lint_inventory.md`
 
 Prerequisite:
 
-- Land the IPC-specific SwiftSyntax rules in the external ai-tools architecture
-  SwiftLint source before implementing IPC code in this repo. Record the resulting
-  pinned commit/ref in `scripts/agentstudio-architecture-swiftlint.env`, update
-  `ArchitectureSwiftLintRulesTests.swift` pin assertions and fixture-output
-  assertions, and update `docs/architecture/architecture_lint_inventory.md`.
+- Land or update the IPC-specific SwiftSyntax rules in the repo-local
+  `Tools/AgentStudioArchitectureLint` package before implementing IPC code in
+  this repo. Update fixtures, `RuleInventoryTests`,
+  `ArchitectureSwiftLintRulesTests.swift`, and
+  `docs/architecture/architecture_lint_inventory.md` together.
 
 Implement:
 
@@ -243,14 +243,14 @@ Implement:
   endpoint.
 - Peer credential abstraction for Darwin same-uid checks.
 - No product method registry in this layer.
-- Consume the pinned ai-tools SwiftSyntax architecture rules that cover IPC
+- Consume the repo-local SwiftSyntax architecture rules that cover IPC
   target edges, forbidden AppKit/SwiftUI and app/feature/runtime imports from
   `AgentStudioProgrammaticControl`, forbidden concrete imports from
   `AgentStudioAppIPC`, AppIPC port implementations outside
   `Sources/AgentStudio/App/IPCComposition/`, public `zmx.*` denial, no direct atom
-  mutation from IPC adapters, and no raw runtime/zmx DTO exposure. If those rules
-  are not available in the pinned toolchain, stop before implementation and split
-  the tooling prerequisite explicitly.
+  mutation from IPC adapters, and no raw runtime/zmx DTO exposure. If those
+  rules are not available in the local tool, stop before implementation and
+  split the tooling prerequisite explicitly.
 
 Proof:
 
@@ -260,11 +260,11 @@ Proof:
   response `result` xor `error`, request-size bounds, and chunked NDJSON frames.
 - Integration tests for connect/send/read/close against a temp Unix socket.
 - SwiftPM target edges and architecture lint prove no product imports.
-- `scripts/run-agentstudio-architecture-swiftlint.sh --verify-fixtures` proves
-  the pinned SwiftSyntax rules reject the IPC boundary violations, and
-  `docs/architecture/architecture_lint_inventory.md` lists the new rule ids.
-- `ArchitectureSwiftLintRulesTests.swift` asserts the pinned commit/ref and the
-  IPC-specific rule ids or fixture names reported by `--verify-fixtures`.
+- `swift test --package-path Tools/AgentStudioArchitectureLint` proves the local
+  SwiftSyntax rules reject IPC boundary violations, and
+  `docs/architecture/architecture_lint_inventory.md` lists the rule ids.
+- `ArchitectureSwiftLintRulesTests.swift` asserts `mise`, CI, stock SwiftLint,
+  and the local architecture tool expose the IPC-specific rule ids.
 - Dedicated IPC test targets compile without any dependency on the AgentStudio
   executable target.
 
@@ -680,12 +680,11 @@ Expected existing areas touched narrowly:
 - `Sources/AgentStudio/App/Boot/AppDelegate.swift` or an extension for service
   lifecycle wiring.
 - Existing terminal session environment construction path for IPC env injection.
-- `scripts/agentstudio-architecture-swiftlint.env`,
+- `Tools/AgentStudioArchitectureLint/`,
   `Tests/AgentStudioTests/Scripts/ArchitectureSwiftLintRulesTests.swift`, and
   `docs/architecture/architecture_lint_inventory.md` when IPC SwiftSyntax rules
-  require a new pinned ai-tools architecture-lint commit or ref. The pin file,
-  test assertions, verifier fixture output assertions, and inventory rule ids
-  must move together.
+  change. The local rule implementation, fixtures, rule inventory tests, app
+  wiring tests, and inventory rule ids must move together.
 
 No expected changes:
 
@@ -706,10 +705,10 @@ Required during implementation slices:
      executable target
    - CLI target graph/build proves CLI depends only on transport/contracts if T9
      remains in phase 1
-   - `scripts/run-agentstudio-architecture-swiftlint.sh --verify-fixtures` after
-     adding IPC SwiftSyntax rules or updating the pinned rule commit/ref
-   - `ArchitectureSwiftLintRulesTests.swift` asserts the new IPC rule ids or
-     fixture names appear in the pinned verifier output
+   - `swift test --package-path Tools/AgentStudioArchitectureLint` after adding
+     or updating IPC SwiftSyntax rules
+   - `ArchitectureSwiftLintRulesTests.swift` asserts the new IPC rule ids appear
+     in the local architecture tool output
 3. Focused unit tests for each slice:
    - IPC codec/framer/listener
    - filesystem trust/auth/principals

@@ -125,9 +125,9 @@ Live repo evidence checked:
 - `Sources/AgentStudio/App/Commands/AppCommand.swift` and
   `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift` already provide
   `AppCommand`, `CommandSpec`, and `CommandDispatcher`.
-- Architecture lint is already wired through
-  `scripts/run-agentstudio-architecture-swiftlint.sh`,
-  `scripts/agentstudio-architecture-swiftlint.env`, and
+- Architecture lint is already wired through the repo-local SwiftPM/SwiftSyntax
+  tool under `Tools/AgentStudioArchitectureLint`, `mise run lint`,
+  `swift test --package-path Tools/AgentStudioArchitectureLint`, and
   `docs/architecture/architecture_lint_inventory.md`.
 
 ## Non-Goals
