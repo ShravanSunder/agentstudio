@@ -121,9 +121,15 @@ public struct AgentStudioAppIPCConfiguration: Equatable, Sendable {
 public struct AgentStudioAppIPCService: Sendable {
     public let configuration: AgentStudioAppIPCConfiguration
     public let ports: AgentStudioAppIPCPorts
+    public let eventBroker: IPCEventBroker
 
-    public init(configuration: AgentStudioAppIPCConfiguration, ports: AgentStudioAppIPCPorts) {
+    public init(
+        configuration: AgentStudioAppIPCConfiguration,
+        ports: AgentStudioAppIPCPorts,
+        eventBroker: IPCEventBroker = IPCEventBroker()
+    ) {
         self.configuration = configuration
         self.ports = ports
+        self.eventBroker = eventBroker
     }
 }

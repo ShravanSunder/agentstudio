@@ -9,7 +9,8 @@ methods over local transports without exposing zmx daemon IPC as a public API.
 The phase-1 foundation currently owns:
 
 - SwiftPM target split for transport, public contracts, and app IPC services.
-- JSON-RPC 2.0 request/response codec over newline-delimited JSON frames.
+- JSON-RPC 2.0 request/response and server-notification codec over
+  newline-delimited JSON frames.
 - Unix-domain socket transport primitives and peer-credential checks.
 - Socket path and runtime metadata trust checks.
 - Subject-token authentication, principal registry, and redaction helpers.
@@ -24,10 +25,12 @@ The phase-1 foundation currently owns:
   notifications.
 - Permission recovery queries for requester-owned request/grant state and
   delegated approval visibility.
+- Event broker subscription state, notification encoding, visibility filtering,
+  inbound server-event rejection, and slow-subscriber ejection.
 
 Follow-up implementation slices still own socket-server lifecycle wiring,
-CLI/client commands, live event subscription delivery, and promotion of
-completed design material from the temporary spec/plan docs.
+CLI/client commands, and promotion of completed design material from the
+temporary spec/plan docs.
 
 ## Target Ownership
 
@@ -48,7 +51,7 @@ AgentStudioProgrammaticControl
 AgentStudioAppIPC
   Owns:     App IPC service shell, socket path trust, authentication,
             method registry, authorization, grant ledger, permission broker,
-            and protocol ports into app/runtime owners.
+            event broker, and protocol ports into app/runtime owners.
   Imports:  Transport and ProgrammaticControl targets.
   Must not: Import concrete app/runtime owner types or read atoms directly.
 
@@ -181,6 +184,35 @@ terminal.cwdChanged
 terminal.progressChanged
 ```
 
+Live subscriptions are owned by `IPCEventBroker` in `AgentStudioAppIPC`:
+
+```
+events.subscribe
+  -> authenticated connection principal
+  -> AuthorizationService(eventsRead, target scope)
+  -> IPCEventBroker.subscribe(...)
+       stores subscription id, principal, allowed event names, subscriber sink
+
+public app/runtime fact
+  -> IPCEventNotification
+  -> IPCEventBroker.publish(...)
+       filters by event-name allowlist
+       filters by principal visibility
+       encodes JSON-RPC events.notification frame
+       removes subscribers that report backpressure or delivery failure
+
+events.unsubscribe
+  -> authenticated connection principal
+  -> IPCEventBroker.unsubscribe(...)
+       succeeds only for a subscription owned by the same principal
+```
+
+The broker does not approve grants, mutate app state, or inspect raw runtime
+envelopes. It receives already-projected public DTOs and an explicit visibility
+predicate from the owning projector. Client-sent `events.notification` frames
+and frames whose method is a server event name are rejected as reserved inbound
+notifications; event notifications are server-to-client facts only.
+
 Permission event payloads are built from broker records and scoped through
 `PermissionEventProjector`. Visibility is intentionally narrower than ordinary
 event subscription:
@@ -201,8 +233,7 @@ permission record
 Missed permission events are recoverable through explicit queries rather than a
 durable event log. Requesters recover their own state through
 `permission.requestStatus` and `permission.grantStatus`; delegated approvers
-recover routed pending requests through `permission.pendingApprovals`. Live
-event subscription delivery is a separate follow-up slice.
+recover routed pending requests through `permission.pendingApprovals`.
 
 ## Request Authority Path
 

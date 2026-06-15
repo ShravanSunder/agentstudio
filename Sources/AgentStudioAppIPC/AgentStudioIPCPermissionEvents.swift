@@ -52,6 +52,24 @@ public struct PermissionEventProjector: Sendable {
         }
     }
 
+    public func isVisible(
+        _ notification: IPCEventNotification,
+        to principal: IPCPrincipal
+    ) -> Bool {
+        guard case .permission(let payload) = notification.payload else {
+            return false
+        }
+        return isVisible(
+            IPCPermissionEventNotification(
+                eventId: notification.eventId,
+                name: notification.name,
+                occurredAt: notification.occurredAt,
+                payload: payload
+            ),
+            to: principal
+        )
+    }
+
     private func notification(
         name: IPCEventName,
         record: PermissionRecord,

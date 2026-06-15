@@ -20,6 +20,7 @@ struct AgentStudioAppIPCServiceTests {
             methodDefinitions: [method]
         )
 
+        let eventBroker = IPCEventBroker()
         let service = AgentStudioAppIPCService(
             configuration: configuration,
             ports: AgentStudioAppIPCPorts(
@@ -27,12 +28,14 @@ struct AgentStudioAppIPCServiceTests {
                 layoutPort: FakeLayoutPort(),
                 runtimePort: FakeRuntimePort(),
                 permissionApprovalPort: FakePermissionApprovalPort()
-            )
+            ),
+            eventBroker: eventBroker
         )
 
         #expect(service.configuration.runtimeId == runtimeId)
         #expect(service.configuration.accessMode == .agentStudioOnly)
         #expect(service.configuration.methodDefinitions == [method])
+        #expect(service.eventBroker === eventBroker)
     }
 }
 
