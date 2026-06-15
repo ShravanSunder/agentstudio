@@ -1,7 +1,9 @@
 # AgentStudio IPC Implementation Plan
 
 **Date:** 2026-06-13
-**Status:** Active implementation plan from approved design direction. Implementation is in progress on the `programatical-control` branch; T1-T9 foundation and CLI/smoke slices have landed, while T10 architecture promotion remains.
+**Status:** Implemented on the `programatical-control` branch. T1-T10 phase-1
+foundation, CLI/smoke, and architecture-promotion slices have landed; this plan
+is retained as the proof and follow-up artifact.
 **Primary spec:** `docs/superpowers/specs/2026-06-10-agentstudio-ipc-design.md`
 **Related backend spec:** `docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md`
 
@@ -754,6 +756,21 @@ Current implementation proof after the T9 CLI/smoke slice:
   `AgentStudioIPCClient`, and `AgentStudioIPCClientCore` are package targets, and
   the client core depends on transport/contracts rather than `AgentStudioAppIPC`.
 
+Final implementation proof after the T10 docs-maintain pass:
+
+- Full repo test gate: `mise run test` passed after fixing IPC-introduced
+  parallel-test hazards in the terminal wait adapter test and Unix socket
+  transport SIGPIPE test.
+- Full lint gate: `mise run lint` passed with swift-format OK, pinned
+  AgentStudio SwiftLint 0 violations across 1170 Swift files, and release script
+  verification passed.
+- Diff hygiene gate: `git diff --check` passed.
+- Architecture docs now describe the implemented target split, request authority
+  path, terminal runtime waits, event broker, CLI boundary, auth/permission
+  model, and zmx separation in `docs/architecture/agentstudio_ipc_architecture.md`.
+- Directory and architecture index docs now reference the implemented IPC targets
+  and `agentstudio-ipc` CLI target.
+
 ## Rollout And Recovery
 
 - Default target mode is `agentStudioOnly` with memory-only subject tokens.
@@ -792,14 +809,15 @@ Current implementation proof after the T9 CLI/smoke slice:
 - Full `mise run lint` now passes in this worktree after PR #175. Future failures
   should still distinguish changed-surface proof from unrelated tooling blockers.
 
-## Open Questions
+## Follow-Up Decisions
 
-1. Is `system.ping` pre-auth allowed with a content-free response, or should
-   `auth.login` be the only pre-auth method?
-2. Is `automationSameUser` included in phase 1, or kept as a follow-up after
-   `agentStudioOnly` works for spawned agents?
-3. Before T4 starts, choose where the first user-configured approval policy
-   lives: settings-backed persistence, workspace-local config, or runtime-only
+1. Decide whether `system.ping` should become a pre-auth content-free health
+   check or whether `auth.login` remains the only pre-auth method.
+2. Decide whether `automationSameUser` graduates from opt-in follow-up into a
+   default local automation mode after `agentStudioOnly` has real app boot
+   coverage.
+3. Choose durable storage for user-configured approval policy:
+   settings-backed persistence, workspace-local config, or runtime-only
    developer config.
 
 ## Implementation Decisions Resolved
@@ -821,7 +839,8 @@ Current implementation proof after the T9 CLI/smoke slice:
   graph intentionally excludes `AgentStudioAppIPC` and the AgentStudio
   executable target.
 
-## Next Skill
+## Next Workflow
 
-Use `shravan-dev-workflow:plan-review-swarm` before implementation. After review
-findings are resolved, use `shravan-dev-workflow:implementation-execute-plan`.
+Use implementation review / PR wrap-up before merging this branch. Future work
+should plan from the durable architecture docs first, then use this file only as
+historical proof for what landed in the phase-1 IPC foundation.
