@@ -217,3 +217,100 @@ public struct IPCPaneFocusResult: Codable, Equatable, Sendable {
         self.focused = focused
     }
 }
+
+public enum IPCRuntimeLifecycle: String, Codable, Equatable, Sendable {
+    case created
+    case ready
+    case draining
+    case terminated
+}
+
+public enum IPCExecutionBackendKind: String, Codable, Equatable, Sendable {
+    case local
+    case docker
+    case gondolin
+    case remote
+}
+
+public struct IPCTerminalStatusResult: Codable, Equatable, Sendable {
+    public let paneId: UUID
+    public let lifecycle: IPCRuntimeLifecycle
+    public let isReady: Bool
+    public let backend: IPCExecutionBackendKind
+    public let capabilities: [String]
+
+    public init(
+        paneId: UUID,
+        lifecycle: IPCRuntimeLifecycle,
+        isReady: Bool,
+        backend: IPCExecutionBackendKind,
+        capabilities: [String]
+    ) {
+        self.paneId = paneId
+        self.lifecycle = lifecycle
+        self.isReady = isReady
+        self.backend = backend
+        self.capabilities = capabilities
+    }
+}
+
+public struct IPCTerminalSnapshotResult: Codable, Equatable, Sendable {
+    public let paneId: UUID
+    public let lifecycle: IPCRuntimeLifecycle
+    public let backend: IPCExecutionBackendKind
+    public let capabilities: [String]
+    public let lastSequence: UInt64
+    public let timestamp: Date
+    public let rendererHealthy: Bool?
+    public let readOnly: Bool?
+    public let secureInput: Bool?
+
+    public init(
+        paneId: UUID,
+        lifecycle: IPCRuntimeLifecycle,
+        backend: IPCExecutionBackendKind,
+        capabilities: [String],
+        lastSequence: UInt64,
+        timestamp: Date,
+        rendererHealthy: Bool?,
+        readOnly: Bool?,
+        secureInput: Bool?
+    ) {
+        self.paneId = paneId
+        self.lifecycle = lifecycle
+        self.backend = backend
+        self.capabilities = capabilities
+        self.lastSequence = lastSequence
+        self.timestamp = timestamp
+        self.rendererHealthy = rendererHealthy
+        self.readOnly = readOnly
+        self.secureInput = secureInput
+    }
+}
+
+public enum IPCTerminalSendDisposition: String, Codable, Equatable, Sendable {
+    case accepted
+    case queued
+}
+
+public struct IPCTerminalSendInputResult: Codable, Equatable, Sendable {
+    public let paneId: UUID
+    public let commandId: UUID
+    public let correlationId: UUID?
+    public let disposition: IPCTerminalSendDisposition
+    public let queuePosition: Int?
+
+    public init(
+        paneId: UUID,
+        commandId: UUID,
+        correlationId: UUID?,
+        disposition: IPCTerminalSendDisposition,
+        queuePosition: Int?
+    ) {
+        self.paneId = paneId
+        self.commandId = commandId
+        self.correlationId = correlationId
+        self.disposition = disposition
+        self.queuePosition = queuePosition
+    }
+}
