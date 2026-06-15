@@ -44,14 +44,18 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
 
     private let lock = NSLock()
     private let tokenGenerator: any AgentStudioIPCSubjectTokenGenerating
+    private let grantLedger: GrantLedger?
     private var principalsByToken: [AgentStudioIPCSubjectToken: IPCPrincipal] = [:]
+    private var activePrincipalsById: [UUID: IPCPrincipal] = [:]
 
     public init(
         runtimeId: UUID,
-        tokenGenerator: any AgentStudioIPCSubjectTokenGenerating = AgentStudioIPCSecureSubjectTokenGenerator()
+        tokenGenerator: any AgentStudioIPCSubjectTokenGenerating = AgentStudioIPCSecureSubjectTokenGenerator(),
+        grantLedger: GrantLedger? = nil
     ) {
         self.runtimeId = runtimeId
         self.tokenGenerator = tokenGenerator
+        self.grantLedger = grantLedger
     }
 
     public func issueSubjectToken(for principal: IPCPrincipal) throws -> AgentStudioIPCSubjectToken {
@@ -74,21 +78,51 @@ public final class AgentStudioIPCPrincipalRegistry: @unchecked Sendable {
             guard principal.runtimeId == runtimeId else {
                 throw AgentStudioIPCAuthenticationError(reason: .runtimeMismatch)
             }
+            principalsByToken.removeValue(forKey: subjectToken)
+            activePrincipalsById[principal.principalId] = principal
             return principal
         }
     }
 
     public func rotateTokens() {
-        lock.withLock {
+        let revokedPrincipalIds = lock.withLock {
+            let principalIds = Set(principalsByToken.values.map(\.principalId))
+                .union(activePrincipalsById.keys)
             principalsByToken.removeAll()
+            activePrincipalsById.removeAll()
+            return principalIds
+        }
+        for principalId in revokedPrincipalIds {
+            grantLedger?.revokeAll(for: principalId)
         }
     }
 
+    public func revokeAllGrants() {
+        grantLedger?.revokeAll()
+    }
+
     public func invalidatePrincipals(boundToPaneId paneId: String) {
-        lock.withLock {
+        let revokedPrincipalIds = lock.withLock {
+            let tokenPrincipalIds = Set(
+                principalsByToken.values
+                    .filter { $0.boundPaneId == paneId }
+                    .map(\.principalId)
+            )
+            let activePrincipalIds = Set(
+                activePrincipalsById.values
+                    .filter { $0.boundPaneId == paneId }
+                    .map(\.principalId)
+            )
             principalsByToken = principalsByToken.filter { _, principal in
                 principal.boundPaneId != paneId
             }
+            activePrincipalsById = activePrincipalsById.filter { _, principal in
+                principal.boundPaneId != paneId
+            }
+            return tokenPrincipalIds.union(activePrincipalIds)
+        }
+        for principalId in revokedPrincipalIds {
+            grantLedger?.revokeAll(for: principalId)
         }
     }
 }

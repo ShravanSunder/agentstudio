@@ -102,6 +102,12 @@ public final class GrantLedger: @unchecked Sendable {
         }
     }
 
+    public func revokeAll() {
+        lock.withLock {
+            grantsByPrincipalId.removeAll(keepingCapacity: false)
+        }
+    }
+
     public func recordPermissionRequest(_ record: PermissionRecord) {
         lock.withLock {
             permissionRecordsById[record.requestId] = record
@@ -123,6 +129,43 @@ public final class GrantLedger: @unchecked Sendable {
     public func permissionRecords() -> [PermissionRecord] {
         lock.withLock {
             Array(permissionRecordsById.values)
+        }
+    }
+
+    public func resolvePendingPermissionRecord(
+        requestId: UUID,
+        approver: IPCPrincipal,
+        decision: ApprovalPolicyDecision,
+        canApprove: (PermissionRecord) -> Bool
+    ) throws -> PermissionRecord {
+        try lock.withLock {
+            guard decision == .approve || decision == .deny else {
+                throw PermissionBrokerError(reason: .unsupportedResolutionDecision)
+            }
+            guard let record = permissionRecordsById[requestId] else {
+                throw PermissionBrokerError(reason: .requestNotFound)
+            }
+            guard record.state == .pending else {
+                throw PermissionBrokerError(reason: .requestNotPending)
+            }
+            guard record.requesterPrincipalId != approver.principalId else {
+                throw PermissionBrokerError(reason: .selfApprovalNotAllowed)
+            }
+            guard record.approvalRoute == .delegatedPrincipal(approver.principalId),
+                canApprove(record)
+            else {
+                throw PermissionBrokerError(reason: .unauthorizedApprover)
+            }
+
+            let state: IPCPermissionRequestState = decision == .approve ? .granted : .denied
+            let resolvedRecord = record.replacingState(state)
+            permissionRecordsById[requestId] = resolvedRecord
+            if state == .granted {
+                _ = grantsByPrincipalId[record.requesterPrincipalId, default: []].insert(record.requestedScope)
+            } else {
+                grantsByPrincipalId[record.requesterPrincipalId]?.remove(record.requestedScope)
+            }
+            return resolvedRecord
         }
     }
 }

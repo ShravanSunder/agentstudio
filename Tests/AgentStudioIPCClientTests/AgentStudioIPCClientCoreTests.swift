@@ -54,6 +54,30 @@ struct AgentStudioIPCClientCoreTests {
         )
     }
 
+    @Test("parses auth token stdin mode without accepting argv bearer tokens")
+    func parsesAuthTokenStdinModeWithoutAcceptingArgvBearerTokens() throws {
+        let loginInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "--token-stdin", "auth-login"],
+            environment: [:]
+        )
+
+        #expect(loginInvocation.readsAuthTokenFromStandardInput)
+        #expect(loginInvocation.configuration.authToken == nil)
+        #expect(loginInvocation.command == .authLogin)
+        #expect(throws: AgentStudioIPCClientError.self) {
+            try AgentStudioIPCClientArguments.parse(
+                ["--socket", "/tmp/app.sock", "--token", "secret-token", "auth-login"],
+                environment: [:]
+            )
+        }
+        #expect(throws: AgentStudioIPCClientError.self) {
+            try AgentStudioIPCClientArguments.parse(
+                ["--socket", "/tmp/app.sock", "auth-login", "secret-token"],
+                environment: [:]
+            )
+        }
+    }
+
     @Test("builds machine-readable JSON-RPC request frames")
     func buildsMachineReadableJSONRPCRequestFrames() throws {
         let client = AgentStudioIPCClient(
@@ -116,6 +140,80 @@ struct AgentStudioIPCClientCoreTests {
         #expect(response.result == .object(["appVersion": .string("test")]))
         #expect(handledRequest.value()?.method == "system.identify")
     }
+
+    @Test("authenticates and calls command on the same Unix socket connection")
+    func authenticatesAndCallsCommandOnSameUnixSocketConnection() throws {
+        let endpoint = UnixSocketEndpoint(path: temporarySocketPath())
+        let listener = UnixSocketListener(endpoint: endpoint)
+        let handledMethods = LockedBox<[String]>([])
+        try listener.start { connection in
+            var decoder = NDJSONFrameDecoder(maxFrameBytes: 65_536)
+            let loginRequest = try receiveRequest(connection: connection, decoder: &decoder)
+            handledMethods.set(handledMethods.value() + [loginRequest.method])
+            try connection.send(responseFrame(id: loginRequest.id, result: .object(["ok": .bool(true)])))
+
+            let commandRequest = try receiveRequest(connection: connection, decoder: &decoder)
+            handledMethods.set(handledMethods.value() + [commandRequest.method])
+            try connection.send(
+                responseFrame(
+                    id: commandRequest.id,
+                    result: .object(["appVersion": .string("authenticated")])
+                ))
+            connection.close()
+        }
+        defer {
+            listener.stop()
+        }
+
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(
+                socketPath: endpoint.path,
+                authToken: "secret-token",
+                maxFrameBytes: 65_536
+            )
+        )
+        let response = try client.call(.identify, requestId: 5)
+
+        #expect(response.id == .number(6))
+        #expect(response.result == .object(["appVersion": .string("authenticated")]))
+        #expect(handledMethods.value() == ["auth.login", "system.identify"])
+    }
+
+    @Test("event subscribe keeps the socket open and surfaces notification frames")
+    func eventSubscribeKeepsSocketOpenAndSurfacesNotificationFrames() throws {
+        let endpoint = UnixSocketEndpoint(path: temporarySocketPath())
+        let listener = UnixSocketListener(endpoint: endpoint)
+        try listener.start { connection in
+            var decoder = NDJSONFrameDecoder(maxFrameBytes: 65_536)
+            let request = try receiveRequest(connection: connection, decoder: &decoder)
+            try connection.send(
+                responseFrame(
+                    id: request.id,
+                    result: .object([
+                        "subscriptionId": .string("00000000-0000-0000-0000-000000000301")
+                    ])
+                )
+                    + notificationFrame()
+            )
+            connection.close()
+        }
+        defer {
+            listener.stop()
+        }
+
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(socketPath: endpoint.path, maxFrameBytes: 65_536)
+        )
+        var frames: [String] = []
+
+        try client.stream(.eventsSubscribe(eventNames: [.terminalCommandFinished]), requestId: 7) { frame in
+            frames.append(frame)
+        }
+
+        #expect(frames.count == 2)
+        #expect(try JSONRPCCodec.decodeResponse(frames[0]).id == .number(7))
+        #expect(frames[1].contains(#""method":"events.notification""#))
+    }
 }
 
 private func writeMetadata(socketPath: String) throws -> URL {
@@ -131,6 +229,38 @@ private func writeMetadata(socketPath: String) throws -> URL {
 private func temporarySocketPath() -> String {
     let suffix = UUID().uuidString.prefix(8)
     return "/tmp/asipc-\(suffix).sock"
+}
+
+private func receiveRequest(
+    connection: UnixSocketConnection,
+    decoder: inout NDJSONFrameDecoder
+) throws -> JSONRPCRequest {
+    while true {
+        let data = try connection.receive(maxBytes: 4096)
+        let frames = try decoder.append(data)
+        if let frame = frames.first {
+            return try JSONRPCCodec.decodeRequest(frame)
+        }
+    }
+}
+
+private func responseFrame(id: JSONRPCIdentifier?, result: JSONValue) throws -> Data {
+    try NDJSONFrameEncoder.encode(
+        JSONRPCCodec.encodeResponse(JSONRPCResponse.success(id: id, result: result)),
+        maxFrameBytes: 65_536
+    )
+}
+
+private func notificationFrame() throws -> Data {
+    try NDJSONFrameEncoder.encode(
+        JSONRPCCodec.encodeNotification(
+            JSONRPCNotification(
+                method: "events.notification",
+                params: .object(["name": .string(IPCEventName.terminalCommandFinished.rawValue)])
+            )
+        ),
+        maxFrameBytes: 65_536
+    )
 }
 
 private final class LockedBox<Value>: @unchecked Sendable {

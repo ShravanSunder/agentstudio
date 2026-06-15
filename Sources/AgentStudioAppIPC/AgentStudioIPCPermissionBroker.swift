@@ -160,29 +160,12 @@ public struct PermissionBroker: Sendable {
         approver: IPCPrincipal,
         decision: ApprovalPolicyDecision
     ) throws -> IPCPermissionRequestResult {
-        guard decision == .approve || decision == .deny else {
-            throw PermissionBrokerError(reason: .unsupportedResolutionDecision)
-        }
-        guard let record = grantLedger.permissionRecord(requestId: requestId) else {
-            throw PermissionBrokerError(reason: .requestNotFound)
-        }
-        guard record.state == .pending else {
-            throw PermissionBrokerError(reason: .requestNotPending)
-        }
-        guard record.requesterPrincipalId != approver.principalId else {
-            throw PermissionBrokerError(reason: .selfApprovalNotAllowed)
-        }
-        guard record.approvalRoute == .delegatedPrincipal(approver.principalId),
+        let resolvedRecord = try grantLedger.resolvePendingPermissionRecord(
+            requestId: requestId,
+            approver: approver,
+            decision: decision
+        ) { record in
             canApprove(approver: approver, record: record)
-        else {
-            throw PermissionBrokerError(reason: .unauthorizedApprover)
-        }
-
-        let state: IPCPermissionRequestState = decision == .approve ? .granted : .denied
-        let resolvedRecord = record.replacingState(state)
-        grantLedger.updatePermissionRecord(resolvedRecord)
-        if state == .granted {
-            grantLedger.grant(resolvedRecord.requestedScope, to: record.requesterPrincipalId)
         }
         return resolvedRecord.result
     }

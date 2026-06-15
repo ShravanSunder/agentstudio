@@ -29,7 +29,10 @@ The phase-1 foundation currently owns:
   inbound server-event rejection, and slow-subscriber ejection.
 
 Follow-up implementation slices still own socket-server lifecycle wiring and
-promotion of completed design material from the temporary spec/plan docs.
+the non-enumerable app spawn bootstrap channel that delivers pane-bound subject
+tokens. Until those land, the current implementation proves the contracts,
+policy services, adapters, and CLI/client foundation, not live end-to-end
+programmatic control of a running AgentStudio app.
 
 ## Target Ownership
 
@@ -62,7 +65,7 @@ AgentStudio/App/IPCComposition
 
 AgentStudioIPCClientCore
   Owns:     CLI socket discovery, command-to-JSON-RPC request mapping, and
-            one-shot Unix socket client calls for smoke/use.
+            Unix socket calls/streams for smoke/use.
   Imports:  AgentStudioIPCTransport and AgentStudioProgrammaticControl.
   Must not: Import AgentStudioAppIPC or the AgentStudio executable target.
 
@@ -95,11 +98,11 @@ AppIPC query method
 ```
 
 The query adapter intentionally exposes a sanitized app-level view. Pane
-snapshots include stable app identity facts such as pane id, title, content
-kind, residency, active state, tab id, repo id, and worktree id. They do not
-include raw URLs, cwd paths, command lines, terminal buffers, zmx session ids,
-or backend daemon details. Terminal content requires the dedicated terminal
-runtime adapter and stricter terminal privileges in later slices.
+snapshots include stable app identity facts such as pane id, content kind,
+residency, active state, tab id, repo id, and worktree id. They do not include
+titles, raw URLs, cwd paths, command lines, terminal buffers, zmx session ids, or
+backend daemon details. Terminal content requires the dedicated terminal runtime
+adapter and stricter terminal privileges in later slices.
 
 ## Pane Focus Boundary
 
@@ -279,8 +282,9 @@ agentstudio-ipc executable
        discovers socket from --socket, AGENTSTUDIO_IPC_SOCKET,
        AGENTSTUDIO_IPC_SOCKET_PATH, or --metadata runtime.json
        maps CLI verbs to public method names and JSON params
-       sends one JSON-RPC request over Unix socket + NDJSON
-       validates one JSON-RPC response id
+       sends auth.login and command requests on one Unix socket when auth is used
+       validates JSON-RPC response ids
+       keeps event subscription sockets open for events.notification frames
   -> AgentStudioIPCTransport
   -> AgentStudioProgrammaticControl
 ```
@@ -288,6 +292,10 @@ agentstudio-ipc executable
 The CLI is a client/smoke surface, not an app-control owner. It cannot import
 `AgentStudioAppIPC` or the app executable target, so it cannot bypass auth,
 authorization, grants, or app/runtime owner ports.
+
+Bearer tokens must not be passed as argv. Explicit interactive or automation
+auth uses `--token-stdin`; app-spawned pane agents should receive their
+pane-bound credential through the future non-enumerable bootstrap channel.
 
 ## Auth And Permissions
 
@@ -302,7 +310,9 @@ carry non-secret routing metadata such as socket path and runtime id, but they
 must not carry bearer tokens. A spawned pane agent receives its pane-bound
 credential through a non-enumerable bootstrap channel owned by the app spawn
 adapter. `auth.login` binds the token to the principal recorded in the registry;
-the caller cannot upgrade itself by passing a different pane hint.
+the caller cannot upgrade itself by passing a different pane hint. Tokens are
+single-use in the current phase-1 foundation so replayed bearer material cannot
+create a second connection-bound principal after first login.
 
 Baseline authority is intentionally small. A pane-bound agent gets self-pane
 authority for low-risk introspection and scoped terminal operations. Anything

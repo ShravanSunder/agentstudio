@@ -60,7 +60,6 @@ struct AgentStudioIPCQueryAdapterTests {
         #expect(workspace.tabCount == 1)
         #expect(workspace.paneCount == 1)
         #expect(panes.map(\.id) == [pane.id])
-        #expect(panes.first?.title == "Build Pane")
         #expect(panes.first?.contentKind == .terminal)
         #expect(panes.first?.isActive == true)
         #expect(currentPane.pane.id == pane.id)
@@ -82,8 +81,8 @@ struct AgentStudioIPCQueryAdapterTests {
         }
     }
 
-    @Test("pane snapshots do not expose cwd url or zmx session identifiers")
-    func paneSnapshotsDoNotExposeCwdURLOrZmxSessionIdentifiers() throws {
+    @Test("pane snapshots do not expose titles cwd url or zmx session identifiers")
+    func paneSnapshotsDoNotExposeTitlesCwdURLOrZmxSessionIdentifiers() throws {
         let store = makeWorkspaceStore()
         let secretCWD = URL(fileURLWithPath: "/tmp/agentstudio-secret-cwd")
         let terminalPane = store.createPane(
@@ -114,8 +113,11 @@ struct AgentStudioIPCQueryAdapterTests {
         let encodedTerminal = try encodedJSONString(terminalSnapshot)
         let paneList = try encodedJSONString(harness.adapter.listPanes())
 
-        #expect(terminalSnapshot.pane.title == "Secret Terminal")
         #expect(paneList.contains(webPane.id.uuidString))
+        #expect(!encodedTerminal.contains("Secret Terminal"))
+        #expect(!encodedTerminal.contains("Secret Web"))
+        #expect(!paneList.contains("Secret Terminal"))
+        #expect(!paneList.contains("Secret Web"))
         #expect(!encodedTerminal.contains("secret-zmx-session"))
         #expect(!encodedTerminal.contains(secretCWD.path))
         #expect(!paneList.contains("secret.example.local"))

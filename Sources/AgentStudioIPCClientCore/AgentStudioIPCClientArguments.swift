@@ -3,10 +3,16 @@ import Foundation
 
 public struct AgentStudioIPCClientInvocation: Equatable, Sendable {
     public let configuration: AgentStudioIPCClientConfiguration
+    public let readsAuthTokenFromStandardInput: Bool
     public let command: AgentStudioIPCClientCommand
 
-    public init(configuration: AgentStudioIPCClientConfiguration, command: AgentStudioIPCClientCommand) {
+    public init(
+        configuration: AgentStudioIPCClientConfiguration,
+        readsAuthTokenFromStandardInput: Bool = false,
+        command: AgentStudioIPCClientCommand
+    ) {
         self.configuration = configuration
+        self.readsAuthTokenFromStandardInput = readsAuthTokenFromStandardInput
         self.command = command
     }
 }
@@ -19,7 +25,7 @@ public enum AgentStudioIPCClientArguments {
         var index = 0
         var explicitSocketPath: String?
         var metadataURL: URL?
-        var token: String?
+        var readsAuthTokenFromStandardInput = false
 
         while index < arguments.count, arguments[index].hasPrefix("--") {
             let option = arguments[index]
@@ -29,8 +35,8 @@ public enum AgentStudioIPCClientArguments {
                 explicitSocketPath = try takeValue(arguments, index: &index)
             case "--metadata":
                 metadataURL = URL(fileURLWithPath: try takeValue(arguments, index: &index))
-            case "--token":
-                token = try takeValue(arguments, index: &index)
+            case "--token-stdin":
+                readsAuthTokenFromStandardInput = true
             default:
                 throw AgentStudioIPCClientError(reason: .invalidArguments)
             }
@@ -42,7 +48,7 @@ public enum AgentStudioIPCClientArguments {
 
         let commandName = arguments[index]
         index += 1
-        let command = try parseCommand(commandName, remainingArguments: Array(arguments[index...]), token: token)
+        let command = try parseCommand(commandName, remainingArguments: Array(arguments[index...]))
         let socketPath = try AgentStudioIPCClientDiscovery.socketPath(
             explicitSocketPath: explicitSocketPath,
             environment: environment,
@@ -50,25 +56,20 @@ public enum AgentStudioIPCClientArguments {
         )
 
         return AgentStudioIPCClientInvocation(
-            configuration: AgentStudioIPCClientConfiguration(socketPath: socketPath, authToken: token),
+            configuration: AgentStudioIPCClientConfiguration(socketPath: socketPath),
+            readsAuthTokenFromStandardInput: readsAuthTokenFromStandardInput,
             command: command
         )
     }
 
     private static func parseCommand(
         _ commandName: String,
-        remainingArguments: [String],
-        token: String?
+        remainingArguments: [String]
     ) throws -> AgentStudioIPCClientCommand {
         switch commandName {
         case "auth-login":
-            let loginToken: String
-            if let token, remainingArguments.isEmpty {
-                loginToken = token
-            } else {
-                loginToken = try requireCount(remainingArguments, 1)[0]
-            }
-            return .authLogin(token: loginToken)
+            try requireCount(remainingArguments, 0)
+            return .authLogin
         case "identify":
             try requireCount(remainingArguments, 0)
             return .identify
