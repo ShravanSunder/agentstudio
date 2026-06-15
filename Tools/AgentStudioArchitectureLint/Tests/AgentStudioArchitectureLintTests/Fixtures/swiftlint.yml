@@ -1,0 +1,14 @@
+only_rules:
+  - agentstudio_import_direction
+  - agentstudio_shared_components_are_stateless
+  - agentstudio_atomlib_is_generic
+  - agentstudio_derived_value_declared_inputs
+  - agentstudio_repo_cache_keyed_reads
+  - agentstudio_worktree_enrichment_comparator
+  - agentstudio_state_actor_path
+  - agentstudio_ipc_programmatic_control_boundary
+  - agentstudio_appipc_port_boundary
+  - agentstudio_ipc_composition_location
+  - agentstudio_ipc_public_surface_sanitization
+  - agentstudio_ipc_no_direct_atom_access
+  - agentstudio_no_forbidden_architecture_marker

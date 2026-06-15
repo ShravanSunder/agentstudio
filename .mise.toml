@@ -94,19 +94,21 @@ fi
 [tasks.format]
 description = "Format Swift sources with swift-format"
 run = """
-swift-format format --in-place --recursive Sources/ Tests/
+swift-format format --in-place --recursive Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests
 echo "Formatted all Swift sources"
 """
 
 [tasks.lint]
-description = "Lint Swift sources with swift-format and AgentStudio SwiftLint"
+description = "Lint Swift sources with swift-format, stock SwiftLint, and AgentStudio architecture lint"
 run = """
 #!/usr/bin/env bash
 set -e
 echo "--- swift-format lint ---"
-swift-format lint --recursive Sources/ Tests/ 2>&1 && echo "swift-format: OK" || { echo "swift-format: FAIL"; exit 1; }
-echo "--- AgentStudio SwiftLint ---"
-scripts/run-agentstudio-architecture-swiftlint.sh lint --strict 2>&1 && echo "agentstudio swiftlint: OK" || { echo "agentstudio swiftlint: FAIL"; exit 1; }
+swift-format lint --recursive Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests 2>&1 && echo "swift-format: OK" || { echo "swift-format: FAIL"; exit 1; }
+echo "--- SwiftLint ---"
+swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"; exit 1; }
+echo "--- AgentStudio architecture lint ---"
+swift run --package-path Tools/AgentStudioArchitectureLint agentstudio-architecture-lint Sources Tests 2>&1 && echo "agentstudio architecture lint: OK" || { echo "agentstudio architecture lint: FAIL"; exit 1; }
 echo "--- release script checks ---"
 /bin/bash scripts/verify-release-scripts.sh
 """

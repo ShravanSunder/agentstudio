@@ -11,13 +11,13 @@ A fresh worktree or clone cannot build or test without completing these steps fi
 - **macOS 26 + Xcode 26 toolchain** — the package targets `.macOS(.v26)` and uses current Swift concurrency, Observation, WebKit, and AppKit APIs.
 - **mise** — build orchestrator: `brew install mise`
 - **swift-format** — code formatter: `brew install swift-format`
-- **bazelisk** — builds the pinned AgentStudio SwiftLint from ai-tools in CI/local fallback: `brew install bazelisk`
+- **swiftlint** — stock SwiftLint for `.swiftlint.yml` rules: `brew install swiftlint`
 - **xcbeautify** — beautifies swift build/test output: `brew install xcbeautify`
 
-`mise run lint` uses `scripts/run-agentstudio-architecture-swiftlint.sh`, which
-pins the custom AgentStudio SwiftLint rule package in
-`~/dev/ai-tools/swiftlint/agentstudio-architecture-rules` by commit. Homebrew
-SwiftLint alone is not the full lint gate for this repo.
+`mise run lint` uses stock SwiftLint for `.swiftlint.yml` rules and the
+repo-local SwiftPM/SwiftSyntax architecture linter in
+`Tools/AgentStudioArchitectureLint`. Homebrew SwiftLint alone is not the full
+lint gate for this repo; the local architecture tool must also pass.
 
 ### Bootstrap Steps
 

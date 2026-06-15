@@ -12,7 +12,7 @@ mise run setup                # Init submodules, build vendored artifacts, copy 
 mise run build                # Build the Swift app
 mise run test                 # Run tests (Swift 6 `Testing`)
 mise run format               # Auto-format all Swift sources
-mise run lint                 # Lint (swift-format + pinned AgentStudio SwiftLint)
+mise run lint                 # Lint (swift-format + SwiftLint + AgentStudio architecture lint)
 .build/debug/AgentStudio      # Launch debug build
 ```
 
@@ -238,12 +238,13 @@ AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound 
 
 `AtomRegistry` is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`. It may compose Core and Feature atoms. `Infrastructure/AtomLib` owns only generic atom primitives and access helpers (`atom(\...)`, `AtomScope`, `AtomReader`, `Derived`, `DerivedSelector`, `AtomValue`, `AtomEntityMap`, `DerivedValue`) and must not own product atoms or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomEntityMap.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
 
-Architecture boundaries are enforced by the pinned AgentStudio SwiftLint build
-configured in `scripts/agentstudio-architecture-swiftlint.env` and run by
-`scripts/run-agentstudio-architecture-swiftlint.sh`. The custom rule source
-lives outside this app repo in `~/dev/ai-tools/swiftlint/agentstudio-architecture-rules`.
-Do not reintroduce repo-local shell/`rg` architecture lint scripts for rules
-that can be expressed with SwiftSyntax.
+Architecture boundaries are enforced by stock SwiftLint plus the repo-local
+SwiftPM/SwiftSyntax tool in `Tools/AgentStudioArchitectureLint`. `mise run lint`
+runs swift-format, `swiftlint lint --strict`, the local architecture linter, and
+release script checks. The architecture linter is AgentStudio-owned tooling; it
+must not add SwiftSyntax dependencies to the app package. Do not reintroduce
+repo-local shell/`rg` architecture lint scripts for rules that can be expressed
+with SwiftSyntax, and do not restore an external custom-SwiftLint toolchain.
 
 ### Folder Arcs
 
@@ -381,6 +382,7 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), execution-owner decision tree (`AppDelegate` shell vs `PaneTabViewController` pane/drawer), contexts, alternateTriggers, and where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
 | [Architecture Lint Inventory](docs/architecture/architecture_lint_inventory.md) | SwiftLint rule IDs, former shell-script coverage, and blocking/report-only/test/review classifications |
+| [AgentStudio IPC Architecture](docs/architecture/agentstudio_ipc_architecture.md) | App-level programmatic-control contract, AppIPC port, composition, and zmx separation boundaries |
 | [Swift-React Bridge](docs/architecture/swift_react_bridge_design.md) | Bridge architecture, content-delivery status, JSON-RPC/push contracts, read-only CodeView/Shiki review surface, and LUNA-337 completion boundary |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
 | [Agent Resources](docs/guides/agent_resources.md) | Bootstrap, official Swift/macOS docs, DeepWiki sources, and research guidance |
