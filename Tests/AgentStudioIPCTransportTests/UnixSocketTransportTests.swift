@@ -70,16 +70,26 @@ struct UnixSocketTransportTests {
             guard socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0 else {
                 throw UnixSocketTransportError(reason: .socketCreationFailed, errnoCode: errno)
             }
+            var localDescriptor: Int32? = descriptors[0]
+            var peerDescriptor: Int32? = descriptors[1]
             defer {
-                _ = Darwin.close(descriptors[0])
-                _ = Darwin.close(descriptors[1])
+                if let localDescriptor {
+                    _ = Darwin.close(localDescriptor)
+                }
+                if let peerDescriptor {
+                    _ = Darwin.close(peerDescriptor)
+                }
             }
 
             try UnixSocketOptions.disableSigPipe(fileDescriptor: descriptors[0])
             let connection = UnixSocketConnection(fileDescriptor: descriptors[0])
+            localDescriptor = nil
             defer { connection.close() }
 
-            _ = Darwin.close(descriptors[1])
+            if let descriptor = peerDescriptor {
+                _ = Darwin.close(descriptor)
+                peerDescriptor = nil
+            }
 
             #expect(throws: UnixSocketTransportError.self) {
                 try connection.send(Data("reply\n".utf8))
