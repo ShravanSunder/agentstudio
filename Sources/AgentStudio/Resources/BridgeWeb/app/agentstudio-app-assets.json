@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 1,
+	"entrypoints": {
+		"mainScript": {
+			"path": "assets/bridge-app.js",
+			"bytes": 275848,
+			"sha256": "e829fef572e28626ea86c21b8b4c664e721131f38e80e6bf70178964b36063f3"
+		},
+		"styles": []
+	},
+	"workers": [
+		{
+			"kind": "pierre-diffs-shiki",
+			"source": "packagedAppAsset",
+			"path": "workers/pierre-diffs-worker-portable.js",
+			"bytes": 530320,
+			"sha256": "e921c8c200f76c7b6a755c50d65bdea80712e0bf68c81d19cb2888acb88876e6"
+		}
+	]
+}

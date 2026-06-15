@@ -133,6 +133,11 @@ description = "Build BridgeWeb into the SwiftPM resource bundle"
 dir = "BridgeWeb"
 run = "pnpm run build"
 
+[tasks.bridge-web-audit]
+description = "Audit BridgeWeb packaged dependencies and app assets"
+dir = "BridgeWeb"
+run = "pnpm run audit:assets"
+
 [tasks.verify-bridge-observability]
 description = "Verify Bridge debug observability events in the shared Victoria stack"
 run = "bash scripts/verify-bridge-observability.sh"

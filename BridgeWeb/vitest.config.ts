@@ -7,6 +7,7 @@ export default defineConfig({
 		environment: 'node',
 		globals: true,
 		include: [
+			'scripts/**/*.unit.test.ts',
 			'src/**/*.unit.test.ts',
 			'src/**/*.unit.test.tsx',
 			'src/**/*.integration.test.ts',

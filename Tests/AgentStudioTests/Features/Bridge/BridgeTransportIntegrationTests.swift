@@ -264,16 +264,16 @@ extension WebKitSerializedTests {
                     page.url?.absoluteString == "agentstudio://app/index.html"
                 }
                 try await waitForPageLoad(page)
-                let didResolveTitle = await waitForTitle(page, equals: "Bridge")
+                let didResolveTitle = await waitForTitle(page, equals: "AgentStudio Bridge")
 
                 // Assert — page loaded from custom scheme with expected URL
                 #expect(didNavigateToAppURL, "loadApp() should navigate to agentstudio://app/index.html")
 
-                // Assert — BridgeSchemeHandler serves the page (Phase 1 stub returns "Bridge" title)
+                // Assert — BridgeSchemeHandler serves the packaged Bridge app HTML.
                 #expect(didResolveTitle, "Bridge app page should resolve title before assertion")
                 #expect(
-                    page.title == "Bridge",
-                    "BridgeSchemeHandler should serve HTML with <title>Bridge</title> for app routes")
+                    page.title == "AgentStudio Bridge",
+                    "BridgeSchemeHandler should serve packaged Bridge app HTML for app routes")
             }
         }
 
