@@ -131,6 +131,26 @@ struct TerminalRuntimeTests {
         #expect(followupResult == .failure(.runtimeNotReady(lifecycle: .draining)))
     }
 
+    @Test("terminal send writes input without focus side effects")
+    func terminalSendWritesInputWithoutFocusSideEffects() async {
+        let surfaceDispatcher = RecordingTerminalSurfaceCommandDispatcher()
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(title: "Runtime"),
+            surfaceCommandDispatcher: surfaceDispatcher
+        )
+        runtime.transitionToReady()
+
+        let commandEnvelope = makeEnvelope(command: .terminal(.sendInput("echo hi\r")), paneId: runtime.paneId)
+        let result = await runtime.handleCommand(commandEnvelope)
+
+        #expect(result == .success(commandId: commandEnvelope.commandId))
+        #expect(
+            surfaceDispatcher.recordedOperations == [
+                .sendInput(runtime.paneId.uuid, "echo hi\r")
+            ])
+    }
+
     @Test("eventsSince replays emitted events")
     func replaysEvents() async {
         let runtime = TerminalRuntime(
@@ -630,5 +650,43 @@ struct TerminalRuntimeTests {
             command: command,
             timestamp: clock.now
         )
+    }
+}
+
+@MainActor
+private final class RecordingTerminalSurfaceCommandDispatcher: TerminalSurfaceCommandDispatching {
+    enum Operation: Equatable {
+        case sendInput(UUID, String)
+        case clearScrollback(UUID)
+        case scrollToBottom(UUID)
+        case scrollPageUp(UUID)
+        case jumpToPrompt(UUID, Int)
+    }
+
+    private(set) var recordedOperations: [Operation] = []
+
+    func sendInput(_ input: String, toPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        recordedOperations.append(.sendInput(paneId, input))
+        return .success(())
+    }
+
+    func clearScrollback(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        recordedOperations.append(.clearScrollback(paneId))
+        return .success(())
+    }
+
+    func scrollToBottom(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        recordedOperations.append(.scrollToBottom(paneId))
+        return .success(())
+    }
+
+    func scrollPageUp(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        recordedOperations.append(.scrollPageUp(paneId))
+        return .success(())
+    }
+
+    func jumpToPrompt(delta: Int, forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        recordedOperations.append(.jumpToPrompt(paneId, delta))
+        return .success(())
     }
 }

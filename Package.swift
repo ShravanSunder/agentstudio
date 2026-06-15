@@ -7,7 +7,9 @@ let package = Package(
         .macOS(.v26)
     ],
     products: [
-        .executable(name: "AgentStudio", targets: ["AgentStudio"])
+        .executable(name: "AgentStudio", targets: ["AgentStudio"]),
+        .executable(name: "agentstudio-ipc", targets: ["AgentStudioIPCClient"]),
+        .executable(name: "agentstudio-pane-agent", targets: ["AgentStudioPaneAgent"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
@@ -26,6 +28,7 @@ let package = Package(
         .executableTarget(
             name: "AgentStudio",
             dependencies: [
+                "AgentStudioAppIPC",
                 "GhosttyKit",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "GRDB", package: "GRDB.swift"),
@@ -72,10 +75,112 @@ let package = Package(
                 .linkedLibrary("c++"),
             ]
         ),
+        .target(
+            name: "AgentStudioIPCTransport",
+            path: "Sources/AgentStudioIPCTransport",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioProgrammaticControl",
+            path: "Sources/AgentStudioProgrammaticControl",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioAppIPC",
+            dependencies: [
+                "AgentStudioIPCTransport",
+                "AgentStudioProgrammaticControl",
+            ],
+            path: "Sources/AgentStudioAppIPC",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "AgentStudioIPCClientCore",
+            dependencies: [
+                "AgentStudioIPCTransport",
+                "AgentStudioProgrammaticControl",
+            ],
+            path: "Sources/AgentStudioIPCClientCore",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .executableTarget(
+            name: "AgentStudioIPCClient",
+            dependencies: [
+                "AgentStudioIPCClientCore"
+            ],
+            path: "Sources/AgentStudioIPCClient",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .executableTarget(
+            name: "AgentStudioPaneAgent",
+            dependencies: [
+                "AgentStudioIPCClientCore"
+            ],
+            path: "Sources/AgentStudioPaneAgent",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioIPCTransportTests",
+            dependencies: [
+                "AgentStudioIPCTransport"
+            ],
+            path: "Tests/AgentStudioIPCTransportTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioProgrammaticControlTests",
+            dependencies: [
+                "AgentStudioProgrammaticControl"
+            ],
+            path: "Tests/AgentStudioProgrammaticControlTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioAppIPCTests",
+            dependencies: [
+                "AgentStudioAppIPC",
+                "AgentStudioIPCTransport",
+                "AgentStudioProgrammaticControl",
+            ],
+            path: "Tests/AgentStudioAppIPCTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioIPCClientTests",
+            dependencies: [
+                "AgentStudioIPCClientCore",
+                "AgentStudioIPCTransport",
+                "AgentStudioProgrammaticControl",
+            ],
+            path: "Tests/AgentStudioIPCClientTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .testTarget(
             name: "AgentStudioTests",
             dependencies: [
                 "AgentStudio",
+                "AgentStudioAppIPC",
+                "AgentStudioProgrammaticControl",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),

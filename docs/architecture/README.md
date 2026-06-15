@@ -4,6 +4,25 @@
 
 Agent Studio is a macOS terminal application that embeds Ghostty terminal surfaces within a project/worktree management shell. The app uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. Canonical mutable state is distributed across independent `@MainActor @Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). Persistence wrappers such as `WorkspaceStore`, `RepoCacheStore`, and `UIStateStore` wrap atoms instead of owning broad domains directly. `PaneCoordinator` sequences cross-store and cross-feature operations from the App composition root. Panes are the primary identity — they exist independently of layout, view, or surface. Actions flow through a validated pipeline, and persistence is debounced.
 
+## How To Read This Index
+
+Use this document as a routing layer, not as the full architecture. Pick the
+smallest concern-specific doc, then verify the claim against the current code
+and tests.
+
+| Question | Start here | Then verify in code |
+| --- | --- | --- |
+| Where should a file live? | [Directory Structure](directory_structure.md) | Owning slice under `Sources/AgentStudio/` |
+| Which command path should I use? | [Commands and Shortcuts](commands_and_shortcuts.md) | `Core/Actions/`, `App/Coordination/`, command specs |
+| Is this app state, runtime state, or persisted state? | [Atom Persistence Boundaries](atom_persistence_boundaries.md) | `Core/State/MainActor/Atoms/`, persistence wrappers |
+| How do pane/runtime commands and facts move? | [Pane Runtime Architecture](pane_runtime_architecture.md) and [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | `Core/RuntimeEventSystem/`, `App/Coordination/` |
+| How do I prove telemetry or performance? | [Observability And Traceability](observability_and_traceability.md) | trace tags, proof scripts, Victoria verifier output |
+| How does programmatic control stay out of zmx internals? | [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) | `App/IPC`, app ports, runtime adapters |
+
+For testing and debugging, follow the proof ladder in `AGENTS.md`: focused
+tests first, lint next, shared Victoria proof for telemetry/runtime evidence,
+and Peekaboo only for the native UI layer that genuinely needs visual evidence.
+
 ## System Overview
 
 ```
@@ -170,6 +189,7 @@ Each document owns a specific concern. No two documents are authoritative for th
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface management | Surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell | AppKit hosting model, controllers, command bar panel, event handling |
 | [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Four-file model (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
+| [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic control | SwiftPM target split, socket/JSON-RPC foundation, auth, permission grants, protocol ports, CLI/smoke client, and the boundary between app IPC and internal zmx IPC |
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Remote zmx daemons and fork strategy | SSH tunnel architecture (Option C), security model, connection lifecycle, case for forking zmx |
 | [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |
 | [Architecture Lint Inventory](architecture_lint_inventory.md) | Architecture lint enforcement map | SwiftLint rule IDs, former shell-script coverage, blocking/report-only/test/review classifications |

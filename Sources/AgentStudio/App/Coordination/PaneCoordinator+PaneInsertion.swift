@@ -73,6 +73,7 @@ extension PaneCoordinator {
                     )
                 )
                 prepareTerminalPaneSlot(pane)
+                registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
 
                 guard
                     store.tabLayoutAtom.insertPane(
@@ -97,6 +98,7 @@ extension PaneCoordinator {
                 facets: targetPane?.metadata.facets ?? .empty
             )
             prepareTerminalPaneSlot(pane)
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
 
             guard
                 store.tabLayoutAtom.insertPane(

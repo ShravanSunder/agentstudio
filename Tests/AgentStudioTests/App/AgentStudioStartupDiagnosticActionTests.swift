@@ -50,6 +50,17 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(action.commandName == "crossTabMoveGeometrySmoke")
     }
 
+    @Test("startup diagnostic action parses ipc terminal smoke command")
+    func parsesIPCTerminalSmokeCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: " ipc-terminal-smoke "
+            ]))
+
+        #expect(action.kind == .ipcTerminalSmoke)
+        #expect(action.commandName == "ipcTerminalSmoke")
+    }
+
     @Test("startup diagnostic action parses bridge review observability smoke command")
     func parsesBridgeReviewObservabilitySmokeCommand() throws {
         let action = try #require(

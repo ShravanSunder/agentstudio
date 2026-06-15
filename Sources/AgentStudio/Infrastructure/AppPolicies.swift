@@ -96,6 +96,7 @@ enum AppPolicies {
 
     enum StartupDiagnostic {
         static let launchRestoreBoundsTimeout: Duration = .seconds(3)
+        static let ipcTerminalSmokeReadinessTimeout: Duration = .seconds(10)
     }
 
     enum SelectablePopover {

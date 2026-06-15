@@ -81,6 +81,10 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout.contains("agentstudio_import_direction error"))
         #expect(result.stdout.contains("agentstudio_state_actor_path warning"))
+        #expect(result.stdout.contains("agentstudio_ipc_programmatic_control_boundary error"))
+        #expect(result.stdout.contains("agentstudio_appipc_port_boundary error"))
+        #expect(result.stdout.contains("agentstudio_ipc_composition_location error"))
+        #expect(result.stdout.contains("agentstudio_ipc_public_surface_sanitization error"))
         #expect(result.stdout.contains("agentstudio_ipc_no_direct_atom_access error"))
     }
 
