@@ -134,7 +134,7 @@ final class ControllableGroupedWatchedFolderScanner: @unchecked Sendable {
         }
     }
 
-    func scan(_ root: URL) -> [RepoScanner.RepoScanGroup] {
+    func scan(_ root: URL) async -> [RepoScanner.RepoScanGroup] {
         lock.withLock {
             resultsByRoot[root.standardizedFileURL, default: []]
         }

@@ -5,6 +5,88 @@ import Testing
 
 @Suite("FilesystemActor Watched Folders")
 struct FilesystemActorWatchedFolderTests {
+    @Test("refreshWatchedFolders uses real grouped repo scanner for clone and linked worktree")
+    func refreshWatchedFoldersUsesRealGroupedRepoScannerForCloneAndLinkedWorktree() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fsClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fsClient,
+            groupedWatchedFolderScanner: { await RepoScanner().scanForGitReposGrouped(in: $0) },
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+        let watchedFolder = FileManager.default.temporaryDirectory
+            .appending(path: "watched-real-scan-\(UUID().uuidString)")
+        let repoPath = watchedFolder.appending(path: "app")
+        let linkedWorktreePath = watchedFolder.appending(path: "app-feature")
+        try FileManager.default.createDirectory(at: repoPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: watchedFolder) }
+
+        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["init"])
+        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "user.email", "luna-tests@example.com"])
+        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "user.name", "Luna Tests"])
+        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "commit.gpgsign", "false"])
+        try "main\n".write(to: repoPath.appending(path: "README.md"), atomically: true, encoding: .utf8)
+        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["add", "README.md"])
+        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["commit", "-m", "Seed real grouped scan"])
+        try FilesystemTestGitRepo.runGit(
+            at: repoPath,
+            args: ["worktree", "add", "-b", "feature/real-scan", linkedWorktreePath.path]
+        )
+
+        let stream = await bus.subscribe()
+        let summary = await actor.refreshWatchedFolders([watchedFolder])
+        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+
+        #expect(summary.repoPaths(in: watchedFolder) == [repoPath.standardizedFileURL])
+        #expect(
+            events.discovered == [
+                RepoDiscoveryEvent(
+                    repoPath: repoPath.standardizedFileURL,
+                    linkedWorktrees: .scanned([linkedWorktreePath.standardizedFileURL])
+                )
+            ])
+        #expect(events.removed.isEmpty)
+
+        await actor.shutdown()
+    }
+
+    @Test("refreshWatchedFolders keeps repos discovered through symlinked watched folder")
+    func refreshWatchedFoldersKeepsReposDiscoveredThroughSymlinkedWatchedFolder() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fsClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fsClient,
+            groupedWatchedFolderScanner: { await RepoScanner().scanForGitReposGrouped(in: $0) },
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "watched-symlink-scan-\(UUID().uuidString)")
+        let realRoot = tmp.appending(path: "real")
+        let linkedRoot = tmp.appending(path: "linked")
+        let repoPath = realRoot.appending(path: "app")
+        try FileManager.default.createDirectory(at: repoPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["init"])
+        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "user.email", "luna-tests@example.com"])
+        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "user.name", "Luna Tests"])
+        try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "commit.gpgsign", "false"])
+        try FileManager.default.createSymbolicLink(atPath: linkedRoot.path, withDestinationPath: realRoot.path)
+
+        let stream = await bus.subscribe()
+        let summary = await actor.refreshWatchedFolders([linkedRoot])
+        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+
+        #expect(summary.repoPaths(in: linkedRoot).map(canonicalPath(_:)) == [canonicalPath(repoPath)])
+        #expect(events.discovered.map { canonicalPath($0.repoPath) } == [canonicalPath(repoPath)])
+        #expect(events.removed.isEmpty)
+
+        await actor.shutdown()
+    }
 
     @Test("refreshWatchedFolders emits scanner-backed discovered events for new clones")
     func refreshWatchedFoldersEmitsScannerBackedDiscoveredEventsForNewClones() async throws {
@@ -534,6 +616,10 @@ struct FilesystemActorWatchedFolderTests {
         collectTask.cancel()
         return await collectTask.value
     }
+
+    private func canonicalPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
 }
 
 final class ControllableWatchedFolderScanner: @unchecked Sendable {
@@ -576,7 +662,7 @@ final class ControllableWatchedFolderScanner: @unchecked Sendable {
         }
     }
 
-    func scan(_ root: URL) -> [RepoScanner.RepoScanGroup] {
+    func scan(_ root: URL) async -> [RepoScanner.RepoScanGroup] {
         lock.withLock {
             resultsByRoot[root.standardizedFileURL, default: []]
         }

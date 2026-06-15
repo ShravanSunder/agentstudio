@@ -35,6 +35,8 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(!source.contains("$HOME/dev/devfiles/shared/observability/observability-stack"))
         #expect(source.contains("Set >=255 when this script is used to cover"))
         #expect(source.contains("AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR"))
+        #expect(source.contains("AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD"))
+        #expect(source.contains("Default: 0 so sampling cannot perturb"))
         #expect(source.contains("AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF"))
         #expect(source.contains("AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES"))
         #expect(source.contains("standard proof requires Victoria"))
@@ -66,10 +68,16 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("APP_PID=\"$(decode_env_file_value"))
         #expect(source.contains("DEBUG_STATE_COPY=\"$ARTIFACT/debug-observability.env\""))
         #expect(source.contains("cp \"$DEBUG_OBSERVABILITY_STATE_FILE\" \"$DEBUG_STATE_COPY\""))
+        assertVictoriaMetricsContract(source)
         #expect(source.contains("preflight_debug_observability_idle()"))
         #expect(source.contains("\"$PROJECT_ROOT/scripts/run-debug-observability.sh\" --preflight-idle"))
         #expect(source.contains("QUERY_START=\"$(decode_env_file_value"))
         #expect(source.contains("--data-urlencode \"start=$QUERY_START\""))
+        #expect(source.contains("SAMPLE_DURING_WORKLOAD=\"${AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD:-0}\""))
+        #expect(source.contains("sample_during_workload=$SAMPLE_DURING_WORKLOAD"))
+        #expect(source.contains("[ \"$SAMPLE_DURING_WORKLOAD\" = \"1\" ]"))
+        #expect(source.contains("sample skipped during measured workload"))
+        assertGitStatusMetricSummaryContract(source)
         #expect(source.contains("capture_restore_trace"))
         #expect(source.contains("grep \"pid=$APP_PID \" \"$restore_trace_source\""))
         #expect(
@@ -497,6 +505,36 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         "performance.topology.repo_and_worktree",
         "performance.coordinator.write",
     ]
+
+    private static func assertVictoriaMetricsContract(_ source: String) {
+        #expect(source.contains("query_victoria_logs()"))
+        #expect(source.contains("query_victoria_metrics()"))
+        #expect(source.contains("victoria_event_query()"))
+        #expect(source.contains("victoria_event_count()"))
+        #expect(source.contains("victoria_metric_event_query()"))
+        #expect(source.contains("victoria_metric_event_count()"))
+        #expect(source.contains("victoria_metric_event_label_selector()"))
+        #expect(source.contains("victoria_metric_event_count_for_reason()"))
+        #expect(source.contains("victoria_metric_event_elapsed_p95()"))
+        #expect(source.contains("victoria_metric_event_elapsed_max()"))
+        #expect(source.contains("victoria_metric_status_unavailable_reason_values()"))
+        #expect(source.contains("require_status_latency_metrics()"))
+        #expect(source.contains("agentstudio_performance_events_total"))
+        #expect(source.contains("agentstudio_performance_event_elapsed_ms_bucket"))
+        #expect(source.contains("agentstudio_performance_event_elapsed_ms_max"))
+        #expect(source.contains("agent.proof.marker=\"%s\",event=\"%s\""))
+        #expect(source.contains("victoria_metric_command_bar_filter_query()"))
+        #expect(source.contains("agentstudio_performance_commandbar_query_character_count"))
+    }
+
+    private static func assertGitStatusMetricSummaryContract(_ source: String) {
+        #expect(source.contains("performance.git.status_unavailable\nperformance.git.snapshot_dedup"))
+        #expect(source.contains("performance.git.status.elapsed_ms.p95="))
+        #expect(source.contains("performance.git.status.elapsed_ms.max="))
+        #expect(source.contains("performance.git.status_unavailable.reason.$unavailable_reason.count="))
+        #expect(source.contains("performance.git.status_unavailable.reason.$unavailable_reason.elapsed_ms.p95="))
+        #expect(source.contains("read_already_in_flight"))
+    }
 
     private func runScript(
         arguments: [String],

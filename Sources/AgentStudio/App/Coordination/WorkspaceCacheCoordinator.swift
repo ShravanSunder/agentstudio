@@ -237,7 +237,13 @@ final class WorkspaceCacheCoordinator {
 
     private func handleRepoRemoved(repoPath: URL) {
         let repositoryTopology = workspaceStore.repositoryTopologyAtom
-        guard let repo = repositoryTopology.repos.first(where: { $0.repoPath == repoPath }) else { return }
+        let normalizedRepoPath = repoPath.standardizedFileURL
+        let removedStableKey = StableKey.fromPath(normalizedRepoPath)
+        guard
+            let repo = repositoryTopology.repos.first(where: {
+                $0.repoPath.standardizedFileURL == normalizedRepoPath || $0.stableKey == removedStableKey
+            })
+        else { return }
 
         repositoryTopology.markRepoUnavailable(repo.id)
         let unavailablePathByWorktreeId = Dictionary(
