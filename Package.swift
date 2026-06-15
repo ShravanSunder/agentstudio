@@ -134,6 +134,8 @@ let package = Package(
             name: "AgentStudioTests",
             dependencies: [
                 "AgentStudio",
+                "AgentStudioAppIPC",
+                "AgentStudioProgrammaticControl",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
