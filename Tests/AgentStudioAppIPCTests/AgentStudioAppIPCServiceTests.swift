@@ -36,7 +36,47 @@ struct AgentStudioAppIPCServiceTests {
     }
 }
 
-private struct FakeQueryPort: AppIPCQueryPort {}
+private struct FakeQueryPort: AppIPCQueryPort {
+    func systemIdentify() throws -> IPCSystemIdentifyResult {
+        IPCSystemIdentifyResult(runtimeId: UUID(), accessMode: .agentStudioOnly, appVersion: "test")
+    }
+
+    func systemVersion() throws -> IPCSystemVersionResult {
+        IPCSystemVersionResult(appVersion: "test")
+    }
+
+    func systemCapabilities() throws -> IPCSystemCapabilitiesResult {
+        IPCSystemCapabilitiesResult(methods: [])
+    }
+
+    func listWindows() throws -> IPCWindowListResult {
+        IPCWindowListResult(windows: [])
+    }
+
+    func currentWindow() throws -> IPCCurrentWindowResult {
+        throw AppIPCQueryError(reason: .noActiveWindow)
+    }
+
+    func listWorkspaces() throws -> IPCWorkspaceListResult {
+        IPCWorkspaceListResult(workspaces: [])
+    }
+
+    func currentWorkspace() throws -> IPCCurrentWorkspaceResult {
+        throw AppIPCQueryError(reason: .noActiveWindow)
+    }
+
+    func listPanes() throws -> IPCPaneListResult {
+        IPCPaneListResult(panes: [])
+    }
+
+    func currentPane() throws -> IPCPaneSnapshotResult {
+        throw AppIPCQueryError(reason: .noActiveWindow)
+    }
+
+    func snapshotPane(_: UUID) throws -> IPCPaneSnapshotResult {
+        throw AppIPCQueryError(reason: .targetNotFound)
+    }
+}
 
 private struct FakeLayoutPort: AppIPCLayoutPort {}
 

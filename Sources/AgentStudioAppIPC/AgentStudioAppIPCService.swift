@@ -1,7 +1,32 @@
 import AgentStudioProgrammaticControl
 import Foundation
 
-public protocol AppIPCQueryPort: Sendable {}
+public struct AppIPCQueryError: Error, Equatable, Sendable {
+    public enum Reason: String, Equatable, Sendable {
+        case noActiveWindow
+        case targetNotFound
+    }
+
+    public let reason: Reason
+
+    public init(reason: Reason) {
+        self.reason = reason
+    }
+}
+
+@MainActor
+public protocol AppIPCQueryPort: Sendable {
+    func systemIdentify() throws -> IPCSystemIdentifyResult
+    func systemVersion() throws -> IPCSystemVersionResult
+    func systemCapabilities() throws -> IPCSystemCapabilitiesResult
+    func listWindows() throws -> IPCWindowListResult
+    func currentWindow() throws -> IPCCurrentWindowResult
+    func listWorkspaces() throws -> IPCWorkspaceListResult
+    func currentWorkspace() throws -> IPCCurrentWorkspaceResult
+    func listPanes() throws -> IPCPaneListResult
+    func currentPane() throws -> IPCPaneSnapshotResult
+    func snapshotPane(_ paneId: UUID) throws -> IPCPaneSnapshotResult
+}
 
 public protocol AppIPCLayoutPort: Sendable {}
 

@@ -15,8 +15,9 @@ The phase-1 foundation currently owns:
 - Subject-token authentication, principal registry, and redaction helpers.
 - Phase-1 method catalog, handle parsing, authorization, grant ledger, and
   permission broker policy/delegation primitives.
+- Concrete app query adapter for system/window/workspace/pane read snapshots.
 
-Follow-up implementation slices still own concrete app adapters, socket-server
+Follow-up implementation slices still own layout/focus adapters, socket-server
 lifecycle wiring, CLI/client commands, event subscription delivery, runtime
 terminal adapters, and promotion of completed design material from the
 temporary spec/plan docs.
@@ -56,6 +57,29 @@ The target split is intentionally stricter than the folder split. A file in
 compiler has no dependency edge for it. `AgentStudioAppIPC` can define ports and
 own policy, but concrete behavior enters through protocol implementations in
 the app target.
+
+## Query Snapshot Boundary
+
+Phase-1 read methods are served through `AgentStudioIPCQueryAdapter` in
+`AgentStudio/App/IPCComposition`. The adapter does not read atoms directly. It
+depends on two snapshot seams:
+
+```
+AppIPC query method
+  -> AgentStudioIPCQueryAdapter
+  -> WorkspaceStore.programmaticControlSnapshot()
+       owns atom reads inside WorkspaceStore
+  -> WorkspaceWindowLifecycleReading.snapshot()
+       owns window lifecycle atom reads outside IPC composition
+  -> AgentStudioProgrammaticControl DTO
+```
+
+The query adapter intentionally exposes a sanitized app-level view. Pane
+snapshots include stable app identity facts such as pane id, title, content
+kind, residency, active state, tab id, repo id, and worktree id. They do not
+include raw URLs, cwd paths, command lines, terminal buffers, zmx session ids,
+or backend daemon details. Terminal content requires the dedicated terminal
+runtime adapter and stricter terminal privileges in later slices.
 
 ## Request Authority Path
 
