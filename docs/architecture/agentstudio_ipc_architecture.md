@@ -16,11 +16,14 @@ The phase-1 foundation currently owns:
 - Phase-1 method catalog, handle parsing, authorization, grant ledger, and
   permission broker policy/delegation primitives.
 - Concrete app query adapter for system/window/workspace/pane read snapshots.
+- Concrete layout adapter for `pane.focus` through the existing focus owner
+  chain.
+- Concrete terminal runtime adapter for `terminal.status`,
+  `terminal.snapshot`, and `terminal.send`.
 
-Follow-up implementation slices still own layout/focus adapters, socket-server
-lifecycle wiring, CLI/client commands, event subscription delivery, runtime
-terminal adapters, and promotion of completed design material from the
-temporary spec/plan docs.
+Follow-up implementation slices still own socket-server lifecycle wiring,
+CLI/client commands, event subscription delivery, terminal waits, and promotion
+of completed design material from the temporary spec/plan docs.
 
 ## Target Ownership
 
@@ -103,6 +106,43 @@ owned by the existing app focus pipeline. The adapter maps no-active-window,
 missing-target, and validation-rejected outcomes into AppIPC layout errors so
 the future JSON-RPC layer can publish stable error codes without reaching into
 controller internals.
+
+## Terminal Runtime Boundary
+
+Terminal runtime methods are runtime/app-control methods, not shell-completion
+or terminal-buffer APIs. Phase 1 routes them through `AgentStudioIPCRuntimeAdapter`:
+
+```
+terminal.status / terminal.snapshot
+  -> AgentStudioIPCRuntimeAdapter
+       resolves pane handle by UUID or friendly ordinal
+       requires a terminal pane
+  -> RuntimeRegistry.runtime(for:)
+  -> PaneRuntime.snapshot()
+  -> allowlisted AgentStudioProgrammaticControl DTO
+
+terminal.send
+  -> AgentStudioIPCRuntimeAdapter
+       resolves pane handle by UUID or friendly ordinal
+       requires a terminal pane and registered runtime
+  -> ActionExecutorRuntimeCommandDispatcher
+  -> ActionExecutor.dispatchRuntimeCommand(.terminal(.sendInput), correlationId:)
+  -> PaneCoordinator.dispatchRuntimeCommand
+  -> RuntimeRegistry.runtime(for:)
+  -> PaneRuntime.handleCommand(...)
+```
+
+`terminal.send` success means the runtime command path accepted the input bytes.
+It does not mean the shell command completed, produced output, or reached a
+particular prompt. Those higher-level observations belong to future
+`terminal.wait` conditions and runtime events.
+
+The terminal DTOs intentionally omit terminal output, scrollback, raw PTY bytes,
+cwd/launch paths, command lines, zmx session identifiers, raw runtime objects,
+and content-bearing UI state such as search/progress details. The adapter maps
+missing panes, missing runtimes, runtime-not-ready, unsupported command,
+backend-unavailable, validation-rejected, and timeout outcomes into AppIPC
+runtime errors for the future JSON-RPC layer.
 
 ## Request Authority Path
 

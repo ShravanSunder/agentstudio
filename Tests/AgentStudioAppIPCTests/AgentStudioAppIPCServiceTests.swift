@@ -84,7 +84,23 @@ private struct FakeLayoutPort: AppIPCLayoutPort {
     }
 }
 
-private struct FakeRuntimePort: AppIPCRuntimePort {}
+private struct FakeRuntimePort: AppIPCRuntimePort {
+    func terminalStatus(_ handle: IPCHandle) throws -> IPCTerminalStatusResult {
+        throw AppIPCRuntimeError(reason: .noRuntime)
+    }
+
+    func terminalSnapshot(_ handle: IPCHandle) throws -> IPCTerminalSnapshotResult {
+        throw AppIPCRuntimeError(reason: .noRuntime)
+    }
+
+    func sendTerminalInput(
+        to handle: IPCHandle,
+        input: String,
+        correlationId: UUID?
+    ) async throws -> IPCTerminalSendInputResult {
+        throw AppIPCRuntimeError(reason: .noRuntime)
+    }
+}
 
 private struct FakePermissionApprovalPort: AppIPCPermissionApprovalPort {
     func decision(for _: PermissionRecord, requester _: IPCPrincipal) -> ApprovalPolicyDecision {

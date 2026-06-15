@@ -45,9 +45,10 @@ final class ActionExecutor {
 
     func dispatchRuntimeCommand(
         _ command: RuntimeCommand,
-        target: RuntimeCommandTarget
+        target: RuntimeCommandTarget,
+        correlationId: UUID? = nil
     ) async -> ActionResult {
-        await coordinator.dispatchRuntimeCommand(command, target: target)
+        await coordinator.dispatchRuntimeCommand(command, target: target, correlationId: correlationId)
     }
 
     // MARK: - High-Level Operations

@@ -47,7 +47,36 @@ public protocol AppIPCLayoutPort: Sendable {
     func focusPane(_ handle: IPCHandle) throws -> IPCPaneFocusResult
 }
 
-public protocol AppIPCRuntimePort: Sendable {}
+public struct AppIPCRuntimeError: Error, Equatable, Sendable {
+    public enum Reason: String, Equatable, Sendable {
+        case targetNotFound
+        case noRuntime
+        case runtimeNotReady
+        case unsupportedCommand
+        case backendUnavailable
+        case validationRejected
+        case timeout
+    }
+
+    public let reason: Reason
+    public let detail: String?
+
+    public init(reason: Reason, detail: String? = nil) {
+        self.reason = reason
+        self.detail = detail
+    }
+}
+
+@MainActor
+public protocol AppIPCRuntimePort: Sendable {
+    func terminalStatus(_ handle: IPCHandle) throws -> IPCTerminalStatusResult
+    func terminalSnapshot(_ handle: IPCHandle) throws -> IPCTerminalSnapshotResult
+    func sendTerminalInput(
+        to handle: IPCHandle,
+        input: String,
+        correlationId: UUID?
+    ) async throws -> IPCTerminalSendInputResult
+}
 
 public protocol AppIPCPermissionApprovalPort: Sendable {
     func decision(for record: PermissionRecord, requester: IPCPrincipal) -> ApprovalPolicyDecision
