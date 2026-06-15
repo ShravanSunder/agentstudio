@@ -72,8 +72,8 @@ struct IPCContractsTests {
         }
     }
 
-    @Test("exports stable event names and codable permission payloads")
-    func exportsStableEventNamesAndCodablePermissionPayloads() throws {
+    @Test("exports stable event names and codable event payloads")
+    func exportsStableEventNamesAndCodableEventPayloads() throws {
         let requestId = UUID()
         let principalId = UUID()
         let approverId = UUID()
@@ -101,6 +101,34 @@ struct IPCContractsTests {
         )
 
         #expect(decoded == notification)
+        #expect(
+            try JSONDecoder().decode(
+                IPCEventNotification.self,
+                from: try JSONEncoder().encode(notification.eventNotification)
+            ) == notification.eventNotification
+        )
+
+        let terminalNotification = IPCEventNotification(
+            eventId: UUID(),
+            name: .terminalCommandFinished,
+            occurredAt: Date(timeIntervalSince1970: 1_800_000_001),
+            payload: .terminal(
+                IPCTerminalEventPayload(
+                    paneId: UUID(),
+                    condition: .commandFinished,
+                    commandId: UUID(),
+                    correlationId: UUID(),
+                    exitCode: 0,
+                    duration: 1.25
+                )
+            )
+        )
+        #expect(
+            try JSONDecoder().decode(
+                IPCEventNotification.self,
+                from: try JSONEncoder().encode(terminalNotification)
+            ) == terminalNotification
+        )
         #expect(IPCEventName.allCases.map(\.rawValue).contains("permission.requestResolved"))
         #expect(IPCEventName.allCases.map(\.rawValue).contains("terminal.commandFinished"))
         #expect(!IPCEventName.allCases.map(\.rawValue).contains { $0.hasPrefix("zmx.") })

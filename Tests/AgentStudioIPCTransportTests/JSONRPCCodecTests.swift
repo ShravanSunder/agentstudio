@@ -91,6 +91,22 @@ struct JSONRPCCodecTests {
         #expect(error["message"] as? String == "permission denied")
     }
 
+    @Test("encodes server notifications without an id")
+    func encodesServerNotificationsWithoutAnId() throws {
+        let notification = try JSONRPCNotification(
+            method: "events.notification",
+            params: .object(["name": .string("terminal.commandFinished")])
+        )
+
+        let encoded = try JSONRPCCodec.encodeNotification(notification)
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: Any])
+
+        #expect(object["jsonrpc"] as? String == "2.0")
+        #expect(object["method"] as? String == "events.notification")
+        #expect(object["id"] == nil)
+        #expect((object["params"] as? [String: Any])?["name"] as? String == "terminal.commandFinished")
+    }
+
     @Test("rejects error codes outside the application range")
     func rejectsApplicationErrorCodeOutsideRange() throws {
         #expect(throws: JSONRPCError.self) {
