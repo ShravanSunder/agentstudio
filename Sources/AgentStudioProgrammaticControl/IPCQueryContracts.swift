@@ -207,3 +207,13 @@ public struct IPCPaneSnapshotResult: Codable, Equatable, Sendable {
         self.workspace = workspace
     }
 }
+
+public struct IPCPaneFocusResult: Codable, Equatable, Sendable {
+    public let paneId: UUID
+    public let focused: Bool
+
+    public init(paneId: UUID, focused: Bool) {
+        self.paneId = paneId
+        self.focused = focused
+    }
+}

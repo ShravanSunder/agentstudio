@@ -78,7 +78,11 @@ private struct FakeQueryPort: AppIPCQueryPort {
     }
 }
 
-private struct FakeLayoutPort: AppIPCLayoutPort {}
+private struct FakeLayoutPort: AppIPCLayoutPort {
+    func focusPane(_: IPCHandle) throws -> IPCPaneFocusResult {
+        throw AppIPCLayoutError(reason: .targetNotFound)
+    }
+}
 
 private struct FakeRuntimePort: AppIPCRuntimePort {}
 

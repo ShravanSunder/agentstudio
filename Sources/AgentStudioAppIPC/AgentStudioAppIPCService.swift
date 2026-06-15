@@ -28,7 +28,24 @@ public protocol AppIPCQueryPort: Sendable {
     func snapshotPane(_ paneId: UUID) throws -> IPCPaneSnapshotResult
 }
 
-public protocol AppIPCLayoutPort: Sendable {}
+public struct AppIPCLayoutError: Error, Equatable, Sendable {
+    public enum Reason: String, Equatable, Sendable {
+        case noActiveWindow
+        case targetNotFound
+        case validationRejected
+    }
+
+    public let reason: Reason
+
+    public init(reason: Reason) {
+        self.reason = reason
+    }
+}
+
+@MainActor
+public protocol AppIPCLayoutPort: Sendable {
+    func focusPane(_ handle: IPCHandle) throws -> IPCPaneFocusResult
+}
 
 public protocol AppIPCRuntimePort: Sendable {}
 

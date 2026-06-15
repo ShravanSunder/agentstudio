@@ -81,6 +81,29 @@ include raw URLs, cwd paths, command lines, terminal buffers, zmx session ids,
 or backend daemon details. Terminal content requires the dedicated terminal
 runtime adapter and stricter terminal privileges in later slices.
 
+## Pane Focus Boundary
+
+`pane.focus` is a layout/app-control method, not an atom mutation. Phase 1
+routes it through two named seams:
+
+```
+AppIPC layout method
+  -> AgentStudioIPCLayoutAdapter
+       verifies active workspace window
+       resolves pane handle by UUID or friendly ordinal
+  -> PaneFocusAppControlling
+  -> PaneTabViewControllerPaneFocusAppControl
+       validates pane belongs to a tab
+  -> PaneTabViewController.execute(.focusPane, target:targetType:)
+  -> existing PaneFocusTrigger / PaneFocusOrchestrator / PaneFocusExecutor path
+```
+
+This split keeps IPC responsible for protocol concerns and keeps focus behavior
+owned by the existing app focus pipeline. The adapter maps no-active-window,
+missing-target, and validation-rejected outcomes into AppIPC layout errors so
+the future JSON-RPC layer can publish stable error codes without reaching into
+controller internals.
+
 ## Request Authority Path
 
 ```
