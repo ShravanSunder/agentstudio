@@ -8,10 +8,12 @@ import Testing
 struct FilesystemToPrimarySidebarIntegrationTests {
     @Test("filesystem-to-primary-sidebar pipeline converges project-dev-shaped grouping and PR enrichment")
     func filesystemToPrimarySidebarPipelineConverges() async throws {
+        installTestAtomRegistryIfNeeded()
+
         let fixtureRoot = try makeProjectDevShapeFixture()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
 
-        let discoveredRepoPaths = RepoScanner().scanForGitRepos(in: fixtureRoot, maxDepth: 4)
+        let discoveredRepoPaths = await RepoScanner().scanForGitRepos(in: fixtureRoot, maxDepth: 4)
         assertScannerOutput(discoveredRepoPaths: discoveredRepoPaths, fixtureRoot: fixtureRoot)
 
         let financeRemote = "git@github.com:askluna/askluna-finance.git"

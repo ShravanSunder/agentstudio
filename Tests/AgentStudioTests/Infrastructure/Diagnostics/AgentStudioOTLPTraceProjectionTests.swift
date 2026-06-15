@@ -315,6 +315,7 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.git.running.count"] == .int(4))
         #expect(projection.attributes["agentstudio.performance.git.status.duration_ms"] == .double(2.5))
         #expect(projection.attributes["agentstudio.performance.git.status.elapsed_ms"] == .double(2.7))
+        #expect(projection.attributes["agentstudio.performance.git.status_unavailable.reason"] == .string("timeout"))
         #expect(projection.attributes["agentstudio.performance.git.root_path"] == nil)
         #expect(projection.attributes["agentstudio.performance.repo.dynamic_key.count"] == nil)
         #expect(projection.attributes["agentstudio.performance.future.elapsed_ms"] == nil)
@@ -387,6 +388,7 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.performance.git.running.count": .int(4),
                 "agentstudio.performance.git.status.duration_ms": .double(2.5),
                 "agentstudio.performance.git.status.elapsed_ms": .double(2.7),
+                "agentstudio.performance.git.status_unavailable.reason": .string("timeout"),
                 "agentstudio.performance.git.root_path": .string("/Users/shravan/private/repo"),
                 "agentstudio.performance.repo.dynamic_key.count": .int(999),
                 "agentstudio.performance.future.elapsed_ms": .double(999),

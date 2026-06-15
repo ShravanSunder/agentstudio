@@ -7,7 +7,7 @@ import Testing
 struct RepoScannerTests {
 
     @Test("discovers git repos up to 3 levels deep")
-    func discoversReposAtDepth() throws {
+    func discoversReposAtDepth() async throws {
         // Arrange
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "scanner-test-\(UUID().uuidString)")
@@ -26,7 +26,7 @@ struct RepoScannerTests {
 
         // Act
         let scanner = RepoScanner()
-        let repos = scanner.scanForGitRepos(in: tmp, maxDepth: 3)
+        let repos = await scanner.scanForGitRepos(in: tmp, maxDepth: 3)
 
         // Assert
         #expect(repos.count == 3)
@@ -41,7 +41,7 @@ struct RepoScannerTests {
     }
 
     @Test("does not descend into .git directories")
-    func skipsGitInternals() throws {
+    func skipsGitInternals() async throws {
         // Arrange
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "scanner-skip-\(UUID().uuidString)")
@@ -54,7 +54,7 @@ struct RepoScannerTests {
 
         // Act
         let scanner = RepoScanner()
-        let repos = scanner.scanForGitRepos(in: tmp, maxDepth: 3)
+        let repos = await scanner.scanForGitRepos(in: tmp, maxDepth: 3)
 
         // Assert
         #expect(repos.count == 1)
@@ -65,7 +65,7 @@ struct RepoScannerTests {
     }
 
     @Test("returns sorted results by name")
-    func sortsByName() throws {
+    func sortsByName() async throws {
         // Arrange
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "scanner-sort-\(UUID().uuidString)")
@@ -75,7 +75,7 @@ struct RepoScannerTests {
         try initializeGitRepository(at: tmp.appending(path: "middle"))
 
         // Act
-        let repos = RepoScanner().scanForGitRepos(in: tmp, maxDepth: 3)
+        let repos = await RepoScanner().scanForGitRepos(in: tmp, maxDepth: 3)
 
         // Assert
         #expect(repos.map(\.lastPathComponent) == ["alpha", "middle", "zebra"])
@@ -85,14 +85,14 @@ struct RepoScannerTests {
     }
 
     @Test("empty directory returns empty")
-    func emptyDirectory() throws {
+    func emptyDirectory() async throws {
         // Arrange
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "scanner-empty-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
 
         // Act
-        let repos = RepoScanner().scanForGitRepos(in: tmp, maxDepth: 3)
+        let repos = await RepoScanner().scanForGitRepos(in: tmp, maxDepth: 3)
 
         // Assert
         #expect(repos.isEmpty)
@@ -102,7 +102,7 @@ struct RepoScannerTests {
     }
 
     @Test("scan stops at .git boundary and does not descend further")
-    func scanStopsAtGitBoundary() throws {
+    func scanStopsAtGitBoundary() async throws {
         // Arrange
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "scanner-worktrees-\(UUID().uuidString)")
@@ -121,7 +121,7 @@ struct RepoScannerTests {
         try initializeGitRepository(at: tmp.appending(path: "standalone-repo"))
 
         // Act
-        let repos = RepoScanner().scanForGitRepos(in: tmp, maxDepth: 4)
+        let repos = await RepoScanner().scanForGitRepos(in: tmp, maxDepth: 4)
 
         // Assert
         let discoveredPaths = Set(repos.map(canonicalPath(_:)))
@@ -137,7 +137,7 @@ struct RepoScannerTests {
     }
 
     @Test("ignores stale git marker paths that are not valid worktrees")
-    func ignoresInvalidGitMarkers() throws {
+    func ignoresInvalidGitMarkers() async throws {
         // Arrange
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "scanner-invalid-marker-\(UUID().uuidString)")
@@ -157,7 +157,7 @@ struct RepoScannerTests {
         try initializeGitRepository(at: validRepoPath)
 
         // Act
-        let repos = RepoScanner().scanForGitRepos(in: tmp, maxDepth: 2)
+        let repos = await RepoScanner().scanForGitRepos(in: tmp, maxDepth: 2)
         let discoveredPaths = Set(repos.map(canonicalPath(_:)))
 
         // Assert
@@ -169,20 +169,20 @@ struct RepoScannerTests {
     }
 
     @Test("real project-dev invalid worktree path is filtered out")
-    func realProjectDevInvalidWorktreePathIsFilteredOut() {
+    func realProjectDevInvalidWorktreePathIsFilteredOut() async {
         let root = URL(fileURLWithPath: "/Users/shravansunder/Documents/dev/project-dev")
         let invalidPath = root.appending(path: "agent-studio.window-system")
         guard FileManager.default.fileExists(atPath: invalidPath.path) else {
             return
         }
 
-        let repos = RepoScanner().scanForGitRepos(in: root, maxDepth: 3)
+        let repos = await RepoScanner().scanForGitRepos(in: root, maxDepth: 3)
         let discoveredPaths = Set(repos.map(canonicalPath(_:)))
         #expect(!discoveredPaths.contains(canonicalPath(invalidPath)))
     }
 
     @Test("submodule working trees are filtered out")
-    func submoduleWorkingTreesAreFilteredOut() throws {
+    func submoduleWorkingTreesAreFilteredOut() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appending(path: "scanner-submodule-\(UUID().uuidString)")
         let fm = FileManager.default
@@ -217,21 +217,174 @@ struct RepoScannerTests {
             ]
         )
 
-        let repos = RepoScanner().scanForGitRepos(in: tmp, maxDepth: 4)
+        let repos = await RepoScanner().scanForGitRepos(in: tmp, maxDepth: 4)
         let discoveredPaths = Set(repos.map(canonicalPath(_:)))
         #expect(discoveredPaths.contains(canonicalPath(superRepoPath)))
         #expect(!discoveredPaths.contains(canonicalPath(superRepoPath.appending(path: "vendor/ghostty"))))
+
+        let directlyScannedSubmoduleParent = await RepoScanner().scanForGitRepos(
+            in: superRepoPath.appending(path: "vendor"),
+            maxDepth: 1
+        )
+        #expect(
+            !directlyScannedSubmoduleParent.map(canonicalPath(_:)).contains(
+                canonicalPath(superRepoPath.appending(path: "vendor/ghostty"))))
+    }
+
+    @Test("clone-root gitdir indirections outside scanned path are filtered out")
+    func cloneRootGitdirIndirectionsOutsideScannedPathAreFilteredOut() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-gitdir-alias-\(UUID().uuidString)")
+        let fm = FileManager.default
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let externalRepoPath = tmp.appending(path: "external-real-repo")
+        try initializeGitRepository(at: externalRepoPath)
+        try "real\n".write(to: externalRepoPath.appending(path: "README.md"), atomically: true, encoding: .utf8)
+        try runGit(at: externalRepoPath, args: ["add", "README.md"])
+        try runGit(at: externalRepoPath, args: ["commit", "-m", "Seed external repo"])
+
+        let scannedRoot = tmp.appending(path: "watched")
+        let decoyPath = scannedRoot.appending(path: "decoy")
+        try fm.createDirectory(at: decoyPath, withIntermediateDirectories: true)
+        try "gitdir: \(externalRepoPath.appending(path: ".git").path)\n".write(
+            to: decoyPath.appending(path: ".git"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let repos = await RepoScanner().scanForGitRepos(in: scannedRoot, maxDepth: 2)
+        let discoveredPaths = Set(repos.map(canonicalPath(_:)))
+
+        #expect(!discoveredPaths.contains(canonicalPath(decoyPath)))
+    }
+
+    @Test("grouped scan discovers real linked worktrees under their parent clone")
+    func groupedScanDiscoversRealLinkedWorktreesUnderParentClone() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-grouped-worktree-\(UUID().uuidString)")
+        let fm = FileManager.default
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let repoPath = tmp.appending(path: "app")
+        let linkedWorktreePath = tmp.appending(path: "app-feature")
+        try initializeGitRepository(at: repoPath)
+        try "main\n".write(to: repoPath.appending(path: "README.md"), atomically: true, encoding: .utf8)
+        try runGit(at: repoPath, args: ["add", "README.md"])
+        try runGit(at: repoPath, args: ["commit", "-m", "Seed app"])
+        try runGit(at: repoPath, args: ["worktree", "add", "-b", "feature/grouped", linkedWorktreePath.path])
+
+        let groups = await RepoScanner().scanForGitReposGrouped(in: tmp, maxDepth: 2)
+
+        #expect(groups.count == 1)
+        #expect(groups.first?.clonePath.standardizedFileURL.path == repoPath.standardizedFileURL.path)
+        #expect(groups.first?.linkedWorktreePaths.map(canonicalPath(_:)) == [canonicalPath(linkedWorktreePath)])
+    }
+
+    @Test("scanner accepts valid repos discovered through a symlinked parent")
+    func scannerAcceptsValidReposDiscoveredThroughSymlinkedParent() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-symlink-parent-\(UUID().uuidString)")
+        let fm = FileManager.default
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let realRoot = tmp.appending(path: "real")
+        let linkedRoot = tmp.appending(path: "linked")
+        let repoPath = realRoot.appending(path: "app")
+        try initializeGitRepository(at: repoPath)
+        try fm.createSymbolicLink(atPath: linkedRoot.path, withDestinationPath: realRoot.path)
+
+        let repos = await RepoScanner().scanForGitRepos(in: linkedRoot, maxDepth: 2)
+
+        #expect(repos.map(canonicalPath(_:)) == [canonicalPath(repoPath)])
+    }
+
+    @Test("grouped scan uses SDK main path when linked worktree gitdir uses alias")
+    func groupedScanUsesSDKMainPathWhenLinkedWorktreeGitdirUsesAlias() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-linked-alias-\(UUID().uuidString)")
+        let fm = FileManager.default
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let repoPath = tmp.appending(path: "app")
+        let linkedWorktreePath = tmp.appending(path: "app-feature")
+        let aliasPath = tmp.appending(path: "app-alias")
+        try initializeGitRepository(at: repoPath)
+        try "main\n".write(to: repoPath.appending(path: "README.md"), atomically: true, encoding: .utf8)
+        try runGit(at: repoPath, args: ["add", "README.md"])
+        try runGit(at: repoPath, args: ["commit", "-m", "Seed linked alias"])
+        try runGit(at: repoPath, args: ["worktree", "add", "-b", "feature/alias", linkedWorktreePath.path])
+        try fm.createSymbolicLink(atPath: aliasPath.path, withDestinationPath: repoPath.path)
+        try "gitdir: \(aliasPath.path)/.git/worktrees/app-feature\n".write(
+            to: linkedWorktreePath.appending(path: ".git"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let groups = await RepoScanner().scanForGitReposGrouped(in: tmp, maxDepth: 2)
+
+        #expect(groups.count == 1)
+        #expect(groups.first?.clonePath.standardizedFileURL.path == repoPath.standardizedFileURL.path)
+        #expect(groups.first?.linkedWorktreePaths.map(canonicalPath(_:)) == [canonicalPath(linkedWorktreePath)])
+    }
+
+    @Test("scanner accepts standalone repos with separate git directories")
+    func scannerAcceptsStandaloneReposWithSeparateGitDirectories() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-separate-git-dir-\(UUID().uuidString)")
+        let fm = FileManager.default
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let worktreePath = tmp.appending(path: "separate-worktree")
+        let gitDirectoryPath = tmp.appending(path: "shared.git")
+        try runGit(at: tmp, args: ["init", "--separate-git-dir", gitDirectoryPath.path, worktreePath.path])
+
+        let repos = await RepoScanner().scanForGitRepos(in: tmp, maxDepth: 2)
+
+        #expect(repos.map(canonicalPath(_:)) == [canonicalPath(worktreePath)])
+    }
+
+    @Test("grouped scan keeps separate-git-dir linked worktrees with their main worktree")
+    func groupedScanKeepsSeparateGitDirLinkedWorktreesWithMainWorktree() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-separate-git-dir-linked-\(UUID().uuidString)")
+        let fm = FileManager.default
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        let worktreePath = tmp.appending(path: "separate-worktree")
+        let linkedWorktreePath = tmp.appending(path: "separate-feature")
+        let gitDirectoryPath = tmp.appending(path: "shared.git")
+        try runGit(at: tmp, args: ["init", "--separate-git-dir", gitDirectoryPath.path, worktreePath.path])
+        try runGit(at: worktreePath, args: ["config", "user.email", "scanner-tests@example.com"])
+        try runGit(at: worktreePath, args: ["config", "user.name", "Scanner Tests"])
+        try runGit(at: worktreePath, args: ["config", "commit.gpgsign", "false"])
+        try "main\n".write(to: worktreePath.appending(path: "README.md"), atomically: true, encoding: .utf8)
+        try runGit(at: worktreePath, args: ["add", "README.md"])
+        try runGit(at: worktreePath, args: ["commit", "-m", "Seed separate git dir"])
+        try runGit(at: worktreePath, args: ["worktree", "add", "-b", "feature/separate", linkedWorktreePath.path])
+
+        let groups = await RepoScanner().scanForGitReposGrouped(in: tmp, maxDepth: 2)
+
+        #expect(groups.count == 1)
+        #expect(groups.first?.clonePath.standardizedFileURL.path == worktreePath.standardizedFileURL.path)
+        #expect(groups.first?.linkedWorktreePaths.map(canonicalPath(_:)) == [canonicalPath(linkedWorktreePath)])
     }
 
     @Test("real project-dev ghostty submodule path is filtered out")
-    func realProjectDevGhosttySubmodulePathIsFilteredOut() {
+    func realProjectDevGhosttySubmodulePathIsFilteredOut() async {
         let root = URL(fileURLWithPath: "/Users/shravansunder/Documents/dev/project-dev")
         let ghosttyPath = root.appending(path: "agent-studio.window-system/vendor/ghostty")
         guard FileManager.default.fileExists(atPath: ghosttyPath.path) else {
             return
         }
 
-        let repos = RepoScanner().scanForGitRepos(in: root, maxDepth: 4)
+        let repos = await RepoScanner().scanForGitRepos(in: root, maxDepth: 4)
         let discoveredPaths = Set(repos.map(canonicalPath(_:)))
         #expect(!discoveredPaths.contains(canonicalPath(ghosttyPath)))
     }

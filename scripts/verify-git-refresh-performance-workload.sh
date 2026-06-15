@@ -82,6 +82,10 @@ Environment overrides:
                                       a full 16-stripe background refresh cycle.
   AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR
                                       Set to 0 to skip startup command-bar repo filter smoke. Default: 1.
+  AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD
+                                      Set to 1 to capture /usr/bin/sample during the writer
+                                      workload. Default: 0 so sampling cannot perturb
+                                      latency metrics used as proof.
   AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF
                                       Set to 1 to allow JSONL as an explicit local proof
                                       fallback. Default: 0; standard proof requires Victoria.
@@ -120,6 +124,7 @@ ACTIVE_PANE_COUNT="${AGENTSTUDIO_PERF_ACTIVE_PANES:-14}"
 WRITER_COUNT="${AGENTSTUDIO_PERF_WRITER_COUNT:-5}"
 DURATION_SECONDS="${AGENTSTUDIO_PERF_DURATION_SECONDS:-60}"
 DRIVE_COMMAND_BAR="${AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR:-1}"
+SAMPLE_DURING_WORKLOAD="${AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD:-0}"
 ALLOW_JSONL_PROOF="${AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF:-0}"
 ALLOW_TEST_RESPONSES="${AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES:-0}"
 
@@ -252,6 +257,10 @@ require_positive_integer AGENTSTUDIO_PERF_WRITER_COUNT "$WRITER_COUNT"
 require_positive_integer AGENTSTUDIO_PERF_DURATION_SECONDS "$DURATION_SECONDS"
 if [ "$DRIVE_COMMAND_BAR" != "0" ] && [ "$DRIVE_COMMAND_BAR" != "1" ]; then
   echo "AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR must be 0 or 1" >&2
+  exit 2
+fi
+if [ "$SAMPLE_DURING_WORKLOAD" != "0" ] && [ "$SAMPLE_DURING_WORKLOAD" != "1" ]; then
+  echo "AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD must be 0 or 1" >&2
   exit 2
 fi
 if [ "$ALLOW_JSONL_PROOF" != "0" ] && [ "$ALLOW_JSONL_PROOF" != "1" ]; then
@@ -733,21 +742,86 @@ else:
 ' <<<"$response"
 }
 
-victoria_metric_event_query() {
+victoria_metric_event_label_selector() {
   local event_name="$1"
-  printf 'agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s",event="%s"}' \
-    "$TRACE_NAME" "$event_name"
+  local extra_selector="${2:-}"
+  printf 'service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s",event="%s"%s' \
+    "$TRACE_NAME" "$event_name" "$extra_selector"
 }
 
-victoria_metric_event_count() {
+victoria_metric_event_query() {
   local event_name="$1"
-  victoria_metric_value "$(victoria_metric_event_query "$event_name")"
+  printf 'agentstudio_performance_events_total{%s}' \
+    "$(victoria_metric_event_label_selector "$event_name")"
+}
+
+victoria_metric_event_count_query() {
+  local event_name="$1"
+  local extra_selector="${2:-}"
+  printf 'sum(agentstudio_performance_events_total{%s})' \
+    "$(victoria_metric_event_label_selector "$event_name" "$extra_selector")"
+}
+
+victoria_metric_event_count_for_reason() {
+  local event_name="$1"
+  local reason="$2"
+  victoria_metric_value "$(victoria_metric_event_count_query "$event_name" ",reason=\"$reason\"")"
+}
+
+victoria_metric_event_elapsed_p95() {
+  local event_name="$1"
+  local extra_selector="${2:-}"
+  victoria_metric_value \
+    "histogram_quantile(0.95, sum by (le) (agentstudio_performance_event_elapsed_ms_bucket{$(victoria_metric_event_label_selector "$event_name" "$extra_selector")}))"
+}
+
+victoria_metric_event_elapsed_max() {
+  local event_name="$1"
+  local extra_selector="${2:-}"
+  victoria_metric_value \
+    "max(agentstudio_performance_event_elapsed_ms_max{$(victoria_metric_event_label_selector "$event_name" "$extra_selector")})"
+}
+
+victoria_metric_event_elapsed_mean() {
+  local event_name="$1"
+  local extra_selector="${2:-}"
+  printf 'sum(agentstudio_performance_event_elapsed_ms_sum{%s}) / sum(agentstudio_performance_event_elapsed_ms_count{%s})' \
+    "$(victoria_metric_event_label_selector "$event_name" "$extra_selector")" \
+    "$(victoria_metric_event_label_selector "$event_name" "$extra_selector")"
+}
+
+victoria_metric_event_elapsed_mean_value() {
+  local event_name="$1"
+  local extra_selector="${2:-}"
+  victoria_metric_value "$(victoria_metric_event_elapsed_mean "$event_name" "$extra_selector")"
+}
+
+victoria_metric_status_unavailable_reason_values() {
+  printf '%s\n' \
+    provider_returned_nil \
+    timeout \
+    read_already_in_flight \
+    cancelled \
+    sdk_error
+}
+
+require_status_latency_metrics() {
+  local event_count max_value p95_value
+  event_count="$(victoria_metric_event_count performance.git.status)"
+  [ "$event_count" != "0" ] || return 0
+  max_value="$(victoria_metric_event_elapsed_max performance.git.status)"
+  p95_value="$(victoria_metric_event_elapsed_p95 performance.git.status)"
+  if [ "$max_value" = "0" ] || [ "$p95_value" = "0" ]; then
+    echo "did not observe performance.git.status elapsed p95/max metrics for marker $TRACE_NAME" >&2
+    summarize_traces
+    exit 1
+  fi
 }
 
 victoria_metric_event_elapsed_query() {
   local event_name="$1"
-  printf 'agentstudio_performance_event_elapsed_ms_bucket{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s",event="%s"}' \
-    "$TRACE_NAME" "$event_name"
+  printf 'agentstudio_performance_event_elapsed_ms_bucket{%s}' \
+    "$(victoria_metric_event_label_selector "$event_name")"
 }
 
 victoria_metric_event_elapsed_p95_query() {
@@ -834,6 +908,11 @@ else:
 victoria_metric_command_bar_filter_query() {
   printf 'max_over_time(agentstudio_performance_commandbar_query_character_count{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s",event="performance.commandbar.filter"}[5m])' \
     "$TRACE_NAME"
+}
+
+victoria_metric_event_count() {
+  local event_name="$1"
+  victoria_metric_value "$(victoria_metric_event_query "$event_name")"
 }
 
 jsonl_proof_enabled() {
@@ -980,6 +1059,7 @@ summary_event_names() {
 performance.git.tick
 performance.git.admission
 performance.git.status
+performance.git.status_unavailable
 performance.git.snapshot_dedup
 performance.git.event_posted
 performance.coordinator.write
@@ -1033,6 +1113,7 @@ summarize_traces() {
     echo "writer_count=$WRITER_COUNT"
     echo "duration_seconds=$DURATION_SECONDS"
     echo "drive_command_bar=$DRIVE_COMMAND_BAR"
+    echo "sample_during_workload=$SAMPLE_DURING_WORKLOAD"
     echo "allow_jsonl_proof=$ALLOW_JSONL_PROOF"
     echo "allow_test_responses=$ALLOW_TEST_RESPONSES"
     echo "app_pid=$APP_PID"
@@ -1050,6 +1131,17 @@ summarize_traces() {
       esac
       # performance.coordinator.write \
     done < <(summary_event_names)
+    echo "performance.git.status.elapsed_ms.mean=$(victoria_metric_event_elapsed_mean_value performance.git.status)"
+    echo "performance.git.status.elapsed_ms.p95=$(victoria_metric_event_elapsed_p95 performance.git.status)"
+    echo "performance.git.status.elapsed_ms.max=$(victoria_metric_event_elapsed_max performance.git.status)"
+    local unavailable_reason
+    while IFS= read -r unavailable_reason; do
+      local reason_selector=",reason=\"$unavailable_reason\""
+      echo "performance.git.status_unavailable.reason.$unavailable_reason.count=$(victoria_metric_event_count_for_reason performance.git.status_unavailable "$unavailable_reason")"
+      echo "performance.git.status_unavailable.reason.$unavailable_reason.elapsed_ms.mean=$(victoria_metric_event_elapsed_mean_value performance.git.status_unavailable "$reason_selector")"
+      echo "performance.git.status_unavailable.reason.$unavailable_reason.elapsed_ms.p95=$(victoria_metric_event_elapsed_p95 performance.git.status_unavailable "$reason_selector")"
+      echo "performance.git.status_unavailable.reason.$unavailable_reason.elapsed_ms.max=$(victoria_metric_event_elapsed_max performance.git.status_unavailable "$reason_selector")"
+    done < <(victoria_metric_status_unavailable_reason_values)
     echo "performance.commandbar.filter.query_character.max=$(victoria_metric_value "$(victoria_metric_command_bar_filter_query)")"
   } | tee "$SUMMARY_FILE"
 }
@@ -1097,7 +1189,12 @@ if ! drive_command_bar_smoke; then
 fi
 
 start_writers
-sample_app
+if [ "$SAMPLE_DURING_WORKLOAD" = "1" ]; then
+  sample_app
+else
+  echo "sample skipped during measured workload; set AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD=1 for stack capture" \
+    >"$ARTIFACT/sample.log"
+fi
 
 for writer_pid in "${WRITER_PIDS[@]}"; do
   wait "$writer_pid" >/dev/null 2>&1 || true
@@ -1108,6 +1205,7 @@ if ! wait_for_trace_event performance.git.status 30; then
   summarize_traces
   exit 1
 fi
+require_status_latency_metrics
 
 if [ "$DRIVE_COMMAND_BAR" = "1" ] && ! wait_for_command_bar_repo_filter_event 10; then
   echo "did not observe non-empty performance.commandbar.filter after startup command-bar repo filter smoke" >&2

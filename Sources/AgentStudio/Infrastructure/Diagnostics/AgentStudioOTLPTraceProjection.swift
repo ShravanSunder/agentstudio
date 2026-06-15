@@ -63,6 +63,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.coordinator.phase",
         "agentstudio.performance.atom.kind",
         "agentstudio.performance.atom.operation",
+        "agentstudio.performance.git.status_unavailable.reason",
         "agentstudio.performance.management_layer.command",
         "agentstudio.performance.pane_action.name",
         "agentstudio.performance.sidebar.toggle.intent",
