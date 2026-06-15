@@ -100,17 +100,8 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
     ) async throws -> IPCTerminalWaitResult {
         let paneId = try resolveTerminalPaneId(handle)
         let runtime = try terminalRuntime(for: paneId)
-        if condition == .attachReady, runtime.lifecycle == .ready {
-            return IPCTerminalWaitResult(
-                paneId: paneId,
-                condition: condition,
-                eventName: .terminalAttachReady,
-                commandId: nil,
-                correlationId: nil,
-                exitCode: nil,
-                duration: nil,
-                healthy: nil
-            )
+        if condition == .attachReady {
+            return try await waitForAttachReady(runtime: runtime, paneId: paneId, timeout: timeout)
         }
 
         guard
@@ -123,6 +114,30 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             throw AppIPCRuntimeError(reason: .timeout)
         }
         return result
+    }
+
+    private func waitForAttachReady(
+        runtime: any PaneRuntime,
+        paneId: UUID,
+        timeout: Duration
+    ) async throws -> IPCTerminalWaitResult {
+        let start = ContinuousClock.now
+        while start.duration(to: ContinuousClock.now) <= timeout {
+            if runtime.lifecycle == .ready {
+                return IPCTerminalWaitResult(
+                    paneId: paneId,
+                    condition: .attachReady,
+                    eventName: .terminalAttachReady,
+                    commandId: nil,
+                    correlationId: nil,
+                    exitCode: nil,
+                    duration: nil,
+                    healthy: nil
+                )
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        throw AppIPCRuntimeError(reason: .timeout)
     }
 
     private func terminalRuntimeSnapshot(for paneId: UUID) throws -> PaneRuntimeSnapshot {

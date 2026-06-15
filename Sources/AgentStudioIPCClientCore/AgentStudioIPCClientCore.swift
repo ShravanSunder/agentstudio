@@ -12,6 +12,10 @@ public struct AgentStudioIPCClientConfiguration: Equatable, Sendable {
         self.authToken = authToken
         self.maxFrameBytes = maxFrameBytes
     }
+
+    public func withAuthToken(_ authToken: String?) -> Self {
+        Self(socketPath: socketPath, authToken: authToken, maxFrameBytes: maxFrameBytes)
+    }
 }
 
 public struct AgentStudioIPCClientRuntimeMetadata: Decodable, Equatable, Sendable {
@@ -67,7 +71,7 @@ public struct AgentStudioIPCClientError: Error, Equatable, Sendable {
 }
 
 public enum AgentStudioIPCClientCommand: Equatable, Sendable {
-    case authLogin(token: String)
+    case authLogin
     case identify
     case capabilities
     case listWindows
@@ -109,10 +113,23 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         }
     }
 
-    public var params: JSONValue {
+    public var requiresStreamingResponse: Bool {
         switch self {
-        case .authLogin(let token):
-            return .object(["token": .string(token)])
+        case .eventsSubscribe:
+            true
+        case .authLogin, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes, .currentPane,
+            .paneFocus, .terminalSend, .terminalWait, .eventsUnsubscribe:
+            false
+        }
+    }
+
+    public func params(authToken: String?) throws -> JSONValue {
+        switch self {
+        case .authLogin:
+            guard let authToken, !authToken.isEmpty else {
+                throw AgentStudioIPCClientError(reason: .invalidArguments)
+            }
+            return .object(["token": .string(authToken)])
         case .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes, .currentPane:
             return .object([:])
         case .paneFocus(let handle):
@@ -153,11 +170,11 @@ public struct AgentStudioIPCClient: Sendable {
         guard let authToken = configuration.authToken, !authToken.isEmpty else {
             throw AgentStudioIPCClientError(reason: .invalidArguments)
         }
-        return try call(.authLogin(token: authToken), requestId: requestId)
+        _ = authToken
+        return try call(.authLogin, requestId: requestId)
     }
 
     public func call(_ command: AgentStudioIPCClientCommand, requestId: Int = 1) throws -> JSONRPCResponseMessage {
-        let request = try requestFrame(command, requestId: requestId)
         let connection = try UnixSocketClient.connect(
             endpoint: UnixSocketEndpoint(path: configuration.socketPath)
         )
@@ -165,23 +182,69 @@ public struct AgentStudioIPCClient: Sendable {
             connection.close()
         }
 
-        try connection.send(try NDJSONFrameEncoder.encode(request, maxFrameBytes: configuration.maxFrameBytes))
+        var frameReader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxFrameBytes)
+        let commandRequestId = try sendAuthenticatedCommand(
+            command,
+            requestId: requestId,
+            connection: connection,
+            frameReader: &frameReader
+        )
+        return try receiveResponse(id: commandRequestId, connection: connection, frameReader: &frameReader)
+    }
 
-        var decoder = NDJSONFrameDecoder(maxFrameBytes: configuration.maxFrameBytes)
+    public func stream(
+        _ command: AgentStudioIPCClientCommand,
+        requestId: Int = 1,
+        onFrame: (String) throws -> Void
+    ) throws {
+        guard command.requiresStreamingResponse else {
+            let response = try call(command, requestId: requestId)
+            try onFrame(try JSONRPCCodec.encodeResponse(JSONRPCResponse.message(response)))
+            return
+        }
+
+        let connection = try UnixSocketClient.connect(
+            endpoint: UnixSocketEndpoint(path: configuration.socketPath)
+        )
+        defer {
+            connection.close()
+        }
+
+        var frameReader = AgentStudioIPCClientFrameReader(maxFrameBytes: configuration.maxFrameBytes)
+        let commandRequestId = try sendAuthenticatedCommand(
+            command,
+            requestId: requestId,
+            connection: connection,
+            frameReader: &frameReader
+        )
+
+        var sawSubscriptionResponse = false
         while true {
-            let data = try connection.receive(maxBytes: min(configuration.maxFrameBytes, 16_384))
-            guard !data.isEmpty else {
-                throw AgentStudioIPCClientError(reason: .emptyResponse)
+            let frame: String
+            do {
+                frame = try frameReader.receiveFrame(connection: connection)
+            } catch let error as AgentStudioIPCClientError
+                where error.reason == .emptyResponse && sawSubscriptionResponse
+            {
+                return
             }
-            let frames = try decoder.append(data)
-            guard let frame = frames.first else {
+            if let response = try? JSONRPCCodec.decodeResponse(frame) {
+                guard response.id == .number(commandRequestId) else {
+                    if sawSubscriptionResponse {
+                        try onFrame(frame)
+                        continue
+                    }
+                    throw AgentStudioIPCClientError(reason: .responseIdMismatch)
+                }
+                sawSubscriptionResponse = true
+                try onFrame(frame)
                 continue
             }
-            let response = try JSONRPCCodec.decodeResponse(frame)
-            guard response.id == .number(requestId) else {
+
+            guard sawSubscriptionResponse else {
                 throw AgentStudioIPCClientError(reason: .responseIdMismatch)
             }
-            return response
+            try onFrame(frame)
         }
     }
 
@@ -189,8 +252,94 @@ public struct AgentStudioIPCClient: Sendable {
         let request = try JSONRPCClientRequest(
             id: .number(requestId),
             method: command.methodName,
-            params: command.params
+            params: command.params(authToken: configuration.authToken)
         )
         return try JSONRPCCodec.encodeRequest(request)
+    }
+
+    private func sendAuthenticatedCommand(
+        _ command: AgentStudioIPCClientCommand,
+        requestId: Int,
+        connection: UnixSocketConnection,
+        frameReader: inout AgentStudioIPCClientFrameReader
+    ) throws -> Int {
+        if configuration.authToken != nil, command != .authLogin {
+            try send(.authLogin, requestId: requestId, connection: connection)
+            _ = try receiveResponse(id: requestId, connection: connection, frameReader: &frameReader)
+            let commandRequestId = requestId + 1
+            try send(command, requestId: commandRequestId, connection: connection)
+            return commandRequestId
+        }
+
+        try send(command, requestId: requestId, connection: connection)
+        return requestId
+    }
+
+    private func send(
+        _ command: AgentStudioIPCClientCommand,
+        requestId: Int,
+        connection: UnixSocketConnection
+    ) throws {
+        try connection.send(
+            try NDJSONFrameEncoder.encode(
+                requestFrame(command, requestId: requestId),
+                maxFrameBytes: configuration.maxFrameBytes
+            ))
+    }
+
+    private func receiveResponse(
+        id: Int,
+        connection: UnixSocketConnection,
+        frameReader: inout AgentStudioIPCClientFrameReader
+    ) throws -> JSONRPCResponseMessage {
+        while true {
+            let frame = try frameReader.receiveFrame(connection: connection)
+            let response = try JSONRPCCodec.decodeResponse(frame)
+            guard response.id == .number(id) else {
+                throw AgentStudioIPCClientError(reason: .responseIdMismatch)
+            }
+            return response
+        }
+    }
+
+}
+
+private struct AgentStudioIPCClientFrameReader {
+    private let maxFrameBytes: Int
+    private var decoder: NDJSONFrameDecoder
+    private var queuedFrames: [String] = []
+
+    init(maxFrameBytes: Int) {
+        self.maxFrameBytes = maxFrameBytes
+        decoder = NDJSONFrameDecoder(maxFrameBytes: maxFrameBytes)
+    }
+
+    mutating func receiveFrame(connection: UnixSocketConnection) throws -> String {
+        if !queuedFrames.isEmpty {
+            return queuedFrames.removeFirst()
+        }
+
+        while true {
+            let data = try connection.receive(maxBytes: min(maxFrameBytes, 16_384))
+            guard !data.isEmpty else {
+                throw AgentStudioIPCClientError(reason: .emptyResponse)
+            }
+            queuedFrames.append(contentsOf: try decoder.append(data))
+            if !queuedFrames.isEmpty {
+                return queuedFrames.removeFirst()
+            }
+        }
+    }
+}
+
+extension JSONRPCResponse {
+    fileprivate static func message(_ message: JSONRPCResponseMessage) throws -> Self {
+        if let result = message.result {
+            return .success(id: message.id, result: result)
+        }
+        if let error = message.error {
+            return .failure(id: message.id, error: error)
+        }
+        throw JSONRPCError(reason: .invalidResponse, message: "Response message had neither result nor error")
     }
 }

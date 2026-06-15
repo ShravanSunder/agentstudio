@@ -1,9 +1,14 @@
 # AgentStudio IPC Implementation Plan
 
 **Date:** 2026-06-13
-**Status:** Implemented on the `programatical-control` branch. T1-T10 phase-1
-foundation, CLI/smoke, and architecture-promotion slices have landed; this plan
-is retained as the proof and follow-up artifact.
+**Status:** Foundation implemented on the `programatical-control` branch, with
+review-driven contract fixes applied. T1-T10 target split, contracts,
+auth/permission foundations, app adapters, CLI/client core, and architecture
+docs have landed. The live app listener/bootstrap slice is still unresolved:
+the AgentStudio executable does not yet start an app-owned socket server or
+deliver pane-bound subject tokens through a non-enumerable bootstrap channel.
+This plan remains the proof artifact and the source of the remaining app-boot
+follow-up.
 **Primary spec:** `docs/superpowers/specs/2026-06-10-agentstudio-ipc-design.md`
 **Related backend spec:** `docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md`
 
@@ -756,7 +761,7 @@ Current implementation proof after the T9 CLI/smoke slice:
   `AgentStudioIPCClient`, and `AgentStudioIPCClientCore` are package targets, and
   the client core depends on transport/contracts rather than `AgentStudioAppIPC`.
 
-Final implementation proof after the T10 docs-maintain pass:
+Implementation proof after the T10 docs-maintain pass:
 
 - Full repo test gate: `mise run test` passed after fixing IPC-introduced
   parallel-test hazards in the terminal wait adapter test and Unix socket
@@ -770,6 +775,39 @@ Final implementation proof after the T10 docs-maintain pass:
   model, and zmx separation in `docs/architecture/agentstudio_ipc_architecture.md`.
 - Directory and architecture index docs now reference the implemented IPC targets
   and `agentstudio-ipc` CLI target.
+
+Review-driven contract fixes after implementation review:
+
+- CLI auth no longer accepts bearer tokens in argv. Token input is explicit
+  `--token-stdin`, and authenticated calls send `auth.login` plus the command on
+  the same Unix socket connection.
+- `events.subscribe` is a streaming command in the client core. The CLI keeps
+  the socket open after the subscribe acknowledgement and prints later
+  `events.notification` frames from the same connection.
+- Subject tokens are one-shot and connection-bound in phase 1; token rotation
+  and pane invalidation revoke pending/active principal grants.
+- Permission resolution is atomic in the grant ledger, so a later denial cannot
+  overwrite an already approved request or leave a contradictory grant.
+- Delegated approvers see only requests routed to their delegated approval
+  authority. App-policy and human-prompt events stay app/human-owned.
+- `terminal.wait` for `attachReady` now waits for the runtime to become ready
+  after the wait starts instead of sampling only the initial lifecycle snapshot.
+- Pane query DTOs omit titles as well as cwd, URL, command line, terminal output,
+  zmx ids, and backend internals.
+
+Focused proof for the review-driven fixes:
+
+- `swift test --filter 'AgentStudioIPCClientCoreTests|AgentStudioIPCAuthenticationTests|AgentStudioIPCPermissionBrokerTests|AgentStudioIPCQueryAdapterTests|AgentStudioIPCRuntimeAdapterTests|IPCContractsTests' --build-path .build-agent-1`
+  passed with 52 tests in 6 suites.
+
+Remaining blocker before claiming a live phase-1 app-control surface:
+
+- App boot still needs to compose the listener service in `AppDelegate`, own
+  socket metadata lifecycle, run the request loop against live app/runtime
+  adapters, and introduce the non-enumerable spawn bootstrap channel for
+  pane-bound subject tokens. Until that exists, the current branch proves the
+  target/contracts/adapters/client foundation but not end-to-end control of a
+  running AgentStudio app.
 
 ## Rollout And Recovery
 

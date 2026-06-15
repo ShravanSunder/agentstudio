@@ -46,9 +46,9 @@ public struct PermissionEventProjector: Sendable {
             guard approverId == principal.principalId else {
                 return false
             }
-            return Self.hasApprovalAuthority(principal, for: payload.requestedScope)
+            return Self.hasDelegatedApprovalAuthority(principal, for: payload.requestedScope)
         case .appPolicy, .humanPrompt:
-            return Self.hasApprovalAuthority(principal, for: payload.requestedScope)
+            return Self.hasPolicyApprovalAuthority(principal, for: payload.requestedScope)
         }
     }
 
@@ -89,20 +89,40 @@ public struct PermissionEventProjector: Sendable {
         )
     }
 
-    private static func hasApprovalAuthority(
+    private static func hasDelegatedApprovalAuthority(
         _ principal: IPCPrincipal,
         for scope: IPCPermissionScope
+    ) -> Bool {
+        hasApprovalAuthority(principal, for: scope) { authority in
+            if case .delegatedApprover(let scopes) = authority {
+                return scopes
+            }
+            return nil
+        }
+    }
+
+    private static func hasPolicyApprovalAuthority(
+        _ principal: IPCPrincipal,
+        for scope: IPCPermissionScope
+    ) -> Bool {
+        hasApprovalAuthority(principal, for: scope) { authority in
+            if case .policyConfigured(let scopes) = authority {
+                return scopes
+            }
+            return nil
+        }
+    }
+
+    private static func hasApprovalAuthority(
+        _ principal: IPCPrincipal,
+        for scope: IPCPermissionScope,
+        scopesForAuthority: (IPCApprovalAuthority) -> Set<IPCApprovalScope>?
     ) -> Bool {
         let approvalScope = IPCApprovalScope(
             privilege: scope.privilege,
             target: scope.target,
             dataScope: scope.dataScope
         )
-        switch principal.approvalAuthority {
-        case .delegatedApprover(let scopes), .policyConfigured(let scopes):
-            return scopes.contains(approvalScope)
-        case .noApprovalAuthority:
-            return false
-        }
+        return scopesForAuthority(principal.approvalAuthority)?.contains(approvalScope) ?? false
     }
 }

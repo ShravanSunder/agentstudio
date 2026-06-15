@@ -16,6 +16,9 @@ struct AgentStudioIPCAuthenticationTests {
 
         #expect(try registry.authenticate(subjectToken: token) == principal)
         #expect(throws: AgentStudioIPCAuthenticationError.self) {
+            try registry.authenticate(subjectToken: token)
+        }
+        #expect(throws: AgentStudioIPCAuthenticationError.self) {
             try registry.authenticate(subjectToken: AgentStudioIPCSubjectToken(rawValue: "caller-pane-1"))
         }
     }
@@ -57,6 +60,26 @@ struct AgentStudioIPCAuthenticationTests {
         #expect(throws: AgentStudioIPCAuthenticationError.self) {
             try registry.authenticate(subjectToken: token)
         }
+    }
+
+    @Test("bound pane close revokes grants for already authenticated principals")
+    func boundPaneCloseRevokesGrantsForAuthenticatedPrincipals() throws {
+        let runtimeId = UUID()
+        let ledger = GrantLedger()
+        let registry = AgentStudioIPCPrincipalRegistry(runtimeId: runtimeId, grantLedger: ledger)
+        let principal = makePanePrincipal(boundPaneId: "pane-1", runtimeId: runtimeId)
+        let token = try registry.issueSubjectToken(for: principal)
+        let scope = IPCPermissionScope(
+            privilege: .terminalInputWrite,
+            target: .pane("pane-2"),
+            dataScope: .terminalInput
+        )
+        ledger.grant(scope, to: principal.principalId)
+
+        _ = try registry.authenticate(subjectToken: token)
+        registry.invalidatePrincipals(boundToPaneId: "pane-1")
+
+        #expect(!ledger.contains(scope, for: principal.principalId))
     }
 
     @Test("rejects principals from a different runtime")

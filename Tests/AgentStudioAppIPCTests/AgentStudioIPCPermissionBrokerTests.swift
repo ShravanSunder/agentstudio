@@ -195,6 +195,40 @@ struct AgentStudioIPCPermissionBrokerTests {
         #expect(ledger.contains(scope, for: requester.principalId))
     }
 
+    @Test("resolved permission requests cannot be overwritten by a later denial")
+    func resolvedPermissionRequestsCannotBeOverwrittenByLaterDenial() throws {
+        let ledger = GrantLedger()
+        let broker = PermissionBroker(
+            grantLedger: ledger,
+            canonicalizer: PermissionScopeCanonicalizer(),
+            approvalPolicyStore: StaticApprovalPolicyStore(decision: .ask)
+        )
+        let requester = makePermissionPrincipal(boundPaneId: "pane-1")
+        let scope = IPCPermissionScope(
+            privilege: .terminalInputWrite,
+            target: .pane("pane-2"),
+            dataScope: .terminalInput
+        )
+        let approver = makePermissionApprover(scope: scope)
+        let request = try broker.requestPermission(
+            IPCPermissionRequestParams(
+                scope: scope,
+                reason: "paired pane",
+                approvalRoute: .delegatedPrincipal(approver.principalId)
+            ),
+            requester: requester
+        )
+
+        _ = try broker.resolveRequest(request.requestId, approver: approver, decision: .approve)
+
+        #expect(throws: PermissionBrokerError.self) {
+            try broker.resolveRequest(request.requestId, approver: approver, decision: .deny)
+        }
+        let record = try #require(ledger.permissionRecord(requestId: request.requestId))
+        #expect(record.state == .granted)
+        #expect(ledger.contains(scope, for: requester.principalId))
+    }
+
     @Test("permission event visibility includes requester and routed approver only")
     func permissionEventVisibilityIncludesRequesterAndRoutedApproverOnly() throws {
         let ledger = GrantLedger()
@@ -237,6 +271,7 @@ struct AgentStudioIPCPermissionBrokerTests {
         )
         let requester = makePermissionPrincipal(boundPaneId: "pane-1")
         let appApprovalPrincipal = makePolicyApprovalPrincipal(scope: scope)
+        let delegatedApprover = makePermissionApprover(scope: scope)
         let mismatchedApprovalPrincipal = makePolicyApprovalPrincipal(
             scope: IPCPermissionScope(
                 privilege: .terminalSnapshotRead,
@@ -256,6 +291,7 @@ struct AgentStudioIPCPermissionBrokerTests {
 
         #expect(projector.isVisible(notification, to: requester))
         #expect(projector.isVisible(notification, to: appApprovalPrincipal))
+        #expect(!projector.isVisible(notification, to: delegatedApprover))
         #expect(!projector.isVisible(notification, to: mismatchedApprovalPrincipal))
     }
 

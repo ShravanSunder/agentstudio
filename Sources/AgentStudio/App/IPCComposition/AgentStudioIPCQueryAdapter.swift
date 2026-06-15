@@ -125,7 +125,6 @@ struct AgentStudioIPCQueryAdapter: AppIPCQueryPort, @unchecked Sendable {
             IPCPaneSummary(
                 id: pane.id,
                 ordinal: index + 1,
-                title: pane.title,
                 contentKind: IPCPaneContentKind(pane.contentKind),
                 residency: IPCPaneResidency(pane.residency),
                 tabId: pane.tabId,

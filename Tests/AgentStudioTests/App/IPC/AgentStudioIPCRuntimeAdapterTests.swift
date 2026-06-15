@@ -130,6 +130,30 @@ struct AgentStudioIPCRuntimeAdapterTests {
         #expect(result.eventName == .terminalAttachReady)
     }
 
+    @Test("terminal wait attachReady resolves when runtime becomes ready after wait starts")
+    func terminalWaitAttachReadyResolvesAfterRuntimeBecomesReady() async throws {
+        let harness = RuntimeAdapterHarness()
+        let pane = harness.createTerminalPane()
+        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id))
+        runtime.lifecycle = .created
+        harness.runtimeRegistry.register(runtime)
+
+        let waitTask = Task {
+            try await harness.adapter.waitForTerminal(
+                IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
+                condition: .attachReady,
+                timeout: .seconds(1)
+            )
+        }
+        await Task.yield()
+        runtime.lifecycle = .ready
+
+        let result = try await waitTask.value
+        #expect(result.paneId == pane.id)
+        #expect(result.condition == .attachReady)
+        #expect(result.eventName == .terminalAttachReady)
+    }
+
     @Test("terminal wait commandFinished resolves from pane runtime event")
     func terminalWaitCommandFinishedResolvesFromPaneRuntimeEvent() async throws {
         let eventBus = makeTestPaneRuntimeEventBus()

@@ -154,7 +154,6 @@ public enum IPCPaneResidency: String, Codable, Equatable, Sendable {
 public struct IPCPaneSummary: Codable, Equatable, Sendable {
     public let id: UUID
     public let ordinal: Int
-    public let title: String
     public let contentKind: IPCPaneContentKind
     public let residency: IPCPaneResidency
     public let tabId: UUID?
@@ -166,7 +165,6 @@ public struct IPCPaneSummary: Codable, Equatable, Sendable {
     public init(
         id: UUID,
         ordinal: Int,
-        title: String,
         contentKind: IPCPaneContentKind,
         residency: IPCPaneResidency,
         tabId: UUID?,
@@ -177,7 +175,6 @@ public struct IPCPaneSummary: Codable, Equatable, Sendable {
     ) {
         self.id = id
         self.ordinal = ordinal
-        self.title = title
         self.contentKind = contentKind
         self.residency = residency
         self.tabId = tabId
