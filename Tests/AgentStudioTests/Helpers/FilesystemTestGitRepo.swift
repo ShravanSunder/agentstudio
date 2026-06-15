@@ -10,6 +10,7 @@ enum FilesystemTestGitRepo {
         let repoURL = root.appending(path: "\(prefix)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
         try runGit(at: repoURL, args: ["init"])
+        try runGit(at: repoURL, args: ["symbolic-ref", "HEAD", "refs/heads/main"])
         try runGit(at: repoURL, args: ["config", "user.email", "luna-tests@example.com"])
         try runGit(at: repoURL, args: ["config", "user.name", "Luna Tests"])
         try runGit(at: repoURL, args: ["config", "commit.gpgsign", "false"])
@@ -33,7 +34,8 @@ enum FilesystemTestGitRepo {
         try? FileManager.default.removeItem(at: repoURL)
     }
 
-    private static func runGit(at repoURL: URL, args: [String]) throws {
+    @discardableResult
+    static func runGit(at repoURL: URL, args: [String]) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git", "-C", repoURL.path] + args
@@ -57,5 +59,8 @@ enum FilesystemTestGitRepo {
                 ]
             )
         }
+
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: outputData, encoding: .utf8) ?? ""
     }
 }

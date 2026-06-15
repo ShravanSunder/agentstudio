@@ -121,6 +121,7 @@ extension AppDelegate {
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
         atomStore.workspaceRepositoryTopology.setPerformanceTraceRecorder(performanceTraceRecorder)
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
         AtomScope.setUp(atomStore)
         workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
         store = WorkspaceStore(
@@ -350,7 +351,7 @@ extension AppDelegate {
         let snapshot = AgentStudioTraceIdentitySnapshot.from(
             repos: store.repositoryTopologyAtom.repos,
             panes: panes,
-            worktreeEnrichments: repoCache.worktreeEnrichmentByWorktreeId
+            worktreeEnrichments: repoCache.worktreeEnrichmentSnapshot()
         )
         await traceRuntime.updateIdentitySnapshot(snapshot)
     }
@@ -361,7 +362,7 @@ extension AppDelegate {
         withObservationTracking {
             _ = store.paneAtom.panes
             _ = store.repositoryTopologyAtom.repos
-            _ = repoCache.worktreeEnrichmentByWorktreeId
+            _ = repoCache.worktreeEnrichmentRevision
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -427,13 +428,19 @@ extension AppDelegate {
         let validRepoIds = Set(repos.map(\.id))
         let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
         var didPrune = false
-        for repoId in Array(repoCache.repoEnrichmentByRepoId.keys) where !validRepoIds.contains(repoId) {
+        for repoId in Array(repoCache.repoEnrichmentSnapshot().keys) where !validRepoIds.contains(repoId) {
             repoCache.removeRepo(repoId)
             didPrune = true
         }
-        for worktreeId in Array(repoCache.worktreeEnrichmentByWorktreeId.keys)
+        for worktreeId in Array(repoCache.worktreeEnrichmentSnapshot().keys)
         where !validWorktreeIds.contains(worktreeId) {
             repoCache.removeWorktree(worktreeId)
+            didPrune = true
+        }
+        if repoCache.enrichmentCacheAtom.pruneNilSlots(
+            validRepoIds: validRepoIds,
+            validWorktreeIds: validWorktreeIds
+        ) {
             didPrune = true
         }
         return didPrune

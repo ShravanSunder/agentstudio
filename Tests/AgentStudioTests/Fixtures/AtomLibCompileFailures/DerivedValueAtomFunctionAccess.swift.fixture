@@ -1,0 +1,8 @@
+import AgentStudio
+
+let derived = DerivedValue<Int>(
+    inputRevisions: { [0] },
+    isContentEqual: ==
+) {
+    atom(\.repoCache).repoEnrichmentByRepoId.count
+}

@@ -80,10 +80,15 @@ let package = Package(
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
                 .product(name: "Instrumentation", package: "swift-distributed-tracing"),
+                .product(name: "Metrics", package: "swift-metrics"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
                 .product(name: "AgentStudioGit", package: "agentstudio-git"),
             ],
             path: "Tests/AgentStudioTests",
+            exclude: [
+                "Fixtures/AtomLibCompileFailures",
+                "Fixtures/SwiftLintLegacyCustomRules",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

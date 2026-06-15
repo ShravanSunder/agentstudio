@@ -2,10 +2,19 @@ import Foundation
 import Metrics
 
 final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
+    static let elapsedMetricLabel = "agentstudio_performance_event_elapsed_ms"
+    static let elapsedMaximumMetricLabel = "agentstudio_performance_event_elapsed_ms_max"
+    static let elapsedHistogramBuckets: [Double] = [
+        0, 5, 10, 25, 50, 75, 100, 150, 200, 250, 350, 500, 650, 750, 900, 1000, 1050, 1100,
+        1250, 1500, 2000, 2500, 5000, 7500, 10_000,
+    ]
+
     private let factory: any MetricsFactory
     private let lock = NSLock()
-    private var eventCounters: [MetricInstrumentKey: Counter] = [:]
-    private var elapsedRecorders: [MetricInstrumentKey: Recorder] = [:]
+    private var eventCounters: [MetricEventKey: Counter] = [:]
+    private var elapsedRecorders: [MetricEventKey: Recorder] = [:]
+    private var elapsedMaxGauges: [MetricEventKey: Gauge] = [:]
+    private var elapsedMaxValues: [MetricEventKey: Double] = [:]
     private var numericGauges: [MetricGaugeKey: Gauge] = [:]
 
     init(factory: any MetricsFactory) {
@@ -20,6 +29,7 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
 
             if let elapsedMilliseconds = metricEvent.elapsedMilliseconds {
                 recorder(for: metricEvent).record(elapsedMilliseconds)
+                recordElapsedMaximum(elapsedMilliseconds, for: metricEvent)
             }
 
             for sample in metricEvent.samples {
@@ -29,14 +39,14 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
     }
 
     private func counter(for event: AgentStudioOTLPPerformanceMetricEvent) -> Counter {
-        let key = MetricInstrumentKey(eventName: event.eventName, dimensions: event.dimensions)
+        let key = MetricEventKey(eventName: event.eventName, dimensions: event.dimensions)
         if let counter = eventCounters[key] {
             return counter
         }
 
         let counter = Counter(
             label: "agentstudio_performance_events_total",
-            dimensions: event.metricsDimensions,
+            dimensions: event.dimensionTuples,
             factory: factory
         )
         eventCounters[key] = counter
@@ -44,33 +54,51 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
     }
 
     private func recorder(for event: AgentStudioOTLPPerformanceMetricEvent) -> Recorder {
-        let key = MetricInstrumentKey(eventName: event.eventName, dimensions: event.dimensions)
+        let key = MetricEventKey(eventName: event.eventName, dimensions: event.dimensions)
         if let recorder = elapsedRecorders[key] {
             return recorder
         }
 
         let recorder = Recorder(
-            label: "agentstudio_performance_event_elapsed_ms",
-            dimensions: event.metricsDimensions,
+            label: Self.elapsedMetricLabel,
+            dimensions: event.dimensionTuples,
             factory: factory
         )
         elapsedRecorders[key] = recorder
         return recorder
     }
 
-    private func gauge(for sample: AgentStudioOTLPPerformanceMetricSample) -> Gauge {
-        let key = MetricGaugeKey(
-            eventName: sample.eventName,
-            dimensions: sample.dimensions,
-            label: sample.label
+    private func recordElapsedMaximum(_ elapsedMilliseconds: Double, for event: AgentStudioOTLPPerformanceMetricEvent) {
+        let key = MetricEventKey(eventName: event.eventName, dimensions: event.dimensions)
+        let maximumElapsedMilliseconds = max(elapsedMaxValues[key] ?? elapsedMilliseconds, elapsedMilliseconds)
+        elapsedMaxValues[key] = maximumElapsedMilliseconds
+        elapsedMaximumGauge(for: event).record(maximumElapsedMilliseconds)
+    }
+
+    private func elapsedMaximumGauge(for event: AgentStudioOTLPPerformanceMetricEvent) -> Gauge {
+        let key = MetricEventKey(eventName: event.eventName, dimensions: event.dimensions)
+        if let gauge = elapsedMaxGauges[key] {
+            return gauge
+        }
+
+        let gauge = Gauge(
+            label: Self.elapsedMaximumMetricLabel,
+            dimensions: event.dimensionTuples,
+            factory: factory
         )
+        elapsedMaxGauges[key] = gauge
+        return gauge
+    }
+
+    private func gauge(for sample: AgentStudioOTLPPerformanceMetricSample) -> Gauge {
+        let key = MetricGaugeKey(eventName: sample.eventName, label: sample.label, dimensions: sample.dimensions)
         if let gauge = numericGauges[key] {
             return gauge
         }
 
         let gauge = Gauge(
             label: sample.label,
-            dimensions: sample.metricsDimensions,
+            dimensions: sample.dimensionTuples,
             factory: factory
         )
         numericGauges[key] = gauge
@@ -80,12 +108,12 @@ final class AgentStudioOTLPPerformanceMetrics: @unchecked Sendable {
 
 struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
     let eventName: String
-    let dimensions: [AgentStudioOTLPMetricDimension]
+    let dimensions: [AgentStudioOTLPPerformanceMetricDimension]
     let elapsedMilliseconds: Double?
     let samples: [AgentStudioOTLPPerformanceMetricSample]
 
-    var metricsDimensions: [(String, String)] {
-        dimensions.map { ($0.name, $0.value) }
+    var dimensionTuples: [(String, String)] {
+        dimensions.map(\.tuple)
     }
 
     init?(record: AgentStudioOTLPProjectedLogRecord) {
@@ -94,7 +122,7 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             guard Self.hasCompleteBridgeMetricTaxonomy(record) else { return nil }
         }
 
-        let dimensions = Self.metricDimensions(for: record)
+        let dimensions = Self.dimensions(for: record)
         self.eventName = record.body
         self.dimensions = dimensions
         self.elapsedMilliseconds = Self.doubleValue(
@@ -106,8 +134,8 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             guard let metricLabel = Self.metricLabel(for: key) else { return nil }
             return AgentStudioOTLPPerformanceMetricSample(
                 eventName: record.body,
-                dimensions: dimensions,
                 label: metricLabel,
+                dimensions: dimensions,
                 value: numericValue
             )
         }
@@ -117,6 +145,47 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             }
             return left.label < right.label
         }
+    }
+
+    private static func dimensions(for record: AgentStudioOTLPProjectedLogRecord)
+        -> [AgentStudioOTLPPerformanceMetricDimension]
+    {
+        var dimensions = [
+            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: record.body)
+        ]
+        if record.body == "performance.git.status_unavailable",
+            case .string(let reason) = record.attributes["agentstudio.performance.git.status_unavailable.reason"],
+            isSafeDimensionValue(reason)
+        {
+            dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: reason))
+        }
+        if record.body.hasPrefix("performance.bridge.") {
+            appendBridgeDimension(
+                name: "phase",
+                attributeKey: "agentstudio.bridge.phase",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
+                name: "plane",
+                attributeKey: "agentstudio.bridge.plane",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
+                name: "priority",
+                attributeKey: "agentstudio.bridge.priority",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
+                name: "slice",
+                attributeKey: "agentstudio.bridge.slice",
+                record: record,
+                dimensions: &dimensions
+            )
+        }
+        return dimensions
     }
 
     private static func doubleValue(_ value: AgentStudioTraceValue?) -> Double? {
@@ -172,41 +241,6 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         "agentstudio.bridge.telemetry.dropped_count",
     ]
 
-    private static func metricDimensions(for record: AgentStudioOTLPProjectedLogRecord)
-        -> [AgentStudioOTLPMetricDimension]
-    {
-        guard record.body.hasPrefix("performance.bridge.") else {
-            return [AgentStudioOTLPMetricDimension(name: "event", value: record.body)]
-        }
-
-        var dimensions = [AgentStudioOTLPMetricDimension(name: "event", value: record.body)]
-        appendStringAttributeDimension(
-            name: "phase",
-            attributeKey: "agentstudio.bridge.phase",
-            record: record,
-            dimensions: &dimensions
-        )
-        appendStringAttributeDimension(
-            name: "plane",
-            attributeKey: "agentstudio.bridge.plane",
-            record: record,
-            dimensions: &dimensions
-        )
-        appendStringAttributeDimension(
-            name: "priority",
-            attributeKey: "agentstudio.bridge.priority",
-            record: record,
-            dimensions: &dimensions
-        )
-        appendStringAttributeDimension(
-            name: "slice",
-            attributeKey: "agentstudio.bridge.slice",
-            record: record,
-            dimensions: &dimensions
-        )
-        return dimensions
-    }
-
     private static func hasCompleteBridgeMetricTaxonomy(_ record: AgentStudioOTLPProjectedLogRecord) -> Bool {
         stringAttribute(record, "agentstudio.bridge.phase") != nil
             && BridgeTelemetryPlane(rawValue: stringAttribute(record, "agentstudio.bridge.plane") ?? "") != nil
@@ -219,40 +253,54 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         return value
     }
 
-    private static func appendStringAttributeDimension(
+    private static func appendBridgeDimension(
         name: String,
         attributeKey: String,
         record: AgentStudioOTLPProjectedLogRecord,
-        dimensions: inout [AgentStudioOTLPMetricDimension]
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
     ) {
         guard case .string(let value) = record.attributes[attributeKey] else { return }
-        dimensions.append(AgentStudioOTLPMetricDimension(name: name, value: value))
+        dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: name, value: value))
     }
-}
 
-struct AgentStudioOTLPMetricDimension: Equatable, Hashable, Sendable {
-    let name: String
-    let value: String
+    private static func isSafeDimensionValue(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 64 else { return false }
+        return value.unicodeScalars.allSatisfy { scalar in
+            CharacterSet.alphanumerics.contains(scalar)
+                || scalar == "_"
+                || scalar == "-"
+                || scalar == "."
+        }
+    }
 }
 
 struct AgentStudioOTLPPerformanceMetricSample: Equatable, Sendable {
     let eventName: String
-    let dimensions: [AgentStudioOTLPMetricDimension]
     let label: String
+    let dimensions: [AgentStudioOTLPPerformanceMetricDimension]
     let value: Double
 
-    var metricsDimensions: [(String, String)] {
-        dimensions.map { ($0.name, $0.value) }
+    var dimensionTuples: [(String, String)] {
+        dimensions.map(\.tuple)
     }
 }
 
-private struct MetricInstrumentKey: Hashable {
+struct AgentStudioOTLPPerformanceMetricDimension: Equatable, Hashable, Sendable {
+    let name: String
+    let value: String
+
+    var tuple: (String, String) {
+        (name, value)
+    }
+}
+
+private struct MetricEventKey: Hashable {
     let eventName: String
-    let dimensions: [AgentStudioOTLPMetricDimension]
+    let dimensions: [AgentStudioOTLPPerformanceMetricDimension]
 }
 
 private struct MetricGaugeKey: Hashable {
     let eventName: String
-    let dimensions: [AgentStudioOTLPMetricDimension]
     let label: String
+    let dimensions: [AgentStudioOTLPPerformanceMetricDimension]
 }

@@ -58,6 +58,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 - **Surface independence** — Ghostty surfaces are ephemeral runtime resources; the model layer never holds `NSView` references
 - **Main-actor UI state, off-main runtime work** — AppKit, SwiftUI, atoms, observable UI state, and WebKit integration stay on `@MainActor`; expensive runtime work such as file I/O, hashing, diff preparation, and provider calls belongs behind actors/services with `Sendable` request/result models.
 - **AsyncStream over Combine/NotificationCenter** — All new event plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing Combine/NotificationCenter migrated incrementally.
+- **Trace tags select instrumentation** — Observability emitters are gated by `AGENTSTUDIO_TRACE_TAGS`; backends are selected separately by `AGENTSTUDIO_TRACE_BACKEND` and loopback OTLP variables. Do not add one-off env vars for individual emitters. See [Observability And Traceability](observability_and_traceability.md).
 
 Current atom vocabulary:
 
@@ -171,6 +172,8 @@ Each document owns a specific concern. No two documents are authoritative for th
 | [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Four-file model (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Remote zmx daemons and fork strategy | SSH tunnel architecture (Option C), security model, connection lifecycle, case for forking zmx |
 | [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |
+| [Architecture Lint Inventory](architecture_lint_inventory.md) | Architecture lint enforcement map | SwiftLint rule IDs, former shell-script coverage, blocking/report-only/test/review classifications |
+| [AgentStudio IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic-control boundaries | Public contract, AppIPC port, app composition, zmx separation, and lint-rule ownership boundaries |
 | [Swift-React Bridge](swift_react_bridge_design.md) | Bridge architecture and current LUNA-337 status | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation, read-only CodeView/Shiki review surface, and explicit implemented-vs-planned bridge delivery boundaries. Canonical review-foundation vocabulary lives in [Bridge Review Foundation Spec](../superpowers/specs/2026-06-10-bridge-review-foundation.md). |
 | [JTBD & Requirements](jtbd_and_requirements.md) | Product requirements | Jobs to be done, pain points, and requirements for the dynamic window system |
 

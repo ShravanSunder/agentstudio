@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -136,6 +137,46 @@ struct PaneDisplayDerivedTests {
     }
 
     @Test
+    func accentColorHexTracksKeyedRepoEnrichmentChanges() {
+        withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-color-tracking"))
+            let worktree = makeWorktree(
+                repoId: repo.id,
+                name: "main",
+                path: "/tmp/agent-studio-color-tracking/main"
+            )
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            let pane = store.createPane(
+                launchDirectory: worktree.path,
+                title: "Color",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
+            )
+            let invalidationCounter = PaneDisplayInvalidationCounter()
+
+            withObservationTracking {
+                _ = atom(\.paneDisplay).accentColorHex(for: pane.id)
+            } onChange: {
+                invalidationCounter.record()
+            }
+
+            atoms.repoCache.setRepoEnrichment(
+                .resolvedLocal(
+                    repoId: repo.id,
+                    identity: RemoteIdentityNormalizer.localIdentity(repoName: "agent-studio-color-tracking"),
+                    updatedAt: Date()
+                )
+            )
+
+            #expect(invalidationCounter.count == 1)
+        }
+    }
+
+    @Test
     func accentColorHex_returnsNil_forPaneWithoutRepo() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
@@ -224,5 +265,13 @@ struct PaneDisplayDerivedTests {
             #expect(actualB == expectedB)
             #expect(actualA != actualB)
         }
+    }
+}
+
+private final class PaneDisplayInvalidationCounter: @unchecked Sendable {
+    private(set) var count = 0
+
+    func record() {
+        count += 1
     }
 }

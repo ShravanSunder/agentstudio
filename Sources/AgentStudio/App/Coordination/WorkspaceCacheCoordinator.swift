@@ -137,7 +137,7 @@ final class WorkspaceCacheCoordinator {
         }
         let repoId: UUID
         if let repo = existingRepo {
-            if repoCache.repoEnrichmentByRepoId[repo.id] == nil {
+            if repoCache.repoEnrichment(for: repo.id) == nil {
                 repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
                 if shouldRefreshTraceIdentity {
                     refreshTraceIdentity()
@@ -237,7 +237,13 @@ final class WorkspaceCacheCoordinator {
 
     private func handleRepoRemoved(repoPath: URL) {
         let repositoryTopology = workspaceStore.repositoryTopologyAtom
-        guard let repo = repositoryTopology.repos.first(where: { $0.repoPath == repoPath }) else { return }
+        let normalizedRepoPath = repoPath.standardizedFileURL
+        let removedStableKey = StableKey.fromPath(normalizedRepoPath)
+        guard
+            let repo = repositoryTopology.repos.first(where: {
+                $0.repoPath.standardizedFileURL == normalizedRepoPath || $0.stableKey == removedStableKey
+            })
+        else { return }
 
         repositoryTopology.markRepoUnavailable(repo.id)
         let unavailablePathByWorktreeId = Dictionary(
@@ -322,7 +328,7 @@ final class WorkspaceCacheCoordinator {
                 refreshTraceIdentity()
             case .branchChanged(let worktreeId, let repoId, _, let to):
                 var enrichment =
-                    repoCache.worktreeEnrichmentByWorktreeId[worktreeId]
+                    repoCache.worktreeEnrichment(for: worktreeId)
                     ?? WorktreeEnrichment(
                         worktreeId: worktreeId,
                         repoId: repoId,
@@ -341,7 +347,7 @@ final class WorkspaceCacheCoordinator {
                     return
                 }
                 let upstream: String?
-                if case .some(.resolvedRemote(_, let raw, _, _)) = repoCache.repoEnrichmentByRepoId[repoId] {
+                if case .some(.resolvedRemote(_, let raw, _, _)) = repoCache.repoEnrichment(for: repoId) {
                     upstream = raw.upstream
                 } else {
                     upstream = nil
@@ -386,7 +392,7 @@ final class WorkspaceCacheCoordinator {
             switch forgeEvent {
             case .pullRequestCountsChanged(let repoId, let countsByBranch):
                 // Branch-to-worktree mapping is resolved through current enrichment branch values.
-                for (worktreeId, enrichment) in repoCache.worktreeEnrichmentByWorktreeId
+                for (worktreeId, enrichment) in repoCache.worktreeEnrichmentSnapshot()
                 where enrichment.repoId == repoId {
                     if let count = countsByBranch[enrichment.branch] {
                         repoCache.setPullRequestCount(count, for: worktreeId)

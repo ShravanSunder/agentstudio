@@ -32,6 +32,19 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(script.contains("swift build --build-path \"$build_path\""))
     }
 
+    @Test("debug launcher uses ai-tools observability stack contract")
+    func debugLauncherUsesAiToolsObservabilityStackContract() throws {
+        let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
+
+        #expect(script.contains("AI_TOOLS_OBSERVABILITY_STACK_HELPER"))
+        #expect(script.contains("AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL"))
+        #expect(script.contains("AGENTSTUDIO_TRACE_PROOF_TOKEN"))
+        #expect(script.contains("AGENTSTUDIO_OBSERVABILITY_PROOF_TOKEN"))
+        #expect(script.contains("$HOME/dev/ai-tools/observability/observability-stack"))
+        #expect(!script.contains("SHRAVAN_OBSERVABILITY"))
+        #expect(!script.contains("$HOME/dev/devfiles/shared/observability/observability-stack"))
+    }
+
     @Test("debug launcher rejects unsafe trace names before launch")
     func debugLauncherRejectsUnsafeTraceNamesBeforeLaunch() throws {
         let fixture = try LauncherScriptFixture()
@@ -399,6 +412,10 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=running"))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
     }
+}
+
+@Suite("Observability debug launch script verifier")
+struct ObservabilityDebugLaunchScriptVerifierTests {
 
     @Test("debug launcher overwrites stale state when collector is unhealthy")
     func debugLauncherOverwritesStaleStateWhenCollectorIsUnhealthy() throws {
@@ -684,6 +701,63 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(result.stderr.contains("startup diagnostic command_exercised record missing"))
     }
 
+    @Test("debug observability verifier does not require render proof for command bar workload diagnostic")
+    func debugObservabilityVerifierDoesNotRequireRenderProofForCommandBarWorkloadDiagnostic() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
+        AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
+        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=command-bar-repo-filter
+        AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(fixture.url("Agent Studio Debug testcode.app").path))
+        """.write(to: stateFile, atomically: true, encoding: .utf8)
+        let debugApp = try fixture.makeAppBundle(
+            name: "Agent Studio Debug testcode.app",
+            releaseChannel: "stable",
+            bundleIdentifier: "com.agentstudio.app.debug.dtestcode"
+        )
+        let curlArguments = fixture.url("curl-arguments")
+
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-debug-observability.sh",
+            stateFile: stateFile,
+            environment: [
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl-command-bar-workload",
+                    """
+                    #!/bin/bash
+                    printf '%s\\n' "$*" >> "\(curlArguments.path)"
+                    if [[ "$*" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *":*"* ]]; then
+                      exit 0
+                    fi
+                    printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+abcd1234","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
+                    exit 0
+                    """
+                ).path,
+                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
+                    "lsof",
+                    """
+                    #!/bin/bash
+                    echo "n\(debugApp.path)/Contents/MacOS/AgentStudio"
+                    """
+                ).path,
+            ]
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        let curlArgumentText = try String(contentsOf: curlArguments, encoding: .utf8)
+        #expect(!curlArgumentText.contains("app.startup_diagnostic_action.command_exercised"))
+        #expect(!curlArgumentText.contains("app.startup_diagnostic_action.completed"))
+    }
+
     @Test("debug observability verifier accepts completed startup diagnostic render proof")
     func debugObservabilityVerifierAcceptsCompletedStartupDiagnosticRenderProof() throws {
         let fixture = try LauncherScriptFixture()
@@ -761,6 +835,20 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(source.contains("running_debug_state_pid \"$state_file\" \"$debug_code\""))
     }
 
+    @Test("debug verifier queries trace marker as VictoriaLogs field")
+    func debugVerifierQueriesTraceMarkerAsVictoriaLogsField() throws {
+        let source = try String(contentsOfFile: "scripts/verify-debug-observability.sh", encoding: .utf8)
+
+        #expect(source.contains("stream_query=\"{service.name=\\\"AgentStudio\\\",dev.runtime.flavor=\\\"debug\\\"}\""))
+        #expect(source.contains("logsql_escape_exact_value()"))
+        #expect(source.contains("logsql_exact_filter()"))
+        #expect(source.contains("marker_query=\"$(logsql_exact_filter \"agent.proof.marker\" \"$MARKER\")\""))
+        #expect(source.contains("startup_event_query=\"$(logsql_exact_filter \"_msg\""))
+        #expect(source.contains("query=\"$stream_query $marker_query\""))
+        #expect(!source.contains("marker_query=\"agent.proof.marker:${MARKER}\""))
+        #expect(!source.contains("agentstudio.trace.name"))
+    }
+
     @Test("debug launcher fails closed when LaunchServices accepts app but PID never appears")
     func debugLauncherFailsClosedWhenLaunchServicesAcceptsAppButPidNeverAppears() throws {
         let fixture = try LauncherScriptFixture()
@@ -830,6 +918,7 @@ struct ObservabilityDebugLaunchScriptsTests {
             !miseConfig.contains("run = \"bash \\\"$HOME/dev/devfiles/shared/observability/observability-stack\\\""))
         #expect(!miseConfig.contains("$HOME/dev/devfiles/shared/observability/observability-stack"))
         #expect(!miseConfig.contains("observability:agentstudio-beta-env"))
+        #expect(!miseConfig.contains("run = \"bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\""))
         #expect(
             miseConfig.contains(
                 "run = \"/bin/bash \\\"$HOME/dev/ai-tools/observability/observability-stack\\\" up\""))

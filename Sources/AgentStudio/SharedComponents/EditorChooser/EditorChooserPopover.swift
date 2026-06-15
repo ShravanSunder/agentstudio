@@ -11,8 +11,8 @@ struct EditorChooserPopover: View {
     let onToggleBookmark: (EditorTargetId) -> Void
     let onDismiss: () -> Void
     let matchesAdditionalDismissShortcut: (NSEvent) -> Bool
-
-    @State private var selectedEditorId: EditorTargetId?
+    @Binding var selectedEditorId: EditorTargetId?
+    @Binding var hoveredRowId: EditorTargetId?
 
     var body: some View {
         EditorChooserMenuContent(
@@ -23,7 +23,8 @@ struct EditorChooserPopover: View {
             directLaunchShortcutText: directLaunchShortcutText,
             style: style,
             onSelect: onSelect,
-            onToggleBookmark: onToggleBookmark
+            onToggleBookmark: onToggleBookmark,
+            hoveredRowId: $hoveredRowId
         )
         .background(
             SelectablePopoverKeyboardBridge(

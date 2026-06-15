@@ -100,6 +100,8 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
         configuration.metrics.otlpExporter.protocol = .httpProtobuf
         configuration.metrics.exportInterval = .seconds(2)
         configuration.metrics.exportTimeout = .seconds(2)
+        configuration.metrics.valueHistogramBuckets[AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel] =
+            AgentStudioOTLPPerformanceMetrics.elapsedHistogramBuckets
         configuration.traces.enabled = true
         configuration.traces.exporter = .otlp
         configuration.traces.otlpExporter.endpoint = Self.tracesEndpoint(from: context.endpoint)

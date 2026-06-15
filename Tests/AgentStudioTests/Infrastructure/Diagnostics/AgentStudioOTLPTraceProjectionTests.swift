@@ -17,7 +17,8 @@ struct AgentStudioOTLPTraceProjectionTests {
             resource: [
                 "agentstudio.build.config": "DEBUG",
                 "agentstudio.session.id": "session-1",
-                "agentstudio.trace.name": "beta-observability-123",
+                "agent.proof.launch": "launch-token-123",
+                "agent.proof.marker": "beta-observability-123",
                 "process.pid": "1234",
                 "service.name": "AgentStudio",
                 "service.version": "0.0.99",
@@ -29,6 +30,11 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.ghostty.status": .int(0),
                 "agentstudio.trace.tag": .string("app.startup"),
                 "agentstudio.zmx.startup.inventory_outcome": .string("complete"),
+                "agentstudio.zmx.startup.live_session_count": .int(4),
+                "agentstudio.zmx.startup.hydrated_anchor_count": .int(1),
+                "agentstudio.zmx.startup.protected_session_count": .int(3),
+                "agentstudio.zmx.startup.unresolved_candidate_count": .int(0),
+                "agentstudio.zmx.startup.unmatched_live_session_count": .int(1),
             ]
         )
 
@@ -38,12 +44,19 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.resource["service.name"] == "AgentStudio")
         #expect(projection.resource["service.version"] == "0.0.99")
         #expect(projection.resource["agentstudio.build.config"] == "DEBUG")
-        #expect(projection.attributes["agentstudio.trace.name"] == .string("beta-observability-123"))
+        #expect(projection.resource["agent.proof.launch"] == "launch-token-123")
+        #expect(projection.attributes["agent.proof.launch"] == .string("launch-token-123"))
+        #expect(projection.attributes["agent.proof.marker"] == .string("beta-observability-123"))
         #expect(projection.resource["process.pid"] == nil)
         #expect(projection.resource["agentstudio.session.id"] == nil)
         #expect(projection.attributes["agentstudio.app.startup.phase"] == .string("ghostty_init"))
         #expect(projection.attributes["agentstudio.app.startup.outcome"] == .string("succeeded"))
         #expect(projection.attributes["agentstudio.zmx.startup.inventory_outcome"] == .string("complete"))
+        #expect(projection.attributes["agentstudio.zmx.startup.live_session_count"] == .int(4))
+        #expect(projection.attributes["agentstudio.zmx.startup.hydrated_anchor_count"] == .int(1))
+        #expect(projection.attributes["agentstudio.zmx.startup.protected_session_count"] == .int(3))
+        #expect(projection.attributes["agentstudio.zmx.startup.unresolved_candidate_count"] == .int(0))
+        #expect(projection.attributes["agentstudio.zmx.startup.unmatched_live_session_count"] == .int(1))
         #expect(projection.attributes["agentstudio.event.time_unix_nano"] == .int(100))
         #expect(projection.attributes["agentstudio.ghostty.status"] == .int(0))
         #expect(projection.traceID == nil)
@@ -320,7 +333,7 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "dev.repo.hash": "repo-hash",
                 "dev.repo.name": "agent-studio",
                 "dev.worktree.hash": "worktree-hash",
-                "git.branch": "feature/otel",
+                "dev.branch.name": "feature/otel",
                 "service.name": "AgentStudio",
             ],
             scope: .init(name: "agentstudio.runtime", version: "0.1.0"),
@@ -336,13 +349,13 @@ struct AgentStudioOTLPTraceProjectionTests {
         let renderedProjection = projection.renderedForCanaryAssertions()
 
         #expect(projection.body == "agentstudio.trace.record")
-        #expect(projection.resource["dev.repo.hash"] == nil)
+        #expect(projection.resource["dev.repo.hash"] == "repo-hash")
         #expect(projection.resource["dev.repo.name"] == nil)
-        #expect(projection.resource["dev.worktree.hash"] == nil)
-        #expect(projection.resource["git.branch"] == nil)
+        #expect(projection.resource["dev.worktree.hash"] == "worktree-hash")
+        #expect(projection.resource["dev.branch.name"] == "feature/otel")
         #expect(projection.attributes["dev.repo.hash"] == .string("repo-hash"))
         #expect(projection.attributes["dev.worktree.hash"] == .string("worktree-hash"))
-        #expect(projection.attributes["git.branch"] == .string("feature/otel"))
+        #expect(projection.attributes["dev.branch.name"] == .string("feature/otel"))
         #expect(projection.attributes["agentstudio.runtime.event"] == .string("session_state_changed"))
         #expect(projection.attributes["dev.runtime.flavor"] == .string("debug"))
         #expect(projection.attributes["agentstudio.runtime.output"] == nil)
@@ -361,13 +374,14 @@ struct AgentStudioOTLPTraceProjectionTests {
             resource: [
                 "agentstudio.release_channel": "beta",
                 "agentstudio.runtime_flavor": "beta",
-                "agentstudio.trace.name": "beta-observability-456",
+                "agent.proof.launch": "launch-token-456",
+                "agent.proof.marker": "beta-observability-456",
                 "dev.release.channel": "beta",
                 "dev.repo.hash": "repo-hash",
                 "dev.repo.name": "agent-studio",
                 "dev.runtime.flavor": "beta",
                 "dev.worktree.hash": "worktree-hash",
-                "git.branch": "feature/otel",
+                "dev.branch.name": "feature/otel",
                 "service.name": "AgentStudio",
                 "service.version": "0.0.54-beta.15",
             ],
@@ -379,17 +393,22 @@ struct AgentStudioOTLPTraceProjectionTests {
 
         let projection = AgentStudioOTLPTraceProjection.project(record)
 
-        #expect(projection.resource["dev.worktree.hash"] == nil)
+        #expect(projection.resource["agent.proof.marker"] == "beta-observability-456")
+        #expect(projection.resource["agent.proof.launch"] == "launch-token-456")
+        #expect(projection.resource["dev.repo.hash"] == "repo-hash")
+        #expect(projection.resource["dev.worktree.hash"] == "worktree-hash")
+        #expect(projection.resource["dev.branch.name"] == "feature/otel")
         #expect(projection.attributes["agentstudio.event.time_unix_nano"] == .int(500))
         #expect(projection.attributes["agentstudio.release_channel"] == .string("beta"))
         #expect(projection.attributes["agentstudio.runtime_flavor"] == .string("beta"))
-        #expect(projection.attributes["agentstudio.trace.name"] == .string("beta-observability-456"))
+        #expect(projection.attributes["agent.proof.marker"] == .string("beta-observability-456"))
+        #expect(projection.attributes["agent.proof.launch"] == .string("launch-token-456"))
         #expect(projection.attributes["dev.release.channel"] == .string("beta"))
         #expect(projection.attributes["dev.repo.hash"] == .string("repo-hash"))
         #expect(projection.attributes["dev.repo.name"] == nil)
         #expect(projection.attributes["dev.runtime.flavor"] == .string("beta"))
         #expect(projection.attributes["dev.worktree.hash"] == .string("worktree-hash"))
-        #expect(projection.attributes["git.branch"] == .string("feature/otel"))
+        #expect(projection.attributes["dev.branch.name"] == .string("feature/otel"))
         #expect(projection.attributes["service.version"] == .string("0.0.54-beta.15"))
         #expect(projection.attributes["service.name"] == nil)
     }
@@ -403,12 +422,21 @@ struct AgentStudioOTLPTraceProjectionTests {
         let renderedProjection = projection.renderedForCanaryAssertions()
 
         #expect(projection.body == "performance.git.status")
-        #expect(projection.attributes["agentstudio.trace.name"] == .string("perf-proof"))
+        #expect(projection.attributes["agent.proof.marker"] == .string("perf-proof"))
         #expect(projection.attributes["agentstudio.trace.tag"] == .string("performance"))
         #expect(projection.attributes["agentstudio.performance.git.running.count"] == .int(4))
         #expect(projection.attributes["agentstudio.performance.git.status.duration_ms"] == .double(2.5))
         #expect(projection.attributes["agentstudio.performance.git.status.elapsed_ms"] == .double(2.7))
+        #expect(projection.attributes["agentstudio.performance.git.status_unavailable.reason"] == .string("timeout"))
         #expect(projection.attributes["agentstudio.performance.git.root_path"] == nil)
+        #expect(projection.attributes["agentstudio.performance.repo.dynamic_key.count"] == nil)
+        #expect(projection.attributes["agentstudio.performance.future.elapsed_ms"] == nil)
+        #expect(projection.attributes["agentstudio.performance.future.has_value"] == nil)
+        #expect(projection.attributes["agentstudio.performance.atom.kind"] == .string("entity_map"))
+        #expect(projection.attributes["agentstudio.performance.atom.operation"] == .string("value"))
+        #expect(projection.attributes["agentstudio.performance.atom.slot.count"] == .int(2))
+        #expect(projection.attributes["agentstudio.performance.atom.cached_key.count"] == .int(1))
+        #expect(projection.attributes["agentstudio.performance.atom.cache_hit"] == .bool(false))
         #expect(projection.attributes["agentstudio.performance.coordinator.activity_write.count"] == .int(3))
         #expect(
             projection.attributes["agentstudio.performance.coordinator.filesystem_source_elapsed_ms"]
@@ -463,7 +491,7 @@ struct AgentStudioOTLPTraceProjectionTests {
             spanID: "span-should-not-export",
             parentSpanID: nil,
             resource: [
-                "agentstudio.trace.name": "perf-proof",
+                "agent.proof.marker": "perf-proof",
                 "process.pid": "12345",
                 "service.name": "AgentStudio",
             ],
@@ -472,7 +500,16 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.performance.git.running.count": .int(4),
                 "agentstudio.performance.git.status.duration_ms": .double(2.5),
                 "agentstudio.performance.git.status.elapsed_ms": .double(2.7),
+                "agentstudio.performance.git.status_unavailable.reason": .string("timeout"),
                 "agentstudio.performance.git.root_path": .string("/Users/shravan/private/repo"),
+                "agentstudio.performance.repo.dynamic_key.count": .int(999),
+                "agentstudio.performance.future.elapsed_ms": .double(999),
+                "agentstudio.performance.future.has_value": .bool(true),
+                "agentstudio.performance.atom.kind": .string("entity_map"),
+                "agentstudio.performance.atom.operation": .string("value"),
+                "agentstudio.performance.atom.slot.count": .int(2),
+                "agentstudio.performance.atom.cached_key.count": .int(1),
+                "agentstudio.performance.atom.cache_hit": .bool(false),
                 "agentstudio.performance.coordinator.activity_write.count": .int(3),
                 "agentstudio.performance.coordinator.filesystem_source_elapsed_ms": .double(4.5),
                 "agentstudio.performance.coordinator.index_elapsed_ms": .double(5.5),

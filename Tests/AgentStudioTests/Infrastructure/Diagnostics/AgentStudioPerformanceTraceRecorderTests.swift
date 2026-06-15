@@ -44,6 +44,23 @@ struct AgentStudioPerformanceTraceRecorderTests {
         recorder.record(.terminalGeometrySync)
         recorder.record(.terminalMountLayout)
         recorder.record(.terminalSurfaceSizeDidChange)
+        recorder.record(
+            .atomRead,
+            attributes: [
+                "agentstudio.performance.atom.kind": .string("entity_map"),
+                "agentstudio.performance.atom.operation": .string("value"),
+                "agentstudio.performance.atom.slot.count": .int(2),
+                "agentstudio.performance.atom.cached_key.count": .int(1),
+            ]
+        )
+        recorder.record(
+            .atomMutation,
+            attributes: [
+                "agentstudio.performance.atom.kind": .string("entity_map"),
+                "agentstudio.performance.atom.operation": .string("set"),
+                "agentstudio.performance.atom.accepted_change.count": .int(1),
+            ]
+        )
         try await recorder.drain()
 
         let outputFileURL = try #require(runtime.outputFileURL)
@@ -60,10 +77,15 @@ struct AgentStudioPerformanceTraceRecorderTests {
         #expect(contents.contains("\"body\":\"performance.terminal.geometry_sync\""))
         #expect(contents.contains("\"body\":\"performance.terminal.mount_layout\""))
         #expect(contents.contains("\"body\":\"performance.terminal.surface_size\""))
+        #expect(contents.contains("\"body\":\"performance.atom.read\""))
+        #expect(contents.contains("\"body\":\"performance.atom.mutation\""))
         #expect(contents.contains("\"agentstudio.trace.tag\":\"performance\""))
         #expect(contents.contains("\"agentstudio.performance.git.running.count\":3"))
         #expect(contents.contains("\"agentstudio.performance.git.status.duration_ms\":1.5"))
         #expect(contents.contains("\"agentstudio.performance.management_layer.command\":\"toggleManagementLayer\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.kind\":\"entity_map\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"value\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.slot.count\":2"))
     }
 
     @Test

@@ -35,15 +35,18 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: brew install swift-format swiftlint
 
-      - name: Lint + boundary checks
+      - name: Lint
         run: mise run lint
+
+      - name: AgentStudio architecture lint tool tests
+        run: swift test --package-path Tools/AgentStudioArchitectureLint
 
       - name: Format check (swift-format)
         run: |
-          swift-format format --in-place --recursive Sources/ Tests/
-          git diff --quiet -- Sources/ Tests/ || {
+          swift-format format --in-place --recursive Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests
+          git diff --quiet -- Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests || {
             echo "Swift formatting changes detected. Run mise run format locally.";
-            git diff -- Sources/ Tests/;
+            git diff -- Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests;
             exit 1;
           }
 

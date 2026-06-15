@@ -1,0 +1,3 @@
+import Features
+
+struct BadCoreImport {}

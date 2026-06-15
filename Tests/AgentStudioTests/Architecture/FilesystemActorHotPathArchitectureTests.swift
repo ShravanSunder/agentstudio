@@ -24,11 +24,38 @@ struct FilesystemActorHotPathArchitectureTests {
             ),
             encoding: .utf8
         )
+        let sdkGitProviderSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Core/RuntimeEventSystem/Git/AgentStudioGitWorkingTreeStatusProvider.swift"
+            ),
+            encoding: .utf8
+        )
+        let repoScannerSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Infrastructure/RepoScanner.swift"
+            ),
+            encoding: .utf8
+        )
+        let filesystemGitPipelineSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Coordination/FilesystemGitPipeline.swift"
+            ),
+            encoding: .utf8
+        )
 
         #expect(pathFilterSource.contains("@concurrent nonisolated static func loadOffExecutor"))
         #expect(filesystemActorSource.contains("await FilesystemPathFilter.loadOffExecutor(forRootPath:"))
         #expect(!filesystemActorSource.contains("FilesystemPathFilter.load(forRootPath:"))
-        #expect(gitProviderSource.contains("@concurrent\n    nonisolated private static func computeStatus"))
+        #expect(!gitProviderSource.contains("ShellGitWorkingTreeStatusProvider"))
+        #expect(!gitProviderSource.contains("command: \"git\""))
+        #expect(sdkGitProviderSource.contains("import AgentStudioGit"))
+        #expect(sdkGitProviderSource.contains("@concurrent\n    nonisolated private static func computeStatus"))
+        assertNoProductionGitShellSignature(in: sdkGitProviderSource)
+        assertNoProductionGitShellSignature(in: repoScannerSource)
+        #expect(repoScannerSource.contains("client.validateWorktree("))
+        #expect(repoScannerSource.contains("client.repositoryIdentity(for:"))
+        #expect(filesystemGitPipelineSource.contains("AgentStudioGitWorkingTreeStatusProvider()"))
+        try assertNoUnexpectedProductionGitShellSignatures(projectRoot: projectRoot)
     }
 
     @Test("git projector coalescing window is an explicit construction policy")
@@ -66,6 +93,43 @@ struct FilesystemActorHotPathArchitectureTests {
         #expect(projectionBody.contains("paneFilesystemProjectionStore.applyProjectionIntent"))
         #expect(!projectionBody.contains("workspaceWorktreeContexts"))
         #expect(!projectionBody.contains("filesystemRegisteredContextsByWorktreeId"))
+    }
+}
+
+private func assertNoProductionGitShellSignature(in source: String) {
+    #expect(!source.contains("command: \"git\""))
+    #expect(!source.contains("arguments = [\"git\""))
+    #expect(!source.contains("/usr/bin/git"))
+    #expect(!source.contains("rev-parse"))
+    #expect(!source.contains("status --porcelain"))
+    #expect(!source.contains("diff --shortstat"))
+}
+
+private func assertNoUnexpectedProductionGitShellSignatures(projectRoot: URL) throws {
+    let sourcesRoot = projectRoot.appending(path: "Sources/AgentStudio")
+    let fileManager = FileManager.default
+    let enumerator = try #require(
+        fileManager.enumerator(at: sourcesRoot, includingPropertiesForKeys: [.isRegularFileKey]))
+    let allowedShellGitFiles = Set([
+        "Sources/AgentStudio/Infrastructure/WorktrunkService.swift"
+    ])
+    let forbiddenSignatures = [
+        "command: \"git\"",
+        "arguments = [\"git\"",
+        "/usr/bin/git",
+        "rev-parse",
+        "status --porcelain",
+        "diff --shortstat",
+    ]
+
+    for case let fileURL as URL in enumerator {
+        guard fileURL.pathExtension == "swift" else { continue }
+        let relativePath = fileURL.path.replacingOccurrences(of: "\(projectRoot.path)/", with: "")
+        guard !allowedShellGitFiles.contains(relativePath) else { continue }
+        let source = try String(contentsOf: fileURL, encoding: .utf8)
+        for signature in forbiddenSignatures {
+            #expect(!source.contains(signature), "Unexpected Git shell signature \(signature) in \(relativePath)")
+        }
     }
 }
 

@@ -233,6 +233,9 @@ domain data that should remain explicit opt-in.
 
 `AGENTSTUDIO_TRACE_TAGS=off` disables tracing even in debug/beta. Explicit
 selectors such as `runtime,eventbus` or `terminal.*` override the baseline.
+Trace tags are the instrumentation selection boundary. New high-volume emitters
+must use `AgentStudioTraceTag` selectors such as `atoms`; do not add ad-hoc
+per-emitter environment variables such as `AGENTSTUDIO_TRACE_ATOM_METRICS`.
 
 ## Swift OTel Integration Boundary
 
@@ -306,8 +309,7 @@ workspace/repo context is known, the runtime should enrich new records with:
 ```text
 dev.repo.hash
 dev.worktree.hash
-git.branch
-git.commit
+dev.branch.name
 ```
 
 The implementation should use a runtime-owned enrichment provider updated after
@@ -318,7 +320,8 @@ state.
 worktree path must not be sent over OTLP by default. Branch name is allowed and
 useful for grouping. This accepts that local branch names may reveal local issue
 or project labels inside the loopback-only observability host. Commit is useful
-when cheap to discover.
+for local debugging but is not exported by default because it is not required by
+the current safe resource contract.
 
 High-cardinality values such as process id, session id, pane id, tab id, and
 request/correlation ids must not become VictoriaMetrics labels. They may appear
@@ -333,7 +336,7 @@ Good:
 
 ```text
 metric name: agentstudio.startup.duration
-labels/resource: service.name=agentstudio, git.branch=otel-integration
+labels/resource: service.name=agentstudio, dev.branch.name=otel-integration
 ```
 
 Avoid:
@@ -418,6 +421,11 @@ TerminalActivityRouter
 GhosttyActionRouter+Tracing
   OTLP: action name and controlled route outcome
   JSONL only: pane/surface ids and any freeform route reason
+
+AtomPerformanceTelemetry
+  tag: atoms
+  OTLP: controlled atom event names, kind/operation vocabulary, aggregate counts
+  JSONL only: future local forensic fields, if explicitly needed
 ```
 
 If a future investigation needs a local-only field in OTLP, the change must add
@@ -491,7 +499,7 @@ VictoriaLogs:
 Recommended stream fields:
 
 ```text
-service.name,dev.repo.hash,dev.worktree.hash,git.branch,dev.runtime.flavor
+service.name,dev.repo.hash,dev.worktree.hash,dev.branch.name,dev.runtime.flavor
 ```
 
 VictoriaMetrics:
@@ -510,7 +518,7 @@ service.name
 service.version
 dev.repo.hash
 dev.worktree.hash
-git.branch
+dev.branch.name
 dev.runtime.flavor
 dev.release.channel
 agentstudio.release_channel

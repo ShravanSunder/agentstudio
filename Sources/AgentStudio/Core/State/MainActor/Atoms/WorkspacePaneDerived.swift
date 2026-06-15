@@ -57,7 +57,7 @@ struct WorkspacePaneDerived {
         facets.worktreeName = resolvedContext.worktree.name
         facets.parentFolder = parentFolderName(for: resolvedContext.repo.repoPath)
 
-        if let enrichment = repoEnrichmentCacheAtom?.repoEnrichmentByRepoId[resolvedContext.repo.id] {
+        if let enrichment = repoEnrichmentCacheAtom?.repoEnrichment(for: resolvedContext.repo.id) {
             facets.organizationName = enrichment.organizationName
             facets.origin = enrichment.origin
             facets.upstream = enrichment.upstream
