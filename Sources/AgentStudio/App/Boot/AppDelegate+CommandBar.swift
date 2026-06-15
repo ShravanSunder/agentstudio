@@ -3,7 +3,12 @@ import AppKit
 extension AppDelegate {
     func showCommandBar(prefix: String?, context: String) {
         appLogger.info("showCommandBar context=\(context, privacy: .public)")
-        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+        guard
+            let window = Self.commandBarPresentationWindow(
+                keyWindow: NSApp.keyWindow,
+                fallbackWindow: mainWindowController?.window
+            )
+        else {
             appLogger.warning("No window available for \(context, privacy: .public)")
             return
         }
@@ -27,5 +32,9 @@ extension AppDelegate {
                 workspaceWindowId: workspaceWindowId
             )
         }
+    }
+
+    static func commandBarPresentationWindow(keyWindow: NSWindow?, fallbackWindow: NSWindow?) -> NSWindow? {
+        keyWindow?.parent ?? keyWindow ?? fallbackWindow
     }
 }
