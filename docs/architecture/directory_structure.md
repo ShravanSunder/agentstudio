@@ -108,7 +108,7 @@ Sources/AgentStudio/
 ## SwiftPM IPC Target Split
 
 Most AgentStudio code still lives in the `AgentStudio` executable target and
-uses the folder rules below. App IPC adds three smaller SwiftPM targets so the
+uses the folder rules below. App IPC adds smaller SwiftPM targets so the
 compiler can enforce boundaries before lint or review:
 
 ```
@@ -123,8 +123,17 @@ Sources/AgentStudioProgrammaticControl/
 
 Sources/AgentStudioAppIPC/
   App IPC service shell, auth, method registry, authorization, grant ledger,
-  permission broker, and protocol ports into app/runtime owners.
+  permission broker, event broker, and protocol ports into app/runtime owners.
   No concrete app/runtime owner imports and no direct atom reads.
+
+Sources/AgentStudioIPCClientCore/
+  CLI socket discovery, command-to-JSON-RPC request mapping, and one-shot
+  Unix socket client calls.
+  Depends only on transport and public programmatic-control contracts.
+
+Sources/AgentStudioIPCClient/
+  Thin `agentstudio-ipc` executable entrypoint.
+  Depends only on the client core.
 
 Sources/AgentStudio/App/IPCComposition/
   Concrete adapters from AgentStudioAppIPC protocol ports into PaneCoordinator,

@@ -1,7 +1,7 @@
 # AgentStudio IPC Implementation Plan
 
 **Date:** 2026-06-13
-**Status:** Active implementation plan from approved design direction. Implementation is in progress on the `programatical-control` branch; T1-T8 foundation slices have landed, while T9 CLI/smoke and T10 architecture promotion remain.
+**Status:** Active implementation plan from approved design direction. Implementation is in progress on the `programatical-control` branch; T1-T9 foundation and CLI/smoke slices have landed, while T10 architecture promotion remains.
 **Primary spec:** `docs/superpowers/specs/2026-06-10-agentstudio-ipc-design.md`
 **Related backend spec:** `docs/superpowers/specs/2026-06-13-zmx-backend-ipc-design.md`
 
@@ -743,6 +743,17 @@ Current implementation proof after the T8 event/wait slice:
   SwiftLint 0 violations across 1166 Swift files, and release script
   verification passed.
 
+Current implementation proof after the T9 CLI/smoke slice:
+
+- CLI/client test gate:
+  `swift test --filter 'AgentStudioIPCClientCoreTests|JSONRPCCodecTests'`
+  passed with 16 tests in 2 suites, including a real Unix-socket request/response
+  smoke against a test listener.
+- CLI product build gate: `swift build --product agentstudio-ipc` passed.
+- SwiftPM target graph check confirmed `agentstudio-ipc`,
+  `AgentStudioIPCClient`, and `AgentStudioIPCClientCore` are package targets, and
+  the client core depends on transport/contracts rather than `AgentStudioAppIPC`.
+
 ## Rollout And Recovery
 
 - Default target mode is `agentStudioOnly` with memory-only subject tokens.
@@ -783,13 +794,11 @@ Current implementation proof after the T8 event/wait slice:
 
 ## Open Questions
 
-1. Does T9 remain in phase 1 as a dedicated Swift executable target, or is CLI
-   removed from phase 1 and limited to test-owned smoke clients?
-2. Is `system.ping` pre-auth allowed with a content-free response, or should
+1. Is `system.ping` pre-auth allowed with a content-free response, or should
    `auth.login` be the only pre-auth method?
-3. Is `automationSameUser` included in phase 1, or kept as a follow-up after
+2. Is `automationSameUser` included in phase 1, or kept as a follow-up after
    `agentStudioOnly` works for spawned agents?
-4. Before T4 starts, choose where the first user-configured approval policy
+3. Before T4 starts, choose where the first user-configured approval policy
    lives: settings-backed persistence, workspace-local config, or runtime-only
    developer config.
 
@@ -807,6 +816,10 @@ Current implementation proof after the T8 event/wait slice:
   filters by public event name and visibility predicate, rejects inbound
   server-event impersonation, and removes slow subscribers that report
   backpressure.
+- T9 remains in phase 1 as a dedicated Swift executable product named
+  `agentstudio-ipc`, backed by `AgentStudioIPCClientCore`. The client target
+  graph intentionally excludes `AgentStudioAppIPC` and the AgentStudio
+  executable target.
 
 ## Next Skill
 
