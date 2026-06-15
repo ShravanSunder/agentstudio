@@ -125,6 +125,26 @@ public struct PermissionBroker: Sendable {
         return record.result
     }
 
+    public func grantStatus(_ requestId: UUID, requester: IPCPrincipal) throws -> IPCPermissionGrantStatusResult {
+        guard let record = grantLedger.permissionRecord(requestId: requestId) else {
+            throw PermissionBrokerError(reason: .requestNotFound)
+        }
+        guard record.requesterPrincipalId == requester.principalId else {
+            throw PermissionBrokerError(reason: .requesterMismatch)
+        }
+        let active =
+            record.state == .granted
+            && grantLedger.contains(record.requestedScope, for: requester.principalId)
+        return IPCPermissionGrantStatusResult(
+            requestId: record.requestId,
+            state: record.state,
+            principalId: record.requesterPrincipalId,
+            requestedScope: record.requestedScope,
+            approvalRoute: record.approvalRoute,
+            active: active
+        )
+    }
+
     public func pendingApprovals(for approver: IPCPrincipal) throws -> [PermissionRecord] {
         grantLedger.permissionRecords()
             .filter { record in

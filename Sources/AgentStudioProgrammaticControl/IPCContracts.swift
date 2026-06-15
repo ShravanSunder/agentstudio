@@ -55,11 +55,53 @@ public struct IPCApprovalScope: Hashable, Sendable {
     }
 }
 
-public enum IPCTargetScope: Hashable, Sendable {
+public enum IPCTargetScope: Hashable, Sendable, Codable {
     case selfPane
     case pane(String)
     case workspace(UUID)
     case app
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case value
+    }
+
+    private enum Kind: String, Codable {
+        case selfPane
+        case pane
+        case workspace
+        case app
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .selfPane:
+            self = .selfPane
+        case .pane:
+            self = .pane(try container.decode(String.self, forKey: .value))
+        case .workspace:
+            self = .workspace(try container.decode(UUID.self, forKey: .value))
+        case .app:
+            self = .app
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .selfPane:
+            try container.encode(Kind.selfPane, forKey: .kind)
+        case .pane(let paneId):
+            try container.encode(Kind.pane, forKey: .kind)
+            try container.encode(paneId, forKey: .value)
+        case .workspace(let workspaceId):
+            try container.encode(Kind.workspace, forKey: .kind)
+            try container.encode(workspaceId, forKey: .value)
+        case .app:
+            try container.encode(Kind.app, forKey: .kind)
+        }
+    }
 }
 
 public enum IPCDataScope: String, Codable, CaseIterable, Hashable, Sendable {
@@ -207,7 +249,7 @@ public enum IPCHandleError: Error, Equatable, Sendable {
     case targetNotFound
 }
 
-public struct IPCPermissionScope: Hashable, Sendable {
+public struct IPCPermissionScope: Hashable, Sendable, Codable {
     public let privilege: IPCPrivilegeClass
     public let target: IPCTargetScope
     public let dataScope: IPCDataScope
@@ -219,10 +261,46 @@ public struct IPCPermissionScope: Hashable, Sendable {
     }
 }
 
-public enum IPCPermissionApprovalRoute: Hashable, Sendable {
+public enum IPCPermissionApprovalRoute: Hashable, Sendable, Codable {
     case appPolicy
     case humanPrompt
     case delegatedPrincipal(UUID)
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case principalId
+    }
+
+    private enum Kind: String, Codable {
+        case appPolicy
+        case humanPrompt
+        case delegatedPrincipal
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .appPolicy:
+            self = .appPolicy
+        case .humanPrompt:
+            self = .humanPrompt
+        case .delegatedPrincipal:
+            self = .delegatedPrincipal(try container.decode(UUID.self, forKey: .principalId))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .appPolicy:
+            try container.encode(Kind.appPolicy, forKey: .kind)
+        case .humanPrompt:
+            try container.encode(Kind.humanPrompt, forKey: .kind)
+        case .delegatedPrincipal(let principalId):
+            try container.encode(Kind.delegatedPrincipal, forKey: .kind)
+            try container.encode(principalId, forKey: .principalId)
+        }
+    }
 }
 
 public enum IPCPermissionRequestState: String, Codable, Equatable, Sendable {
@@ -231,7 +309,7 @@ public enum IPCPermissionRequestState: String, Codable, Equatable, Sendable {
     case denied
 }
 
-public struct IPCPermissionRequestParams: Equatable, Sendable {
+public struct IPCPermissionRequestParams: Codable, Equatable, Sendable {
     public let scope: IPCPermissionScope
     public let reason: String
     public let approvalRoute: IPCPermissionApprovalRoute
@@ -243,7 +321,7 @@ public struct IPCPermissionRequestParams: Equatable, Sendable {
     }
 }
 
-public struct IPCPermissionRequestResult: Equatable, Sendable {
+public struct IPCPermissionRequestResult: Codable, Equatable, Sendable {
     public let requestId: UUID
     public let state: IPCPermissionRequestState
     public let principalId: UUID
@@ -262,5 +340,30 @@ public struct IPCPermissionRequestResult: Equatable, Sendable {
         self.principalId = principalId
         self.requestedScope = requestedScope
         self.approvalRoute = approvalRoute
+    }
+}
+
+public struct IPCPermissionGrantStatusResult: Codable, Equatable, Sendable {
+    public let requestId: UUID
+    public let state: IPCPermissionRequestState
+    public let principalId: UUID
+    public let requestedScope: IPCPermissionScope
+    public let approvalRoute: IPCPermissionApprovalRoute
+    public let active: Bool
+
+    public init(
+        requestId: UUID,
+        state: IPCPermissionRequestState,
+        principalId: UUID,
+        requestedScope: IPCPermissionScope,
+        approvalRoute: IPCPermissionApprovalRoute,
+        active: Bool
+    ) {
+        self.requestId = requestId
+        self.state = state
+        self.principalId = principalId
+        self.requestedScope = requestedScope
+        self.approvalRoute = approvalRoute
+        self.active = active
     }
 }
