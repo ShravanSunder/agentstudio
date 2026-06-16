@@ -171,9 +171,10 @@ jobs:
       - name: Test fast lane
         env:
           SWIFT_TEST_WORKERS: "4"
-          # macos-26 runners can spend several minutes in the parallel Swift test
-          # lane under load; this bounds hangs without killing healthy slow runs.
-          SWIFT_TEST_TIMEOUT_SECONDS: "600"
+          # macos-26 runners can spend ten-plus minutes in the parallel Swift
+          # test lane under load; this bounds hangs without killing healthy slow
+          # runs that are still emitting pass output near the old limit.
+          SWIFT_TEST_TIMEOUT_SECONDS: "900"
           XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-fast.xml"
         run: mise run test-fast
 
@@ -181,7 +182,7 @@ jobs:
         env:
           # WebKit teardown can crash swiftpm-testing-helper after assertions pass;
           # this lane isolates real WebKit runtime suites and retries signal crashes.
-          SWIFT_TEST_TIMEOUT_SECONDS: "600"
+          SWIFT_TEST_TIMEOUT_SECONDS: "900"
           XCB_EXTRA_ARGS: "--renderer github-actions"
         run: mise run test-webkit
 
