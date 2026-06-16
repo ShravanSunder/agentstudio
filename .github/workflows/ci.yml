@@ -170,12 +170,12 @@ jobs:
 
       - name: Test fast lane
         env:
-          # macos-26 runners can hang in SwiftPM's parallel Swift Testing
-          # shutdown path after many assertions have already passed. Run the
-          # non-WebKit lane serially in CI; local full-suite runs may still use
-          # the default parallel mode.
+          # macos-26 runners can spend several minutes in Swift Testing
+          # shutdown after emitting all passing fast-lane cases. Run the
+          # non-WebKit lane serially in CI and give that runner/teardown path
+          # the same bound used by the earlier CI fast lane.
           SWIFT_TEST_PARALLEL: "0"
-          SWIFT_TEST_TIMEOUT_SECONDS: "600"
+          SWIFT_TEST_TIMEOUT_SECONDS: "900"
           XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-fast.xml"
         run: mise run test-fast
 
