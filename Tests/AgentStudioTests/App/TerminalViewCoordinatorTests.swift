@@ -6,6 +6,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorViewFactoryTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     private struct WorkspaceSurfaceCoordinatorHarness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
