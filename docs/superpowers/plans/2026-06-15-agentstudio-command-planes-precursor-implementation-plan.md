@@ -88,6 +88,14 @@ The live IPC layout/query proof is valid. The terminal runtime/render proof is
 not complete and should be treated as the next blocker before claiming full
 headless terminal control.
 
+Split follow-up:
+
+- `docs/superpowers/plans/2026-06-16-agentstudio-ipc-terminal-runtime-surface-proof-followup.md`
+  owns the remaining live terminal surface/runtime proof gate. The precursor
+  branch keeps the command-plane cleanup and app-level IPC query/layout proof;
+  the follow-up must prove `terminal.status`, `terminal.snapshot`,
+  `terminal.send`, and `terminal.wait` against a ready real terminal surface.
+
 Review reduction:
 
 - Accepted reviewer finding: active IPC runtime lifecycle follow-up spec still
