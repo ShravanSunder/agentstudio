@@ -188,6 +188,10 @@ struct WorkspacePaneFocusTests {
 @MainActor
 @Suite("WorkspacePaneFocusDerivedProjection")
 struct WorkspacePaneFocusDerivedProjectionTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     private func workspaceTab(for store: WorkspaceStore) -> WorkspaceTabLayoutDerived {
         WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
