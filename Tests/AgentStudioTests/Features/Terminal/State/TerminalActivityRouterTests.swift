@@ -180,7 +180,7 @@ struct TerminalActivityRouterTests {
         _ = await bus.post(
             .pane(
                 .test(
-                    event: .terminal(.bellRang),
+                    event: .terminal(.openURLRequested(url: "https://example.com/trace", kind: .text)),
                     paneId: paneId,
                     paneKind: .terminal,
                     seq: 7,
@@ -189,19 +189,19 @@ struct TerminalActivityRouterTests {
             )
         )
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("terminal activity router should write a trace record") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"terminal.activity.observed\"") == true
+        await assertEventuallyMain("terminal activity router should consume before trace drain") {
+            atom.snapshot(for: paneId.uuid)?.recentURLRequests.count == 1
         }
+        await router.stop()
 
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
+        #expect(contents.contains("\"body\":\"terminal.activity.observed\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.openURLRequested\""))
         #expect(contents.contains("\"agentstudio.envelope.seq\":7"))
         #expect(contents.contains("\"agentstudio.pane.id\":\"\(paneId.uuidString)\""))
         #expect(contents.contains("\"agentstudio.envelope.correlation_id\":\"\(correlationId.uuidString)\""))
         #expect(contents.contains("\"agentstudio.session.id\":\"terminal-session\""))
-        await router.stop()
     }
 
     @Test("records eventbus delivery summaries without scrollbar spam")
@@ -245,12 +245,9 @@ struct TerminalActivityRouterTests {
             )
         )
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("terminal activity router should write eventbus delivery summary") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"eventbus.deliver\"") == true
-        }
+        await router.stop()
 
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         let records = try traceRecords(in: outputFileURL)
         let deliveryRecords = records.filter { $0.body == "eventbus.deliver" }
@@ -267,7 +264,6 @@ struct TerminalActivityRouterTests {
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
         #expect(contents.contains("\"agentstudio.envelope.seq\":1"))
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.scrollbarChanged\"") == false)
-        await router.stop()
     }
 
     @Test("stop drains buffered terminal activity trace records")
