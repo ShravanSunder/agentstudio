@@ -95,28 +95,27 @@ final class ObservationSpikeTests {
     // MARK: - 2. Observations Debounce
 
     /// Verify that `.debounce(for:)` from AsyncAlgorithms coalesces rapid
-    /// mutations into fewer emitted values.
+    /// values into fewer emitted values.
     @Test
-    func test_observations_debounce_coalescesRapidMutations() async throws {
+    func test_asyncAlgorithmsDebounce_coalescesRapidValues() async throws {
         // Arrange
-        let state = SpikeTestState()
+        let (stream, continuation) = AsyncStream.makeStream(of: Int.self)
         var collectedValues: [Int] = []
         let debounceClock = TestPushClock()
 
         let observationTask = Task { @MainActor in
-            let stream = Observations { state.propertyA }
-                .debounce(for: .milliseconds(100), clock: debounceClock)
-            for await value in stream {
+            for await value in stream.debounce(for: .milliseconds(100), clock: debounceClock) {
                 collectedValues.append(value)
             }
         }
 
+        continuation.yield(0)
         await debounceClock.waitForPendingSleepCount(atLeast: 1)
 
-        // Act — rapid mutations (all within 100ms debounce window)
-        state.propertyA = 1
-        state.propertyA = 2
-        state.propertyA = 3
+        // Act — rapid values (all within 100ms debounce window)
+        continuation.yield(1)
+        continuation.yield(2)
+        continuation.yield(3)
 
         // Advance the debounce clock in steps until at least one debounced value arrives
         let didAdvanceToEmission = await advanceClock(
