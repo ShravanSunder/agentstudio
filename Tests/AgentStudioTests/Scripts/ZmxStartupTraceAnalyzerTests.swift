@@ -313,23 +313,42 @@ struct ZmxStartupTraceAnalyzerTests {
     }
 
     private func runAnalyzer(_ arguments: [String]) throws -> AnalyzerResult {
+        let stdoutURL = FileManager.default.temporaryDirectory
+            .appending(path: "zmx-analyzer-stdout-\(UUID().uuidString).log")
+        let stderrURL = FileManager.default.temporaryDirectory
+            .appending(path: "zmx-analyzer-stderr-\(UUID().uuidString).log")
+        FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+        var handlesClosed = false
+        defer {
+            if !handlesClosed {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+            }
+            try? FileManager.default.removeItem(at: stdoutURL)
+            try? FileManager.default.removeItem(at: stderrURL)
+        }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["bash", "scripts/analyze-zmx-startup-trace.sh"] + arguments
         process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
+        process.standardOutput = stdoutHandle
+        process.standardError = stderrHandle
 
         try process.run()
         process.waitUntilExit()
+        try stdoutHandle.close()
+        try stderrHandle.close()
+        handlesClosed = true
 
         return AnalyzerResult(
             exitCode: process.terminationStatus,
-            stdout: String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-            stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            stdout: String(data: try Data(contentsOf: stdoutURL), encoding: .utf8) ?? "",
+            stderr: String(data: try Data(contentsOf: stderrURL), encoding: .utf8) ?? ""
         )
     }
 }
