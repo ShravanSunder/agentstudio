@@ -4,9 +4,9 @@ import Foundation
 /// Wrapper that proves an action has passed validation.
 /// Only WorkspaceCommandValidator can create instances (fileprivate init).
 struct ValidatedAction: Equatable {
-    let action: PaneActionCommand
+    let action: WorkspaceActionCommand
 
-    fileprivate init(_ action: PaneActionCommand) {
+    fileprivate init(_ action: WorkspaceActionCommand) {
         self.action = action
     }
 }
@@ -63,7 +63,7 @@ enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConv
 enum WorkspaceCommandValidator {
 
     static func validate(
-        _ action: PaneActionCommand,
+        _ action: WorkspaceActionCommand,
         state: ActionStateSnapshot
     ) -> Result<ValidatedAction, ActionValidationError> {
         switch action {
@@ -204,10 +204,7 @@ enum WorkspaceCommandValidator {
         case .toggleSplitZoom(let tabId, let paneId),
             .resizePaneByDelta(let tabId, let paneId, _, _),
             .minimizePane(let tabId, let paneId),
-            .expandPane(let tabId, let paneId),
-            .scrollToBottom(let tabId, let paneId),
-            .scrollPageUp(let tabId, let paneId),
-            .jumpToPrompt(let tabId, let paneId, _):
+            .expandPane(let tabId, let paneId):
             if let error = validateTabContainsPane(tabId: tabId, paneId: paneId, state: state) {
                 return .failure(error)
             }

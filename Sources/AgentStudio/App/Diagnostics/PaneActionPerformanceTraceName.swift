@@ -1,4 +1,4 @@
-extension PaneActionCommand {
+extension WorkspaceActionCommand {
     var performanceTraceName: String {
         switch self {
         case .selectTab:
@@ -13,12 +13,6 @@ extension PaneActionCommand {
             return "closePane"
         case .extractPaneToTab:
             return "extractPaneToTab"
-        case .scrollToBottom:
-            return "scrollToBottom"
-        case .scrollPageUp:
-            return "scrollPageUp"
-        case .jumpToPrompt:
-            return "jumpToPrompt"
         case .insertPaneRequest:
             return "insertPaneRequest"
         case .resizePane:

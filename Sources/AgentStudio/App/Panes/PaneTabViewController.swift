@@ -57,7 +57,7 @@ private struct PaneInboxCommandTarget {
 ///
 /// PaneTabViewController is a composition-oriented controller in `App/`. It reads
 /// from WorkspaceStore for state and routes user actions through the validated
-/// ActionExecutor pipeline. Most flow changes are dispatched, while AppKit-only
+/// WorkspaceActionExecutor pipeline. Most flow changes are dispatched, while AppKit-only
 /// concerns (focus, observers, empty-state visibility, tab bar coordination) stay
 /// local. It also handles direct tab-order updates (`store.moveTab`) from drag
 /// interactions as a UI-only mutation.
@@ -82,7 +82,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let appLifecycleStore: AppLifecycleAtom
     private let windowLifecycleStore: WindowLifecycleAtom
     private let workspaceWindowId: UUID?
-    private let executor: ActionExecutor
+    private let executor: WorkspaceActionExecutor
+    private let runtimeCommandDispatcher: any PaneRuntimeCommandDispatching
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
     private let paneInboxPresentation: PaneInboxPresentation?
@@ -182,7 +183,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         appLifecycleStore: AppLifecycleAtom,
         windowLifecycleStore: WindowLifecycleAtom = atom(\.windowLifecycle),
         workspaceWindowId: UUID? = nil,
-        executor: ActionExecutor,
+        executor: WorkspaceActionExecutor,
+        runtimeCommandDispatcher: any PaneRuntimeCommandDispatching,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
         paneInboxPresentation: PaneInboxPresentation? = nil,
@@ -217,6 +219,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.windowLifecycleStore = windowLifecycleStore
         self.workspaceWindowId = workspaceWindowId
         self.executor = executor
+        self.runtimeCommandDispatcher = runtimeCommandDispatcher
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
         self.paneInboxPresentation = paneInboxPresentation
@@ -294,7 +297,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 self.dispatchAction(.createArrangement(tabId: tabId, name: name))
             },
             onOpenRepoInTab: {
-                CommandDispatcher.shared.dispatch(.showCommandBarRepos)
+                AppCommandDispatcher.shared.dispatch(.showCommandBarRepos)
             },
             workspaceWindowId: workspaceWindowId
         )
@@ -358,7 +361,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         super.viewDidLoad()
 
         if registersAsCommandHandler {
-            CommandDispatcher.shared.handler = self
+            AppCommandDispatcher.shared.handler = self
         }
 
         syncTabContentHosts()
@@ -1260,7 +1263,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     @objc private func watchFolderAction() {
-        CommandDispatcher.shared.dispatch(.watchFolder)
+        AppCommandDispatcher.shared.dispatch(.watchFolder)
     }
 
     private func updateEmptyState() {
@@ -1387,11 +1390,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     shortcut,
                     context: keyboardContext
                 ),
-                CommandDispatcher.shared.canDispatch(shortcut.command)
+                AppCommandDispatcher.shared.canDispatch(shortcut.command)
             else {
                 return false
             }
-            CommandDispatcher.shared.dispatch(shortcut.command)
+            AppCommandDispatcher.shared.dispatch(shortcut.command)
             return true
         }
 
@@ -1413,8 +1416,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             else {
                 return false
             }
-            if CommandDispatcher.shared.canDispatch(shortcut.command) {
-                CommandDispatcher.shared.dispatch(shortcut.command)
+            if AppCommandDispatcher.shared.canDispatch(shortcut.command) {
+                AppCommandDispatcher.shared.dispatch(shortcut.command)
                 return true
             }
             if AppShortcutDispatchPolicy.shouldConsumeUnavailableGlobalShortcut(
@@ -1444,7 +1447,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             requiresNeutralFocus: trigger.modifiers.isEmpty || !allowsModifiedEmptyDrawerShortcutWithTextFocus
         ) {
             guard
-                CommandDispatcher.shared.canDispatch(
+                AppCommandDispatcher.shared.canDispatch(
                     .addDrawerPane,
                     target: parentPaneId,
                     targetType: .pane
@@ -1452,7 +1455,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             else {
                 return false
             }
-            CommandDispatcher.shared.dispatch(.addDrawerPane, target: parentPaneId, targetType: .pane)
+            AppCommandDispatcher.shared.dispatch(.addDrawerPane, target: parentPaneId, targetType: .pane)
             return true
         }
 
@@ -1495,11 +1498,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 shortcut,
                 context: keyboardContext
             ),
-            CommandDispatcher.shared.canDispatch(shortcut.command)
+            AppCommandDispatcher.shared.canDispatch(shortcut.command)
         else {
             return true
         }
-        CommandDispatcher.shared.dispatch(shortcut.command)
+        AppCommandDispatcher.shared.dispatch(shortcut.command)
         return true
     }
 
@@ -1947,9 +1950,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     // MARK: - Validated Action Pipeline
 
-    /// Central entry point: validates a PaneActionCommand and executes it if valid.
+    /// Central entry point: validates a WorkspaceActionCommand and executes it if valid.
     /// All input sources (keyboard, menu, drag-drop, commands) converge here.
-    private func dispatchAction(_ action: PaneActionCommand) {
+    private func dispatchAction(_ action: WorkspaceActionCommand) {
         let snapshot = WorkspaceCommandResolver.snapshot(
             from: store.tabLayoutAtom.tabs,
             activeTabId: store.tabLayoutAtom.activeTabId,
@@ -1971,7 +1974,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func syncFocusOwnerAfterValidatedAction(_ action: PaneActionCommand) {
+    private func syncFocusOwnerAfterValidatedAction(_ action: WorkspaceActionCommand) {
         switch action {
         case .addDrawerPane(let parentPaneId),
             .removeDrawerPane(let parentPaneId, _),
@@ -2007,7 +2010,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
-        let action: PaneActionCommand?
+        let action: WorkspaceActionCommand?
 
         switch command {
         case .closeTab:
@@ -2233,7 +2236,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         sourcePaneId: UUID,
         sourceTabId: UUID?,
         targetTabId: UUID
-    ) -> PaneActionCommand? {
+    ) -> WorkspaceActionCommand? {
         let resolvedSourceTabId: UUID? =
             if let sourceTabId, store.tabLayoutAtom.tab(sourceTabId)?.activePaneIds.contains(sourcePaneId) == true {
                 sourceTabId
@@ -2327,7 +2330,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func dispatchTerminalRuntimeCommand(_ command: AppCommand, paneId: UUID) -> Bool {
-        let runtimeCommand: RuntimeCommand
+        let runtimeCommand: PaneRuntimeCommand
         switch command {
         case .scrollToBottom:
             runtimeCommand = .terminal(.scrollToBottom)
@@ -2343,7 +2346,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = await self.executor.dispatchRuntimeCommand(runtimeCommand, target: .pane(PaneId(uuid: paneId)))
+            _ = await self.runtimeCommandDispatcher.dispatchRuntimeCommand(
+                runtimeCommand,
+                target: .pane(PaneId(uuid: paneId)),
+                correlationId: nil
+            )
         }
         return true
     }
@@ -2875,7 +2882,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         command: AppCommand,
         target: UUID,
         targetType: SearchItemType
-    ) -> PaneActionCommand? {
+    ) -> WorkspaceActionCommand? {
         if let repositoryAction = targetedRepositoryAction(command: command, target: target, targetType: targetType) {
             return repositoryAction
         }
@@ -2944,7 +2951,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         command: AppCommand,
         target: UUID,
         targetType: SearchItemType
-    ) -> PaneActionCommand? {
+    ) -> WorkspaceActionCommand? {
         switch (command, targetType) {
         case (.removeRepo, .repo):
             return .removeRepo(repoId: target)

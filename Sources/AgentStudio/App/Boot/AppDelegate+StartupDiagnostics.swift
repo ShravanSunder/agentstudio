@@ -64,9 +64,9 @@ extension AppDelegate {
             )
             switch action.kind {
             case .newTab:
-                CommandDispatcher.shared.dispatch(.newTab)
+                AppCommandDispatcher.shared.dispatch(.newTab)
             case .commandBarRepoFilter:
-                CommandDispatcher.shared.dispatch(.showCommandBarEverything)
+                AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)
                 await Task.yield()
                 self.commandBarController.state.rawInput = "# repo"
             #if DEBUG
@@ -119,7 +119,7 @@ extension AppDelegate {
             }
 
             guard
-                let pane = paneCoordinator.openFloatingTerminal(
+                let pane = workspaceSurfaceCoordinator.openFloatingTerminal(
                     launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
                     title: "IPC Smoke Terminal"
                 )
@@ -135,7 +135,7 @@ extension AppDelegate {
                 return
             }
 
-            await paneCoordinator.restoreAllViews(in: terminalContainerBounds)
+            await workspaceSurfaceCoordinator.restoreAllViews(in: terminalContainerBounds)
             await Task.yield()
             mainWindowController?.syncVisibleTerminalGeometry(reason: "ipcTerminalSmoke")
             let renderProof = await waitForIPCTerminalSmokeRenderProof(for: pane.id)
@@ -180,7 +180,7 @@ extension AppDelegate {
         private func runBridgeReviewObservabilitySmokeDiagnostic(
             action: AgentStudioStartupDiagnosticAction
         ) async {
-            guard let pane = paneCoordinator.openBridgeReviewObservabilitySmoke() else {
+            guard let pane = workspaceSurfaceCoordinator.openBridgeReviewObservabilitySmoke() else {
                 startupTraceRecorder.recordAppStartup(
                     "app.startup_diagnostic_action.blocked",
                     phase: "startup_diagnostic_action",
@@ -291,10 +291,10 @@ extension AppDelegate {
             """
         )
 
-        await paneCoordinator.restoreAllViews(in: terminalContainerBounds)
+        await workspaceSurfaceCoordinator.restoreAllViews(in: terminalContainerBounds)
         mainWindowController?.syncVisibleTerminalGeometry(reason: "crossTabMoveGeometrySmokeBefore")
         await Task.yield()
-        paneCoordinator.execute(
+        workspaceSurfaceCoordinator.execute(
             .movePaneAcrossTabs(
                 CrossTabPaneMoveRequest(
                     paneId: fixture.movedPaneId,
@@ -409,7 +409,7 @@ extension AppDelegate {
         let terminalView = viewRegistry.terminalView(for: paneId)
         let mountedSurfaces = [terminalView?.ghosttySurface].compactMap { $0 }
         let validGeometryCount = mountedSurfaces.filter(Self.surfaceHasValidSmokeGeometry).count
-        let runtime = paneCoordinator.runtimeForPane(PaneId(uuid: paneId))
+        let runtime = workspaceSurfaceCoordinator.runtimeForPane(PaneId(uuid: paneId))
 
         return CrossTabMoveGeometrySmokeRenderProof(
             expectedVisiblePaneCount: 1,

@@ -21,7 +21,7 @@ struct InboxNotificationSidebarViewTests {
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
-                dispatcher: CommandDispatcher.shared,
+                dispatcher: AppCommandDispatcher.shared,
                 onRefocusActivePane: {}
             )
             .frame(width: 320, height: 420)
@@ -100,8 +100,8 @@ struct InboxNotificationSidebarViewTests {
         router.appCommands = [.clearReadInboxNotifications]
         try await withIsolatedCommandDispatcher(
             configure: {
-                CommandDispatcher.shared.appCommandRouter = router
-                CommandDispatcher.shared.handler = nil
+                AppCommandDispatcher.shared.appCommandRouter = router
+                AppCommandDispatcher.shared.handler = nil
             },
             body: {
                 let view = InboxNotificationSidebarView(
@@ -130,8 +130,8 @@ struct InboxNotificationSidebarViewTests {
         router.appCommands = [.clearReadInboxNotifications]
         try await withIsolatedCommandDispatcher(
             configure: {
-                CommandDispatcher.shared.appCommandRouter = router
-                CommandDispatcher.shared.handler = nil
+                AppCommandDispatcher.shared.appCommandRouter = router
+                AppCommandDispatcher.shared.handler = nil
             },
             body: {
                 let hostingView = NSHostingView(
@@ -715,7 +715,7 @@ struct InboxSidebarFocusActivationTests {
                 workspacePaneAtom: workspacePaneAtom,
                 workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
-                dispatcher: CommandDispatcher.shared,
+                dispatcher: AppCommandDispatcher.shared,
                 onRefocusActivePane: { didRefocusActivePane = true }
             )
             .frame(width: 320, height: 420)

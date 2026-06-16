@@ -14,8 +14,8 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
         let runtime: SessionRuntime
-        let coordinator: PaneCoordinator
-        let executor: ActionExecutor
+        let coordinator: WorkspaceSurfaceCoordinator
+        let executor: WorkspaceActionExecutor
         let appLifecycleStore: AppLifecycleAtom
         let windowLifecycleStore: WindowLifecycleAtom
         let applicationLifecycleMonitor: ApplicationLifecycleMonitor
@@ -40,7 +40,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
             windowLifecycleStore: windowLifecycleStore
         )
         let surfaceManager = LaunchCapturingSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -48,13 +48,14 @@ struct PaneTabViewControllerLaunchRestoreTests {
             runtimeRegistry: .shared,
             windowLifecycleStore: windowLifecycleStore
         )
-        let executor = ActionExecutor(coordinator: coordinator, store: store)
+        let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
         let controller = PaneTabViewController(
             store: store,
             repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             executor: executor,
+            runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
             registersAsCommandHandler: false
@@ -245,8 +246,8 @@ struct PaneTabViewControllerLaunchRestoreTests {
     @Test
     func terminalRestoreDoesNotExposeManualPausedStartupState() throws {
         let sourcePaths = [
-            "Sources/AgentStudio/App/Coordination/PaneCoordinator+ActiveTabRestore.swift",
-            "Sources/AgentStudio/App/Coordination/PaneCoordinator+ViewLifecycle.swift",
+            "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ActiveTabRestore.swift",
+            "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift",
             "Sources/AgentStudio/Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift",
             "Sources/AgentStudio/Features/Terminal/Views/SurfaceErrorOverlay.swift",
         ]
@@ -323,7 +324,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
 }
 
 @MainActor
-private final class LaunchCapturingSurfaceManager: PaneCoordinatorSurfaceManaging {
+private final class LaunchCapturingSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     private(set) var createdPaneIds: [UUID] = []

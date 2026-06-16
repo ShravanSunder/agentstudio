@@ -52,9 +52,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
-    var paneCoordinator: PaneCoordinator!
+    var workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator!
     var closeTransitionCoordinator: PaneCloseTransitionCoordinator!
-    var executor: ActionExecutor!
+    var executor: WorkspaceActionExecutor!
     var tabBarAdapter: TabBarAdapter!
     var runtime: SessionRuntime!
     var appIPCServer: AgentStudioAppIPCServer?
@@ -150,7 +150,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
-            actionExecutor: executor,
+            workspaceActionExecutor: executor,
+            runtimeCommandDispatcher: workspaceSurfaceCoordinator,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
@@ -512,7 +513,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             mainWindowController = MainWindowController(
                 store: store,
-                actionExecutor: executor,
+                workspaceActionExecutor: executor,
+                runtimeCommandDispatcher: workspaceSurfaceCoordinator,
                 applicationLifecycleMonitor: applicationLifecycleMonitor,
                 appLifecycleStore: appLifecycleStore,
                 tabBarAdapter: tabBarAdapter,
@@ -546,10 +548,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Menu Setup
 
-    /// Create an NSMenuItem whose shortcut is read from CommandDispatcher (single source of truth).
+    /// Create an NSMenuItem whose shortcut is read from AppCommandDispatcher (single source of truth).
     /// Called from setupMainMenu() which runs on the main thread during app launch.
     private func menuItem(command: AppCommand, action: Selector) -> NSMenuItem {
-        let definition = CommandDispatcher.shared.definition(for: command)
+        let definition = AppCommandDispatcher.shared.definition(for: command)
         let item = NSMenuItem(title: definition.actionSpec.label, action: action, keyEquivalent: "")
         item.target = self
         item.representedObject = command.rawValue
@@ -575,7 +577,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return true
         }
 
-        let definition = CommandDispatcher.shared.definition(for: command)
+        let definition = AppCommandDispatcher.shared.definition(for: command)
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
@@ -588,7 +590,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let isVisible = definition.isVisible(in: focus)
         menuItem.isHidden = !isVisible
         guard isVisible else { return false }
-        return CommandDispatcher.shared.canDispatch(command)
+        return AppCommandDispatcher.shared.canDispatch(command)
     }
 
     // swiftlint:disable:next function_body_length
@@ -745,15 +747,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc private func newTab() {
-        CommandDispatcher.shared.dispatch(.newTab)
+        AppCommandDispatcher.shared.dispatch(.newTab)
     }
 
     @objc private func closeTab() {
-        CommandDispatcher.shared.dispatch(.closeTab)
+        AppCommandDispatcher.shared.dispatch(.closeTab)
     }
 
     @objc private func undoCloseTab() {
-        CommandDispatcher.shared.dispatch(.undoCloseTab)
+        AppCommandDispatcher.shared.dispatch(.undoCloseTab)
     }
 
     @objc func closeWindow() {
@@ -859,18 +861,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc private func filterSidebar() {
-        CommandDispatcher.shared.dispatch(.filterSidebar)
+        AppCommandDispatcher.shared.dispatch(.filterSidebar)
     }
 
     @objc private func selectTab(_ sender: NSMenuItem) {
         guard sender.tag >= 0, sender.tag < AppCommand.selectTabCommands.count else { return }
-        CommandDispatcher.shared.dispatch(AppCommand.selectTabCommands[sender.tag])
+        AppCommandDispatcher.shared.dispatch(AppCommand.selectTabCommands[sender.tag])
     }
 
     // MARK: - Webview Actions
 
     @objc private func openWebviewAction() {
-        CommandDispatcher.shared.dispatch(.openWebview)
+        AppCommandDispatcher.shared.dispatch(.openWebview)
     }
 
     func handleSignInRequested(provider: OAuthProvider) {
@@ -896,15 +898,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Command Bar Actions
 
     @objc private func showCommandBarEverything() {
-        CommandDispatcher.shared.dispatch(.showCommandBarEverything)
+        AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)
     }
 
     @objc private func showCommandBarCommands() {
-        CommandDispatcher.shared.dispatch(.showCommandBarCommands)
+        AppCommandDispatcher.shared.dispatch(.showCommandBarCommands)
     }
 
     @objc private func showCommandBarPanes() {
-        CommandDispatcher.shared.dispatch(.showCommandBarPanes)
+        AppCommandDispatcher.shared.dispatch(.showCommandBarPanes)
     }
 
 }

@@ -72,7 +72,7 @@ final class ManagementLayerMonitor {
                 self.deactivate()
                 return nil
             case .dispatch(let shortcut):
-                CommandDispatcher.shared.dispatch(shortcut.command)
+                AppCommandDispatcher.shared.dispatch(shortcut.command)
                 return nil
             case .passThrough:
                 return event

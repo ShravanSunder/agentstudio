@@ -175,6 +175,9 @@ struct FakeCommandPort: AppIPCCommandPort {
     }
 
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
+        if params.targetHandle != nil {
+            throw AppIPCCommandError(reason: .targetNotFound)
+        }
         guard IPCCommandIdentifier.allCases.contains(params.commandId) else {
             throw AppIPCCommandError(reason: .unsupportedCommand)
         }

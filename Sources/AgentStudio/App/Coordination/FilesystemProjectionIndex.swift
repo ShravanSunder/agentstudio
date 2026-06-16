@@ -1,13 +1,13 @@
 import Foundation
 
-protocol PaneCoordinatorFilesystemProjectionIndexing: Sendable {
+protocol WorkspaceFilesystemProjectionIndexing: Sendable {
     func reconcileSourceSync(_ request: FilesystemSourceSyncRequest) async -> FilesystemSourceSyncDiff
     func commitSourceSync(requestGeneration: UInt64, topologyGeneration: UInt64) async -> Bool
     func applyPaneUpdate(_ update: FilesystemProjectionPaneUpdate) async
     func projectPaneFilesystem(_ request: PaneFilesystemProjectionRequest) async -> PaneFilesystemProjectionResult
 }
 
-actor FilesystemProjectionIndex: PaneCoordinatorFilesystemProjectionIndexing {
+actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
     private struct IndexedWorktree: Sendable, Equatable {
         let repoId: UUID
         let rootPath: URL

@@ -395,41 +395,6 @@ final class WorkspaceCommandValidatorTests {
         Issue.record("Expected tabNotFound error")
     }
 
-    @Test
-
-    func test_scrollToBottom_existingPane_succeeds() {
-        // Arrange
-        let (tab, tabId, paneIds) = makeMultiPaneTab()
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = WorkspaceCommandValidator.validate(
-            .scrollToBottom(tabId: tabId, paneId: paneIds[0]),
-            state: snapshot
-        )
-
-        // Assert
-        #expect((try? result.get()) != nil)
-    }
-
-    @Test
-
-    func test_scrollToBottom_missingPane_fails() {
-        // Arrange
-        let (tab, tabId, _) = makeMultiPaneTab()
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = WorkspaceCommandValidator.validate(
-            .scrollToBottom(tabId: tabId, paneId: UUID()),
-            state: snapshot
-        )
-
-        // Assert
-        if case .failure(.paneNotFound) = result { return }
-        Issue.record("Expected paneNotFound error")
-    }
-
     // MARK: - extractPaneToTab
 
     @Test
@@ -509,7 +474,7 @@ final class WorkspaceCommandValidatorTests {
         let tabId = UUID()
         let tab = TabSnapshot(id: tabId, visiblePaneIds: [paneId], ownedPaneIds: [paneId], activePaneId: paneId)
         let snapshot = makeSnapshot(tabs: [tab])
-        let action = PaneActionCommand.insertPane(
+        let action = WorkspaceActionCommand.insertPane(
             source: .existingPane(paneId: paneId, sourceTabId: tabId),
             targetTabId: tabId,
             targetPaneId: paneId,
@@ -549,7 +514,7 @@ final class WorkspaceCommandValidatorTests {
             activePaneId: targetPaneId
         )
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
-        let action = PaneActionCommand.insertPane(
+        let action = WorkspaceActionCommand.insertPane(
             source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
@@ -578,7 +543,7 @@ final class WorkspaceCommandValidatorTests {
         // Arrange
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
-        let action = PaneActionCommand.insertPane(
+        let action = WorkspaceActionCommand.insertPane(
             source: .newTerminal,
             targetTabId: tabId,
             targetPaneId: paneId,
@@ -598,7 +563,7 @@ final class WorkspaceCommandValidatorTests {
     func test_insertPane_targetTabMissing_fails() {
         // Arrange
         let snapshot = makeSnapshot()
-        let action = PaneActionCommand.insertPane(
+        let action = WorkspaceActionCommand.insertPane(
             source: .newTerminal,
             targetTabId: UUID(),
             targetPaneId: UUID(),
@@ -620,7 +585,7 @@ final class WorkspaceCommandValidatorTests {
         // Arrange
         let (tab, tabId, _) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
-        let action = PaneActionCommand.insertPane(
+        let action = WorkspaceActionCommand.insertPane(
             source: .newTerminal,
             targetTabId: tabId,
             targetPaneId: UUID(),
@@ -642,7 +607,7 @@ final class WorkspaceCommandValidatorTests {
         // Arrange
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
-        let action = PaneActionCommand.insertPane(
+        let action = WorkspaceActionCommand.insertPane(
             source: .existingPane(paneId: UUID(), sourceTabId: tabId),
             targetTabId: tabId,
             targetPaneId: paneId,
@@ -775,7 +740,7 @@ final class WorkspaceCommandValidatorTests {
         let (sourceTab, sourceTabId, _) = makeMultiPaneTab()
         let (targetTab, targetTabId, targetPaneIds) = makeMultiPaneTab()
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
-        let action = PaneActionCommand.mergeTab(
+        let action = WorkspaceActionCommand.mergeTab(
             sourceTabId: sourceTabId,
             targetTabId: targetTabId,
             targetPaneId: targetPaneIds[0],
@@ -795,7 +760,7 @@ final class WorkspaceCommandValidatorTests {
         // Arrange
         let (targetTab, targetTabId, targetPaneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [targetTab])
-        let action = PaneActionCommand.mergeTab(
+        let action = WorkspaceActionCommand.mergeTab(
             sourceTabId: UUID(),
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
@@ -816,7 +781,7 @@ final class WorkspaceCommandValidatorTests {
         // Arrange
         let (sourceTab, sourceTabId, _) = makeMultiPaneTab()
         let snapshot = makeSnapshot(tabs: [sourceTab])
-        let action = PaneActionCommand.mergeTab(
+        let action = WorkspaceActionCommand.mergeTab(
             sourceTabId: sourceTabId,
             targetTabId: UUID(),
             targetPaneId: UUID(),
@@ -838,7 +803,7 @@ final class WorkspaceCommandValidatorTests {
         let (sourceTab, sourceTabId, _) = makeMultiPaneTab()
         let (targetTab, targetTabId, _) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
-        let action = PaneActionCommand.mergeTab(
+        let action = WorkspaceActionCommand.mergeTab(
             sourceTabId: sourceTabId,
             targetTabId: targetTabId,
             targetPaneId: UUID(),
@@ -859,7 +824,7 @@ final class WorkspaceCommandValidatorTests {
         // Arrange
         let (tab, tabId, paneIds) = makeMultiPaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
-        let action = PaneActionCommand.mergeTab(
+        let action = WorkspaceActionCommand.mergeTab(
             sourceTabId: tabId,
             targetTabId: tabId,
             targetPaneId: paneIds[0],
@@ -881,7 +846,7 @@ final class WorkspaceCommandValidatorTests {
     func test_expireUndoEntry_alwaysSucceeds() {
         // Arrange — empty state, no tabs at all
         let snapshot = makeSnapshot()
-        let action = PaneActionCommand.expireUndoEntry(paneId: UUID())
+        let action = WorkspaceActionCommand.expireUndoEntry(paneId: UUID())
 
         // Act
         let result = WorkspaceCommandValidator.validate(action, state: snapshot)
@@ -895,7 +860,7 @@ final class WorkspaceCommandValidatorTests {
     func test_repair_alwaysSucceeds() {
         // Arrange
         let snapshot = makeSnapshot()
-        let action = PaneActionCommand.repair(.recreateSurface(paneId: UUID()))
+        let action = WorkspaceActionCommand.repair(.recreateSurface(paneId: UUID()))
 
         // Act
         let result = WorkspaceCommandValidator.validate(action, state: snapshot)
@@ -914,7 +879,7 @@ final class WorkspaceCommandValidatorTests {
         let snapshot = makeSnapshot(
             tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
         )
-        let action = PaneActionCommand.selectTab(tabId: tabId)
+        let action = WorkspaceActionCommand.selectTab(tabId: tabId)
 
         // Act
         let result = WorkspaceCommandValidator.validate(action, state: snapshot)

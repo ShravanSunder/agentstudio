@@ -9,10 +9,10 @@ final class DrawerCommandIntegrationTests {
 
     private var store: WorkspaceStore!
     private var viewRegistry: ViewRegistry!
-    private var coordinator: PaneCoordinator!
+    private var coordinator: WorkspaceSurfaceCoordinator!
     private var runtime: SessionRuntime!
-    private var surfaceManager: MockPaneCoordinatorSurfaceManager!
-    private var executor: ActionExecutor!
+    private var surfaceManager: MockWorkspaceSurfaceCoordinatorSurfaceManager!
+    private var executor: WorkspaceActionExecutor!
     private var tempDir: URL!
 
     init() {
@@ -24,8 +24,8 @@ final class DrawerCommandIntegrationTests {
         store.restore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
-        surfaceManager = MockPaneCoordinatorSurfaceManager()
-        coordinator = PaneCoordinator(
+        surfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
+        coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -33,7 +33,7 @@ final class DrawerCommandIntegrationTests {
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom()
         )
-        executor = ActionExecutor(coordinator: coordinator, store: store)
+        executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     }
 
     deinit {
@@ -435,7 +435,7 @@ final class DrawerCommandIntegrationTests {
 }
 
 @MainActor
-private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceManaging {
+private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     init() {

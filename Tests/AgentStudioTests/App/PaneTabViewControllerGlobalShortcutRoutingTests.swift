@@ -89,8 +89,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = handler
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     #expect(!harness.controller.handleAppOwnedKeyEvent(event))
@@ -124,8 +124,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = handler
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     #expect(harness.controller.handleAppOwnedKeyEvent(event))
@@ -458,8 +458,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = handler
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     #expect(!harness.controller.handleAppOwnedKeyEvent(event))
@@ -492,8 +492,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = handler
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     #expect(harness.controller.handleAppOwnedKeyEvent(event))
@@ -526,8 +526,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = handler
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     #expect(harness.controller.handleAppOwnedKeyEvent(event))
@@ -561,8 +561,8 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = handler
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     #expect(harness.controller.handleAppOwnedKeyEvent(event))

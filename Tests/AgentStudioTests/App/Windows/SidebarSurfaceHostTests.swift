@@ -67,8 +67,8 @@ struct SidebarSurfaceHostTests {
 
         try await withIsolatedCommandDispatcher(
             configure: {
-                CommandDispatcher.shared.appCommandRouter = router
-                CommandDispatcher.shared.handler = nil
+                AppCommandDispatcher.shared.appCommandRouter = router
+                AppCommandDispatcher.shared.handler = nil
             },
             body: {
                 SidebarSurfaceHost.showNotifications(

@@ -170,7 +170,7 @@ struct TopologyEventPipelineIntegrationTests {
                 ]
             )
 
-            harness.paneCoordinator.topologyDidChange(
+            harness.workspaceSurfaceCoordinator.topologyDidChange(
                 WorktreeTopologyDelta(
                     repoId: repo.id,
                     addedWorktreeIds: harness.workspaceStore.repos[0].worktrees.map(\.id),

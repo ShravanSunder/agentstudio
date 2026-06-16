@@ -291,13 +291,13 @@ or child process has ended. The lifecycle coordinator is the seam between them.
 
 ```
 terminal.send
-  -> AppIPCRuntimeAdapter
-  -> ActionExecutorRuntimeCommandDispatcher
-  -> PaneCoordinator.dispatchRuntimeCommand
+  -> AgentStudioIPCRuntimeAdapter
+  -> PaneRuntimeCommandDispatching
+  -> WorkspaceSurfaceCoordinator.dispatchRuntimeCommand
   -> RuntimeRegistry / PaneRuntime
   -> runtime emits RuntimeEnvelope facts
   -> terminal.wait replays/subscribes through PaneRuntime.eventsSince/subscribe
-  -> AppIPCRuntimeAdapter maps allowlisted facts to IPC DTOs
+  -> AgentStudioIPCRuntimeAdapter maps allowlisted facts to IPC DTOs
 ```
 
 Terminal command acceptance and runtime completion remain different promises.
@@ -344,15 +344,15 @@ This keeps pane lifecycle decisions in the app while keeping auth state inside
 
 ### Pane Close Integration Point
 
-`PaneCoordinator.executeClosePane` is the current concrete close owner for app
-pane close mutations. The follow-up should add an app composition seam that can
-observe the final set of pane ids being closed:
+`WorkspaceSurfaceCoordinator.executeClosePane` is the current concrete close
+owner for app pane close mutations. The follow-up should add an app composition
+seam that can observe the final set of pane ids being closed:
 
 - closing main pane id;
 - drawer child pane ids owned by that main pane;
 - drawer child pane id when closing only the drawer child.
 
-The implementation should avoid coupling `PaneCoordinator` directly to
+The implementation should avoid coupling `WorkspaceSurfaceCoordinator` directly to
 `AgentStudioAppIPC` if a small app protocol can be injected instead.
 
 ### Terminal Runtime Fact Mapping

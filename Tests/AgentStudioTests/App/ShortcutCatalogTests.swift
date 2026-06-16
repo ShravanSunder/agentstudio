@@ -39,18 +39,18 @@ struct ShortcutCatalogTests {
     @Test
     func shortcutAndCommandDefinitions_stayBidirectionallyConsistent() {
         for shortcut in AppShortcut.allCases {
-            let definition = CommandDispatcher.shared.definition(for: shortcut.command)
+            let definition = AppCommandDispatcher.shared.definition(for: shortcut.command)
             #expect(definition.shortcut == shortcut)
         }
     }
 
     @Test
     func commandSpecDerivesKeyBindingFromShortcut() {
-        let managementLayerDefinition = CommandDispatcher.shared.definition(for: .toggleManagementLayer)
-        let quickOpenDefinition = CommandDispatcher.shared.definition(for: .showCommandBarEverything)
-        let startContextDefinition = CommandDispatcher.shared.definition(for: .showCommandBarRepos)
-        let addDrawerPaneDefinition = CommandDispatcher.shared.definition(for: .addDrawerPane)
-        let paneInboxDefinition = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
+        let managementLayerDefinition = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer)
+        let quickOpenDefinition = AppCommandDispatcher.shared.definition(for: .showCommandBarEverything)
+        let startContextDefinition = AppCommandDispatcher.shared.definition(for: .showCommandBarRepos)
+        let addDrawerPaneDefinition = AppCommandDispatcher.shared.definition(for: .addDrawerPane)
+        let paneInboxDefinition = AppCommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
 
         #expect(managementLayerDefinition.keyBinding?.key == "r")
         #expect(managementLayerDefinition.keyBinding?.modifiers == [.command])

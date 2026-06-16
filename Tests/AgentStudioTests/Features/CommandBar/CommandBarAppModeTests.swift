@@ -28,13 +28,13 @@ struct CommandBarAppModeTests {
 struct WorkspacePaneFocusTests {
     @Test
     func visibilityIgnoresMissingRequirementsOnlyWhenDefinitionHasNoRequirements() {
-        let alwaysVisible = CommandSpec(
+        let alwaysVisible = AppCommandSpec(
             command: .newTab,
             label: "New Tab",
             icon: .system(.plusSquare),
             helpText: "Create a new tab"
         )
-        let tabOnly = CommandSpec(
+        let tabOnly = AppCommandSpec(
             command: .closeTab,
             label: "Close Tab",
             icon: .system(.xmark),
@@ -49,7 +49,7 @@ struct WorkspacePaneFocusTests {
 
     @Test
     func visibilityRequiresAllRequestedFocusFlags() {
-        let definition = CommandSpec(
+        let definition = AppCommandSpec(
             command: .navigateDrawerPane,
             label: "Switch Drawer Pane",
             icon: .system(.arrowDownToLine),
@@ -71,7 +71,7 @@ struct WorkspacePaneFocusTests {
 
     @Test
     func detachDrawerPaneVisibility_requiresFocusedDrawerPane() {
-        let definition = CommandDispatcher.shared.definition(for: .detachDrawerPane)
+        let definition = AppCommandDispatcher.shared.definition(for: .detachDrawerPane)
         let emptyDrawerFocus = WorkspacePaneFocus(
             paneContentType: .terminal,
             drawerFocusState: .emptyDrawer(parentPaneId: UUID()),
@@ -89,11 +89,11 @@ struct WorkspacePaneFocusTests {
 
     @Test
     func drawerFocusCommandsExposeDisplayShortcutsWhenDrawerPaneIsFocused() {
-        let enterDrawer = CommandDispatcher.shared.definition(for: .enterDrawer)
-        let focusUp = CommandDispatcher.shared.definition(for: .focusDrawerPaneUp)
-        let focusLeft = CommandDispatcher.shared.definition(for: .focusDrawerPaneLeft)
-        let focusDown = CommandDispatcher.shared.definition(for: .focusDrawerPaneDown)
-        let focusRight = CommandDispatcher.shared.definition(for: .focusDrawerPaneRight)
+        let enterDrawer = AppCommandDispatcher.shared.definition(for: .enterDrawer)
+        let focusUp = AppCommandDispatcher.shared.definition(for: .focusDrawerPaneUp)
+        let focusLeft = AppCommandDispatcher.shared.definition(for: .focusDrawerPaneLeft)
+        let focusDown = AppCommandDispatcher.shared.definition(for: .focusDrawerPaneDown)
+        let focusRight = AppCommandDispatcher.shared.definition(for: .focusDrawerPaneRight)
         let drawerPaneFocus = WorkspacePaneFocus(
             paneContentType: .terminal,
             drawerFocusState: .drawerPane(parentPaneId: UUID(), paneId: UUID()),

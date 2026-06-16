@@ -20,8 +20,8 @@ final class PaneTabViewControllerCommandLaunchRecorder {
 @MainActor
 struct PaneTabViewControllerCommandHarness {
     let store: WorkspaceStore
-    let coordinator: PaneCoordinator
-    let executor: ActionExecutor
+    let coordinator: WorkspaceSurfaceCoordinator
+    let executor: WorkspaceActionExecutor
     let controller: PaneTabViewController
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let viewRegistry: ViewRegistry
@@ -54,6 +54,7 @@ func makeHarness(
 }
 
 @MainActor
+// swiftlint:disable:next function_body_length
 func makePaneTabViewControllerCommandHarness(
     createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized),
     closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
@@ -83,7 +84,7 @@ func makePaneTabViewControllerCommandHarness(
         appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: windowLifecycleStore
     )
-    let coordinator = PaneCoordinator(
+    let coordinator = WorkspaceSurfaceCoordinator(
         store: store,
         viewRegistry: viewRegistry,
         runtime: runtime,
@@ -92,7 +93,7 @@ func makePaneTabViewControllerCommandHarness(
         closeTransitionCoordinator: closeTransitionCoordinator,
         windowLifecycleStore: windowLifecycleStore
     )
-    let executor = ActionExecutor(coordinator: coordinator, store: store)
+    let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let controller = PaneTabViewController(
         store: store,
         repoCache: RepoCacheAtom(),
@@ -101,6 +102,7 @@ func makePaneTabViewControllerCommandHarness(
         windowLifecycleStore: windowLifecycleStore,
         workspaceWindowId: workspaceWindowId,
         executor: executor,
+        runtimeCommandDispatcher: coordinator,
         tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
         viewRegistry: viewRegistry,
         paneInboxPresentation: PaneInboxPresentation(
@@ -270,7 +272,7 @@ final class FocusablePaneTabCommandMountedContentView: NSView, PaneMountedConten
     func setContentInteractionEnabled(_: Bool) {}
 }
 
-final class MockPaneTabCommandSurfaceManager: PaneCoordinatorSurfaceManaging {
+final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 

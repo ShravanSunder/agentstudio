@@ -165,12 +165,12 @@ final class AppCommandTests {
         #expect(b1 != b2)
     }
 
-    // MARK: - CommandSpec
+    // MARK: - AppCommandSpec
 
     @Test
     func test_commandDefinition_init_defaults() {
         // Act
-        let def = CommandSpec(
+        let def = AppCommandSpec(
             command: .closeTab,
             label: "Close Tab",
             icon: .system(.xmark),
@@ -194,7 +194,7 @@ final class AppCommandTests {
     @Test
     func test_commandDefinition_init_full() {
         // Act
-        let def = CommandSpec(
+        let def = AppCommandSpec(
             command: .closeWindow,
             shortcut: .closeWindow,
             label: "Close Window",
@@ -215,22 +215,22 @@ final class AppCommandTests {
 
     @Test
     func test_toggleSplitZoom_hasDistinctZoomIcon() {
-        let splitZoom = CommandDispatcher.shared.definition(for: .toggleSplitZoom)
-        let expandPane = CommandDispatcher.shared.definition(for: .expandPane)
+        let splitZoom = AppCommandDispatcher.shared.definition(for: .toggleSplitZoom)
+        let expandPane = AppCommandDispatcher.shared.definition(for: .expandPane)
 
         #expect(splitZoom.icon == .system(.plusMagnifyingglass))
         #expect(expandPane.icon == .system(.arrowUpLeftAndArrowDownRight))
         #expect(splitZoom.icon != expandPane.icon)
     }
 
-    // MARK: - CommandDispatcher
+    // MARK: - AppCommandDispatcher
 
     @MainActor
 
     @Test
     func test_dispatcher_definitions_registered() {
         // Act
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
 
         // Assert
         #expect(dispatcher.definitions.count == AppCommand.allCases.count)
@@ -242,13 +242,13 @@ final class AppCommandTests {
 
     @Test
     func test_toggleSidebar_isVisibleInCommandBar() {
-        let definition = CommandDispatcher.shared.definition(for: .toggleSidebar)
+        let definition = AppCommandDispatcher.shared.definition(for: .toggleSidebar)
         #expect(!definition.isHiddenInCommandBar)
     }
 
     @Test
     func test_dispatcher_registersDefinitionForEveryCommand() {
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
 
         for command in AppCommand.allCases {
             let definition = dispatcher.definition(for: command)
@@ -258,7 +258,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_allCommandsHaveHelpText() throws {
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
 
         for command in AppCommand.allCases {
             let definition = dispatcher.definition(for: command)
@@ -271,7 +271,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_closeTab_hasCorrectKeyBinding() {
         // Act
-        let def = CommandDispatcher.shared.definition(for: .closeTab)
+        let def = AppCommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
         #expect(def.keyBinding?.key == "w")
@@ -283,7 +283,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_commands_forTab_includesExpected() {
         // Act
-        let tabCommands = CommandDispatcher.shared.commands(for: .tab)
+        let tabCommands = AppCommandDispatcher.shared.commands(for: .tab)
 
         // Assert
         let commandNames = tabCommands.map(\.command)
@@ -297,7 +297,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_commands_forPane_includesExpected() {
         // Act
-        let paneCommands = CommandDispatcher.shared.commands(for: .pane)
+        let paneCommands = AppCommandDispatcher.shared.commands(for: .pane)
 
         // Assert
         let commandNames = paneCommands.map(\.command)
@@ -310,9 +310,9 @@ final class AppCommandTests {
 
     @Test
     func test_arrangementShortcutDefinitions_useTabGroupAndShortcuts() {
-        let show = CommandDispatcher.shared.definition(for: .switchArrangement)
-        let previous = CommandDispatcher.shared.definition(for: .previousArrangement)
-        let next = CommandDispatcher.shared.definition(for: .nextArrangement)
+        let show = AppCommandDispatcher.shared.definition(for: .switchArrangement)
+        let previous = AppCommandDispatcher.shared.definition(for: .previousArrangement)
+        let next = AppCommandDispatcher.shared.definition(for: .nextArrangement)
 
         #expect(show.command == .switchArrangement)
         #expect(show.shortcut == .showArrangementPanel)
@@ -334,10 +334,10 @@ final class AppCommandTests {
 
     @Test
     func test_ordinalShortcutDefinitions_useCommandForTabsAndOptionForPanes() {
-        let firstTab = CommandDispatcher.shared.definition(for: .selectTab1)
-        let ninthTab = CommandDispatcher.shared.definition(for: .selectTab9)
-        let firstPane = CommandDispatcher.shared.definition(for: .focusPane1)
-        let ninthPane = CommandDispatcher.shared.definition(for: .focusPane9)
+        let firstTab = AppCommandDispatcher.shared.definition(for: .selectTab1)
+        let ninthTab = AppCommandDispatcher.shared.definition(for: .selectTab9)
+        let firstPane = AppCommandDispatcher.shared.definition(for: .focusPane1)
+        let ninthPane = AppCommandDispatcher.shared.definition(for: .focusPane9)
 
         #expect(firstTab.shortcut == .selectTab1)
         #expect(firstTab.keyBinding?.key == "1")
@@ -358,10 +358,10 @@ final class AppCommandTests {
 
     @Test
     func test_terminalScrollAndPromptDefinitions_useTerminalGroupAndShortcuts() {
-        let scroll = CommandDispatcher.shared.definition(for: .scrollToBottom)
-        let pageUp = CommandDispatcher.shared.definition(for: .scrollPageUp)
-        let previousPrompt = CommandDispatcher.shared.definition(for: .jumpToPreviousPrompt)
-        let nextPrompt = CommandDispatcher.shared.definition(for: .jumpToNextPrompt)
+        let scroll = AppCommandDispatcher.shared.definition(for: .scrollToBottom)
+        let pageUp = AppCommandDispatcher.shared.definition(for: .scrollPageUp)
+        let previousPrompt = AppCommandDispatcher.shared.definition(for: .jumpToPreviousPrompt)
+        let nextPrompt = AppCommandDispatcher.shared.definition(for: .jumpToNextPrompt)
 
         #expect(scroll.command == .scrollToBottom)
         #expect(scroll.shortcut == .scrollToBottom)
@@ -392,13 +392,13 @@ final class AppCommandTests {
 
     @Test
     func test_sidebarAndPaneInboxDefinitions_areCommandBarVisibleWithShortcuts() {
-        let sidebarInbox = CommandDispatcher.shared.definition(for: .showInboxNotifications)
-        let toggleInboxSort = CommandDispatcher.shared.definition(for: .toggleInboxNotificationSort)
-        let clearReadInbox = CommandDispatcher.shared.definition(for: .clearReadInboxNotifications)
-        let clearAllInbox = CommandDispatcher.shared.definition(for: .clearAllInboxNotifications)
-        let paneInbox = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
-        let clearPaneInbox = CommandDispatcher.shared.definition(for: .clearPaneInboxNotifications)
-        let worktreeSidebar = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
+        let sidebarInbox = AppCommandDispatcher.shared.definition(for: .showInboxNotifications)
+        let toggleInboxSort = AppCommandDispatcher.shared.definition(for: .toggleInboxNotificationSort)
+        let clearReadInbox = AppCommandDispatcher.shared.definition(for: .clearReadInboxNotifications)
+        let clearAllInbox = AppCommandDispatcher.shared.definition(for: .clearAllInboxNotifications)
+        let paneInbox = AppCommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
+        let clearPaneInbox = AppCommandDispatcher.shared.definition(for: .clearPaneInboxNotifications)
+        let worktreeSidebar = AppCommandDispatcher.shared.definition(for: .showWorktreeSidebar)
 
         #expect(sidebarInbox.shortcut == .showInboxNotifications)
         #expect(!sidebarInbox.isHiddenInCommandBar)
@@ -440,7 +440,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_commands_forRepo_includesExpected() {
         // Act
-        let repoCommands = CommandDispatcher.shared.commands(for: .repo)
+        let repoCommands = AppCommandDispatcher.shared.commands(for: .repo)
 
         // Assert
         let commandNames = repoCommands.map(\.command)
@@ -453,7 +453,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_dispatch_withoutHandler_doesNotCrash() async throws {
         // Arrange
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
 
         try await withIsolatedCommandDispatcher(
             configure: {
@@ -472,7 +472,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_canDispatch_withoutHandler_returnsFalse() async throws {
         // Arrange
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
 
         try await withIsolatedCommandDispatcher(
             configure: {
@@ -494,7 +494,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_dispatch_callsHandler() async throws {
         // Arrange
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
         let handler = MockCommandHandler()
 
         try await withIsolatedCommandDispatcher(
@@ -519,7 +519,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_dispatch_targeted_callsHandler() async throws {
         // Arrange
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
         let handler = MockCommandHandler()
         let targetId = UUID()
 
@@ -544,7 +544,7 @@ final class AppCommandTests {
     @MainActor
     @Test
     func test_dispatcher_dispatch_targeted_usesTargetedAvailability() async throws {
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
         let handler = MockCommandHandler()
         handler.canExecuteResult = false
         handler.targetedCanExecuteResult = true
@@ -570,7 +570,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_dispatch_routesAppCommandToAppRouterBeforeHandler() async throws {
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
         let handler = MockCommandHandler()
         let appRouter = MockAppCommandRouter()
         appRouter.appCommands = [.watchFolder]
@@ -598,7 +598,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_dispatchTargeted_routesAppCommandToAppRouterBeforeHandler() async throws {
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
         let handler = MockCommandHandler()
         let appRouter = MockAppCommandRouter()
         appRouter.appCommands = [.removeRepo]
@@ -625,7 +625,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_dispatchExtractPaneToTab_callsHandlerSurface() async throws {
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
         let handler = MockCommandHandler()
 
         let tabId = UUID()
@@ -652,7 +652,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_dispatchMovePaneToTab_callsHandlerSurface() async throws {
         try await withAsyncTestAtomRegistry { _ in
-            let dispatcher = CommandDispatcher.shared
+            let dispatcher = AppCommandDispatcher.shared
             let handler = MockCommandHandler()
             atom(\.managementLayer).deactivate()
 
@@ -690,7 +690,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_cannotDispatch_whenHandlerReturnsFalse() async throws {
         // Arrange
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
         let handler = MockCommandHandler()
         handler.canExecuteResult = false
 
@@ -714,7 +714,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_closePane_requiresManagementLayer() {
         // Act
-        let def = CommandDispatcher.shared.definition(for: .closePane)
+        let def = AppCommandDispatcher.shared.definition(for: .closePane)
 
         // Assert
         #expect(def.requiresManagementLayer)
@@ -725,7 +725,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_movePaneToTab_requiresManagementLayer() {
         // Act
-        let def = CommandDispatcher.shared.definition(for: .movePaneToTab)
+        let def = AppCommandDispatcher.shared.definition(for: .movePaneToTab)
 
         // Assert
         #expect(def.requiresManagementLayer)
@@ -737,7 +737,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_closeTab_doesNotRequireManagementLayer() {
         // Act
-        let def = CommandDispatcher.shared.definition(for: .closeTab)
+        let def = AppCommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
         #expect(!def.requiresManagementLayer)
@@ -748,7 +748,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_managementRequiredCommand_blockedWhenInactive() async throws {
         try await withAsyncTestAtomRegistry { _ in
-            let dispatcher = CommandDispatcher.shared
+            let dispatcher = AppCommandDispatcher.shared
             let handler = MockCommandHandler()
             atom(\.managementLayer).deactivate()
 
@@ -772,7 +772,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_managementRequiredCommand_allowedWhenActive() async throws {
         try await withAsyncTestAtomRegistry { _ in
-            let dispatcher = CommandDispatcher.shared
+            let dispatcher = AppCommandDispatcher.shared
             let handler = MockCommandHandler()
             atom(\.managementLayer).deactivate()
 
@@ -799,7 +799,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_filterSidebar_registered() {
         // Act
-        let def = CommandDispatcher.shared.definition(for: .filterSidebar)
+        let def = AppCommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
         #expect(def.label == "Filter Sidebar")
@@ -811,7 +811,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_filterSidebar_hasCorrectKeyBinding() {
         // Act
-        let def = CommandDispatcher.shared.definition(for: .filterSidebar)
+        let def = AppCommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
         #expect(def.keyBinding?.key == "f")
@@ -824,7 +824,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_openNewTerminalInTab_registered() {
         // Act
-        let def = CommandDispatcher.shared.definition(for: .openNewTerminalInTab)
+        let def = AppCommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
         #expect(def.label == "Open Terminal in New Tab")
@@ -837,7 +837,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_openNewTerminalInTab_appliesToWorktree() {
         // Act
-        let def = CommandDispatcher.shared.definition(for: .openNewTerminalInTab)
+        let def = AppCommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
         #expect(def.appliesTo.contains(.worktree))
@@ -848,7 +848,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_commands_forWorktree_includesOpenNewTerminal() {
         // Act
-        let worktreeCommands = CommandDispatcher.shared.commands(for: .worktree)
+        let worktreeCommands = AppCommandDispatcher.shared.commands(for: .worktree)
 
         // Assert
         let commandNames = worktreeCommands.map(\.command)
@@ -860,7 +860,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_filterSidebar_doesNotRequireManagementLayer() {
         // Act
-        let def = CommandDispatcher.shared.definition(for: .filterSidebar)
+        let def = AppCommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
         #expect(!def.requiresManagementLayer)
@@ -871,7 +871,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_filterSidebar_noAppliesTo() {
         // Act — filterSidebar is a global command, not tied to an item type
-        let def = CommandDispatcher.shared.definition(for: .filterSidebar)
+        let def = AppCommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
         #expect(def.appliesTo.isEmpty)
@@ -883,7 +883,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_openWebview_registered() {
-        let def = CommandDispatcher.shared.definition(for: .openWebview)
+        let def = AppCommandDispatcher.shared.definition(for: .openWebview)
         #expect(def.label == "Open New Webview Tab")
         #expect(def.icon == .system(.globe))
     }
@@ -892,7 +892,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_openWebview_noKeyBinding() {
-        let def = CommandDispatcher.shared.definition(for: .openWebview)
+        let def = AppCommandDispatcher.shared.definition(for: .openWebview)
         #expect(def.keyBinding == nil)
     }
 
@@ -900,7 +900,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_openBridgeReview_registered() {
-        let def = CommandDispatcher.shared.definition(for: .openBridgeReview)
+        let def = AppCommandDispatcher.shared.definition(for: .openBridgeReview)
         #expect(def.label == "Open Bridge Review")
         #expect(def.icon == .system(.rectangleSplit2x1))
         #expect(def.commandBarGroupName == "Bridge")
@@ -910,7 +910,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_openBridgeReview_noKeyBinding() {
-        let def = CommandDispatcher.shared.definition(for: .openBridgeReview)
+        let def = AppCommandDispatcher.shared.definition(for: .openBridgeReview)
         #expect(def.keyBinding == nil)
     }
 
@@ -918,7 +918,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_signInGitHub_registered() {
-        let def = CommandDispatcher.shared.definition(for: .signInGitHub)
+        let def = AppCommandDispatcher.shared.definition(for: .signInGitHub)
         #expect(def.label == "Sign in to GitHub")
         #expect(def.icon == .system(.personBadgeKey))
     }
@@ -927,7 +927,7 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_signInGoogle_registered() {
-        let def = CommandDispatcher.shared.definition(for: .signInGoogle)
+        let def = AppCommandDispatcher.shared.definition(for: .signInGoogle)
         #expect(def.label == "Sign in to Google")
         #expect(def.icon == .system(.personBadgeKey))
     }
@@ -937,7 +937,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_signIn_noKeyBindings() {
         // Sign-in commands are invoked from command bar, no global shortcuts
-        #expect(CommandDispatcher.shared.definition(for: .signInGitHub).keyBinding == nil)
-        #expect(CommandDispatcher.shared.definition(for: .signInGoogle).keyBinding == nil)
+        #expect(AppCommandDispatcher.shared.definition(for: .signInGitHub).keyBinding == nil)
+        #expect(AppCommandDispatcher.shared.definition(for: .signInGoogle).keyBinding == nil)
     }
 }

@@ -56,7 +56,7 @@ struct DrawerPanel: View {
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
-    let action: (PaneActionCommand) -> Void
+    let action: (WorkspaceActionCommand) -> Void
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -101,7 +101,7 @@ struct DrawerPanel: View {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         viewRegistry: ViewRegistry,
-        action: @escaping (PaneActionCommand) -> Void,
+        action: @escaping (WorkspaceActionCommand) -> Void,
         onResize: @escaping (CGFloat) -> Void,
         onDismiss: @escaping () -> Void,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,

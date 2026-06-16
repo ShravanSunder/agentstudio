@@ -600,11 +600,11 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         try await withIsolatedCommandDispatcher(
             configure: {
-                CommandDispatcher.shared.handler = harness.controller
-                CommandDispatcher.shared.appCommandRouter = nil
+                AppCommandDispatcher.shared.handler = harness.controller
+                AppCommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
-                CommandDispatcher.shared.dispatch(
+                AppCommandDispatcher.shared.dispatch(
                     .detachDrawerPane,
                     target: firstDrawerPane.id,
                     targetType: .pane

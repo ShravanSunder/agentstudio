@@ -5,16 +5,16 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct PaneCoordinatorViewFactoryTests {
-    private struct PaneCoordinatorHarness {
+struct WorkspaceSurfaceCoordinatorViewFactoryTests {
+    private struct WorkspaceSurfaceCoordinatorHarness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
         let runtime: SessionRuntime
-        let coordinator: PaneCoordinator
+        let coordinator: WorkspaceSurfaceCoordinator
         let tempDir: URL
     }
 
-    private func makeHarness() -> PaneCoordinatorHarness {
+    private func makeHarness() -> WorkspaceSurfaceCoordinatorHarness {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-coordinator-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -22,13 +22,13 @@ struct PaneCoordinatorViewFactoryTests {
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
-        let coordinator = PaneCoordinator(
+        let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
             windowLifecycleStore: WindowLifecycleAtom()
         )
-        return PaneCoordinatorHarness(
+        return WorkspaceSurfaceCoordinatorHarness(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -198,7 +198,7 @@ struct PaneCoordinatorViewFactoryTests {
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
 
-        let sessionId = PaneCoordinator.floatingZmxRestoreSessionId(
+        let sessionId = WorkspaceSurfaceCoordinator.floatingZmxRestoreSessionId(
             for: pane,
             launchDirectory: URL(fileURLWithPath: "/Users/test")
         )
@@ -219,7 +219,7 @@ struct PaneCoordinatorViewFactoryTests {
             )
         )
 
-        let sessionId = PaneCoordinator.floatingZmxRestoreSessionId(
+        let sessionId = WorkspaceSurfaceCoordinator.floatingZmxRestoreSessionId(
             for: pane,
             launchDirectory: launchDirectory
         )

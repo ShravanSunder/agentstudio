@@ -32,7 +32,7 @@ struct PaneTabViewControllerTabRetentionTests {
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
         )
-        let coordinator = makeTestPaneCoordinator(
+        let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -45,7 +45,8 @@ struct PaneTabViewControllerTabRetentionTests {
             repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
-            executor: ActionExecutor(coordinator: coordinator, store: store),
+            executor: WorkspaceActionExecutor(coordinator: coordinator, store: store),
+            runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
             registersAsCommandHandler: false
@@ -527,7 +528,7 @@ struct PaneTabViewControllerTabRetentionTests {
 }
 
 @MainActor
-private final class MockPersistentTabSurfaceManager: PaneCoordinatorSurfaceManaging {
+private final class MockPersistentTabSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
         continuation.finish()
     }

@@ -9,7 +9,7 @@ struct ArrangementPanel: View {
     let panes: [PaneVisibilityInfo]
     let arrangements: [ArrangementInfo]
     @Bindable var inlineRenameState: ArrangementInlineRenameState
-    let onPaneAction: (PaneActionCommand) -> Void
+    let onPaneAction: (WorkspaceActionCommand) -> Void
     let onSaveArrangement: () -> Void
     let onDismiss: () -> Void
     let showsMinimizedPanesBinding: Binding<Bool>

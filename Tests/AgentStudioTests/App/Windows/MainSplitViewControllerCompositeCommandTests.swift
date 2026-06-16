@@ -213,8 +213,8 @@ struct MainSplitViewControllerCompositeCommandTests {
                         let notification = makePaneInboxNotification(paneId: pane.id, title: "Clearable")
                         inboxAtom.append(notification)
                         let commandHandler = MainSplitViewControllerCommandHandlerProbe()
-                        CommandDispatcher.shared.handler = commandHandler
-                        CommandDispatcher.shared.appCommandRouter = nil
+                        AppCommandDispatcher.shared.handler = commandHandler
+                        AppCommandDispatcher.shared.appCommandRouter = nil
 
                         let hostingView = makePaneInboxPopoverHostingView(
                             presentation: harness.controller.makePaneInboxPresentation(),
@@ -263,8 +263,8 @@ struct MainSplitViewControllerCompositeCommandTests {
                         let notification = makePaneInboxNotification(paneId: targetPane.id, title: "Focusable")
                         inboxAtom.append(notification)
                         let commandHandler = MainSplitViewControllerCommandHandlerProbe()
-                        CommandDispatcher.shared.handler = commandHandler
-                        CommandDispatcher.shared.appCommandRouter = nil
+                        AppCommandDispatcher.shared.handler = commandHandler
+                        AppCommandDispatcher.shared.appCommandRouter = nil
 
                         let hostingView = makePaneInboxPopoverHostingView(
                             presentation: harness.controller.makePaneInboxPresentation(),

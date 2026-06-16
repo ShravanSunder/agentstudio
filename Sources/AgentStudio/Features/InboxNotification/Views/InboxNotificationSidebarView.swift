@@ -32,7 +32,7 @@ struct InboxNotificationSidebarView: View {
     let workspacePaneAtom: WorkspacePaneAtom
     let workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
     let repoCache: RepoCacheAtom
-    let dispatcher: CommandDispatcher
+    let dispatcher: AppCommandDispatcher
     let onRefocusActivePane: @MainActor @Sendable () -> Void
 
     @State private var searchText = ""
@@ -55,7 +55,7 @@ struct InboxNotificationSidebarView: View {
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
         repoCache: RepoCacheAtom,
-        dispatcher: CommandDispatcher,
+        dispatcher: AppCommandDispatcher,
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
     ) {
         self.inboxAtom = inboxAtom
