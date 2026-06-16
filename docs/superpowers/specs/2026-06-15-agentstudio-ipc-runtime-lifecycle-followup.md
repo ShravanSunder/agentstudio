@@ -14,6 +14,115 @@ start a pane-scoped agent, prove its authority is revoked when the pane dies,
 send terminal work, and observe completion/readback facts through exported app
 runtime contracts.
 
+## Progressive Overview
+
+Start here before reading the requirements. The phase-1 work created the local
+IPC foundation; this follow-up is about making that foundation trustworthy for a
+real automation loop.
+
+### One Map
+
+```text
+┌─ AgentStudio IPC Follow-up ───────────────────────────────────────┐
+│                                                                  │
+│  external/client automation                                      │
+│      │                                                           │
+│      ▼                                                           │
+│  AgentStudio app IPC                                             │
+│      │ owns auth, handles, method registry, events, permissions  │
+│      ▼                                                           │
+│  app/workspace/runtime owners                                    │
+│      │ own pane lifecycle, process lifecycle, terminal facts     │
+│      ▼                                                           │
+│  real proof loop                                                 │
+│      ├─ pane agent starts with scoped authority                  │
+│      ├─ terminal work can be sent and observed                   │
+│      └─ stale authority dies when pane/process dies              │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+The important boundary is not the socket. The important boundary is ownership:
+IPC owns protocol and authority; the app owns lifecycle decisions; runtimes own
+facts about terminal work.
+
+### What Is Done
+
+```text
+done       app-level Unix socket JSON-RPC server
+done       same-user peer checks, auth.login, debug no-auth, token escrow
+done       permission scopes, grant ledger, delegated approval primitives
+done       pane-agent fd bootstrap and agentstudio-pane-agent helper
+done       query/layout/terminal method shells
+done       pane split, close, drawer add/toggle through app owners
+done       terminal status, snapshot, send, and wait plumbing
+done       event broker and permission/terminal event DTO contracts
+done       debug launcher forwarding for IPC auth modes
+done       ipc-terminal-smoke render/runtime observability proof
+```
+
+These are release-complete. This follow-up should not redesign them unless code
+evidence shows a specific defect.
+
+### What Is Left
+
+```text
+left       pane close must revoke pane-bound principals in the real app path
+left       pane-agent child exit must revoke the helper's authority
+left       auth timeout diagnostics must be owned by app lifecycle code
+left       terminal.wait(commandFinished) needs product proof, not just DTOs
+left       cwd/prompt/readback need a safe exported-fact decision
+left       live debug smoke must prove stale-principal denial after close
+```
+
+This is not a broad IPC v2. It is a closure slice for runtime lifecycle and
+automation proof.
+
+### Selected Slice: Authority Lifecycle
+
+```text
+pane agent bootstrap
+  -> token is delivered over close-on-exec fd
+  -> helper authenticates with auth.login
+  -> principal is bound to one pane
+  -> pane closes or child exits
+  -> app lifecycle owner calls invalidatePrincipals(boundToPaneId:)
+  -> tokens, grants, and authenticated sockets are revoked
+  -> stale auth/request attempts fail closed
+```
+
+This slice proves a pane-scoped agent cannot keep authority after the pane it
+belongs to has gone away.
+
+### Selected Slice: Terminal Runtime Proof
+
+```text
+terminal.snapshot
+  -> client records lastSequence
+  -> terminal.send(input, correlationId)
+  -> runtime accepts command path
+  -> runtime emits exported RuntimeEnvelope facts
+  -> terminal.wait(condition, afterSequence)
+  -> client receives a bounded IPC DTO or a stable timeout/replay-gap error
+```
+
+This slice keeps the promise clean: `terminal.send` means accepted by the
+runtime path; `terminal.wait` is where observable runtime effects are proven.
+
+### Scope Fence
+
+```text
+in         pane lifecycle revocation
+in         child process exit cleanup
+in         commandFinished/cwd/prompt exported-fact proof
+in         live debug IPC smoke and Victoria proof
+
+out        public zmx daemon IPC
+out        MCP adapter implementation
+out        raw WebKit / Bridge Web transport
+out        raw terminal buffer readback without a secret-bearing permission
+```
+
 ## Current State
 
 The merged phase-1 IPC foundation already owns these working surfaces:
