@@ -171,11 +171,10 @@ jobs:
       - name: Test fast lane
         env:
           # macos-26 runners have hung in the large all-at-once Swift Testing
-          # fast lane after emitting passing cases. Run small class shards in
-          # CI so Swift Testing global state does not leak across broad
-          # UI/trace suites and each runner process has a bounded lifecycle.
-          SWIFT_TEST_SHARD_BY_CLASS: "1"
-          SWIFT_TEST_SHARD_CLASS_COUNT: "10"
+          # fast lane after emitting passing cases. Keep the fast lane serial
+          # and under a CI watchdog; class-sharded SwiftPM --filter invocations
+          # can hang in planning on GitHub macOS runners before tests start.
+          SWIFT_TEST_SHARD_BY_CLASS: "0"
           SWIFT_TEST_PARALLEL: "0"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-fast.xml"
