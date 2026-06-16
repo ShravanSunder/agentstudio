@@ -428,10 +428,12 @@ struct InboxNotificationRouterObservedPaneTests {
             makeNotification(kind: .terminalSecureInputRequested, paneId: paneId.uuid)
         )
         await fixture.router.start()
+        await fixture.router.flushTraceRecords()
         await assertEventuallyMain("startup should trace the kept user-action-required row") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.observedPaneCleared\"") == true
         }
+        await fixture.router.flushTraceRecords()
         await assertEventuallyMain("focus processing should settle before scrollbar events") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.focusGainedObservedPane\"") == true
@@ -462,6 +464,7 @@ struct InboxNotificationRouterObservedPaneTests {
                 seq: 4
             )
         )
+        await fixture.router.flushTraceRecords()
         await assertEventuallyMain("barrier event should prove scrollbar events were consumed") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"agentstudio.envelope.seq\":4") == true
