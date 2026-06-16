@@ -28,6 +28,17 @@ extension WorkspaceSurfaceCoordinator {
         scheduleFilesystemRootAndActivitySync()
     }
 
+    func waitForFilesystemRootsAndActivitySyncIdle() async {
+        while let activeTask = filesystemSyncTask {
+            await activeTask.value
+        }
+    }
+
+    func syncFilesystemRootsAndActivityUntilIdle() async {
+        scheduleFilesystemRootAndActivitySync()
+        await waitForFilesystemRootsAndActivitySyncIdle()
+    }
+
     func upsertPaneFilesystemProjectionContext(for pane: Pane) {
         paneContextGeneration &+= 1
         let update = paneFilesystemProjectionUpdate(for: pane, generation: paneContextGeneration)
