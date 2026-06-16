@@ -112,6 +112,9 @@ run_swift_class_shard() {
   filter="$(swift_test_class_filter "${shard_classes[@]}")"
   local label="class shard ${shard_index} (${#shard_classes[@]} classes)"
 
+  echo "[$LOG_PREFIX] class shard ${shard_index} classes:"
+  printf '  %s\n' "${shard_classes[@]}"
+
   local shard_xcb_extra_args="${XCB_EXTRA_ARGS:-}"
   if [[ "$shard_xcb_extra_args" == *"--report-path test-results-fast.xml"* ]]; then
     shard_xcb_extra_args="${shard_xcb_extra_args/--report-path test-results-fast.xml/--report-path test-results-fast-${report_slug}.xml}"
@@ -216,6 +219,8 @@ run_swift_with_timeout() {
 
   if [ "$timed_out" -eq 1 ]; then
     echo "[$LOG_PREFIX] ERROR: timeout while running '$label' after ${timeout_seconds}s"
+    echo "[$LOG_PREFIX] raw output tail for '$label':"
+    tail -n 120 "$output_file" || true
     terminate_process_tree TERM "$command_pid"
     sleep 2
     terminate_process_tree KILL "$command_pid"
