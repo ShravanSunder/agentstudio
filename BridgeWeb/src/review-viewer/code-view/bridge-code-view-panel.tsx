@@ -77,6 +77,13 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			props.selectedContentResources !== null &&
 			props.selectedContentResources !== undefined
 		) {
+			const codeViewHandle = codeViewHandleRef.current;
+			if (codeViewHandle !== null && props.selectedItemId !== null) {
+				controllerForHandle({
+					handle: codeViewHandle,
+					controllerEntryRef,
+				}).scrollToItem(props.selectedItemId);
+			}
 			return;
 		}
 		if (

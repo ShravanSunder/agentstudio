@@ -21,7 +21,7 @@ extension BridgePaneController {
             selectedItemId: selectedReviewItemId,
             package: paneState.diff.packageMetadata.map(ipcPackage)
         )
-        try Self.validateIPCResponsePayload(result)
+        try BridgeIPCResponseBudget.validate(result)
         return result
     }
 
@@ -158,7 +158,7 @@ extension BridgePaneController {
                 contentBase64: contentBase64
             )
         )
-        try Self.validateIPCResponsePayload(ipcResult)
+        try BridgeIPCResponseBudget.validate(ipcResult)
         return ipcResult
     }
 
@@ -278,13 +278,6 @@ extension BridgePaneController {
                 isBinary: handle.isBinary
             )
         )
-    }
-
-    private nonisolated static func validateIPCResponsePayload<T: Encodable>(_ value: T) throws {
-        let encodedPayload = try JSONEncoder().encode(value)
-        guard encodedPayload.count <= AppPolicies.Bridge.ipcMaxResponsePayloadBytes else {
-            throw AppIPCBridgeError(reason: .payloadTooLarge)
-        }
     }
 
     private nonisolated func javaScriptStringLiteral(_ value: String) throws -> String {

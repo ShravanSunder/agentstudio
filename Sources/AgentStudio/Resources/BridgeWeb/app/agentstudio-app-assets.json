@@ -3,8 +3,8 @@
 	"entrypoints": {
 		"mainScript": {
 			"path": "assets/bridge-app.js",
-			"bytes": 1061066,
-			"sha256": "ab654cdc4443d3a69d48585ac7ea0c8c90db653c5ad7fc4b918e00567fec8af3"
+			"bytes": 1061228,
+			"sha256": "d1b86565f9d7b3377a720fcfb6b64ff430bef9bc170cd2e457dd1fd8a4cdfa05"
 		},
 		"auxiliaryScripts": [
 			{
@@ -1143,14 +1143,14 @@
 				"sha256": "e402909cb325dde047938f7a385735907b9645ef674aab84336d473fcae74de1"
 			},
 			{
-				"path": "assets/review-projection-worker-rpc-BtOwhYYd.js",
-				"bytes": 80307,
-				"sha256": "ae02ad58dfb20961bd931a53ba5eb128a2c3e75581ca2c2fd44e1162efc8edc1"
+				"path": "assets/review-projection-worker-rpc-BCwCsLjh.js",
+				"bytes": 80229,
+				"sha256": "726b2944298a612ab0e87d325b55700843ca5043a82b2a950e1cbfb9c9acbaf6"
 			},
 			{
 				"path": "assets/review-projection-worker.js",
 				"bytes": 878,
-				"sha256": "ade70fcbea73ae0eb4f2a4f69f9360f427381a050a6dc6e1ae489a22ff2bfcf4"
+				"sha256": "bb3f30f3ee17637cfa9ce2102c8a90d2b4fdf23580ef45d1ec57605239733dc6"
 			},
 			{
 				"path": "assets/riscv-Ckw8ddFX.js",

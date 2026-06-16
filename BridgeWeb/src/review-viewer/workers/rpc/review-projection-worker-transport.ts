@@ -69,10 +69,11 @@ function createBridgeReviewProjectionWebWorkerTransport(props: {
 			pending.resolve(parsed.data);
 		});
 		nextWorker.addEventListener('error', (event: ErrorEvent): void => {
-			rejectPendingRequests(
-				pendingByRequestId,
-				new Error(event.message.length === 0 ? 'Projection worker failed' : event.message),
-			);
+			const errorMessage =
+				typeof event.message === 'string' && event.message.length > 0
+					? event.message
+					: 'Projection worker failed';
+			rejectPendingRequests(pendingByRequestId, new Error(errorMessage));
 			worker = null;
 		});
 		worker = nextWorker;

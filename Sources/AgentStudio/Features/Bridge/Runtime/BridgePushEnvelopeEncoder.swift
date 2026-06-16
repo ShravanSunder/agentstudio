@@ -25,10 +25,6 @@ struct BridgePushEnvelopeEncoder: Sendable {
         pushId: UUID,
         traceContext: BridgeTraceContext?
     ) throws -> Data {
-        guard String(data: payload, encoding: .utf8) != nil else {
-            throw BridgePushEnvelopeEncodingError.invalidPayloadUTF8
-        }
-
         let traceContextData = try traceContext.map { try JSONEncoder().encode($0) }
         var envelope = Data()
         envelope.reserveCapacity(payload.count + 256 + (traceContextData?.count ?? 0))
@@ -71,14 +67,11 @@ struct BridgePushEnvelopeEncoder: Sendable {
 
 enum BridgePushEnvelopeEncodingError: Error, LocalizedError, Sendable {
     case invalidEnvelopeUTF8
-    case invalidPayloadUTF8
 
     var errorDescription: String? {
         switch self {
         case .invalidEnvelopeUTF8:
             "Unable to encode push envelope as UTF-8"
-        case .invalidPayloadUTF8:
-            "Push payload must be UTF-8 JSON"
         }
     }
 }

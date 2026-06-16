@@ -149,6 +149,33 @@ describe('Bridge review projection', () => {
 		);
 		expect(projection.orderedItemIds.at(-1)).toBe('hidden-binary');
 	});
+
+	test('orders guided review without requiring ES2023 Array toSorted', () => {
+		const arrayPrototype = Array.prototype as Array<unknown> & {
+			toSorted?: Array<unknown>['toSorted'];
+		};
+		const originalToSorted = arrayPrototype.toSorted;
+		Reflect.deleteProperty(arrayPrototype, 'toSorted');
+
+		try {
+			const reviewPackage = makeBridgeViewerProjectionFixture();
+			const projection = buildBridgeReviewProjection({
+				reviewPackage,
+				request: {
+					base: { kind: 'guidedReview' },
+					refinements: [
+						{ kind: 'visibility', includeHidden: true, includeBinary: true, includeLarge: true },
+					],
+				},
+			});
+
+			expect(projection.orderedItemIds.slice(0, 2)).toEqual(['source-high', 'source-normal']);
+		} finally {
+			if (originalToSorted !== undefined) {
+				arrayPrototype.toSorted = originalToSorted;
+			}
+		}
+	});
 });
 
 function itemWithOmittedLanguageFields(

@@ -122,10 +122,14 @@ export function buildBridgeReviewProjectionFromInput(
 	const baseItems = props.projectionInput.orderedItems.filter(
 		(item: BridgeReviewProjectionInputItem): boolean => isVisibleByDefault(item, visibility),
 	);
-	const projectedItems = applyProjectionRefinements(
-		itemsForMode(baseItems, props.request.base),
-		props.request.refinements,
-	).toSorted(
+	const projectedItems = [
+		...applyProjectionRefinements(
+			itemsForMode(baseItems, props.request.base),
+			props.request.refinements,
+		),
+	];
+	// oxlint-disable-next-line unicorn/no-array-sort -- WebKit engines older than Safari 16.4 do not support Array#toSorted.
+	projectedItems.sort(
 		(left: BridgeReviewProjectionInputItem, right: BridgeReviewProjectionInputItem): number =>
 			compareForMode(props.request.base, left, right),
 	);
@@ -413,9 +417,6 @@ function isDocsOrPlanItem(item: BridgeReviewProjectionInputItem): boolean {
 			const basename = lowerPath.split('/').at(-1) ?? lowerPath;
 			return (
 				lowerPath.startsWith('docs/') ||
-				lowerPath.startsWith('docs/plans/') ||
-				lowerPath.startsWith('docs/superpowers/specs/') ||
-				lowerPath.startsWith('docs/superpowers/plans/') ||
 				lowerPath.endsWith('.md') ||
 				lowerPath.endsWith('.mdx') ||
 				basename.includes('plan') ||

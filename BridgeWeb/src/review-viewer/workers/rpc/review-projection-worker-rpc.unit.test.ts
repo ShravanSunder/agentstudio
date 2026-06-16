@@ -13,6 +13,28 @@ import {
 } from './review-projection-worker-rpc.js';
 
 describe('review projection worker RPC contract', () => {
+	test('fingerprints projection requests without requiring ES2023 Array toSorted', () => {
+		const projectionRequest = {
+			base: { kind: 'source' },
+			refinements: [{ kind: 'folder', folderPath: 'Sources/App' }],
+		} as const;
+		const arrayPrototype = Array.prototype as Array<unknown> & {
+			toSorted?: Array<unknown>['toSorted'];
+		};
+		const originalToSorted = arrayPrototype.toSorted;
+		Reflect.deleteProperty(arrayPrototype, 'toSorted');
+
+		try {
+			expect(fingerprintBridgeReviewProjectionRequest(projectionRequest)).toBe(
+				'review-projection:{"base":{"kind":"source"},"refinements":[{"folderPath":"Sources/App","kind":"folder"}]}',
+			);
+		} finally {
+			if (originalToSorted !== undefined) {
+				arrayPrototype.toSorted = originalToSorted;
+			}
+		}
+	});
+
 	test('validates typed projection requests and rejects untyped success payloads', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projectionInput = makeBridgeReviewProjectionInput(reviewPackage);

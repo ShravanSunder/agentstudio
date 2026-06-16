@@ -31,6 +31,31 @@ describe('Bridge review projection web worker transport', () => {
 
 		await expect(task.completed).rejects.toThrow('Projection worker sent invalid response');
 	});
+
+	test('rejects pending projection requests when the worker error event has no message', async () => {
+		vi.stubGlobal('Worker', FakeProjectionWorker);
+		const fakeWorker = new FakeProjectionWorker();
+		const client = createBridgeReviewProjectionWebWorkerClient({
+			createRequestId: (): string => 'request-error-without-message',
+			workerFactory: (): Worker => fakeWorker,
+		});
+		if (client === null) {
+			throw new Error('expected worker client');
+		}
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const task = client.startProjection({
+			projectionInput: makeBridgeReviewProjectionInput(reviewPackage),
+			projectionRequest: { base: { kind: 'allFiles' }, refinements: [] },
+			visibleItemIds: [],
+			workloadId: 'interactive',
+		});
+
+		expect(() => {
+			fakeWorker.emitError(new Event('error'));
+		}).not.toThrow();
+
+		await expect(task.completed).rejects.toThrow('Projection worker failed');
+	});
 });
 
 class FakeProjectionWorker extends EventTarget implements Worker {
@@ -82,5 +107,9 @@ class FakeProjectionWorker extends EventTarget implements Worker {
 
 	emitMessage(data: unknown): void {
 		this.dispatchEvent(new MessageEvent('message', { data }));
+	}
+
+	emitError(event: Event): void {
+		this.dispatchEvent(event);
 	}
 }

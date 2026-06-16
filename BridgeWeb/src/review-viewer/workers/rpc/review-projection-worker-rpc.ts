@@ -148,12 +148,13 @@ function stableStringifyBridgeValue(value: unknown): string {
 		return `[${value.map((item: unknown): string => stableStringifyBridgeValue(item)).join(',')}]`;
 	}
 	if (typeof value === 'object' && value !== null) {
-		const entries = Object.entries(value)
-			.toSorted(([leftKey], [rightKey]): number => leftKey.localeCompare(rightKey))
-			.map(
-				([key, entryValue]: readonly [string, unknown]): string =>
-					`${JSON.stringify(key)}:${stableStringifyBridgeValue(entryValue)}`,
-			);
+		const sortedEntries = Object.entries(value);
+		// oxlint-disable-next-line unicorn/no-array-sort -- WebKit engines older than Safari 16.4 do not support Array#toSorted.
+		sortedEntries.sort(([leftKey], [rightKey]): number => leftKey.localeCompare(rightKey));
+		const entries = sortedEntries.map(
+			([key, entryValue]: readonly [string, unknown]): string =>
+				`${JSON.stringify(key)}:${stableStringifyBridgeValue(entryValue)}`,
+		);
 		return `{${entries.join(',')}}`;
 	}
 	return JSON.stringify(value);
