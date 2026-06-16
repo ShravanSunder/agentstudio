@@ -220,6 +220,11 @@ required_log_event_contracts=(
   "performance.bridge.web.rpc_send|send|control|warm|review_rpc|rpc"
   "performance.bridge.web.content_fetch|fetch|data|hot|content_fetch|content"
   "performance.bridge.web.first_render|render|data|hot|diff_package_metadata|push"
+  "performance.bridge.trees.projection_build|projection_build|data|warm|review_projection|worker"
+  "performance.bridge.viewer.content_queue|content_queue|data|hot|content_fetch|content"
+  "performance.bridge.pierre.item_update|item_update|data|hot|code_view_item|swift"
+  "performance.bridge.shiki.highlight|highlight|data|hot|shiki_highlight|worker"
+  "performance.bridge.worker.task|worker_task|data|warm|worker_task|worker"
 )
 
 historical_bridge_lane_field="agentstudio.bridge.${BRIDGE_HISTORICAL_LANE_SUFFIX:-lane}"
@@ -244,6 +249,11 @@ required_metric_event_contracts=(
   "performance.bridge.web.package_apply|apply|data|hot|diff_status"
   "performance.bridge.web.content_fetch|fetch|data|hot|content_fetch"
   "performance.bridge.web.first_render|render|data|hot|diff_package_metadata"
+  "performance.bridge.trees.projection_build|projection_build|data|warm|review_projection"
+  "performance.bridge.viewer.content_queue|content_queue|data|hot|content_fetch"
+  "performance.bridge.pierre.item_update|item_update|data|hot|code_view_item"
+  "performance.bridge.shiki.highlight|highlight|data|hot|shiki_highlight"
+  "performance.bridge.worker.task|worker_task|data|warm|worker_task"
 )
 
 for contract in "${required_metric_event_contracts[@]}"; do

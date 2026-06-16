@@ -122,6 +122,97 @@ struct AgentStudioIPCClientCoreTests {
         )
     }
 
+    @Test("parses bridge review commands")
+    func parsesBridgeReviewCommands() throws {
+        let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
+        let openInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-review-open", worktreeId.uuidString],
+            environment: [:]
+        )
+        let refreshInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-review-refresh", "pane:2"],
+            environment: [:]
+        )
+        let packageInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-review-get-package", "pane:2"],
+            environment: [:]
+        )
+        let renderStateInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-render-state", "pane:2"],
+            environment: [:]
+        )
+        let selectInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-review-select-file", "pane:2", "item-source"],
+            environment: [:]
+        )
+        let telemetryFlushInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-telemetry-flush", "pane:2"],
+            environment: [:]
+        )
+
+        #expect(
+            openInvocation.command
+                == .bridgeReviewOpen(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
+        )
+        #expect(refreshInvocation.command == .bridgeReviewRefresh(IPCBridgeReviewRefreshParams(handle: "pane:2")))
+        #expect(packageInvocation.command == .bridgeReviewGetPackage(handle: "pane:2"))
+        #expect(renderStateInvocation.command == .bridgeReviewRenderState(handle: "pane:2"))
+        #expect(
+            selectInvocation.command
+                == .bridgeReviewSelectFile(
+                    IPCBridgeReviewSelectFileParams(handle: "pane:2", itemId: "item-source")
+                )
+        )
+        #expect(telemetryFlushInvocation.command == .bridgeTelemetryFlush(handle: "pane:2"))
+    }
+
+    @Test("builds bridge content request frame")
+    func buildsBridgeContentRequestFrame() throws {
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+        )
+
+        let frame = try client.requestFrame(
+            .bridgeContentGet(
+                IPCBridgeContentGetParams(
+                    handle: "pane:2",
+                    contentHandleId: "content-123",
+                    reviewGeneration: 7
+                )
+            ),
+            requestId: 14
+        )
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(14))
+        #expect(request.method == "bridge.content.get")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["handle"] == .string("pane:2"))
+        #expect(params["contentHandleId"] == .string("content-123"))
+        #expect(params["reviewGeneration"] == .number(7))
+    }
+
+    @Test("builds bridge telemetry flush request frame")
+    func buildsBridgeTelemetryFlushRequestFrame() throws {
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+        )
+
+        let frame = try client.requestFrame(.bridgeTelemetryFlush(handle: "pane:2"), requestId: 15)
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(15))
+        #expect(request.method == "bridge.telemetry.flush")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["handle"] == .string("pane:2"))
+    }
+
     @Test("parses auth token stdin mode without accepting argv bearer tokens")
     func parsesAuthTokenStdinModeWithoutAcceptingArgvBearerTokens() throws {
         let loginInvocation = try AgentStudioIPCClientArguments.parse(

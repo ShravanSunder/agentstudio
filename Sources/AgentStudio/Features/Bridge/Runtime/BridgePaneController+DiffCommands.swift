@@ -5,6 +5,27 @@ private let bridgeDiffCommandLogger = Logger(subsystem: "com.agentstudio", categ
 
 @MainActor
 extension BridgePaneController: BridgeRuntimeCommandHandling {
+    func scheduleInitialReviewPackageLoadIfPossible() {
+        guard activeReviewRefreshTask == nil else { return }
+        activeReviewRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.loadInitialReviewPackageIfPossible(correlationId: nil)
+            self.activeReviewRefreshTask = nil
+        }
+    }
+
+    func loadInitialReviewPackageIfPossible(correlationId: UUID?) async -> ActionResult? {
+        guard case .workspace = bridgePaneState.source,
+            let worktreeId = runtime.metadata.worktreeId,
+            paneState.diff.status == .idle,
+            paneState.diff.packageMetadata == nil
+        else {
+            return nil
+        }
+
+        return await loadReviewPackage(worktreeId: worktreeId, correlationId: correlationId)
+    }
+
     func handleDiffCommand(
         _ command: DiffCommand,
         commandId: UUID,
@@ -86,6 +107,21 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 return .failure(.invalidPayload(description: "Failed to load bridge review package"))
             }
         }
+    }
+
+    private func loadReviewPackage(worktreeId: UUID, correlationId: UUID?) async -> ActionResult {
+        let commandId = UUID()
+        return await handleDiffCommand(
+            .loadDiff(
+                DiffArtifact(
+                    diffId: UUIDv7.generate(),
+                    worktreeId: worktreeId,
+                    patchData: Data()
+                )
+            ),
+            commandId: commandId,
+            correlationId: correlationId
+        )
     }
 
     func handlePaneFilesystemContextEvent(_ event: PaneFilesystemContextEvent) async {

@@ -9,6 +9,8 @@ enum AppPolicies {
     enum Bridge {
         static let contentCacheMaxBytes: Int = 50 * 1024 * 1024
         static let contentMaxBytesPerItem: Int = 50 * 1024 * 1024
+        static let defaultGitDataPlaneReadTimeout: Duration = .seconds(5)
+        static let ipcMaxResponsePayloadBytes: Int = 768 * 1024
     }
 
     enum WorkspacePersistence {

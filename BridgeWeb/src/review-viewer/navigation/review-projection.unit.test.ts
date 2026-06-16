@@ -5,7 +5,10 @@ import {
 	type BridgeReviewProjectionRequest,
 } from '../models/review-projection-models.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
-import { buildBridgeReviewProjection } from './review-projection.js';
+import {
+	buildBridgeReviewProjection,
+	makeBridgeReviewProjectionInput,
+} from './review-projection.js';
 
 describe('Bridge review projection', () => {
 	test('models base projection and refinements as discriminated unions', () => {
@@ -50,6 +53,31 @@ describe('Bridge review projection', () => {
 		function projectItemIds(request: BridgeReviewProjectionRequest): readonly string[] {
 			return buildBridgeReviewProjection({ reviewPackage, request }).orderedItemIds;
 		}
+	});
+
+	test('normalizes omitted Swift optional language and extension fields', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const itemWithoutLanguage = reviewPackage.itemsById['source-normal'];
+
+		if (itemWithoutLanguage === undefined) {
+			throw new Error('expected source-normal fixture item');
+		}
+
+		const nextPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				[itemWithoutLanguage.itemId]: itemWithOmittedLanguageFields(itemWithoutLanguage),
+			},
+		};
+
+		const projectionInput = makeBridgeReviewProjectionInput(nextPackage);
+		const projectedItem = projectionInput.orderedItems.find(
+			(item) => item.itemId === itemWithoutLanguage.itemId,
+		);
+
+		expect(projectedItem?.language).toBeNull();
+		expect(projectedItem?.extension).toBeNull();
 	});
 
 	test('keeps rename and duplicate display-path maps deterministic', () => {
@@ -122,3 +150,12 @@ describe('Bridge review projection', () => {
 		expect(projection.orderedItemIds.at(-1)).toBe('hidden-binary');
 	});
 });
+
+function itemWithOmittedLanguageFields(
+	item: ReturnType<typeof makeBridgeViewerProjectionFixture>['itemsById'][string],
+): ReturnType<typeof makeBridgeViewerProjectionFixture>['itemsById'][string] {
+	const { language: omittedLanguage, extension: omittedExtension, ...itemWithOmittedFields } = item;
+	void omittedLanguage;
+	void omittedExtension;
+	return itemWithOmittedFields;
+}

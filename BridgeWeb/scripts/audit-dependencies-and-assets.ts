@@ -11,6 +11,8 @@ import {
 	parseAppAssetManifest,
 	readDependencyLicenseMetadata,
 	validatePackagedAppOutput,
+	validateWorkerSourceSelfContained,
+	type WorkerSourceSelfContainmentCheck,
 } from './app-asset-contract.ts';
 
 interface AssetTotals {
@@ -37,9 +39,14 @@ const proofFilePath = join(proofDirectoryPath, 'latest-app-asset-audit.json');
 const dependencyNames = [
 	'@pierre/diffs',
 	'@pierre/trees',
+	'@tailwindcss/cli',
+	'@tsdown/css',
 	'@vitejs/plugin-react',
+	'clsx',
 	'react',
 	'react-dom',
+	'tailwind-merge',
+	'tailwindcss',
 	'tsdown',
 	'vite',
 	'zod',
@@ -58,12 +65,14 @@ const dependencies = await readDependencyLicenseMetadata({
 	packageNames: dependencyNames,
 });
 const assetTotals = summarizeAssetTotals(manifest);
+const workerSelfContainmentChecks = await readWorkerSelfContainmentChecks(manifest);
 const git = await readGitIdentity();
 const audit = {
 	schemaVersion: 1,
 	git,
 	dependencies,
 	assetTotals,
+	workerSelfContainmentChecks,
 	manifest,
 };
 
@@ -75,7 +84,11 @@ console.log(`[bridge-web-audit] dependencies=${dependencies.length}`);
 console.log(`[bridge-web-audit] totalBytes=${assetTotals.totalBytes}`);
 
 function summarizeAssetTotals(assetManifest: AppAssetManifest): AssetTotals {
-	const appAssets = [assetManifest.entrypoints.mainScript, ...assetManifest.entrypoints.styles];
+	const appAssets = [
+		assetManifest.entrypoints.mainScript,
+		...assetManifest.entrypoints.auxiliaryScripts,
+		...assetManifest.entrypoints.styles,
+	];
 	const workerAssets = assetManifest.workers;
 	const appBytes = sumBytes(appAssets);
 	const workerBytes = sumBytes(workerAssets);
@@ -94,6 +107,20 @@ function sumBytes(assets: readonly AppAssetRecord[]): number {
 		(totalBytes: number, asset: AppAssetRecord): number => totalBytes + asset.bytes,
 		0,
 	);
+}
+
+async function readWorkerSelfContainmentChecks(
+	assetManifest: AppAssetManifest,
+): Promise<Readonly<Record<string, WorkerSourceSelfContainmentCheck>>> {
+	const checks = await Promise.all(
+		assetManifest.workers.map(
+			async (worker): Promise<readonly [string, WorkerSourceSelfContainmentCheck]> => {
+				const workerSource = await readFile(join(appDirectoryPath, worker.path), 'utf8');
+				return [worker.path, validateWorkerSourceSelfContained(workerSource)];
+			},
+		),
+	);
+	return Object.fromEntries(checks);
 }
 
 async function readGitIdentity(): Promise<GitIdentity> {

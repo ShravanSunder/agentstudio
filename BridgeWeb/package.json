@@ -5,7 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"audit:assets": "node --experimental-strip-types scripts/audit-dependencies-and-assets.ts",
-		"build": "tsc --noEmit && node --experimental-strip-types scripts/build-app-assets.ts && node --experimental-strip-types scripts/normalize-build-output.ts",
+		"benchmark:viewer": "vitest --config vitest.benchmark.config.ts run",
+		"build": "tsc --noEmit && node --experimental-strip-types scripts/build-app-assets.ts && node --experimental-strip-types scripts/normalize-build-output.ts && pnpm run audit:assets",
 		"check": "oxlint --type-aware && node --experimental-strip-types scripts/check-bridgeweb-architecture.ts && oxfmt --check . && tsc --noEmit",
 		"fmt": "oxfmt .",
 		"fmt:check": "oxfmt --check .",
@@ -18,13 +19,17 @@
 		"@pierre/diffs": "1.2.10",
 		"@pierre/trees": "1.0.0-beta.4",
 		"@vitejs/plugin-react": "^5.0.0",
+		"clsx": "2.1.1",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
+		"tailwind-merge": "3.3.1",
 		"vite": "^7.0.0",
 		"zod": "^4.4.3",
 		"zustand": "5.0.14"
 	},
 	"devDependencies": {
+		"@tailwindcss/cli": "4.1.13",
+		"@tsdown/css": "0.22.2",
 		"@types/node": "25.9.3",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
@@ -32,6 +37,7 @@
 		"oxfmt": "^0.35.0",
 		"oxlint": "^1.0.0",
 		"oxlint-tsgolint": "^0.23.0",
+		"tailwindcss": "4.1.13",
 		"tsdown": "0.22.2",
 		"typescript": "^5.7.0",
 		"vitest": "^3.0.0"

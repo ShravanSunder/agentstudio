@@ -72,16 +72,16 @@ export interface BridgeContentHandle {
 	readonly contentHashAlgorithm: string;
 	readonly cacheKey: string;
 	readonly mimeType: string;
-	readonly language: string | null;
+	readonly language?: string | null;
 	readonly sizeBytes: number;
 	readonly isBinary: boolean;
 }
 
 export interface BridgeReviewContentRoles {
-	readonly base: BridgeContentHandle | null;
-	readonly head: BridgeContentHandle | null;
-	readonly diff: BridgeContentHandle | null;
-	readonly file: BridgeContentHandle | null;
+	readonly base?: BridgeContentHandle | null;
+	readonly head?: BridgeContentHandle | null;
+	readonly diff?: BridgeContentHandle | null;
+	readonly file?: BridgeContentHandle | null;
 }
 
 export interface BridgeProvenanceSummary {
@@ -106,8 +106,8 @@ export interface BridgeReviewItemDescriptor {
 	readonly headPath: string | null;
 	readonly changeKind: BridgeFileChangeKind;
 	readonly fileClass: BridgeFileClass;
-	readonly language: string | null;
-	readonly extension: string | null;
+	readonly language?: string | null;
+	readonly extension?: string | null;
 	readonly sizeBytes: number;
 	readonly baseContentHash: string | null;
 	readonly headContentHash: string | null;

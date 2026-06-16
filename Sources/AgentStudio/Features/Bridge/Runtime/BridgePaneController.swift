@@ -57,6 +57,7 @@ final class BridgePaneController {
     let reviewChangeIndex = BridgeChangeIndex()
     let bridgePaneState: BridgePaneState
     var nextReviewGeneration: BridgeReviewGeneration = 0
+    var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
 
@@ -71,15 +72,18 @@ final class BridgePaneController {
 
     let router: RPCRouter
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
+    let pushNonce: String
+    let pushEnvelopeSink: @MainActor (WebPage, String, String) async throws -> Void
     private let userContentController: WKUserContentController
     private let bootstrapScript: WKUserScript
     private var managementScript: WKUserScript
     private(set) var isContentInteractionEnabled: Bool
     private var interactionApplyTask: Task<Void, Never>?
+    var pushDeliveryTail: Task<Void, Never>?
     private var inboxPostTimestamps: [Date] = []
-    private let telemetryScopeGate: BridgeTelemetryScopeGate
-    private let telemetryRecorder: (any BridgePerformanceTraceRecording)?
-    private let traceContextFactory: BridgeTraceContextFactory
+    let telemetryScopeGate: BridgeTelemetryScopeGate
+    let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    let traceContextFactory: BridgeTraceContextFactory
     var lastReviewPackageTraceContext: BridgeTraceContext?
 
     /// Per store+op dedup cache. Bounded at O(StoreKey × PushOp) — currently 8 entries max.
@@ -87,7 +91,7 @@ final class BridgePaneController {
     /// within the same epoch — a new epoch always goes through even with identical bytes.
     /// This avoids cross-store thrash that a global epoch tracker would cause (connection
     /// uses epoch=0, diff uses diff.epoch, etc.)
-    private var lastPushed: [String: DedupEntry] = [:]
+    var lastPushed: [String: BridgePushDedupEntry] = [:]
 
     // MARK: - Init
 
@@ -107,7 +111,9 @@ final class BridgePaneController {
         telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
         telemetryIngestor: (any BridgeTelemetryBatchIngesting)? = nil,
-        traceContextFactory: BridgeTraceContextFactory = .live
+        traceContextFactory: BridgeTraceContextFactory = .live,
+        pushEnvelopeSink: @escaping @MainActor (WebPage, String, String) async throws -> Void =
+            BridgePaneController.dispatchPushEnvelope
     ) {
         self.paneId = paneId
         self.bridgePaneState = state
@@ -164,6 +170,8 @@ final class BridgePaneController {
         // sets up nonce-validated command forwarding, and dispatches handshake event.
         let bridgeNonce = UUID().uuidString
         let pushNonce = UUID().uuidString
+        self.pushNonce = pushNonce
+        self.pushEnvelopeSink = pushEnvelopeSink
         let webTelemetryScopes = resolvedTelemetryScopeGate.browserExposedScopes
         let telemetryConfig =
             !webTelemetryScopes.isEmpty
@@ -184,6 +192,9 @@ final class BridgePaneController {
         )
         self.bootstrapScript = bootstrapScript
         userContentController.addUserScript(bootstrapScript)
+        #if DEBUG
+            userContentController.addUserScript(Self.makePageDiagnosticsProbeScript())
+        #endif
         userContentController.addUserScript(initialManagementScript)
 
         // Register scheme handler for agentstudio:// URLs (bundled React app assets + resources).
@@ -702,258 +713,100 @@ final class BridgePaneController {
         }
     }
 
-}
-
-// MARK: - DedupEntry
-
-/// Cache entry for transport-level content dedup.
-/// Stores the epoch + payload for a given store+op key.
-/// Dedup only matches within the same epoch — epoch transitions always push through.
-private struct DedupEntry {
-    let epoch: Int
-    let payload: Data
-}
-
-// MARK: - PushTransport Conformance
-
-extension BridgePaneController: PushTransport {
-    func pushJSON(
-        metadata: BridgePushEnvelopeMetadata,
-        json: Data
-    ) async {
-        // Content guard — skip identical pushes to same store+op within the same epoch.
-        // Keyed by store+op (not epoch) so the cache is bounded at O(StoreKey × PushOp).
-        // Epoch is stored in the entry value — a new epoch always goes through even with
-        // identical bytes, because React needs to see epoch transitions for tracking.
-        // Including op ensures .replace and .merge with identical bytes are not
-        // deduplicated (they have different semantics).
-        let dedupKey = "\(metadata.store.rawValue):\(metadata.op.rawValue)"
-        if let previous = lastPushed[dedupKey],
-            previous.epoch == metadata.epoch,
-            previous.payload == json
-        {
-            return
-        }
-
-        // Phase 1: encode the push envelope (encoding bugs are NOT connection errors).
-        let envelopeString: String
-        let traceContext = makePushTraceContext(for: metadata.store)
-        do {
-            let payload = try JSONSerialization.jsonObject(with: json)
-            var envelope: [String: Any] = [
-                "__v": 1,
-                "__revision": metadata.revision,
-                "__epoch": metadata.epoch,
-                "__pushId": UUID().uuidString,
-                "store": metadata.store.rawValue,
-                "op": metadata.op.rawValue,
-                "level": metadata.level.rawValue,
-                "slice": metadata.slice.rawValue,
-                "payload": payload,
-            ]
-            if let traceContext {
-                let traceContextData = try JSONEncoder().encode(traceContext)
-                envelope["__traceContext"] = try JSONSerialization.jsonObject(with: traceContextData)
-            }
-            let envelopeJSON = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
-            guard let encoded = String(data: envelopeJSON, encoding: .utf8) else {
-                throw BridgeError.encoding("Unable to encode push envelope as UTF-8")
-            }
-            envelopeString = encoded
-        } catch {
-            bridgeControllerLogger.error(
-                "[Bridge] envelope encoding bug store=\(metadata.store.rawValue) rev=\(metadata.revision): \(error)"
-            )
-            return
-        }
-        // Transport the envelope to React; transport failures are connection errors.
-        let pushStart = ContinuousClock.now
-        do {
-            try await page.callJavaScript(
-                "window.__bridgeInternal.applyEnvelope(JSON.parse(json))",
-                arguments: ["json": envelopeString],
-                contentWorld: bridgeWorld
-            )
-            lastPushed[dedupKey] = DedupEntry(epoch: metadata.epoch, payload: json)
-            await recordPackagePushTelemetry(
-                slice: metadata.slice,
-                traceContext: traceContext,
-                durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
-                    from: pushStart.duration(to: ContinuousClock.now)
-                )
-            )
-            bridgeControllerLogger.debug(
-                "[BridgePaneController] pushJSON store=\(metadata.store.rawValue) op=\(metadata.op.rawValue) level=\(String(describing: metadata.level)) rev=\(metadata.revision) epoch=\(metadata.epoch) bytes=\(json.count)"
-            )
-        } catch {
-            bridgeControllerLogger.warning(
-                "[Bridge] JS transport failed store=\(metadata.store.rawValue) rev=\(metadata.revision) epoch=\(metadata.epoch): \(error)"
-            )
-            paneState.connection.setHealth(.error)
-        }
-    }
-
-    func makeRootTraceContext() -> BridgeTraceContext? {
-        guard telemetryScopeGate.isEnabled else {
-            return nil
-        }
-        return traceContextFactory.makeRootContext()
-    }
-
-    func makeChildTraceContext(parent: BridgeTraceContext?) -> BridgeTraceContext? {
-        guard telemetryScopeGate.isEnabled else {
-            return nil
-        }
-        return traceContextFactory.makeChildContext(parent: parent)
-    }
-
-    private func makePushTraceContext(for store: StoreKey) -> BridgeTraceContext? {
-        guard telemetryScopeGate.isEnabled else {
-            return nil
-        }
-        guard store == .diff else {
-            return traceContextFactory.makeRootContext()
-        }
-        return traceContextFactory.makeChildContext(parent: lastReviewPackageTraceContext)
-    }
-
-    func recordSwiftTelemetry(
-        name: String,
-        phase: String,
-        priorityHint: PushLevel,
-        traceContext: BridgeTraceContext?,
-        durationMilliseconds: Double?
-    ) async {
-        guard let telemetryRecorder else {
-            return
-        }
-        await telemetryRecorder.record(
-            sample: BridgeTelemetrySample(
-                scope: .swift,
-                name: name,
-                durationMilliseconds: durationMilliseconds,
-                traceContext: traceContext,
-                stringAttributes: [
-                    "agentstudio.bridge.phase": phase,
-                    "agentstudio.bridge.plane": nativeTelemetryPlane(
-                        for: name
-                    ).rawValue,
-                    "agentstudio.bridge.priority": nativeTelemetryPriority(
-                        for: name,
-                        fallback: priorityHint
-                    ).rawValue,
-                    "agentstudio.bridge.slice": nativeTelemetrySlice(for: name).rawValue,
-                    "agentstudio.bridge.transport": "swift",
-                ],
-                numericAttributes: [:],
-                booleanAttributes: [:]
-            ),
-            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+    private static func dispatchPushEnvelope(
+        page: WebPage,
+        envelopeString: String,
+        pushNonce: String
+    ) async throws {
+        let envelopeLiteral = try makeJavaScriptStringLiteral(envelopeString)
+        let nonceLiteral = try makeJavaScriptStringLiteral(pushNonce)
+        try await page.callJavaScript(
+            """
+            document.dispatchEvent(new CustomEvent('__bridge_push_json', {
+                detail: { json: \(envelopeLiteral), nonce: \(nonceLiteral) }
+            }));
+            """,
+            contentWorld: .page
         )
     }
 
-    private func recordPackagePushTelemetry(
-        slice: BridgeTelemetrySlice,
-        traceContext: BridgeTraceContext?,
-        durationMilliseconds: Double
-    ) async {
-        guard let telemetryRecorder else {
-            return
+    #if DEBUG
+        private static func makePageDiagnosticsProbeScript() -> WKUserScript {
+            WKUserScript(
+                source: """
+                    (() => {
+                      const maxEntries = 40;
+                      const clip = (value, limit) => String(value ?? '').slice(0, limit);
+                      const pushBounded = (target, entry) => {
+                        target.push(entry);
+                        if (target.length > maxEntries) {
+                          target.splice(0, target.length - maxEntries);
+                        }
+                      };
+                      window.__bridgeErrorProbe = [];
+                      window.__bridgePushProbe = [];
+                      const requestLabel = (input) => {
+                        if (typeof input === 'string') { return input; }
+                        if (input instanceof URL) { return input.href; }
+                        return input?.url ?? String(input);
+                      };
+                      window.addEventListener('error', (event) => {
+                        pushBounded(window.__bridgeErrorProbe, {
+                          kind: 'error',
+                          message: clip(event.message, 300),
+                          stack: clip(event.error?.stack, 800)
+                        });
+                      });
+                      window.addEventListener('unhandledrejection', (event) => {
+                        pushBounded(window.__bridgeErrorProbe, {
+                          kind: 'unhandledrejection',
+                          message: clip(event.reason?.message ?? event.reason, 300),
+                          stack: clip(event.reason?.stack, 800)
+                        });
+                      });
+                      if (typeof window.fetch === 'function') {
+                        const originalFetch = window.fetch.bind(window);
+                        window.fetch = (input, init) => {
+                          const url = requestLabel(input);
+                          return originalFetch(input, init).catch((error) => {
+                            pushBounded(window.__bridgeErrorProbe, {
+                              kind: 'fetch_error',
+                              message: clip(url + ': ' + (error?.message ?? error), 300),
+                              stack: clip(error?.stack, 800)
+                            });
+                            throw error;
+                          });
+                        };
+                      }
+                      document.addEventListener('__bridge_push_json', (event) => {
+                        pushBounded(window.__bridgePushProbe, {
+                          hasDetail: Boolean(event.detail),
+                          hasJson: typeof event.detail?.json === 'string',
+                          jsonLength: typeof event.detail?.json === 'string'
+                            ? event.detail.json.length
+                            : -1,
+                          nonceLength: typeof event.detail?.nonce === 'string'
+                            ? event.detail.nonce.length
+                            : -1
+                        });
+                      });
+                    })();
+                    """,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true,
+                in: .page
+            )
         }
-        await telemetryRecorder.record(
-            sample: BridgeTelemetrySample(
-                scope: .webKit,
-                name: "performance.bridge.webkit.package_push",
-                durationMilliseconds: durationMilliseconds,
-                traceContext: traceContext,
-                stringAttributes: [
-                    "agentstudio.bridge.phase": "transport",
-                    "agentstudio.bridge.plane": pushTelemetryPlane(for: slice).rawValue,
-                    "agentstudio.bridge.priority": pushTelemetryPriority(for: slice).rawValue,
-                    "agentstudio.bridge.slice": slice.rawValue,
-                    "agentstudio.bridge.transport": "push",
-                ],
-                numericAttributes: [:],
-                booleanAttributes: [:]
-            ),
-            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
-        )
+    #endif
+
+    private static func makeJavaScriptStringLiteral(_ value: String) throws -> String {
+        let data = try JSONEncoder().encode(value)
+        guard let literal = String(data: data, encoding: .utf8) else {
+            throw BridgeError.encoding("Unable to encode push envelope as JavaScript string literal")
+        }
+        return literal
     }
 
-    private func nativeTelemetryPlane(for name: String) -> BridgeTelemetryPlane {
-        switch name {
-        case "performance.bridge.swift.telemetry_ingest":
-            .observability
-        default:
-            .data
-        }
-    }
-
-    private func nativeTelemetryPriority(
-        for name: String,
-        fallback: PushLevel
-    ) -> BridgeTelemetryPriority {
-        switch name {
-        case "performance.bridge.swift.content_load":
-            .hot
-        case "performance.bridge.swift.delta_build":
-            .warm
-        case "performance.bridge.swift.package_build",
-            "performance.bridge.swift.content_register":
-            .cold
-        case "performance.bridge.swift.telemetry_ingest":
-            .bestEffort
-        default:
-            switch fallback {
-            case .hot:
-                .hot
-            case .warm:
-                .warm
-            case .cold:
-                .cold
-            }
-        }
-    }
-
-    private func nativeTelemetrySlice(for name: String) -> BridgeTelemetrySlice {
-        switch name {
-        case "performance.bridge.swift.package_build",
-            "performance.bridge.swift.content_register":
-            .diffPackageMetadata
-        case "performance.bridge.swift.delta_build":
-            .diffPackageDelta
-        case "performance.bridge.swift.content_load":
-            .contentFetch
-        case "performance.bridge.swift.telemetry_ingest":
-            .telemetryIngest
-        default:
-            .unknown
-        }
-    }
-
-    private func pushTelemetryPlane(for slice: BridgeTelemetrySlice) -> BridgeTelemetryPlane {
-        switch slice {
-        case .connectionHealth, .commandAcks, .reviewRPC:
-            .control
-        case .telemetryBatch, .telemetryDrop, .telemetryIngest:
-            .observability
-        default:
-            .data
-        }
-    }
-
-    private func pushTelemetryPriority(for slice: BridgeTelemetrySlice) -> BridgeTelemetryPriority {
-        switch slice {
-        case .diffStatus, .connectionHealth:
-            .hot
-        case .diffPackageDelta, .reviewThreads, .reviewViewedFiles, .commandAcks, .reviewRPC:
-            .warm
-        case .diffPackageMetadata, .diffFiles, .contentFetch, .unknown:
-            .cold
-        case .telemetryBatch, .telemetryDrop, .telemetryIngest:
-            .bestEffort
-        }
-    }
 }
 
 private enum BridgeError: Error, LocalizedError, Sendable {

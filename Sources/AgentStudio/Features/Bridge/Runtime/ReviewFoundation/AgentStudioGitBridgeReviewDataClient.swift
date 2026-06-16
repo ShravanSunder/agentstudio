@@ -27,11 +27,20 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
 
     private let repositoryPath: URL
     private let client: LocalClient
+    private let gitDataPlaneReadTimeout: Duration
+    private let timeoutScheduler: any BridgeGitDataPlaneTimeoutScheduler
     private var locatorByHandleId: [String: ContentLocator] = [:]
 
-    init(repositoryPath: URL, client: LocalClient) {
+    init(
+        repositoryPath: URL,
+        client: LocalClient,
+        gitDataPlaneReadTimeout: Duration = AppPolicies.Bridge.defaultGitDataPlaneReadTimeout,
+        timeoutScheduler: any BridgeGitDataPlaneTimeoutScheduler = DispatchBridgeGitDataPlaneTimeoutScheduler()
+    ) {
         self.repositoryPath = repositoryPath
         self.client = client
+        self.gitDataPlaneReadTimeout = gitDataPlaneReadTimeout
+        self.timeoutScheduler = timeoutScheduler
     }
 
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
@@ -109,7 +118,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
             maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
         )
         do {
-            let content = try await client.content(contentRequest)
+            let content = try await loadGitContentPayload(contentRequest)
             let descriptor = fileDescriptor(
                 FileDescriptorInput(
                     path: request.path,
@@ -130,21 +139,28 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
                 )
             }
             return descriptor
-        } catch GitDataPlaneError.contentTooLarge(_, let sizeBytes, _) {
-            return fileDescriptor(
-                FileDescriptorInput(
-                    path: request.path,
-                    endpoint: request.endpoint,
-                    reviewGeneration: request.reviewGeneration,
-                    sizeBytes: byteCount(sizeBytes),
-                    isBinary: false,
-                    contentHash: "oversized:\(sizeBytes)",
-                    contentHashAlgorithm: "metadata",
-                    includeContentHandle: false
+        } catch BridgeGitDataPlaneTimeoutError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            if case .contentTooLarge(_, let sizeBytes, _) = error {
+                return fileDescriptor(
+                    FileDescriptorInput(
+                        path: request.path,
+                        endpoint: request.endpoint,
+                        reviewGeneration: request.reviewGeneration,
+                        sizeBytes: byteCount(sizeBytes),
+                        isBinary: false,
+                        contentHash: "oversized:\(sizeBytes)",
+                        contentHashAlgorithm: "metadata",
+                        includeContentHandle: false
+                    )
                 )
-            )
-        } catch {
+            }
             throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: String(describing: error))
         }
     }
 
@@ -282,18 +298,42 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
     }
 
     private func loadGitDiff(_ request: GitDiffRequest) async throws -> GitDiffSnapshot {
+        let client = self.client
         do {
-            return try await client.diff(request)
-        } catch {
+            return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
+                gitDataPlaneReadTimeout,
+                timeoutScheduler: timeoutScheduler
+            ) {
+                try await client.diff(request)
+            }
+        } catch BridgeGitDataPlaneTimeoutError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
             throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: String(describing: error))
         }
     }
 
     private func loadGitTree(_ request: GitTreeReadRequest) async throws -> GitTreeSnapshot {
+        let client = self.client
         do {
-            return try await client.readTree(request)
-        } catch {
+            return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
+                gitDataPlaneReadTimeout,
+                timeoutScheduler: timeoutScheduler
+            ) {
+                try await client.readTree(request)
+            }
+        } catch BridgeGitDataPlaneTimeoutError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
             throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: String(describing: error))
         }
     }
 
@@ -302,9 +342,25 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         handle: BridgeContentHandle?
     ) async throws -> GitContentPayload {
         do {
-            return try await client.content(request)
-        } catch {
+            return try await loadGitContentPayload(request)
+        } catch BridgeGitDataPlaneTimeoutError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
             throw bridgeFailure(for: error, handle: handle)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: String(describing: error))
+        }
+    }
+
+    private func loadGitContentPayload(_ request: GitContentRequest) async throws -> GitContentPayload {
+        let client = self.client
+        return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
+            gitDataPlaneReadTimeout,
+            timeoutScheduler: timeoutScheduler
+        ) {
+            try await client.content(request)
         }
     }
 

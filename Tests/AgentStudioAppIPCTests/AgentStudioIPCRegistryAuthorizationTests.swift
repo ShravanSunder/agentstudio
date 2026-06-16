@@ -8,9 +8,9 @@ struct AgentStudioIPCRegistryAuthorizationTests {
     @Test("phase-one registry has complete metadata and no deferred namespaces")
     func phaseOneRegistryHasCompleteMetadataAndNoDeferredNamespaces() throws {
         let registry = try AppIPCMethodRegistry.phaseOne()
-        let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "bridge.", "orchestration."]
+        let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "orchestration."]
 
-        #expect(registry.definitions.count == 32)
+        #expect(registry.definitions.count == 39)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
             #expect(!definition.resultSchema.name.isEmpty)
@@ -34,6 +34,44 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             let definition = try #require(registry.definition(named: methodName))
             #expect(definition.privilegeClasses == [.layoutMutate])
             #expect(definition.executionOwner == .workspaceAction)
+        }
+
+        let expectedBridgeMethods: [String: (privileges: Set<String>, owner: String)] = [
+            "bridge.review.open": (["layoutMutate"], "bridgeCapability"),
+            "bridge.review.refresh": (["bridgeControl"], "bridgeCapability"),
+            "bridge.review.getPackage": (["bridgeRead"], "bridgeCapability"),
+            "bridge.review.renderState": (["bridgeRead"], "bridgeCapability"),
+            "bridge.review.selectFile": (["bridgeControl"], "bridgeCapability"),
+            "bridge.content.get": (["bridgeContentRead"], "bridgeCapability"),
+            "bridge.telemetry.flush": (["bridgeTelemetryFlush"], "bridgeCapability"),
+        ]
+        for (methodName, expected) in expectedBridgeMethods {
+            let definition = try #require(registry.definition(named: methodName))
+            #expect(Set(definition.privilegeClasses.map(\.rawValue)) == expected.privileges)
+            #expect(definition.executionOwner.rawValue == expected.owner)
+        }
+
+        #expect(registry.definition(named: "webview.evaluateJavaScript") == nil)
+        #expect(registry.definition(named: "bridge.rawPostMessage") == nil)
+    }
+
+    @Test("Bridge review open is not a baseline self-pane Bridge control method")
+    func bridgeReviewOpenIsNotBaselineSelfPaneBridgeControl() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: GrantLedger(),
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.review.open",
+                requestedTarget: .selfPane,
+                activePaneId: nil
+            )
         }
     }
 

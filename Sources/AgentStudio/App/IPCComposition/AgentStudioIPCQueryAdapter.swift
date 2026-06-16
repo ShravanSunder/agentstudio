@@ -150,8 +150,30 @@ struct AgentStudioIPCQueryAdapter: AppIPCQueryPort, @unchecked Sendable {
             name: workspace.name,
             tabCount: workspace.tabs.count,
             paneCount: workspace.panes.count,
+            repositories: repositorySummaries(in: workspace),
             isCurrent: isCurrent
         )
+    }
+
+    private func repositorySummaries(
+        in workspace: ProgrammaticControlWorkspaceSnapshot
+    ) -> [IPCWorkspaceRepositorySummary] {
+        workspace.repositories.map { repo in
+            IPCWorkspaceRepositorySummary(
+                id: repo.id,
+                name: repo.name,
+                path: repo.path,
+                worktrees: repo.worktrees.map { worktree in
+                    IPCWorkspaceWorktreeSummary(
+                        id: worktree.id,
+                        repoId: worktree.repoId,
+                        name: worktree.name,
+                        path: worktree.path,
+                        isMainWorktree: worktree.isMainWorktree
+                    )
+                }
+            )
+        }
     }
 
     private func tabSummary(

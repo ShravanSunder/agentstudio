@@ -1,12 +1,16 @@
 import type { ReactElement } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useStore } from 'zustand';
 
 import {
 	type BridgePageHandshakeSession,
 	installBridgePageHandshakeSession,
 } from '../bridge/bridge-page-handshake.js';
 import type { BridgePushEnvelope } from '../bridge/bridge-push-envelope.js';
-import { installBridgePushReceiver } from '../bridge/bridge-push-receiver.js';
+import {
+	type BridgePushDropReason,
+	installBridgePushReceiver,
+} from '../bridge/bridge-push-receiver.js';
 import { createBridgeRPCClient } from '../bridge/bridge-rpc-client.js';
 import { createBridgeTelemetryEventSink } from '../bridge/bridge-telemetry-event-sink.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
@@ -15,7 +19,11 @@ import {
 	applyDeltaToBridgeReviewItemRegistry,
 	createBridgeReviewItemRegistry,
 } from '../foundation/review-package/bridge-review-item-registry.js';
-import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
+import type {
+	BridgeFileChangeKind,
+	BridgeFileClass,
+	BridgeReviewPackage,
+} from '../foundation/review-package/bridge-review-package.js';
 import {
 	createBridgeTelemetryRecorder,
 	type BridgeTelemetryRecorder,
@@ -29,15 +37,27 @@ import {
 	createBridgeChildTraceContext,
 	type BridgeTraceContext,
 } from '../foundation/telemetry/bridge-trace-context.js';
+import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
+import type { BridgeReviewProjectionMode } from '../review-viewer/models/review-projection-models.js';
+import { useBridgeReviewProjectionCoordinator } from '../review-viewer/runtime/use-review-projection-coordinator.js';
 import {
 	BridgeReviewEmptyShell,
-	loadSelectedReviewItemContent,
+	BridgeReviewProjectionPendingShell,
+	loadSelectedReviewItemContentResources,
 	ReviewViewerShell,
 } from '../review-viewer/shell/review-viewer-shell.js';
+import {
+	createBridgeReviewViewerStore,
+	type BridgeReviewViewerStore,
+} from '../review-viewer/state/review-viewer-store.js';
+import { recordBridgeViewerContentQueueTelemetry } from '../review-viewer/telemetry/bridge-review-viewer-telemetry.js';
+import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/rpc/review-projection-worker-client.js';
+import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/rpc/review-projection-worker-transport.js';
 
 export interface BridgeAppProps {
 	readonly target?: EventTarget;
 	readonly fetchContent?: BridgeContentFetch;
+	readonly projectionWorkerClient?: BridgeReviewProjectionWorkerClient;
 }
 
 interface BridgeReviewPackageTelemetryContext {
@@ -45,11 +65,34 @@ interface BridgeReviewPackageTelemetryContext {
 	readonly traceContext: BridgeTraceContext | null;
 }
 
+interface SelectedContentResourcesState {
+	readonly itemId: string;
+	readonly contentKey: string;
+	readonly resources: BridgeCodeViewContentResources | null;
+}
+
+function useBridgeReviewViewerStore(): BridgeReviewViewerStore {
+	const storeRef = useRef<BridgeReviewViewerStore | null>(null);
+	if (storeRef.current === null) {
+		storeRef.current = createBridgeReviewViewerStore();
+	}
+	return storeRef.current;
+}
+
 export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const target = props.target ?? document;
+	const viewerStore = useBridgeReviewViewerStore();
+	const projection = useStore(viewerStore, (state) => state.projection);
 	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
 	const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-	const [selectedContentText, setSelectedContentText] = useState<string | null>(null);
+	const [selectedContentResourcesState, setSelectedContentResourcesState] =
+		useState<SelectedContentResourcesState | null>(null);
+	const [projectionMode, setProjectionMode] = useState<BridgeReviewProjectionMode>({
+		kind: 'allFiles',
+	});
+	const [treeSearchText, setTreeSearchText] = useState('');
+	const [gitStatusFilter, setGitStatusFilter] = useState<BridgeFileChangeKind | 'all'>('all');
+	const [fileClassFilter, setFileClassFilter] = useState<BridgeFileClass | 'all'>('all');
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
 	const currentReviewPackageTelemetryContextRef =
 		useRef<BridgeReviewPackageTelemetryContext | null>(null);
@@ -58,6 +101,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	);
 	const lastTelemetryMarkedItemRef = useRef<string | null>(null);
 	const lastFirstRenderPackageRef = useRef<string | null>(null);
+	const reviewPackageRef = useRef<BridgeReviewPackage | null>(null);
+	reviewPackageRef.current = reviewPackage;
 	const rpcClient = useMemo(
 		() =>
 			createBridgeRPCClient({
@@ -77,6 +122,43 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			}),
 		[target],
 	);
+	const defaultProjectionWorkerClient = useMemo(
+		() => createBridgeReviewProjectionWebWorkerClient(),
+		[],
+	);
+	const projectionWorkerClient = props.projectionWorkerClient ?? defaultProjectionWorkerClient;
+	const flushTelemetry = useCallback((): void => {
+		telemetryRecorderRef.current.flush();
+	}, []);
+	const selectReviewItem = useCallback(
+		(itemId: string): void => {
+			const currentReviewPackage = reviewPackageRef.current;
+			if (currentReviewPackage === null || !(itemId in currentReviewPackage.itemsById)) {
+				return;
+			}
+			setSelectedItemId(itemId);
+			setSelectedContentResourcesState(null);
+			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
+			rpcClient.sendCommand({
+				method: 'review.markFileViewed',
+				params: { fileId: itemId },
+			});
+		},
+		[rpcClient],
+	);
+
+	useBridgeReviewProjectionCoordinator({
+		store: viewerStore,
+		reviewPackage,
+		projectionMode,
+		gitStatusFilter,
+		fileClassFilter,
+		projectionWorkerClient,
+		telemetryRecorder: telemetryRecorderRef.current,
+		telemetryParentTraceContext:
+			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+		flushTelemetry,
+	});
 
 	useEffect((): (() => void) => {
 		let handshakeSession: BridgePageHandshakeSession | null = null;
@@ -99,9 +181,13 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					envelope,
 					setReviewPackage,
 					setSelectedItemId,
+					reviewPackageRef,
 					reviewPackageTelemetryContextRef.current,
 					currentReviewPackageTelemetryContextRef,
 				);
+			},
+			onDroppedEnvelope: (reason: BridgePushDropReason): void => {
+				recordPushDropTelemetry(telemetryRecorderRef.current, reason);
 			},
 		});
 		handshakeSession = installBridgePageHandshakeSession(target, {
@@ -114,24 +200,66 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		};
 	}, [rpcClient, target]);
 
+	useLayoutEffect((): (() => void) => {
+		const handleSelectReviewItem = (event: Event): void => {
+			const detail = 'detail' in event ? event.detail : null;
+			if (!isRecord(detail) || typeof detail['itemId'] !== 'string') {
+				return;
+			}
+			selectReviewItem(detail['itemId']);
+		};
+		const windowTarget = typeof window === 'undefined' ? null : window;
+		target.addEventListener('__bridge_select_review_item', handleSelectReviewItem);
+		if (windowTarget !== null && windowTarget !== target) {
+			windowTarget.addEventListener('__bridge_select_review_item', handleSelectReviewItem);
+		}
+		return (): void => {
+			target.removeEventListener('__bridge_select_review_item', handleSelectReviewItem);
+			if (windowTarget !== null && windowTarget !== target) {
+				windowTarget.removeEventListener('__bridge_select_review_item', handleSelectReviewItem);
+			}
+		};
+	}, [selectReviewItem, target]);
+
 	useEffect((): (() => void) => {
 		let didCancel = false;
+		const contentAbortController = new AbortController();
 		if (reviewPackage === null || selectedItemId === null) {
-			setSelectedContentText(null);
+			setSelectedContentResourcesState(null);
 			return (): void => {
 				didCancel = true;
+				contentAbortController.abort();
 			};
 		}
+		const selectedItem = reviewPackage.itemsById[selectedItemId];
+		if (selectedItem === undefined) {
+			setSelectedContentResourcesState(null);
+			return (): void => {
+				didCancel = true;
+				contentAbortController.abort();
+			};
+		}
+		const selectedContentKey = makeSelectedContentResourcesKey(reviewPackage, selectedItemId);
+		setSelectedContentResourcesState(
+			(current: SelectedContentResourcesState | null): SelectedContentResourcesState | null =>
+				current?.contentKey === selectedContentKey ? current : null,
+		);
+		const parentTraceContext =
+			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
+		recordBridgeViewerContentQueueTelemetry({
+			telemetryRecorder: telemetryRecorderRef.current,
+			parentTraceContext,
+			item: selectedItem,
+		});
 		const loadProps =
 			props.fetchContent === undefined
 				? {
 						reviewPackage,
 						selectedItemId,
 						traceContext: telemetryRecorderRef.current.isEnabled('web')
-							? createChildTraceContext(
-									currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
-								)
+							? createChildTraceContext(parentTraceContext)
 							: null,
+						signal: contentAbortController.signal,
 						telemetryRecorder: telemetryRecorderRef.current,
 					}
 				: {
@@ -139,24 +267,42 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						selectedItemId,
 						fetchContent: props.fetchContent,
 						traceContext: telemetryRecorderRef.current.isEnabled('web')
-							? createChildTraceContext(
-									currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
-								)
+							? createChildTraceContext(parentTraceContext)
 							: null,
+						signal: contentAbortController.signal,
 						telemetryRecorder: telemetryRecorderRef.current,
 					};
-		void loadSelectedReviewItemContent(loadProps).then((contentResource): void => {
-			if (!didCancel) {
-				setSelectedContentText(contentResource?.text ?? null);
-			}
-		});
+		void loadSelectedReviewItemContentResources(loadProps)
+			.then((contentResources): void => {
+				if (!didCancel) {
+					setSelectedContentResourcesState({
+						itemId: selectedItemId,
+						contentKey: selectedContentKey,
+						resources: contentResources,
+					});
+				}
+			})
+			.catch((): void => {
+				if (!didCancel) {
+					setSelectedContentResourcesState({
+						itemId: selectedItemId,
+						contentKey: selectedContentKey,
+						resources: null,
+					});
+				}
+			});
 		return (): void => {
 			didCancel = true;
+			contentAbortController.abort();
 		};
 	}, [props.fetchContent, reviewPackage, selectedItemId]);
 
 	useEffect((): void => {
-		if (reviewPackage === null || !telemetryRecorderRef.current.isEnabled('web')) {
+		if (
+			reviewPackage === null ||
+			projection === null ||
+			!telemetryRecorderRef.current.isEnabled('web')
+		) {
 			return;
 		}
 		const packageKey = `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}`;
@@ -181,7 +327,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			booleanAttributes: {},
 		});
 		telemetryRecorderRef.current.flush();
-	}, [reviewPackage]);
+	}, [projection, reviewPackage]);
 
 	useEffect((): void => {
 		if (
@@ -203,22 +349,39 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	}, [reviewPackage, rpcClient, selectedItemId]);
 
 	return (
-		<div data-testid="bridge-app-root">
+		<div
+			className="dark h-screen min-h-screen w-full overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)] antialiased"
+			data-testid="bridge-app-root"
+		>
 			{reviewPackage === null ? (
 				<BridgeReviewEmptyShell />
+			) : projection === null ? (
+				<BridgeReviewProjectionPendingShell />
 			) : (
 				<ReviewViewerShell
-					onSelectItem={(itemId: string): void => {
-						setSelectedItemId(itemId);
-						lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(reviewPackage, itemId);
-						rpcClient.sendCommand({
-							method: 'review.markFileViewed',
-							params: { fileId: itemId },
-						});
-					}}
+					fileClassFilter={fileClassFilter}
+					gitStatusFilter={gitStatusFilter}
+					onFileClassFilterChange={setFileClassFilter}
+					onGitStatusFilterChange={setGitStatusFilter}
+					onProjectionModeChange={setProjectionMode}
+					onSelectItem={selectReviewItem}
+					onTreeSearchTextChange={setTreeSearchText}
+					projection={projection}
+					projectionMode={projectionMode}
 					reviewPackage={reviewPackage}
-					selectedContentText={selectedContentText}
+					selectedContentResources={
+						selectedContentResourcesState?.itemId === selectedItemId &&
+						selectedContentResourcesState.contentKey ===
+							makeSelectedContentResourcesKey(reviewPackage, selectedItemId)
+							? selectedContentResourcesState.resources
+							: null
+					}
 					selectedItemId={selectedItemId}
+					telemetryParentTraceContext={
+						currentReviewPackageTelemetryContextRef.current?.traceContext ?? null
+					}
+					telemetryRecorder={telemetryRecorderRef.current}
+					treeSearchText={treeSearchText}
 				/>
 			)}
 		</div>
@@ -235,6 +398,33 @@ function makeTelemetryMarkedItemKey(reviewPackage: BridgeReviewPackage, itemId: 
 
 function makeTelemetryPackageKey(reviewPackage: BridgeReviewPackage): string {
 	return `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}`;
+}
+
+function makeSelectedContentResourcesKey(
+	reviewPackage: BridgeReviewPackage,
+	selectedItemId: string,
+): string {
+	const selectedItem = reviewPackage.itemsById[selectedItemId];
+	if (selectedItem === undefined) {
+		return `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}:${reviewPackage.revision}:${selectedItemId}:missing`;
+	}
+	const roleKeys = [
+		selectedItem.contentRoles.base,
+		selectedItem.contentRoles.head,
+		selectedItem.contentRoles.diff,
+		selectedItem.contentRoles.file,
+	]
+		.map((handle): string => handle?.cacheKey ?? 'none')
+		.join('|');
+	return [
+		reviewPackage.packageId,
+		String(reviewPackage.reviewGeneration),
+		String(reviewPackage.revision),
+		selectedItem.itemId,
+		String(selectedItem.itemVersion),
+		selectedItem.cacheKey,
+		roleKeys,
+	].join(':');
 }
 
 function recordPackageApplyTelemetry(
@@ -259,12 +449,38 @@ function recordPackageApplyTelemetry(
 	telemetryRecorder.flush();
 }
 
+function recordPushDropTelemetry(
+	telemetryRecorder: BridgeTelemetryRecorder,
+	reason: BridgePushDropReason,
+): void {
+	telemetryRecorder.record({
+		scope: 'web',
+		name: 'performance.bridge.web.telemetry_drop',
+		durationMilliseconds: null,
+		traceContext: null,
+		stringAttributes: {
+			'agentstudio.bridge.phase': 'dropped',
+			'agentstudio.bridge.plane': 'observability',
+			'agentstudio.bridge.priority': 'best_effort',
+			'agentstudio.bridge.slice': 'telemetry_drop',
+			'agentstudio.bridge.telemetry.drop_reason': reason,
+			'agentstudio.bridge.transport': 'rpc',
+		},
+		numericAttributes: {
+			'agentstudio.bridge.telemetry.dropped_count': 1,
+		},
+		booleanAttributes: {},
+	});
+	telemetryRecorder.flush({ force: true });
+}
+
 function applyReviewEnvelope(
 	envelope: BridgePushEnvelope,
 	setReviewPackage: (
 		update: (current: BridgeReviewPackage | null) => BridgeReviewPackage | null,
 	) => void,
 	setSelectedItemId: (update: (current: string | null) => string | null) => void,
+	reviewPackageRef: { current: BridgeReviewPackage | null },
 	telemetryContextByPackageKey: Map<string, BridgeReviewPackageTelemetryContext>,
 	currentReviewPackageTelemetryContextRef: {
 		current: BridgeReviewPackageTelemetryContext | null;
@@ -281,6 +497,7 @@ function applyReviewEnvelope(
 		};
 		telemetryContextByPackageKey.set(makeTelemetryPackageKey(packagePayload), telemetryContext);
 		currentReviewPackageTelemetryContextRef.current = telemetryContext;
+		reviewPackageRef.current = packagePayload;
 		setReviewPackage((): BridgeReviewPackage => packagePayload);
 		setSelectedItemId((current: string | null): string | null =>
 			current === null || !(current in packagePayload.itemsById)
@@ -313,6 +530,7 @@ function applyReviewEnvelope(
 			telemetryContext,
 		);
 		currentReviewPackageTelemetryContextRef.current = telemetryContext;
+		reviewPackageRef.current = result.registry.reviewPackage;
 		setSelectedItemId((selectedItemId: string | null): string | null =>
 			selectedItemId === null || !(selectedItemId in result.registry.reviewPackage.itemsById)
 				? firstVisibleItemId(result.registry.reviewPackage)

@@ -555,6 +555,8 @@ Work:
    worker from Task 3. Treat worker-prepared `FileTreePreparedInput` as a later
    optimization unless the installed public Pierre API is proven structured
    clone safe in this implementation.
+   Pass ancestor-derived `initialExpandedPaths` for review projections so file
+   rows are visible without opening every directory by default.
 3. Add projection buttons: all, changed, guided, change set, docs/plans, tests,
    source.
 4. Add tree search, Git-status filter menu, secondary facet menu, and compare
@@ -562,7 +564,9 @@ Work:
 5. Implement reset/batch/status update policy:
    - hard package/generation/projection reorder: reset paths
    - proven append-only delta: batch add paths
-   - status-only changes: status patch
+   - status-only changes: public `setGitStatus(...)`; do not call local/private
+     `applyGitStatusPatch(...)` unless the installed published package exposes
+     it through public `@pierre/trees` exports
 6. Keep row selection mapped through `primaryItemIdByTreePath` and
    `secondaryItemIdsByTreePath`.
 
@@ -606,9 +610,15 @@ Work:
    stable public signal is available, slice 1 hydrates selected/hover/guided
    first and records a follow-up for viewport-driven hydration.
 5. Materialize file, patch diff, side-by-side diff, added/deleted, binary,
-   large, and placeholder items with version/cache-key rules.
+   large, and placeholder items with version/cache-key rules. Start with a
+   visually usable dark CodeView shell, then follow with a smaller mixed fixture
+   that has fewer added-only files and proves added/deleted/new files render
+   through the correct Pierre item shape instead of blank placeholders.
 6. Render markdown/docs/plan files as source text through CodeView/File.
 7. Preserve selected line/range only when the item and range still exist.
+8. Configure CodeView layout through Pierre's `layout` option and keep the
+   worker-pool highlighter theme aligned with the mounted CodeView theme
+   (`pierre-dark` for this dark-only slice).
 
 Proof:
 
@@ -618,6 +628,8 @@ Proof:
   `agentstudio://resource/content/{handleId}?generation=...`
 - integration test for mixed file/diff package, added/deleted files, markdown
   source text, and placeholders
+- focused test for item `version` propagation from Bridge `itemVersion`, since
+  Pierre drops same-id updates without a version bump
 - large-diff fixture can select, scroll, collapse, expand, and update without
   pixel-offset hacks
 
@@ -625,6 +637,21 @@ Commands:
 
 - `mise run bridge-web-check`
 - `mise run bridge-web-test`
+
+Follow-up developer-experience lane:
+
+- Add a DEBUG-only BridgeWeb hot-reload path that keeps the real
+  `agentstudio://app/*` scheme. Preferred shape: `BridgeAppAssetStore` accepts
+  a path-confined `AGENTSTUDIO_BRIDGEWEB_APP_ROOT` override in debug runs,
+  `scripts/run-debug-observability.sh` passes the override when set, and a
+  BridgeWeb watch/build task emits `tsdown` output into that override directory.
+- Proof must show a debug Bridge pane can reload updated React output without a
+  Swift rebuild while still loading app assets, CSS, worker assets, bootstrap,
+  and content URLs through `agentstudio://app/*` and
+  `agentstudio://resource/content/*`.
+- Do not route this through a generic Vite `http://localhost` pane load unless a
+  later design explicitly accepts the lower parity and extra navigation/worker
+  policy work.
 
 ### Task 6: Shiki Worker Pool And Packaged WKWebView Proof
 

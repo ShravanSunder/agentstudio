@@ -29,6 +29,16 @@ describe('script runtime contract', () => {
 		expect(scripts['check']).toContain(
 			'node --experimental-strip-types scripts/check-bridgeweb-architecture.ts',
 		);
+		expect(scripts['benchmark:viewer']).toBe('vitest --config vitest.benchmark.config.ts run');
+	});
+
+	test('loads the Bridge app Tailwind stylesheet from the WebKit entrypoint', async () => {
+		const bootstrapSource = await readFile(
+			new URL('src/app/bridge-app-bootstrap.tsx', packageRootPath),
+			'utf8',
+		);
+
+		expect(bootstrapSource).toContain("import './bridge-app.css';");
 	});
 });
 

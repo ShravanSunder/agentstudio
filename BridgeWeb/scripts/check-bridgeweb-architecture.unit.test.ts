@@ -41,7 +41,7 @@ describe('BridgeWeb architecture checker', () => {
 					import { CodeView } from '@pierre/diffs/react';
 					export const value = CodeView;
 				`,
-				'src/review-viewer/workers/shiki/pierre-worker-pool.ts': `
+				'src/review-viewer/workers/pierre/pierre-worker-pool.ts': `
 					import { WorkerPoolManager } from '@pierre/diffs/worker';
 					export const value = WorkerPoolManager;
 				`,

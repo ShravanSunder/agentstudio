@@ -7,8 +7,10 @@ import { describe, expect, test } from 'vitest';
 import {
 	buildAppAssetManifest,
 	createAppIndexHtml,
+	normalizePackagedPierreWorkerSource,
 	readDependencyLicenseMetadata,
 	validatePackagedAppOutput,
+	validateWorkerSourceSelfContained,
 } from './app-asset-contract.ts';
 
 describe('app asset contract', () => {
@@ -28,6 +30,7 @@ describe('app asset contract', () => {
 
 		try {
 			await writeFile(join(tempDirectory, 'bridge-app.js'), 'console.log("app");\n', 'utf8');
+			await writeFile(join(tempDirectory, 'swift-language.js'), 'console.log("swift");\n', 'utf8');
 			await writeFile(join(tempDirectory, 'bridge-app.css'), ':root { color: white; }\n', 'utf8');
 			await writeFile(
 				join(tempDirectory, 'pierre-worker-portable.js'),
@@ -38,11 +41,13 @@ describe('app asset contract', () => {
 			const manifest = await buildAppAssetManifest({
 				appDirectoryPath: tempDirectory,
 				mainScriptPath: 'bridge-app.js',
+				auxiliaryScriptPaths: ['swift-language.js'],
 				stylePaths: ['bridge-app.css'],
 				workerAssets: [
 					{
 						kind: 'pierre-diffs-shiki',
 						path: 'pierre-worker-portable.js',
+						workerKind: 'classicWorker',
 						source: 'packagedAppAsset',
 					},
 				],
@@ -50,6 +55,12 @@ describe('app asset contract', () => {
 
 			expect(manifest.schemaVersion).toBe(1);
 			expect(manifest.entrypoints.mainScript.path).toBe('bridge-app.js');
+			expect(manifest.entrypoints.auxiliaryScripts).toEqual([
+				expect.objectContaining({
+					path: 'swift-language.js',
+					bytes: 22,
+				}),
+			]);
 			expect(manifest.entrypoints.styles).toHaveLength(1);
 			expect(manifest.workers).toHaveLength(1);
 			const workerAsset = manifest.workers[0];
@@ -58,6 +69,8 @@ describe('app asset contract', () => {
 			expect(workerAsset).toMatchObject({
 				kind: 'pierre-diffs-shiki',
 				path: 'pierre-worker-portable.js',
+				agentStudioAppUrl: 'agentstudio://app/pierre-worker-portable.js',
+				workerKind: 'classicWorker',
 				source: 'packagedAppAsset',
 				bytes: 27,
 			});
@@ -79,12 +92,46 @@ describe('app asset contract', () => {
 							bytes: 1,
 							sha256: 'a'.repeat(64),
 						},
+						auxiliaryScripts: [],
 						styles: [],
 					},
 					workers: [],
 				},
 			}),
 		).toThrow(/dev entrypoint/);
+	});
+
+	test('validates packaged worker sources stay self contained for blob-backed WebKit workers', () => {
+		expect(
+			validateWorkerSourceSelfContained(
+				'const wasmBytes = new Uint8Array([]); WebAssembly.instantiate(wasmBytes);',
+			),
+		).toEqual(
+			expect.objectContaining({
+				isSelfContained: true,
+			}),
+		);
+
+		for (const source of [
+			'import "sidecar.js";',
+			'import("https://example.invalid/sidecar.js");',
+			'importScripts("sidecar.js");',
+			'fetch("./sidecar.wasm");',
+			'new URL("./sidecar.wasm", import.meta.url);',
+			'new XMLHttpRequest();',
+		]) {
+			expect(() => validateWorkerSourceSelfContained(source)).toThrow(/self-contained/);
+		}
+	});
+
+	test('normalizes Pierre worker optional Shiki WASM sidecar import', () => {
+		const normalizedSource = normalizePackagedPierreWorkerSource(`
+			const engine = createOnigurumaEngine(import("./wasm-qE0LgnY3.js"));
+		`);
+
+		expect(normalizedSource).not.toContain('import("./wasm-qE0LgnY3.js")');
+		expect(normalizedSource).toContain('BridgeWeb packages only the shiki-js worker highlighter');
+		expect(() => validateWorkerSourceSelfContained(normalizedSource)).not.toThrow();
 	});
 
 	test('reads installed dependency version and license metadata', async () => {

@@ -139,12 +139,18 @@ function isReviewItemVisible(
 	if (!isIncludedBySet(filter.reviewStates, item.reviewState)) {
 		return false;
 	}
-	if (item.extension !== null && filter.excludedExtensions.includes(item.extension)) {
+	if (
+		item.extension !== null &&
+		item.extension !== undefined &&
+		filter.excludedExtensions.includes(item.extension)
+	) {
 		return false;
 	}
 	if (
 		filter.includedExtensions.length > 0 &&
-		(item.extension === null || !filter.includedExtensions.includes(item.extension))
+		(item.extension === null ||
+			item.extension === undefined ||
+			!filter.includedExtensions.includes(item.extension))
 	) {
 		return false;
 	}

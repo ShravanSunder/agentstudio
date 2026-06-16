@@ -3,6 +3,7 @@ import { defineConfig } from 'tsdown';
 export default defineConfig({
 	entry: {
 		'bridge-app': './src/app/bridge-app-bootstrap.tsx',
+		'review-projection-worker': './src/review-viewer/workers/rpc/review-projection-worker-entry.ts',
 	},
 	outDir: '../Sources/AgentStudio/Resources/BridgeWeb/app/assets',
 	platform: 'browser',

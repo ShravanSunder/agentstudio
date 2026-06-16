@@ -108,6 +108,9 @@ public enum IPCDataScope: String, Codable, CaseIterable, Hashable, Sendable {
     case unspecified
     case paneContext
     case uiSurface
+    case bridgeReviewPackage
+    case bridgeContent
+    case bridgeTelemetry
     case terminalStatus
     case terminalSnapshot
     case terminalInput
@@ -120,6 +123,11 @@ public enum IPCPrivilegeClass: String, Codable, CaseIterable, Hashable, Sendable
     case workspaceRead
     case paneContextRead
     case layoutMutate
+    case bridgeRead
+    case bridgeContentRead
+    case bridgeControl
+    case bridgeTelemetryRead
+    case bridgeTelemetryFlush
     case terminalRead
     case terminalWrite
     case terminalStatusRead
@@ -138,6 +146,7 @@ public enum IPCExecutionOwner: String, Codable, Equatable, Sendable {
     case appCommand
     case uiPresentation
     case workspaceAction
+    case bridgeCapability
     case runtimeCommand
     case queryReader
     case eventReader

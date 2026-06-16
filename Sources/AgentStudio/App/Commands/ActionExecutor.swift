@@ -75,8 +75,8 @@ final class ActionExecutor {
 
     /// Open a new read-only Bridge review pane in a new tab.
     @discardableResult
-    func openBridgeReview() -> Pane? {
-        coordinator.openBridgeReview()
+    func openBridgeReview(worktreeId: UUID? = nil) -> Pane? {
+        coordinator.openBridgeReview(worktreeId: worktreeId)
     }
 
     @discardableResult

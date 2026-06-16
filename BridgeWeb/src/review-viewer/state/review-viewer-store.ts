@@ -44,6 +44,7 @@ export interface BridgeReviewViewerStoreActions {
 	) => void;
 	readonly startProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity) => void;
 	readonly applyProjectionWorkerResult: (props: ApplyProjectionWorkerResultProps) => boolean;
+	readonly failProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity) => boolean;
 	readonly setWorkerStatus: (status: BridgeReviewWorkerStatus) => void;
 	readonly setContentHydrationStatus: (status: BridgeContentHydrationStatus) => void;
 }
@@ -51,6 +52,7 @@ export interface BridgeReviewViewerStoreActions {
 export interface BridgeReviewViewerStoreState {
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
 	readonly projection: BridgeReviewProjectionResult | null;
+	readonly projectionIdentity: BridgeReviewProjectionRequestIdentity | null;
 	readonly activeProjectionRequestIdentity: BridgeReviewProjectionRequestIdentity | null;
 	readonly workerStatus: BridgeReviewWorkerStatus;
 	readonly contentHydrationByItemId: Readonly<Record<string, BridgeContentHydrationStatus>>;
@@ -87,6 +89,7 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 					projectionStatus: 'idle',
 				},
 				projection: null,
+				projectionIdentity: null,
 				activeProjectionRequestIdentity: null,
 				workerStatus: {
 					lane: 'sync',
@@ -108,9 +111,20 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 						replaceRootSnapshot({ refinements });
 					},
 					startProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): void => {
-						set({
-							activeProjectionRequestIdentity: identity,
-							projection: null,
+						set((state: BridgeReviewViewerStoreState): Partial<BridgeReviewViewerStoreState> => {
+							const keepCurrentProjection = projectionIdentityMatchesPackageRevision(
+								state.projectionIdentity,
+								identity,
+							);
+							return {
+								activeProjectionRequestIdentity: identity,
+								...(keepCurrentProjection
+									? {}
+									: {
+											projection: null,
+											projectionIdentity: null,
+										}),
+							};
 						});
 						replaceRootSnapshot({ projectionStatus: 'running' });
 					},
@@ -122,6 +136,7 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 						set({
 							activeProjectionRequestIdentity: null,
 							projection: props.result,
+							projectionIdentity: props.identity,
 							workerStatus: {
 								...get().workerStatus,
 								pendingRequestCount: Math.max(0, get().workerStatus.pendingRequestCount - 1),
@@ -129,6 +144,22 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 							},
 						});
 						replaceRootSnapshot({ projectionStatus: 'ready' });
+						return true;
+					},
+					failProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): boolean => {
+						const activeIdentity = get().activeProjectionRequestIdentity;
+						if (!requestIdentitiesMatch(activeIdentity, identity)) {
+							return false;
+						}
+						set({
+							activeProjectionRequestIdentity: null,
+							workerStatus: {
+								...get().workerStatus,
+								pendingRequestCount: Math.max(0, get().workerStatus.pendingRequestCount - 1),
+								lastCompletedRequestId: identity.requestId,
+							},
+						});
+						replaceRootSnapshot({ projectionStatus: 'failed' });
 						return true;
 					},
 					setWorkerStatus: (status: BridgeReviewWorkerStatus): void => {
@@ -168,5 +199,17 @@ function requestIdentitiesMatch(
 		left.revision === right.revision &&
 		left.projectionRequestFingerprint === right.projectionRequestFingerprint &&
 		left.abortKey === right.abortKey
+	);
+}
+
+function projectionIdentityMatchesPackageRevision(
+	left: BridgeReviewProjectionRequestIdentity | null,
+	right: BridgeReviewProjectionRequestIdentity,
+): boolean {
+	return (
+		left !== null &&
+		left.packageId === right.packageId &&
+		left.reviewGeneration === right.reviewGeneration &&
+		left.revision === right.revision
 	);
 }

@@ -27,10 +27,32 @@ echo "[$LOG_PREFIX] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
 prebuild_swift_tests
 
 if [ "$#" -gt 0 ]; then
+  requested_args_include_serialized_suite_filter() {
+    local argument
+    for argument in "$@"; do
+      case "$argument" in
+        *WebKitSerializedTests*|*E2ESerializedTests*|*ZmxE2ETests*)
+          return 0
+          ;;
+      esac
+    done
+    return 1
+  }
+
+  swift_test_args=("$@")
+  if ! requested_args_include_serialized_suite_filter "$@"; then
+    swift_test_args+=(
+      --skip WebKitSerializedTests
+      --skip E2ESerializedTests
+      --skip ZmxE2ETests
+    )
+  fi
+
   run_swift_with_timeout \
     "requested swift test args: $*" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build "$@" --build-path "$BUILD_PATH"
+    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build "${swift_test_args[@]}" \
+    --build-path "$BUILD_PATH"
   exit $?
 fi
 

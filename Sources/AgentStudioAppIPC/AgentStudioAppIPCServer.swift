@@ -342,6 +342,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 request: request.replacingHandle(canonicalHandle.rawIPCHandleString),
                 target: targetScope(fromCanonicalHandle: canonicalHandle)
             )
+        case "bridge.review.getPackage", "bridge.review.renderState", "bridge.review.refresh",
+            "bridge.review.selectFile", "bridge.content.get", "bridge.telemetry.flush":
+            return try await bridgeAuthorizationContext(for: request)
         case "pane.split":
             let params = try decodeParams(IPCPaneSplitParams.self, from: request.params)
             let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
@@ -387,6 +390,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             )
         case "permission.request":
             return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
+        case "bridge.review.open":
+            return AuthorizedRequestContext(request: request, target: .app)
         case "ui.commandBar.open":
             return AuthorizedRequestContext(request: request, target: .app)
         case "permission.requestStatus", "permission.grantStatus", "permission.pendingApprovals",
@@ -394,6 +399,55 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
         default:
             return AuthorizedRequestContext(request: request, target: .app)
+        }
+    }
+
+    private func bridgeAuthorizationContext(for request: JSONRPCRequest) async throws -> AuthorizedRequestContext {
+        switch request.method {
+        case "bridge.review.getPackage", "bridge.review.renderState", "bridge.telemetry.flush":
+            let params = try decodeParams(IPCBridgePaneParams.self, from: request.params)
+            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
+            return try AuthorizedRequestContext(
+                request: request.replacingHandle(canonicalHandle.rawIPCHandleString),
+                target: targetScope(fromCanonicalHandle: canonicalHandle)
+            )
+        case "bridge.review.refresh":
+            let params = try decodeParams(IPCBridgeReviewRefreshParams.self, from: request.params)
+            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
+            let canonicalParams = IPCBridgeReviewRefreshParams(
+                handle: canonicalHandle.rawIPCHandleString,
+                correlationId: params.correlationId
+            )
+            return try AuthorizedRequestContext(
+                request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
+                target: targetScope(fromCanonicalHandle: canonicalHandle)
+            )
+        case "bridge.review.selectFile":
+            let params = try decodeParams(IPCBridgeReviewSelectFileParams.self, from: request.params)
+            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
+            let canonicalParams = IPCBridgeReviewSelectFileParams(
+                handle: canonicalHandle.rawIPCHandleString,
+                itemId: params.itemId,
+                correlationId: params.correlationId
+            )
+            return try AuthorizedRequestContext(
+                request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
+                target: targetScope(fromCanonicalHandle: canonicalHandle)
+            )
+        case "bridge.content.get":
+            let params = try decodeParams(IPCBridgeContentGetParams.self, from: request.params)
+            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
+            let canonicalParams = IPCBridgeContentGetParams(
+                handle: canonicalHandle.rawIPCHandleString,
+                contentHandleId: params.contentHandleId,
+                reviewGeneration: params.reviewGeneration
+            )
+            return try AuthorizedRequestContext(
+                request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
+                target: targetScope(fromCanonicalHandle: canonicalHandle)
+            )
+        default:
+            throw AgentStudioAppIPCRequestError.methodNotFound
         }
     }
 
@@ -783,6 +837,8 @@ extension AgentStudioAppIPCRequestError {
             self.init(runtimeError.reason)
         case let commandError as AppIPCCommandError:
             self.init(commandError.reason)
+        case let bridgeError as AppIPCBridgeError:
+            self.init(bridgeError.reason)
         case let uiPresentationError as AppIPCUIPresentationError:
             self.init(uiPresentationError.reason)
         case let authError as AgentStudioIPCAuthenticationError:
@@ -858,6 +914,27 @@ extension AgentStudioAppIPCRequestError {
             self = Self(code: -32_004, message: "target required")
         case .requiresParameters:
             self = Self(code: -32_007, message: "parameters required")
+        case .validationRejected:
+            self = Self(code: -32_007, message: "validation rejected")
+        }
+    }
+
+    private init(_ reason: AppIPCBridgeError.Reason) {
+        switch reason {
+        case .noActiveWindow:
+            self = Self(code: -32_006, message: "no active window")
+        case .targetNotFound:
+            self = Self(code: -32_004, message: "target not found")
+        case .unsupportedTarget:
+            self = Self(code: -32_003, message: "unsupported target")
+        case .packageUnavailable:
+            self = Self(code: -32_005, message: "package unavailable")
+        case .itemNotFound:
+            self = Self(code: -32_004, message: "item not found")
+        case .contentUnavailable:
+            self = Self(code: -32_005, message: "content unavailable")
+        case .payloadTooLarge:
+            self = Self(code: -32_008, message: "payload too large")
         case .validationRejected:
             self = Self(code: -32_007, message: "validation rejected")
         }

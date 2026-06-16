@@ -141,6 +141,43 @@ struct ActionExecutorTestsQuick {
         #expect(baseline == .unstaged)
     }
 
+    @Test("openBridgeReview can target a registered worktree without an active source pane")
+    func openBridgeReview_targetsRegisteredWorktree() {
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+        guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
+            Issue.record("Expected main worktree")
+            return
+        }
+
+        let pane = executor.openBridgeReview(worktreeId: worktree.id)
+
+        #expect(pane != nil)
+        #expect(store.tabs.count == 1)
+        #expect(store.activeTabId == store.tabs[0].id)
+        #expect(pane?.repoId == repo.id)
+        #expect(pane?.worktreeId == worktree.id)
+        #expect(pane?.metadata.cwd == worktree.path)
+        let bridgeView = viewRegistry.view(for: pane!.id)?.mountedContentViewForTesting as? BridgePaneMountView
+        #expect(bridgeView?.controller.runtime.metadata.worktreeId == worktree.id)
+        #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
+        #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
+        guard case .bridgePanel(let state) = pane?.content,
+            case .workspace(let rootPath, let baseline) = state.source
+        else {
+            Issue.record("Expected Bridge workspace source")
+            return
+        }
+        #expect(rootPath == worktree.path.path)
+        #expect(baseline == .unstaged)
+    }
+
     @Test("openContextualWebviewInPane creates a split browser pane with inherited workspace association")
     func openContextualWebviewInPane_addsSplitPaneWithAssociation() {
         let harness = makeHarness()

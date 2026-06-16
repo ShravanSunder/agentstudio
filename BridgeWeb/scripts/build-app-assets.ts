@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { Dirent } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
-import { basename, extname, join, relative } from 'node:path';
+import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -9,13 +9,10 @@ import {
 	buildAppAssetManifest,
 	createAppIndexHtml,
 	formatAppAssetManifest,
+	normalizePackagedPierreWorkerSource,
 	validatePackagedAppOutput,
 } from './app-asset-contract.ts';
-
-interface BuiltBundleAssets {
-	readonly scripts: readonly string[];
-	readonly styles: readonly string[];
-}
+import { collectBuiltBundleAssets } from './build-app-assets-collector.ts';
 
 const packageRootPath = fileURLToPath(new URL('../', import.meta.url));
 const appDirectoryPath = fileURLToPath(
@@ -23,6 +20,8 @@ const appDirectoryPath = fileURLToPath(
 );
 const appAssetsDirectoryPath = join(appDirectoryPath, 'assets');
 const appWorkersDirectoryPath = join(appDirectoryPath, 'workers');
+const bridgeAppCssSourcePath = join(packageRootPath, 'src/app/bridge-app.css');
+const bridgeAppCssAssetPath = join(appAssetsDirectoryPath, 'bridge-app.css');
 const portableWorkerAssetPath = 'workers/pierre-diffs-worker-portable.js';
 
 await resetGeneratedAppDirectory(appDirectoryPath);
@@ -34,6 +33,20 @@ await runCommand({
 	args: ['exec', 'tsdown', '--config', 'tsdown.config.ts'],
 	cwd: packageRootPath,
 });
+await removeGeneratedStyleAssets(appAssetsDirectoryPath);
+await runCommand({
+	command: 'pnpm',
+	args: [
+		'exec',
+		'tailwindcss',
+		'--input',
+		bridgeAppCssSourcePath,
+		'--output',
+		bridgeAppCssAssetPath,
+		'--minify',
+	],
+	cwd: packageRootPath,
+});
 
 const portableWorkerSourceUrl = await resolvePublicPackageAsset(
 	'@pierre/diffs/worker/worker-portable.js',
@@ -42,24 +55,26 @@ await copyFile(
 	fileURLToPath(portableWorkerSourceUrl),
 	join(appDirectoryPath, portableWorkerAssetPath),
 );
+await normalizePackagedPierreWorker(join(appDirectoryPath, portableWorkerAssetPath));
 await normalizeGeneratedTextAssets(appDirectoryPath);
 
-const builtAssets = await collectBuiltBundleAssets(appAssetsDirectoryPath);
-const mainScriptPath = builtAssets.scripts[0];
-
-if (mainScriptPath === undefined) {
-	throw new Error('Expected packaged app JavaScript asset');
-}
-
+const builtAssets = await collectBuiltBundleAssets({
+	appDirectoryPath,
+	assetsDirectoryPath: appAssetsDirectoryPath,
+	entrypointName: 'bridge-app',
+});
+const mainScriptPath = builtAssets.mainScript;
 const stylePaths = builtAssets.styles;
 const manifest = await buildAppAssetManifest({
 	appDirectoryPath,
 	mainScriptPath,
+	auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
 	stylePaths,
 	workerAssets: [
 		{
 			kind: 'pierre-diffs-shiki',
 			path: portableWorkerAssetPath,
+			workerKind: 'classicWorker',
 			source: 'packagedAppAsset',
 		},
 	],
@@ -128,36 +143,30 @@ async function removeDirectoryEntry(directoryPath: string, entry: Dirent): Promi
 	}
 }
 
+async function removeGeneratedStyleAssets(directoryPath: string): Promise<void> {
+	const entries = await readdir(directoryPath, { withFileTypes: true });
+
+	await Promise.all(
+		entries.map(async (entry: Dirent): Promise<void> => {
+			if (!entry.isFile() || extname(entry.name) !== '.css') {
+				return;
+			}
+			await rm(join(directoryPath, entry.name), { force: true });
+		}),
+	);
+}
+
 async function resolvePublicPackageAsset(packageExport: string): Promise<URL> {
 	return new URL(import.meta.resolve(packageExport));
 }
 
-async function collectBuiltBundleAssets(directoryPath: string): Promise<BuiltBundleAssets> {
-	const entries = await readdir(directoryPath, { withFileTypes: true });
-	const files = entries
-		.filter((entry: Dirent): boolean => entry.isFile())
-		.map((entry: Dirent): string => entry.name)
-		.toSorted();
-	const scripts = files
-		.filter((fileName: string): boolean => extname(fileName) === '.js')
-		.map((fileName: string): string => relative(appDirectoryPath, join(directoryPath, fileName)));
-	const styles = files
-		.filter((fileName: string): boolean => extname(fileName) === '.css')
-		.map((fileName: string): string => relative(appDirectoryPath, join(directoryPath, fileName)));
+async function normalizePackagedPierreWorker(workerPath: string): Promise<void> {
+	const workerSource = await readFile(workerPath, 'utf8');
+	const normalizedWorkerSource = normalizePackagedPierreWorkerSource(workerSource);
 
-	if (scripts.length !== 1) {
-		throw new Error(`Expected exactly one app JavaScript asset, found ${scripts.length}`);
+	if (normalizedWorkerSource !== workerSource) {
+		await writeFile(workerPath, normalizedWorkerSource, 'utf8');
 	}
-
-	const firstScript = scripts[0];
-
-	if (firstScript === undefined) {
-		throw new Error('Expected packaged app JavaScript asset');
-	}
-
-	await assertNoExternalRuntimeImports(join(directoryPath, basename(firstScript)));
-
-	return { scripts, styles };
 }
 
 async function normalizeGeneratedTextAssets(directoryPath: string): Promise<void> {
@@ -185,12 +194,4 @@ async function normalizeGeneratedTextAssets(directoryPath: string): Promise<void
 			}
 		}),
 	);
-}
-
-async function assertNoExternalRuntimeImports(scriptPath: string): Promise<void> {
-	const script = await readFile(scriptPath, 'utf8');
-
-	if (/from\s*["'](?:react|react-dom|@pierre\/|zustand|zod)/u.test(script)) {
-		throw new Error(`Packaged app script still imports runtime packages: ${scriptPath}`);
-	}
 }

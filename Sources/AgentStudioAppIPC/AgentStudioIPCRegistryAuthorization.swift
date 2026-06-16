@@ -32,6 +32,13 @@ public struct AppIPCMethodRegistry: Sendable {
             Self.method("terminal.send", .terminalInputWrite, .runtimeCommand),
             Self.method("terminal.snapshot", .terminalSnapshotRead, .runtimeCommand),
             Self.method("terminal.wait", .terminalWait, .runtimeCommand, resultSemantics: .accepted),
+            Self.method("bridge.review.open", .layoutMutate, .bridgeCapability),
+            Self.method("bridge.review.refresh", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.review.getPackage", .bridgeRead, .bridgeCapability),
+            Self.method("bridge.review.renderState", .bridgeRead, .bridgeCapability),
+            Self.method("bridge.review.selectFile", .bridgeControl, .bridgeCapability),
+            Self.method("bridge.content.get", .bridgeContentRead, .bridgeCapability),
+            Self.method("bridge.telemetry.flush", .bridgeTelemetryFlush, .bridgeCapability),
             Self.method("command.list", .systemRead, .queryReader),
             Self.method("command.execute", .debugUnsafe, .appCommand),
             Self.method("ui.commandBar.open", .uiPresent, .uiPresentation),
@@ -202,6 +209,12 @@ public struct PermissionScopeCanonicalizer: Sendable {
             .unspecified
         case .paneContextRead, .layoutMutate:
             .paneContext
+        case .bridgeRead, .bridgeControl:
+            .bridgeReviewPackage
+        case .bridgeContentRead:
+            .bridgeContent
+        case .bridgeTelemetryRead, .bridgeTelemetryFlush:
+            .bridgeTelemetry
         case .uiPresent:
             .uiSurface
         case .terminalRead, .terminalSnapshotRead:
@@ -314,6 +327,11 @@ public struct AuthorizationService: Sendable {
     private static let baselineSelfPanePrivileges: Set<IPCPrivilegeClass> = [
         .eventsRead,
         .paneContextRead,
+        .bridgeRead,
+        .bridgeContentRead,
+        .bridgeControl,
+        .bridgeTelemetryRead,
+        .bridgeTelemetryFlush,
         .permissionRead,
         .permissionRequest,
         .systemRead,
@@ -343,6 +361,13 @@ public struct AuthorizationService: Sendable {
         "terminal.send",
         "terminal.snapshot",
         "terminal.wait",
+        "bridge.review.open",
+        "bridge.review.refresh",
+        "bridge.review.getPackage",
+        "bridge.review.renderState",
+        "bridge.review.selectFile",
+        "bridge.content.get",
+        "bridge.telemetry.flush",
         "command.list",
         "command.execute",
         "ui.commandBar.open",

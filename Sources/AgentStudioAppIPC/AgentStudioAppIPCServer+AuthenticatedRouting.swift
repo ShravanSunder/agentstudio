@@ -16,6 +16,9 @@ extension AgentStudioAppIPCServer {
             return try await processLayoutRequest(request)
         case "terminal.status", "terminal.snapshot", "terminal.send", "terminal.wait":
             return try await processRuntimeRequest(request)
+        case "bridge.review.open", "bridge.review.refresh", "bridge.review.getPackage", "bridge.review.renderState",
+            "bridge.review.selectFile", "bridge.content.get", "bridge.telemetry.flush":
+            return try await processBridgeRequest(request)
         case "command.list", "command.execute", "ui.commandBar.open":
             return try await processCommandOrUIRequest(request)
         case "permission.request", "permission.requestStatus", "permission.grantStatus",
@@ -150,6 +153,105 @@ extension AgentStudioAppIPCServer {
             return try encodeResult(result)
         default:
             throw AgentStudioAppIPCRequestError.methodNotFound
+        }
+    }
+
+    private func processBridgeRequest(_ request: JSONRPCRequest) async throws -> JSONValue {
+        switch request.method {
+        case "bridge.review.open":
+            let params = try decodeParams(IPCBridgeReviewOpenParams.self, from: request.params)
+            let result = try await MainActor.run {
+                try service.ports.bridgePort.openReview(params)
+            }
+            await publishBridgeEvent(
+                name: .bridgeReviewUpdated,
+                payload: IPCBridgeEventPayload(
+                    paneId: result.paneId,
+                    correlationId: result.correlationId
+                )
+            )
+            return try encodeResult(result)
+        case "bridge.review.refresh":
+            let params = try decodeParams(IPCBridgeReviewRefreshParams.self, from: request.params)
+            let result = try await service.ports.bridgePort.refreshReview(params)
+            await publishBridgeEvent(
+                name: .bridgeReviewUpdated,
+                payload: IPCBridgeEventPayload(
+                    paneId: result.paneId,
+                    packageId: result.packageId,
+                    correlationId: result.correlationId
+                )
+            )
+            return try encodeResult(result)
+        case "bridge.review.getPackage":
+            let handle = try decodeHandle(from: request.params)
+            return try await encodeResult(service.ports.bridgePort.getPackage(handle))
+        case "bridge.review.renderState":
+            let handle = try decodeHandle(from: request.params)
+            return try await encodeResult(service.ports.bridgePort.renderState(handle))
+        case "bridge.review.selectFile":
+            let params = try decodeParams(IPCBridgeReviewSelectFileParams.self, from: request.params)
+            let result = try await service.ports.bridgePort.selectFile(params)
+            await publishBridgeEvent(
+                name: .bridgeFileSelected,
+                payload: IPCBridgeEventPayload(
+                    paneId: result.paneId,
+                    itemId: result.itemId,
+                    correlationId: result.correlationId
+                )
+            )
+            return try encodeResult(result)
+        case "bridge.content.get":
+            let params = try decodeParams(IPCBridgeContentGetParams.self, from: request.params)
+            let result = try await service.ports.bridgePort.getContent(params)
+            await publishBridgeEvent(
+                name: .bridgeContentReady,
+                payload: IPCBridgeEventPayload(
+                    paneId: result.paneId,
+                    itemId: result.handle.itemId,
+                    contentHandleId: result.handle.handleId
+                )
+            )
+            return try encodeResult(result)
+        case "bridge.telemetry.flush":
+            let handle = try decodeHandle(from: request.params)
+            let result = try await service.ports.bridgePort.flushTelemetry(handle)
+            await publishBridgeEvent(
+                name: .bridgeTelemetrySampled,
+                payload: IPCBridgeEventPayload(paneId: result.paneId)
+            )
+            return try encodeResult(result)
+        default:
+            throw AgentStudioAppIPCRequestError.methodNotFound
+        }
+    }
+
+    private func publishBridgeEvent(name: IPCEventName, payload: IPCBridgeEventPayload) async {
+        let notification = IPCEventNotification(
+            eventId: UUID(),
+            name: name,
+            occurredAt: Date(),
+            payload: .bridge(payload)
+        )
+        _ = await service.eventBroker.publish(notification) { notification, principal in
+            Self.bridgeEventIsVisible(notification, to: principal)
+        }
+    }
+
+    private static func bridgeEventIsVisible(
+        _ notification: IPCEventNotification,
+        to principal: IPCPrincipal
+    ) -> Bool {
+        guard case .bridge(let payload) = notification.payload else {
+            return false
+        }
+        switch principal.kind {
+        case .spawnedPaneAgent(let boundPaneId, _):
+            return boundPaneId == payload.paneId.uuidString
+        case .automationClient, .unsafeDebugClient:
+            return true
+        case .futureMCPClient:
+            return false
         }
     }
 

@@ -4,11 +4,13 @@ import AppKit
 extension PaneCoordinator {
     /// Open a read-only Bridge review pane in a new tab.
     @discardableResult
-    func openBridgeReview() -> Pane? {
+    func openBridgeReview(worktreeId: UUID? = nil) -> Pane? {
         let activePane = store.tabLayoutAtom.activeTabId
             .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
             .flatMap { store.paneAtom.pane($0) }
-        let context = bridgeReviewMetadata(from: activePane)
+        guard let context = bridgeReviewMetadata(from: activePane, worktreeId: worktreeId) else {
+            return nil
+        }
         let state = BridgePaneState(panelKind: .diffViewer, source: context.source)
         let pane = store.paneAtom.createPane(
             content: .bridgePanel(state),
@@ -65,8 +67,19 @@ extension PaneCoordinator {
     #endif
 
     private func bridgeReviewMetadata(
-        from activePane: Pane?
-    ) -> (metadata: PaneMetadata, source: BridgePaneSource?) {
+        from activePane: Pane?,
+        worktreeId: UUID?
+    ) -> (metadata: PaneMetadata, source: BridgePaneSource?)? {
+        if let worktreeId {
+            guard
+                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
+                let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
+            else {
+                return nil
+            }
+            return bridgeReviewMetadata(repo: repo, worktree: worktree, cwd: worktree.path)
+        }
+
         guard let resolved = resolvedWorktreeContext(for: activePane) else {
             return (
                 PaneMetadata(
@@ -78,21 +91,29 @@ extension PaneCoordinator {
         }
 
         let cwd = activePane?.metadata.cwd ?? resolved.worktree.path
+        return bridgeReviewMetadata(repo: resolved.repo, worktree: resolved.worktree, cwd: cwd)
+    }
+
+    private func bridgeReviewMetadata(
+        repo: Repo,
+        worktree: Worktree,
+        cwd: URL
+    ) -> (metadata: PaneMetadata, source: BridgePaneSource?) {
         let metadata = PaneMetadata(
             contentType: .diff,
-            launchDirectory: resolved.worktree.path,
+            launchDirectory: worktree.path,
             title: "Bridge Review",
             facets: PaneContextFacets(
-                repoId: resolved.repo.id,
-                repoName: resolved.repo.name,
-                worktreeId: resolved.worktree.id,
-                worktreeName: resolved.worktree.name,
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
                 cwd: cwd
             )
         )
         return (
             metadata,
-            .workspace(rootPath: resolved.worktree.path.path, baseline: .unstaged)
+            .workspace(rootPath: worktree.path.path, baseline: .unstaged)
         )
     }
 }

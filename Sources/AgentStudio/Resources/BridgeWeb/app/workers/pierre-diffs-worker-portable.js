@@ -17166,7 +17166,7 @@ function getHighlighter(preferredHighlighter = "shiki-js") {
 	highlighter ??= createHighlighterCore({
 		themes: [],
 		langs: [],
-		engine: preferredHighlighter === "shiki-wasm" ? createOnigurumaEngine(import("./wasm-qE0LgnY3.js")) : createJavaScriptRegexEngine()
+		engine: preferredHighlighter === "shiki-wasm" ? createOnigurumaEngine(Promise.reject(new Error("AgentStudio BridgeWeb packages only the shiki-js worker highlighter"))) : createJavaScriptRegexEngine()
 	});
 	return highlighter;
 }

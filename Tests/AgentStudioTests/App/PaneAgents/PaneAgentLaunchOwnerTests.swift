@@ -214,6 +214,7 @@ private struct PaneAgentLiveServerFixture {
                 queryPort: PaneAgentTestQueryPort(runtimeId: runtimeId),
                 layoutPort: PaneAgentTestLayoutPort(),
                 runtimePort: PaneAgentTestRuntimePort(),
+                bridgePort: PaneAgentTestBridgePort(),
                 commandPort: PaneAgentTestCommandPort(),
                 uiPresentationPort: PaneAgentTestUIPresentationPort(),
                 permissionApprovalPort: PaneAgentTestPermissionApprovalPort()
@@ -326,6 +327,36 @@ private struct PaneAgentTestCommandPort: AppIPCCommandPort {
 
     func executeCommand(_: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
         throw AppIPCCommandError(reason: .unsupportedCommand)
+    }
+}
+
+private struct PaneAgentTestBridgePort: AppIPCBridgePort {
+    func openReview(_: IPCBridgeReviewOpenParams) throws -> IPCBridgeReviewOpenResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func refreshReview(_: IPCBridgeReviewRefreshParams) async throws -> IPCBridgeReviewRefreshResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func getPackage(_: IPCHandle) throws -> IPCBridgeReviewPackageResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func renderState(_: IPCHandle) async throws -> IPCBridgeRenderStateResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func selectFile(_: IPCBridgeReviewSelectFileParams) async throws -> IPCBridgeReviewSelectFileResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func getContent(_: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult {
+        throw AppIPCBridgeError(reason: .contentUnavailable)
+    }
+
+    func flushTelemetry(_: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
     }
 }
 

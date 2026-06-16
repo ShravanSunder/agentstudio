@@ -169,6 +169,16 @@ must update `mise run bridge-web-build` and the app-asset normalization script
 so `tsdown` emits deterministic JS, CSS if applicable, worker assets, and an
 asset manifest under `Sources/AgentStudio/Resources/BridgeWeb/app`.
 
+Debug hot reload is a follow-up developer-experience lane, not a substitute for
+packaged WKWebView proof. The preferred design is a DEBUG-only Bridge app asset
+root override such as `AGENTSTUDIO_BRIDGEWEB_APP_ROOT`, served through the
+existing `agentstudio://app/*` scheme handler after the same path-confinement
+checks as packaged assets. Pair it with a BridgeWeb watch/build task that emits
+into the override directory, then reload the Bridge pane. Do not make the
+Bridge pane load a generic `http://localhost` dev server for this proof lane;
+that would bypass the real scheme handler, bootstrap, content-resource origin,
+and worker-loading constraints this ticket is meant to validate.
+
 Library decisions:
 
 - `@pierre/diffs/react`: CodeView, File, FileDiff, types, refs, and
@@ -935,12 +945,16 @@ Tree update policy:
 
 - New package or new generation: create a new projection and reset the model.
 - Projection switch that filters, removes, or reorders rows: call
-  `resetPaths(...)` with a matching prepared input and preserve selection only
-  when the selected item still exists.
+  `resetPaths(...)` with a matching prepared input and ancestor-derived
+  `initialExpandedPaths`; preserve selection only when the selected item still
+  exists. Do not default to `initialExpansion: "open"` for full workspace trees.
 - Same-projection append-only package delta: may use `model.batch(...)` with add
   operations when the previous tree source proves append-only growth.
-- Git-status-only changes: use Trees status patch/update APIs, not full path
-  rebuilds.
+- Git-status-only changes: use installed public Trees status update APIs, not
+  full path rebuilds. With the currently installed package this means
+  `setGitStatus(...)`; do not call local-repo or private
+  `applyGitStatusPatch(...)` unless a pinned published package exposes it as a
+  public export.
 - Search and local status filter changes: use Trees search/filter APIs and keep
   the prepared input stable.
 
@@ -949,8 +963,9 @@ Controller ownership:
 - `review-viewer/trees` exposes a `BridgeTreesController`.
 - The controller owns the `FileTree` model reference created by `useFileTree`.
 - The controller is the only module that calls `resetPaths(...)`, `batch(...)`,
-  `setGitStatus(...)`, `applyGitStatusPatch(...)`, tree focus, and tree
-  selection APIs.
+  `setGitStatus(...)`, tree focus, and tree selection APIs. A narrower status
+  patch API can be adopted later only after it is available through public
+  `@pierre/trees` exports.
 - The controller subscribes to the narrow projection/tree slices it needs and
   applies imperative mutations in effects or controller methods, never during
   React render.
@@ -1083,6 +1098,10 @@ Rules:
 - Use CodeView `layout` and `itemMetrics`; do not fake item spacing in CSS.
 - Keep token hooks off by default. Token metadata increases DOM size and should
   be enabled only when a later annotation or hover feature needs it.
+- The initial visual slice is dark-only and starts with Pierre's `pierre-dark`
+  theme. When the Shiki worker pool is enabled, configure the same theme at the
+  worker-pool render-options boundary; component-only theme settings are not
+  sufficient proof that highlighted tokens use the intended theme.
 
 Prefer imperative CodeView ownership for large or streaming review surfaces:
 seed with `initialItems`, then use the ref APIs (`addItems`, `updateItem`,
@@ -1720,8 +1739,10 @@ Fixture classes:
   bytes in CI.
 - `large_tree`: Linux 1x/5x-style path breadth, about 90k/450k paths. Proves
   tree prep and virtualized navigation in benchmark or targeted CI if fast.
-- `large_diff`: 12k-line expanded diff and 100k-row generated package. Proves
-  deep CodeView geometry and scroll in benchmark.
+- `large_diff`: 100k-row generated diff package with an 8k-line materialization
+  sample in the deterministic Node benchmark. Proves deep CodeView projection,
+  sampled materialization, and scroll-trace geometry without claiming full
+  100k-line body hydration.
 - `ceiling_parse`: AOSP-style 1M+ paths. Manual upper-bound stress only.
 
 Real reference cases:
@@ -1749,6 +1770,13 @@ Fixture construction rules:
   code; the package fixture itself remains metadata-only.
 - Large fixture builders should live under BridgeWeb test support or Swift test
   support, not in product runtime modules.
+- Keep a small visual-debug fixture with a balanced file/diff mix and only a few
+  added-only files. It exists for manual WebKit review of the shell and should
+  not be confused with the large benchmark workloads.
+- Added/deleted/new-file materialization requires a focused follow-up after the
+  visual shell is usable: content visibility may use a single-file fallback
+  temporarily, but diff review semantics must be proven with Pierre-compatible
+  diff items before claiming full CodeView materialization coverage.
 
 Required workload variants:
 
@@ -1782,9 +1810,10 @@ Initial canonical benchmark workloads:
   proves `preparePresortedFileTreeInput(...)`, search/filter response, row
   mounting bounds, status decoration, and projection reset behavior.
 - `bridge_viewer_large_diff_scroll_v1`: targeted benchmark workload once
-  packaged CodeView is mounted. It contains 100k virtualized diff rows across a
-  fixed mixed file set, uses a 1440x1000 viewport, performs one warmup plus
-  three kept scroll traces, and records a deterministic scroll checksum.
+  packaged CodeView is mounted. It represents 100k virtualized diff rows across
+  a fixed mixed file set, materializes an 8k-line selected-content sample, uses
+  a 1440x1000 viewport, performs one warmup plus three kept scroll traces, and
+  records a deterministic scroll checksum.
 
 The first implementation plan may keep the large tree and large diff workloads
 as benchmark/manual gates until the corresponding UI surface exists. It may not

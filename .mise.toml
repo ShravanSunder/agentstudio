@@ -138,6 +138,11 @@ description = "Audit BridgeWeb packaged dependencies and app assets"
 dir = "BridgeWeb"
 run = "pnpm run audit:assets"
 
+[tasks.bridge-viewer-benchmark]
+description = "Run Bridge viewer large-tree and large-diff benchmark proof"
+dir = "BridgeWeb"
+run = "pnpm run benchmark:viewer && /bin/bash ../scripts/verify-bridge-viewer-benchmark.sh"
+
 [tasks.verify-bridge-observability]
 description = "Verify Bridge debug observability events in the shared Victoria stack"
 run = "bash scripts/verify-bridge-observability.sh"

@@ -2,10 +2,15 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import ts from 'typescript';
+
 export const appAssetManifestFileName = 'agentstudio-app-assets.json';
 
 const schemaVersion = 1;
 const devEntrypointReference = '/src/app/bridge-app-bootstrap.tsx';
+const packagedWorkerShikiWasmImportPattern = /import\((["'])\.\/wasm-[A-Za-z0-9_-]+\.js\1\)/gu;
+const packagedWorkerShikiWasmUnavailableExpression =
+	'Promise.reject(new Error("AgentStudio BridgeWeb packages only the shiki-js worker highlighter"))';
 
 export interface CreateAppIndexHtmlProps {
 	readonly mainScriptPath: string;
@@ -15,6 +20,7 @@ export interface CreateAppIndexHtmlProps {
 export interface BuildAppAssetManifestProps {
 	readonly appDirectoryPath: string;
 	readonly mainScriptPath: string;
+	readonly auxiliaryScriptPaths: readonly string[];
 	readonly stylePaths: readonly string[];
 	readonly workerAssets: readonly WorkerAssetInput[];
 }
@@ -22,8 +28,11 @@ export interface BuildAppAssetManifestProps {
 export interface WorkerAssetInput {
 	readonly kind: string;
 	readonly path: string;
+	readonly workerKind: AppWorkerKind;
 	readonly source: 'packagedAppAsset';
 }
+
+export type AppWorkerKind = 'classicWorker' | 'moduleWorker';
 
 export interface AppAssetRecord {
 	readonly path: string;
@@ -34,12 +43,15 @@ export interface AppAssetRecord {
 export interface AppWorkerAssetRecord extends AppAssetRecord {
 	readonly kind: string;
 	readonly source: 'packagedAppAsset';
+	readonly agentStudioAppUrl: string;
+	readonly workerKind: AppWorkerKind;
 }
 
 export interface AppAssetManifest {
 	readonly schemaVersion: 1;
 	readonly entrypoints: {
 		readonly mainScript: AppAssetRecord;
+		readonly auxiliaryScripts: readonly AppAssetRecord[];
 		readonly styles: readonly AppAssetRecord[];
 	};
 	readonly workers: readonly AppWorkerAssetRecord[];
@@ -60,6 +72,11 @@ export interface DependencyLicenseMetadata {
 export interface ValidatePackagedAppOutputProps {
 	readonly indexHtml: string;
 	readonly manifest: AppAssetManifest;
+}
+
+export interface WorkerSourceSelfContainmentCheck {
+	readonly isSelfContained: true;
+	readonly checkedPatterns: readonly string[];
 }
 
 interface CreateAssetRecordProps {
@@ -102,6 +119,15 @@ export async function buildAppAssetManifest(
 				appDirectoryPath: props.appDirectoryPath,
 				assetPath: props.mainScriptPath,
 			}),
+			auxiliaryScripts: await Promise.all(
+				props.auxiliaryScriptPaths.map(
+					(auxiliaryScriptPath: string): Promise<AppAssetRecord> =>
+						createAssetRecord({
+							appDirectoryPath: props.appDirectoryPath,
+							assetPath: auxiliaryScriptPath,
+						}),
+				),
+			),
 			styles: await Promise.all(
 				props.stylePaths.map(
 					(stylePath: string): Promise<AppAssetRecord> =>
@@ -117,6 +143,8 @@ export async function buildAppAssetManifest(
 				async (workerAsset: WorkerAssetInput): Promise<AppWorkerAssetRecord> => ({
 					kind: workerAsset.kind,
 					source: workerAsset.source,
+					agentStudioAppUrl: agentStudioAppUrlForAssetPath(workerAsset.path),
+					workerKind: workerAsset.workerKind,
 					...(await createAssetRecord({
 						appDirectoryPath: props.appDirectoryPath,
 						assetPath: workerAsset.path,
@@ -144,12 +172,14 @@ export function parseAppAssetManifest(value: unknown): AppAssetManifest {
 	}
 
 	const mainScript = parseAssetRecord(entrypoints['mainScript']);
+	const auxiliaryScripts = parseAssetRecordArray(entrypoints['auxiliaryScripts']);
 	const styles = parseAssetRecordArray(entrypoints['styles']);
 
 	return {
 		schemaVersion,
 		entrypoints: {
 			mainScript,
+			auxiliaryScripts,
 			styles,
 		},
 		workers: workers.map((worker: unknown): AppWorkerAssetRecord => parseWorkerAssetRecord(worker)),
@@ -213,11 +243,46 @@ export function validatePackagedAppOutput(props: ValidatePackagedAppOutputProps)
 
 	for (const asset of [
 		props.manifest.entrypoints.mainScript,
+		...props.manifest.entrypoints.auxiliaryScripts,
 		...props.manifest.entrypoints.styles,
 		...props.manifest.workers,
 	]) {
 		validateAssetRecord(asset);
 	}
+}
+
+export function validateWorkerSourceSelfContained(
+	workerSource: string,
+): WorkerSourceSelfContainmentCheck {
+	const checkedPatterns: readonly string[] = [
+		'static import/export',
+		'dynamic import(...)',
+		'importScripts(...)',
+		'fetch(...)',
+		'new URL(<relative-or-external-literal>)',
+		'new XMLHttpRequest(...)',
+	];
+	const sourceFile = ts.createSourceFile(
+		'packaged-worker.js',
+		workerSource,
+		ts.ScriptTarget.ES2022,
+		true,
+		ts.ScriptKind.JS,
+	);
+
+	visitWorkerSourceNode(sourceFile, sourceFile);
+
+	return {
+		isSelfContained: true,
+		checkedPatterns,
+	};
+}
+
+export function normalizePackagedPierreWorkerSource(workerSource: string): string {
+	return workerSource.replace(
+		packagedWorkerShikiWasmImportPattern,
+		packagedWorkerShikiWasmUnavailableExpression,
+	);
 }
 
 async function createAssetRecord(props: CreateAssetRecordProps): Promise<AppAssetRecord> {
@@ -239,6 +304,74 @@ function normalizeAssetPath(assetPath: string): string {
 	}
 
 	return normalizedAssetPath;
+}
+
+function visitWorkerSourceNode(sourceFile: ts.SourceFile, node: ts.Node): void {
+	if (ts.isImportDeclaration(node)) {
+		throwWorkerSelfContainmentError(sourceFile, node, 'static import');
+	}
+
+	if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined) {
+		throwWorkerSelfContainmentError(sourceFile, node, 're-export from another module');
+	}
+
+	if (ts.isCallExpression(node)) {
+		if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+			throwWorkerSelfContainmentError(sourceFile, node, 'dynamic import(...)');
+		}
+
+		if (isIdentifierExpression(node.expression, 'importScripts')) {
+			throwWorkerSelfContainmentError(sourceFile, node, 'importScripts(...)');
+		}
+
+		if (isIdentifierExpression(node.expression, 'fetch')) {
+			throwWorkerSelfContainmentError(sourceFile, node, 'fetch(...)');
+		}
+	}
+
+	if (ts.isNewExpression(node)) {
+		if (
+			isIdentifierExpression(node.expression, 'URL') &&
+			isRelativeOrExternalLiteral(node.arguments?.[0])
+		) {
+			throwWorkerSelfContainmentError(sourceFile, node, 'new URL(<relative-or-external-literal>)');
+		}
+
+		if (isIdentifierExpression(node.expression, 'XMLHttpRequest')) {
+			throwWorkerSelfContainmentError(sourceFile, node, 'new XMLHttpRequest(...)');
+		}
+	}
+
+	ts.forEachChild(node, (child: ts.Node): void => {
+		visitWorkerSourceNode(sourceFile, child);
+	});
+}
+
+function isIdentifierExpression(expression: ts.Expression, identifierText: string): boolean {
+	return ts.isIdentifier(expression) && expression.text === identifierText;
+}
+
+function isRelativeOrExternalLiteral(node: ts.Node | undefined): boolean {
+	if (node === undefined) {
+		return false;
+	}
+	if (!ts.isStringLiteral(node) && !ts.isNoSubstitutionTemplateLiteral(node)) {
+		return false;
+	}
+	return /^(?:\.{0,2}\/|https?:|\/\/|data:|blob:|file:|agentstudio:\/\/(?!app\/))/u.test(node.text);
+}
+
+function throwWorkerSelfContainmentError(
+	sourceFile: ts.SourceFile,
+	node: ts.Node,
+	description: string,
+): never {
+	const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+	throw new Error(
+		`Packaged worker source must be self-contained; found ${description} at ${
+			position.line + 1
+		}:${position.character + 1}`,
+	);
 }
 
 async function readJsonRecord(filePath: string): Promise<Record<string, unknown>> {
@@ -284,8 +417,16 @@ function parseWorkerAssetRecord(value: unknown): AppWorkerAssetRecord {
 
 	const kind = value['kind'];
 	const source = value['source'];
+	const agentStudioAppUrl = value['agentStudioAppUrl'];
+	const workerKind = value['workerKind'];
 
-	if (typeof kind !== 'string' || source !== 'packagedAppAsset') {
+	if (
+		typeof kind !== 'string' ||
+		source !== 'packagedAppAsset' ||
+		typeof agentStudioAppUrl !== 'string' ||
+		!agentStudioAppUrl.startsWith('agentstudio://app/') ||
+		(workerKind !== 'classicWorker' && workerKind !== 'moduleWorker')
+	) {
 		throw new Error('Invalid worker asset record shape');
 	}
 
@@ -293,7 +434,13 @@ function parseWorkerAssetRecord(value: unknown): AppWorkerAssetRecord {
 		...asset,
 		kind,
 		source,
+		agentStudioAppUrl,
+		workerKind,
 	};
+}
+
+function agentStudioAppUrlForAssetPath(assetPath: string): string {
+	return `agentstudio://app/${normalizeAssetPath(assetPath)}`;
 }
 
 function readStringRecord(value: unknown): Record<string, string> {

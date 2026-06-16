@@ -96,8 +96,16 @@ export const bridgeReviewProjectionInputItemSchema = z.object({
 	headPath: z.string().min(1).nullable(),
 	changeKind: bridgeFileChangeKindSchema,
 	fileClass: bridgeFileClassSchema,
-	language: z.string().min(1).nullable(),
-	extension: z.string().min(1).nullable(),
+	language: z
+		.string()
+		.min(1)
+		.nullish()
+		.transform((value): string | null => value ?? null),
+	extension: z
+		.string()
+		.min(1)
+		.nullish()
+		.transform((value): string | null => value ?? null),
 	isHiddenByDefault: z.boolean(),
 	reviewPriority: bridgeReviewPrioritySchema,
 	reviewState: bridgeFileReviewStateSchema,

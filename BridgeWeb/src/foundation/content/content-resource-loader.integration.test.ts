@@ -100,7 +100,7 @@ describe('content resource loader', () => {
 		);
 		expect(samples[0]?.booleanAttributes['agentstudio.bridge.header_missing']).toBe(true);
 		expect(flushCount).toBe(1);
-		expect(flushForces).toEqual([true]);
+		expect(flushForces).toEqual([undefined]);
 	});
 
 	test('loads content when telemetry flush fails', async () => {

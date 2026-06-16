@@ -156,6 +156,7 @@ extension PaneCoordinator {
             let controller = BridgePaneController(
                 paneId: pane.id,
                 state: state,
+                metadata: pane.metadata,
                 reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
                 traceRuntime: traceRuntime
             )
@@ -163,6 +164,7 @@ extension PaneCoordinator {
             registerHostedView(mountedView: view, for: pane.id)
             registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
             controller.loadApp()
+            controller.scheduleInitialReviewPackageLoadIfPossible()
             Self.logger.info("Created bridge panel view for pane \(pane.id)")
             return view
 

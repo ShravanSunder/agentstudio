@@ -478,6 +478,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             printf "marker=%s\\n" "$AGENTSTUDIO_TRACE_NAME" >> "\(fixture.url("launched-env").path)"
             printf "restore_trace=%s\\n" "${AGENTSTUDIO_RESTORE_TRACE:-}" >> "\(fixture.url("launched-env").path)"
             printf "diagnostic=%s\\n" "${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}" >> "\(fixture.url("launched-env").path)"
+            printf "watch_folder=%s\\n" "${AGENTSTUDIO_STARTUP_WATCH_FOLDER:-}" >> "\(fixture.url("launched-env").path)"
             printf "ipc_no_auth=%s\\n" "${AGENTSTUDIO_IPC_UNSAFE_NO_AUTH:-}" >> "\(fixture.url("launched-env").path)"
             printf "ipc_escrow=%s\\n" "${AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW:-}" >> "\(fixture.url("launched-env").path)"
             sleep 30
@@ -520,6 +521,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
                 "AGENTSTUDIO_DEBUG_DATA_DIR": hostileDataRoot.path,
                 "AGENTSTUDIO_RESTORE_TRACE": "1",
                 "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "cross-tab-move-geometry-smoke",
+                "AGENTSTUDIO_STARTUP_WATCH_FOLDER": fixture.url("watch-folder").path,
                 "AGENTSTUDIO_IPC_UNSAFE_NO_AUTH": "1",
                 "AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW": "1",
                 "ZMX_DIR": "/tmp/hostile-zmx-dir",
@@ -620,6 +622,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
                 "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
                 "AGENTSTUDIO_RESTORE_TRACE": "1",
                 "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "cross-tab-move-geometry-smoke",
+                "AGENTSTUDIO_STARTUP_WATCH_FOLDER": fixture.url("watch-folder").path,
                 "AGENTSTUDIO_IPC_UNSAFE_NO_AUTH": "1",
                 "AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW": "1",
             ]
@@ -632,9 +635,11 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_PID=42424"))
         #expect(state.contains("/runs/debug-observability-"))
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
+        #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_WATCH_FOLDER="))
 
         let openArgs = try String(contentsOf: openArgsURL, encoding: .utf8)
         #expect(openArgs.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
+        #expect(openArgs.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER="))
         #expect(openArgs.contains("AGENTSTUDIO_RESTORE_TRACE=1"))
         #expect(openArgs.contains("AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1"))
         #expect(openArgs.contains("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"))
@@ -943,11 +948,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
     }
 }
 
-private func expectDirectExecutableFallbackState(
-    _ state: String,
-    buildExecutable: URL,
-    hostileDataRoot: URL
-) throws {
+private func expectDirectExecutableFallbackState(_ state: String, buildExecutable: URL, hostileDataRoot: URL) throws {
     #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=running"))
     #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
     #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE="))
@@ -957,15 +958,13 @@ private func expectDirectExecutableFallbackState(
     #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_DATA_DIR="))
     #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR="))
     #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
+    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_WATCH_FOLDER="))
     #expect(!state.contains(hostileDataRoot.path))
     try expectOwnerOnlyDirectory(stateValue("AGENTSTUDIO_OBSERVABILITY_DATA_DIR", in: state))
     try expectOwnerOnlyDirectory(stateValue("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR", in: state))
 }
 
-private func expectDirectExecutableFallbackLaunchEnvironment(
-    _ launchedEnv: String,
-    hostileDataRoot: URL
-) throws {
+private func expectDirectExecutableFallbackLaunchEnvironment(_ launchedEnv: String, hostileDataRoot: URL) throws {
     #expect(launchedEnv.contains("data=/"))
     #expect(launchedEnv.contains("ipc_socket_dir=/"))
     #expect(launchedEnv.contains("/ipc-socket"))
@@ -974,6 +973,7 @@ private func expectDirectExecutableFallbackLaunchEnvironment(
     #expect(launchedEnv.contains("marker=debug-observability-"))
     #expect(launchedEnv.contains("restore_trace=1"))
     #expect(launchedEnv.contains("diagnostic=cross-tab-move-geometry-smoke"))
+    #expect(launchedEnv.contains("watch_folder="))
     #expect(launchedEnv.contains("ipc_no_auth=1"))
     #expect(launchedEnv.contains("ipc_escrow=1"))
     #expect(!launchedEnv.contains(hostileDataRoot.path))

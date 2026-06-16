@@ -222,7 +222,7 @@ function checkImportSource(context: SourceContext, node: ts.Node): void {
 		addViolation(context, {
 			ruleId: 'pierre-worker-import-boundary',
 			node,
-			message: `Pierre worker imports belong under review-viewer/workers/shiki: ${importSource}`,
+			message: `Pierre worker imports belong under review-viewer/workers/pierre: ${importSource}`,
 		});
 	}
 
@@ -248,7 +248,7 @@ function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
 		addViolation(context, {
 			ruleId: 'worker-boundary',
 			node,
-			message: 'Worker construction belongs under review-viewer/workers/rpc or workers/shiki',
+			message: 'Worker construction belongs under review-viewer/workers/rpc or workers/pierre',
 		});
 	}
 
@@ -260,7 +260,7 @@ function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
 		addViolation(context, {
 			ruleId: 'worker-boundary',
 			node,
-			message: 'postMessage usage belongs under review-viewer/workers/rpc or workers/shiki',
+			message: 'postMessage usage belongs under review-viewer/workers/rpc or workers/pierre',
 		});
 	}
 }
@@ -402,17 +402,20 @@ function isPierreWorkerImport(importSource: string): boolean {
 }
 
 function isAllowedCodeViewImportPath(relativePath: string): boolean {
-	return isPathInside(relativePath, 'src/review-viewer/code-view/');
+	return (
+		isPathInside(relativePath, 'src/review-viewer/code-view/') ||
+		isPathInside(relativePath, 'src/review-viewer/workers/pierre/')
+	);
 }
 
 function isAllowedPierreWorkerImportPath(relativePath: string): boolean {
-	return isPathInside(relativePath, 'src/review-viewer/workers/shiki/');
+	return isPathInside(relativePath, 'src/review-viewer/workers/pierre/');
 }
 
 function isAllowedWorkerPath(relativePath: string): boolean {
 	return (
 		isPathInside(relativePath, 'src/review-viewer/workers/rpc/') ||
-		isPathInside(relativePath, 'src/review-viewer/workers/shiki/')
+		isPathInside(relativePath, 'src/review-viewer/workers/pierre/')
 	);
 }
 

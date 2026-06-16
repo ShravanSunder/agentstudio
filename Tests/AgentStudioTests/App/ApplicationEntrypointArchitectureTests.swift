@@ -150,6 +150,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(ipcBootSource.contains("makePaneFocusAppControl(store: store)"))
         #expect(ipcBootSource.contains("server.start()"))
         #expect(appIPCStopIndex < flushStoresIndex)
+        #expect(mainWindowControllerSource.contains("splitViewController?.loadViewIfNeeded()"))
         #expect(mainWindowControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
         #expect(splitViewControllerSource.contains("makePaneFocusAppControl(store: WorkspaceStore)"))
         #expect(splitViewControllerSource.contains("PaneTabViewControllerPaneFocusAppControl"))

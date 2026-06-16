@@ -153,8 +153,8 @@ function makeFixtureItem(props: FixtureItemProps): BridgeReviewItemDescriptor {
 		headPath: props.headPath,
 		changeKind: props.changeKind,
 		fileClass: props.fileClass,
-		language: props.language ?? baseItem.language,
-		extension: props.extension ?? baseItem.extension,
+		language: props.language ?? baseItem.language ?? null,
+		extension: props.extension ?? baseItem.extension ?? null,
 		baseContentHash: base?.contentHash ?? null,
 		headContentHash: head?.contentHash ?? null,
 		additions: props.changeKind === 'deleted' ? 0 : 3,
@@ -179,6 +179,6 @@ function makeFixtureHandle(
 		...handle,
 		isBinary,
 		mimeType: isBinary ? 'image/png' : handle.mimeType,
-		language: isBinary ? null : handle.language,
+		language: isBinary ? null : (handle.language ?? null),
 	};
 }

@@ -153,10 +153,7 @@ struct PaneCoordinatorFilesystemSourceTests {
         )
         defer { Task { await coordinator.shutdown() } }
 
-        await assertEventuallyAsync("commit failure should requeue source sync", maxTurns: 200_000) {
-            let operations = await source.operations()
-            return operations.filter(\.isAssertTopology).count >= 2
-        }
+        await source.waitForAssertTopologyCount(atLeast: 2)
 
         let operations = await source.operations()
         let topologyAssertions = operations.compactMap(\.assertedTopologyWorktreeIds)
@@ -425,6 +422,7 @@ private actor OrderedRecordingFilesystemSource: PaneCoordinatorFilesystemSourceM
     private var operationLog: [FilesystemSourceOperation] = []
     private var operationWaiters: [FilesystemSourceOperationKind: [CheckedContinuation<Void, Never>]] = [:]
     private var topologyWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
+    private var topologyCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     func start() async {}
 
@@ -503,6 +501,13 @@ private actor OrderedRecordingFilesystemSource: PaneCoordinatorFilesystemSourceM
         }
     }
 
+    func waitForAssertTopologyCount(atLeast minimumCount: Int) async {
+        if assertTopologyCount >= minimumCount { return }
+        await withCheckedContinuation { continuation in
+            topologyCountWaiters.append((minimumCount, continuation))
+        }
+    }
+
     private func appendOperation(_ operation: FilesystemSourceOperation) {
         operationLog.append(operation)
         let kind = operation.kind
@@ -511,6 +516,16 @@ private actor OrderedRecordingFilesystemSource: PaneCoordinatorFilesystemSourceM
             waiter.resume()
         }
         guard case .assertTopology(let worktreeIds) = operation else { return }
+        var remainingCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+        let currentAssertTopologyCount = assertTopologyCount
+        for (minimumCount, continuation) in topologyCountWaiters {
+            if currentAssertTopologyCount >= minimumCount {
+                continuation.resume()
+            } else {
+                remainingCountWaiters.append((minimumCount, continuation))
+            }
+        }
+        topologyCountWaiters = remainingCountWaiters
         var remainingWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
         for (expectedWorktreeIds, continuation) in topologyWaiters {
             if expectedWorktreeIds == worktreeIds {
@@ -520,6 +535,10 @@ private actor OrderedRecordingFilesystemSource: PaneCoordinatorFilesystemSourceM
             }
         }
         topologyWaiters = remainingWaiters
+    }
+
+    private var assertTopologyCount: Int {
+        operationLog.filter(\.isAssertTopology).count
     }
 }
 

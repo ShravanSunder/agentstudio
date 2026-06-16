@@ -16,6 +16,7 @@ export interface LoadBridgeContentResourceProps {
 	readonly fetchContent?: BridgeContentFetch;
 	readonly traceContext?: BridgeTraceContext | null;
 	readonly sendTraceparentHeader?: boolean;
+	readonly signal?: AbortSignal;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 }
 
@@ -28,7 +29,11 @@ export async function loadBridgeContentResource(
 	try {
 		const response = await fetchContent(
 			props.handle.resourceUrl,
-			requestInitForTraceContext(traceContext, props.sendTraceparentHeader ?? false),
+			requestInitForContentFetch({
+				traceContext,
+				sendTraceparentHeader: props.sendTraceparentHeader ?? false,
+				signal: props.signal,
+			}),
 		);
 		if (!response.ok) {
 			throw new Error(`Bridge content request failed: ${response.status}`);
@@ -59,20 +64,28 @@ export async function loadBridgeContentResource(
 				'agentstudio.bridge.header_supported': props.sendTraceparentHeader === true,
 			},
 		});
-		props.telemetryRecorder?.flush({ force: true });
+		props.telemetryRecorder?.flush();
 	}
 }
 
-function requestInitForTraceContext(
-	traceContext: BridgeTraceContext | null,
-	sendTraceparentHeader: boolean,
+interface RequestInitForContentFetchProps {
+	readonly traceContext: BridgeTraceContext | null;
+	readonly sendTraceparentHeader: boolean;
+	readonly signal: AbortSignal | undefined;
+}
+
+function requestInitForContentFetch(
+	props: RequestInitForContentFetchProps,
 ): RequestInit | undefined {
-	if (!sendTraceparentHeader || traceContext === null) {
+	const headers =
+		props.sendTraceparentHeader && props.traceContext !== null
+			? { traceparent: bridgeTraceparent(props.traceContext) }
+			: undefined;
+	if (headers === undefined && props.signal === undefined) {
 		return undefined;
 	}
 	return {
-		headers: {
-			traceparent: bridgeTraceparent(traceContext),
-		},
+		...(headers === undefined ? {} : { headers }),
+		...(props.signal === undefined ? {} : { signal: props.signal }),
 	};
 }

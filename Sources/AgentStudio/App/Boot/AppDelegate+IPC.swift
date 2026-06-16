@@ -48,6 +48,11 @@ extension AppDelegate {
                         runtimeRegistry: paneCoordinator.runtimeRegistry,
                         commandDispatcher: ActionExecutorRuntimeCommandDispatcher(actionExecutor: executor)
                     ),
+                    bridgePort: AgentStudioIPCBridgeAdapter(
+                        workspaceStore: store,
+                        viewRegistry: viewRegistry,
+                        actionExecutor: executor
+                    ),
                     commandPort: AgentStudioIPCCommandAdapter(
                         windowLifecycleReader: windowLifecycleReader
                     ),

@@ -125,7 +125,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func makePaneFocusAppControl(store: WorkspaceStore) -> (any PaneFocusAppControlling)? {
-        splitViewController?.makePaneFocusAppControl(store: store)
+        splitViewController?.loadViewIfNeeded()
+        return splitViewController?.makePaneFocusAppControl(store: store)
     }
 
     private func saveWindowFrame() {
