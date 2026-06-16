@@ -265,6 +265,9 @@ Wall-clock sleeps make tests flaky. CI machines run at different speeds, so "sle
 
 Do not:
 - use `Task.sleep(...)` in test bodies to wait for async work
+- use `Task.sleep(for:)` in AgentStudio code. It has caused crash issues in this
+  app; use `Task.sleep(nanoseconds:)` with explicit `Duration` conversion only
+  when a sleep is unavoidable, and prefer event/state waits or injected clocks.
 - assert intermediate state after an arbitrary delay
 - rely on suite serialization to hide leaked async work
 

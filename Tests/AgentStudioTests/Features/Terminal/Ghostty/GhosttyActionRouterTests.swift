@@ -385,6 +385,7 @@ struct GhosttyActionRouterTests {
             )
         )
 
+        await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         await assertEventuallyMain("Ghostty action router should write translation trace") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
