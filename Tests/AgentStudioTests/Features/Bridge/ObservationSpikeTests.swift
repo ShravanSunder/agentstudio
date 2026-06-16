@@ -111,7 +111,7 @@ final class ObservationSpikeTests {
             }
         }
 
-        await Task.yield()
+        await debounceClock.waitForPendingSleepCount(atLeast: 1)
 
         // Act — rapid mutations (all within 100ms debounce window)
         state.propertyA = 1
