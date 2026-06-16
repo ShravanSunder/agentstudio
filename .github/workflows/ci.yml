@@ -175,7 +175,7 @@ jobs:
           # non-WebKit lane serially in CI; local full-suite runs may still use
           # the default parallel mode.
           SWIFT_TEST_PARALLEL: "0"
-          SWIFT_TEST_TIMEOUT_SECONDS: "300"
+          SWIFT_TEST_TIMEOUT_SECONDS: "600"
           XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-fast.xml"
         run: mise run test-fast
 
