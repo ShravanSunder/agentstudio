@@ -188,7 +188,8 @@ if [[ -z "$events" ]]; then
   exit 1
 fi
 
-first_time="$(printf '%s\n' "$events" | head -n 1 | cut -f1)"
+first_event_line="${events%%$'\n'*}"
+first_time="${first_event_line%%$'\t'*}"
 last_time="$(printf '%s\n' "$events" | tail -n 1 | cut -f1)"
 zmx_session="$(
   printf '%s\n' "$events" \
@@ -215,7 +216,8 @@ if [[ -n "$startup_outcome" ]]; then
 fi
 
 if [[ -n "$app_events" ]]; then
-  app_first_time="$(printf '%s\n' "$app_events" | head -n 1 | cut -f1)"
+  app_first_line="${app_events%%$'\n'*}"
+  app_first_time="${app_first_line%%$'\t'*}"
   printf '\napp startup timeline\n'
   printf '%12s  %-48s  %s\n' "delta_ms" "body" "details"
   printf '%12s  %-48s  %s\n' "────────" "────────────────────────────────────────────" "───────"
@@ -296,7 +298,8 @@ if [[ -n "$zmx_log_path" ]]; then
     fi
     printf '\n'
   else
-    zmx_first_time="$(printf '%s\n' "$zmx_events" | head -n 1 | cut -f1)"
+    zmx_first_line="${zmx_events%%$'\n'*}"
+    zmx_first_time="${zmx_first_line%%$'\t'*}"
     printf '%12s  %s\n' "delta_ms" "message"
     printf '%12s  %s\n' "────────" "───────"
     printf '%s\n' "$zmx_events" | while IFS=$'\t' read -r time message file; do
