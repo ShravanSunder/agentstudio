@@ -15,6 +15,7 @@ final class WorkspaceActionExecutorTests {
     private var tempDir: URL!
 
     init() {
+        installTestAtomRegistryIfNeeded()
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "executor-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
