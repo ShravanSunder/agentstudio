@@ -836,6 +836,7 @@ extension DerivedActivityNotificationIntegrationTests {
                 sizingMode: .proportional
             ) == true
         )
+        fixture.tabLayout.setActivePane(activePaneId, inTab: activeTab.id)
     }
 
     private func makeWindowKey(_ atom: WindowLifecycleAtom) {

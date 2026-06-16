@@ -146,7 +146,7 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             }
 
             group.addTask {
-                try? await Task.sleep(for: timeout)
+                try? await Task.sleep(nanoseconds: timeout.nanosecondsForTaskSleep)
                 return nil
             }
 
@@ -178,7 +178,7 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             guard start.duration(to: ContinuousClock.now) <= timeout else {
                 throw AppIPCRuntimeError(reason: .timeout)
             }
-            try? await Task.sleep(for: .milliseconds(100))
+            try? await Task.sleep(nanoseconds: Duration.milliseconds(100).nanosecondsForTaskSleep)
         }
     }
 

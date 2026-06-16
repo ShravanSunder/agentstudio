@@ -65,7 +65,7 @@ struct RepoScanner {
                     try await operation()
                 }
                 group.addTask {
-                    try await Task.sleep(for: timeout)
+                    try await Task.sleep(nanoseconds: timeout.nanosecondsForTaskSleep)
                     throw RepoScannerDiscoveryTimeoutError.timedOut
                 }
 

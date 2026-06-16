@@ -170,12 +170,14 @@ jobs:
 
       - name: Test fast lane
         env:
-          # macos-26 runners can spend several minutes in Swift Testing
-          # shutdown after emitting all passing fast-lane cases. Run the
-          # non-WebKit lane serially in CI and give that runner/teardown path
-          # the same bound used by the earlier CI fast lane.
+          # macos-26 runners have hung in the large all-at-once Swift Testing
+          # fast lane after emitting passing cases. Run one-class shards in CI
+          # so Swift Testing global state does not leak across UI/trace suites
+          # and each runner process has a bounded lifecycle.
+          SWIFT_TEST_SHARD_BY_CLASS: "1"
+          SWIFT_TEST_SHARD_CLASS_COUNT: "1"
           SWIFT_TEST_PARALLEL: "0"
-          SWIFT_TEST_TIMEOUT_SECONDS: "900"
+          SWIFT_TEST_TIMEOUT_SECONDS: "180"
           XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-fast.xml"
         run: mise run test-fast
 

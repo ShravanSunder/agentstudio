@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("PaneInboxNotificationPresenter")
+@Suite("PaneInboxNotificationPresenter", .serialized)
 struct PaneInboxNotificationPresenterTests {
     private func makeTraceRuntime(name: String, processIdentifier: Int32) -> AgentStudioTraceRuntime {
         AgentStudioTraceRuntime(
@@ -138,6 +138,7 @@ struct PaneInboxNotificationPresenterTests {
         presenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
         presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: true)
 
+        await presenter.drainTraceRecords()
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         await assertEventuallyMain("pane inbox presenter should write request and presentation traces") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
@@ -190,6 +191,7 @@ struct PaneInboxNotificationPresenterTests {
 
         presenter.recordRowActivation(notification: notification, paneIds: [parentPaneId, childPaneId])
 
+        await presenter.drainTraceRecords()
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         await assertEventuallyMain("pane inbox presenter should write row activation trace") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?

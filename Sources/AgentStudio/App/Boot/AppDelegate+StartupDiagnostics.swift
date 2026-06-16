@@ -427,7 +427,7 @@ extension AppDelegate {
         while !proof.succeeded
             && start.duration(to: clock.now) < AppPolicies.StartupDiagnostic.ipcTerminalSmokeReadinessTimeout
         {
-            try? await Task.sleep(for: .milliseconds(50))
+            try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
             mainWindowController?.syncVisibleTerminalGeometry(reason: "ipcTerminalSmokeReadiness")
             proof = ipcTerminalSmokeRenderProof(for: paneId)
         }
