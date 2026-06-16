@@ -501,6 +501,7 @@ struct InboxNotificationRouterObservedPaneTests {
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1)
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await fixture.router.flushTraceRecords()
         await assertEventuallyMain("kept observed pane row should explain why in trace") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.observedPaneCleared\"") == true
