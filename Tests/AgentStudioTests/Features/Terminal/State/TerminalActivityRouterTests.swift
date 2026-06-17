@@ -399,7 +399,7 @@ struct TerminalActivityRouterTests {
             )
         }
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepGeneration(2)
         clock.advance(by: .milliseconds(750))
         await router.stop()
 
@@ -580,6 +580,7 @@ struct TerminalActivityRouterTests {
     func paneClosePrunesUnseenActivityWindowImmediately() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let clock = TestPushClock()
         let traceSink = TerminalActivityTraceRecordingSink()
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
@@ -598,7 +599,13 @@ struct TerminalActivityRouterTests {
             ),
             timeUnixNano: { 1002 }
         )
-        let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atom,
+            traceRuntime: traceRuntime,
+            unseenActivityDebounceDuration: .milliseconds(750),
+            unseenActivityClock: clock
+        )
         let paneId = PaneId()
 
         await router.start()
@@ -612,6 +619,7 @@ struct TerminalActivityRouterTests {
                 )
             )
         )
+        await clock.waitForPendingSleepCount(atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
@@ -622,11 +630,8 @@ struct TerminalActivityRouterTests {
             )
         )
 
-        await assertEventuallyAsync("terminal activity router should process pane close") {
-            await traceSink.records().contains { record in
-                record.body == "terminal.activity.unseenWindowClosed"
-                    && record.attributes["terminal.activity.close_reason"] == .string("pane.closed")
-            }
+        await assertEventuallyMain("terminal activity router should cancel debounce on pane close") {
+            clock.pendingSleepCount == 0
         }
         await router.stop()
 
