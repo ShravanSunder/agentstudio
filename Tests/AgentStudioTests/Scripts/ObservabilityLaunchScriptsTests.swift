@@ -58,9 +58,20 @@ struct ObservabilityLaunchScriptsTests {
         #expect(miseConfig.contains("[tasks.test-zmx-e2e]"))
         #expect(miseConfig.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\" debug"))
         #expect(wrapperScript.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\" debug"))
+        #expect(wrapperScript.contains("TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-60}\""))
+        #expect(
+            wrapperScript.contains(
+                "PREBUILD_TIMEOUT_SECONDS=\"${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-$TIMEOUT_SECONDS}\""))
+        #expect(
+            wrapperScript.contains(
+                "echo \"[$LOG_PREFIX] PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS\""))
         #expect(wrapperScript.contains("run_swift_with_timeout"))
         #expect(wrapperScript.contains("requested swift test args: $*"))
         #expect(wrapperScript.contains("swift test --skip-build \"$@\" --build-path \"$BUILD_PATH\""))
+        #expect(
+            testHelperScript.contains(
+                "#   PREBUILD_TIMEOUT_SECONDS - Timeout in seconds for the one-time test bundle build"))
+        #expect(testHelperScript.contains("\"prebuild test bundles\" \\\n    \"$PREBUILD_TIMEOUT_SECONDS\""))
         #expect(testHelperScript.contains("swift_test_output_has_failures()"))
         #expect(testHelperScript.contains("emitted Swift Testing failure output despite exit 0"))
         #expect(testHelperScript.contains("recorded an issue"))
@@ -69,6 +80,8 @@ struct ObservabilityLaunchScriptsTests {
         #expect(testHelperScript.contains("terminate_process_tree TERM \"$command_pid\""))
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
+        #expect(ciWorkflow.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"1200\""))
+        #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(ciWorkflow.contains("set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"))
     }
 

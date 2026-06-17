@@ -4,6 +4,7 @@
 # Required variables (set by caller before sourcing):
 #   LOG_PREFIX         - Log prefix, e.g. "test" or "test-coverage"
 #   TIMEOUT_SECONDS    - Timeout in seconds for swift commands
+#   PREBUILD_TIMEOUT_SECONDS - Timeout in seconds for the one-time test bundle build
 #   BUILD_PATH         - Swift build path
 #
 # Optional variables:
@@ -20,7 +21,7 @@ prebuild_swift_tests() {
   # shellcheck disable=SC2086
   run_swift_with_timeout \
     "prebuild test bundles" \
-    "$TIMEOUT_SECONDS" \
+    "$PREBUILD_TIMEOUT_SECONDS" \
     swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
 }
 
