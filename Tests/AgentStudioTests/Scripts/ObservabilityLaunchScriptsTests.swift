@@ -59,19 +59,19 @@ struct ObservabilityLaunchScriptsTests {
         #expect(miseConfig.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\" debug"))
         #expect(wrapperScript.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\" debug"))
         #expect(wrapperScript.contains("TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-60}\""))
-        #expect(
-            wrapperScript.contains(
-                "PREBUILD_TIMEOUT_SECONDS=\"${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-$TIMEOUT_SECONDS}\""))
-        #expect(
-            wrapperScript.contains(
-                "echo \"[$LOG_PREFIX] PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS\""))
+        #expect(wrapperScript.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-$TIMEOUT_SECONDS"))
+        #expect(wrapperScript.contains("SWIFT_TEST_RUNNER_WARMUP_TIMEOUT_SECONDS:-0"))
+        #expect(wrapperScript.contains("PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"))
+        #expect(wrapperScript.contains("RUNNER_WARMUP_TIMEOUT_SECONDS=$RUNNER_WARMUP_TIMEOUT_SECONDS"))
         #expect(wrapperScript.contains("run_swift_with_timeout"))
         #expect(wrapperScript.contains("requested swift test args: $*"))
         #expect(wrapperScript.contains("swift test --skip-build \"$@\" --build-path \"$BUILD_PATH\""))
-        #expect(
-            testHelperScript.contains(
-                "#   PREBUILD_TIMEOUT_SECONDS - Timeout in seconds for the one-time test bundle build"))
+        #expect(testHelperScript.contains("Timeout in seconds for the one-time test bundle build"))
+        #expect(testHelperScript.contains("Optional timeout for a no-test runner launch warmup"))
         #expect(testHelperScript.contains("\"prebuild test bundles\" \\\n    \"$PREBUILD_TIMEOUT_SECONDS\""))
+        #expect(testHelperScript.contains("warm_swift_test_runner()"))
+        #expect(testHelperScript.contains("\"warm swift test runner\" \\\n    \"$RUNNER_WARMUP_TIMEOUT_SECONDS\""))
+        #expect(testHelperScript.contains("--filter AgentStudioNoMatchingWarmupSentinel"))
         #expect(testHelperScript.contains("swift_test_output_has_failures()"))
         #expect(testHelperScript.contains("emitted Swift Testing failure output despite exit 0"))
         #expect(testHelperScript.contains("recorded an issue"))
@@ -81,6 +81,7 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"1200\""))
+        #expect(ciWorkflow.contains("SWIFT_TEST_RUNNER_WARMUP_TIMEOUT_SECONDS: \"1200\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(ciWorkflow.contains("set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"))
     }
