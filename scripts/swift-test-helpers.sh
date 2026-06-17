@@ -11,16 +11,17 @@
 #   XCB_EXTRA_ARGS        - Extra xcbeautify flags (e.g. "--renderer github-actions")
 #   SWIFT_TEST_SHARD_BY_CLASS - Set to 1 to run non-WebKit tests in class chunks
 #   SWIFT_TEST_SHARD_CLASS_COUNT - Number of test classes per shard (default: 40)
+#   SWIFT_TEST_SKIP_BUILD - Set to 0 to let filtered swift test invocations plan/build
 
 # shellcheck source=scripts/xcb-helpers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
 
 prebuild_swift_tests() {
-  echo "[$LOG_PREFIX] >>> prebuild test bundles"
-  local xcb_pipe
-  xcb_pipe=$(_xcb_pipe_cmd)
   # shellcheck disable=SC2086
-  swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+  run_swift_with_timeout \
+    "prebuild test bundles" \
+    "$TIMEOUT_SECONDS" \
+    swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
 }
 
 run_non_serialized_swift_tests() {
@@ -120,6 +121,13 @@ run_swift_class_shard() {
     shard_xcb_extra_args="${shard_xcb_extra_args/--report-path test-results-fast.xml/--report-path test-results-fast-${report_slug}.xml}"
   fi
 
+  local skip_build_arg="--skip-build"
+  if [ "${SWIFT_TEST_SKIP_BUILD:-1}" = "1" ]; then
+    skip_build_arg="--skip-build"
+  else
+    skip_build_arg=""
+  fi
+
   if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
     SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
     if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
@@ -127,7 +135,7 @@ run_swift_class_shard() {
     XCB_EXTRA_ARGS="$shard_xcb_extra_args" run_swift_with_timeout \
       "$label" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} ${skip_build_arg:+"$skip_build_arg"} \
       --parallel --num-workers "$SWIFT_TEST_WORKERS" \
       --filter "$filter" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
@@ -135,7 +143,7 @@ run_swift_class_shard() {
     XCB_EXTRA_ARGS="$shard_xcb_extra_args" run_swift_with_timeout \
       "$label" \
       "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} ${skip_build_arg:+"$skip_build_arg"} \
       --filter "$filter" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   fi

@@ -139,6 +139,7 @@ struct TerminalActivityRouterTests {
         let paneId = PaneId()
 
         await router.start()
+        await waitForBusSubscriberCount(bus, atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
@@ -177,6 +178,7 @@ struct TerminalActivityRouterTests {
         let correlationId = UUID()
 
         await router.start()
+        await waitForBusSubscriberCount(bus, atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
@@ -224,6 +226,7 @@ struct TerminalActivityRouterTests {
         let paneId = PaneId()
 
         await router.start()
+        await waitForBusSubscriberCount(bus, atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
@@ -577,22 +580,29 @@ struct TerminalActivityRouterTests {
     func paneClosePrunesUnseenActivityWindowImmediately() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let traceSink = TerminalActivityTraceRecordingSink()
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-pane-close",
                 "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
             ]),
             processIdentifier: 253,
             sessionID: "terminal-session",
+            sinkFactory: AgentStudioTraceSinkFactory(
+                makeJSONLSink: { _ in traceSink },
+                makeOTLPSink: { _ in traceSink }
+            ),
             timeUnixNano: { 1002 }
         )
         let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
         let paneId = PaneId()
 
         await router.start()
+        await waitForBusSubscriberCount(bus, atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
@@ -612,14 +622,15 @@ struct TerminalActivityRouterTests {
             )
         )
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("terminal activity router should process pane close") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"terminal.activity.close_reason\":\"pane.closed\"") == true
+        await assertEventuallyAsync("terminal activity router should process pane close") {
+            await traceSink.records().contains { record in
+                record.body == "terminal.activity.unseenWindowClosed"
+                    && record.attributes["terminal.activity.close_reason"] == .string("pane.closed")
+            }
         }
         await router.stop()
 
-        let closeRecords = try traceRecords(in: outputFileURL)
+        let closeRecords = await traceSink.records()
             .filter { $0.body == "terminal.activity.unseenWindowClosed" }
         #expect(closeRecords.count == 1)
         #expect(closeRecords.first?.attributes["terminal.activity.close_reason"] == .string("pane.closed"))
@@ -786,6 +797,26 @@ struct TerminalActivityRouterTests {
         let contents = try String(contentsOf: fileURL, encoding: .utf8)
         return try contents.split(separator: "\n").map { line in
             try JSONDecoder().decode(TraceRecordFixture.self, from: Data(line.utf8))
+        }
+    }
+
+    private actor TerminalActivityTraceRecordingSink: AgentStudioTraceSink {
+        private var recordedRecords: [AgentStudioTraceRecord] = []
+
+        func record(_ record: AgentStudioTraceRecord) {
+            recordedRecords.append(record)
+        }
+
+        func flush() {}
+
+        func shutdown() {}
+
+        func diagnostics() -> AgentStudioTraceWriterDiagnostics {
+            .empty
+        }
+
+        func records() -> [AgentStudioTraceRecord] {
+            recordedRecords
         }
     }
 }
