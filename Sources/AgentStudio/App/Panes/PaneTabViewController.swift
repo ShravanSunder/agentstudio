@@ -982,7 +982,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 self?.openGitHubWebview(for: paneId)
             },
             notificationCountForWorktree: { worktreeId in
-                WorkspaceNotificationCountProjection.unreadCount(
+                WorkspaceNotificationCountProjection.rollUpAlertCount(
                     worktreeId: worktreeId,
                     inboxAtom: atom(\.inboxNotification)
                 )
@@ -3235,7 +3235,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             paneId: paneId,
             store: store,
             notificationCountForWorktree: { worktreeId in
-                WorkspaceNotificationCountProjection.unreadCount(
+                WorkspaceNotificationCountProjection.rollUpAlertCount(
                     worktreeId: worktreeId,
                     inboxAtom: atom(\.inboxNotification)
                 )

@@ -302,6 +302,75 @@ struct InboxNotificationSQLiteRepositoryTests {
         #expect(rowCount == cap)
     }
 
+    @Test("retention cap deletes read activity before unread roll-up alerts")
+    func retentionCapDeletesReadActivityBeforeUnreadRollUpAlerts() throws {
+        let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000020")!
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let cap = AppPolicies.InboxNotification.maxRetained
+        let base = Date(timeIntervalSince1970: 2_000_000)
+        let unreadAlert = makeRepositoryNotification(
+            id: UUID(uuidString: "20000000-0000-0000-0000-000000010001")!,
+            timestamp: base,
+            kind: .approvalRequested,
+            title: "Old action",
+            claimKey: .init(
+                paneId: UUID(uuidString: "20000000-0000-0000-0000-000000010002")!,
+                lane: .actionNeeded,
+                semantic: .approvalRequested,
+                sessionId: nil
+            )
+        )
+        let readActivity = makeRepositoryNotification(
+            id: UUID(uuidString: "20000000-0000-0000-0000-000000010003")!,
+            timestamp: base.addingTimeInterval(1),
+            kind: .unseenActivity,
+            title: "Read activity",
+            claimKey: .init(
+                paneId: UUID(uuidString: "20000000-0000-0000-0000-000000010004")!,
+                lane: .activity,
+                semantic: .unseenActivity,
+                sessionId: nil
+            ),
+            isRead: true,
+            isDismissedFromPaneInbox: true
+        )
+        let activitySpam = (2..<cap).map { index in
+            makeRepositoryNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-\(String(format: "%012d", 110_000 + index))")!,
+                timestamp: base.addingTimeInterval(TimeInterval(index)),
+                kind: .unseenActivity,
+                title: "Activity \(index)",
+                claimKey: .init(
+                    paneId: UUID(),
+                    lane: .activity,
+                    semantic: .unseenActivity,
+                    sessionId: nil
+                )
+            )
+        }
+        try fixture.repository.replaceAll([unreadAlert, readActivity] + activitySpam)
+
+        let outcome = try fixture.repository.append(
+            makeRepositoryNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000019999")!,
+                timestamp: base.addingTimeInterval(TimeInterval(cap + 1)),
+                kind: .unseenActivity,
+                title: "Incoming activity",
+                claimKey: .init(
+                    paneId: UUID(),
+                    lane: .activity,
+                    semantic: .unseenActivity,
+                    sessionId: nil
+                )
+            )
+        )
+        let restoredNotifications = try fixture.repository.fetchNotifications()
+
+        #expect(outcome.droppedNotificationIds == [readActivity.id])
+        #expect(restoredNotifications.contains(where: { $0.id == unreadAlert.id }))
+        #expect(restoredNotifications.contains(where: { $0.id == readActivity.id }) == false)
+    }
+
     @Test("retention cap deletes overflow rows with one batch statement")
     func retentionCapDeletesOverflowRowsWithOneBatchStatement() throws {
         let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000074")!
@@ -375,6 +444,150 @@ struct InboxNotificationSQLiteRepositoryTests {
         #expect(restoredNotifications.map(\InboxNotification.id) == [paneNotification.id, otherNotification.id])
         #expect(restoredNotifications.first?.isDismissedFromPaneInbox == true)
         #expect(restoredNotifications.last?.isRead == false)
+    }
+
+    @Test("toggle read state clears pane dismissal when reopening unread")
+    func toggleReadStateClearsPaneDismissalWhenReopeningUnread() throws {
+        let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000010")!
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let paneId = UUID(uuidString: "20000000-0000-0000-0000-000000000101")!
+        let notification = makeRepositoryNotification(
+            id: UUID(uuidString: "20000000-0000-0000-0000-000000000102")!,
+            timestamp: Date(timeIntervalSince1970: 10),
+            title: "Reopen me",
+            source: .pane(.init(paneId: paneId)),
+            isRead: true,
+            isDismissedFromPaneInbox: true
+        )
+        try fixture.repository.replaceAll([notification])
+
+        #expect(try fixture.repository.toggleReadState(id: notification.id))
+
+        let restoredNotifications = try fixture.repository.fetchNotifications()
+        #expect(restoredNotifications.count == 1)
+        #expect(restoredNotifications[0].isRead == false)
+        #expect(restoredNotifications[0].isDismissedFromPaneInbox == false)
+    }
+
+    @Test("markRead(scope:) persists repo, worktree, and pane scoped reads")
+    func markReadByScopePersistsScopedReads() throws {
+        let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000011")!
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let repoId = UUID(uuidString: "20000000-0000-0000-0000-000000000111")!
+        let worktreeId = UUID(uuidString: "20000000-0000-0000-0000-000000000112")!
+        let paneA = UUID(uuidString: "20000000-0000-0000-0000-000000000113")!
+        let paneB = UUID(uuidString: "20000000-0000-0000-0000-000000000114")!
+        let notifications = [
+            makeRepositoryNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000115")!,
+                timestamp: Date(timeIntervalSince1970: 10),
+                source: .pane(.init(paneId: paneA, repoId: repoId))
+            ),
+            makeRepositoryNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000116")!,
+                timestamp: Date(timeIntervalSince1970: 11),
+                source: .pane(.init(paneId: paneB, worktreeId: worktreeId))
+            ),
+            makeRepositoryNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000117")!,
+                timestamp: Date(timeIntervalSince1970: 12),
+                source: .pane(.init(paneId: paneB))
+            ),
+            makeRepositoryNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000118")!,
+                timestamp: Date(timeIntervalSince1970: 13)
+            ),
+        ]
+        try fixture.repository.replaceAll(notifications)
+
+        try fixture.repository.markRead(scope: .repo(repoId))
+        #expect(try fixture.repository.fetchNotifications().map(\.isRead) == [true, false, false, false])
+
+        try fixture.repository.markRead(scope: .worktree(worktreeId))
+        #expect(try fixture.repository.fetchNotifications().map(\.isRead) == [true, true, false, false])
+
+        try fixture.repository.markRead(scope: .paneIds([paneB]))
+        #expect(try fixture.repository.fetchNotifications().map(\.isRead) == [true, true, true, false])
+    }
+
+    @Test("upsert by claim reopens read activity history for stronger lane")
+    func upsertByClaimReopensReadActivityHistoryForStrongerLane() throws {
+        let workspaceId = UUID(uuidString: "20000000-0000-0000-0000-000000000021")!
+        let fixture = try makeInboxNotificationSQLiteRepositoryFixture(workspaceId: workspaceId)
+        let paneId = UUID(uuidString: "20000000-0000-0000-0000-000000000211")!
+        let sessionId = UUID(uuidString: "20000000-0000-0000-0000-000000000212")!
+        let existingActivity = makeRepositoryNotification(
+            id: UUID(uuidString: "20000000-0000-0000-0000-000000000213")!,
+            timestamp: Date(timeIntervalSince1970: 10),
+            kind: .unseenActivity,
+            title: "Observed activity",
+            source: .pane(.init(paneId: paneId)),
+            claimKey: .init(
+                paneId: paneId,
+                lane: .activity,
+                semantic: .unseenActivity,
+                sessionId: sessionId
+            ),
+            isRead: true,
+            isDismissedFromPaneInbox: false
+        )
+        let incomingAction = makeRepositoryNotification(
+            id: UUID(uuidString: "20000000-0000-0000-0000-000000000214")!,
+            timestamp: Date(timeIntervalSince1970: 11),
+            kind: .approvalRequested,
+            title: "Approval required",
+            source: .pane(.init(paneId: paneId)),
+            claimKey: .init(
+                paneId: paneId,
+                lane: .actionNeeded,
+                semantic: .approvalRequested,
+                sessionId: sessionId
+            )
+        )
+        try fixture.repository.replaceAll([existingActivity])
+
+        let outcome = try fixture.repository.upsertByClaim(
+            incomingAction,
+            merge: promoterStyleMerge(existing:incoming:)
+        )
+        let restoredNotifications = try fixture.repository.fetchNotifications()
+
+        #expect(outcome.notificationId == existingActivity.id)
+        #expect(outcome.didCoalesce)
+        #expect(restoredNotifications.count == 1)
+        #expect(restoredNotifications[0].kind == .approvalRequested)
+        #expect(restoredNotifications[0].claimKey?.lane == .actionNeeded)
+        #expect(restoredNotifications[0].isRead == false)
+        #expect(restoredNotifications[0].isDismissedFromPaneInbox == false)
+
+        let incomingSafety = makeRepositoryNotification(
+            id: UUID(uuidString: "20000000-0000-0000-0000-000000000215")!,
+            timestamp: Date(timeIntervalSince1970: 12),
+            kind: .terminalRendererUnhealthy,
+            title: "Terminal renderer unhealthy",
+            source: .pane(.init(paneId: paneId)),
+            claimKey: .init(
+                paneId: paneId,
+                lane: .safety,
+                semantic: .rendererUnhealthy,
+                sessionId: sessionId
+            )
+        )
+        try fixture.repository.replaceAll([existingActivity])
+
+        let safetyOutcome = try fixture.repository.upsertByClaim(
+            incomingSafety,
+            merge: promoterStyleMerge(existing:incoming:)
+        )
+        let restoredSafetyNotifications = try fixture.repository.fetchNotifications()
+
+        #expect(safetyOutcome.notificationId == existingActivity.id)
+        #expect(safetyOutcome.didCoalesce)
+        #expect(restoredSafetyNotifications.count == 1)
+        #expect(restoredSafetyNotifications[0].kind == .terminalRendererUnhealthy)
+        #expect(restoredSafetyNotifications[0].claimKey?.lane == .safety)
+        #expect(restoredSafetyNotifications[0].isRead == false)
+        #expect(restoredSafetyNotifications[0].isDismissedFromPaneInbox == false)
     }
 }
 
@@ -584,18 +797,51 @@ private func promoterStyleMerge(
     existing: InboxNotification,
     incoming: InboxNotification
 ) -> InboxNotification {
-    InboxNotification(
+    let incomingIsMoreSpecific = claimLanePriority(incoming.claimKey?.lane) < claimLanePriority(existing.claimKey?.lane)
+    let incomingIsSameClaim = existing.claimKey == incoming.claimKey
+    let displaySource = incomingIsMoreSpecific || incomingIsSameClaim ? incoming : existing
+    let shouldReopenReadRow =
+        existing.isRead
+        && !incoming.isRead
+        && incomingIsMoreSpecific
+    return InboxNotification(
         id: existing.id,
         timestamp: incoming.timestamp,
-        kind: incoming.kind,
-        title: incoming.title,
-        body: incoming.body,
-        source: incoming.source,
+        kind: displaySource.kind,
+        title: displaySource.title,
+        body: displaySource.body,
+        source: displaySource.source,
         activityContext: incoming.activityContext ?? existing.activityContext,
-        claimKey: incoming.claimKey ?? existing.claimKey,
-        isRead: existing.isRead || incoming.isRead,
-        isDismissedFromPaneInbox: existing.isDismissedFromPaneInbox || incoming.isDismissedFromPaneInbox
+        claimKey: strongerClaimKey(existing: existing.claimKey, incoming: incoming.claimKey),
+        isRead: shouldReopenReadRow ? false : existing.isRead || incoming.isRead,
+        isDismissedFromPaneInbox: shouldReopenReadRow
+            ? false
+            : existing.isDismissedFromPaneInbox || incoming.isDismissedFromPaneInbox
     )
+}
+
+private func strongerClaimKey(
+    existing: InboxNotificationClaimKey?,
+    incoming: InboxNotificationClaimKey?
+) -> InboxNotificationClaimKey? {
+    guard let existing else { return incoming }
+    guard let incoming else { return existing }
+    return claimLanePriority(incoming.lane) < claimLanePriority(existing.lane) ? incoming : existing
+}
+
+private func claimLanePriority(_ lane: InboxNotificationClaimLane?) -> Int {
+    switch lane {
+    case .actionNeeded:
+        return 0
+    case .safety:
+        return 1
+    case .settledAgent:
+        return 2
+    case .activity:
+        return 3
+    case nil:
+        return 4
+    }
 }
 
 private func assertNotificationRowColumns(

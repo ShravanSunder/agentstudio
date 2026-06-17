@@ -109,6 +109,10 @@ final class WorkspaceSettingsStore {
             _ = inboxNotificationPrefsAtom.grouping
             _ = inboxNotificationPrefsAtom.sort
             _ = inboxNotificationPrefsAtom.bellEnabled
+            _ = inboxNotificationPrefsAtom.globalInboxContentMode
+            _ = inboxNotificationPrefsAtom.globalInboxRowStateFilter
+            _ = inboxNotificationPrefsAtom.paneInboxContentMode
+            _ = inboxNotificationPrefsAtom.paneInboxRowStateFilter
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -157,7 +161,11 @@ final class WorkspaceSettingsStore {
             notifications: .init(
                 grouping: inboxNotificationPrefsAtom.grouping,
                 sort: inboxNotificationPrefsAtom.sort,
-                bellEnabled: inboxNotificationPrefsAtom.bellEnabled
+                bellEnabled: inboxNotificationPrefsAtom.bellEnabled,
+                globalInboxContentMode: inboxNotificationPrefsAtom.globalInboxContentMode,
+                globalInboxRowStateFilter: inboxNotificationPrefsAtom.globalInboxRowStateFilter,
+                paneInboxContentMode: inboxNotificationPrefsAtom.paneInboxContentMode,
+                paneInboxRowStateFilter: inboxNotificationPrefsAtom.paneInboxRowStateFilter
             )
         )
     }
@@ -168,6 +176,10 @@ final class WorkspaceSettingsStore {
         inboxNotificationPrefsAtom.setGrouping(payload.notifications.grouping)
         inboxNotificationPrefsAtom.setSort(payload.notifications.sort)
         inboxNotificationPrefsAtom.setBellEnabled(payload.notifications.bellEnabled)
+        inboxNotificationPrefsAtom.setGlobalInboxContentMode(payload.notifications.globalInboxContentMode)
+        inboxNotificationPrefsAtom.setGlobalInboxRowStateFilter(payload.notifications.globalInboxRowStateFilter)
+        inboxNotificationPrefsAtom.setPaneInboxContentMode(payload.notifications.paneInboxContentMode)
+        inboxNotificationPrefsAtom.setPaneInboxRowStateFilter(payload.notifications.paneInboxRowStateFilter)
     }
 
     private func hydrateDefaults() {
@@ -176,6 +188,10 @@ final class WorkspaceSettingsStore {
         inboxNotificationPrefsAtom.setGrouping(.byTab)
         inboxNotificationPrefsAtom.setSort(.newestFirst)
         inboxNotificationPrefsAtom.setBellEnabled(false)
+        inboxNotificationPrefsAtom.setGlobalInboxContentMode(.rollUpAlerts)
+        inboxNotificationPrefsAtom.setGlobalInboxRowStateFilter(.unreadOnly)
+        inboxNotificationPrefsAtom.setPaneInboxContentMode(.rollUpAlerts)
+        inboxNotificationPrefsAtom.setPaneInboxRowStateFilter(.unreadOnly)
     }
 
     private func hydrateLegacyOrDefaults(for workspaceId: UUID) {
@@ -501,15 +517,89 @@ private struct WorkspaceSettingsPayload: Codable {
         var grouping: InboxNotificationGrouping
         var sort: InboxNotificationSort
         var bellEnabled: Bool
+        var globalInboxContentMode: InboxNotificationContentMode
+        var globalInboxRowStateFilter: InboxNotificationRowStateFilter
+        var paneInboxContentMode: InboxNotificationContentMode
+        var paneInboxRowStateFilter: InboxNotificationRowStateFilter
 
         init(
             grouping: InboxNotificationGrouping = .byTab,
             sort: InboxNotificationSort = .newestFirst,
-            bellEnabled: Bool = false
+            bellEnabled: Bool = false,
+            globalInboxContentMode: InboxNotificationContentMode = .rollUpAlerts,
+            globalInboxRowStateFilter: InboxNotificationRowStateFilter = .unreadOnly,
+            paneInboxContentMode: InboxNotificationContentMode = .rollUpAlerts,
+            paneInboxRowStateFilter: InboxNotificationRowStateFilter = .unreadOnly
         ) {
             self.grouping = grouping
             self.sort = sort
             self.bellEnabled = bellEnabled
+            self.globalInboxContentMode = globalInboxContentMode
+            self.globalInboxRowStateFilter = globalInboxRowStateFilter
+            self.paneInboxContentMode = paneInboxContentMode
+            self.paneInboxRowStateFilter = paneInboxRowStateFilter
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case grouping
+            case sort
+            case bellEnabled
+            case globalInboxContentMode
+            case globalInboxRowStateFilter
+            case paneInboxContentMode
+            case paneInboxRowStateFilter
+            case contentMode
+            case rowStateFilter
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.grouping =
+                (try? container.decodeIfPresent(InboxNotificationGrouping.self, forKey: .grouping))
+                ?? .byTab
+            self.sort =
+                (try? container.decodeIfPresent(InboxNotificationSort.self, forKey: .sort))
+                ?? .newestFirst
+            self.bellEnabled =
+                (try? container.decodeIfPresent(Bool.self, forKey: .bellEnabled))
+                ?? false
+            let legacyContentMode =
+                (try? container.decodeIfPresent(InboxNotificationContentMode.self, forKey: .contentMode))
+                ?? .rollUpAlerts
+            let legacyRowStateFilter =
+                (try? container.decodeIfPresent(InboxNotificationRowStateFilter.self, forKey: .rowStateFilter))
+                ?? .unreadOnly
+            self.globalInboxContentMode =
+                (try? container.decodeIfPresent(
+                    InboxNotificationContentMode.self,
+                    forKey: .globalInboxContentMode
+                )) ?? legacyContentMode
+            self.globalInboxRowStateFilter =
+                (try? container.decodeIfPresent(
+                    InboxNotificationRowStateFilter.self,
+                    forKey: .globalInboxRowStateFilter
+                )) ?? legacyRowStateFilter
+            self.paneInboxContentMode =
+                (try? container.decodeIfPresent(
+                    InboxNotificationContentMode.self,
+                    forKey: .paneInboxContentMode
+                )) ?? legacyContentMode
+            self.paneInboxRowStateFilter =
+                (try? container.decodeIfPresent(
+                    InboxNotificationRowStateFilter.self,
+                    forKey: .paneInboxRowStateFilter
+                )) ?? legacyRowStateFilter
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(grouping, forKey: .grouping)
+            try container.encode(sort, forKey: .sort)
+            try container.encode(bellEnabled, forKey: .bellEnabled)
+            try container.encode(globalInboxContentMode, forKey: .globalInboxContentMode)
+            try container.encode(globalInboxRowStateFilter, forKey: .globalInboxRowStateFilter)
+            try container.encode(paneInboxContentMode, forKey: .paneInboxContentMode)
+            try container.encode(paneInboxRowStateFilter, forKey: .paneInboxRowStateFilter)
         }
     }
 }

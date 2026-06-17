@@ -15,6 +15,13 @@ struct TabBarItem: Identifiable, Equatable {
     var arrangements: [ArrangementInfo]
     var minimizedCount: Int
     var showsMinimizedPanes: Bool
+    var notificationDotColor: TabNotificationDotColor?
+}
+
+enum TabNotificationDotColor: Equatable {
+    case red
+    case amber
+    case yellow
 }
 
 /// Derives tab bar display state from the workspace atoms.
@@ -73,17 +80,23 @@ final class TabBarAdapter {
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    private let notificationDotColorProvider: @MainActor ([UUID]) -> TabNotificationDotColor?
+    private let observeNotificationDotInputs: @MainActor () -> Void
     private var isObservingManagementLayer = false
     private var isObservingStore = false
 
     init(
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        notificationDotColorProvider: @escaping @MainActor ([UUID]) -> TabNotificationDotColor? = { _ in nil },
+        observeNotificationDotInputs: @escaping @MainActor () -> Void = {}
     ) {
         self.store = store
         self.repoCache = repoCache
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.notificationDotColorProvider = notificationDotColorProvider
+        self.observeNotificationDotInputs = observeNotificationDotInputs
         observe()
     }
 
@@ -116,6 +129,7 @@ final class TabBarAdapter {
                     _ = self.repoCache.worktreeEnrichment(for: worktreeId)
                 }
             }
+            self.observeNotificationDotInputs()
         } onChange: { [weak self] in
             guard let self else { return }
             Task { @MainActor in
@@ -163,6 +177,7 @@ final class TabBarAdapter {
             let arrangementDerived = atom(\.arrangement)
             let paneInfos = arrangementDerived.paneVisibilityItems(for: tab.id)
             let arrangementInfos = arrangementDerived.arrangementItems(for: tab.id)
+            let notificationDotColor = notificationDotColorProvider(Array(tab.allPaneIds))
 
             return TabBarItem(
                 id: tab.id,
@@ -175,7 +190,8 @@ final class TabBarAdapter {
                 panes: paneInfos,
                 arrangements: arrangementInfos,
                 minimizedCount: tab.activeMinimizedPaneIds.count,
-                showsMinimizedPanes: activeArrangement.showsMinimizedPanes
+                showsMinimizedPanes: activeArrangement.showsMinimizedPanes,
+                notificationDotColor: notificationDotColor
             )
         }
 

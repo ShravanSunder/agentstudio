@@ -29,9 +29,13 @@ struct WorkspaceLocalSchemaContractTests {
         )
 
         #expect(claimLaneStorageValues == SQLiteInboxNotificationClaimStorage.allLaneStorageValues)
-        #expect(SQLiteInboxNotificationClaimStorage.allLaneSQLValues == "'activity', 'actionNeeded', 'safety'")
+        #expect(
+            SQLiteInboxNotificationClaimStorage.allLaneSQLValues
+                == "'activity', 'actionNeeded', 'safety', 'settledAgent'")
         #expect(mergeableLaneStorageValues == SQLiteInboxNotificationClaimStorage.mergeableLaneStorageValues)
-        #expect(SQLiteInboxNotificationClaimStorage.mergeableLaneSQLValues == "'activity', 'actionNeeded'")
+        #expect(
+            SQLiteInboxNotificationClaimStorage.mergeableLaneSQLValues
+                == "'activity', 'actionNeeded', 'settledAgent'")
     }
 
     @Test("local lookup indexes are present")

@@ -22,12 +22,18 @@ struct InboxNotificationListSection: Identifiable, Equatable {
 
     var unreadCount: Int {
         notifications.reduce(0) { count, notification in
-            notification.isRead ? count : count + 1
+            notification.contributesToRollUpAlert ? count + 1 : count
         }
     }
 
     var visibleNotifications: [InboxNotification] {
         isCollapsed ? [] : notifications
+    }
+}
+
+extension Array where Element == InboxNotificationListSection {
+    var visibleNotificationIds: [UUID] {
+        flatMap(\.visibleNotifications).map(\.id)
     }
 }
 
@@ -134,14 +140,18 @@ struct InboxNotificationListModel: Equatable {
         sort: InboxNotificationSort,
         searchText: String,
         unreadOnly: Bool = false,
+        contentMode: InboxNotificationContentMode = .all,
+        rowStateFilter: InboxNotificationRowStateFilter = .all,
         filter: InboxFilter? = nil,
         collapsedGroups: Set<InboxNotificationGroupKey> = [],
         repoPresentation: (UUID?) -> InboxNotificationRepoGroupPresentation? = { _ in nil }
     ) {
+        let effectiveRowStateFilter: InboxNotificationRowStateFilter = unreadOnly ? .unreadOnly : rowStateFilter
         let sortedNotifications = Self.sortNotifications(notifications, sort: sort)
         let filteredNotifications = Self.filterNotifications(
             sortedNotifications,
-            unreadOnly: unreadOnly,
+            contentMode: contentMode,
+            rowStateFilter: effectiveRowStateFilter,
             filter: filter
         )
         let sourceItems = filteredNotifications.map(InboxNotificationListItem.init)
@@ -212,11 +222,13 @@ struct InboxNotificationListModel: Equatable {
 
     private static func filterNotifications(
         _ notifications: [InboxNotification],
-        unreadOnly: Bool,
+        contentMode: InboxNotificationContentMode,
+        rowStateFilter: InboxNotificationRowStateFilter,
         filter: InboxFilter?
     ) -> [InboxNotification] {
         notifications.filter { notification in
-            if unreadOnly, notification.isRead { return false }
+            guard contentMode.includes(notification) else { return false }
+            guard rowStateFilter.includes(notification) else { return false }
             guard let filter else { return true }
             return filter.matches(worktreeId: notification.worktreeId, repoId: notification.repoId)
         }

@@ -115,7 +115,47 @@ struct InboxNotificationSQLiteRepository {
     }
 
     func markRead(paneId: UUID) throws {
+        try markRead(scope: .paneIds([paneId]))
+    }
+
+    func markRead(scope: InboxNotificationReadScope) throws {
         try databaseWriter.write { database in
+            switch scope {
+            case .workspace:
+                try database.execute(
+                    sql: """
+                        UPDATE local_notification_inbox_item
+                        SET is_read = 1
+                        WHERE workspace_id = ?
+                        """,
+                    arguments: [workspaceId.uuidString]
+                )
+            case .repo(let repoId):
+                try database.execute(
+                    sql: """
+                        UPDATE local_notification_inbox_item
+                        SET is_read = 1
+                        WHERE workspace_id = ? AND repo_id = ?
+                        """,
+                    arguments: [workspaceId.uuidString, repoId.uuidString]
+                )
+            case .worktree(let worktreeId):
+                try database.execute(
+                    sql: """
+                        UPDATE local_notification_inbox_item
+                        SET is_read = 1
+                        WHERE workspace_id = ? AND worktree_id = ?
+                        """,
+                    arguments: [workspaceId.uuidString, worktreeId.uuidString]
+                )
+            case .paneIds(let paneIds):
+                try markRead(database, paneIds: paneIds)
+            }
+        }
+    }
+
+    private func markRead(_ database: Database, paneIds: [UUID]) throws {
+        for paneId in paneIds {
             try database.execute(
                 sql: """
                     UPDATE local_notification_inbox_item
@@ -128,16 +168,7 @@ struct InboxNotificationSQLiteRepository {
     }
 
     func markAllRead() throws {
-        try databaseWriter.write { database in
-            try database.execute(
-                sql: """
-                    UPDATE local_notification_inbox_item
-                    SET is_read = 1
-                    WHERE workspace_id = ?
-                    """,
-                arguments: [workspaceId.uuidString]
-            )
-        }
+        try markRead(scope: .workspace)
     }
 
     func dismissFromPaneInbox(id: UUID) throws -> Bool {
@@ -175,7 +206,13 @@ struct InboxNotificationSQLiteRepository {
     func toggleReadState(id: UUID) throws -> Bool {
         try updateNotification(
             id: id,
-            setClause: "is_read = CASE is_read WHEN 1 THEN 0 ELSE 1 END"
+            setClause: """
+                is_read = CASE is_read WHEN 1 THEN 0 ELSE 1 END,
+                is_dismissed_from_pane_inbox = CASE is_read
+                    WHEN 1 THEN 0
+                    ELSE is_dismissed_from_pane_inbox
+                END
+                """
         )
     }
 
@@ -328,10 +365,7 @@ struct InboxNotificationSQLiteRepository {
         claimKey: InboxNotificationClaimKey,
         incoming: InboxNotification
     ) throws -> InboxNotification? {
-        guard
-            let sessionId = claimKey.sessionId,
-            claimKey.lane.canMergeWithinActivitySession
-        else { return nil }
+        guard let sessionId = claimKey.sessionId else { return nil }
         let rows = try Row.fetchAll(
             database,
             sql: """
@@ -363,13 +397,7 @@ struct InboxNotificationSQLiteRepository {
         existing: InboxNotification,
         incoming: InboxNotification
     ) -> Bool {
-        if !existing.isRead && !existing.isDismissedFromPaneInbox {
-            return true
-        }
-        return existing.isRead
-            && existing.isDismissedFromPaneInbox
-            && incoming.isRead
-            && incoming.isDismissedFromPaneInbox
+        InboxNotificationClaimCoalescencePolicy.canCoalesce(existing: existing, incoming: incoming)
     }
 
     private func fetchNotificationRows(_ database: Database) throws -> [Row] {
@@ -523,17 +551,13 @@ struct InboxNotificationSQLiteRepository {
         let overflow = count - AppPolicies.InboxNotification.maxRetained
         guard overflow > 0 else { return .empty }
 
-        let droppedIds = try String.fetchAll(
-            database,
-            sql: """
-                SELECT id
-                FROM local_notification_inbox_item
-                WHERE workspace_id = ?
-                ORDER BY timestamp, id
-                LIMIT ?
-                """,
-            arguments: [workspaceId.uuidString, overflow]
+        let notifications = try fetchNotificationRows(database)
+            .map(InboxNotificationSQLiteCodecs.notification(from:))
+        let droppedNotificationIds = InboxNotificationRetentionPolicy.droppedNotificationIds(
+            from: notifications,
+            overflow: overflow
         )
+        let droppedIds = droppedNotificationIds.map(\.uuidString)
         if !droppedIds.isEmpty {
             let placeholders = Array(repeating: "?", count: droppedIds.count).joined(separator: ", ")
             try database.execute(
@@ -547,12 +571,7 @@ struct InboxNotificationSQLiteRepository {
 
         return .init(
             droppedCount: droppedIds.count,
-            droppedNotificationIds: try droppedIds.map {
-                try InboxNotificationSQLiteCodecs.uuid(
-                    $0,
-                    InboxNotificationSQLiteRepositoryError.malformedNotificationId
-                )
-            }
+            droppedNotificationIds: droppedNotificationIds
         )
     }
 

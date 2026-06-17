@@ -36,6 +36,77 @@ extension InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
+    @Test("terminal agent settled activity routes as yellow attention notification")
+    func terminalAgentSettledActivityRoutesAsYellowAttentionNotification() async {
+        let fixture = await makeFixture()
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminalActivity(.agentSettledActivityPromoted(makeSettledActivity(rowsAdded: 600)))
+            )
+        )
+
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "agent settled terminal activity should route to inbox"
+        )
+        #expect(fixture.inboxAtom.notifications[0].kind == .agentSettledActivity)
+        #expect(fixture.inboxAtom.notifications[0].title == "Agent appears settled")
+        #expect(fixture.inboxAtom.notifications[0].claimKey?.lane == .settledAgent)
+        #expect(fixture.inboxAtom.notifications[0].claimKey?.semantic == .agentSettled)
+        #expect(fixture.inboxAtom.notifications[0].claimKey?.sessionId != nil)
+        #expect(fixture.inboxAtom.globalUnreadCount == 1)
+        #expect(fixture.inboxAtom.globalRollUpAlertCount == 1)
+        #expect(fixture.inboxAtom.attentionLane(forPaneIds: [paneId.uuid]) == .settledAgent)
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("terminal agent settled revocation demotes yellow attention to blue activity")
+    func terminalAgentSettledRevocationDemotesYellowAttentionToBlueActivity() async {
+        let fixture = await makeFixture()
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminalActivity(.agentSettledActivityPromoted(makeSettledActivity(rowsAdded: 600)))
+            )
+        )
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "agent settled terminal activity should route to inbox before revocation"
+        )
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminalActivity(.agentSettledActivityRevoked),
+                seq: 2
+            )
+        )
+
+        await assertEventuallyMain("agent settled revocation should clear yellow attention") {
+            fixture.inboxAtom.notifications.first?.claimKey?.lane == .activity
+                && fixture.inboxAtom.attentionLane(forPaneIds: [paneId.uuid]) == nil
+        }
+        #expect(fixture.inboxAtom.notifications[0].kind == .unseenActivity)
+        #expect(fixture.inboxAtom.notifications[0].title == "New terminal activity")
+        #expect(fixture.inboxAtom.notifications[0].claimKey?.semantic == .unseenActivity)
+        #expect(fixture.inboxAtom.notifications[0].isRead == false)
+        #expect(fixture.inboxAtom.globalUnreadCount == 1)
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
     @Test("focused pane activity appends no unread PaneInbox notification")
     func focusedPaneActivityAppendsNoUnreadPaneInboxNotification() async {
         let fixture = await makeFixture()

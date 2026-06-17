@@ -792,4 +792,5 @@ struct TerminalActivityRouterTests {
             try JSONDecoder().decode(TraceRecordFixture.self, from: Data(line.utf8))
         }
     }
+
 }

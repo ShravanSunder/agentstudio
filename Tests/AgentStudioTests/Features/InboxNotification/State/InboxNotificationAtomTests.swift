@@ -9,8 +9,11 @@ struct InboxNotificationAtomTests {
     private func makeInboxNotification(
         id: UUID = UUID(),
         paneId: UUID? = nil,
+        repoId: UUID? = nil,
         worktreeId: UUID? = nil,
         tabId: UUID? = nil,
+        kind: InboxNotificationKind = .agentDesktopNotification,
+        claimKey: InboxNotificationClaimKey? = nil,
         isRead: Bool = false,
         isDismissedFromPaneInbox: Bool = false,
         timestamp: Date = Date()
@@ -18,14 +21,16 @@ struct InboxNotificationAtomTests {
         InboxNotification(
             id: id,
             timestamp: timestamp,
-            kind: .agentDesktopNotification,
+            kind: kind,
             title: "Test",
             body: nil,
             source: makeSource(
                 paneId: paneId,
+                repoId: repoId,
                 tabId: tabId,
                 worktreeId: worktreeId
             ),
+            claimKey: claimKey,
             isRead: isRead,
             isDismissedFromPaneInbox: isDismissedFromPaneInbox
         )
@@ -33,14 +38,17 @@ struct InboxNotificationAtomTests {
 
     private func makeSource(
         paneId: UUID?,
+        repoId: UUID?,
         tabId: UUID?,
         worktreeId: UUID?
     ) -> InboxNotification.Source {
-        guard paneId != nil || tabId != nil || worktreeId != nil else { return .global }
+        guard paneId != nil || repoId != nil || tabId != nil || worktreeId != nil else { return .global }
         return .pane(
             .init(
                 paneId: paneId ?? UUID(),
                 tabId: tabId,
+                repoId: repoId,
+                repoName: repoId == nil ? nil : "agent-studio",
                 worktreeId: worktreeId,
                 worktreeName: worktreeId == nil ? nil : "main"
             )
@@ -131,6 +139,152 @@ struct InboxNotificationAtomTests {
         #expect(atom.notifications.allSatisfy { $0.isRead })
     }
 
+    @Test("markRead(scope:) marks matching repo, worktree, and pane entries")
+    func markReadByScope() {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let paneA = UUID()
+        let paneB = UUID()
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(repoId: repoId))
+        atom.append(makeInboxNotification(worktreeId: worktreeId))
+        atom.append(makeInboxNotification(paneId: paneA))
+        atom.append(makeInboxNotification(paneId: paneB))
+        atom.append(makeInboxNotification())
+
+        atom.markRead(scope: .repo(repoId))
+        #expect(atom.notifications.map(\.isRead) == [true, false, false, false, false])
+
+        atom.markRead(scope: .worktree(worktreeId))
+        #expect(atom.notifications.map(\.isRead) == [true, true, false, false, false])
+
+        atom.markRead(scope: .paneIds([paneA]))
+        #expect(atom.notifications.map(\.isRead) == [true, true, true, false, false])
+    }
+
+    @Test("markRead(scope:) clears matching roll-up alert dots")
+    func markReadByScopeClearsMatchingRollUpAlertDots() {
+        let paneId = UUID()
+        let atom = InboxNotificationAtom()
+        atom.append(
+            makeInboxNotification(
+                paneId: paneId,
+                kind: .approvalRequested,
+                claimKey: .init(
+                    paneId: paneId,
+                    lane: .actionNeeded,
+                    semantic: .approvalRequested,
+                    sessionId: nil
+                )
+            )
+        )
+
+        #expect(atom.globalRollUpAlertCount == 1)
+        #expect(atom.rollUpAlertCount(forPaneIds: [paneId]) == 1)
+
+        atom.markRead(scope: .paneIds([paneId]))
+
+        #expect(atom.globalRollUpAlertCount == 0)
+        #expect(atom.rollUpAlertCount(forPaneIds: [paneId]) == 0)
+    }
+
+    @Test("attention lane includes settled agent and clears when read")
+    func attentionLaneIncludesSettledAgentAndClearsWhenRead() {
+        let paneId = UUID()
+        let atom = InboxNotificationAtom()
+        atom.append(
+            makeInboxNotification(
+                paneId: paneId,
+                kind: .unseenActivity,
+                claimKey: .init(
+                    paneId: paneId,
+                    lane: .activity,
+                    semantic: .unseenActivity,
+                    sessionId: UUID()
+                )
+            )
+        )
+        atom.append(
+            makeInboxNotification(
+                paneId: paneId,
+                kind: .agentSettledActivity,
+                claimKey: .init(
+                    paneId: paneId,
+                    lane: .settledAgent,
+                    semantic: .agentSettled,
+                    sessionId: UUID()
+                )
+            )
+        )
+
+        #expect(atom.rollUpAlertLane(forPaneIds: [paneId]) == nil)
+        #expect(atom.attentionLane(forPaneIds: [paneId]) == .settledAgent)
+
+        atom.append(
+            makeInboxNotification(
+                paneId: paneId,
+                kind: .securityEvent,
+                claimKey: .init(
+                    paneId: paneId,
+                    lane: .safety,
+                    semantic: .securityEvent,
+                    sessionId: nil
+                )
+            )
+        )
+        #expect(atom.attentionLane(forPaneIds: [paneId]) == .safety)
+
+        atom.append(
+            makeInboxNotification(
+                paneId: paneId,
+                kind: .approvalRequested,
+                claimKey: .init(
+                    paneId: paneId,
+                    lane: .actionNeeded,
+                    semantic: .approvalRequested,
+                    sessionId: nil
+                )
+            )
+        )
+        #expect(atom.attentionLane(forPaneIds: [paneId]) == .actionNeeded)
+
+        atom.markRead(scope: .paneIds([paneId]))
+
+        #expect(atom.attentionLane(forPaneIds: [paneId]) == nil)
+        #expect(atom.rollUpAlertLane(forPaneIds: [paneId]) == nil)
+        #expect(atom.notifications.allSatisfy { $0.isRead })
+    }
+
+    @Test("revoking settled agent attention demotes unread yellow to blue activity")
+    func revokeSettledAgentAttentionDemotesUnreadYellowToBlueActivity() throws {
+        let paneId = UUID()
+        let atom = InboxNotificationAtom()
+        atom.append(
+            makeInboxNotification(
+                paneId: paneId,
+                kind: .agentSettledActivity,
+                claimKey: .init(
+                    paneId: paneId,
+                    lane: .settledAgent,
+                    semantic: .agentSettled,
+                    sessionId: UUID()
+                )
+            )
+        )
+
+        #expect(atom.attentionLane(forPaneIds: [paneId]) == .settledAgent)
+        #expect(atom.revokeSettledAgentAttention(forPaneId: paneId))
+
+        let notification = try #require(atom.notifications.first)
+        #expect(notification.kind == .unseenActivity)
+        #expect(notification.title == "New terminal activity")
+        #expect(notification.claimKey?.lane == .activity)
+        #expect(notification.claimKey?.semantic == .unseenActivity)
+        #expect(notification.isRead == false)
+        #expect(atom.attentionLane(forPaneIds: [paneId]) == nil)
+        #expect(atom.globalUnreadCount == 1)
+    }
+
     @Test("dismissFromPaneInbox(id:) sets flag true")
     func dismissFromPaneInboxById() {
         let atom = InboxNotificationAtom()
@@ -211,8 +365,8 @@ struct InboxNotificationAtomTests {
         #expect(atom.unreadCount(forPaneIds: [pane1, pane2]) == 2)
     }
 
-    @Test("visiblePaneInboxUnreadCount excludes pane-dismissed notifications")
-    func visiblePaneInboxUnreadCountExcludesPaneDismissedNotifications() {
+    @Test("toggleReadState clears pane dismissal when reopening unread")
+    func toggleReadStateClearsPaneDismissalWhenReopeningUnread() {
         let paneId = UUID()
         let otherPaneId = UUID()
         let atom = InboxNotificationAtom()
@@ -228,8 +382,62 @@ struct InboxNotificationAtomTests {
 
         atom.toggleReadState(id: dismissedNotification.id)
 
-        #expect(atom.visiblePaneInboxUnreadCount(forPaneIds: [paneId]) == 1)
+        #expect(atom.notifications[1].isRead == false)
+        #expect(atom.notifications[1].isDismissedFromPaneInbox == false)
+        #expect(atom.visiblePaneInboxUnreadCount(forPaneIds: [paneId]) == 2)
         #expect(atom.unreadCount(forPaneIds: [paneId]) == 2)
+    }
+
+    @Test("upsert by claim can reopen read activity history for stronger rollup lane")
+    func upsertByClaimReopensReadActivityHistoryForStrongerRollupLane() {
+        let paneId = UUID()
+        let sessionId = UUID()
+        let atom = InboxNotificationAtom()
+        let existingNotification = makeInboxNotification(
+            paneId: paneId,
+            kind: .unseenActivity,
+            claimKey: .init(
+                paneId: paneId,
+                lane: .activity,
+                semantic: .unseenActivity,
+                sessionId: sessionId
+            ),
+            isRead: true,
+            isDismissedFromPaneInbox: false
+        )
+        let incomingNotification = makeInboxNotification(
+            paneId: paneId,
+            kind: .approvalRequested,
+            claimKey: .init(
+                paneId: paneId,
+                lane: .actionNeeded,
+                semantic: .approvalRequested,
+                sessionId: sessionId
+            )
+        )
+        atom.append(existingNotification)
+
+        let outcome = atom.upsertByClaim(incomingNotification) { existing, incoming in
+            InboxNotification(
+                id: existing.id,
+                timestamp: incoming.timestamp,
+                kind: incoming.kind,
+                title: incoming.title,
+                body: incoming.body,
+                source: incoming.source,
+                claimKey: incoming.claimKey,
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        }
+
+        #expect(outcome.didCoalesce)
+        #expect(atom.notifications.count == 1)
+        #expect(atom.notifications[0].id == existingNotification.id)
+        #expect(atom.notifications[0].claimKey?.lane == .actionNeeded)
+        #expect(atom.notifications[0].isRead == false)
+        #expect(atom.notifications[0].isDismissedFromPaneInbox == false)
+        #expect(atom.globalUnreadCount == 1)
     }
 
     @Test("clearPaneInbox marks matching pane notifications read and dismissed")
@@ -256,6 +464,64 @@ struct InboxNotificationAtomTests {
         atom.append(makeInboxNotification(isRead: true))
         atom.append(makeInboxNotification(isRead: false))
         #expect(atom.globalUnreadCount == 2)
+    }
+
+    @Test("rollUpAlertCount excludes unread activity")
+    func rollUpAlertCountExcludesUnreadActivity() {
+        let worktreeId = UUID()
+        let paneId = UUID()
+        let tabId = UUID()
+        let atom = InboxNotificationAtom()
+        atom.append(
+            makeInboxNotification(
+                paneId: paneId,
+                worktreeId: worktreeId,
+                tabId: tabId,
+                kind: .unseenActivity,
+                claimKey: .init(
+                    paneId: paneId,
+                    lane: .activity,
+                    semantic: .unseenActivity,
+                    sessionId: UUID()
+                )
+            )
+        )
+        atom.append(
+            makeInboxNotification(
+                paneId: paneId,
+                worktreeId: worktreeId,
+                tabId: tabId,
+                kind: .approvalRequested,
+                claimKey: .init(
+                    paneId: paneId,
+                    lane: .actionNeeded,
+                    semantic: .approvalRequested,
+                    sessionId: UUID()
+                )
+            )
+        )
+        atom.append(
+            makeInboxNotification(
+                paneId: paneId,
+                worktreeId: worktreeId,
+                tabId: tabId,
+                kind: .securityEvent,
+                claimKey: .init(
+                    paneId: paneId,
+                    lane: .safety,
+                    semantic: .securityEvent,
+                    sessionId: nil
+                ),
+                isRead: true
+            )
+        )
+
+        #expect(atom.globalUnreadCount == 2)
+        #expect(atom.globalRollUpAlertCount == 1)
+        #expect(atom.rollUpAlertCount(forWorktreeId: worktreeId) == 1)
+        #expect(atom.rollUpAlertCount(forPaneIds: [paneId]) == 1)
+        #expect(atom.rollUpAlertCount(forTabId: tabId) == 1)
+        #expect(atom.visiblePaneInboxRollUpAlertCount(forPaneIds: [paneId]) == 1)
     }
 
     @Test("retention cap: inserting beyond cap evicts oldest")
@@ -286,6 +552,73 @@ struct InboxNotificationAtomTests {
         #expect(outcome.droppedCount == 1)
         #expect(outcome.droppedNotificationIds == [oldestId])
         #expect(atom.globalUnreadCount == cap)
+    }
+
+    @Test("retention cap drops read activity before unread roll-up alerts")
+    func retentionCapDropsReadActivityBeforeUnreadRollUpAlerts() {
+        let atom = InboxNotificationAtom()
+        let cap = AppPolicies.InboxNotification.maxRetained
+        let base = Date(timeIntervalSince1970: 2_000_000)
+        let unreadAlert = makeInboxNotification(
+            id: UUID(uuidString: "20000000-0000-0000-0000-000000010001")!,
+            kind: .approvalRequested,
+            claimKey: .init(
+                paneId: UUID(uuidString: "20000000-0000-0000-0000-000000010002")!,
+                lane: .actionNeeded,
+                semantic: .approvalRequested,
+                sessionId: nil
+            ),
+            timestamp: base
+        )
+        let readActivity = makeInboxNotification(
+            id: UUID(uuidString: "20000000-0000-0000-0000-000000010003")!,
+            kind: .unseenActivity,
+            claimKey: .init(
+                paneId: UUID(uuidString: "20000000-0000-0000-0000-000000010004")!,
+                lane: .activity,
+                semantic: .unseenActivity,
+                sessionId: nil
+            ),
+            isRead: true,
+            isDismissedFromPaneInbox: true,
+            timestamp: base.addingTimeInterval(1)
+        )
+
+        atom.append(unreadAlert)
+        atom.append(readActivity)
+        for index in 2..<cap {
+            atom.append(
+                makeInboxNotification(
+                    id: UUID(uuidString: "20000000-0000-0000-0000-\(String(format: "%012d", 110_000 + index))")!,
+                    kind: .unseenActivity,
+                    claimKey: .init(
+                        paneId: UUID(),
+                        lane: .activity,
+                        semantic: .unseenActivity,
+                        sessionId: nil
+                    ),
+                    timestamp: base.addingTimeInterval(TimeInterval(index))
+                )
+            )
+        }
+
+        let outcome = atom.append(
+            makeInboxNotification(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000019999")!,
+                kind: .unseenActivity,
+                claimKey: .init(
+                    paneId: UUID(),
+                    lane: .activity,
+                    semantic: .unseenActivity,
+                    sessionId: nil
+                ),
+                timestamp: base.addingTimeInterval(TimeInterval(cap + 1))
+            )
+        )
+
+        #expect(outcome.droppedNotificationIds == [readActivity.id])
+        #expect(atom.notifications.contains(where: { $0.id == unreadAlert.id }))
+        #expect(atom.notifications.contains(where: { $0.id == readActivity.id }) == false)
     }
 
     @Test("clearReadHistory removes read entries, keeps unread")

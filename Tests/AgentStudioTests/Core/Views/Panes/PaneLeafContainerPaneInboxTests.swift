@@ -37,6 +37,7 @@ struct PaneLeafContainerPaneInboxTests {
             unreadCount: { _ in 0 },
             clear: { _, _ in },
             open: { _, _ in },
+            openRollUpAlerts: { _, _ in },
             toggle: { _, _ in },
             setPresented: { parentPaneId, paneIds, isPresented in
                 presentedScopes.append(

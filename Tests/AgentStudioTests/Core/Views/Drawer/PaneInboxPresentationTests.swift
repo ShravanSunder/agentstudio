@@ -70,8 +70,8 @@ struct PaneInboxPresentationTests {
         let parentPaneId = UUID()
         let drawerChildPaneId = UUID()
         let paneIds = [parentPaneId, drawerChildPaneId]
-        var openedParentPaneId: UUID?
-        var openedPaneIds: [UUID]?
+        var openedRollUpParentPaneId: UUID?
+        var openedRollUpPaneIds: [UUID]?
         var didOpenFinder = false
         let baseActions = DrawerOverlay.TrailingActions(
             canOpenTarget: true,
@@ -84,10 +84,11 @@ struct PaneInboxPresentationTests {
             unreadCount: { requestedPaneIds in requestedPaneIds == paneIds ? 1 : 0 },
             clear: { _, _ in },
             open: { _, _ in },
-            toggle: { parentPaneId, paneIds in
-                openedParentPaneId = parentPaneId
-                openedPaneIds = paneIds
+            openRollUpAlerts: { parentPaneId, paneIds in
+                openedRollUpParentPaneId = parentPaneId
+                openedRollUpPaneIds = paneIds
             },
+            toggle: { _, _ in },
             setPresented: { _, _, _ in },
             pendingRequest: { nil },
             clearRequest: { _ in },
@@ -118,8 +119,8 @@ struct PaneInboxPresentationTests {
         #expect(didOpenFinder)
 
         actions.onOpenInbox?()
-        #expect(openedParentPaneId == parentPaneId)
-        #expect(openedPaneIds == paneIds)
+        #expect(openedRollUpParentPaneId == parentPaneId)
+        #expect(openedRollUpPaneIds == paneIds)
     }
 
     @Test("pane inbox badge caps at nine plus")

@@ -25,7 +25,8 @@ struct PaneInboxAutoClearPolicy: Sendable {
 
     private func isAutoClearable(_ kind: InboxNotificationKind) -> Bool {
         switch kind {
-        case .agentDesktopNotification, .bellRang, .commandFinished, .agentRpc, .unseenActivity:
+        case .agentDesktopNotification, .bellRang, .commandFinished, .agentRpc, .unseenActivity,
+            .agentSettledActivity:
             return true
         case .terminalSecureInputRequested, .terminalProgressError, .terminalRendererUnhealthy,
             .persistenceRecovery, .approvalRequested, .securityEvent:
