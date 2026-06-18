@@ -41,7 +41,7 @@ if [ "$#" -gt 0 ]; then
   run_swift_with_timeout \
     "requested swift test args: $*" \
     "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build "$@" --build-path "$BUILD_PATH"
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test --skip-build "$@" --build-path "$BUILD_PATH"
   exit $?
 fi
 
@@ -55,7 +55,7 @@ case "$mode" in
       run_swift_with_timeout \
         "E2ESerializedTests" \
         "$TIMEOUT_SECONDS" \
-        env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH"
+        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH"
     else
       echo "[test] skipping E2ESerializedTests (SWIFT_TEST_INCLUDE_E2E=${SWIFT_TEST_INCLUDE_E2E:-0})"
     fi
@@ -65,7 +65,7 @@ case "$mode" in
       run_swift_with_timeout \
         "ZmxE2ETests" \
         "$TIMEOUT_SECONDS" \
-        env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH"
+        env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH"
     else
       echo "[test] skipping ZmxE2ETests (SWIFT_TEST_INCLUDE_ZMX_E2E=${SWIFT_TEST_INCLUDE_ZMX_E2E:-0})"
     fi
