@@ -552,6 +552,11 @@ private final class RecordingTerminalIPCRuntime: TerminalRuntimeSnapshotFactProv
         let subscriptionId = UUID()
         let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
         liveContinuations[subscriptionId] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.liveContinuations.removeValue(forKey: subscriptionId)
+            }
+        }
         return stream
     }
 

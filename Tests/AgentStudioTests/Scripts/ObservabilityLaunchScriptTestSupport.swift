@@ -192,19 +192,24 @@ struct LauncherScriptFixture {
         guard fileDescriptor >= 0 else {
             return
         }
-        let semaphore = DispatchSemaphore(value: 0)
+        let eventSemaphore = DispatchSemaphore(value: 0)
+        let cancelSemaphore = DispatchSemaphore(value: 0)
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fileDescriptor,
             eventMask: [.write, .extend, .attrib, .rename, .delete],
             queue: DispatchQueue.global(qos: .userInitiated)
         )
         source.setEventHandler {
-            semaphore.signal()
+            eventSemaphore.signal()
+        }
+        source.setCancelHandler {
+            close(fileDescriptor)
+            cancelSemaphore.signal()
         }
         source.resume()
-        _ = semaphore.wait(timeout: deadline)
+        _ = eventSemaphore.wait(timeout: deadline)
         source.cancel()
-        close(fileDescriptor)
+        cancelSemaphore.wait()
     }
 
     private func run(_ process: Process) throws -> ScriptRunResult {
