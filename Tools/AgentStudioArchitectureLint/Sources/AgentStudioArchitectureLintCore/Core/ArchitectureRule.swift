@@ -41,5 +41,6 @@ enum ArchitectureRuleRegistry {
         IPCPublicSurfaceSanitizationRule(),
         IPCNoDirectAtomAccessRule(),
         ForbiddenArchitectureMarkerRule(),
+        GenericClockSleepRule(),
     ]
 }

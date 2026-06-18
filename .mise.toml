@@ -455,6 +455,15 @@ run = "/bin/bash scripts/verify-beta-observability.sh"
 description = "Verify AgentStudio debug startup records and scrubbed fields in VictoriaLogs"
 run = "/bin/bash scripts/verify-debug-observability.sh"
 
+[tasks.smoke-debug-launchservices]
+description = "Launch debug AgentStudio and require real LaunchServices GUI proof"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+/bin/bash scripts/run-debug-observability.sh --detach
+AGENTSTUDIO_REQUIRE_LAUNCHSERVICES=1 /bin/bash scripts/verify-debug-observability.sh
+"""
+
 [tasks.verify-git-refresh-performance-workload]
 description = "Run disposable AgentStudio git-refresh performance workload proof"
 run = "/bin/bash scripts/verify-git-refresh-performance-workload.sh"

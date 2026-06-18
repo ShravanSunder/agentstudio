@@ -30,6 +30,7 @@ SwiftLint through `mise run lint` and CI.
 | Public IPC surfaces expose scrubbed DTOs, not zmx namespaces or raw runtime payloads. | `agentstudio_ipc_public_surface_sanitization` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
 | AppIPC services and adapters route through ports and owners instead of direct atom access. | `agentstudio_ipc_no_direct_atom_access` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
 | Sentinel fixture proves the local architecture rule registry is active. | `agentstudio_no_forbidden_architecture_marker` | error | `Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/Bad/Sources/AgentStudio/App/BadForbiddenArchitectureMarker.swift` |
+| Production async delays avoid generic clock sleep overloads. | `agentstudio_no_generic_clock_sleep` | error | `docs/superpowers/specs/2026-06-18-agentstudio-swiftsyntax-async-sleep-rule-spec.md` |
 
 ## Former Shell And Custom SwiftLint Coverage
 
@@ -49,6 +50,7 @@ SwiftLint through `mise run lint` and CI.
 | Fail IPC composition outside the approved app composition location. | Blocking | `agentstudio_ipc_composition_location` |
 | Fail public IPC zmx namespace/raw runtime payload leakage. | Blocking | `agentstudio_ipc_public_surface_sanitization` |
 | Fail direct atom access from IPC services and adapters. | Blocking | `agentstudio_ipc_no_direct_atom_access` |
+| Fail production `Task.sleep(for:)` and generic `.sleep(for:)` outside the approved delay seam. | Blocking | `agentstudio_no_generic_clock_sleep` |
 | Print repo-cache dictionary read inventory. | Reclassified to review-only | The old script's report-only inventory is replaced by this document plus blocking rules for the hot-path violation class. Broad inventory reports were noisy and not a required CI gate. |
 
 ## Test And Fixture Proof
