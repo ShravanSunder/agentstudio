@@ -182,6 +182,7 @@ jobs:
           SWIFT_TEST_PARALLEL: "0"
           SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "1200"
           SWIFT_TEST_RUNNER_WARMUP_TIMEOUT_SECONDS: "1200"
+          SWIFT_TEST_FIRST_SHARD_TIMEOUT_SECONDS: "1200"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-fast.xml"
         run: mise run test-fast

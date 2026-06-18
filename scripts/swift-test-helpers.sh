@@ -13,6 +13,7 @@
 #   XCB_EXTRA_ARGS        - Extra xcbeautify flags (e.g. "--renderer github-actions")
 #   SWIFT_TEST_SHARD_BY_CLASS - Set to 1 to run non-WebKit tests in class chunks
 #   SWIFT_TEST_SHARD_CLASS_COUNT - Number of test classes per shard (default: 40)
+#   SWIFT_TEST_FIRST_SHARD_TIMEOUT_SECONDS - Optional timeout for the first cold class shard
 #   SWIFT_TEST_SKIP_BUILD - Set to 0 to let filtered swift test invocations plan/build
 
 # shellcheck source=scripts/xcb-helpers.sh
@@ -126,6 +127,10 @@ run_swift_class_shard() {
   local filter
   filter="$(swift_test_class_filter "${shard_classes[@]}")"
   local label="class shard ${shard_index} (${#shard_classes[@]} classes)"
+  local shard_timeout="$TIMEOUT_SECONDS"
+  if [ "$shard_index" = "1" ]; then
+    shard_timeout="${SWIFT_TEST_FIRST_SHARD_TIMEOUT_SECONDS:-$TIMEOUT_SECONDS}"
+  fi
 
   echo "[$LOG_PREFIX] class shard ${shard_index} classes:"
   printf '  %s\n' "${shard_classes[@]}"
@@ -148,7 +153,7 @@ run_swift_class_shard() {
     if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
     XCB_EXTRA_ARGS="$shard_xcb_extra_args" run_swift_with_timeout \
       "$label" \
-      "$TIMEOUT_SECONDS" \
+      "$shard_timeout" \
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} ${skip_build_arg:+"$skip_build_arg"} \
       --parallel --num-workers "$SWIFT_TEST_WORKERS" \
       --filter "$filter" \
@@ -156,7 +161,7 @@ run_swift_class_shard() {
   else
     XCB_EXTRA_ARGS="$shard_xcb_extra_args" run_swift_with_timeout \
       "$label" \
-      "$TIMEOUT_SECONDS" \
+      "$shard_timeout" \
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} ${skip_build_arg:+"$skip_build_arg"} \
       --filter "$filter" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
