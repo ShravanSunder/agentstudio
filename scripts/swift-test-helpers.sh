@@ -45,6 +45,7 @@ run_non_serialized_swift_tests() {
 
   if [ "${SWIFT_TEST_SHARD_BY_CLASS:-0}" = "1" ]; then
     run_swift_standalone_test_filters "$label" || return $?
+    run_swift_isolated_test_classes "$label" || return $?
     run_swift_class_shards "$label"
     return $?
   fi
@@ -93,7 +94,7 @@ run_swift_class_shards() {
   fi
 
   awk '/^AgentStudioTests\./ { split($0, pathParts, "/"); split(pathParts[1], classParts, "."); print classParts[1] "." classParts[2] }' \
-    "$list_output_file" | LC_ALL=C sort -u >"$class_file"
+    "$list_output_file" | LC_ALL=C sort -u | grep -Fvx -f <(isolated_swift_test_class_filters) >"$class_file"
   rm -f "$list_output_file"
 
   local total_classes
@@ -164,6 +165,27 @@ run_swift_standalone_test_filters() {
       --filter "$swift_filter" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH" || return $?
   done < <(standalone_swift_test_filters)
+}
+
+isolated_swift_test_class_filters() {
+  cat <<'EOF'
+AgentStudioTests.PaneTabViewControllerTabRetentionTests
+EOF
+}
+
+run_swift_isolated_test_classes() {
+  local label="$1"
+  local test_class
+
+  while IFS= read -r test_class; do
+    [ -n "$test_class" ] || continue
+    _XCB_BYPASS="${SWIFT_TEST_CLASS_SHARD_RAW_OUTPUT:-0}" run_swift_with_timeout \
+      "isolated $label class $test_class" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --filter "$test_class" \
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH" || return $?
+  done < <(isolated_swift_test_class_filters)
 }
 
 run_swift_class_shard() {
