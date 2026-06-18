@@ -35,6 +35,7 @@ enum ActionValidationError: Error, Equatable {
     case arrangementNotFound(tabId: UUID, arrangementId: UUID)
     case defaultArrangementCannotBeRemoved(tabId: UUID, arrangementId: UUID)
     case defaultArrangementCannotBeRenamed(tabId: UUID, arrangementId: UUID)
+    case invalidVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID)
 }
 
 enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConvertible {
@@ -157,6 +158,36 @@ enum WorkspaceCommandValidator {
             }
             guard ratio >= 0.1 && ratio <= 0.9 else {
                 return .failure(.invalidRatio(ratio: ratio))
+            }
+            return .success(ValidatedAction(action))
+
+        case .resizeVisiblePanePair(let tabId, let leftPaneId, let rightPaneId, let ratio):
+            guard let tab = state.tab(tabId) else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            guard tab.isSplit else {
+                return .failure(.tabNotSplit(tabId: tabId))
+            }
+            guard ratio >= 0.1 && ratio <= 0.9 else {
+                return .failure(.invalidRatio(ratio: ratio))
+            }
+            guard tab.ownsPane(leftPaneId) else {
+                return .failure(.paneNotFound(paneId: leftPaneId, tabId: tabId))
+            }
+            guard tab.ownsPane(rightPaneId) else {
+                return .failure(.paneNotFound(paneId: rightPaneId, tabId: tabId))
+            }
+            guard
+                PaneResizeVisibilityResolver.validatesCollapsedRunPair(
+                    layoutPaneIds: tab.layoutPaneIds,
+                    minimizedPaneIds: tab.minimizedPaneIds,
+                    leftPaneId: leftPaneId,
+                    rightPaneId: rightPaneId
+                )
+            else {
+                return .failure(
+                    .invalidVisiblePanePair(tabId: tabId, leftPaneId: leftPaneId, rightPaneId: rightPaneId)
+                )
             }
             return .success(ValidatedAction(action))
 
@@ -380,6 +411,7 @@ enum WorkspaceCommandValidator {
             return .success(ValidatedAction(action))
         case .setActiveDrawerPane(let parentPaneId, _),
             .resizeDrawerPane(let parentPaneId, _, _),
+            .resizeDrawerVisiblePanePair(let parentPaneId, _, _, _),
             .equalizeDrawerPanes(let parentPaneId),
             .minimizeDrawerPane(let parentPaneId, _),
             .expandDrawerPane(let parentPaneId, _):

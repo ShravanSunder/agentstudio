@@ -17,6 +17,8 @@ extension WorkspaceActionCommand {
             return "insertPaneRequest"
         case .resizePane:
             return "resizePane"
+        case .resizeVisiblePanePair:
+            return "resizeVisiblePanePair"
         case .equalizePanes:
             return "equalizePanes"
         case .toggleSplitZoom:
@@ -83,6 +85,8 @@ extension WorkspaceActionCommand {
             return "setActiveDrawerPane"
         case .resizeDrawerPane:
             return "resizeDrawerPane"
+        case .resizeDrawerVisiblePanePair:
+            return "resizeDrawerVisiblePanePair"
         case .equalizeDrawerPanes:
             return "equalizeDrawerPanes"
         case .minimizeDrawerPane:

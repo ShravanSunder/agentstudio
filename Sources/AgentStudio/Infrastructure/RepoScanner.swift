@@ -69,11 +69,31 @@ struct RepoScanner {
                     throw RepoScannerDiscoveryTimeoutError.timedOut
                 }
 
-                guard let result = try await group.next() else {
-                    throw RepoScannerDiscoveryTimeoutError.timedOut
+                let firstResult: Result<ReturnValue, Error>
+                do {
+                    guard let result = try await group.next() else {
+                        throw RepoScannerDiscoveryTimeoutError.timedOut
+                    }
+                    firstResult = .success(result)
+                } catch {
+                    firstResult = .failure(error)
                 }
+
                 group.cancelAll()
-                return result
+                while true {
+                    do {
+                        guard try await group.next() != nil else { break }
+                    } catch {
+                        continue
+                    }
+                }
+
+                switch firstResult {
+                case .success(let value):
+                    return value
+                case .failure(let error):
+                    throw error
+                }
             }
         }
 

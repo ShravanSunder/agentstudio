@@ -373,6 +373,14 @@ extension WorkspaceSurfaceCoordinator {
         case .resizePane(let tabId, let splitId, let ratio):
             store.tabLayoutAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
 
+        case .resizeVisiblePanePair(let tabId, let leftPaneId, let rightPaneId, let ratio):
+            store.tabLayoutAtom.resizeVisiblePanePair(
+                tabId: tabId,
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId,
+                ratio: ratio
+            )
+
         case .equalizePanes(let tabId):
             store.tabLayoutAtom.equalizePanes(tabId: tabId)
 
@@ -632,7 +640,6 @@ extension WorkspaceSurfaceCoordinator {
             } else {
                 focusVisiblePaneHost(paneId)
             }
-
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
             guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "setActiveDrawerPane")
             else { break }
@@ -640,18 +647,27 @@ extension WorkspaceSurfaceCoordinator {
                 drawerPaneId, drawerId: drawerContext.drawerId, inTab: drawerContext.tabId)
             restoreViewsForActiveTabIfNeeded()
             focusVisiblePaneHost(drawerPaneId)
-
         case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
             guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "resizeDrawerPane")
             else { break }
             store.tabArrangementAtom.resizeDrawerPane(
                 drawerId: drawerContext.drawerId, tabId: drawerContext.tabId, splitId: splitId, ratio: ratio)
-
+        case .resizeDrawerVisiblePanePair(let parentPaneId, let leftPaneId, let rightPaneId, let ratio):
+            guard
+                let drawerContext = drawerCommandContext(
+                    parentPaneId: parentPaneId, command: "resizeDrawerVisiblePanePair")
+            else { break }
+            store.tabArrangementAtom.resizeDrawerVisiblePanePair(
+                drawerId: drawerContext.drawerId,
+                tabId: drawerContext.tabId,
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId,
+                ratio: ratio
+            )
         case .equalizeDrawerPanes(let parentPaneId):
             guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "equalizeDrawerPanes")
             else { break }
             store.tabArrangementAtom.equalizeDrawerPanes(drawerId: drawerContext.drawerId, tabId: drawerContext.tabId)
-
         case .minimizeDrawerPane(let parentPaneId, let drawerPaneId):
             guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "minimizeDrawerPane")
             else { break }

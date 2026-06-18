@@ -217,8 +217,8 @@ final class MinimizeLayoutIntegrationTests {
         #expect(renderInfo.dividerSegments.count == 2)
         let dividerBeforeMinimized = renderInfo.dividerSegments[0]
         let dividerAfterMinimized = renderInfo.dividerSegments[1]
-        #expect(dividerBeforeMinimized.rightPaneWidth == CollapsedPaneBar.barWidth)
-        #expect(dividerAfterMinimized.leftPaneWidth == CollapsedPaneBar.barWidth)
+        #expect(dividerBeforeMinimized.visualRightPaneWidth == CollapsedPaneBar.barWidth)
+        #expect(dividerAfterMinimized.visualLeftPaneWidth == CollapsedPaneBar.barWidth)
     }
 
     @Test

@@ -152,6 +152,7 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
 
             let first: IPCTerminalWaitResult? = if let wrapped = await group.next() { wrapped } else { nil }
             group.cancelAll()
+            while await group.next() != nil {}
             return first
         }
     }

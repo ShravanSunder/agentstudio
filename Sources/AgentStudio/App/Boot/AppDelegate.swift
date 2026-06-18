@@ -101,16 +101,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             "app.did_finish_launching.started",
             phase: "did_finish_launching"
         )
-        // Set GHOSTTY_RESOURCES_DIR before any GhosttyKit initialization.
-        // This lets GhosttyKit find xterm-ghostty terminfo in both dev and bundle builds.
-        // The value must be a subdirectory (e.g. .../ghostty) whose parent contains
-        // terminfo/, because GhosttyKit computes TERMINFO = dirname(this) + "/terminfo".
-        if let resourcesDir = SessionConfiguration.resolveGhosttyResourcesDir() {
-            setenv("GHOSTTY_RESOURCES_DIR", resourcesDir, 1)  // 1 = overwrite; our resolved path must take priority
-            RestoreTrace.log("GHOSTTY_RESOURCES_DIR=\(resourcesDir)")
-        } else {
-            RestoreTrace.log("GHOSTTY_RESOURCES_DIR unresolved")
-        }
+        GhosttyStartupEnvironment.apply()
 
         // Some parent shells export NO_COLOR=1, which disables ANSI color in CLIs
         // (Codex, Gemini, etc.). Clear it for app-hosted terminal sessions.
