@@ -171,12 +171,13 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             }
 
             group.addTask {
-                try? await Task.sleep(for: timeout)
+                try? await Task.sleep(nanoseconds: timeout.nanosecondsForTaskSleep)
                 return nil
             }
 
             let first: IPCTerminalWaitResult? = if let wrapped = await group.next() { wrapped } else { nil }
             group.cancelAll()
+            while await group.next() != nil {}
             return first
         }
     }
@@ -203,7 +204,7 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             guard start.duration(to: ContinuousClock.now) <= timeout else {
                 throw AppIPCRuntimeError(reason: .timeout)
             }
-            try? await Task.sleep(for: .milliseconds(100))
+            try? await Task.sleep(nanoseconds: Duration.milliseconds(100).nanosecondsForTaskSleep)
         }
     }
 
