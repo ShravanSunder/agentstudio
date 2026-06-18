@@ -22,6 +22,7 @@ struct ArchitectureLintCommandTests {
         #expect(result.output.contains("warning: [agentstudio_state_actor_path]"))
         #expect(result.output.contains("error: [agentstudio_no_forbidden_architecture_marker]"))
         #expect(result.output.contains("error: [agentstudio_no_generic_clock_sleep]"))
+        #expect(result.output.contains("error: [agentstudio_no_task_sleep_in_tests]"))
     }
 
     @Test("print rules exposes stable id and severity inventory")

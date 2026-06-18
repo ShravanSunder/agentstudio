@@ -42,5 +42,6 @@ enum ArchitectureRuleRegistry {
         IPCNoDirectAtomAccessRule(),
         ForbiddenArchitectureMarkerRule(),
         GenericClockSleepRule(),
+        TestTaskSleepRule(),
     ]
 }
