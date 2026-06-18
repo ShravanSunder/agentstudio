@@ -152,6 +152,7 @@ run_swift_with_timeout() {
 
   if [ "$timed_out" -eq 1 ]; then
     echo "[$LOG_PREFIX] ERROR: timeout while running '$label' after ${timeout_seconds}s"
+    print_timeout_process_diagnostics "$label" "$command_pid"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     tail -n 120 "$output_file" || true
     terminate_process_tree TERM "$command_pid"
@@ -182,6 +183,101 @@ swift_test_output_has_failures() {
   grep -Eq \
     '(^|[[:space:]])(✘|✖)[[:space:]]|recorded an issue|failed after [0-9.]+ seconds with [0-9]+ issue\(s\)|Test run with .* failed after' \
     "$output_file"
+}
+
+print_timeout_process_diagnostics() {
+  local label="$1"
+  local root_pid="$2"
+
+  echo "[$LOG_PREFIX] process tree for timed out '$label' (root pid=$root_pid):"
+  print_timeout_process_tree "$root_pid" 0
+  print_timeout_process_snapshot "$label" "$root_pid"
+  sample_stuck_swift_test_processes "$label" "$root_pid"
+}
+
+print_timeout_process_tree() {
+  local root_pid="$1"
+  local indent_columns="$2"
+  local process_command
+
+  process_command="$(ps -p "$root_pid" -o command= 2>/dev/null || true)"
+  [ -n "$process_command" ] || return 0
+  printf '[%s] %*s%s %s\n' "$LOG_PREFIX" "$indent_columns" "" "$root_pid" "$process_command"
+
+  local child_pid
+  for child_pid in $(pgrep -P "$root_pid" 2>/dev/null || true); do
+    print_timeout_process_tree "$child_pid" $((indent_columns + 2))
+  done
+}
+
+print_timeout_process_snapshot() {
+  local label="$1"
+  local root_pid="$2"
+
+  echo "[$LOG_PREFIX] ps snapshot for timed out '$label':"
+  echo "[$LOG_PREFIX]   PID  PPID  PGID STAT ELAPSED COMMAND"
+
+  local process_pid
+  for process_pid in "$root_pid" $(descendant_process_pids "$root_pid"); do
+    ps -o pid=,ppid=,pgid=,stat=,etime=,command= -p "$process_pid" 2>/dev/null |
+      sed "s/^/[$LOG_PREFIX] /" || true
+  done
+}
+
+descendant_process_pids() {
+  local root_pid="$1"
+  local child_pid
+
+  for child_pid in $(pgrep -P "$root_pid" 2>/dev/null || true); do
+    echo "$child_pid"
+    descendant_process_pids "$child_pid"
+  done
+}
+
+sample_stuck_swift_test_processes() {
+  local label="$1"
+  local root_pid="$2"
+  local sampled_count=0
+
+  if [ ! -x /usr/bin/sample ]; then
+    echo "[$LOG_PREFIX] sample unavailable; skipping stuck Swift test stack capture"
+    return 0
+  fi
+
+  local process_pid
+  for process_pid in $(descendant_process_pids "$root_pid"); do
+    local process_command
+    process_command="$(ps -p "$process_pid" -o command= 2>/dev/null || true)"
+    case "$process_command" in
+      *AgentStudioPackageTests* | *.xctest* | *"swift test"*)
+        sample_stuck_swift_test_process "$label" "$process_pid"
+        sampled_count=$((sampled_count + 1))
+        if [ "$sampled_count" -ge 3 ]; then
+          break
+        fi
+        ;;
+    esac
+  done
+
+  if [ "$sampled_count" -eq 0 ]; then
+    echo "[$LOG_PREFIX] no Swift test process matched for stack capture"
+  fi
+}
+
+sample_stuck_swift_test_process() {
+  local label="$1"
+  local process_pid="$2"
+  local sample_file
+
+  sample_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-test-sample.XXXXXX")"
+  echo "[$LOG_PREFIX] sampling stuck Swift test process pid=$process_pid for '$label'"
+  if /usr/bin/sample "$process_pid" 3 1 -file "$sample_file" >/dev/null 2>&1; then
+    echo "[$LOG_PREFIX] sampled stuck Swift test process pid=$process_pid:"
+    sed -n '1,220p' "$sample_file" | sed "s/^/[$LOG_PREFIX] /" || true
+  else
+    echo "[$LOG_PREFIX] sample failed for Swift test process pid=$process_pid"
+  fi
+  rm -f "$sample_file"
 }
 
 terminate_process_tree() {
