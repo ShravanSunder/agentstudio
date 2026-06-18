@@ -171,16 +171,15 @@ jobs:
       - name: Test fast lane
         env:
           # macos-26 runners time out on the large all-at-once Swift Testing
-          # fast lane. Run class shards from a fresh fast-lane build path:
-          # restored .build-ci caches have hung filtered --skip-build shards in
-          # SwiftPM planning before any test body starts. Let the first matching
-          # shard take SwiftPM's normal filtered test path, then keep later
-          # shards on --skip-build to avoid repeated rebuild cost.
+          # fast lane. Run from a fresh prebuilt path, execute standalone test
+          # targets once, then shard only AgentStudioTests classes. Keep shard
+          # invocations on --skip-build so they use the prebuilt bundle instead
+          # of rebuilding the heavy app package for every chunk.
           SWIFT_BUILD_DIR: .build-ci-fast-${{ github.run_id }}
           SWIFT_TEST_SHARD_BY_CLASS: "1"
           SWIFT_TEST_SHARD_CLASS_COUNT: "5"
           SWIFT_TEST_SKIP_BUILD: "1"
-          SWIFT_TEST_FIRST_SHARD_SKIP_BUILD: "0"
+          SWIFT_TEST_FIRST_SHARD_SKIP_BUILD: "1"
           SWIFT_TEST_CLASS_SHARD_RAW_OUTPUT: "1"
           SWIFT_TEST_PARALLEL: "0"
           SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "1200"

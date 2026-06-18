@@ -88,7 +88,7 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"1200\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_RUNNER_WARMUP_TIMEOUT_SECONDS: \"1200\""))
-        #expect(ciWorkflow.contains("SWIFT_TEST_FIRST_SHARD_SKIP_BUILD: \"0\""))
+        #expect(ciWorkflow.contains("SWIFT_TEST_FIRST_SHARD_SKIP_BUILD: \"1\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_CLASS_SHARD_RAW_OUTPUT: \"1\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(ciWorkflow.contains("set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"))
