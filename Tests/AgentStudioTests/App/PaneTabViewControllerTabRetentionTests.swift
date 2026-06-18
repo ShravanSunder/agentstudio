@@ -260,15 +260,20 @@ struct PaneTabViewControllerTabRetentionTests {
         try registerAttachedPaneHost(otherPane.id, in: harness)
         harness.store.setActiveTab(parentTab.id)
         harness.store.setActivePane(parentPane.id, inTab: parentTab.id)
-        atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id)
+        harness.controller.handlePaneFocusTrigger(
+            .drawer(.selectPane(parentPaneId: parentPane.id, drawerPaneId: drawerPane.id)))
         harness.controller.view.layoutSubtreeIfNeeded()
+
+        let drawerHost = try #require(harness.viewRegistry.view(for: drawerPane.id))
+        await eventually("drawer pane should own responder before tab round trip") {
+            harness.window.firstResponder === drawerHost
+        }
 
         harness.controller.selectTab(at: 1)
         harness.controller.view.layoutSubtreeIfNeeded()
         harness.controller.selectTab(at: 0)
         harness.controller.view.layoutSubtreeIfNeeded()
 
-        let drawerHost = try #require(harness.viewRegistry.view(for: drawerPane.id))
         await eventually("tab round trip should restore drawer pane responder") {
             harness.window.firstResponder === drawerHost
         }
