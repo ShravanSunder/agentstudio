@@ -151,7 +151,10 @@ struct DrawerPanel: View {
         )
     }
 
-    nonisolated static func drawerCommand(for paneAction: PaneActionCommand, parentPaneId: UUID) -> PaneActionCommand {
+    nonisolated static func drawerCommand(
+        for paneAction: WorkspaceActionCommand,
+        parentPaneId: UUID
+    ) -> WorkspaceActionCommand {
         switch paneAction {
         case .resizePane(_, let splitId, let ratio):
             return .resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio)
