@@ -20,6 +20,8 @@ struct CIFastLaneWorkflowTests {
         #expect(fastLaneStep.contains("SWIFT_TEST_WORKERS: \"4\""))
         #expect(fastLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(fastLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
+        #expect(fastLaneStep.contains("_XCB_BYPASS: \"1\""))
+        #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
         #expect(fastLaneStep.contains("run: mise run test-fast"))
         #expect(swiftTestTaskScript.contains("test|test-fast|test-prebuild|test-webkit)"))
         #expect(swiftTestTaskScript.contains("if [ \"$mode\" = \"test-prebuild\" ]; then\n  prebuild_swift_tests"))

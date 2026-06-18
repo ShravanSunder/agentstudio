@@ -178,7 +178,7 @@ jobs:
           SWIFT_TEST_WORKERS: "4"
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "300"
-          XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-fast.xml"
+          _XCB_BYPASS: "1"
         run: mise run test-fast
 
       - name: Test WebKit lane
