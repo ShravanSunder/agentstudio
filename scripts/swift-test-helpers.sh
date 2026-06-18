@@ -138,10 +138,10 @@ run_swift_class_shards() {
 
 standalone_swift_test_target_filters() {
   cat <<'EOF'
-^AgentStudioIPCTransportTests\.
-^AgentStudioProgrammaticControlTests\.
-^AgentStudioAppIPCTests\.
-^AgentStudioIPCClientTests\.
+AgentStudioIPCTransportTests
+AgentStudioProgrammaticControlTests
+AgentStudioAppIPCTests
+AgentStudioIPCClientTests
 EOF
 }
 
