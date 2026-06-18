@@ -100,6 +100,10 @@ final class WorkspaceSettingsStore {
         try persistNow(for: workspaceId)
     }
 
+    func waitForPendingAutosave() async {
+        await debouncedSaveTask?.value
+    }
+
     private func observeSettings() {
         guard !isObservingSettings else { return }
         isObservingSettings = true
