@@ -43,13 +43,13 @@ struct CIFastLaneWorkflowTests {
         #expect(fastRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
         #expect(
             fastRunner.contains(
-                "--skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests'"
+                "--skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests'"
             )
         )
         #expect(largeRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
         #expect(
             largeRunner.contains(
-                "--filter 'Script|Smoke|Integration|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests'"
+                "--filter 'Script|Smoke|Integration|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests'"
             )
         )
         #expect(largeRunner.contains("--skip WebKitSerializedTests"))
