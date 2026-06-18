@@ -92,3 +92,12 @@ Proof requires:
 Do not add broad source allowlists. If production code truly needs generic clock
 sleep, first introduce or name an explicit delay seam and add only that exact
 path to the allowlist with a doc update explaining why the exception is safe.
+
+## Follow-Up Lane
+
+After this PR is green and reviewed, audit recent PR and commit history for
+launch crashes, major architecture-boundary violations, and Swift async issues
+that reached review or release. The output should be a short rule proposal
+packet: repeated failure shape, concrete examples, proposed SwiftSyntax or
+SwiftLint rule, false-positive risk, and proof fixture strategy. Keep that work
+iterative; each accepted rule should land as its own small lint-hardening slice.

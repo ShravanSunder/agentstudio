@@ -8,14 +8,15 @@ struct GenericClockSleepRule: ArchitectureRule {
 
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
         let path = context.normalizedPath
-        let classifier = AgentStudioPathClassifier(path: path)
+        let pathForMatching = path.hasPrefix("/") ? path : "/\(path)"
+        let classifier = AgentStudioPathClassifier(path: pathForMatching)
         guard classifier.isAgentStudioSource else {
             return []
         }
 
         let visitor = GenericClockSleepVisitor(
-            allowsInjectedClockSleep: path.hasSuffix(
-                "/Sources/AgentStudio/Infrastructure/Extensions/FoundationExtensions.swift"
+            allowsInjectedClockSleep: pathForMatching.hasSuffix(
+                "Sources/AgentStudio/Infrastructure/Extensions/FoundationExtensions.swift"
             )
         )
         visitor.walk(context.sourceFile)

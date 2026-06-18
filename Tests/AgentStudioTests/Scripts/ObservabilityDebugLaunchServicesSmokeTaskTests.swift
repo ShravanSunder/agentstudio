@@ -43,7 +43,11 @@ struct ObservabilityDebugLaunchServicesSmokeTaskTests {
 
     @Test("mise exposes strict debug LaunchServices smoke task")
     func miseExposesStrictDebugLaunchServicesSmokeTask() throws {
-        let source = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(path: ".mise.toml"),
+            encoding: .utf8
+        )
 
         #expect(source.contains("[tasks.smoke-debug-launchservices]"))
         #expect(source.contains("/bin/bash scripts/run-debug-observability.sh --detach"))

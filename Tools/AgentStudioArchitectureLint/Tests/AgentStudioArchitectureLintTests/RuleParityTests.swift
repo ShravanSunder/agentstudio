@@ -37,6 +37,39 @@ struct RuleParityTests {
         #expect(diagnostics.map(\.ruleID) == ["agentstudio_no_forbidden_architecture_marker"])
     }
 
+    @Test("generic clock sleep rule handles relative AgentStudio source paths")
+    func genericClockSleepRuleHandlesRelativeAgentStudioSourcePaths() {
+        let allowedDiagnostics = GenericClockSleepRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/Infrastructure/Extensions/FoundationExtensions.swift",
+                source: """
+                    import Foundation
+
+                    enum AsyncDelay {
+                        static func clock(_ clock: any Clock<Duration>) async throws {
+                            try await clock.sleep(for: .milliseconds(1))
+                        }
+                    }
+                    """
+            )
+        )
+        let deniedDiagnostics = GenericClockSleepRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/App/BadGenericClockSleep.swift",
+                source: """
+                    import Foundation
+
+                    func waitOnTaskSleepFor() async throws {
+                        try await Task.sleep(for: .milliseconds(1))
+                    }
+                    """
+            )
+        )
+
+        #expect(allowedDiagnostics.isEmpty)
+        #expect(deniedDiagnostics.map(\.ruleID) == ["agentstudio_no_generic_clock_sleep"])
+    }
+
     private func lintFixtureCorpus(_ corpus: String) throws -> [ArchitectureDiagnostic] {
         let files = try SourceFileDiscovery(fileManager: .default)
             .swiftFiles(under: [fixtureRoot().appendingPathComponent(corpus).path])
@@ -57,6 +90,14 @@ struct RuleParityTests {
             }
         }
         return diagnostics.sorted()
+    }
+
+    private func context(path: String, source: String) -> ArchitectureLintContext {
+        ArchitectureLintContext(
+            path: path,
+            source: source,
+            sourceFile: Parser.parse(source: source)
+        )
     }
 
     private func fixtureRoot() -> URL {
