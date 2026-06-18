@@ -1,8 +1,7 @@
 import Foundation
 
 enum GhosttyStartupEnvironment {
-    @discardableResult
-    static func apply() -> String? {
+    private static let appliedResourcesDir: String? = {
         guard let resourcesDir = SessionConfiguration.resolveGhosttyResourcesDir() else {
             RestoreTrace.log("GHOSTTY_RESOURCES_DIR unresolved")
             return nil
@@ -22,5 +21,10 @@ enum GhosttyStartupEnvironment {
         RestoreTrace.log("GHOSTTY_RESOURCES_DIR=\(resourcesDir)")
         RestoreTrace.log("TERMINFO=\(terminfoDir)")
         return resourcesDir
+    }()
+
+    @discardableResult
+    static func apply() -> String? {
+        appliedResourcesDir
     }
 }
