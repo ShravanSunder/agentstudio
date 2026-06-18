@@ -5,17 +5,11 @@
 #   LOG_PREFIX         - Log prefix, e.g. "test" or "test-coverage"
 #   TIMEOUT_SECONDS    - Timeout in seconds for swift commands
 #   PREBUILD_TIMEOUT_SECONDS - Timeout in seconds for the one-time test bundle build
-#   RUNNER_WARMUP_TIMEOUT_SECONDS - Optional timeout for a no-test runner launch warmup
 #   BUILD_PATH         - Swift build path
 #
 # Optional variables:
 #   EXTRA_SWIFT_TEST_ARGS - Additional swift test flags (e.g. "--enable-code-coverage")
 #   XCB_EXTRA_ARGS        - Extra xcbeautify flags (e.g. "--renderer github-actions")
-#   SWIFT_TEST_SHARD_BY_CLASS - Set to 1 to run non-WebKit tests in class chunks
-#   SWIFT_TEST_SHARD_CLASS_COUNT - Number of test classes per shard (default: 40)
-#   SWIFT_TEST_SKIP_BUILD - Set to 0 to let filtered swift test invocations plan/build
-#   SWIFT_TEST_FIRST_SHARD_SKIP_BUILD - Optional override for the first class shard
-#   SWIFT_TEST_CLASS_SHARD_RAW_OUTPUT - Set to 1 to bypass xcbeautify for class shards
 
 # shellcheck source=scripts/xcb-helpers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
@@ -28,27 +22,8 @@ prebuild_swift_tests() {
     swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
 }
 
-warm_swift_test_runner() {
-  if [ "${RUNNER_WARMUP_TIMEOUT_SECONDS:-0}" = "0" ]; then
-    return 0
-  fi
-
-  run_swift_with_timeout \
-    "warm swift test runner" \
-    "$RUNNER_WARMUP_TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build \
-    --filter AgentStudioNoMatchingWarmupSentinel --build-path "$BUILD_PATH"
-}
-
 run_non_serialized_swift_tests() {
   local label="$1"
-
-  if [ "${SWIFT_TEST_SHARD_BY_CLASS:-0}" = "1" ]; then
-    run_swift_standalone_test_filters "$label" || return $?
-    run_swift_isolated_test_classes "$label" || return $?
-    run_swift_class_shards "$label"
-    return $?
-  fi
 
   if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
     SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
@@ -67,190 +42,6 @@ run_non_serialized_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   fi
-}
-
-run_swift_class_shards() {
-  local label="$1"
-  local shard_class_count="${SWIFT_TEST_SHARD_CLASS_COUNT:-40}"
-  local class_file
-  class_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-test-classes.XXXXXX")"
-  local list_output_file
-  list_output_file="$(mktemp "${TMPDIR:-/tmp}/agentstudio-swift-test-list.XXXXXX")"
-
-  set +e
-  # shellcheck disable=SC2086
-  _XCB_BYPASS=1 run_swift_with_timeout \
-    "list sharded $label classes" \
-    "$TIMEOUT_SECONDS" \
-    swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH" \
-    >"$list_output_file"
-  local list_status=$?
-  set -e
-  if [ "$list_status" -ne 0 ]; then
-    cat "$list_output_file" >&2
-    rm -f "$class_file" "$list_output_file"
-    return "$list_status"
-  fi
-
-  awk '/^AgentStudioTests\./ { split($0, pathParts, "/"); split(pathParts[1], classParts, "."); print classParts[1] "." classParts[2] }' \
-    "$list_output_file" | LC_ALL=C sort -u | grep -Fvx -f <(isolated_swift_test_class_filters) >"$class_file"
-  rm -f "$list_output_file"
-
-  local total_classes
-  total_classes="$(wc -l <"$class_file" | tr -d '[:space:]')"
-  if [ "${total_classes:-0}" -eq 0 ]; then
-    echo "[$LOG_PREFIX] ERROR: no Swift test classes found for sharded $label" >&2
-    rm -f "$class_file"
-    return 1
-  fi
-
-  echo "[$LOG_PREFIX] sharding $label into class chunks (${total_classes} classes, ${shard_class_count} per shard)"
-
-  local shard_index=1
-  local class_count=0
-  local shard_classes=()
-  local test_class
-  while IFS= read -r test_class; do
-    shard_classes+=("$test_class")
-    class_count=$((class_count + 1))
-    if [ "$class_count" -ge "$shard_class_count" ]; then
-      run_swift_class_shard "$shard_index" "${shard_classes[@]}" || {
-        local status=$?
-        rm -f "$class_file"
-        return "$status"
-      }
-      shard_index=$((shard_index + 1))
-      class_count=0
-      shard_classes=()
-    fi
-  done <"$class_file"
-
-  if [ "${#shard_classes[@]}" -gt 0 ]; then
-    run_swift_class_shard "$shard_index" "${shard_classes[@]}" || {
-      local status=$?
-      rm -f "$class_file"
-      return "$status"
-    }
-  fi
-
-  rm -f "$class_file"
-}
-
-standalone_swift_test_filters() {
-  cat <<'EOF'
-AgentStudioIPCTransportTests
-AgentStudioProgrammaticControlTests
-AgentStudioAppIPCTests.AgentStudioAppIPCCommandExecuteContractTests
-AgentStudioAppIPCTests.AgentStudioAppIPCServiceTests
-AgentStudioAppIPCTests.AgentStudioIPCAuthenticationTests
-AgentStudioAppIPCTests.AgentStudioIPCEventBrokerTests
-AgentStudioAppIPCTests.AgentStudioIPCPathResolverTests
-AgentStudioAppIPCTests.AgentStudioIPCPermissionBrokerTests
-AgentStudioAppIPCTests.AgentStudioIPCRegistryAuthorizationTests
-AgentStudioIPCClientTests
-EOF
-}
-
-run_swift_standalone_test_filters() {
-  local label="$1"
-  local swift_filter
-
-  while IFS= read -r swift_filter; do
-    [ -n "$swift_filter" ] || continue
-    _XCB_BYPASS="${SWIFT_TEST_CLASS_SHARD_RAW_OUTPUT:-0}" run_swift_with_timeout \
-      "standalone $label filter $swift_filter" \
-      "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --filter "$swift_filter" \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH" || return $?
-  done < <(standalone_swift_test_filters)
-}
-
-isolated_swift_test_class_filters() {
-  cat <<'EOF'
-AgentStudioTests.PaneTabViewControllerTabRetentionTests
-EOF
-}
-
-run_swift_isolated_test_classes() {
-  local label="$1"
-  local test_class
-
-  while IFS= read -r test_class; do
-    [ -n "$test_class" ] || continue
-    _XCB_BYPASS="${SWIFT_TEST_CLASS_SHARD_RAW_OUTPUT:-0}" run_swift_with_timeout \
-      "isolated $label class $test_class" \
-      "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --filter "$test_class" \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH" || return $?
-  done < <(isolated_swift_test_class_filters)
-}
-
-run_swift_class_shard() {
-  local shard_index="$1"
-  shift
-  local shard_classes=("$@")
-  local report_slug
-  report_slug="$(printf "class-%02d" "$shard_index")"
-  local filter
-  filter="$(swift_test_class_filter "${shard_classes[@]}")"
-  local label="class shard ${shard_index} (${#shard_classes[@]} classes)"
-
-  echo "[$LOG_PREFIX] class shard ${shard_index} classes:"
-  printf '  %s\n' "${shard_classes[@]}"
-
-  local shard_xcb_extra_args="${XCB_EXTRA_ARGS:-}"
-  if [[ "$shard_xcb_extra_args" == *"--report-path test-results-fast.xml"* ]]; then
-    shard_xcb_extra_args="${shard_xcb_extra_args/--report-path test-results-fast.xml/--report-path test-results-fast-${report_slug}.xml}"
-  fi
-  local shard_xcb_bypass="${SWIFT_TEST_CLASS_SHARD_RAW_OUTPUT:-0}"
-
-  local skip_build_mode="${SWIFT_TEST_SKIP_BUILD:-1}"
-  if [ "$shard_index" = "1" ] && [ -n "${SWIFT_TEST_FIRST_SHARD_SKIP_BUILD+x}" ]; then
-    skip_build_mode="$SWIFT_TEST_FIRST_SHARD_SKIP_BUILD"
-  fi
-
-  local skip_build_arg=""
-  if [ "$skip_build_mode" = "1" ]; then
-    skip_build_arg="--skip-build"
-  fi
-  echo "[$LOG_PREFIX] class shard ${shard_index} skip-build=$skip_build_mode raw-output=$shard_xcb_bypass"
-
-  if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
-    SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
-    if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
-    if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
-    XCB_EXTRA_ARGS="$shard_xcb_extra_args" _XCB_BYPASS="$shard_xcb_bypass" run_swift_with_timeout \
-      "$label" \
-      "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} ${skip_build_arg:+"$skip_build_arg"} \
-      --parallel --num-workers "$SWIFT_TEST_WORKERS" \
-      --filter "$filter" \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
-  else
-    XCB_EXTRA_ARGS="$shard_xcb_extra_args" _XCB_BYPASS="$shard_xcb_bypass" run_swift_with_timeout \
-      "$label" \
-      "$TIMEOUT_SECONDS" \
-      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} ${skip_build_arg:+"$skip_build_arg"} \
-      --filter "$filter" \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
-  fi
-}
-
-swift_test_class_filter() {
-  local separator=""
-  local filter="^("
-  local test_class
-  local escaped_class
-  for test_class in "$@"; do
-    escaped_class="${test_class//./\\.}"
-    filter="${filter}${separator}${escaped_class}"
-    separator="|"
-  done
-  filter="${filter})(/|$)"
-  printf "%s" "$filter"
 }
 
 webkit_suite_filters() {
