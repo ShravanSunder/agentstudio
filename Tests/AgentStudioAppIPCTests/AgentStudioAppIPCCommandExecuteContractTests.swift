@@ -42,9 +42,23 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
             fixture.cleanup()
         }
         try fixture.server.start()
+        let principal = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: fixture.runtimeId,
+            accessMode: .unsafeDebug,
+            kind: .unsafeDebugClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
+        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+        defer {
+            connection.close()
+        }
+        var reader = TestFrameReader()
+        try login(connection: connection, token: token, requestId: 70, reader: &reader)
 
-        let response = try sendRequest(
-            socketPath: fixture.paths.socketURL.path,
+        try sendRequest(
+            connection: connection,
             request: JSONRPCClientRequest(
                 id: .number(71),
                 method: "command.execute",
@@ -56,6 +70,7 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                 )
             )
         )
+        let response = try reader.receiveResponse(connection: connection)
 
         #expect(response.error?.code == -32_004)
         #expect(response.error?.message == "target not found")
