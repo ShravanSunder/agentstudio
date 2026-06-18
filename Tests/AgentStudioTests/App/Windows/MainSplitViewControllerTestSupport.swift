@@ -74,8 +74,8 @@ private func makeMainSplitViewControllerHarness(
         tabBarAdapter: tabBarAdapter,
         viewRegistry: viewRegistry,
         inboxAtom: inboxAtom,
-        inboxPrefsAtom: InboxNotificationPrefsAtom(),
-        inboxSidebarState: InboxSidebarState(),
+        inboxPrefsAtom: atoms.inboxNotificationPrefs,
+        inboxSidebarState: atoms.inboxSidebarState,
         paneInboxPresenter: PaneInboxNotificationPresenter(),
         sidebarRootViewBuilder: { dependencies in
             sidebarRootViewBuilder(dependencies.uiState, dependencies.onDismissInbox)

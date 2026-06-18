@@ -29,6 +29,7 @@ final class InboxNotificationAtom {
 
     private(set) var notifications: [InboxNotification] = []
     private(set) var globalUnreadCount = 0
+    private(set) var globalRollUpAlertCount = 0
 
     func unreadCount(forPaneId paneId: UUID) -> Int {
         unreadCount { $0.paneId == paneId }
@@ -55,6 +56,27 @@ final class InboxNotificationAtom {
         }
     }
 
+    func rollUpAlertCount(forWorktreeId worktreeId: UUID) -> Int {
+        rollUpAlertCount { $0.worktreeId == worktreeId }
+    }
+
+    func rollUpAlertCount(forTabId tabId: UUID) -> Int {
+        rollUpAlertCount { $0.tabId == tabId }
+    }
+
+    func rollUpAlertCount(forPaneIds paneIds: [UUID]) -> Int {
+        let paneIdSet = Set(paneIds)
+        return rollUpAlertCount { notification in
+            guard
+                let paneId = notification.paneId,
+                paneIdSet.contains(paneId)
+            else {
+                return false
+            }
+            return true
+        }
+    }
+
     func visiblePaneInboxUnreadCount(forPaneIds paneIds: [UUID]) -> Int {
         let paneIdSet = Set(paneIds)
         return unreadCount { notification in
@@ -66,6 +88,83 @@ final class InboxNotificationAtom {
             }
             return !notification.isDismissedFromPaneInbox
         }
+    }
+
+    func visiblePaneInboxRollUpAlertCount(forPaneIds paneIds: [UUID]) -> Int {
+        let paneIdSet = Set(paneIds)
+        return rollUpAlertCount { notification in
+            guard
+                let paneId = notification.paneId,
+                paneIdSet.contains(paneId)
+            else {
+                return false
+            }
+            return !notification.isDismissedFromPaneInbox
+        }
+    }
+
+    func rollUpAlertLane(forPaneIds paneIds: [UUID]) -> InboxNotificationClaimLane? {
+        let paneIdSet = Set(paneIds)
+        let matchingLanes = notifications.compactMap { notification -> InboxNotificationClaimLane? in
+            guard notification.contributesToRollUpAlert else { return nil }
+            guard let paneId = notification.paneId, paneIdSet.contains(paneId) else { return nil }
+            return notification.displayLane
+        }
+        if matchingLanes.contains(.actionNeeded) { return .actionNeeded }
+        if matchingLanes.contains(.safety) { return .safety }
+        return nil
+    }
+
+    func attentionLane(forPaneIds paneIds: [UUID]) -> InboxNotificationClaimLane? {
+        let paneIdSet = Set(paneIds)
+        let matchingLanes = notifications.compactMap { notification -> InboxNotificationClaimLane? in
+            guard notification.contributesToAttentionDot else { return nil }
+            guard let paneId = notification.paneId, paneIdSet.contains(paneId) else { return nil }
+            return notification.displayLane
+        }
+        if matchingLanes.contains(.actionNeeded) { return .actionNeeded }
+        if matchingLanes.contains(.safety) { return .safety }
+        if matchingLanes.contains(.settledAgent) { return .settledAgent }
+        return nil
+    }
+
+    @discardableResult
+    func revokeSettledAgentAttention(forPaneId paneId: UUID) -> Bool {
+        var didRevoke = false
+        for index in notifications.indices {
+            let notification = notifications[index]
+            guard
+                !notification.isRead,
+                notification.paneId == paneId,
+                notification.displayLane == .settledAgent
+            else {
+                continue
+            }
+            notifications[index] = InboxNotification(
+                id: notification.id,
+                timestamp: notification.timestamp,
+                kind: .unseenActivity,
+                title: "New terminal activity",
+                body: nil,
+                source: notification.source,
+                activityContext: notification.activityContext,
+                claimKey: notification.claimKey.map {
+                    InboxNotificationClaimKey(
+                        paneId: $0.paneId,
+                        lane: .activity,
+                        semantic: .unseenActivity,
+                        sessionId: $0.sessionId
+                    )
+                },
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+            didRevoke = true
+        }
+        if didRevoke {
+            recalculateGlobalUnreadCount()
+        }
+        return didRevoke
     }
 
     @discardableResult
@@ -122,7 +221,6 @@ final class InboxNotificationAtom {
                     return false
                 }
                 return existingClaimKey.lane.canMergeWithinActivitySession
-                    && claimKey.lane.canMergeWithinActivitySession
             })
         {
             let replacement = merge(notifications[index], notification)
@@ -146,13 +244,7 @@ final class InboxNotificationAtom {
         existing: InboxNotification,
         incoming: InboxNotification
     ) -> Bool {
-        if !existing.isRead && !existing.isDismissedFromPaneInbox {
-            return true
-        }
-        return existing.isRead
-            && existing.isDismissedFromPaneInbox
-            && incoming.isRead
-            && incoming.isDismissedFromPaneInbox
+        InboxNotificationClaimCoalescencePolicy.canCoalesce(existing: existing, incoming: incoming)
     }
 
     func replaceAll(_ replacement: [InboxNotification]) {
@@ -169,14 +261,15 @@ final class InboxNotificationAtom {
     }
 
     func markRead(paneId: UUID) {
-        for index in notifications.indices where notifications[index].paneId == paneId {
-            notifications[index].isRead = true
-        }
-        recalculateGlobalUnreadCount()
+        markRead(scope: .paneIds([paneId]))
     }
 
     func markAllRead() {
-        for index in notifications.indices {
+        markRead(scope: .workspace)
+    }
+
+    func markRead(scope: InboxNotificationReadScope) {
+        for index in notifications.indices where scope.matches(notifications[index]) {
             notifications[index].isRead = true
         }
         recalculateGlobalUnreadCount()
@@ -204,7 +297,12 @@ final class InboxNotificationAtom {
     }
 
     func toggleReadState(id: UUID) {
-        _ = update(id: id) { $0.isRead.toggle() }
+        _ = update(id: id) {
+            $0.isRead.toggle()
+            if !$0.isRead {
+                $0.isDismissedFromPaneInbox = false
+            }
+        }
         recalculateGlobalUnreadCount()
     }
 
@@ -237,13 +335,24 @@ final class InboxNotificationAtom {
         }
     }
 
+    private func rollUpAlertCount(
+        matching predicate: (InboxNotification) -> Bool
+    ) -> Int {
+        notifications.reduce(0) { count, notification in
+            notification.contributesToRollUpAlert && predicate(notification) ? count + 1 : count
+        }
+    }
+
     private func enforceRetentionCap() -> RetentionOutcome {
         let retentionCap = AppPolicies.InboxNotification.maxRetained
         guard notifications.count > retentionCap else { return .empty }
-        notifications.sort { $0.timestamp < $1.timestamp }
         let overflow = notifications.count - retentionCap
-        let droppedNotificationIds = notifications.prefix(overflow).map(\.id)
-        notifications.removeFirst(overflow)
+        let droppedNotificationIds = InboxNotificationRetentionPolicy.droppedNotificationIds(
+            from: notifications,
+            overflow: overflow
+        )
+        let droppedNotificationIdSet = Set(droppedNotificationIds)
+        notifications.removeAll { droppedNotificationIdSet.contains($0.id) }
         inboxNotificationAtomLogger.warning(
             "Inbox notification retention cap dropped \(overflow, privacy: .public) oldest row(s)"
         )
@@ -255,5 +364,6 @@ final class InboxNotificationAtom {
 
     private func recalculateGlobalUnreadCount() {
         globalUnreadCount = unreadCount { _ in true }
+        globalRollUpAlertCount = rollUpAlertCount { _ in true }
     }
 }

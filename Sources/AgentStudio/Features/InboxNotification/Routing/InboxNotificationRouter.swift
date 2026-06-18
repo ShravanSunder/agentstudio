@@ -313,9 +313,10 @@ final class InboxNotificationRouter {
         let decision = classify(paneEnvelope)
         traceEventBusDelivery(decision, envelope: paneEnvelope)
         traceClassificationDecision(decision, envelope: paneEnvelope)
+        let paneId = paneEnvelope.paneId.uuid
+        if handleAgentSettledRevocationIfNeeded(paneEnvelope, paneId: paneId) { return }
         guard let kind = decision.kind else { return }
 
-        let paneId = paneEnvelope.paneId.uuid
         let resolvedContext = resolveContext(for: paneId)
         if resolvedContext == nil {
             inboxNotificationRouterLogger.warning(
@@ -333,25 +334,13 @@ final class InboxNotificationRouter {
         }
         let paneSource = paneSource(paneId: paneId, resolvedContext: resolvedContext)
         let globalUnreadBefore = inboxAtom.globalUnreadCount
-        if case .terminalActivity(.unseenActivitySettled(let activity)) = paneEnvelope.event {
-            let promotionOutcome = promoter.promoteSettledActivity(
-                activity,
-                paneId: paneId,
-                context: paneSource
-            )
-            guard let mutationOutcome = promotionOutcome.mutationOutcome else { return }
-            traceInboxMutation(
-                body: "inbox.notification.appended",
-                paneId: paneId,
-                attributes: [
-                    "agentstudio.inbox.kind": .string(kind.rawValue),
-                    "agentstudio.inbox.notification.id": .string(mutationOutcome.notificationId.uuidString),
-                    "agentstudio.inbox.notification.coalesced": .bool(mutationOutcome.didCoalesce),
-                    "agentstudio.inbox.global_unread_before": .int(globalUnreadBefore),
-                    "agentstudio.inbox.global_unread_after": .int(inboxAtom.globalUnreadCount),
-                ]
-            )
-            traceRetentionOutcomeIfNeeded(mutationOutcome.retentionOutcome, paneId: paneId)
+        if handleTerminalActivityPromotionIfNeeded(
+            paneEnvelope,
+            kind: kind,
+            paneId: paneId,
+            paneSource: paneSource,
+            globalUnreadBefore: globalUnreadBefore
+        ) {
             return
         }
         let notificationText = notificationText(for: paneEnvelope.event)
@@ -367,6 +356,55 @@ final class InboxNotificationRouter {
             )
         )
         guard let mutationOutcome = promotionOutcome.mutationOutcome else { return }
+        traceAppendedNotification(
+            kind: kind, mutationOutcome: mutationOutcome, paneId: paneId, before: globalUnreadBefore)
+        traceRetentionOutcomeIfNeeded(mutationOutcome.retentionOutcome, paneId: paneId)
+    }
+
+    private func handleAgentSettledRevocationIfNeeded(_ envelope: PaneEnvelope, paneId: UUID) -> Bool {
+        guard case .terminalActivity(.agentSettledActivityRevoked) = envelope.event else { return false }
+        let didRevoke = inboxAtom.revokeSettledAgentAttention(forPaneId: paneId)
+        traceInboxMutation(
+            body: "inbox.notification.agentSettledRevoked",
+            paneId: paneId,
+            attributes: [
+                "agentstudio.inbox.notification.revoked": .bool(didRevoke),
+                "agentstudio.inbox.global_unread_after": .int(inboxAtom.globalUnreadCount),
+            ]
+        )
+        return true
+    }
+
+    private func handleTerminalActivityPromotionIfNeeded(
+        _ envelope: PaneEnvelope,
+        kind: InboxNotificationKind,
+        paneId: UUID,
+        paneSource: InboxNotification.PaneSource,
+        globalUnreadBefore: Int
+    ) -> Bool {
+        guard case .terminalActivity(let terminalActivityEvent) = envelope.event else { return false }
+        let promotionOutcome: InboxPromotionOutcome
+        switch terminalActivityEvent {
+        case .unseenActivitySettled(let activity):
+            promotionOutcome = promoter.promoteSettledActivity(activity, paneId: paneId, context: paneSource)
+        case .agentSettledActivityPromoted(let activity):
+            promotionOutcome = promoter.promoteAgentSettledActivity(activity, paneId: paneId, context: paneSource)
+        case .agentSettledActivityRevoked:
+            return true
+        }
+        guard let mutationOutcome = promotionOutcome.mutationOutcome else { return true }
+        traceAppendedNotification(
+            kind: kind, mutationOutcome: mutationOutcome, paneId: paneId, before: globalUnreadBefore)
+        traceRetentionOutcomeIfNeeded(mutationOutcome.retentionOutcome, paneId: paneId)
+        return true
+    }
+
+    private func traceAppendedNotification(
+        kind: InboxNotificationKind,
+        mutationOutcome: InboxNotificationAtom.MutationOutcome,
+        paneId: UUID,
+        before globalUnreadBefore: Int
+    ) {
         traceInboxMutation(
             body: "inbox.notification.appended",
             paneId: paneId,
@@ -378,13 +416,16 @@ final class InboxNotificationRouter {
                 "agentstudio.inbox.global_unread_after": .int(inboxAtom.globalUnreadCount),
             ]
         )
-        traceRetentionOutcomeIfNeeded(mutationOutcome.retentionOutcome, paneId: paneId)
     }
 
     private func classify(_ envelope: PaneEnvelope) -> ClassificationDecision {
         switch envelope.event {
         case .terminalActivity(.unseenActivitySettled):
             return .notify(.unseenActivity)
+        case .terminalActivity(.agentSettledActivityPromoted):
+            return .notify(.agentSettledActivity)
+        case .terminalActivity(.agentSettledActivityRevoked):
+            return .ignore(reason: "agent_settled_revocation")
         case .terminal(.desktopNotificationRequested):
             return .notify(.agentDesktopNotification)
         case .agentNotificationRequested:
@@ -748,10 +789,12 @@ extension InboxNotificationRouter {
         let normalizedTitle = title.trimmedNonEmpty
         let normalizedBody = body.trimmedNonEmpty
         if let normalizedTitle {
-            return .init(title: Self.limitedTitle(normalizedTitle), body: Self.limitedBody(normalizedBody))
+            let boundedText = InboxNotificationTextPolicy.bounded(title: normalizedTitle, body: normalizedBody)
+            return .init(title: boundedText.title, body: boundedText.body)
         }
         if let normalizedBody {
-            return .init(title: Self.limitedTitle(normalizedBody), body: nil)
+            let boundedText = InboxNotificationTextPolicy.bounded(title: normalizedBody, body: nil)
+            return .init(title: boundedText.title, body: nil)
         }
         return .init(title: fallbackTitle, body: nil)
     }
@@ -775,37 +818,26 @@ extension InboxNotificationRouter {
 
     private func approvalBody(for event: PaneRuntimeEvent) -> String? {
         guard case .artifact(.approvalRequested(let request)) = event else { return nil }
-        return request.summary
+        return InboxNotificationTextPolicy.approvalSummary(requestSummary: request.summary)
     }
 
     private func securityBody(for event: PaneRuntimeEvent) -> String? {
         switch event {
-        case .security(.networkEgressBlocked(let destination, let rule)):
-            return "\(destination) · \(rule)"
-        case .security(.filesystemAccessDenied(let path, let operation)):
-            return "\(operation) · \(path)"
-        case .security(.secretAccessed(let secretId, let consumerId)):
-            return "\(secretId) · \(consumerId)"
-        case .security(.processSpawnBlocked(let command, let rule)):
-            return "\(command) · \(rule)"
+        case .security(.networkEgressBlocked):
+            return InboxNotificationTextPolicy.securitySummary(kind: .networkEgressBlocked)
+        case .security(.filesystemAccessDenied(_, let operation)):
+            return InboxNotificationTextPolicy.securitySummary(
+                kind: .filesystemAccessDenied(operation: operation)
+            )
+        case .security(.secretAccessed):
+            return InboxNotificationTextPolicy.securitySummary(kind: .secretAccessed)
+        case .security(.processSpawnBlocked):
+            return InboxNotificationTextPolicy.securitySummary(kind: .processSpawnBlocked)
         case .security(.sandboxHealthChanged(let healthy)):
             return healthy ? nil : "health transitioned to unhealthy"
         default:
             return nil
         }
-    }
-
-    private static func limitedTitle(_ title: String) -> String {
-        limited(title, to: AppPolicies.InboxNotification.maxTitleCharacters)
-    }
-
-    private static func limitedBody(_ body: String?) -> String? {
-        body.map { limited($0, to: AppPolicies.InboxNotification.maxBodyCharacters) }
-    }
-
-    private static func limited(_ value: String, to maxCharacters: Int) -> String {
-        guard value.count > maxCharacters else { return value }
-        return String(value.prefix(maxCharacters))
     }
 
     private func claimSemantic(for event: PaneRuntimeEvent) -> InboxNotificationClaimSemantic {
@@ -833,6 +865,10 @@ extension InboxNotificationRouter {
             .security(.sandboxHealthChanged):
             return .securityEvent
         case .terminalActivity(.unseenActivitySettled):
+            return .unseenActivity
+        case .terminalActivity(.agentSettledActivityPromoted):
+            return .agentSettled
+        case .terminalActivity(.agentSettledActivityRevoked):
             return .unseenActivity
         default:
             return .agentRpc

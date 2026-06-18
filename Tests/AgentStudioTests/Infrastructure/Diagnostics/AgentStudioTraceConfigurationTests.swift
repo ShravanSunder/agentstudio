@@ -41,7 +41,7 @@ struct AgentStudioTraceConfigurationTests {
     func notificationObservabilityConsumerTagsParseFromSmokeSelector() {
         let configuration = AgentStudioTraceConfiguration.from(environment: [
             "AGENTSTUDIO_TRACE_TAGS":
-                "app.focus,runtime,eventbus,terminal.activity,inbox,ui.surface,ui.interaction,paneInbox"
+                "app.focus,runtime,eventbus,terminal.activity,terminal.signal,inbox,ui.surface,ui.interaction,paneInbox"
         ])
 
         #expect(configuration.unknownTagSelectors.isEmpty)
@@ -49,6 +49,7 @@ struct AgentStudioTraceConfigurationTests {
         #expect(configuration.isEnabled(.runtime))
         #expect(configuration.isEnabled(.eventbus))
         #expect(configuration.isEnabled(.terminalActivity))
+        #expect(configuration.isEnabled(.terminalSignal))
         #expect(configuration.isEnabled(.inbox))
         #expect(configuration.isEnabled(.uiSurface))
         #expect(configuration.isEnabled(.uiInteraction))
@@ -78,8 +79,17 @@ struct AgentStudioTraceConfigurationTests {
     func tagSelectionSupportsPrefixWildcards() {
         let selection = AgentStudioTraceTag.parseSelection("terminal.*")
 
-        #expect(selection.tags == [.terminalActivity, .terminalStartup])
+        #expect(selection.tags == [.terminalActivity, .terminalSignal, .terminalStartup])
         #expect(selection.unknownSelectors.isEmpty)
+    }
+
+    @Test
+    func terminalSignalTraceTagParsesAsExplicitOptInLane() {
+        let selection = AgentStudioTraceTag.parseSelection("terminal.signal")
+
+        #expect(selection.tags == [.terminalSignal])
+        #expect(selection.unknownSelectors.isEmpty)
+        #expect(!AgentStudioTraceConfiguration.safeDefaultTags.contains(.terminalSignal))
     }
 
     @Test
@@ -91,6 +101,7 @@ struct AgentStudioTraceConfigurationTests {
         #expect(appSelection.tags.contains(.appFocus))
         #expect(terminalSelection.tags.contains(.terminalStartup))
         #expect(terminalSelection.tags.contains(.terminalActivity))
+        #expect(terminalSelection.tags.contains(.terminalSignal))
         #expect(!terminalSelection.tags.contains(.persistenceOperation))
         #expect(appSelection.unknownSelectors.isEmpty)
         #expect(terminalSelection.unknownSelectors.isEmpty)

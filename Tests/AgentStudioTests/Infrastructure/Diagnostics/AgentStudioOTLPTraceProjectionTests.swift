@@ -294,9 +294,15 @@ struct AgentStudioOTLPTraceProjectionTests {
             attributes: [
                 "agentstudio.app.is_active": .bool(false),
                 "agentstudio.display.count": .int(2),
+                "agentstudio.ghostty.surface.environment_variable_count": .int(4),
+                "agentstudio.ghostty.surface.initial_frame_height": .double(700),
+                "agentstudio.ghostty.surface.initial_frame_width": .double(1100),
+                "agentstudio.ghostty.surface.startup_command_present": .bool(true),
                 "agentstudio.pane.id": .string(paneID.uuidString),
                 "agentstudio.surface.id": .string(surfaceID.uuidString),
                 "agentstudio.terminal.startup.error": .string("Failed after command output: secret prompt"),
+                "agentstudio.terminal.startup.failure.creation_retry.count": .int(2),
+                "agentstudio.terminal.startup.failure.kind": .string("creation_failed"),
                 "agentstudio.terminal.startup.operation_id": .string(UUID().uuidString),
                 "agentstudio.terminal.startup.outcome": .string("failed"),
                 "agentstudio.terminal.startup.phase": .string("surface_create_failed"),
@@ -311,8 +317,14 @@ struct AgentStudioOTLPTraceProjectionTests {
 
         #expect(projection.attributes["agentstudio.terminal.startup.phase"] == .string("surface_create_failed"))
         #expect(projection.attributes["agentstudio.terminal.startup.outcome"] == .string("failed"))
+        #expect(projection.attributes["agentstudio.terminal.startup.failure.kind"] == .string("creation_failed"))
+        #expect(projection.attributes["agentstudio.terminal.startup.failure.creation_retry.count"] == .int(2))
         #expect(projection.attributes["agentstudio.app.is_active"] == .bool(false))
         #expect(projection.attributes["agentstudio.display.count"] == .int(2))
+        #expect(projection.attributes["agentstudio.ghostty.surface.environment_variable_count"] == .int(4))
+        #expect(projection.attributes["agentstudio.ghostty.surface.initial_frame_height"] == .double(700))
+        #expect(projection.attributes["agentstudio.ghostty.surface.initial_frame_width"] == .double(1100))
+        #expect(projection.attributes["agentstudio.ghostty.surface.startup_command_present"] == .bool(true))
         #expect(projection.attributes["agentstudio.zmx.socket_path_headroom"] == .int(-2))
         #expect(projection.attributes["agentstudio.pane.id"] == nil)
         #expect(projection.attributes["agentstudio.surface.id"] == nil)
@@ -322,6 +334,163 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(!renderedProjection.contains(paneID.uuidString))
         #expect(!renderedProjection.contains(surfaceID.uuidString))
         #expect(!renderedProjection.contains("secret prompt"))
+    }
+
+    @Test
+    func terminalActivityProjectionKeepsAgentHeuristicEvidenceAndDropsPaneIdentity() {
+        let paneID = UUID(uuidString: "B25FE4D0-67D6-495B-A93F-8E9E6FF311DD")!
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 325,
+            severityText: .info,
+            body: "terminal.activity.unseenWindowClosed",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "agent.proof.marker": "terminal-agent-settled-proof",
+                "service.name": "AgentStudio",
+            ],
+            scope: .init(name: "agentstudio.terminal.activity", version: "0.1.0"),
+            attributes: [
+                "agentstudio.pane.id": .string(paneID.uuidString),
+                "agentstudio.trace.tag": .string("terminal.activity"),
+                "terminal.activity.baseline_rows": .int(100),
+                "terminal.activity.close_reason": .string("quiet"),
+                "terminal.activity.debounce_ms": .int(180_000),
+                "terminal.activity.duration_ms": .int(61_000),
+                "terminal.activity.event_count": .int(2),
+                "terminal.activity.is_agent_candidate": .bool(true),
+                "terminal.activity.is_agent_settled_candidate": .bool(true),
+                "terminal.activity.is_inferred": .bool(true),
+                "terminal.activity.is_pinned_to_bottom": .bool(false),
+                "terminal.activity.latest_rows": .int(700),
+                "terminal.activity.rows_added": .int(600),
+                "terminal.activity.source": .string("scrollbar"),
+                "terminal.activity.threshold_rows": .int(30),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.attributes["agentstudio.trace.tag"] == .string("terminal.activity"))
+        #expect(projection.attributes["terminal.activity.close_reason"] == .string("quiet"))
+        #expect(projection.attributes["terminal.activity.is_agent_candidate"] == .bool(true))
+        #expect(projection.attributes["terminal.activity.is_agent_settled_candidate"] == .bool(true))
+        #expect(projection.attributes["terminal.activity.rows_added"] == .int(600))
+        #expect(projection.attributes["agentstudio.pane.id"] == nil)
+        #expect(!renderedProjection.contains(paneID.uuidString))
+    }
+
+    @Test
+    func terminalSignalProjectionKeepsControlledSignalFieldsAndDropsRawPayloadAndIDs() {
+        let paneID = UUID(uuidString: "1A84D2E8-4177-4D6B-8360-2BAA4C08654A")!
+        let surfaceID = UUID(uuidString: "7F609C1D-B01C-4D9B-B8D7-BC566B42716F")!
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 350,
+            severityText: .info,
+            body: "ghostty.action.translated",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "agent.proof.marker": "terminal-signal-proof",
+                "service.name": "AgentStudio",
+            ],
+            scope: .init(name: "agentstudio.terminal.signal", version: "0.1.0"),
+            attributes: [
+                "agentstudio.ghostty.action.name": .string("desktopNotification"),
+                "agentstudio.ghostty.action.payload": .string("desktopNotification"),
+                "agentstudio.ghostty.action.tag": .int(25),
+                "agentstudio.ghostty.route.reason": .string("runtime_event_delivered"),
+                "agentstudio.ghostty.route.result": .bool(true),
+                "agentstudio.ghostty.signal.class": .string("semantic"),
+                "agentstudio.pane.id": .string(paneID.uuidString),
+                "agentstudio.runtime.event": .string("terminal.desktopNotificationRequested"),
+                "agentstudio.surface.id": .string(surfaceID.uuidString),
+                "agentstudio.trace.tag": .string("terminal.signal"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.attributes["agentstudio.trace.tag"] == .string("terminal.signal"))
+        #expect(projection.attributes["agentstudio.ghostty.action.name"] == .string("desktopNotification"))
+        #expect(projection.attributes["agentstudio.ghostty.action.tag"] == .int(25))
+        #expect(projection.attributes["agentstudio.ghostty.route.reason"] == .string("runtime_event_delivered"))
+        #expect(projection.attributes["agentstudio.ghostty.route.result"] == .bool(true))
+        #expect(projection.attributes["agentstudio.ghostty.signal.class"] == .string("semantic"))
+        #expect(projection.attributes["agentstudio.runtime.event"] == .string("terminal.desktopNotificationRequested"))
+        #expect(projection.attributes["agentstudio.ghostty.action.payload"] == nil)
+        #expect(projection.attributes["agentstudio.pane.id"] == nil)
+        #expect(projection.attributes["agentstudio.surface.id"] == nil)
+        #expect(!renderedProjection.contains(paneID.uuidString))
+        #expect(!renderedProjection.contains(surfaceID.uuidString))
+    }
+
+    @Test
+    func notificationProjectionKeepsRoutingEvidenceAndDropsNotificationIdentity() {
+        let notificationID = UUID(uuidString: "55461083-7987-4CA6-982E-1D0BB15AF2E1")!
+        let sessionID = UUID(uuidString: "13955374-46E1-43B8-AD8E-D60F1F59631A")!
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 375,
+            severityText: .info,
+            body: "inbox.notification.appended",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "agent.proof.marker": "inbox-proof",
+                "service.name": "AgentStudio",
+            ],
+            scope: .init(name: "agentstudio.inbox", version: "0.1.0"),
+            attributes: [
+                "agentstudio.inbox.claim.lane": .string("pane"),
+                "agentstudio.inbox.claim.semantic": .string("activity"),
+                "agentstudio.inbox.claim.session_id": .string(sessionID.uuidString),
+                "agentstudio.inbox.decision": .string("promote"),
+                "agentstudio.inbox.global_unread_after": .int(3),
+                "agentstudio.inbox.global_unread_before": .int(2),
+                "agentstudio.inbox.global_unread_count": .int(3),
+                "agentstudio.inbox.kind": .string("unseenActivity"),
+                "agentstudio.inbox.notification.coalesced": .bool(true),
+                "agentstudio.inbox.notification.id": .string(notificationID.uuidString),
+                "agentstudio.inbox.notification.revoked": .bool(true),
+                "agentstudio.inbox.reason": .string("unattended_pane"),
+                "agentstudio.pane.attended": .bool(false),
+                "agentstudio.pane.observed": .bool(false),
+                "agentstudio.pane.pinned_to_bottom": .bool(true),
+                "agentstudio.pane_inbox.cleared_count": .int(1),
+                "agentstudio.pane_inbox.dismissed": .bool(true),
+                "agentstudio.pane_inbox.keep_count": .int(2),
+                "agentstudio.trace.tag": .string("inbox"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.attributes["agentstudio.inbox.claim.lane"] == .string("pane"))
+        #expect(projection.attributes["agentstudio.inbox.claim.semantic"] == .string("activity"))
+        #expect(projection.attributes["agentstudio.inbox.decision"] == .string("promote"))
+        #expect(projection.attributes["agentstudio.inbox.global_unread_after"] == .int(3))
+        #expect(projection.attributes["agentstudio.inbox.global_unread_before"] == .int(2))
+        #expect(projection.attributes["agentstudio.inbox.global_unread_count"] == .int(3))
+        #expect(projection.attributes["agentstudio.inbox.kind"] == .string("unseenActivity"))
+        #expect(projection.attributes["agentstudio.inbox.notification.coalesced"] == .bool(true))
+        #expect(projection.attributes["agentstudio.inbox.notification.revoked"] == .bool(true))
+        #expect(projection.attributes["agentstudio.inbox.reason"] == .string("unattended_pane"))
+        #expect(projection.attributes["agentstudio.pane.attended"] == .bool(false))
+        #expect(projection.attributes["agentstudio.pane.observed"] == .bool(false))
+        #expect(projection.attributes["agentstudio.pane.pinned_to_bottom"] == .bool(true))
+        #expect(projection.attributes["agentstudio.pane_inbox.cleared_count"] == .int(1))
+        #expect(projection.attributes["agentstudio.pane_inbox.dismissed"] == .bool(true))
+        #expect(projection.attributes["agentstudio.pane_inbox.keep_count"] == .int(2))
+        #expect(projection.attributes["agentstudio.inbox.claim.session_id"] == nil)
+        #expect(projection.attributes["agentstudio.inbox.notification.id"] == nil)
+        #expect(!renderedProjection.contains(notificationID.uuidString))
+        #expect(!renderedProjection.contains(sessionID.uuidString))
     }
 
     @Test

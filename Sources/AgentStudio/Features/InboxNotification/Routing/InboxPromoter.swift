@@ -55,6 +55,13 @@ struct InboxPromotionOutcome: Sendable, Equatable {
 
 @MainActor
 final class InboxPromoter {
+    private struct SettledActivityPromotion: Sendable {
+        let kind: InboxNotificationKind
+        let title: String
+        let lane: InboxNotificationClaimLane
+        let semantic: InboxNotificationClaimSemantic
+    }
+
     private struct PromotionTrace: Sendable {
         let decision: String
         let reason: String
@@ -109,6 +116,44 @@ final class InboxPromoter {
         paneId: UUID,
         context: InboxNotification.PaneSource
     ) -> InboxPromotionOutcome {
+        promoteSettledActivity(
+            activity,
+            paneId: paneId,
+            context: context,
+            promotion: .init(
+                kind: .unseenActivity,
+                title: "New terminal activity",
+                lane: .activity,
+                semantic: .unseenActivity
+            )
+        )
+    }
+
+    @discardableResult
+    func promoteAgentSettledActivity(
+        _ activity: TerminalSettledActivity,
+        paneId: UUID,
+        context: InboxNotification.PaneSource
+    ) -> InboxPromotionOutcome {
+        promoteSettledActivity(
+            activity,
+            paneId: paneId,
+            context: context,
+            promotion: .init(
+                kind: .agentSettledActivity,
+                title: "Agent appears settled",
+                lane: .settledAgent,
+                semantic: .agentSettled
+            )
+        )
+    }
+
+    private func promoteSettledActivity(
+        _ activity: TerminalSettledActivity,
+        paneId: UUID,
+        context: InboxNotification.PaneSource,
+        promotion: SettledActivityPromotion
+    ) -> InboxPromotionOutcome {
         let snapshot = policySnapshot()
         let isPinnedToBottom = activity.isPinnedToBottom || snapshot.isPanePinnedToBottom(paneId)
         if snapshot.isPaneObserved(paneId),
@@ -138,15 +183,15 @@ final class InboxPromoter {
             || (snapshot.isPaneObserved(paneId) && isPinnedToBottom)
         let claimKey = InboxNotificationClaimKey(
             paneId: paneId,
-            lane: .activity,
-            semantic: .unseenActivity,
+            lane: promotion.lane,
+            semantic: promotion.semantic,
             sessionId: sessionId
         )
         let notification = InboxNotification(
             id: UUID(),
             timestamp: now(),
-            kind: .unseenActivity,
-            title: "New terminal activity",
+            kind: promotion.kind,
+            title: promotion.title,
             body: nil,
             source: .pane(context),
             activityContext: .init(
@@ -197,12 +242,13 @@ final class InboxPromoter {
             semantic: request.semantic,
             sessionId: resolvedSessionId
         )
+        let boundedText = InboxNotificationTextPolicy.bounded(title: request.title, body: request.body)
         var notification = InboxNotification(
             id: UUID(),
             timestamp: now(),
             kind: request.kind,
-            title: request.title,
-            body: request.body,
+            title: boundedText.title,
+            body: boundedText.body,
             source: .pane(request.context),
             claimKey: claimKey,
             isRead: false,
@@ -248,7 +294,7 @@ final class InboxPromoter {
         case .agentRpc, .desktopNotification, .bell, .commandFinished:
             return UUID()
         case .approvalRequested, .secureInput, .progressError, .rendererUnhealthy, .persistenceRecovery,
-            .securityEvent, .unseenActivity:
+            .securityEvent, .unseenActivity, .agentSettled:
             return nil
         }
     }
@@ -282,7 +328,12 @@ final class InboxPromoter {
         incoming: InboxNotification
     ) -> InboxNotification {
         let incomingIsMoreSpecific = priority(for: incoming.claimKey?.lane) < priority(for: existing.claimKey?.lane)
-        let displaySource = incomingIsMoreSpecific ? incoming : existing
+        let incomingIsSameClaim = existing.claimKey == incoming.claimKey
+        let displaySource = incomingIsMoreSpecific || incomingIsSameClaim ? incoming : existing
+        let shouldReopenReadRow =
+            existing.isRead
+            && !incoming.isRead
+            && incomingIsMoreSpecific
         return InboxNotification(
             id: existing.id,
             timestamp: incoming.timestamp,
@@ -295,8 +346,10 @@ final class InboxPromoter {
             ),
             activityContext: mergedActivityContext(existing.activityContext, incoming.activityContext),
             claimKey: strongerClaimKey(existing: existing.claimKey, incoming: incoming.claimKey),
-            isRead: existing.isRead || incoming.isRead,
-            isDismissedFromPaneInbox: existing.isDismissedFromPaneInbox || incoming.isDismissedFromPaneInbox
+            isRead: shouldReopenReadRow ? false : existing.isRead || incoming.isRead,
+            isDismissedFromPaneInbox: shouldReopenReadRow
+                ? false
+                : existing.isDismissedFromPaneInbox || incoming.isDismissedFromPaneInbox
         )
     }
 
@@ -306,10 +359,12 @@ final class InboxPromoter {
             return 0
         case .safety:
             return 1
-        case .activity:
+        case .settledAgent:
             return 2
-        case nil:
+        case .activity:
             return 3
+        case nil:
+            return 4
         }
     }
 
@@ -383,6 +438,8 @@ final class InboxPromoter {
             return .actionNeeded
         case .secureInput, .progressError, .rendererUnhealthy, .persistenceRecovery, .securityEvent:
             return .safety
+        case .agentSettled:
+            return .settledAgent
         case .unseenActivity, .commandFinished, .bell, .desktopNotification, .agentRpc:
             return .activity
         }

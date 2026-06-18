@@ -106,6 +106,7 @@ struct AgentStudioAppIPCServiceTests {
         )
         let login = try frameReader.receiveResponse(connection: connection)
         #expect(login.id == .number(10))
+        #expect(login.error == nil)
 
         try sendRequest(
             connection: connection,

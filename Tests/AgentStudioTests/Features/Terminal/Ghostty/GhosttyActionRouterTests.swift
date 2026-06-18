@@ -361,7 +361,7 @@ struct GhosttyActionRouterTests {
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.signal",
             ]),
             processIdentifier: 251,
             sessionID: "ghostty-session",
@@ -384,15 +384,12 @@ struct GhosttyActionRouterTests {
                 routingLookup: lookup
             )
         )
+        await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
 
         await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("Ghostty action router should write translation trace") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"ghostty.action.translated\"") == true
-        }
-
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"ghostty.action.translated\""))
         #expect(contents.contains("\"agentstudio.ghostty.action.name\":\"desktopNotification\""))
         #expect(contents.contains("\"agentstudio.ghostty.action.payload\":\"desktopNotification\""))
         #expect(contents.contains("\"agentstudio.ghostty.route.result\":true"))
@@ -400,6 +397,59 @@ struct GhosttyActionRouterTests {
         #expect(contents.contains("\"agentstudio.pane.id\":\"\(paneUUID.uuidString)\""))
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.desktopNotificationRequested\""))
         #expect(contents.contains("\"agentstudio.surface.id\":\"\(surfaceId.uuidString)\""))
+    }
+
+    @Test("terminal activity tag alone does not write Ghostty action translation trace records")
+    func actionRouterTrace_terminalActivityAloneDoesNotWriteTranslationRecord() async throws {
+        let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
+        let surfaceId = UUID()
+        let paneUUID = UUIDv7.generate()
+        let paneId = PaneId(uuid: paneUUID)
+        let runtime = TerminalRuntime(
+            paneId: paneId,
+            metadata: PaneMetadata(
+                paneId: paneId,
+                title: "Runtime"
+            )
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        let lookup = FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
+            paneIdsBySurfaceId: [surfaceId: paneUUID]
+        )
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router-activity-only",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
+            ]),
+            processIdentifier: 253,
+            sessionID: "ghostty-session",
+            timeUnixNano: { 910 }
+        )
+
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
+            Ghostty.ActionRouter.bindTraceRuntime(nil)
+        }
+
+        #expect(
+            Ghostty.ActionRouter.routeActionToTerminalRuntimeOnMainActor(
+                actionTag: UInt32(GHOSTTY_ACTION_DESKTOP_NOTIFICATION.rawValue),
+                payload: .desktopNotification(title: "Build", body: "Complete"),
+                surfaceViewObjectId: surfaceViewObjectId,
+                routingLookup: lookup
+            )
+        )
+        await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
     }
 
     @Test("high-volume callbacks do not write per-callback Ghostty action trace records")
@@ -426,9 +476,9 @@ struct GhosttyActionRouterTests {
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router-scrollbar",
-                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.signal",
             ]),
-            processIdentifier: 252,
+            processIdentifier: 254,
             sessionID: "ghostty-session",
             timeUnixNano: { 1001 }
         )

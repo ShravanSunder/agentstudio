@@ -84,7 +84,7 @@ extension Ghostty.ActionRouter {
             attributes["agentstudio.ghostty.route.reason"] = .string(reason)
         }
         actionTraceQueueStore.record(
-            tag: .terminalActivity,
+            tag: .terminalSignal,
             body: body,
             attributes: attributes
         )

@@ -12,6 +12,7 @@ struct PaneInboxNotificationPopover: View {
     let workspaceWindowId: UUID?
     let paneIds: [UUID]
     let inboxAtom: InboxNotificationAtom
+    let prefsAtom: InboxNotificationPrefsAtom
     let presentationAtom: PaneInboxPresentationAtom
     let onActivate: @MainActor (InboxNotification) -> Void
     let onFocusPane: @MainActor (UUID) -> Void
@@ -25,6 +26,32 @@ struct PaneInboxNotificationPopover: View {
     }
 
     @State private var selectedNotificationId: UUID?
+    @State private var displayOverride: InboxNotificationDisplayOverride?
+
+    init(
+        parentPaneId: UUID,
+        workspaceWindowId: UUID?,
+        paneIds: [UUID],
+        inboxAtom: InboxNotificationAtom,
+        prefsAtom: InboxNotificationPrefsAtom,
+        presentationAtom: PaneInboxPresentationAtom,
+        onActivate: @escaping @MainActor (InboxNotification) -> Void,
+        onFocusPane: @escaping @MainActor (UUID) -> Void,
+        onClear: @escaping @MainActor @Sendable () -> Void,
+        onClose: @escaping @MainActor @Sendable () -> Void
+    ) {
+        self.parentPaneId = parentPaneId
+        self.workspaceWindowId = workspaceWindowId
+        self.paneIds = paneIds
+        self.inboxAtom = inboxAtom
+        self.prefsAtom = prefsAtom
+        self.presentationAtom = presentationAtom
+        self.onActivate = onActivate
+        self.onFocusPane = onFocusPane
+        self.onClear = onClear
+        self.onClose = onClose
+        _displayOverride = State(initialValue: presentationAtom.consumeTemporaryOverride())
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,6 +92,9 @@ struct PaneInboxNotificationPopover: View {
             .frame(width: 0, height: 0)
         )
         .onAppear(perform: repairSelection)
+        .onChange(of: presentationAtom.temporaryOverrideGeneration) { _, _ in
+            applyTemporaryOverride()
+        }
         .onChange(of: relevantNotificationIds) { _, _ in repairSelection() }
         .onExitCommand(perform: onClose)
     }
@@ -72,20 +102,30 @@ struct PaneInboxNotificationPopover: View {
     static func relevantNotifications(
         paneIds: [UUID],
         notifications: [InboxNotification],
-        filterMode: PaneInboxNotificationFilterMode = .unread
+        filterMode: PaneInboxNotificationFilterMode = .unread,
+        contentMode: InboxNotificationContentMode = .rollUpAlerts,
+        rowStateFilter: InboxNotificationRowStateFilter? = nil
     ) -> [InboxNotification] {
         let paneIdSet = Set(paneIds)
+        let effectiveRowStateFilter =
+            rowStateFilter
+            ?? {
+                switch filterMode {
+                case .unread:
+                    return .unreadOnly
+                case .all:
+                    return .all
+                }
+            }()
         return
             notifications
             .filter { notification in
                 guard let paneId = notification.paneId else { return false }
                 guard paneIdSet.contains(paneId) else { return false }
-                switch filterMode {
-                case .unread:
-                    return !notification.isRead && !notification.isDismissedFromPaneInbox
-                case .all:
-                    return true
-                }
+                guard !notification.isDismissedFromPaneInbox else { return false }
+                guard contentMode.includes(notification) else { return false }
+                guard effectiveRowStateFilter.includes(notification) else { return false }
+                return true
             }
             .sorted { $0.timestamp > $1.timestamp }
             .prefix(AppPolicies.PaneInbox.maxVisibleNotifications)
@@ -110,6 +150,15 @@ struct PaneInboxNotificationPopover: View {
             Text("Pane inbox")
                 .font(.headline)
             Spacer()
+            Button(action: markPaneRead) {
+                Image(systemName: "envelope.open")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Mark Pane Read")
+            .accessibilityIdentifier("paneInboxMarkReadButton")
+            .help("Mark pane notifications read")
+
             Button(action: clearPaneInbox) {
                 clearPaneInboxSpec.icon.swiftUIImage()
             }
@@ -148,6 +197,13 @@ struct PaneInboxNotificationPopover: View {
             .buttonStyle(.borderless)
             .help(filterMode.helpText)
 
+            Button(action: cycleContentMode) {
+                Image(systemName: "dot.circle.viewfinder")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(contentMode == .rollUpAlerts ? Color.accentColor : Color.secondary)
+            .help(contentModeHelpText)
+
             Divider()
                 .frame(height: AppStyles.Components.PaneInbox.headerSeparatorHeight)
 
@@ -163,12 +219,27 @@ struct PaneInboxNotificationPopover: View {
         Self.relevantNotifications(
             paneIds: paneIds,
             notifications: inboxAtom.notifications,
-            filterMode: filterMode
+            filterMode: filterMode,
+            contentMode: contentMode,
+            rowStateFilter: rowStateFilter
         )
     }
 
     private var filterMode: PaneInboxNotificationFilterMode {
-        presentationAtom.filterMode(for: parentPaneId)
+        switch rowStateFilter {
+        case .unreadOnly:
+            .unread
+        case .all:
+            .all
+        }
+    }
+
+    private var contentMode: InboxNotificationContentMode {
+        displayOverride?.contentMode ?? prefsAtom.paneInboxContentMode
+    }
+
+    private var rowStateFilter: InboxNotificationRowStateFilter {
+        displayOverride?.rowStateFilter ?? prefsAtom.paneInboxRowStateFilter
     }
 
     private var relevantNotificationIds: [UUID] {
@@ -213,8 +284,39 @@ struct PaneInboxNotificationPopover: View {
     }
 
     private func toggleFilterMode() {
-        presentationAtom.toggleFilterMode(for: parentPaneId)
+        displayOverride = nil
+        prefsAtom.setPaneInboxRowStateFilter(rowStateFilter == .unreadOnly ? .all : .unreadOnly)
         repairSelection()
+    }
+
+    private func cycleContentMode() {
+        displayOverride = nil
+        switch contentMode {
+        case .rollUpAlerts:
+            prefsAtom.setPaneInboxContentMode(.activity)
+        case .activity:
+            prefsAtom.setPaneInboxContentMode(.all)
+        case .all:
+            prefsAtom.setPaneInboxContentMode(.rollUpAlerts)
+        }
+        repairSelection()
+    }
+
+    private func applyTemporaryOverride() {
+        guard let override = presentationAtom.consumeTemporaryOverride() else { return }
+        displayOverride = override
+        repairSelection()
+    }
+
+    private var contentModeHelpText: String {
+        switch contentMode {
+        case .rollUpAlerts:
+            "Showing attention notifications"
+        case .activity:
+            "Showing activity notifications"
+        case .all:
+            "Showing all notification types"
+        }
     }
 
     private func clearPaneInbox() {
@@ -222,12 +324,18 @@ struct PaneInboxNotificationPopover: View {
         repairSelection()
     }
 
+    private func markPaneRead() {
+        inboxAtom.markRead(scope: .paneIds(paneIds))
+        repairSelection()
+    }
+
     private func rowAccessibilityLabel(for notification: InboxNotification) -> String {
-        InboxNotificationSourceDisplay(
+        let displayText = InboxNotificationSourceDisplay(
             notification: notification,
             rowContext: .paneInbox(parentPaneId: parentPaneId)
         )
         .primaryText
+        return "\(notification.accessibilityStateLabel), \(displayText)"
     }
 
     private func activate(notificationId: UUID) {
@@ -255,6 +363,30 @@ struct PaneInboxNotificationPopover: View {
             onFocusPane(paneId)
         }
         onClose()
+    }
+}
+
+extension InboxNotification {
+    fileprivate var accessibilityStateLabel: String {
+        if isRead {
+            return "Read \(displayLane.accessibilityLabel)"
+        }
+        return "Unread \(displayLane.accessibilityLabel)"
+    }
+}
+
+extension InboxNotificationClaimLane {
+    fileprivate var accessibilityLabel: String {
+        switch self {
+        case .actionNeeded:
+            "action needed"
+        case .safety:
+            "safety"
+        case .settledAgent:
+            "agent settled"
+        case .activity:
+            "activity"
+        }
     }
 }
 

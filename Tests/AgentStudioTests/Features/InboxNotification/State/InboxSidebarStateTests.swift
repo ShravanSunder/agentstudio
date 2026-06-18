@@ -41,14 +41,30 @@ struct InboxSidebarStateTests {
         #expect(atom.consumePendingFilter() == nil)
     }
 
+    @Test("consume returns pending display override once")
+    func consumeReturnsPendingDisplayOverrideOnce() {
+        let atom = InboxSidebarState()
+        let override = InboxNotificationDisplayOverride(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
+
+        atom.setPendingDisplayOverride(override)
+
+        #expect(atom.peekPendingDisplayOverride() == override)
+        #expect(atom.consumePendingDisplayOverride() == override)
+        #expect(atom.peekPendingDisplayOverride() == nil)
+        #expect(atom.consumePendingDisplayOverride() == nil)
+    }
+
     @Test("clear removes the pending one-shot filter")
     func clearRemovesPendingFilter() {
         let atom = InboxSidebarState()
         atom.setPendingFilter(.repo(id: UUID()))
+        atom.setPendingDisplayOverride(.init(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly))
 
         atom.clearPendingFilter()
+        atom.clearPendingDisplayOverride()
 
         #expect(atom.peekPendingFilter() == nil)
+        #expect(atom.peekPendingDisplayOverride() == nil)
     }
 
     @Test("inbox groups default expanded and track collapsed keys only")
@@ -83,10 +99,12 @@ struct InboxSidebarStateTests {
     func hydrateClearsRuntimePendingFilter() {
         let atom = InboxSidebarState()
         atom.setPendingFilter(.repo(id: UUID()))
+        atom.setPendingDisplayOverride(.init(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly))
 
         atom.hydrate(collapsedGroups: [InboxNotificationGroupKey("repo:agent-studio")])
 
         #expect(atom.peekPendingFilter() == nil)
+        #expect(atom.peekPendingDisplayOverride() == nil)
         #expect(atom.collapsedGroups == [InboxNotificationGroupKey("repo:agent-studio")])
     }
 

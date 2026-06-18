@@ -32,10 +32,11 @@ struct InboxNotificationClaimTests {
         #expect(matching != differentSession)
     }
 
-    @Test("activity and action-needed lanes can merge within an activity session")
-    func activityAndActionNeededLanesCanMergeWithinActivitySession() {
+    @Test("activity action-needed and settled-agent lanes can merge within an activity session")
+    func activityActionNeededAndSettledAgentLanesCanMergeWithinActivitySession() {
         #expect(InboxNotificationClaimLane.activity.canMergeWithinActivitySession)
         #expect(InboxNotificationClaimLane.actionNeeded.canMergeWithinActivitySession)
+        #expect(InboxNotificationClaimLane.settledAgent.canMergeWithinActivitySession)
         #expect(InboxNotificationClaimLane.safety.canMergeWithinActivitySession == false)
     }
 

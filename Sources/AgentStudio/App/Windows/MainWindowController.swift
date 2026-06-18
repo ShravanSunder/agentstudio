@@ -326,7 +326,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func updateInboxUnreadBadge() {
-        let unreadCount = inboxAtom?.globalUnreadCount ?? 0
+        let unreadCount = inboxAtom?.globalRollUpAlertCount ?? 0
         guard unreadCount > 0 else {
             inboxToolbarBadgeHostingView?.isHidden = true
             return
@@ -341,7 +341,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         guard !isObservingInboxUnread else { return }
         isObservingInboxUnread = true
         withObservationTracking {
-            _ = inboxAtom?.globalUnreadCount
+            _ = inboxAtom?.globalRollUpAlertCount
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -375,6 +375,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func showInboxNotifications(commandBarIsKey: Bool) {
         splitViewController?.showInboxNotifications(commandBarIsKey: commandBarIsKey)
+    }
+
+    func showRollUpInboxNotifications(commandBarIsKey: Bool) {
+        splitViewController?.showRollUpInboxNotifications(commandBarIsKey: commandBarIsKey)
     }
 
     func showWorktreeSidebar() {
@@ -439,7 +443,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func showInboxSidebarAction() {
-        showInboxNotifications(commandBarIsKey: false)
+        showRollUpInboxNotifications(commandBarIsKey: false)
         updateSidebarToolbarIcons()
     }
 

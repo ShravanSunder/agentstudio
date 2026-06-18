@@ -127,6 +127,10 @@ extension WorkspaceSurfaceCoordinator {
             startupCommandPresent: startupCommandPresent,
             environmentVariableCount: environmentVariableCount
         )
+        attributes["agentstudio.terminal.startup.failure.kind"] = .string(error.diagnosticKind)
+        if let creationRetryCount = error.creationRetryCount {
+            attributes["agentstudio.terminal.startup.failure.creation_retry.count"] = .int(creationRetryCount)
+        }
         attributes["agentstudio.terminal.startup.error"] = .string(error.localizedDescription)
         traceTerminalStartup(
             "terminal.startup.surface_create_failed",

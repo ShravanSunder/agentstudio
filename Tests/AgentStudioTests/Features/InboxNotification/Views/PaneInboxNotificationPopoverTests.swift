@@ -23,7 +23,8 @@ struct PaneInboxNotificationPopoverTests {
 
         let relevant = PaneInboxNotificationPopover.relevantNotifications(
             paneIds: [parentPaneId, drawerChildPaneId],
-            notifications: [dismissed, unrelated, parentVisible, childVisible]
+            notifications: [dismissed, unrelated, parentVisible, childVisible],
+            contentMode: .all
         )
 
         #expect(relevant.map(\.title) == ["Parent", "Child"])
@@ -55,7 +56,8 @@ struct PaneInboxNotificationPopoverTests {
         let relevant = PaneInboxNotificationPopover.relevantNotifications(
             paneIds: [paneId],
             notifications: [newestRead, newestDismissed] + unreadNotifications,
-            filterMode: .unread
+            filterMode: .unread,
+            contentMode: .all
         )
 
         #expect(relevant.count == AppPolicies.PaneInbox.maxVisibleNotifications)
@@ -64,8 +66,8 @@ struct PaneInboxNotificationPopoverTests {
         #expect(relevant.last?.title == "Unread 24")
     }
 
-    @Test("all mode includes read and pane-dismissed notifications before capping")
-    func allModeIncludesReadAndPaneDismissedNotificationsBeforeCapping() {
+    @Test("all mode includes read but still hides pane-dismissed notifications before capping")
+    func allModeIncludesReadButStillHidesPaneDismissedNotificationsBeforeCapping() {
         let paneId = UUID()
         let read = makeNotification(
             paneId: paneId,
@@ -95,13 +97,15 @@ struct PaneInboxNotificationPopoverTests {
         let relevant = PaneInboxNotificationPopover.relevantNotifications(
             paneIds: [paneId],
             notifications: [unrelated, read, dismissed] + scopedNotifications,
-            filterMode: .all
+            filterMode: .all,
+            contentMode: .all
         )
 
         #expect(relevant.count == AppPolicies.PaneInbox.maxVisibleNotifications)
-        #expect(relevant.map(\.title).prefix(2) == ["Read", "Dismissed"])
+        #expect(relevant.map(\.title).prefix(2) == ["Read", "Scoped 0"])
+        #expect(relevant.contains { $0.title == "Dismissed" } == false)
         #expect(relevant.contains { $0.title == "Other" } == false)
-        #expect(relevant.last?.title == "Scoped 22")
+        #expect(relevant.last?.title == "Scoped 23")
     }
 
     @Test("popover includes drawer child notification from resolved parent pane scope")
@@ -118,7 +122,8 @@ struct PaneInboxNotificationPopoverTests {
 
         let relevant = PaneInboxNotificationPopover.relevantNotifications(
             paneIds: scope.paneIds,
-            notifications: [unrelated, childNotification]
+            notifications: [unrelated, childNotification],
+            contentMode: .all
         )
 
         #expect(scope.parentPaneId == parentPaneId)
@@ -140,7 +145,8 @@ struct PaneInboxNotificationPopoverTests {
 
         let relevant = PaneInboxNotificationPopover.relevantNotifications(
             paneIds: scope.paneIds,
-            notifications: [parentNotification, childNotification]
+            notifications: [parentNotification, childNotification],
+            contentMode: .all
         )
 
         #expect(scope.parentPaneId == parentPaneId)
@@ -186,15 +192,18 @@ struct PaneInboxNotificationPopoverTests {
         let parentPaneId = UUID()
         let notification = makeNotification(paneId: parentPaneId, title: "Passive")
         let inboxAtom = InboxNotificationAtom()
+        let prefsAtom = InboxNotificationPrefsAtom()
         let presentationAtom = PaneInboxPresentationAtom()
         var didClose = false
         inboxAtom.append(notification)
+        prefsAtom.setPaneInboxContentMode(.all)
 
         let popover = PaneInboxNotificationPopover(
             parentPaneId: parentPaneId,
             workspaceWindowId: nil,
             paneIds: [parentPaneId],
             inboxAtom: inboxAtom,
+            prefsAtom: prefsAtom,
             presentationAtom: presentationAtom,
             onActivate: { _ in },
             onFocusPane: { _ in },
@@ -216,7 +225,10 @@ struct PaneInboxNotificationPopoverTests {
         let notification = makeNotification(paneId: parentPaneId, title: "Clearable")
         let inboxAtom = InboxNotificationAtom()
         let commandHandler = PaneInboxCommandHandlerProbe()
+        let prefsAtom = InboxNotificationPrefsAtom()
+        let presentationAtom = PaneInboxPresentationAtom()
         inboxAtom.append(notification)
+        prefsAtom.setPaneInboxContentMode(.all)
         var didClearLocally = false
 
         try await withIsolatedCommandDispatcher(
@@ -232,7 +244,8 @@ struct PaneInboxNotificationPopoverTests {
                             workspaceWindowId: nil,
                             paneIds: [parentPaneId],
                             inboxAtom: inboxAtom,
-                            presentationAtom: PaneInboxPresentationAtom(),
+                            prefsAtom: prefsAtom,
+                            presentationAtom: presentationAtom,
                             onActivate: { _ in },
                             onFocusPane: { _ in },
                             onClear: {
@@ -275,7 +288,10 @@ struct PaneInboxNotificationPopoverTests {
         let notification = makeNotification(paneId: parentPaneId, title: "Focusable")
         let inboxAtom = InboxNotificationAtom()
         let commandHandler = PaneInboxCommandHandlerProbe()
+        let prefsAtom = InboxNotificationPrefsAtom()
+        let presentationAtom = PaneInboxPresentationAtom()
         inboxAtom.append(notification)
+        prefsAtom.setPaneInboxContentMode(.all)
         var activatedNotificationIds: [UUID] = []
         var locallyFocusedPaneIds: [UUID] = []
         var didClose = false
@@ -293,7 +309,8 @@ struct PaneInboxNotificationPopoverTests {
                             workspaceWindowId: nil,
                             paneIds: [parentPaneId],
                             inboxAtom: inboxAtom,
-                            presentationAtom: PaneInboxPresentationAtom(),
+                            prefsAtom: prefsAtom,
+                            presentationAtom: presentationAtom,
                             onActivate: { activatedNotificationIds.append($0.id) },
                             onFocusPane: { locallyFocusedPaneIds.append($0) },
                             onClear: {},
@@ -332,12 +349,26 @@ struct PaneInboxNotificationPopoverTests {
         )
     }
 
-    @Test("mounted pane inbox row accessibility label uses display fallback")
-    func mountedPaneInboxRowAccessibilityLabelUsesDisplayFallback() throws {
+    @Test("mounted pane inbox row accessibility label includes state and lane")
+    func mountedPaneInboxRowAccessibilityLabelIncludesStateAndLane() throws {
         let parentPaneId = UUID()
-        let notification = makeNotification(paneId: parentPaneId, title: "   ", body: "Body fallback")
+        let notification = makeNotification(
+            paneId: parentPaneId,
+            kind: .approvalRequested,
+            title: "   ",
+            body: "Body fallback",
+            claimKey: .init(
+                paneId: parentPaneId,
+                lane: .actionNeeded,
+                semantic: .approvalRequested,
+                sessionId: nil
+            )
+        )
         let inboxAtom = InboxNotificationAtom()
+        let prefsAtom = InboxNotificationPrefsAtom()
+        let presentationAtom = PaneInboxPresentationAtom()
         inboxAtom.append(notification)
+        prefsAtom.setPaneInboxContentMode(.all)
 
         try withTestAtomRegistry { _ in
             let hostingView = NSHostingView(
@@ -346,7 +377,8 @@ struct PaneInboxNotificationPopoverTests {
                     workspaceWindowId: nil,
                     paneIds: [parentPaneId],
                     inboxAtom: inboxAtom,
-                    presentationAtom: PaneInboxPresentationAtom(),
+                    prefsAtom: prefsAtom,
+                    presentationAtom: presentationAtom,
                     onActivate: { _ in },
                     onFocusPane: { _ in },
                     onClear: {},
@@ -372,7 +404,85 @@ struct PaneInboxNotificationPopoverTests {
                 )
             )
 
-            #expect(accessibilityLabel(of: row) == "Body fallback")
+            #expect(accessibilityLabel(of: row) == "Unread action needed, Body fallback")
+        }
+    }
+
+    @Test("mounted pane inbox consumes chrome override without mutating persisted prefs")
+    func mountedPaneInboxConsumesChromeOverrideWithoutMutatingPersistedPrefs() async throws {
+        let parentPaneId = UUID()
+        let activityNotification = makeNotification(
+            paneId: parentPaneId,
+            kind: .unseenActivity,
+            title: "Activity",
+            claimKey: .init(
+                paneId: parentPaneId,
+                lane: .activity,
+                semantic: .unseenActivity,
+                sessionId: UUID()
+            )
+        )
+        let actionNotification = makeNotification(
+            paneId: parentPaneId,
+            kind: .approvalRequested,
+            title: "Action",
+            claimKey: .init(
+                paneId: parentPaneId,
+                lane: .actionNeeded,
+                semantic: .approvalRequested,
+                sessionId: nil
+            )
+        )
+        let inboxAtom = InboxNotificationAtom()
+        let prefsAtom = InboxNotificationPrefsAtom()
+        let presentationAtom = PaneInboxPresentationAtom()
+        inboxAtom.append(activityNotification)
+        inboxAtom.append(actionNotification)
+        prefsAtom.setPaneInboxContentMode(.activity)
+        prefsAtom.setPaneInboxRowStateFilter(.all)
+        presentationAtom.requestTemporaryOverride(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
+
+        await withAsyncTestAtomRegistry { _ in
+            let hostingView = NSHostingView(
+                rootView: PaneInboxNotificationPopover(
+                    parentPaneId: parentPaneId,
+                    workspaceWindowId: nil,
+                    paneIds: [parentPaneId],
+                    inboxAtom: inboxAtom,
+                    prefsAtom: prefsAtom,
+                    presentationAtom: presentationAtom,
+                    onActivate: { _ in },
+                    onFocusPane: { _ in },
+                    onClear: {},
+                    onClose: {}
+                )
+                .frame(width: 360, height: 240)
+            )
+            let window = NSWindow(
+                contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentView = hostingView
+            window.makeKeyAndOrderFront(nil)
+            defer { window.orderOut(nil) }
+            hostingView.layoutSubtreeIfNeeded()
+
+            await eventually("pane inbox should re-render with chrome override") {
+                let actionRow = findAccessibleElement(
+                    in: hostingView,
+                    identifier: "paneInboxNotificationRow.\(actionNotification.id.uuidString)"
+                )
+                let activityRow = findAccessibleElement(
+                    in: hostingView,
+                    identifier: "paneInboxNotificationRow.\(activityNotification.id.uuidString)"
+                )
+                return actionRow != nil && activityRow == nil
+            }
+            #expect(presentationAtom.consumeTemporaryOverride() == nil)
+            #expect(prefsAtom.paneInboxContentMode == .activity)
+            #expect(prefsAtom.paneInboxRowStateFilter == .all)
         }
     }
 
@@ -390,19 +500,22 @@ struct PaneInboxNotificationPopoverTests {
     private func makeNotification(
         id: UUID = UUID(),
         paneId: UUID?,
+        kind: InboxNotificationKind = .agentRpc,
         title: String = "Notification",
         body: String? = nil,
         timestamp: Date? = nil,
+        claimKey: InboxNotificationClaimKey? = nil,
         isRead: Bool = false,
         isDismissedFromPaneInbox: Bool = false
     ) -> InboxNotification {
         InboxNotification(
             id: id,
             timestamp: timestamp ?? Date(timeIntervalSince1970: isDismissedFromPaneInbox ? 50 : 100),
-            kind: .agentRpc,
+            kind: kind,
             title: title,
             body: body,
             source: paneId.map { .pane(.init(paneId: $0)) } ?? .global,
+            claimKey: claimKey,
             isRead: isRead,
             isDismissedFromPaneInbox: isDismissedFromPaneInbox
         )

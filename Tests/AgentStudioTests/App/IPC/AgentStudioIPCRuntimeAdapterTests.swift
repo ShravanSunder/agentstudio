@@ -5,6 +5,8 @@ import Testing
 
 @testable import AgentStudio
 
+private let schedulerStressIPCWaitTimeout: Duration = .seconds(30)
+
 @MainActor
 @Suite("AgentStudio IPC runtime adapter")
 struct AgentStudioIPCRuntimeAdapterTests {
@@ -207,9 +209,10 @@ struct AgentStudioIPCRuntimeAdapterTests {
             try await harness.adapter.waitForTerminal(
                 IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
                 condition: .commandFinished,
-                timeout: .milliseconds(100)
+                timeout: schedulerStressIPCWaitTimeout
             )
         }
+        await runtime.waitForSubscriptionCount(atLeast: 1)
         runtime.emit(
             RuntimeEnvelope.pane(
                 PaneEnvelope(
@@ -288,11 +291,13 @@ struct AgentStudioIPCRuntimeAdapterTests {
             try await harness.adapter.waitForTerminal(
                 IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
                 condition: .titleChanged,
-                timeout: .seconds(1),
+                timeout: schedulerStressIPCWaitTimeout,
                 afterSequence: 10
             )
         }
         await Task.yield()
+        await runtime.waitForSubscriptionCount(atLeast: 1)
+        await runtime.waitForReplayCallCount(atLeast: 1)
         runtime.emit(
             RuntimeEnvelope.pane(
                 PaneEnvelope(
@@ -525,15 +530,15 @@ private final class RecordingTerminalIPCRuntime: TerminalRuntimeSnapshotFactProv
     var replayGapDetected = false
     private(set) var receivedCommands: [RuntimeCommandEnvelope] = []
 
-    private let stream: AsyncStream<RuntimeEnvelope>
-    private let continuation: AsyncStream<RuntimeEnvelope>.Continuation
+    private var liveContinuations: [UUID: AsyncStream<RuntimeEnvelope>.Continuation] = [:]
+    private var subscriptionCount = 0
+    private var subscriptionWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var replayCallCount = 0
+    private var replayCallWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     init(paneId: PaneId) {
         self.paneId = paneId
         self.metadata = PaneMetadata(paneId: paneId, contentType: .terminal, title: "Terminal")
-        let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
-        self.stream = stream
-        self.continuation = continuation
     }
 
     func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
@@ -542,11 +547,64 @@ private final class RecordingTerminalIPCRuntime: TerminalRuntimeSnapshotFactProv
     }
 
     func subscribe() -> AsyncStream<RuntimeEnvelope> {
-        stream
+        subscriptionCount += 1
+        resumeSatisfiedSubscriptionWaiters()
+        let subscriptionId = UUID()
+        let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
+        liveContinuations[subscriptionId] = continuation
+        return stream
     }
 
     func emit(_ envelope: RuntimeEnvelope) {
-        continuation.yield(envelope)
+        for continuation in liveContinuations.values {
+            continuation.yield(envelope)
+        }
+    }
+
+    func waitForSubscriptionCount(atLeast count: Int) async {
+        if subscriptionCount >= count { return }
+        await withCheckedContinuation { continuation in
+            subscriptionWaiters.append((count: count, continuation: continuation))
+        }
+    }
+
+    func waitForReplayCallCount(atLeast count: Int) async {
+        if replayCallCount >= count { return }
+        await withCheckedContinuation { continuation in
+            replayCallWaiters.append((count: count, continuation: continuation))
+        }
+    }
+
+    private func resumeSatisfiedSubscriptionWaiters() {
+        var remainingWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        var satisfiedWaiters: [CheckedContinuation<Void, Never>] = []
+        for waiter in subscriptionWaiters {
+            if subscriptionCount >= waiter.count {
+                satisfiedWaiters.append(waiter.continuation)
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+        subscriptionWaiters = remainingWaiters
+        for continuation in satisfiedWaiters {
+            continuation.resume()
+        }
+    }
+
+    private func resumeSatisfiedReplayCallWaiters() {
+        var remainingWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        var satisfiedWaiters: [CheckedContinuation<Void, Never>] = []
+        for waiter in replayCallWaiters {
+            if replayCallCount >= waiter.count {
+                satisfiedWaiters.append(waiter.continuation)
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+        replayCallWaiters = remainingWaiters
+        for continuation in satisfiedWaiters {
+            continuation.resume()
+        }
     }
 
     func snapshot() -> PaneRuntimeSnapshot {
@@ -570,6 +628,8 @@ private final class RecordingTerminalIPCRuntime: TerminalRuntimeSnapshotFactProv
     }
 
     func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
+        replayCallCount += 1
+        resumeSatisfiedReplayCallWaiters()
         let events = replayEvents.filter { $0.seq > seq }
         return EventReplayBuffer.ReplayResult(
             events: events,
@@ -579,7 +639,10 @@ private final class RecordingTerminalIPCRuntime: TerminalRuntimeSnapshotFactProv
     }
 
     func shutdown(timeout: Duration) async -> [UUID] {
-        continuation.finish()
+        for continuation in liveContinuations.values {
+            continuation.finish()
+        }
+        liveContinuations.removeAll()
         return []
     }
 }

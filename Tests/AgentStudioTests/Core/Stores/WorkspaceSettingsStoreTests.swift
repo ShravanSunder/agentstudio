@@ -30,6 +30,10 @@ struct WorkspaceSettingsStoreTests {
         inboxPrefs.setGrouping(.byRepo)
         inboxPrefs.setSort(.oldestFirst)
         inboxPrefs.setBellEnabled(true)
+        inboxPrefs.setGlobalInboxContentMode(.activity)
+        inboxPrefs.setGlobalInboxRowStateFilter(.all)
+        inboxPrefs.setPaneInboxContentMode(.all)
+        inboxPrefs.setPaneInboxRowStateFilter(.unreadOnly)
 
         try store.flush(for: workspaceId)
 
@@ -51,6 +55,10 @@ struct WorkspaceSettingsStoreTests {
         #expect(restoredInboxPrefs.grouping == .byRepo)
         #expect(restoredInboxPrefs.sort == .oldestFirst)
         #expect(restoredInboxPrefs.bellEnabled)
+        #expect(restoredInboxPrefs.globalInboxContentMode == .activity)
+        #expect(restoredInboxPrefs.globalInboxRowStateFilter == .all)
+        #expect(restoredInboxPrefs.paneInboxContentMode == .all)
+        #expect(restoredInboxPrefs.paneInboxRowStateFilter == .unreadOnly)
     }
 
     @Test
@@ -77,6 +85,10 @@ struct WorkspaceSettingsStoreTests {
         #expect(inboxPrefs.grouping == .byTab)
         #expect(inboxPrefs.sort == .newestFirst)
         #expect(!inboxPrefs.bellEnabled)
+        #expect(inboxPrefs.globalInboxContentMode == .rollUpAlerts)
+        #expect(inboxPrefs.globalInboxRowStateFilter == .unreadOnly)
+        #expect(inboxPrefs.paneInboxContentMode == .rollUpAlerts)
+        #expect(inboxPrefs.paneInboxRowStateFilter == .unreadOnly)
     }
 
     @Test
