@@ -273,15 +273,27 @@ class MainSplitViewController: NSSplitViewController {
         let inbox = inboxAtom
         let presenter = paneInboxPresenter
         let paneInboxState = atom(\.paneInboxPresentationState)
+        let prefsAtom = atom(\.inboxNotificationPrefs)
         return PaneInboxPresentation(
             unreadCount: { paneIds in
-                inbox.visiblePaneInboxUnreadCount(forPaneIds: paneIds)
+                inbox.visiblePaneInboxRollUpAlertCount(forPaneIds: paneIds)
             },
             clear: { _, paneIds in
                 inbox.clearPaneInbox(paneIds: paneIds)
             },
             open: { parentPaneId, paneIds in
                 presenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
+            },
+            openRollUpAlerts: { parentPaneId, paneIds in
+                if presenter.isPresented(parentPaneId: parentPaneId, paneIds: paneIds) {
+                    presenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
+                } else {
+                    paneInboxState.requestTemporaryOverride(
+                        contentMode: .rollUpAlerts,
+                        rowStateFilter: .unreadOnly
+                    )
+                    presenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
+                }
             },
             toggle: { parentPaneId, paneIds in
                 presenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
@@ -302,6 +314,7 @@ class MainSplitViewController: NSSplitViewController {
                         workspaceWindowId: self?.workspaceWindowId,
                         paneIds: paneIds,
                         inboxAtom: inbox,
+                        prefsAtom: prefsAtom,
                         presentationAtom: paneInboxState,
                         onActivate: { notification in
                             presenter.recordRowActivation(notification: notification, paneIds: paneIds)
@@ -389,12 +402,19 @@ class MainSplitViewController: NSSplitViewController {
             shouldExpandSidebarOnLoad = false
             uiState.setSidebarCollapsed(true)
             uiState.setSidebarHasFocus(false)
+            clearInboxRuntimeEntryStateIfNeeded()
             return
         }
         guard let sidebarItem = splitViewItems.first, !sidebarItem.isCollapsed else { return }
         sidebarItem.animator().isCollapsed = true
         uiState.setSidebarHasFocus(false)
+        clearInboxRuntimeEntryStateIfNeeded()
         scheduleSaveSidebarState()
+    }
+
+    private func clearInboxRuntimeEntryStateIfNeeded() {
+        guard uiState.sidebarSurface == .inbox else { return }
+        inboxSidebarState.markDismissed()
     }
 
     @discardableResult
@@ -452,15 +472,32 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showInboxNotifications(commandBarIsKey: Bool) {
+        showInboxNotifications(commandBarIsKey: commandBarIsKey, togglesVisibleInbox: true)
+    }
+
+    func showRollUpInboxNotifications(commandBarIsKey: Bool) {
+        inboxSidebarState.requestFilterClearOnNextRetarget()
+        inboxSidebarState.setPendingDisplayOverride(
+            InboxNotificationDisplayOverride(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
+        )
+        showInboxNotifications(commandBarIsKey: commandBarIsKey, togglesVisibleInbox: false)
+    }
+
+    private func showInboxNotifications(commandBarIsKey: Bool, togglesVisibleInbox: Bool) {
+        let hasPendingRetarget =
+            inboxSidebarState.peekPendingFilter() != nil
+            || inboxSidebarState.peekPendingDisplayOverride() != nil
+            || inboxSidebarState.hasUnhandledRetargetRequest()
         // Contract: a visible inbox means the user is already on the requested
         // surface, so the second invocation is a close toggle rather than a no-op.
-        if !isSidebarCollapsed && uiState.sidebarSurface == .inbox {
+        if togglesVisibleInbox && !hasPendingRetarget && !isSidebarCollapsed && uiState.sidebarSurface == .inbox {
             collapseSidebar()
             return
         }
         ensureSidebarVisible()
         uiState.setSidebarSurface(.inbox)
         if commandBarIsKey {
+            inboxSidebarState.markRetargetRequestHandled()
             sidebarFocusTask?.cancel()
             shouldFocusSidebarWhenVisible = false
             uiState.setSidebarHasFocus(false)
@@ -468,8 +505,10 @@ class MainSplitViewController: NSSplitViewController {
         }
         guard isViewLoaded, view.window != nil else {
             shouldFocusSidebarWhenVisible = true
+            inboxSidebarState.markRetargetRequestHandled()
             return
         }
+        inboxSidebarState.markRetargetRequestHandled()
         scheduleSidebarFocus()
     }
 

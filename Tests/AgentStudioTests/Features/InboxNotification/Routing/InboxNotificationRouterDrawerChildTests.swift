@@ -70,7 +70,8 @@ extension InboxNotificationRouterTests {
         )
         let visiblePaneInboxNotifications = PaneInboxNotificationPopover.relevantNotifications(
             paneIds: scope.paneIds,
-            notifications: fixture.inboxAtom.notifications
+            notifications: fixture.inboxAtom.notifications,
+            contentMode: .all
         )
 
         #expect(scope.parentPaneId == parentPaneId.uuid)

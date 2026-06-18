@@ -33,8 +33,9 @@ struct InboxRowTests {
         #expect(InboxRow.metadataLine(text: "askluna").reservesIconColumn == false)
     }
 
-    @Test("unread only control uses a message badge icon")
-    func unreadOnlyControlUsesMessageBadgeIcon() {
-        #expect(InboxSidebarHeader.unreadOnlyIconName == "envelope.badge")
+    @Test("row state and content mode controls use distinct icons")
+    func rowStateAndContentModeControlsUseDistinctIcons() {
+        #expect(InboxSidebarHeader.rowStateIconName == "envelope.badge")
+        #expect(InboxSidebarHeader.contentModeIconName == "dot.circle.viewfinder")
     }
 }

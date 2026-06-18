@@ -4,6 +4,21 @@ import Observation
 
 @MainActor
 extension AppDelegate {
+    static func tabNotificationDotColor(
+        for lane: InboxNotificationClaimLane?
+    ) -> TabNotificationDotColor? {
+        switch lane {
+        case .actionNeeded:
+            return .red
+        case .safety:
+            return .amber
+        case .settledAgent:
+            return .yellow
+        case .activity, nil:
+            return nil
+        }
+    }
+
     func bootWorkspaceServices(
         persistor: WorkspacePersistor,
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
@@ -303,7 +318,15 @@ extension AppDelegate {
         tabBarAdapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            performanceTraceRecorder: performanceTraceRecorder
+            performanceTraceRecorder: performanceTraceRecorder,
+            notificationDotColorProvider: { paneIds in
+                Self.tabNotificationDotColor(
+                    for: atom(\.inboxNotification).attentionLane(forPaneIds: paneIds)
+                )
+            },
+            observeNotificationDotInputs: {
+                _ = atom(\.inboxNotification).notifications
+            }
         )
         commandBarController = CommandBarPanelController(
             store: store,

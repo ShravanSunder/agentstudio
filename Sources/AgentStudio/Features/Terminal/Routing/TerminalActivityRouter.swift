@@ -30,9 +30,28 @@ final class TerminalActivityRouter {
         var baselineRows: Int
         var latestRows: Int
         var latestIsPinnedToBottom: Bool
+        var isAgentCandidate: Bool
         var didEmitExtended: Bool
         var didEmitInitialActivity: Bool
         var didEmitBurst: Bool
+        var generation: Int
+        var lastEnvelopeTimestamp: ContinuousClock.Instant
+        var lastCorrelationId: UUID?
+        var lastCausationId: UUID?
+        var lastCommandId: UUID?
+    }
+
+    private struct AgentSettledCandidate {
+        let id: UUID
+        let paneId: UUID
+        let thresholdRows: Int
+        let startedAtMilliseconds: Int64
+        var lastObservedAtMilliseconds: Int64
+        var eventCount: Int
+        var rowsAdded: Int
+        var baselineRows: Int
+        var latestRows: Int
+        var latestIsPinnedToBottom: Bool
         var generation: Int
         var lastEnvelopeTimestamp: ContinuousClock.Instant
         var lastCorrelationId: UUID?
@@ -47,15 +66,21 @@ final class TerminalActivityRouter {
     private let startupTraceRecorder: AgentStudioStartupTraceRecorder?
     private let unseenActivityDebounceDuration: Duration
     private let unseenActivityDebounceMilliseconds: Int
+    private let agentSettledQuietDuration: Duration
     private let unseenActivityDelay: AsyncDelay
     private let nowMilliseconds: @Sendable () -> Int64
     private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool
+    private let isPaneAgentClassified: @MainActor (UUID, PaneContentType) -> Bool
 
     private var busTask: Task<Void, Never>?
     private var traceContinuation: AsyncStream<TraceRequest>.Continuation?
     private var traceWorkerTask: Task<Void, Never>?
     private var unseenActivityWindows: [UUID: UnseenActivityWindow] = [:]
     private var unseenActivityCloseTasksByPaneId: [UUID: Task<Void, Never>] = [:]
+    private var agentSettledCandidatesByPaneId: [UUID: AgentSettledCandidate] = [:]
+    private var agentSettledCandidateCloseTasksByPaneId: [UUID: Task<Void, Never>] = [:]
+    private var agentSettledAttentionLatestRowsByPaneId: [UUID: Int] = [:]
+    private var agentSettledSuppressedPaneIds: Set<UUID> = []
     private var derivedActivitySequence: UInt64 = 0
 
     init(
@@ -65,7 +90,9 @@ final class TerminalActivityRouter {
         traceRuntime: AgentStudioTraceRuntime? = nil,
         startupTraceRecorder: AgentStudioStartupTraceRecorder? = nil,
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
+        isPaneAgentClassified: (@MainActor (UUID, PaneContentType) -> Bool)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
+        agentSettledQuietDuration: Duration = AppPolicies.InboxNotification.agentSettledQuietDuration,
         unseenActivityClock: (any Clock<Duration> & Sendable)? = nil,
         nowMilliseconds: @escaping @Sendable () -> Int64 = {
             Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
@@ -78,6 +105,7 @@ final class TerminalActivityRouter {
         self.startupTraceRecorder = startupTraceRecorder
         self.unseenActivityDebounceDuration = unseenActivityDebounceDuration
         self.unseenActivityDebounceMilliseconds = Self.milliseconds(from: unseenActivityDebounceDuration)
+        self.agentSettledQuietDuration = agentSettledQuietDuration
         unseenActivityDelay = unseenActivityClock.map(AsyncDelay.clock) ?? .taskSleep
         self.nowMilliseconds = nowMilliseconds
         self.isPaneCurrentlyAttended =
@@ -85,6 +113,7 @@ final class TerminalActivityRouter {
             ?? { [weak attendedPane] paneId in
                 attendedPane?.attendedPaneId == paneId
             }
+        self.isPaneAgentClassified = isPaneAgentClassified ?? { _, paneKind in paneKind == .agent }
     }
 
     deinit {
@@ -92,6 +121,9 @@ final class TerminalActivityRouter {
         traceContinuation?.finish()
         traceWorkerTask?.cancel()
         for (_, closeTask) in unseenActivityCloseTasksByPaneId {
+            closeTask.cancel()
+        }
+        for (_, closeTask) in agentSettledCandidateCloseTasksByPaneId {
             closeTask.cancel()
         }
     }
@@ -119,11 +151,15 @@ final class TerminalActivityRouter {
         busTask = nil
         await task?.value
         closeAllUnseenActivityWindows(reason: "router.stop")
+        closeAllAgentSettledCandidates(reason: "router.stop")
         await drainTraceRecords()
     }
 
     func markUnseenActivityObserved(paneId: UUID) {
         closeUnseenActivityWindowWithoutSettling(paneId: paneId, reason: "inbox.observed")
+        resetAgentSettledCandidate(paneId: paneId, reason: "inbox.observed")
+        agentSettledAttentionLatestRowsByPaneId.removeValue(forKey: paneId)
+        agentSettledSuppressedPaneIds.remove(paneId)
     }
 
     private func consume(_ envelope: RuntimeEnvelope) async {
@@ -131,7 +167,11 @@ final class TerminalActivityRouter {
         activityAtom.consume(paneEnvelope)
         if case .lifecycle(.paneClosed) = paneEnvelope.event {
             closeUnseenActivityWindowWithoutSettling(paneId: paneEnvelope.paneId.uuid, reason: "pane.closed")
+            resetAgentSettledCandidate(paneId: paneEnvelope.paneId.uuid, reason: "pane.closed")
+            agentSettledAttentionLatestRowsByPaneId.removeValue(forKey: paneEnvelope.paneId.uuid)
+            agentSettledSuppressedPaneIds.remove(paneEnvelope.paneId.uuid)
         }
+        await handleAgentSettledTerminalSignalIfNeeded(paneEnvelope)
         await traceTerminalActivity(paneEnvelope)
     }
 
@@ -228,6 +268,10 @@ final class TerminalActivityRouter {
 
         let paneId = envelope.paneId.uuid
         let observedAtMilliseconds = nowMilliseconds()
+        let isAgentPane = isPaneAgentClassified(paneId, envelope.paneKind)
+        if agentSettledAttentionLatestRowsByPaneId[paneId] != nil {
+            await postAgentSettledActivityRevoked(paneId: paneId, envelope: envelope)
+        }
         var window =
             unseenActivityWindows[paneId]
             ?? UnseenActivityWindow(
@@ -242,6 +286,7 @@ final class TerminalActivityRouter {
                 baselineRows: scrollbarState.total,
                 latestRows: scrollbarState.total,
                 latestIsPinnedToBottom: scrollbarState.isPinnedToBottom,
+                isAgentCandidate: isAgentPane,
                 didEmitExtended: false,
                 didEmitInitialActivity: false,
                 didEmitBurst: false,
@@ -256,6 +301,7 @@ final class TerminalActivityRouter {
         window.lastObservedAtMilliseconds = observedAtMilliseconds
         window.latestRows = scrollbarState.total
         window.latestIsPinnedToBottom = scrollbarState.isPinnedToBottom
+        window.isAgentCandidate = window.isAgentCandidate && isAgentPane
         window.rowsAdded = max(window.rowsAdded, max(0, scrollbarState.total - window.baselineRows))
         window.generation += 1
         window.lastEnvelopeTimestamp = envelope.timestamp
@@ -303,6 +349,14 @@ final class TerminalActivityRouter {
                 envelope: envelope
             )
         }
+        updateAgentSettledCandidateIfNeeded(
+            paneId: paneId,
+            isAgentPane: isAgentPane,
+            scrollbarState: scrollbarState,
+            observedAtMilliseconds: observedAtMilliseconds,
+            envelope: envelope,
+            thresholdRows: window.thresholdRows
+        )
         scheduleUnseenActivityClose(paneId: paneId, generation: generation)
     }
 
@@ -322,6 +376,7 @@ final class TerminalActivityRouter {
             latestRows: window.latestRows,
             isPinnedToBottom: window.latestIsPinnedToBottom
         )
+        let event: TerminalActivityEvent = .unseenActivitySettled(activity)
         _ = await bus.post(
             .pane(
                 PaneEnvelope(
@@ -333,10 +388,172 @@ final class TerminalActivityRouter {
                     commandId: window.lastCommandId,
                     paneId: PaneId(uuid: window.paneId),
                     paneKind: .terminal,
-                    event: .terminalActivity(.unseenActivitySettled(activity))
+                    event: .terminalActivity(event)
                 )
             )
         )
+    }
+
+    private func postAgentSettledActivityRevoked(
+        paneId: UUID,
+        envelope: PaneEnvelope
+    ) async {
+        guard agentSettledAttentionLatestRowsByPaneId.removeValue(forKey: paneId) != nil else { return }
+        resetAgentSettledCandidate(paneId: paneId, reason: "agent.settled.revoked")
+        agentSettledSuppressedPaneIds.insert(paneId)
+        _ = await bus.post(
+            .pane(
+                PaneEnvelope(
+                    source: .system(.builtin(.terminalActivityRouter)),
+                    seq: nextDerivedActivitySequence(),
+                    timestamp: envelope.timestamp,
+                    correlationId: envelope.correlationId,
+                    causationId: envelope.causationId,
+                    commandId: envelope.commandId,
+                    paneId: PaneId(uuid: paneId),
+                    paneKind: envelope.paneKind,
+                    event: .terminalActivity(.agentSettledActivityRevoked)
+                )
+            )
+        )
+    }
+
+    private func updateAgentSettledCandidateIfNeeded(
+        paneId: UUID,
+        isAgentPane: Bool,
+        scrollbarState: ScrollbarState,
+        observedAtMilliseconds: Int64,
+        envelope: PaneEnvelope,
+        thresholdRows: Int
+    ) {
+        guard isAgentPane else {
+            resetAgentSettledCandidate(paneId: paneId, reason: "agent.identity.missing")
+            return
+        }
+        guard !agentSettledSuppressedPaneIds.contains(paneId) else {
+            resetAgentSettledCandidate(paneId: paneId, reason: "agent.settled.suppressed")
+            return
+        }
+        var candidate =
+            agentSettledCandidatesByPaneId[paneId]
+            ?? AgentSettledCandidate(
+                id: UUID(),
+                paneId: paneId,
+                thresholdRows: thresholdRows,
+                startedAtMilliseconds: observedAtMilliseconds,
+                lastObservedAtMilliseconds: observedAtMilliseconds,
+                eventCount: 0,
+                rowsAdded: 0,
+                baselineRows: scrollbarState.total,
+                latestRows: scrollbarState.total,
+                latestIsPinnedToBottom: scrollbarState.isPinnedToBottom,
+                generation: 0,
+                lastEnvelopeTimestamp: envelope.timestamp,
+                lastCorrelationId: nil,
+                lastCausationId: nil,
+                lastCommandId: nil
+            )
+        let rowGrowth = max(0, scrollbarState.total - candidate.latestRows)
+        candidate.eventCount += 1
+        candidate.lastObservedAtMilliseconds = observedAtMilliseconds
+        candidate.rowsAdded += rowGrowth
+        candidate.latestRows = scrollbarState.total
+        candidate.latestIsPinnedToBottom = scrollbarState.isPinnedToBottom
+        candidate.generation += 1
+        candidate.lastEnvelopeTimestamp = envelope.timestamp
+        candidate.lastCorrelationId = envelope.correlationId
+        candidate.lastCausationId = envelope.causationId
+        candidate.lastCommandId = envelope.commandId
+        agentSettledCandidatesByPaneId[paneId] = candidate
+        scheduleAgentSettledCandidateClose(paneId: paneId, generation: candidate.generation)
+    }
+
+    private func isAgentSettledCandidate(_ candidate: AgentSettledCandidate) -> Bool {
+        guard candidate.rowsAdded >= AppPolicies.InboxNotification.agentSettledMinimumRows else { return false }
+        let activeDurationMilliseconds = candidate.lastObservedAtMilliseconds - candidate.startedAtMilliseconds
+        let minimumCandidateMilliseconds = Self.milliseconds(
+            from: AppPolicies.InboxNotification.agentSettledMinimumCandidateDuration
+        )
+        guard activeDurationMilliseconds >= Int64(minimumCandidateMilliseconds) else { return false }
+        let minimumActiveMilliseconds = Self.milliseconds(
+            from: AppPolicies.InboxNotification.agentSettledMinimumActiveDuration
+        )
+        return candidate.rowsAdded >= AppPolicies.InboxNotification.agentSettledHighConfidenceRows
+            || activeDurationMilliseconds >= Int64(minimumActiveMilliseconds)
+    }
+
+    private func settledActivity(from candidate: AgentSettledCandidate) -> TerminalSettledActivity {
+        TerminalSettledActivity(
+            burstWindowId: candidate.id,
+            thresholdRows: candidate.thresholdRows,
+            debounceMilliseconds: Self.milliseconds(from: agentSettledQuietDuration),
+            startedAtMilliseconds: candidate.startedAtMilliseconds,
+            settledAtMilliseconds: candidate.lastObservedAtMilliseconds
+                + Int64(Self.milliseconds(from: agentSettledQuietDuration)),
+            eventCount: candidate.eventCount,
+            rowsAdded: candidate.rowsAdded,
+            baselineRows: candidate.baselineRows,
+            latestRows: candidate.latestRows,
+            isPinnedToBottom: candidate.latestIsPinnedToBottom
+        )
+    }
+
+    private func scheduleAgentSettledCandidateClose(paneId: UUID, generation: Int) {
+        agentSettledCandidateCloseTasksByPaneId[paneId]?.cancel()
+        let unseenActivityDelay = self.unseenActivityDelay
+        let quietDuration = agentSettledQuietDuration
+        agentSettledCandidateCloseTasksByPaneId[paneId] = Task { @MainActor [weak self] in
+            do {
+                try await unseenActivityDelay.wait(quietDuration)
+            } catch is CancellationError {
+                return
+            } catch {
+                terminalActivityRouterLogger.error(
+                    "Agent-settled quiet wait failed: \(error.localizedDescription, privacy: .public)"
+                )
+            }
+            guard let self else { return }
+            await closeAgentSettledCandidate(paneId: paneId, generation: generation)
+        }
+    }
+
+    private func closeAgentSettledCandidate(paneId: UUID, generation: Int) async {
+        guard let candidate = agentSettledCandidatesByPaneId[paneId], candidate.generation == generation else {
+            return
+        }
+        agentSettledCandidateCloseTasksByPaneId[paneId] = nil
+        agentSettledCandidatesByPaneId[paneId] = nil
+        guard isAgentSettledCandidate(candidate) else { return }
+        agentSettledAttentionLatestRowsByPaneId[paneId] = candidate.latestRows
+        _ = await bus.post(
+            .pane(
+                PaneEnvelope(
+                    source: .system(.builtin(.terminalActivityRouter)),
+                    seq: nextDerivedActivitySequence(),
+                    timestamp: candidate.lastEnvelopeTimestamp,
+                    correlationId: candidate.lastCorrelationId,
+                    causationId: candidate.lastCausationId,
+                    commandId: candidate.lastCommandId,
+                    paneId: PaneId(uuid: paneId),
+                    paneKind: .terminal,
+                    event: .terminalActivity(.agentSettledActivityPromoted(settledActivity(from: candidate)))
+                )
+            )
+        )
+    }
+
+    private func resetAgentSettledCandidate(paneId: UUID, reason: String) {
+        _ = reason
+        agentSettledCandidateCloseTasksByPaneId[paneId]?.cancel()
+        agentSettledCandidateCloseTasksByPaneId[paneId] = nil
+        agentSettledCandidatesByPaneId[paneId] = nil
+    }
+
+    private func handleAgentSettledTerminalSignalIfNeeded(_ envelope: PaneEnvelope) async {
+        guard case .terminal(let event) = envelope.event else { return }
+        guard !RuntimeEnvelopeTraceSummary.isHighVolumeActivityOnly(.terminal(event)) else { return }
+        let paneId = envelope.paneId.uuid
+        resetAgentSettledCandidate(paneId: paneId, reason: "terminal.signal")
     }
 
     private func nextDerivedActivitySequence() -> UInt64 {
@@ -350,7 +567,8 @@ final class TerminalActivityRouter {
 
     private func scheduleUnseenActivityClose(paneId: UUID, generation: Int) {
         let unseenActivityDelay = self.unseenActivityDelay
-        let unseenActivityDebounceDuration = self.unseenActivityDebounceDuration
+        let unseenActivityDebounceDuration =
+            unseenActivityWindows[paneId].map(closeDelayDuration(for:)) ?? self.unseenActivityDebounceDuration
         unseenActivityCloseTasksByPaneId[paneId] = Task { @MainActor [weak self] in
             do {
                 try await unseenActivityDelay.wait(unseenActivityDebounceDuration)
@@ -367,6 +585,10 @@ final class TerminalActivityRouter {
             guard let self else { return }
             await closeUnseenActivityWindow(paneId: paneId, generation: generation, reason: "quiet")
         }
+    }
+
+    private func closeDelayDuration(for window: UnseenActivityWindow) -> Duration {
+        unseenActivityDebounceDuration
     }
 
     private func closeUnseenActivityWindow(paneId: UUID, generation: Int, reason: String) async {
@@ -402,6 +624,9 @@ final class TerminalActivityRouter {
         unseenActivityWindows.removeAll()
         let closeTasks = unseenActivityCloseTasksByPaneId
         unseenActivityCloseTasksByPaneId.removeAll()
+        for paneId in windows.keys {
+            resetAgentSettledCandidate(paneId: paneId, reason: reason)
+        }
         for (_, closeTask) in closeTasks {
             closeTask.cancel()
         }
@@ -412,6 +637,18 @@ final class TerminalActivityRouter {
                 envelope: nil,
                 reason: reason
             )
+        }
+    }
+
+    private func closeAllAgentSettledCandidates(reason: String) {
+        _ = reason
+        agentSettledCandidatesByPaneId.removeAll()
+        agentSettledAttentionLatestRowsByPaneId.removeAll()
+        agentSettledSuppressedPaneIds.removeAll()
+        let closeTasks = agentSettledCandidateCloseTasksByPaneId
+        agentSettledCandidateCloseTasksByPaneId.removeAll()
+        for (_, closeTask) in closeTasks {
+            closeTask.cancel()
         }
     }
 
@@ -431,6 +668,10 @@ final class TerminalActivityRouter {
                 Int(window.lastObservedAtMilliseconds - window.startedAtMilliseconds)
             ),
             "terminal.activity.event_count": .int(window.eventCount),
+            "terminal.activity.is_agent_candidate": .bool(window.isAgentCandidate),
+            "terminal.activity.is_agent_settled_candidate": .bool(
+                agentSettledCandidatesByPaneId[window.paneId].map(isAgentSettledCandidate) ?? false
+            ),
             "terminal.activity.is_inferred": .bool(true),
             "terminal.activity.is_pinned_to_bottom": .bool(window.latestIsPinnedToBottom),
             "terminal.activity.latest_rows": .int(window.latestRows),

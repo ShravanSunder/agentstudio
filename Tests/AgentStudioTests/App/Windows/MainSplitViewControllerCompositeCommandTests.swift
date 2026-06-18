@@ -134,6 +134,55 @@ struct MainSplitViewControllerCompositeCommandTests {
         )
     }
 
+    @Test("showRollUpInboxNotifications retargets visible inbox without collapsing")
+    func showRollUpInboxNotificationsRetargetsVisibleInboxWithoutCollapsing() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                harness.atoms.inboxNotificationPrefs.setGlobalInboxContentMode(.activity)
+                harness.atoms.inboxNotificationPrefs.setGlobalInboxRowStateFilter(.all)
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await eventually("inbox should be visible") {
+                    harness.atoms.workspaceSidebarState.sidebarSurface == .inbox
+                        && harness.controller.isSidebarCollapsed == false
+                }
+
+                harness.controller.showRollUpInboxNotifications(commandBarIsKey: false)
+                await Task.yield()
+
+                #expect(harness.controller.isSidebarCollapsed == false)
+                #expect(harness.atoms.inboxSidebarState.hasUnhandledRetargetRequest() == false)
+                #expect(harness.atoms.inboxNotificationPrefs.globalInboxContentMode == .activity)
+                #expect(harness.atoms.inboxNotificationPrefs.globalInboxRowStateFilter == .all)
+            }
+        )
+    }
+
+    @Test("showInboxNotifications with pending worktree retarget keeps visible inbox open")
+    func showInboxNotificationsWithPendingWorktreeRetargetKeepsVisibleInboxOpen() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                let worktreeId = UUID()
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await eventually("inbox should be visible") {
+                    harness.atoms.workspaceSidebarState.sidebarSurface == .inbox
+                        && harness.controller.isSidebarCollapsed == false
+                }
+                harness.atoms.inboxSidebarState.setPendingFilter(.worktree(id: worktreeId))
+                harness.atoms.inboxSidebarState.setPendingDisplayOverride(
+                    .init(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
+                )
+
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await Task.yield()
+
+                #expect(harness.controller.isSidebarCollapsed == false)
+                #expect(harness.atoms.inboxSidebarState.hasUnhandledRetargetRequest() == false)
+            }
+        )
+    }
+
     @Test("showWorktreeSidebar toggles a visible repos sidebar closed")
     func showWorktreeSidebarTogglesVisibleReposClosed() async {
         await withMainSplitViewControllerHarness(
@@ -262,6 +311,7 @@ struct MainSplitViewControllerCompositeCommandTests {
                         harness.store.setActiveTab(activeTab.id)
                         let notification = makePaneInboxNotification(paneId: targetPane.id, title: "Focusable")
                         inboxAtom.append(notification)
+                        harness.atoms.inboxNotificationPrefs.setPaneInboxContentMode(.all)
                         let commandHandler = MainSplitViewControllerCommandHandlerProbe()
                         CommandDispatcher.shared.handler = commandHandler
                         CommandDispatcher.shared.appCommandRouter = nil

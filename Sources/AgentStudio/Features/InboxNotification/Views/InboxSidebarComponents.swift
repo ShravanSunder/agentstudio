@@ -3,7 +3,9 @@ import SwiftUI
 struct InboxSidebarActions {
     let onEscape: @MainActor @Sendable () -> Void
     let onToggleSort: () -> Void
-    let onToggleUnreadOnly: () -> Void
+    let onToggleRowStateFilter: () -> Void
+    let onCycleContentMode: () -> Void
+    let onMarkVisibleScopeRead: @MainActor @Sendable () -> Void
     let onClearFilter: @MainActor @Sendable () -> Void
     let onClearReadHistory: @MainActor @Sendable () -> Void
     let onClearAllHistory: @MainActor @Sendable () -> Void
@@ -20,7 +22,8 @@ struct InboxSidebarRootContainer: View {
     @Binding var searchText: String
     let activeFilter: InboxFilter?
     let activeFilterLabel: String?
-    let unreadOnly: Bool
+    let contentMode: InboxNotificationContentMode
+    let rowStateFilter: InboxNotificationRowStateFilter
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
@@ -77,7 +80,8 @@ struct InboxSidebarRootContainer: View {
                 searchText: $searchText,
                 activeFilter: activeFilter,
                 activeFilterLabel: activeFilterLabel,
-                unreadOnly: unreadOnly,
+                contentMode: contentMode,
+                rowStateFilter: rowStateFilter,
                 sort: sort,
                 groupingMenuOpen: $groupingMenuOpen,
                 grouping: grouping,
@@ -103,14 +107,17 @@ struct InboxSidebarHeader: View {
     @Binding var searchText: String
     let activeFilter: InboxFilter?
     let activeFilterLabel: String?
-    let unreadOnly: Bool
+    let contentMode: InboxNotificationContentMode
+    let rowStateFilter: InboxNotificationRowStateFilter
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
     let focusedField: FocusState<InboxFocus?>.Binding
     let actions: InboxSidebarActions
     static let groupIconName = "square.stack.3d.up"
-    static let unreadOnlyIconName = "envelope.badge"
+    static let rowStateIconName = "envelope.badge"
+    static let markReadIconName = "envelope.open"
+    static let contentModeIconName = "dot.circle.viewfinder"
     static let filterIconName = "line.3.horizontal.decrease.circle"
     private let toggleSortSpec = AppCommand.toggleInboxNotificationSort.definition
     private let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
@@ -137,16 +144,31 @@ struct InboxSidebarHeader: View {
 
                 Button(action: actions.onToggleSort) {
                     toggleSortSpec.icon.swiftUIImage()
+                        .rotationEffect(.degrees(sort == .newestFirst ? 0 : 180))
+                        .animation(.easeInOut(duration: 0.18), value: sort)
                 }
                 .buttonStyle(.borderless)
                 .help(toggleSortSpec.controlToolTip)
 
-                Button(action: actions.onToggleUnreadOnly) {
-                    Image(systemName: Self.unreadOnlyIconName)
+                Button(action: actions.onToggleRowStateFilter) {
+                    Image(systemName: Self.rowStateIconName)
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(unreadOnly ? Color.accentColor : Color.secondary)
-                .help(unreadOnly ? "Show all inbox notifications" : "Show unread only")
+                .foregroundStyle(rowStateFilter == .unreadOnly ? Color.accentColor : Color.secondary)
+                .help(rowStateFilter == .unreadOnly ? "Show all inbox notifications" : "Show unread only")
+
+                Button(action: actions.onMarkVisibleScopeRead) {
+                    Image(systemName: Self.markReadIconName)
+                }
+                .buttonStyle(.borderless)
+                .help("Mark visible inbox scope read")
+
+                Button(action: actions.onCycleContentMode) {
+                    Image(systemName: Self.contentModeIconName)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(contentMode == .rollUpAlerts ? Color.accentColor : Color.secondary)
+                .help(contentModeHelpText)
 
                 Button {
                     groupingMenuOpen.toggle()
@@ -240,6 +262,17 @@ struct InboxSidebarHeader: View {
             return "By Pane"
         case .byTab:
             return "By Tab"
+        }
+    }
+
+    private var contentModeHelpText: String {
+        switch contentMode {
+        case .rollUpAlerts:
+            "Showing attention notifications"
+        case .activity:
+            "Showing activity notifications"
+        case .all:
+            "Showing all notification types"
         }
     }
 

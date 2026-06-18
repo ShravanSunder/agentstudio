@@ -325,6 +325,8 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
             return "Agent notification"
         case .unseenActivity:
             return "New terminal activity"
+        case .agentSettledActivity:
+            return "Agent appears settled"
         case .approvalRequested:
             return "Approval requested"
         case .securityEvent:

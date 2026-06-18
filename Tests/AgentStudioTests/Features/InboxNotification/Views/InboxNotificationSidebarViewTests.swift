@@ -34,6 +34,51 @@ struct InboxNotificationSidebarViewTests {
         }
     }
 
+    @Test("sidebar dismissal clears active inbox filter")
+    func sidebarDismissalClearsActiveInboxFilter() async {
+        let repoId = UUID()
+        let inboxAtom = InboxNotificationAtom()
+        inboxAtom.append(makeSourceNotification(repoId: repoId, repoName: "agent-studio"))
+        let inboxSidebarState = InboxSidebarState()
+        inboxSidebarState.setPendingFilter(.repo(id: repoId))
+        let hostingView = NSHostingView(
+            rootView: InboxNotificationSidebarView(
+                inboxAtom: inboxAtom,
+                prefsAtom: InboxNotificationPrefsAtom(),
+                uiState: WorkspaceSidebarState(),
+                sidebarCache: SidebarCacheState(),
+                inboxSidebarState: inboxSidebarState,
+                workspacePaneAtom: WorkspacePaneAtom(),
+                workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
+                repoCache: RepoCacheAtom(),
+                dispatcher: CommandDispatcher.shared,
+                onRefocusActivePane: {}
+            )
+            .frame(width: 320, height: 420)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        await assertEventuallyMain("mounted inbox should show active filter") {
+            inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarActiveFilterChip") == 1
+        }
+
+        inboxSidebarState.markDismissed()
+        hostingView.layoutSubtreeIfNeeded()
+
+        await assertEventuallyMain("dismissed inbox should clear active filter") {
+            inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarActiveFilterChip") == 0
+        }
+    }
+
     @Test("root key router maps documented option and command shortcuts")
     func rootKeyRouterMapsShortcuts() {
         #expect(
@@ -544,6 +589,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
             )
         )
         prefsAtom.setGrouping(.byRepo)
+        prefsAtom.setGlobalInboxContentMode(.all)
         inboxAtom.append(
             makeSourceNotification(
                 paneId: paneId,
@@ -612,6 +658,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
             unavailableRepoIds: []
         )
         prefsAtom.setGrouping(.byRepo)
+        prefsAtom.setGlobalInboxContentMode(.all)
         inboxAtom.append(
             makeSourceNotification(
                 paneId: paneId,
@@ -876,7 +923,8 @@ private struct InboxSidebarRootHarness: View {
             searchText: $searchText,
             activeFilter: activeFilter,
             activeFilterLabel: activeFilterLabel,
-            unreadOnly: false,
+            contentMode: .all,
+            rowStateFilter: .all,
             sort: .newestFirst,
             groupingMenuOpen: $groupingMenuOpen,
             grouping: grouping,
@@ -886,7 +934,9 @@ private struct InboxSidebarRootHarness: View {
             actions: .init(
                 onEscape: {},
                 onToggleSort: {},
-                onToggleUnreadOnly: {},
+                onToggleRowStateFilter: {},
+                onCycleContentMode: {},
+                onMarkVisibleScopeRead: {},
                 onClearFilter: {},
                 onClearReadHistory: {},
                 onClearAllHistory: {},

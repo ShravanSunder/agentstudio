@@ -34,7 +34,19 @@ final class TabBarAdapterTests {
         store = WorkspaceStore(persistor: persistor)
         store.restore()
         repoCache = RepoCacheAtom()
-        adapter = TabBarAdapter(store: store, repoCache: repoCache)
+        atom(\.inboxNotification).clearAll()
+        adapter = TabBarAdapter(
+            store: store,
+            repoCache: repoCache,
+            notificationDotColorProvider: { paneIds in
+                AppDelegate.tabNotificationDotColor(
+                    for: atom(\.inboxNotification).attentionLane(forPaneIds: paneIds)
+                )
+            },
+            observeNotificationDotInputs: {
+                _ = atom(\.inboxNotification).notifications
+            }
+        )
     }
 
     // MARK: - Initial State
@@ -73,6 +85,148 @@ final class TabBarAdapterTests {
         #expect(derivedTab.displayTitle == "MyTerminal")
         #expect(!(derivedTab.isSplit))
         #expect(adapter.activeTabId == tab.id)
+    }
+
+    @Test
+    func test_actionNotification_derivesTabDotUntilRead() async throws {
+        resetFixture()
+
+        let pane = store.createPane(title: "Attention")
+        let tab = Tab(paneId: pane.id, name: "Attention")
+        store.appendTab(tab)
+        let notification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: .approvalRequested,
+            title: "Approval requested",
+            body: nil,
+            source: .pane(.init(paneId: pane.id)),
+            claimKey: .init(
+                paneId: pane.id,
+                lane: .actionNeeded,
+                semantic: .approvalRequested,
+                sessionId: nil
+            ),
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+
+        atom(\.inboxNotification).append(notification)
+        await waitForAdapterRefresh()
+
+        #expect(adapter.tabs.first?.notificationDotColor == .red)
+
+        atom(\.inboxNotification).markRead(scope: .paneIds([pane.id]))
+        await waitForAdapterRefresh()
+
+        #expect(adapter.tabs.first?.notificationDotColor == nil)
+    }
+
+    @Test
+    func test_settledAgentNotification_derivesYellowTabDotUntilRead() async throws {
+        resetFixture()
+
+        let pane = store.createPane(title: "Settled Agent")
+        let tab = Tab(paneId: pane.id, name: "Settled Agent")
+        store.appendTab(tab)
+        let notification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: .agentSettledActivity,
+            title: "Agent appears settled",
+            body: nil,
+            source: .pane(.init(paneId: pane.id)),
+            claimKey: .init(
+                paneId: pane.id,
+                lane: .settledAgent,
+                semantic: .agentSettled,
+                sessionId: UUID()
+            ),
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+
+        atom(\.inboxNotification).append(notification)
+        await waitForAdapterRefresh()
+
+        #expect(adapter.tabs.first?.notificationDotColor == .yellow)
+
+        atom(\.inboxNotification).markRead(scope: .paneIds([pane.id]))
+        await waitForAdapterRefresh()
+
+        #expect(adapter.tabs.first?.notificationDotColor == nil)
+    }
+
+    @Test
+    func test_attentionNotificationDot_prioritizesRedAmberYellow() async throws {
+        resetFixture()
+
+        let pane = store.createPane(title: "Priority")
+        let tab = Tab(paneId: pane.id, name: "Priority")
+        store.appendTab(tab)
+
+        atom(\.inboxNotification).append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(timeIntervalSince1970: 100),
+                kind: .agentSettledActivity,
+                title: "Agent appears settled",
+                body: nil,
+                source: .pane(.init(paneId: pane.id)),
+                claimKey: .init(
+                    paneId: pane.id,
+                    lane: .settledAgent,
+                    semantic: .agentSettled,
+                    sessionId: UUID()
+                ),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.notificationDotColor == .yellow)
+
+        atom(\.inboxNotification).append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(timeIntervalSince1970: 101),
+                kind: .securityEvent,
+                title: "Safety event",
+                body: nil,
+                source: .pane(.init(paneId: pane.id)),
+                claimKey: .init(
+                    paneId: pane.id,
+                    lane: .safety,
+                    semantic: .securityEvent,
+                    sessionId: nil
+                ),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.notificationDotColor == .amber)
+
+        atom(\.inboxNotification).append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(timeIntervalSince1970: 102),
+                kind: .approvalRequested,
+                title: "Approval requested",
+                body: nil,
+                source: .pane(.init(paneId: pane.id)),
+                claimKey: .init(
+                    paneId: pane.id,
+                    lane: .actionNeeded,
+                    semantic: .approvalRequested,
+                    sessionId: nil
+                ),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.notificationDotColor == .red)
     }
 
     @Test

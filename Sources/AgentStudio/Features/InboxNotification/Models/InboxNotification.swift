@@ -249,6 +249,37 @@ enum InboxNotificationKind: String, Sendable, Codable, Equatable {
     case persistenceRecovery
     case agentRpc
     case unseenActivity
+    case agentSettledActivity
     case approvalRequested
     case securityEvent
+}
+
+extension InboxNotification {
+    var displayLane: InboxNotificationClaimLane {
+        claimKey?.lane ?? kind.fallbackClaimLane
+    }
+
+    var contributesToRollUpAlert: Bool {
+        !isRead && (displayLane == .actionNeeded || displayLane == .safety || displayLane == .settledAgent)
+    }
+
+    var contributesToAttentionDot: Bool {
+        !isRead && displayLane != .activity
+    }
+}
+
+extension InboxNotificationKind {
+    var fallbackClaimLane: InboxNotificationClaimLane {
+        switch self {
+        case .approvalRequested:
+            return .actionNeeded
+        case .terminalSecureInputRequested, .terminalProgressError, .terminalRendererUnhealthy,
+            .persistenceRecovery, .securityEvent:
+            return .safety
+        case .agentSettledActivity:
+            return .settledAgent
+        case .agentDesktopNotification, .bellRang, .commandFinished, .agentRpc, .unseenActivity:
+            return .activity
+        }
+    }
 }

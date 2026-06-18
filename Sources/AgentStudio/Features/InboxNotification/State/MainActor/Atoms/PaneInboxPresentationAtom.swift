@@ -5,9 +5,11 @@ import Observation
 @Observable
 final class PaneInboxPresentationAtom {
     private var filterModesByParentPaneId: [UUID: PaneInboxNotificationFilterMode] = [:]
+    private var temporaryOverride: InboxNotificationDisplayOverride?
+    private(set) var temporaryOverrideGeneration = 0
 
     func filterMode(for parentPaneId: UUID) -> PaneInboxNotificationFilterMode {
-        filterModesByParentPaneId[parentPaneId, default: .unread]
+        filterModesByParentPaneId[parentPaneId] ?? .unread
     }
 
     func setFilterMode(
@@ -29,4 +31,19 @@ final class PaneInboxPresentationAtom {
             retainedParentPaneIds.contains(parentPaneId)
         }
     }
+
+    func requestTemporaryOverride(
+        contentMode: InboxNotificationContentMode,
+        rowStateFilter: InboxNotificationRowStateFilter
+    ) {
+        temporaryOverride = .init(contentMode: contentMode, rowStateFilter: rowStateFilter)
+        temporaryOverrideGeneration += 1
+    }
+
+    func consumeTemporaryOverride() -> InboxNotificationDisplayOverride? {
+        let override = temporaryOverride
+        temporaryOverride = nil
+        return override
+    }
+
 }
