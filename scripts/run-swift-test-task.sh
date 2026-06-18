@@ -5,7 +5,7 @@ mode="${1:-test}"
 shift || true
 
 case "$mode" in
-  test|test-fast|test-webkit)
+  test|test-fast|test-prebuild|test-webkit)
     ;;
   *)
     echo "run-swift-test-task: unknown mode '$mode'" >&2
@@ -26,7 +26,16 @@ echo "[$LOG_PREFIX] BUILD_PATH=$BUILD_PATH"
 echo "[$LOG_PREFIX] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
 echo "[$LOG_PREFIX] PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"
 
-prebuild_swift_tests
+if [ "$mode" = "test-prebuild" ]; then
+  prebuild_swift_tests
+  exit $?
+fi
+
+if [ "${SWIFT_TEST_SKIP_PREBUILD:-0}" = "1" ]; then
+  echo "[$LOG_PREFIX] skipping prebuild test bundles (SWIFT_TEST_SKIP_PREBUILD=1)"
+else
+  prebuild_swift_tests
+fi
 
 if [ "$#" -gt 0 ]; then
   run_swift_with_timeout \

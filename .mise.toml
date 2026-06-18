@@ -200,6 +200,10 @@ run = "/bin/bash scripts/run-swift-test-task.sh test"
 description = "Run fast lane: unit + non-WebKit integration tests, excluding WebKit/E2E/ZmxE2E"
 run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
 
+[tasks.test-prebuild]
+description = "Prebuild Swift test bundles for cached CI test lanes"
+run = "/bin/bash scripts/run-swift-test-task.sh test-prebuild"
+
 [tasks.test-webkit]
 description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
 run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"

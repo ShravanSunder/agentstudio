@@ -168,12 +168,16 @@ jobs:
           restore-keys: |
             swift-${{ runner.os }}-
 
+      - name: Prebuild Swift test bundles
+        env:
+          SWIFT_TEST_TIMEOUT_SECONDS: "600"
+        run: mise run test-prebuild
+
       - name: Test fast lane
         env:
           SWIFT_TEST_WORKERS: "4"
-          # macos-26 runners can spend several minutes in the parallel Swift test
-          # lane under load; this bounds hangs without killing healthy slow runs.
-          SWIFT_TEST_TIMEOUT_SECONDS: "600"
+          SWIFT_TEST_SKIP_PREBUILD: "1"
+          SWIFT_TEST_TIMEOUT_SECONDS: "300"
           XCB_EXTRA_ARGS: "--renderer github-actions --report junit --report-path test-results-fast.xml"
         run: mise run test-fast
 

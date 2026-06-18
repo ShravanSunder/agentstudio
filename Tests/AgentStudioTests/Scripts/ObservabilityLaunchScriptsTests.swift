@@ -53,6 +53,7 @@ struct ObservabilityLaunchScriptsTests {
 
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test\""))
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-fast\""))
+        #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-prebuild\""))
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-webkit\""))
         #expect(miseConfig.contains("[tasks.test-e2e]"))
         #expect(miseConfig.contains("[tasks.test-zmx-e2e]"))
@@ -60,6 +61,7 @@ struct ObservabilityLaunchScriptsTests {
         #expect(wrapperScript.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\" debug"))
         #expect(wrapperScript.contains("TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-60}\""))
         #expect(wrapperScript.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-$TIMEOUT_SECONDS"))
+        #expect(wrapperScript.contains("SWIFT_TEST_SKIP_PREBUILD"))
         #expect(wrapperScript.contains("PREBUILD_TIMEOUT_SECONDS=$PREBUILD_TIMEOUT_SECONDS"))
         #expect(wrapperScript.contains("run_swift_with_timeout"))
         #expect(wrapperScript.contains("requested swift test args: $*"))
@@ -74,7 +76,8 @@ struct ObservabilityLaunchScriptsTests {
         #expect(testHelperScript.contains("terminate_process_tree TERM \"$command_pid\""))
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
-        #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
+        #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
+        #expect(ciWorkflow.contains("SWIFT_TEST_WORKERS: \"4\""))
         #expect(ciWorkflow.contains("set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"))
     }
 
