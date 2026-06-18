@@ -343,6 +343,58 @@ final class DrawerCommandIntegrationTests {
     }
 
     @Test
+    func test_resizeDrawerVisiblePanePair_updatesVisiblePair() throws {
+        let (parentPaneId, _) = createParentPaneInTab()
+        let drawerPane1 = try #require(store.addDrawerPane(to: parentPaneId))
+        let drawerPane2 = try #require(store.addDrawerPane(to: parentPaneId))
+        let drawerPane3 = try #require(store.addDrawerPane(to: parentPaneId))
+        store.minimizeDrawerPane(drawerPane2.id, in: parentPaneId)
+        let before = try #require(drawerView(for: parentPaneId)?.layout.topRow)
+
+        executor.execute(
+            .resizeDrawerVisiblePanePair(
+                parentPaneId: parentPaneId,
+                leftPaneId: drawerPane1.id,
+                rightPaneId: drawerPane3.id,
+                ratio: 0.3
+            )
+        )
+
+        let after = try #require(drawerView(for: parentPaneId)?.layout.topRow)
+        #expect(
+            abs((after.ratioForPanePair(leftPaneId: drawerPane1.id, rightPaneId: drawerPane3.id) ?? 0) - 0.3) < 0.001)
+        #expect(abs((after.paneRatio(drawerPane2.id) ?? 0) - (before.paneRatio(drawerPane2.id) ?? 0)) < 1e-9)
+    }
+
+    @Test
+    func test_drawerPanelTranslatesVisiblePairResizeToDrawerOwnedCommand() {
+        let parentPaneId = UUID()
+        let tabId = UUID()
+        let leftPaneId = UUID()
+        let rightPaneId = UUID()
+
+        let command = DrawerPanel.drawerCommand(
+            for: .resizeVisiblePanePair(
+                tabId: tabId,
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId,
+                ratio: 0.4
+            ),
+            parentPaneId: parentPaneId
+        )
+
+        #expect(
+            command
+                == .resizeDrawerVisiblePanePair(
+                    parentPaneId: parentPaneId,
+                    leftPaneId: leftPaneId,
+                    rightPaneId: rightPaneId,
+                    ratio: 0.4
+                )
+        )
+    }
+
+    @Test
 
     func test_equalizeDrawerPanes_resetsRatios() {
         // Arrange — create 2-pane drawer and skew the ratio

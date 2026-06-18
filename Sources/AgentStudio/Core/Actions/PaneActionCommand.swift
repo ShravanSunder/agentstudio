@@ -75,6 +75,7 @@ enum PaneActionCommand: Equatable, Hashable {
     // Split operations
     case insertPaneRequest(PaneInsertRequest)
     case resizePane(tabId: UUID, splitId: UUID, ratio: Double)
+    case resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double)
     case equalizePanes(tabId: UUID)
 
     /// Toggle zoom on a pane (display-only, transient).
@@ -159,6 +160,8 @@ enum PaneActionCommand: Equatable, Hashable {
     case setActiveDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
     /// Resize a split within a drawer's layout.
     case resizeDrawerPane(parentPaneId: UUID, splitId: UUID, ratio: Double)
+    /// Resize the visible panes around a minimized drawer-pane run.
+    case resizeDrawerVisiblePanePair(parentPaneId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double)
     /// Equalize all splits within a drawer's layout.
     case equalizeDrawerPanes(parentPaneId: UUID)
     /// Minimize a pane within a drawer.

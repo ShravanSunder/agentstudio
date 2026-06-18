@@ -117,8 +117,9 @@ struct FlatPaneStripContent: View {
                         FlatPaneDivider(
                             dividerId: divider.dividerId,
                             frame: divider.frame,
-                            leftPaneWidth: divider.leftPaneWidth,
-                            rightPaneWidth: divider.rightPaneWidth,
+                            resizeIntent: divider.resizeIntent,
+                            resizeLeftPaneWidth: divider.resizeLeftPaneWidth,
+                            resizeRightPaneWidth: divider.resizeRightPaneWidth,
                             layout: layout,
                             isSplitResizing: $isSplitResizing,
                             tabId: tabId,
@@ -240,8 +241,9 @@ private struct UnexpectedMissingPaneHostPlaceholder: View {
 struct FlatPaneDivider: View {
     let dividerId: UUID
     let frame: CGRect
-    let leftPaneWidth: CGFloat
-    let rightPaneWidth: CGFloat
+    let resizeIntent: FlatTabStripMetrics.DividerSegment.ResizeIntent
+    let resizeLeftPaneWidth: CGFloat
+    let resizeRightPaneWidth: CGFloat
     let layout: Layout
     @Binding var isSplitResizing: Bool
     let tabId: UUID
@@ -270,35 +272,63 @@ struct FlatPaneDivider: View {
         return clampedLeftWidth / totalWidth
     }
 
-    var body: some View {
-        Color.clear
-            .frame(width: splitterHitSize, height: frame.height)
-            .contentShape(Rectangle())
-            .position(x: frame.midX, y: frame.midY)
-            .backport.pointerStyle(.resizeLeftRight)
-            .gesture(
-                DragGesture()
-                    .onChanged { gesture in
-                        guard layout.dividerIds.contains(dividerId) else { return }
-                        if !hasStartedResize {
-                            hasStartedResize = true
-                            initialLeftWidth = leftPaneWidth
-                            initialRightWidth = rightPaneWidth
-                            isSplitResizing = true
-                        }
-
-                        let localRatio = Self.computeResizeRatio(
-                            initialLeftWidth: initialLeftWidth,
-                            initialRightWidth: initialRightWidth,
-                            translationWidth: gesture.translation.width,
-                            minSize: minSize
-                        )
-                        actionDispatcher.dispatch(.resizePane(tabId: tabId, splitId: dividerId, ratio: localRatio))
-                    }
-                    .onEnded { _ in
-                        hasStartedResize = false
-                        isSplitResizing = false
-                    }
+    nonisolated static func resizeCommand(
+        for intent: FlatTabStripMetrics.DividerSegment.ResizeIntent,
+        tabId: UUID,
+        ratio: Double
+    ) -> PaneActionCommand? {
+        switch intent {
+        case .structural(let splitId):
+            return .resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
+        case .visiblePanePair(let leftPaneId, let rightPaneId):
+            return .resizeVisiblePanePair(
+                tabId: tabId,
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId,
+                ratio: ratio
             )
+        case .noResize:
+            return nil
+        }
+    }
+
+    var body: some View {
+        if case .noResize = resizeIntent {
+            Color.clear
+                .frame(width: splitterHitSize, height: frame.height)
+                .position(x: frame.midX, y: frame.midY)
+        } else {
+            Color.clear
+                .frame(width: splitterHitSize, height: frame.height)
+                .contentShape(Rectangle())
+                .position(x: frame.midX, y: frame.midY)
+                .backport.pointerStyle(.resizeLeftRight)
+                .gesture(
+                    DragGesture()
+                        .onChanged { gesture in
+                            guard layout.dividerIds.contains(dividerId) else { return }
+                            if !hasStartedResize {
+                                hasStartedResize = true
+                                initialLeftWidth = resizeLeftPaneWidth
+                                initialRightWidth = resizeRightPaneWidth
+                                isSplitResizing = true
+                            }
+
+                            let localRatio = Self.computeResizeRatio(
+                                initialLeftWidth: initialLeftWidth,
+                                initialRightWidth: initialRightWidth,
+                                translationWidth: gesture.translation.width,
+                                minSize: minSize
+                            )
+                            guard let command = Self.resizeCommand(for: resizeIntent, tabId: tabId, ratio: localRatio)
+                            else { return }
+                            actionDispatcher.dispatch(command)
+                        }
+                        .onEnded { _ in
+                            hasStartedResize = false
+                            isSplitResizing = false
+                        }
+                )
+        }
     }
 }

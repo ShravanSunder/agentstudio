@@ -293,6 +293,23 @@ final class ActionExecutorTests {
         #expect(abs((store.tabs[0].layout.ratioForSplit(dividerId) ?? 0.0) - 0.3) < 0.001)
     }
 
+    @Test
+    func test_execute_resizeVisiblePanePair_updatesVisiblePair() {
+        let p1 = store.createPane()
+        let p2 = store.createPane()
+        let p3 = store.createPane()
+        let tab = makeTab(paneIds: [p1.id, p2.id, p3.id], activePaneId: p1.id)
+        store.appendTab(tab)
+        store.minimizePane(p2.id, inTab: tab.id)
+        let before = store.tabs[0].layout
+
+        executor.execute(.resizeVisiblePanePair(tabId: tab.id, leftPaneId: p1.id, rightPaneId: p3.id, ratio: 0.3))
+
+        let after = store.tabs[0].layout
+        #expect(abs((after.ratioForPanePair(leftPaneId: p1.id, rightPaneId: p3.id) ?? 0) - 0.3) < 0.001)
+        #expect(abs((after.paneRatio(p2.id) ?? 0) - (before.paneRatio(p2.id) ?? 0)) < 1e-9)
+    }
+
     // MARK: - Execute: equalizePanes
 
     @Test

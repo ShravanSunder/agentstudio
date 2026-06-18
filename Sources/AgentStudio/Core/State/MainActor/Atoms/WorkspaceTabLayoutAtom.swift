@@ -136,6 +136,15 @@ final class WorkspaceTabLayoutAtom {
         arrangementAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
     }
 
+    func resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
+        arrangementAtom.resizeVisiblePanePair(
+            tabId: tabId,
+            leftPaneId: leftPaneId,
+            rightPaneId: rightPaneId,
+            ratio: ratio
+        )
+    }
+
     func equalizePanes(tabId: UUID) {
         arrangementAtom.equalizePanes(tabId: tabId)
     }

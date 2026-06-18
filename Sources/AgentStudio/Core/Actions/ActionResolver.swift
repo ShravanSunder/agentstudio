@@ -279,7 +279,9 @@ enum WorkspaceCommandResolver {
                 TabSnapshot(
                     id: tab.id,
                     visiblePaneIds: visiblePaneIds(tab),
+                    layoutPaneIds: tab.visiblePaneIds,
                     ownedPaneIds: tab.ownedPaneIds,
+                    minimizedPaneIds: tab.minimizedPaneIdsForValidation,
                     activePaneId: tab.activePaneId,
                     isLayoutSplit: tab.isSplit,
                     activeArrangementId: tab.validationActiveArrangementId,
