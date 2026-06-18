@@ -97,6 +97,11 @@ enum LocalActionSpec {
     case deleteArrangement
     case addFavorite
     case clearAllHistory
+    case toggleInboxRowStateFilter(showingUnreadOnly: Bool)
+    case markVisibleInboxScopeRead
+    case toggleInboxAttentionFilter(isAttentionOnly: Bool)
+    case groupInboxNotifications
+    case deleteInboxNotifications
     case cancel
     case add
     case rename
@@ -223,6 +228,40 @@ enum LocalActionSpec {
         case .clearAllHistory:
             return ActionSpec(
                 label: "Clear All History", helpText: "Clear all saved browser history", icon: .system(.trash))
+        case .toggleInboxRowStateFilter(let showingUnreadOnly):
+            return ActionSpec(
+                label: showingUnreadOnly ? "Show All Inbox Notifications" : "Show Unread Only",
+                helpText: showingUnreadOnly
+                    ? "Showing unread notifications; click to show all inbox notifications"
+                    : "Showing all inbox notifications; click to show unread notifications only",
+                icon: .system(.envelopeBadge)
+            )
+        case .markVisibleInboxScopeRead:
+            return ActionSpec(
+                label: "Mark Visible Inbox Read",
+                helpText: "Mark visible inbox notifications read",
+                icon: .system(.envelopeOpen)
+            )
+        case .toggleInboxAttentionFilter(let isAttentionOnly):
+            return ActionSpec(
+                label: isAttentionOnly ? "Show All Notifications" : "Show Attention Notifications",
+                helpText: isAttentionOnly
+                    ? "Showing attention notifications; click to show all notifications"
+                    : "Showing all notifications; click to show attention notifications",
+                icon: .system(.dotCircleViewfinder)
+            )
+        case .groupInboxNotifications:
+            return ActionSpec(
+                label: "Group Inbox Notifications",
+                helpText: "Group inbox notifications",
+                icon: .system(.squareStack3dUp)
+            )
+        case .deleteInboxNotifications:
+            return ActionSpec(
+                label: "Delete Inbox Notifications",
+                helpText: "Open delete actions for inbox notifications",
+                icon: .system(.deleteLeft)
+            )
         case .cancel:
             return ActionSpec(label: "Cancel", helpText: "Cancel this action", icon: .system(.xmarkCircle))
         case .add:

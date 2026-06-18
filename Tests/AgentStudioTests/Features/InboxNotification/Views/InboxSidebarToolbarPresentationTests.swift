@@ -1,0 +1,67 @@
+import Testing
+
+@testable import AgentStudio
+
+@Suite("InboxSidebarToolbarPresentation")
+struct InboxSidebarToolbarPresentationTests {
+    @Test("inbox header controls use distinct symbols and grouped row indentation")
+    @MainActor
+    func inboxHeaderControlsUseDistinctSymbolsAndGroupedRowIndentation() {
+        let sortIcon = AppCommand.toggleInboxNotificationSort.definition.icon
+        let unreadAction = LocalActionSpec.toggleInboxRowStateFilter(showingUnreadOnly: true).actionSpec
+        let allRowsAction = LocalActionSpec.toggleInboxRowStateFilter(showingUnreadOnly: false).actionSpec
+        let attentionAction = LocalActionSpec.toggleInboxAttentionFilter(isAttentionOnly: false).actionSpec
+        let allNotificationsAction = LocalActionSpec.toggleInboxAttentionFilter(isAttentionOnly: true).actionSpec
+
+        #expect(sortIcon == .system(.arrowUpArrowDown))
+        #expect(unreadAction.icon == .system(.envelopeBadge))
+        #expect(unreadAction.label == "Show All Inbox Notifications")
+        #expect(unreadAction.helpText.contains("click to show all inbox notifications"))
+        #expect(allRowsAction.label == "Show Unread Only")
+        #expect(attentionAction.icon == .system(.dotCircleViewfinder))
+        #expect(attentionAction.label == "Show Attention Notifications")
+        #expect(allNotificationsAction.label == "Show All Notifications")
+        #expect(LocalActionSpec.markVisibleInboxScopeRead.actionSpec.icon == .system(.envelopeOpen))
+        #expect(LocalActionSpec.groupInboxNotifications.actionSpec.icon == .system(.squareStack3dUp))
+        #expect(LocalActionSpec.deleteInboxNotifications.actionSpec.icon == .system(.deleteLeft))
+        #expect(InboxSidebarHeader.groupIconName == "square.stack.3d.up")
+        #expect(InboxSidebarHeader.filterIconName == "line.3.horizontal.decrease.circle")
+        #expect(InboxSidebarToolbarTooltipTarget.allCases.count == 6)
+        #expect(
+            InboxSidebarHeader.toolbarTooltipText(
+                for: .sort,
+                rowStateFilter: .unreadOnly,
+                contentMode: .rollUpAlerts
+            )
+            .contains(InboxSidebarKeyboardHint.toggleSort)
+        )
+        #expect(
+            InboxSidebarHeader.toolbarTooltipText(
+                for: .grouping,
+                rowStateFilter: .unreadOnly,
+                contentMode: .rollUpAlerts
+            )
+            .contains(InboxSidebarKeyboardHint.toggleGroupingMenu)
+        )
+        #expect(
+            InboxSidebarHeader.toolbarTooltipText(
+                for: .delete,
+                rowStateFilter: .unreadOnly,
+                contentMode: .rollUpAlerts
+            )
+            .contains(AppCommand.clearReadInboxNotifications.definition.helpText)
+        )
+        #expect(sortIcon != .system(.rectangle3GroupFill))
+        #expect(InboxSidebarHeader.groupIconName != InboxSidebarHeader.filterIconName)
+        #expect(InboxSidebarRootContainer.surfaceBackground == .windowBackgroundColor)
+        #expect(InboxSidebarContent.surfaceBackground == .windowBackgroundColor)
+        #expect(InboxSidebarContent.rowLeadingInset(isGrouped: false) == 0)
+        #expect(
+            InboxSidebarContent.rowLeadingInset(isGrouped: true)
+                == AppStyles.Shell.Sidebar.groupChildRowLeadingInset
+        )
+        #expect(InboxSidebarContent.showsUnreadCount(for: .byPane) == false)
+        #expect(InboxSidebarContent.showsUnreadCount(for: .byRepo))
+        #expect(InboxSidebarContent.showsUnreadCount(for: .byTab))
+    }
+}

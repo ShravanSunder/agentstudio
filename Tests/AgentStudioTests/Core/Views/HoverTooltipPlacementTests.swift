@@ -47,4 +47,30 @@ struct HoverTooltipPlacementTests {
 
         #expect(x == 94)
     }
+
+    @Test
+    func tooltipY_usesContainerOffsetForSingleLineToolbars() {
+        let anchorFrame = CGRect(x: 20, y: 10, width: 24, height: 24)
+
+        let y = HoverTooltipPlacement.positionedY(
+            anchorFrame: anchorFrame,
+            verticalAnchor: .containerTop,
+            verticalOffset: HoverTooltipPlacement.defaultVerticalOffset
+        )
+
+        #expect(y == HoverTooltipPlacement.defaultVerticalOffset)
+    }
+
+    @Test
+    func tooltipY_canAnchorBelowHoveredControlForMultiRowToolbars() {
+        let anchorFrame = CGRect(x: 20, y: 18, width: 24, height: 24)
+
+        let y = HoverTooltipPlacement.positionedY(
+            anchorFrame: anchorFrame,
+            verticalAnchor: .belowAnchor,
+            verticalOffset: HoverTooltipPlacement.belowAnchorVerticalOffset
+        )
+
+        #expect(y == 48)
+    }
 }

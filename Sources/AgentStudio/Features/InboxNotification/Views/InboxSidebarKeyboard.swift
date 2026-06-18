@@ -58,3 +58,19 @@ enum InboxSidebarKeyboardRouter {
         return .ignored
     }
 }
+
+enum InboxSidebarKeyboardHint {
+    static let focusSearch = character("f", modifiers: [.option])
+    static let toggleGroupingMenu = character("g", modifiers: [.option])
+    static let toggleSort = character("s", modifiers: [.option])
+    static let moveNextGroup = "⌥↓"
+    static let movePreviousGroup = "⌥↑"
+    static let moveLast = "⌘↓"
+    static let moveFirst = "⌘↑"
+    static let activateRow = "↵"
+    static let toggleRead = "Space"
+
+    private static func character(_ key: String, modifiers: Set<KeyBinding.Modifier>) -> String {
+        KeyBinding(key: key, modifiers: modifiers).displayString
+    }
+}
