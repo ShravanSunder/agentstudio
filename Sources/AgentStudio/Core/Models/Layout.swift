@@ -167,6 +167,29 @@ struct Layout: Codable, Hashable, Sendable {
         return Self(panes: updatedPanes, dividerIds: dividerIds)
     }
 
+    func resizingPanePair(leftPaneId: UUID, rightPaneId: UUID, ratio: Double) -> Self {
+        guard
+            leftPaneId != rightPaneId,
+            let leftIndex = panes.firstIndex(where: { $0.paneId == leftPaneId }),
+            let rightIndex = panes.firstIndex(where: { $0.paneId == rightPaneId })
+        else { return self }
+
+        let clampedRatio = min(0.9, max(0.1, ratio))
+        let pairTotal = panes[leftIndex].ratio + panes[rightIndex].ratio
+        guard pairTotal > 0 else { return self }
+
+        var updatedPanes = panes
+        updatedPanes[leftIndex] = PaneEntry(
+            paneId: panes[leftIndex].paneId,
+            ratio: pairTotal * clampedRatio
+        )
+        updatedPanes[rightIndex] = PaneEntry(
+            paneId: panes[rightIndex].paneId,
+            ratio: pairTotal * (1.0 - clampedRatio)
+        )
+        return Self(panes: updatedPanes, dividerIds: dividerIds)
+    }
+
     func equalized() -> Self {
         guard !panes.isEmpty else { return self }
         let equalRatio = 1.0 / Double(panes.count)
@@ -197,6 +220,20 @@ struct Layout: Codable, Hashable, Sendable {
         let total = leftRatio + rightRatio
         guard total > 0 else { return nil }
         return leftRatio / total
+    }
+
+    func ratioForPanePair(leftPaneId: UUID, rightPaneId: UUID) -> Double? {
+        guard
+            let leftPane = panes.first(where: { $0.paneId == leftPaneId }),
+            let rightPane = panes.first(where: { $0.paneId == rightPaneId })
+        else { return nil }
+        let total = leftPane.ratio + rightPane.ratio
+        guard total > 0 else { return nil }
+        return leftPane.ratio / total
+    }
+
+    func paneRatio(_ paneId: UUID) -> Double? {
+        panes.first { $0.paneId == paneId }?.ratio
     }
 
     func neighbor(of paneId: UUID, direction: FocusDirection) -> UUID? {

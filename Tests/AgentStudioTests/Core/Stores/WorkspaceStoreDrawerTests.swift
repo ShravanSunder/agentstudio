@@ -501,6 +501,28 @@ final class WorkspaceStoreDrawerTests {
     }
 
     @Test
+    func test_resizeDrawerVisiblePanePair_preservesMinimizedRatio() throws {
+        let pane = createTabbedPane()
+        let drawerPane1 = try #require(store.addDrawerPane(to: pane.id))
+        let drawerPane2 = try #require(store.addDrawerPane(to: pane.id))
+        let drawerPane3 = try #require(store.addDrawerPane(to: pane.id))
+        store.minimizeDrawerPane(drawerPane2.id, in: pane.id)
+        let before = try #require(drawerView(for: pane.id)?.layout.topRow)
+
+        store.resizeDrawerVisiblePanePair(
+            parentPaneId: pane.id,
+            leftPaneId: drawerPane1.id,
+            rightPaneId: drawerPane3.id,
+            ratio: 0.7
+        )
+
+        let after = try #require(drawerView(for: pane.id)?.layout.topRow)
+        #expect(
+            abs((after.ratioForPanePair(leftPaneId: drawerPane1.id, rightPaneId: drawerPane3.id) ?? 0) - 0.7) <= 0.01)
+        #expect(abs((after.paneRatio(drawerPane2.id) ?? 0) - (before.paneRatio(drawerPane2.id) ?? 0)) < 1e-9)
+    }
+
+    @Test
 
     func test_equalizeDrawerPanes_resetsRatios() {
         // Arrange

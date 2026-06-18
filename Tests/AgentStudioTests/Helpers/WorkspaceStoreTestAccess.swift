@@ -159,6 +159,10 @@ extension WorkspaceStore {
     func resizePane(tabId: UUID, splitId: UUID, ratio: Double) {
         tabLayoutAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
     }
+    func resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
+        tabLayoutAtom.resizeVisiblePanePair(
+            tabId: tabId, leftPaneId: leftPaneId, rightPaneId: rightPaneId, ratio: ratio)
+    }
     func equalizePanes(tabId: UUID) { tabLayoutAtom.equalizePanes(tabId: tabId) }
     func setActivePane(_ paneId: UUID?, inTab tabId: UUID) { tabLayoutAtom.setActivePane(paneId, inTab: tabId) }
     @discardableResult
@@ -271,6 +275,20 @@ extension WorkspaceStore {
         else { return }
         tabArrangementAtom.resizeDrawerPane(drawerId: drawerId, tabId: tabId, splitId: splitId, ratio: ratio)
     }
+
+    func resizeDrawerVisiblePanePair(parentPaneId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
+        guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        else { return }
+        tabArrangementAtom.resizeDrawerVisiblePanePair(
+            drawerId: drawerId,
+            tabId: tabId,
+            leftPaneId: leftPaneId,
+            rightPaneId: rightPaneId,
+            ratio: ratio
+        )
+    }
+
     func equalizeDrawerPanes(parentPaneId: UUID) {
         guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
             let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId

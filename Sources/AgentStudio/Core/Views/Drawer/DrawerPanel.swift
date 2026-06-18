@@ -138,29 +138,7 @@ struct DrawerPanel: View {
         self._drawerActionDispatcher = State(
             initialValue: PaneTabActionDispatcher(
                 dispatch: { paneAction in
-                    switch paneAction {
-                    case .resizePane(_, let splitId, let ratio):
-                        action(.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio))
-                    case .equalizePanes:
-                        action(.equalizeDrawerPanes(parentPaneId: parentPaneId))
-                    case .minimizePane(_, let paneId):
-                        action(.minimizeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-                    case .expandPane(_, let paneId):
-                        action(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-                    case .closePane(let tabId, let paneId):
-                        action(.closePane(tabId: tabId, paneId: paneId))
-                    case .insertPaneRequest(let request):
-                        action(
-                            .insertDrawerPane(
-                                parentPaneId: parentPaneId,
-                                targetDrawerPaneId: request.targetPaneId,
-                                direction: request.direction,
-                                sizingMode: request.sizingMode
-                            )
-                        )
-                    default:
-                        action(paneAction)
-                    }
+                    action(Self.drawerCommand(for: paneAction, parentPaneId: parentPaneId))
                 },
                 shouldHandleSplitDragPayload: { _ in true },
                 shouldAcceptDrop: { _, _, _, _ in false },
@@ -171,6 +149,37 @@ struct DrawerPanel: View {
                 }
             )
         )
+    }
+
+    nonisolated static func drawerCommand(for paneAction: PaneActionCommand, parentPaneId: UUID) -> PaneActionCommand {
+        switch paneAction {
+        case .resizePane(_, let splitId, let ratio):
+            return .resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio)
+        case .resizeVisiblePanePair(_, let leftPaneId, let rightPaneId, let ratio):
+            return .resizeDrawerVisiblePanePair(
+                parentPaneId: parentPaneId,
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId,
+                ratio: ratio
+            )
+        case .equalizePanes:
+            return .equalizeDrawerPanes(parentPaneId: parentPaneId)
+        case .minimizePane(_, let paneId):
+            return .minimizeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId)
+        case .expandPane(_, let paneId):
+            return .expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId)
+        case .closePane(let tabId, let paneId):
+            return .closePane(tabId: tabId, paneId: paneId)
+        case .insertPaneRequest(let request):
+            return .insertDrawerPane(
+                parentPaneId: parentPaneId,
+                targetDrawerPaneId: request.targetPaneId,
+                direction: request.direction,
+                sizingMode: request.sizingMode
+            )
+        default:
+            return paneAction
+        }
     }
 
     /// Translates tab-level actions into drawer-specific actions.

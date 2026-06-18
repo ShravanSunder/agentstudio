@@ -9,6 +9,7 @@ struct MockTab: ResolvableTab {
     var activePaneId: UUID?
     var visiblePaneIds: [UUID]
     var ownedPaneIds: [UUID]
+    var minimizedPaneIdsForValidation: Set<UUID>
     var validationActiveArrangementId: UUID?
     var arrangementSnapshots: [ArrangementSnapshot]
     var isSplit: Bool { visiblePaneIds.count > 1 }
@@ -22,6 +23,7 @@ struct MockTab: ResolvableTab {
         activePaneId: UUID?,
         allPaneIds: [UUID],
         ownedPaneIds: [UUID]? = nil,
+        minimizedPaneIds: Set<UUID> = [],
         validationActiveArrangementId: UUID? = nil,
         arrangementSnapshots: [ArrangementSnapshot]? = nil,
         neighbors: [UUID: [SplitFocusDirection: UUID]] = [:],
@@ -33,6 +35,7 @@ struct MockTab: ResolvableTab {
         self.activePaneId = activePaneId
         self.visiblePaneIds = allPaneIds
         self.ownedPaneIds = ownedPaneIds ?? allPaneIds
+        self.minimizedPaneIdsForValidation = minimizedPaneIds
         self.validationActiveArrangementId = defaultArrangementId
         self.arrangementSnapshots =
             arrangementSnapshots ?? [

@@ -27,6 +27,112 @@ struct PaneDrawerMovePayload: Equatable {
     }
 }
 
+extension WorkspaceTabArrangementAtom {
+    func resizeVisiblePanePair(tabId: UUID, leftPaneId: UUID, rightPaneId: UUID, ratio: Double) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("resizeVisiblePanePair: tab \(tabId) not found")
+            return
+        }
+        let arrIndex = activeArrangementIndex(for: tabIndex)
+        let arrangement = arrangementStates[tabIndex].arrangements[arrIndex]
+        guard
+            PaneResizeVisibilityResolver.validatesCollapsedRunPair(
+                layoutPaneIds: arrangement.layout.paneIds,
+                minimizedPaneIds: arrangement.minimizedPaneIds,
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId
+            )
+        else { return }
+
+        arrangementStates[tabIndex].arrangements[arrIndex].layout = arrangement.layout.resizingPanePair(
+            leftPaneId: leftPaneId,
+            rightPaneId: rightPaneId,
+            ratio: ratio
+        )
+    }
+
+    func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("resizePaneByDelta: tab \(tabId) not found")
+            return
+        }
+        guard arrangementStates[tabIndex].zoomedPaneId == nil else { return }
+        let arrangement = activeArrangement(for: tabIndex)
+        guard
+            let target = PaneResizeVisibilityResolver.keyboardPair(
+                layout: arrangement.layout,
+                minimizedPaneIds: arrangement.minimizedPaneIds,
+                paneId: paneId,
+                direction: direction
+            )
+        else { return }
+        guard
+            let currentRatio = arrangement.layout.ratioForPanePair(
+                leftPaneId: target.pair.leftPaneId,
+                rightPaneId: target.pair.rightPaneId
+            )
+        else {
+            workspaceTabArrangementLogger.warning("resizePaneByDelta: ratioForPanePair returned nil for pane \(paneId)")
+            return
+        }
+
+        let delta = Self.resizeRatioStep * (Double(amount) / Self.resizeBaseAmount)
+        let newRatio = min(0.9, max(0.1, target.increase ? currentRatio + delta : currentRatio - delta))
+        let arrIndex = activeArrangementIndex(for: tabIndex)
+        arrangementStates[tabIndex].arrangements[arrIndex].layout = arrangementStates[tabIndex].arrangements[arrIndex]
+            .layout
+            .resizingPanePair(
+                leftPaneId: target.pair.leftPaneId,
+                rightPaneId: target.pair.rightPaneId,
+                ratio: newRatio
+            )
+    }
+
+    func resizeDrawerVisiblePanePair(
+        drawerId: UUID,
+        tabId: UUID,
+        leftPaneId: UUID,
+        rightPaneId: UUID,
+        ratio: Double
+    ) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("resizeDrawerVisiblePanePair: tab \(tabId) not found")
+            return
+        }
+        let arrangementIndex = activeArrangementIndex(for: tabIndex)
+        guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
+        else { return }
+        if PaneResizeVisibilityResolver.validatesCollapsedRunPair(
+            layoutPaneIds: drawerView.layout.topRow.paneIds,
+            minimizedPaneIds: drawerView.minimizedPaneIds,
+            leftPaneId: leftPaneId,
+            rightPaneId: rightPaneId
+        ) {
+            drawerView.layout.topRow = drawerView.layout.topRow.resizingPanePair(
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId,
+                ratio: ratio
+            )
+        } else if let bottomRow = drawerView.layout.bottomRow,
+            PaneResizeVisibilityResolver.validatesCollapsedRunPair(
+                layoutPaneIds: bottomRow.paneIds,
+                minimizedPaneIds: drawerView.minimizedPaneIds,
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId
+            )
+        {
+            drawerView.layout.bottomRow = bottomRow.resizingPanePair(
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId,
+                ratio: ratio
+            )
+        } else {
+            return
+        }
+        arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+    }
+}
+
 @MainActor
 @Observable
 final class WorkspaceTabArrangementAtom {
@@ -578,29 +684,6 @@ final class WorkspaceTabArrangementAtom {
                 "moveDrawerPane: rejected moving pane \(drawerPaneId): \(failure.description)"
             )
         }
-    }
-
-    func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
-        guard let tabIndex = findTabIndex(tabId) else {
-            workspaceTabArrangementLogger.warning("resizePaneByDelta: tab \(tabId) not found")
-            return
-        }
-        guard arrangementStates[tabIndex].zoomedPaneId == nil else { return }
-        guard
-            let (splitId, increase) = activeArrangement(for: tabIndex).layout.resizeTarget(
-                for: paneId, direction: direction)
-        else { return }
-        guard let currentRatio = activeArrangement(for: tabIndex).layout.ratioForSplit(splitId) else {
-            workspaceTabArrangementLogger.warning("resizePaneByDelta: ratioForSplit returned nil for split \(splitId)")
-            return
-        }
-
-        let delta = Self.resizeRatioStep * (Double(amount) / Self.resizeBaseAmount)
-        let newRatio = min(0.9, max(0.1, increase ? currentRatio + delta : currentRatio - delta))
-        let arrIndex = activeArrangementIndex(for: tabIndex)
-        arrangementStates[tabIndex].arrangements[arrIndex].layout = arrangementStates[tabIndex].arrangements[arrIndex]
-            .layout
-            .resizing(splitId: splitId, ratio: newRatio)
     }
 
     func breakUpTab(

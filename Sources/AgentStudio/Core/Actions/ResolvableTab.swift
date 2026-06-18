@@ -8,6 +8,7 @@ protocol ResolvableTab: Identifiable where ID == UUID {
     var activePaneId: UUID? { get }
     var visiblePaneIds: [UUID] { get }
     var ownedPaneIds: [UUID] { get }
+    var minimizedPaneIdsForValidation: Set<UUID> { get }
     var isSplit: Bool { get }
     var validationActiveArrangementId: UUID? { get }
     var arrangementSnapshots: [ArrangementSnapshot] { get }
@@ -27,6 +28,7 @@ protocol ResolvableTab: Identifiable where ID == UUID {
 extension Tab: ResolvableTab {
     var visiblePaneIds: [UUID] { activePaneIds }
     var ownedPaneIds: [UUID] { allPaneIds }
+    var minimizedPaneIdsForValidation: Set<UUID> { activeMinimizedPaneIds }
     var validationActiveArrangementId: UUID? { activeArrangementId }
     var arrangementSnapshots: [ArrangementSnapshot] {
         arrangements.map { ArrangementSnapshot(id: $0.id, isDefault: $0.isDefault) }

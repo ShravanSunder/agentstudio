@@ -9,12 +9,21 @@ struct FlatTabStripMetrics {
     }
 
     struct DividerSegment: Hashable {
+        enum ResizeIntent: Hashable {
+            case structural(splitId: UUID)
+            case visiblePanePair(leftPaneId: UUID, rightPaneId: UUID)
+            case noResize
+        }
+
         let dividerId: UUID
         let leftPaneId: UUID
         let rightPaneId: UUID
         let frame: CGRect
-        let leftPaneWidth: CGFloat
-        let rightPaneWidth: CGFloat
+        let visualLeftPaneWidth: CGFloat
+        let visualRightPaneWidth: CGFloat
+        let resizeIntent: ResizeIntent
+        let resizeLeftPaneWidth: CGFloat
+        let resizeRightPaneWidth: CGFloat
     }
 
     let paneSegments: [PaneSegment]
@@ -49,18 +58,23 @@ struct FlatTabStripMetrics {
         var paneSegments: [PaneSegment] = []
         var dividerSegments: [DividerSegment] = []
         var currentX = bounds.minX
+        var paneWidthsById: [UUID: CGFloat] = [:]
+
+        for pane in layout.panes {
+            let isMinimized = minimizedPaneIds.contains(pane.paneId)
+            if isMinimized {
+                paneWidthsById[pane.paneId] = collapsedPaneWidth
+            } else if visibleRatioTotal > 0 {
+                paneWidthsById[pane.paneId] = visibleWidthBudget * CGFloat(pane.ratio / visibleRatioTotal)
+            } else {
+                paneWidthsById[pane.paneId] = 0
+            }
+        }
 
         for index in layout.panes.indices {
             let pane = layout.panes[index]
             let isMinimized = minimizedPaneIds.contains(pane.paneId)
-            let paneWidth: CGFloat
-            if isMinimized {
-                paneWidth = collapsedPaneWidth
-            } else if visibleRatioTotal > 0 {
-                paneWidth = visibleWidthBudget * CGFloat(pane.ratio / visibleRatioTotal)
-            } else {
-                paneWidth = 0
-            }
+            let paneWidth = paneWidthsById[pane.paneId] ?? 0
 
             let paneFrame = CGRect(
                 x: currentX,
@@ -96,21 +110,29 @@ struct FlatTabStripMetrics {
                 width: dividerThickness,
                 height: bounds.height
             )
+            let visualRightPaneWidth = paneWidthsById[nextPane.paneId] ?? 0
+            let resizeIntent = resizeIntent(
+                layout: layout,
+                dividerIndex: index,
+                minimizedPaneIds: minimizedPaneIds
+            )
+            let resizeWidths = resizeWidths(
+                intent: resizeIntent,
+                paneWidthsById: paneWidthsById,
+                visualLeftPaneWidth: paneFrame.width,
+                visualRightPaneWidth: visualRightPaneWidth
+            )
             dividerSegments.append(
                 DividerSegment(
                     dividerId: layout.dividerIds[index],
                     leftPaneId: pane.paneId,
                     rightPaneId: nextPane.paneId,
                     frame: dividerFrame,
-                    leftPaneWidth: paneFrame.width,
-                    rightPaneWidth: max(
-                        rightIsMinimized
-                            ? collapsedPaneWidth
-                            : visibleRatioTotal > 0
-                                ? visibleWidthBudget * CGFloat(nextPane.ratio / visibleRatioTotal)
-                                : 0,
-                        0
-                    )
+                    visualLeftPaneWidth: paneFrame.width,
+                    visualRightPaneWidth: visualRightPaneWidth,
+                    resizeIntent: resizeIntent,
+                    resizeLeftPaneWidth: resizeWidths.left,
+                    resizeRightPaneWidth: resizeWidths.right
                 )
             )
             currentX += dividerThickness
@@ -140,6 +162,43 @@ struct FlatTabStripMetrics {
             if !(minimizedPaneIds.contains(leftPaneId) && minimizedPaneIds.contains(rightPaneId)) {
                 count += 1
             }
+        }
+    }
+
+    private static func resizeIntent(
+        layout: Layout,
+        dividerIndex: Int,
+        minimizedPaneIds: Set<UUID>
+    ) -> DividerSegment.ResizeIntent {
+        guard
+            let pair = PaneResizeVisibilityResolver.pairAroundDivider(
+                layout: layout,
+                dividerIndex: dividerIndex,
+                minimizedPaneIds: minimizedPaneIds
+            )
+        else { return .noResize }
+
+        let leftPaneId = layout.panes[dividerIndex].paneId
+        let rightPaneId = layout.panes[dividerIndex + 1].paneId
+        if pair.leftPaneId == leftPaneId, pair.rightPaneId == rightPaneId {
+            return .structural(splitId: layout.dividerIds[dividerIndex])
+        }
+        return .visiblePanePair(leftPaneId: pair.leftPaneId, rightPaneId: pair.rightPaneId)
+    }
+
+    private static func resizeWidths(
+        intent: DividerSegment.ResizeIntent,
+        paneWidthsById: [UUID: CGFloat],
+        visualLeftPaneWidth: CGFloat,
+        visualRightPaneWidth: CGFloat
+    ) -> (left: CGFloat, right: CGFloat) {
+        switch intent {
+        case .structural:
+            return (max(visualLeftPaneWidth, 0), max(visualRightPaneWidth, 0))
+        case .visiblePanePair(let leftPaneId, let rightPaneId):
+            return (max(paneWidthsById[leftPaneId] ?? 0, 0), max(paneWidthsById[rightPaneId] ?? 0, 0))
+        case .noResize:
+            return (0, 0)
         }
     }
 }
