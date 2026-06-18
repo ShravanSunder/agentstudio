@@ -7,7 +7,7 @@ import Testing
 @Suite("AgentStudio App IPC command execute contracts")
 struct AgentStudioAppIPCCommandExecuteContractTests {
     @Test("unknown command ids decode and return unsupported capability")
-    func unknownCommandIdsDecodeAndReturnUnsupportedCapability() throws {
+    func unknownCommandIdsDecodeAndReturnUnsupportedCapability() async throws {
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
@@ -18,7 +18,7 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         }
         try fixture.server.start()
 
-        let response = try sendRequest(
+        let response = try await sendRequestWithoutBlockingMainActor(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(70),
@@ -32,7 +32,7 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
     }
 
     @Test("command execute rejects target handle without public target semantics")
-    func commandExecuteRejectsTargetHandleWithoutPublicTargetSemantics() throws {
+    func commandExecuteRejectsTargetHandleWithoutPublicTargetSemantics() async throws {
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
@@ -55,7 +55,7 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
             connection.close()
         }
         var reader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: 70, reader: &reader)
+        try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 70, reader: &reader)
 
         try sendRequest(
             connection: connection,
@@ -70,7 +70,7 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                 )
             )
         )
-        let response = try reader.receiveResponse(connection: connection)
+        let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
 
         #expect(response.error?.code == -32_004)
         #expect(response.error?.message == "target not found")

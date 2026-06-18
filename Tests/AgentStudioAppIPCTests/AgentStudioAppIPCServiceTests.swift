@@ -451,7 +451,7 @@ struct AgentStudioAppIPCServiceTests {
     }
 
     @Test("unsafe debug client can list commands and explicit UI presentation opens command bar")
-    func unsafeDebugClientCanListCommandsAndExplicitUIPresentationOpensCommandBar() throws {
+    func unsafeDebugClientCanListCommandsAndExplicitUIPresentationOpensCommandBar() async throws {
         let windowId = UUID()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
@@ -464,7 +464,7 @@ struct AgentStudioAppIPCServiceTests {
         }
         try fixture.server.start()
 
-        let list = try sendRequest(
+        let list = try await sendRequestWithoutBlockingMainActor(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(id: .number(67), method: "command.list", params: .object([:]))
         )
@@ -472,7 +472,7 @@ struct AgentStudioAppIPCServiceTests {
         let listResult = try decodeResponseResult(IPCCommandListResult.self, from: list)
         #expect(listResult.commands.isEmpty)
 
-        let execute = try sendRequest(
+        let execute = try await sendRequestWithoutBlockingMainActor(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(68),
@@ -485,7 +485,7 @@ struct AgentStudioAppIPCServiceTests {
         #expect(execute.error?.code == -32_003)
         #expect(execute.error?.message == "requires presentation")
 
-        let open = try sendRequest(
+        let open = try await sendRequestWithoutBlockingMainActor(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(69),
@@ -502,7 +502,7 @@ struct AgentStudioAppIPCServiceTests {
     }
 
     @Test("spawned pane agents cannot execute command methods")
-    func spawnedPaneAgentsCannotExecuteCommandMethods() throws {
+    func spawnedPaneAgentsCannotExecuteCommandMethods() async throws {
         let fixture = try LiveServerFixture(
             commandPort: FakeCommandPort(workspaceWindowId: UUID(), activeScope: .commands)
         )
@@ -523,7 +523,7 @@ struct AgentStudioAppIPCServiceTests {
             connection.close()
         }
         var reader = TestFrameReader()
-        try login(connection: connection, token: token, requestId: 69, reader: &reader)
+        try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 69, reader: &reader)
 
         try sendRequest(
             connection: connection,
@@ -535,7 +535,7 @@ struct AgentStudioAppIPCServiceTests {
                 )
             )
         )
-        let execute = try reader.receiveResponse(connection: connection)
+        let execute = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
         #expect(execute.error?.code == -32_002)
         #expect(execute.error?.message == "unauthorized")
     }
