@@ -30,6 +30,7 @@ struct AgentStudioTraceEventQueueTests {
     private func makeTraceRuntime() -> AgentStudioTraceRuntime {
         AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "trace-event-queue",

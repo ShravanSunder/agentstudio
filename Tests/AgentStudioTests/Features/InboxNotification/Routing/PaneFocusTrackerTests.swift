@@ -107,6 +107,7 @@ struct PaneFocusTrackerTests {
         )
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "pane-focus-tracker",

@@ -164,6 +164,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity",
@@ -213,6 +214,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-eventbus",
@@ -276,6 +278,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-drain",
                 "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
@@ -320,6 +323,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-order",
                 "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
@@ -365,6 +369,7 @@ struct TerminalActivityRouterTests {
         let nowMilliseconds = MillisecondBox(1000)
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-unseen",
@@ -425,6 +430,7 @@ struct TerminalActivityRouterTests {
         let attendedPane = makeAttendedPaneAtom(activePaneId: paneId.uuid)
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-attended",
@@ -470,6 +476,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-stop-close",
                 "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
@@ -518,6 +525,7 @@ struct TerminalActivityRouterTests {
         let nowMilliseconds = MillisecondBox(2000)
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-debounce-failure",
@@ -648,6 +656,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-decreasing-scrollbar",
                 "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
