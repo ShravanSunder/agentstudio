@@ -95,8 +95,8 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    @Test("bell unread badge tracks global unread count")
-    func bellUnreadBadgeTracksUnreadCount() async {
+    @Test("bell unread badge tracks global roll-up alert count")
+    func bellUnreadBadgeTracksRollUpAlertCount() async {
         let inboxAtom = InboxNotificationAtom()
         await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
             let badge = findDescendant(
@@ -112,7 +112,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
             #expect(oldDot == nil)
             #expect(badge?.isHidden == true)
 
-            inboxAtom.append(makeUnreadNotification())
+            inboxAtom.append(makeRollUpAlertNotification())
 
             await eventually("inbox bell badge should become visible") {
                 badge?.isHidden == false
@@ -171,7 +171,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
                 )
             )
 
-            inboxAtom.append(makeUnreadNotification())
+            inboxAtom.append(makeRollUpAlertNotification())
 
             await eventually("inbox bell badge should become visible") {
                 badge.isHidden == false
@@ -189,12 +189,12 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    private func makeUnreadNotification() -> InboxNotification {
+    private func makeRollUpAlertNotification() -> InboxNotification {
         InboxNotification(
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 100),
-            kind: .agentRpc,
-            title: "Agent finished",
+            kind: .approvalRequested,
+            title: "Approval requested",
             body: nil,
             source: .global,
             isRead: false,

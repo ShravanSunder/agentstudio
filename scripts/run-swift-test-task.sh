@@ -5,7 +5,7 @@ mode="${1:-test}"
 shift || true
 
 case "$mode" in
-  test|test-fast|test-prebuild|test-webkit)
+  test|test-fast|test-large|test-prebuild|test-webkit)
     ;;
   *)
     echo "run-swift-test-task: unknown mode '$mode'" >&2
@@ -71,7 +71,10 @@ case "$mode" in
     fi
     ;;
   test-fast)
-    run_non_serialized_swift_tests "fast non-WebKit suites"
+    run_fast_non_webkit_swift_tests
+    ;;
+  test-large)
+    run_large_non_webkit_swift_tests
     ;;
   test-webkit)
     run_webkit_suites

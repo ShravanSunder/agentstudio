@@ -310,15 +310,15 @@ if [[ -n "$zmx_log_path" ]]; then
 fi
 
 printf '\ninterpretation\n'
-if printf '%s\n' "$events" | grep -q $'terminal.startup.child_exited'; then
+if printf '%s\n' "$events" | awk -F '\t' '$2 == "terminal.startup.child_exited" { found = 1 } END { exit found ? 0 : 1 }'; then
   printf 'terminal child exited during startup; inspect socket headroom, zmx logs, and shell command output before treating first_output as readiness.\n'
-elif printf '%s\n' "$events" | grep -q $'terminal.startup.surface_create_failed'; then
+elif printf '%s\n' "$events" | awk -F '\t' '$2 == "terminal.startup.surface_create_failed" { found = 1 } END { exit found ? 0 : 1 }'; then
   if [[ -n "$zmx_log_path" && -z "$zmx_events" ]]; then
     printf 'surface creation failed before zmx emitted session events; this trace does not measure zmx daemon startup.\n'
   else
     printf 'surface creation failed; inspect surface/display attributes and zmx events before treating this as shell readiness latency.\n'
   fi
-elif printf '%s\n' "$events" | grep -q $'terminal.startup.first_output'; then
+elif printf '%s\n' "$events" | awk -F '\t' '$2 == "terminal.startup.first_output" { found = 1 } END { exit found ? 0 : 1 }'; then
   printf 'trace reached first output; compare surface_create_started/succeeded, zmx timeline, first_output, cwd_ready, and title_ready deltas.\n'
 else
   printf 'trace has terminal startup events but did not reach first output; collect more runtime or inspect missing surface/action milestones.\n'

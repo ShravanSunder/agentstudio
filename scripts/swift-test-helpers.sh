@@ -44,6 +44,50 @@ run_non_serialized_swift_tests() {
   fi
 }
 
+run_fast_non_webkit_swift_tests() {
+  if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
+    SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
+    if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
+    if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
+    run_swift_with_timeout \
+      "parallel fast non-WebKit suites" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --parallel --num-workers "$SWIFT_TEST_WORKERS" \
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
+      --skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests' --build-path "$BUILD_PATH"
+  else
+    run_swift_with_timeout \
+      "serial fast non-WebKit suites" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
+      --skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests' --build-path "$BUILD_PATH"
+  fi
+}
+
+run_large_non_webkit_swift_tests() {
+  if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
+    SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
+    if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
+    if [ "$SWIFT_TEST_WORKERS" -gt 4 ]; then SWIFT_TEST_WORKERS=4; fi
+    run_swift_with_timeout \
+      "parallel large non-WebKit suites" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --parallel --num-workers "$SWIFT_TEST_WORKERS" \
+      --filter 'Script|Smoke|Integration|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests' \
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+  else
+    run_swift_with_timeout \
+      "serial large non-WebKit suites" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --filter 'Script|Smoke|Integration|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests' \
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+  fi
+}
+
 webkit_suite_filters() {
   cat <<'EOF'
 WebKitSerializedTests/BridgePaneControllerTests

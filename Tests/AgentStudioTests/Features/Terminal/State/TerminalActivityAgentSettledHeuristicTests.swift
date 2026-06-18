@@ -417,9 +417,6 @@ struct TerminalActivityAgentSettledHeuristicTests {
         clock: TestPushClock,
         scheduledAfter generation: Int
     ) async {
-        await assertEventuallyAsync("replacement terminal activity sleeps should be pending") {
-            let pendingGenerations = clock.pendingSleepGenerations
-            return pendingGenerations.filter { $0 >= generation }.count >= 2
-        }
+        await clock.waitForPendingSleepCount(atLeast: 2, fromGeneration: generation)
     }
 }

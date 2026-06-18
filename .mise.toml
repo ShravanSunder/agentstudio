@@ -197,8 +197,12 @@ description = "Run default test suite (excludes E2E + ZmxE2E by default)"
 run = "/bin/bash scripts/run-swift-test-task.sh test"
 
 [tasks.test-fast]
-description = "Run fast lane: unit + non-WebKit integration tests, excluding WebKit/E2E/ZmxE2E"
+description = "Run fast lane: fast non-WebKit tests, excluding large script/smoke/integration/benchmark proof"
 run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
+
+[tasks.test-large]
+description = "Run large non-WebKit script, smoke, and integration tests"
+run = "/bin/bash scripts/run-swift-test-task.sh test-large"
 
 [tasks.test-prebuild]
 description = "Prebuild Swift test bundles for cached CI test lanes"
