@@ -95,8 +95,9 @@ struct TerminalActivityAgentSettledHeuristicTests {
         await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, to: bus)
         await clock.waitForPendingSleepCount(atLeast: 2)
         nowMilliseconds.set(62_000)
+        let secondEventSleepGeneration = clock.scheduledSleepGeneration
         await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, to: bus)
-        await clock.waitForPendingSleepCount(atLeast: 2)
+        await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
         clock.advance(by: .milliseconds(750))
         #expect(
             await Self.terminalActivityEvents(from: subscriber).contains {
@@ -147,8 +148,9 @@ struct TerminalActivityAgentSettledHeuristicTests {
         await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, to: bus)
         await clock.waitForPendingSleepCount(atLeast: 2)
         nowMilliseconds.set(62_000)
+        let secondEventSleepGeneration = clock.scheduledSleepGeneration
         await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, to: bus)
-        await clock.waitForPendingSleepCount(atLeast: 2)
+        await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
         clock.advance(by: .milliseconds(750))
         #expect(
             await Self.terminalActivityEvents(from: subscriber).contains {
@@ -211,8 +213,9 @@ struct TerminalActivityAgentSettledHeuristicTests {
         await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, to: bus)
         await clock.waitForPendingSleepCount(atLeast: 2)
         nowMilliseconds.set(62_000)
+        let secondEventSleepGeneration = clock.scheduledSleepGeneration
         await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, to: bus)
-        await clock.waitForPendingSleepCount(atLeast: 2)
+        await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
         clock.advance(by: .milliseconds(750))
         #expect(
             await Self.terminalActivityEvents(from: subscriber).contains {
@@ -263,8 +266,9 @@ struct TerminalActivityAgentSettledHeuristicTests {
         await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, to: bus)
         await clock.waitForPendingSleepCount(atLeast: 2)
         nowMilliseconds.set(62_000)
+        let secondEventSleepGeneration = clock.scheduledSleepGeneration
         await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, to: bus)
-        await clock.waitForPendingSleepCount(atLeast: 2)
+        await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
         clock.advance(by: .milliseconds(750))
         clock.advance(by: .seconds(180))
         await assertEventuallyAsync("agent output should promote yellow after long quiet") {
@@ -287,11 +291,13 @@ struct TerminalActivityAgentSettledHeuristicTests {
 
         router.markUnseenActivityObserved(paneId: paneId.uuid)
         nowMilliseconds.set(366_000)
+        let observedCycleStartGeneration = clock.scheduledSleepGeneration
         await postScrollbar(total: 1300, seq: 5, paneKind: .agent, paneId: paneId, to: bus)
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await waitForReplacementSleepPair(clock: clock, scheduledAfter: observedCycleStartGeneration)
         nowMilliseconds.set(428_000)
+        let observedCycleSecondEventGeneration = clock.scheduledSleepGeneration
         await postScrollbar(total: 1900, seq: 6, paneKind: .agent, paneId: paneId, to: bus)
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await waitForReplacementSleepPair(clock: clock, scheduledAfter: observedCycleSecondEventGeneration)
         clock.advance(by: .seconds(180))
         await assertEventuallyAsync("observed pane should allow future yellow settled attention") {
             await Self.agentSettledPromotionCount(from: subscriber) == 2
@@ -323,8 +329,9 @@ struct TerminalActivityAgentSettledHeuristicTests {
         await postScrollbar(total: 100, seq: 1, paneKind: .agent, paneId: paneId, to: bus)
         await clock.waitForPendingSleepCount(atLeast: 2)
         nowMilliseconds.set(62_000)
+        let secondEventSleepGeneration = clock.scheduledSleepGeneration
         await postScrollbar(total: 700, seq: 2, paneKind: .agent, paneId: paneId, to: bus)
-        await clock.waitForPendingSleepCount(atLeast: 2)
+        await waitForReplacementSleepPair(clock: clock, scheduledAfter: secondEventSleepGeneration)
 
         router.markUnseenActivityObserved(paneId: paneId.uuid)
         await clock.waitForPendingSleepCount(exactly: 0)
@@ -404,5 +411,15 @@ struct TerminalActivityAgentSettledHeuristicTests {
     ) async {
         let latestPendingGeneration = initialGeneration + eventCount - 1
         await clock.waitForPendingSleepGeneration(latestPendingGeneration)
+    }
+
+    private func waitForReplacementSleepPair(
+        clock: TestPushClock,
+        scheduledAfter generation: Int
+    ) async {
+        await assertEventuallyAsync("replacement terminal activity sleeps should be pending") {
+            let pendingGenerations = clock.pendingSleepGenerations
+            return pendingGenerations.filter { $0 >= generation }.count >= 2
+        }
     }
 }

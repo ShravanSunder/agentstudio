@@ -16,7 +16,7 @@ enum InboxNotificationReadScope: Sendable, Equatable {
             return notification.worktreeId == worktreeId
         case .paneIds(let paneIds):
             guard let paneId = notification.paneId else { return false }
-            return Set(paneIds).contains(paneId)
+            return paneIds.contains(paneId)
         }
     }
 }
