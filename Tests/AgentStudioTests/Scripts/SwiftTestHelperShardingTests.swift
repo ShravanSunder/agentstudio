@@ -7,12 +7,14 @@ struct SwiftTestHelperShardingTests {
     func classShardingBoundsSwiftPMTestDiscovery() throws {
         let testHelperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
 
-        #expect(testHelperScript.contains("run_swift_standalone_test_targets \"$label\" || return $?"))
-        #expect(testHelperScript.contains("standalone_swift_test_target_filters()"))
+        #expect(testHelperScript.contains("run_swift_standalone_test_filters \"$label\" || return $?"))
+        #expect(testHelperScript.contains("standalone_swift_test_filters()"))
         #expect(testHelperScript.contains("AgentStudioIPCTransportTests"))
         #expect(testHelperScript.contains("AgentStudioProgrammaticControlTests"))
-        #expect(testHelperScript.contains("AgentStudioAppIPCTests"))
+        #expect(testHelperScript.contains("AgentStudioAppIPCTests.AgentStudioAppIPCServiceTests"))
+        #expect(testHelperScript.contains("AgentStudioAppIPCTests.AgentStudioIPCPermissionBrokerTests"))
         #expect(testHelperScript.contains("AgentStudioIPCClientTests"))
+        #expect(testHelperScript.contains("standalone $label filter $swift_filter"))
         #expect(testHelperScript.contains("\"list sharded $label classes\""))
         #expect(testHelperScript.contains("awk '/^AgentStudioTests\\./"))
         #expect(testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))

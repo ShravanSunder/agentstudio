@@ -44,7 +44,7 @@ run_non_serialized_swift_tests() {
   local label="$1"
 
   if [ "${SWIFT_TEST_SHARD_BY_CLASS:-0}" = "1" ]; then
-    run_swift_standalone_test_targets "$label" || return $?
+    run_swift_standalone_test_filters "$label" || return $?
     run_swift_class_shards "$label"
     return $?
   fi
@@ -136,28 +136,34 @@ run_swift_class_shards() {
   rm -f "$class_file"
 }
 
-standalone_swift_test_target_filters() {
+standalone_swift_test_filters() {
   cat <<'EOF'
 AgentStudioIPCTransportTests
 AgentStudioProgrammaticControlTests
-AgentStudioAppIPCTests
+AgentStudioAppIPCTests.AgentStudioAppIPCCommandExecuteContractTests
+AgentStudioAppIPCTests.AgentStudioAppIPCServiceTests
+AgentStudioAppIPCTests.AgentStudioIPCAuthenticationTests
+AgentStudioAppIPCTests.AgentStudioIPCEventBrokerTests
+AgentStudioAppIPCTests.AgentStudioIPCPathResolverTests
+AgentStudioAppIPCTests.AgentStudioIPCPermissionBrokerTests
+AgentStudioAppIPCTests.AgentStudioIPCRegistryAuthorizationTests
 AgentStudioIPCClientTests
 EOF
 }
 
-run_swift_standalone_test_targets() {
+run_swift_standalone_test_filters() {
   local label="$1"
-  local target_filter
+  local swift_filter
 
-  while IFS= read -r target_filter; do
-    [ -n "$target_filter" ] || continue
+  while IFS= read -r swift_filter; do
+    [ -n "$swift_filter" ] || continue
     _XCB_BYPASS="${SWIFT_TEST_CLASS_SHARD_RAW_OUTPUT:-0}" run_swift_with_timeout \
-      "standalone $label target $target_filter" \
+      "standalone $label filter $swift_filter" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --filter "$target_filter" \
+      --filter "$swift_filter" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH" || return $?
-  done < <(standalone_swift_test_target_filters)
+  done < <(standalone_swift_test_filters)
 }
 
 run_swift_class_shard() {
