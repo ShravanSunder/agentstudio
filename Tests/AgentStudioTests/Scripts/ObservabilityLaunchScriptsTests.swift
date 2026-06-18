@@ -73,7 +73,10 @@ struct ObservabilityLaunchScriptsTests {
         #expect(testHelperScript.contains("warm_swift_test_runner()"))
         #expect(testHelperScript.contains("\"warm swift test runner\" \\\n    \"$RUNNER_WARMUP_TIMEOUT_SECONDS\""))
         #expect(testHelperScript.contains("SWIFT_TEST_FIRST_SHARD_SKIP_BUILD+x"))
-        #expect(testHelperScript.contains("class shard ${shard_index} skip-build=$skip_build_mode"))
+        #expect(testHelperScript.contains("SWIFT_TEST_CLASS_SHARD_RAW_OUTPUT:-0"))
+        let classShardLogLine = "class shard ${shard_index} skip-build=$skip_build_mode raw-output=$shard_xcb_bypass"
+        #expect(testHelperScript.contains(classShardLogLine))
+        #expect(testHelperScript.contains("_XCB_BYPASS=\"$shard_xcb_bypass\" run_swift_with_timeout"))
         #expect(testHelperScript.contains("--filter AgentStudioNoMatchingWarmupSentinel"))
         #expect(testHelperScript.contains("swift_test_output_has_failures()"))
         #expect(testHelperScript.contains("emitted Swift Testing failure output despite exit 0"))
@@ -86,6 +89,7 @@ struct ObservabilityLaunchScriptsTests {
         #expect(ciWorkflow.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"1200\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_RUNNER_WARMUP_TIMEOUT_SECONDS: \"1200\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_FIRST_SHARD_SKIP_BUILD: \"0\""))
+        #expect(ciWorkflow.contains("SWIFT_TEST_CLASS_SHARD_RAW_OUTPUT: \"1\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(ciWorkflow.contains("set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"))
     }
