@@ -82,7 +82,7 @@ struct RuleParityTests {
         let diagnostics = try lint(files: [taskSleepFixture])
             .filter { $0.ruleID == "agentstudio_no_task_sleep_in_tests" }
 
-        #expect(diagnostics.map(\.line) == [5, 9, 13, 17, 23, 27])
+        #expect(diagnostics.map(\.line) == [5, 9, 13, 17, 23, 27, 31])
     }
 
     @Test("test task sleep rule scopes to workspace-relative test paths")

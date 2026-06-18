@@ -26,4 +26,11 @@ struct BadTaskSleepTest {
     func waitsWithQualifiedTaskSleep() async throws {
         try await Swift.Task.sleep(nanoseconds: 1_000_000)
     }
+
+    func waitsWithFormattedSpecializedTaskSleep() async throws {
+        try await Task<
+            Never, /* Success */
+            Never
+        >.sleep(nanoseconds: 1_000_000)
+    }
 }
