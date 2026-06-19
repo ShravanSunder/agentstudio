@@ -93,6 +93,7 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     case bridgeDiffRenderState(handle: String)
     case bridgeDiffSelectFile(IPCBridgeReviewSelectFileParams)
     case bridgeFileViewGetContent(IPCBridgeContentGetParams)
+    case bridgeTelemetrySnapshot(handle: String)
     case bridgeTelemetryFlush(handle: String)
     case eventsSubscribe(eventNames: [IPCEventName])
     case eventsUnsubscribe(subscriptionId: UUID)
@@ -139,6 +140,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             "bridge.diff.selectFile"
         case .bridgeFileViewGetContent:
             "bridge.fileView.getContent"
+        case .bridgeTelemetrySnapshot:
+            "bridge.telemetry.snapshot"
         case .bridgeTelemetryFlush:
             "bridge.telemetry.flush"
         case .eventsSubscribe:
@@ -155,7 +158,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
             .currentPane, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend, .terminalWait,
             .bridgeDiffLoad, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
-            .bridgeDiffSelectFile, .bridgeFileViewGetContent, .bridgeTelemetryFlush, .eventsUnsubscribe:
+            .bridgeDiffSelectFile, .bridgeFileViewGetContent, .bridgeTelemetrySnapshot, .bridgeTelemetryFlush,
+            .eventsUnsubscribe:
             false
         }
     }
@@ -207,6 +211,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             return try JSONRPCCodec.encodeJSONValue(params)
         case .bridgeFileViewGetContent(let params):
             return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeTelemetrySnapshot(let handle):
+            return .object(["handle": .string(handle)])
         case .bridgeTelemetryFlush(let handle):
             return .object(["handle": .string(handle)])
         case .eventsSubscribe(let eventNames):

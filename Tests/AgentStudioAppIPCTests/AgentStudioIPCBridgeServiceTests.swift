@@ -125,6 +125,39 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(renderState.diagnostics.pageErrorKinds.isEmpty)
     }
 
+    @Test("debug unsafe no-auth serves Bridge telemetry snapshot method")
+    func debugUnsafeNoAuthServesBridgeTelemetrySnapshotMethod() throws {
+        let paneId = UUID()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)]
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(73),
+                method: "bridge.telemetry.snapshot",
+                params: .object(["handle": .string("pane:1")])
+            )
+        )
+
+        #expect(response.id == .number(73))
+        #expect(response.error == nil)
+        let snapshot = try decodeResponseResult(IPCBridgeTelemetrySnapshotResult.self, from: response)
+        #expect(snapshot.paneId == paneId)
+        #expect(snapshot.recorderAttached)
+        #expect(snapshot.traceExportEnabled)
+        #expect(snapshot.status == "ready")
+        #expect(snapshot.packageId == "package-test")
+        #expect(snapshot.selectedItemId == "item-source")
+    }
+
     @Test("spawned pane agents cannot open new Bridge review panes")
     func spawnedPaneAgentsCannotOpenNewBridgeReviewPanes() throws {
         let paneId = UUID()

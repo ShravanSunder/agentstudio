@@ -282,6 +282,18 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
+    func telemetrySnapshot(_: IPCHandle) throws -> IPCBridgeTelemetrySnapshotResult {
+        IPCBridgeTelemetrySnapshotResult(
+            paneId: paneId,
+            recorderAttached: true,
+            traceExportEnabled: true,
+            status: "ready",
+            packageId: "package-test",
+            reviewGeneration: 1,
+            selectedItemId: itemId
+        )
+    }
+
     func flushTelemetry(_: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult {
         IPCBridgeTelemetryFlushResult(paneId: paneId, flushed: true)
     }

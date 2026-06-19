@@ -134,6 +134,7 @@ public protocol AppIPCBridgePort: Sendable {
     func renderState(_ handle: IPCHandle) async throws -> IPCBridgeRenderStateResult
     func selectFile(_ params: IPCBridgeReviewSelectFileParams) async throws -> IPCBridgeReviewSelectFileResult
     func getContent(_ params: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult
+    func telemetrySnapshot(_ handle: IPCHandle) throws -> IPCBridgeTelemetrySnapshotResult
     func flushTelemetry(_ handle: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult
 }
 

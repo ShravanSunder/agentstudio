@@ -439,3 +439,31 @@ public struct IPCBridgeTelemetryFlushResult: Codable, Equatable, Sendable {
         self.flushed = flushed
     }
 }
+
+public struct IPCBridgeTelemetrySnapshotResult: Codable, Equatable, Sendable {
+    public let paneId: UUID
+    public let recorderAttached: Bool
+    public let traceExportEnabled: Bool
+    public let status: String
+    public let packageId: String?
+    public let reviewGeneration: Int?
+    public let selectedItemId: String?
+
+    public init(
+        paneId: UUID,
+        recorderAttached: Bool,
+        traceExportEnabled: Bool,
+        status: String,
+        packageId: String?,
+        reviewGeneration: Int?,
+        selectedItemId: String?
+    ) {
+        self.paneId = paneId
+        self.recorderAttached = recorderAttached
+        self.traceExportEnabled = traceExportEnabled
+        self.status = status
+        self.packageId = packageId
+        self.reviewGeneration = reviewGeneration
+        self.selectedItemId = selectedItemId
+    }
+}

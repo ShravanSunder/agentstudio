@@ -239,6 +239,9 @@ public enum AgentStudioIPCClientArguments {
                     reviewGeneration: reviewGeneration
                 )
             )
+        case "bridge-telemetry-snapshot":
+            let values = try requireCount(remainingArguments, 1)
+            return .bridgeTelemetrySnapshot(handle: values[0])
         case "bridge-telemetry-flush":
             let values = try requireCount(remainingArguments, 1)
             return .bridgeTelemetryFlush(handle: values[0])

@@ -17,7 +17,8 @@ extension AgentStudioAppIPCServer {
         case "terminal.status", "terminal.snapshot", "terminal.send", "terminal.wait":
             return try await processRuntimeRequest(request)
         case "bridge.diff.load", "bridge.diff.refresh", "bridge.diff.getPackage", "bridge.diff.renderState",
-            "bridge.diff.selectFile", "bridge.fileView.getContent", "bridge.telemetry.flush":
+            "bridge.diff.selectFile", "bridge.fileView.getContent", "bridge.telemetry.snapshot",
+            "bridge.telemetry.flush":
             return try await processBridgeRequest(request)
         case "command.list", "command.execute", "ui.commandBar.open":
             return try await processCommandOrUIRequest(request)
@@ -213,6 +214,9 @@ extension AgentStudioAppIPCServer {
                 )
             )
             return try encodeResult(result)
+        case "bridge.telemetry.snapshot":
+            let handle = try decodeHandle(from: request.params)
+            return try await encodeResult(service.ports.bridgePort.telemetrySnapshot(handle))
         case "bridge.telemetry.flush":
             let handle = try decodeHandle(from: request.params)
             let result = try await service.ports.bridgePort.flushTelemetry(handle)

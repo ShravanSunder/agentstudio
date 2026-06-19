@@ -1004,6 +1004,7 @@ Work:
    - `bridge.diff.getPackage`
    - `bridge.diff.selectFile`
    - `bridge.fileView.getContent`
+   - `bridge.telemetry.snapshot`
    - `bridge.telemetry.flush`
 
    If a method lacks a real product owner in this slice, do not stub it as a
@@ -1011,9 +1012,8 @@ Work:
    Richer controls such as `bridge.diff.scrollToFile`,
    `bridge.diff.expandFile`, `bridge.diff.collapseFile`,
    `bridge.fileTree.search`, `bridge.fileTree.setFilter`,
-   `bridge.fileTree.revealPath`, `bridge.fileView.showMarkdownPreview`, and
-   `bridge.telemetry.snapshot` should enter the method catalog only when their
-   Bridge product owners exist.
+   `bridge.fileTree.revealPath`, and `bridge.fileView.showMarkdownPreview`
+   should enter the method catalog only when their Bridge product owners exist.
 4. Extend capability-scoped authorization with closed privilege/data scopes for
    Bridge, for example:
    - `bridgeRead` for review package metadata, selected item, and status

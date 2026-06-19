@@ -65,6 +65,10 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
         )
     }
 
+    func telemetrySnapshot(_ handle: IPCHandle) throws -> IPCBridgeTelemetrySnapshotResult {
+        try bridgeController(for: handle).telemetrySnapshotForIPC()
+    }
+
     func flushTelemetry(_ handle: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult {
         try await bridgeController(for: handle).flushTelemetryForIPC()
     }

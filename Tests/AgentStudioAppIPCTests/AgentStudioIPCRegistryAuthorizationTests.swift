@@ -10,7 +10,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "orchestration."]
 
-        #expect(registry.definitions.count == 39)
+        #expect(registry.definitions.count == 40)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
             #expect(!definition.resultSchema.name.isEmpty)
@@ -43,6 +43,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             "bridge.diff.renderState": (["bridgeRead"], "bridgeCapability"),
             "bridge.diff.selectFile": (["bridgeControl"], "bridgeCapability"),
             "bridge.fileView.getContent": (["bridgeContentRead"], "bridgeCapability"),
+            "bridge.telemetry.snapshot": (["bridgeTelemetryRead"], "bridgeCapability"),
             "bridge.telemetry.flush": (["bridgeTelemetryFlush"], "bridgeCapability"),
         ]
         for (methodName, expected) in expectedBridgeMethods {

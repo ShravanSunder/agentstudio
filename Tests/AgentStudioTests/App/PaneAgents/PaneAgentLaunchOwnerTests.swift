@@ -355,6 +355,10 @@ private struct PaneAgentTestBridgePort: AppIPCBridgePort {
         throw AppIPCBridgeError(reason: .contentUnavailable)
     }
 
+    func telemetrySnapshot(_: IPCHandle) throws -> IPCBridgeTelemetrySnapshotResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
     func flushTelemetry(_: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult {
         throw AppIPCBridgeError(reason: .targetNotFound)
     }

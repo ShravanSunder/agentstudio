@@ -149,6 +149,10 @@ struct AgentStudioIPCClientCoreTests {
             ["--socket", "/tmp/app.sock", "bridge-telemetry-flush", "pane:2"],
             environment: [:]
         )
+        let telemetrySnapshotInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-telemetry-snapshot", "pane:2"],
+            environment: [:]
+        )
 
         #expect(
             openInvocation.command
@@ -163,6 +167,7 @@ struct AgentStudioIPCClientCoreTests {
                     IPCBridgeReviewSelectFileParams(handle: "pane:2", itemId: "item-source")
                 )
         )
+        #expect(telemetrySnapshotInvocation.command == .bridgeTelemetrySnapshot(handle: "pane:2"))
         #expect(telemetryFlushInvocation.command == .bridgeTelemetryFlush(handle: "pane:2"))
     }
 

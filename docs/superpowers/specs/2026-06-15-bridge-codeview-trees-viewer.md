@@ -56,6 +56,7 @@ Bridge IPC methods should be semantic and typed in
 - `bridge.diff.getPackage`
 - `bridge.diff.selectFile`
 - `bridge.fileView.getContent`
+- `bridge.telemetry.snapshot`
 - `bridge.telemetry.flush`
 
 Only methods with real product owners should enter the method catalog. A method

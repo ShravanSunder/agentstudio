@@ -171,6 +171,19 @@ extension BridgePaneController {
         return IPCBridgeTelemetryFlushResult(paneId: paneId, flushed: telemetryRecorder != nil)
     }
 
+    func telemetrySnapshotForIPC() -> IPCBridgeTelemetrySnapshotResult {
+        let recorder = telemetryRecorder as? BridgePerformanceTraceRecorder
+        return IPCBridgeTelemetrySnapshotResult(
+            paneId: paneId,
+            recorderAttached: telemetryRecorder != nil,
+            traceExportEnabled: recorder?.isEnabled ?? false,
+            status: paneState.diff.status.rawValue,
+            packageId: paneState.diff.packageMetadata?.packageId,
+            reviewGeneration: paneState.diff.packageMetadata?.reviewGeneration.rawValue,
+            selectedItemId: selectedReviewItemId
+        )
+    }
+
     private nonisolated static var renderStateJavaScript: String {
         """
         return JSON.stringify((() => {

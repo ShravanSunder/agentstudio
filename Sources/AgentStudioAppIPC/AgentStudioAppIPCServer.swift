@@ -343,7 +343,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 target: targetScope(fromCanonicalHandle: canonicalHandle)
             )
         case "bridge.diff.getPackage", "bridge.diff.renderState", "bridge.diff.refresh",
-            "bridge.diff.selectFile", "bridge.fileView.getContent", "bridge.telemetry.flush":
+            "bridge.diff.selectFile", "bridge.fileView.getContent", "bridge.telemetry.snapshot",
+            "bridge.telemetry.flush":
             return try await bridgeAuthorizationContext(for: request)
         case "pane.split":
             let params = try decodeParams(IPCPaneSplitParams.self, from: request.params)
@@ -404,7 +405,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
     private func bridgeAuthorizationContext(for request: JSONRPCRequest) async throws -> AuthorizedRequestContext {
         switch request.method {
-        case "bridge.diff.getPackage", "bridge.diff.renderState", "bridge.telemetry.flush":
+        case "bridge.diff.getPackage", "bridge.diff.renderState", "bridge.telemetry.snapshot",
+            "bridge.telemetry.flush":
             let params = try decodeParams(IPCBridgePaneParams.self, from: request.params)
             let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
             return try AuthorizedRequestContext(

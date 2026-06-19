@@ -173,5 +173,52 @@ extension WebKitSerializedTests {
                 _ = try controller.ipcReviewPackageSnapshot()
             }
         }
+
+        @Test("IPC telemetry snapshot reports package status without exposing samples")
+        func ipcTelemetrySnapshot_reportsPackageStatusWithoutExposingSamples() async throws {
+            let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: [
+                        makeBridgeEndpointChangedFile(
+                            fileId: "source",
+                            path: "Sources/App/View.swift",
+                            sizeBytes: 100,
+                            oldContentHash: bridgeSHA256ContentHash("old"),
+                            newContentHash: bridgeSHA256ContentHash("new")
+                        )
+                    ]
+                ),
+                contentByHandleId: [:]
+            )
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                ),
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Bridge Review",
+                    facets: PaneContextFacets(worktreeId: worktreeId)
+                ),
+                reviewSourceProvider: provider
+            )
+            defer { controller.teardown() }
+            _ = try await controller.refreshReviewForIPC(correlationId: nil)
+            _ = try await controller.selectReviewItemForIPC(itemId: "item-source", correlationId: nil)
+
+            let snapshot = controller.telemetrySnapshotForIPC()
+
+            #expect(snapshot.paneId == controller.paneId)
+            #expect(snapshot.status == "ready")
+            #expect(snapshot.packageId == controller.paneState.diff.packageMetadata?.packageId)
+            #expect(snapshot.reviewGeneration == controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
+            #expect(snapshot.selectedItemId == "item-source")
+            #expect(snapshot.recorderAttached == false)
+            #expect(snapshot.traceExportEnabled == false)
+        }
     }
 }
