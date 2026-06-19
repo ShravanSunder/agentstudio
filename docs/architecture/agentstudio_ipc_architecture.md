@@ -28,9 +28,14 @@ The phase-1 foundation currently owns:
   restored missing-host gaps are logged instead of terminating the debug app.
 - Concrete terminal runtime adapter for `terminal.status`,
   `terminal.snapshot`, and `terminal.send`.
-- Explicit command/UI split: `command.list` and `command.execute` describe
-  headless semantic commands only; UI presentation lives under
-  `ui.commandBar.open` with `uiPresent` authority.
+- Explicit command/UI split: `command.list` projects typed IPC exposure
+  metadata from every `AppCommandSpec`, while `command.execute` remains
+  reserved for commands explicitly marked headless-executable. UI presentation
+  lives under `ui.commandBar.open` with `uiPresent` authority.
+- Generic app-owned IPC contribution substrate for feature-local method
+  definitions under approved app composition folders. The substrate merges
+  contributed methods with the base registry, validates namespaces/security
+  contracts, and dispatches through typed app ports instead of feature imports.
 - App-owned Unix socket server lifecycle from `AppDelegate`, including runtime
   metadata publication, same-UID peer gate, pre-auth ping/login, per-connection
   principals, request dispatch, and shutdown cleanup.
@@ -100,14 +105,16 @@ AgentStudioProgrammaticControl
 AgentStudioAppIPC
   Owns:     App IPC service shell, socket path trust, authentication,
             method registry, authorization, grant ledger, permission broker,
-            event broker, and protocol ports into app/runtime owners.
+            event broker, app-method contribution validation/dispatch, and
+            protocol ports into app/runtime owners.
   Imports:  Transport and ProgrammaticControl targets.
   Must not: Import concrete app/runtime owner types or read atoms directly.
 
 AgentStudio/App/Boot + AgentStudio/App/IPCComposition
   Owns:     AppDelegate server composition/lifecycle plus concrete port adapters
             from AgentStudioAppIPC protocols into WorkspaceSurfaceCoordinator,
-            RuntimeRegistry, PaneRuntime, and app state owners.
+            RuntimeRegistry, PaneRuntime, app state owners, and app-owned
+            feature contribution registration.
   Imports:  AgentStudioAppIPC plus the concrete app modules it adapts.
 
 AgentStudioIPCClientCore
@@ -194,20 +201,26 @@ automation is exercising recoverable layout state.
 ## Command And UI Presentation Boundary
 
 IPC command methods and UI presentation methods are intentionally separate.
+`command.list` is command discovery. It projects every `AppCommandSpec` into a
+typed IPC list entry with execution modes, target handle kinds, and required
+privilege classes. This keeps the app command catalog as the source of truth:
+adding an `AppCommandSpec` creates an IPC-discoverable command contract instead
+of requiring a second hand-written IPC catalog.
+
 `command.execute` is reserved for headless semantic command execution. It must
 not present the command bar, picker UI, sheets, or prompts as an implicit side
-effect. A command-spec row that currently requires presentation fails closed
-with a stable `requires presentation` error until a semantic method with
-explicit parameters exists. The current phase-1 headless command catalog is
-empty; the public command-id wrapper remains open so future command ids and
+effect. A command-spec row that requires UI presentation or interactive input
+fails closed with a stable `requires presentation` error until a semantic method
+with explicit parameters exists. The current phase-1 headless execution catalog
+is empty; the public command-id wrapper remains open so future command ids and
 version-skewed clients can fail with `unsupported capability` instead of
 parameter-decoding errors.
 
 ```
 command.list / command.execute
   -> AgentStudioIPCCommandAdapter
-       exposes only headless semantic commands
-       rejects current command-bar openers
+       exposes AppCommandSpec IPC metadata for discovery
+       rejects non-headless command specs for command.execute
   -> future semantic app owner
   -> AgentStudioProgrammaticControl DTO
 
@@ -228,6 +241,34 @@ Structural operations such as `pane.split` and `drawer.addPane` are not routed
 through command-bar UI because they have explicit target and mode parameters.
 Picker-oriented flows, such as repo/worktree selection, should stay under
 `ui.commandBar.open(scope: repos)` until they have a semantic method contract.
+
+## App IPC Contribution Boundary
+
+Phase A lets app-owned composition register additional IPC methods without
+moving feature behavior into the central IPC service. Contributions live under
+approved `Sources/AgentStudio/App/IPCComposition/...` folders, carry a typed
+method definition plus security contract, and dispatch through an
+`AppIPCContributionDispatchContext` that exposes only narrow ports such as the
+query adapter and handle decoder.
+
+```
+feature-owned capability idea
+  -> app-owned contribution file under App/IPCComposition/<Feature>/
+       declares method definition and authorization target vocabulary
+  -> AgentStudioAppIPC registry merge
+       rejects duplicate/base-owned namespaces and pre-auth contributors
+  -> AgentStudioAppIPC authorization
+       evaluates principal kind, grants, and target handles
+  -> contribution dispatch context
+       calls typed app port; never imports feature code into AppIPC
+```
+
+The first concrete contribution is `pane.snapshot`. It is registered by app
+composition, canonicalizes friendly pane handles before authorization, and
+dispatches to the query port. Future feature methods such as Bridge review/diff
+controls should follow the same ownership pattern from their own worktree:
+feature-specific method files live in app composition, while the shared
+`AgentStudioAppIPC` substrate remains generic and unaware of Bridge internals.
 
 ## Terminal Runtime Boundary
 
@@ -420,7 +461,7 @@ credential through an explicitly remapped bootstrap fd owned by
 
 The current CLI client surface includes query/control verbs for debug proof:
 `auth-status`, `identify`, `capabilities`, `list-windows`, `list-workspaces`,
-`list-panes`, `pane-focus`, `terminal-status`, `terminal-snapshot`,
+`list-panes`, `pane-focus`, `pane-snapshot`, `terminal-status`, `terminal-snapshot`,
 `terminal-send`, `terminal-wait`, `command-list`, and `command-execute`.
 `command-execute` is intentionally narrow: it accepts open string command ids so
 version-skewed clients get `unsupported capability` instead of parameter decode

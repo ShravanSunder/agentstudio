@@ -38,6 +38,7 @@ enum ArchitectureRuleRegistry {
         IPCProgrammaticControlBoundaryRule(),
         AppIPCPortBoundaryRule(),
         IPCCompositionLocationRule(),
+        FeatureAppIPCImportBoundaryRule(),
         IPCPublicSurfaceSanitizationRule(),
         IPCNoDirectAtomAccessRule(),
         ForbiddenArchitectureMarkerRule(),

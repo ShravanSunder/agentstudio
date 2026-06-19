@@ -1,18 +1,6 @@
 import Foundation
 
-public struct IPCCommandIdentifier: Codable, CaseIterable, Equatable, Hashable, Sendable {
-    public static let quickFind = Self(rawValue: "quickFind")
-    public static let commandPalette = Self(rawValue: "commandPalette")
-    public static let panePicker = Self(rawValue: "panePicker")
-    public static let repoWorktreePicker = Self(rawValue: "repoWorktreePicker")
-
-    public static let allCases: [Self] = [
-        .quickFind,
-        .commandPalette,
-        .panePicker,
-        .repoWorktreePicker,
-    ]
-
+public struct IPCCommandIdentifier: Codable, Equatable, Hashable, Sendable {
     public let rawValue: String
 
     public init(rawValue: String) {
