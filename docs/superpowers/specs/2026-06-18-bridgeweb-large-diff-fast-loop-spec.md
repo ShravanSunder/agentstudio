@@ -23,6 +23,13 @@ the front door for UX work. Native AgentStudio proof remains required, but it is
 not where we discover ordinary frontend layout, virtualization, click, and
 worker bugs.
 
+2026-06-19 ordering amendment: implementation proceeds as merge-current-main,
+then dev-server DiffsHub-class UX, then semantic IPC control, then native
+large-diff/Victoria performance proof. IPC is not late polish: without named
+commands to select files, reveal tree paths, drive filters, fetch content, and
+collect telemetry snapshots, the real large-worktree proof depends on manual
+clicks and cannot be repeated by agents or CI-like harnesses.
+
 ## Requirements
 
 1. BridgeWeb has a loopback-only Vite dev server script that opens a useful
@@ -243,6 +250,36 @@ worker bugs.
     render/search/reveal, file select, CodeView hydration/render, markdown
     render, and scroll responsiveness. A fast mocked fixture does not prove the
     slow real-worktree path.
+23. Before native large-performance proof, Bridge must expose a semantic IPC
+    control surface for the diff/file review capability. IPC drives product
+    actions, not WebKit internals: it targets a Bridge pane/capability,
+    validates permissions, and calls Bridge-owned ports. Required command groups
+    for this slice are:
+    - `bridge.diff.load`
+    - `bridge.diff.refresh`
+    - `bridge.diff.getPackage`
+    - `bridge.diff.selectFile`
+    - `bridge.diff.scrollToFile`
+    - `bridge.diff.expandFile`
+    - `bridge.diff.collapseFile`
+    - `bridge.fileTree.search`
+    - `bridge.fileTree.setFilter`
+    - `bridge.fileTree.revealPath`
+    - `bridge.fileView.getContent`
+    - `bridge.fileView.showMarkdownPreview`
+    - `bridge.telemetry.snapshot`
+    - `bridge.telemetry.flush`
+    Exact names may be refined during implementation, but the namespace must
+    stay Bridge-scoped and semantic. Avoid generic `webview.evaluateJavaScript`,
+    raw event-bus command routing, or unscoped `diff.*` globals that could
+    collide with future non-Bridge surfaces.
+24. Observability is a product proof gate. Browser and native large-diff proof
+    must emit or query Victoria-backed telemetry for package push, tree
+    projection/render/search/reveal, file selection, CodeView hydration/render,
+    markdown render, content fetch, worker readiness, and scroll/interaction
+    responsiveness. Metrics/traces/logs must be debug-only, low-cardinality, and
+    scoped so they can be enabled for Bridge/Pierre without stealing resources
+    from the review path.
 
 ## Non-Goals
 
@@ -257,6 +294,12 @@ worker bugs.
 ## Design System Foundation
 
 BridgeWeb chrome work starts with a generated shadcn/Base UI foundation.
+The UI must not be designed from scratch with ad hoc Tailwind-only controls.
+Tailwind v4 is the styling transport for the generated shadcn/Base UI
+components, compact variants, Catppuccin Mocha tokens, and AgentStudio/Pierre
+aliases. Product components compose those primitives and use `cn` for class
+merging; they do not reinvent buttons, popovers, menus, search inputs, focus
+management, or disabled/checked states in feature-local code.
 
 Required setup:
 
@@ -273,6 +316,9 @@ Required setup:
   input/overlay.
 - Do not hand-roll overlay focus/escape/blur/menu semantics in feature code
   when a generated shadcn/Base UI primitive owns that behavior.
+- Keep feature-local Tailwind classes shallow and product-specific: layout,
+  compact sizing, and token selection are acceptable; bespoke component
+  semantics or isolated visual systems are not.
 
 Theme setup:
 
@@ -353,6 +399,30 @@ fork the viewer or add test-scenario branches inside product components.
 The dev-only mocked backend, scenario resolver, and dev bootstrap must not be
 bundled into packaged native BridgeWeb assets.
 
+After browser UX proof is good, the native loop is driven through Bridge
+semantic IPC instead of manual clicking:
+
+```text
+IPC client / test harness
+        |
+        v
+AgentStudio IPC router
+        |
+        v
+Bridge capability target
+        |
+        +--> bridge.diff.*       load/select/scroll/collapse package items
+        +--> bridge.fileTree.*   search/filter/reveal tree rows
+        +--> bridge.fileView.*   fetch content / show markdown preview
+        +--> bridge.telemetry.*  snapshot / flush debug metrics
+        |
+        v
+Bridge runtime + packaged BridgeWeb WKWebView
+        |
+        v
+Victoria-backed proof + screenshots + stage timings
+```
+
 ## Proof Pyramid
 
 ```text
@@ -377,6 +447,10 @@ Packaged BridgeWeb build
   self-contained runtime import and worker asset audit
         |
         v
+Semantic IPC control
+  Bridge-scoped diff/fileTree/fileView/telemetry commands
+        |
+        v
 AgentStudio debug app
   WKWebView pane, real Bridge package/worktree path,
   custom scheme content fetch, native shell proof
@@ -397,9 +471,15 @@ PR readiness
 - Browser screenshots show the repaired visual states.
 - `pnpm --dir BridgeWeb run build` proves packaged workers/assets still pass
   audit.
+- Semantic Bridge IPC commands can load/refresh a package, select/reveal a
+  file, drive tree search/filter, fetch content, request markdown preview, and
+  capture telemetry state without opening command palette UI or exposing raw
+  WebKit evaluation.
 - The AgentStudio debug Bridge pane proves the same large-worktree behavior
   without blank page, scroll lock, selection stalls, or markdown render gaps.
 - Native proof includes the current `agent-studio.bridge-start` worktree on
   branch `luna-338-pierreshikitrees-review-viewer` with stage timings for
   package push, tree render/search/reveal, file select, CodeView
   hydration/render, markdown render, and scroll responsiveness.
+- Victoria proof includes debug-scoped Bridge/Pierre metrics or traces for the
+  stages above, correlated to the IPC actions and screenshot/proof artifacts.

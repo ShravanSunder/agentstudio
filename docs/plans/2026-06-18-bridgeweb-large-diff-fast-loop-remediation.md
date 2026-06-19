@@ -6,6 +6,26 @@ Goal id: `2026-06-18-bridgeweb-diffshub-node-pr-parity`
 
 Status: amended during execution after DiffsHub/Node PR parity research
 
+Execution order amendment, 2026-06-19:
+
+- Merge `origin/main` into this branch before more UX or IPC implementation.
+  Main has changed Swift feature/file structure, so conflict resolution is a
+  correctness gate rather than repo hygiene.
+- Finish the dev-server DiffsHub-class interaction loop before native proof:
+  compact right rail, shadcn/Base UI controls, Catppuccin Mocha tokens,
+  markdown rendering, added-file content, collapsible headers, file click to
+  CodeView scroll, and browser-controlled visual comparison against DiffsHub
+  example PRs.
+- Add semantic Bridge IPC control before large native performance proof. The
+  real branch cannot be measured repeatably if agents cannot drive file
+  selection, tree search/filter/reveal, content fetch, markdown preview, and
+  telemetry snapshots without manual clicks.
+- Then prove large-diff performance on the real current worktree through the
+  native AgentStudio Bridge pane, with Victoria Stack telemetry as the source of
+  truth for package push, tree/render/search/reveal, file selection, CodeView
+  hydration/render, markdown render, worker readiness, content fetch, and scroll
+  responsiveness.
+
 Execution checkpoint, 2026-06-18 20:42 local:
 
 - Native blank/smoke blocker is resolved for the current branch build. Fresh
@@ -91,6 +111,7 @@ or an explicitly approved split/replan says why a row moved out of scope.
 | Hunk expansion | Browser test and benchmark row | Collapsed unchanged sections expand additional context and remain responsive on large fixtures. |
 | Worker-backed rendering | Browser worker proof, benchmark worker flags, and asset audit | Product proof uses Pierre CodeView worker pool and markdown worker lanes; worker-disabled fallback cannot satisfy this row. |
 | shadcn/Base UI design foundation | Generated files, typecheck, component tests, and screenshot | BridgeWeb has package-local shadcn CLI configuration, generated Base UI primitives where supported, compact variants, and AgentStudio-owned dark tokens before rail chrome is considered complete. |
+| Design system composition | Component tests, source review, and screenshot | BridgeWeb composes generated shadcn/Base UI primitives with `cn`, compact variants, and Catppuccin Mocha tokens; Tailwind classes are transport/layout, not a bespoke feature-local control system. |
 | Visual parity with DiffsHub grammar | Side-by-side or comparable screenshots | Headers, separators, rail density, icon-first controls, and dark palette are close enough to the DiffsHub Node PR reference while matching AgentStudio styling. |
 | DiffsHub-class filter popovers | Browser screenshot with filter menu open, semantic assertions, and bbox measurements | Filter/search controls are compact icon-first buttons; open filter popover uses a dark raised surface, clear separators, about 32px rows, colored status badges, trailing selected checkmarks, disabled/clear affordance, `menuitemcheckbox` semantics, and no native/select-looking black pills. |
 | Rail row/icon alignment | Browser screenshot, DOM checks, and bbox measurements | Tree rows use compact 24px-ish stable height, `button[role="treeitem"][data-item-path]`, consistent file/folder/status icons, right-aligned status letters, readable selected-row contrast, and disclosure chevrons sized like DiffsHub/AgentStudio controls rather than oversized row text. |
@@ -245,6 +266,8 @@ Important current-state facts:
 | Failure/unavailable UI remains proven | 7, 8 | executor | Browser scenario and screenshot/state capture | browser + native | content failure cannot be optimized away or counted as optional | red/green required |
 | Streaming append and stale-drop remain proven | 1, 7 | executor | benchmark rows and hold/release browser tests | browser + performance | current `medium-streaming-append-delta` and `stale-generation-drop` scenario contract is preserved | red/green required |
 | Browser performance rows are durable and verified | 7 | executor | `test:benchmark:browser` artifact verifier | performance | current runner `requiredScenarioIds` is the floor; recompute p50/p95 from raw samples | red/green required |
+| Semantic Bridge IPC drives native proof | 8 | executor | IPC integration tests and debug IPC transcript | integration/native | Bridge-scoped `bridge.diff.*`, `bridge.fileTree.*`, `bridge.fileView.*`, and `bridge.telemetry.*` commands drive product ports, not command palette UI or raw WebKit evaluation | red/green required |
+| Victoria Stack is performance source of truth | 8 | executor | Victoria metrics/traces/log query artifact | native/performance/observability | native proof correlates IPC actions and screenshots with debug-scoped Bridge/Pierre telemetry for package push, tree render/search/reveal, file select, content fetch, CodeView hydration/render, markdown render, worker readiness, and scroll responsiveness | green required |
 | Current real worktree performance is stage-proven | 8 | executor | real AgentStudio debug pane stage artifact | native/performance | uses `/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start` on `luna-338-pierreshikitrees-review-viewer`; records package push, tree render/search/reveal, file select, CodeView hydration/render, markdown render, and scroll responsiveness timings | green required |
 | Real AgentStudio pane proves same behavior | 8 | executor | debug app IPC/visual proof | smoke/native | real large worktree/package path after packaged build; debug-only mock cannot be sole proof | green required |
 | AgentStudio outer loop uses packaged BridgeWeb and content scheme | 8 | executor | debug app render state plus package/content ledger | smoke/native | evidence shows packaged assets, Bridge package push, and `agentstudio://resource/content/...`; Vite/dev server cannot satisfy this row | green required |
@@ -258,6 +281,31 @@ Commit hygiene for execution:
   not lost during the long BridgeWeb/native loop.
 - Do not commit broken checkpoints, failing proof states, or partial changes
   that cannot be explained as a coherent recoverable slice.
+
+### Task -1: Merge Current Main And Rebaseline
+
+Write surfaces:
+
+- Conflict-resolution edits only.
+- Workflow state notes if conflict resolution changes the Bridge/IPC plan.
+
+Implementation:
+
+- Fetch and merge `origin/main` into this branch before further UX/IPC work.
+- Resolve Swift feature/file-structure conflicts by following the current main
+  architecture, not stale branch names.
+- Preserve the generated-assets policy: `Sources/AgentStudio/Resources/BridgeWeb/app/`
+  remains generated/ignored and is rebuilt by mise/BridgeWeb build tasks.
+- Re-run the minimum focused gates needed to prove the branch still builds
+  before resuming BridgeWeb UX work.
+
+Proof:
+
+- `git status --short --branch` before and after merge.
+- Conflict files named in the workflow state if conflicts occur.
+- `mise run bridge-web-build`
+- `mise run test -- --filter Bridge`
+- `mise run lint` if Swift conflict resolution touches source or architecture.
 
 ### Task 0: Inventory Current Partial Implementation
 
@@ -825,10 +873,22 @@ Write surfaces:
 - Generated BridgeWeb app assets.
 - `tmp/bridge-viewer-visual-proof/<timestamp>/`
 - Swift IPC diagnostics only if current diagnostics cannot prove state.
+- Focused Bridge IPC service/contract files if semantic control is missing.
 
 Implementation:
 
 - Build packaged assets.
+- Add or finish semantic IPC control before native large-performance proof. The
+  required product namespaces are:
+  - `bridge.diff.*` for load/refresh/package/select/scroll/collapse review
+    item actions
+  - `bridge.fileTree.*` for search, filter, reveal, and tree state
+  - `bridge.fileView.*` for content fetch and markdown-preview requests
+  - `bridge.telemetry.*` for debug snapshot/flush of Bridge/Pierre telemetry
+- IPC must route through AgentStudio IPC target resolution to a Bridge pane or
+  Bridge capability port. It must not open command palette UI, publish
+  command-events on the event bus, expose raw WebKit evaluation, or bypass
+  Bridge content-handle validation.
 - Launch the debug app through existing debug/observability runner.
 - Open the real large Bridge worktree/package path by default, including the
   current required fixture at
@@ -854,9 +914,17 @@ Implementation:
   render/search/reveal, file select, CodeView hydration/render, markdown
   render, and scroll responsiveness. Slow stages are product findings, not
   proof-runner noise to hide behind larger timeouts.
+- Use Victoria Stack as the source of truth for native performance proof. JSON
+  artifacts and screenshots are useful sidecars, but the pass/fail evidence for
+  performance must include Victoria-backed logs, metrics, or traces correlated
+  to the IPC-driven stages.
 
 Proof:
 
+- IPC integration tests show Bridge-scoped commands can load/refresh a package,
+  select/reveal a file, search/filter the tree, fetch content, request markdown
+  preview, and capture telemetry without command palette UI or raw WebKit
+  evaluation.
 - IPC render state reports app root and review shell present, page errors zero.
 - Package state reports large item counts and expected fixture/worktree data.
 - Screenshots show large viewer, scrolled CodeView, scrolled rail, filter/search
@@ -870,6 +938,8 @@ Proof:
 - IPC/package-state evidence plus `agentstudio://resource/content/...` activity
   proves the native pane used the real Bridge content path, not only a mock
   fixture banner.
+- Victoria query artifacts prove the same run emitted debug-scoped Bridge/Pierre
+  telemetry for the measured stages and worker/markdown lanes.
 
 ### Task 9: Review And PR Readiness
 
