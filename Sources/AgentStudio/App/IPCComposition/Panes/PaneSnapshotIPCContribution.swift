@@ -54,7 +54,9 @@ enum AgentStudioIPCContributionRegistry {
             authorizationContext: { request, _, tools in
                 let params = try decodePaneSnapshotParams(from: request.params)
                 let canonicalHandle = try await tools.canonicalizePaneHandle(params.handle)
-                guard case .canonicalUUID(let paneId) = canonicalHandle.reference else {
+                guard canonicalHandle.kind == .pane,
+                    case .canonicalUUID(let paneId) = canonicalHandle.reference
+                else {
                     throw AppIPCQueryError(reason: .targetNotFound)
                 }
                 return try AppIPCAuthorizedRequestContext(
@@ -77,7 +79,5 @@ private struct PaneSnapshotContributionParams: Decodable {
 }
 
 private func decodePaneSnapshotParams(from params: JSONValue?) throws -> PaneSnapshotContributionParams {
-    let value = params ?? .object([:])
-    let data = try JSONEncoder().encode(value)
-    return try JSONDecoder().decode(PaneSnapshotContributionParams.self, from: data)
+    try AppIPCContributionParameters.decode(PaneSnapshotContributionParams.self, from: params)
 }

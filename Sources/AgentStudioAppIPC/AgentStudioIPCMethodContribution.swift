@@ -15,6 +15,22 @@ package enum AppIPCMethodContributionError: Error, Equatable, Sendable {
     case missingSensitiveDataExclusions
 }
 
+package enum AppIPCContributionRequestError: Error, Equatable, Sendable {
+    case invalidParams
+}
+
+package enum AppIPCContributionParameters {
+    package static func decode<T: Decodable>(_ type: T.Type, from params: JSONValue?) throws -> T {
+        let value = params ?? .object([:])
+        do {
+            let data = try JSONEncoder().encode(value)
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            throw AppIPCContributionRequestError.invalidParams
+        }
+    }
+}
+
 package struct AppIPCContributionSecurityContract: Equatable, Sendable {
     package let targetVocabulary: Set<AppIPCContributionTargetVocabulary>
     package let dataScopes: Set<IPCDataScope>

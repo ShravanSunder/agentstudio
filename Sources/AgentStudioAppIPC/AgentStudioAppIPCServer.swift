@@ -795,6 +795,8 @@ extension AgentStudioAppIPCRequestError {
             self.init(uiPresentationError.reason)
         case let authError as AgentStudioIPCAuthenticationError:
             self.init(authError.reason)
+        case let contributionError as AppIPCContributionRequestError:
+            self.init(contributionError)
         case is PermissionBrokerError, is IPCEventBrokerError:
             self = .unauthorized
         case is IPCHandleError:
@@ -810,6 +812,13 @@ extension AgentStudioAppIPCRequestError {
             self = .methodNotFound
         case .unauthorized, .noBoundPane:
             self = .unauthorized
+        }
+    }
+
+    private init(_ error: AppIPCContributionRequestError) {
+        switch error {
+        case .invalidParams:
+            self = .invalidParams
         }
     }
 
