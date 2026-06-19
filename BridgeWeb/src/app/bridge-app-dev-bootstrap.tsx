@@ -19,6 +19,7 @@ import {
 	reviewPackageForBridgeAppDevFixtureScenario,
 	type BridgeAppDevFixtureScenario,
 } from './bridge-app-dev-fixture.js';
+import { installBridgeAppDevWorktreeBackend } from './bridge-app-dev-worktree.js';
 import { BridgeApp } from './bridge-app.js';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Dev server must load the same app CSS as packaged BridgeWeb.
@@ -44,6 +45,8 @@ if (rootElement !== null) {
 			: installBridgeViewerMockedBackend(fixture, {
 					latencyProfile: latencyProfileForMockedBackend(options.latencyProfile),
 				});
+	const worktreeBackend =
+		options.fixtureClass === 'worktree' ? installBridgeAppDevWorktreeBackend() : null;
 
 	window.addEventListener(
 		'beforeunload',
@@ -65,15 +68,20 @@ if (rootElement !== null) {
 						fetchContent: backend.fetchContent,
 						projectionWorkerClient: backend.projectionWorkerClient,
 					})}
+			{...(worktreeBackend === null ? {} : { fetchContent: worktreeBackend.fetchContent })}
 		/>,
 	);
 
-	void pushDevFixture({
-		backend,
-		deliveryMode: deliveryModeForMockedBackend(options.deliveryMode),
-		fixture,
-		scenario: options.scenario,
-	});
+	if (worktreeBackend === null) {
+		void pushDevFixture({
+			backend,
+			deliveryMode: deliveryModeForMockedBackend(options.deliveryMode),
+			fixture,
+			scenario: options.scenario,
+		});
+	} else {
+		void worktreeBackend.pushPackage();
+	}
 }
 
 async function pushDevFixture(props: {

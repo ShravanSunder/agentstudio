@@ -15,6 +15,7 @@ export const bridgeAppDevFixtureClassSchema = z.enum([
 	'small-mixed',
 	'medium-agentstudio',
 	'large-diffshub',
+	'worktree',
 	'off',
 ]);
 
@@ -76,7 +77,7 @@ export function parseBridgeAppDevFixtureOptions(
 export function fixtureClassForMockedBackend(
 	fixtureClass: BridgeAppDevFixtureClass,
 ): BridgeViewerBrowserFixtureClass | null {
-	if (fixtureClass === 'off') {
+	if (fixtureClass === 'off' || fixtureClass === 'worktree') {
 		return null;
 	}
 	return fixtureClass satisfies BridgeViewerBrowserFixtureClass;

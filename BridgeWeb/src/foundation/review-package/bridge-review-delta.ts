@@ -1,25 +1,8 @@
-import type {
-	BridgeReviewGroup,
-	BridgeReviewItemDescriptor,
-	BridgeReviewPackage,
-} from './bridge-review-package.js';
+import type { BridgeReviewDelta as BridgeReviewDeltaFromSchema } from './bridge-review-package-schema.js';
+import type { BridgeReviewItemDescriptor, BridgeReviewPackage } from './bridge-review-package.js';
 
-export interface BridgeReviewDeltaOperations {
-	readonly addItems: readonly BridgeReviewItemDescriptor[];
-	readonly updateItems: readonly BridgeReviewItemDescriptor[];
-	readonly removeItems: readonly string[];
-	readonly moveItems: readonly string[];
-	readonly updateGroups: readonly BridgeReviewGroup[] | null;
-	readonly updateSummary: BridgeReviewPackage['summary'] | null;
-	readonly invalidateContent: readonly string[];
-}
-
-export interface BridgeReviewDelta {
-	readonly packageId: string;
-	readonly reviewGeneration: number;
-	readonly revision: number;
-	readonly operations: BridgeReviewDeltaOperations;
-}
+export type BridgeReviewDeltaOperations = BridgeReviewDeltaFromSchema['operations'];
+export type BridgeReviewDelta = BridgeReviewDeltaFromSchema;
 
 export function applyBridgeReviewDelta(
 	reviewPackage: BridgeReviewPackage,

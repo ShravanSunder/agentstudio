@@ -17,6 +17,7 @@
 		"test:browser": "vitest --config vitest.browser.config.ts run --project integration-browser",
 		"test:browser:integration": "vitest --config vitest.browser.config.ts run --project integration-browser",
 		"test:dev-server": "node --experimental-strip-types scripts/verify-bridge-viewer-dev-server.ts",
+		"test:dev-server:worktree": "node --experimental-strip-types scripts/verify-bridge-viewer-worktree-dev-server.ts",
 		"test:benchmark:browser": "node --experimental-strip-types scripts/bridge-viewer-browser-benchmark-runner.ts",
 		"typecheck": "tsc --noEmit"
 	},

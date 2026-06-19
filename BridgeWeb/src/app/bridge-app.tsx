@@ -19,6 +19,10 @@ import {
 	applyDeltaToBridgeReviewItemRegistry,
 	createBridgeReviewItemRegistry,
 } from '../foundation/review-package/bridge-review-item-registry.js';
+import {
+	bridgeReviewDeltaSchema,
+	bridgeReviewPackageSchema,
+} from '../foundation/review-package/bridge-review-package-schema.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import {
 	createBridgeTelemetryRecorder,
@@ -970,7 +974,8 @@ function extractReviewPackage(data: unknown): BridgeReviewPackage | null {
 		return null;
 	}
 	const packageValue = data['package'];
-	return isBridgeReviewPackage(packageValue) ? packageValue : null;
+	const parsedPackage = bridgeReviewPackageSchema.safeParse(packageValue);
+	return parsedPackage.success ? parsedPackage.data : null;
 }
 
 function extractReviewDelta(data: unknown): BridgeReviewDelta | null {
@@ -978,7 +983,8 @@ function extractReviewDelta(data: unknown): BridgeReviewDelta | null {
 		return null;
 	}
 	const deltaValue = data['delta'];
-	return isBridgeReviewDelta(deltaValue) ? deltaValue : null;
+	const parsedDelta = bridgeReviewDeltaSchema.safeParse(deltaValue);
+	return parsedDelta.success ? parsedDelta.data : null;
 }
 
 function firstVisibleItemId(reviewPackage: BridgeReviewPackage): string | null {
@@ -988,26 +994,4 @@ function firstVisibleItemId(reviewPackage: BridgeReviewPackage): string | null {
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isBridgeReviewPackage(value: unknown): value is BridgeReviewPackage {
-	return (
-		isRecord(value) &&
-		value['schemaVersion'] === 1 &&
-		typeof value['packageId'] === 'string' &&
-		typeof value['reviewGeneration'] === 'number' &&
-		typeof value['revision'] === 'number' &&
-		Array.isArray(value['orderedItemIds']) &&
-		isRecord(value['itemsById'])
-	);
-}
-
-function isBridgeReviewDelta(value: unknown): value is BridgeReviewDelta {
-	return (
-		isRecord(value) &&
-		typeof value['packageId'] === 'string' &&
-		typeof value['reviewGeneration'] === 'number' &&
-		typeof value['revision'] === 'number' &&
-		isRecord(value['operations'])
-	);
 }

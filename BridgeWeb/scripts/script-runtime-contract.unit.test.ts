@@ -8,7 +8,7 @@ const packageRootPath = new URL('../', import.meta.url);
 
 describe('script runtime contract', () => {
 	test('keeps BridgeWeb scripts in TypeScript', async () => {
-		const scriptFileNames = await readdir(new URL('scripts/', packageRootPath));
+		const scriptFileNames = await readScriptFileNames(new URL('scripts/', packageRootPath));
 		const scriptExtensions = scriptFileNames
 			.filter((fileName: string): boolean => !fileName.endsWith('.unit.test.ts'))
 			.map((fileName: string): string => fileName.slice(fileName.lastIndexOf('.')))
@@ -41,6 +41,33 @@ describe('script runtime contract', () => {
 		expect(bootstrapSource).toContain("import './bridge-app.css';");
 	});
 });
+
+async function readScriptFileNames(directoryUrl: URL): Promise<readonly string[]> {
+	const entries = await readdir(directoryUrl, { withFileTypes: true });
+	const fileNames: string[] = [];
+
+	const childDirectoryFileNameGroups = await Promise.all(
+		entries
+			.filter((entry): boolean => entry.isDirectory())
+			.map(async (entry): Promise<readonly string[]> => {
+				const childFileNames = await readScriptFileNames(new URL(`${entry.name}/`, directoryUrl));
+				return childFileNames.map(
+					(childFileName: string): string => `${entry.name}/${childFileName}`,
+				);
+			}),
+	);
+
+	for (const entry of entries) {
+		if (!entry.isDirectory()) {
+			fileNames.push(entry.name);
+		}
+	}
+	for (const childFileNameGroup of childDirectoryFileNameGroups) {
+		fileNames.push(...childFileNameGroup);
+	}
+
+	return fileNames;
+}
 
 async function readPackageScripts(): Promise<Record<string, string>> {
 	const packageJson: unknown = JSON.parse(
