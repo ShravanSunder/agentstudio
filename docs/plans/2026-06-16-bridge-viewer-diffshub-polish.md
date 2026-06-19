@@ -6,6 +6,11 @@ Goal id: `2026-06-16-bridge-viewer-diffshub-polish`
 
 Status: reviewed plan; accepted `shravan-dev-workflow:plan-review-swarm` findings addressed
 
+2026-06-19 reset: the active work is back in research/spec/plan mode until the
+DiffsHub/Shadcn/Catppuccin contract below is reflected in the plan and then
+implemented against visual proof. The reset ledger is
+`tmp/research-workflows/2026-06-19-bridgeweb-diffshub-shadcn-reset/research-ledger.md`.
+
 ## Goal
 
 Make the Bridge review viewer feel like a dense, dark, high-performance DiffsHub-style review surface while preserving AgentStudio boundaries and the user-requested right-side file rail.
@@ -19,16 +24,81 @@ This is a hard polish and behavior pass over the current Bridge viewer shell. It
 - No CI harness or unrelated Swift test infrastructure changes without explicit approval.
 - No DiffsHub pixel clone. Borrow the review grammar, APIs, density, and proof style, then fit AgentStudio.
 - No markdown diff renderer in this slice. Two-sided markdown diffs stay in CodeView until a rendered markdown diff design exists.
+- No Swift IPC implementation before the dev-server DiffsHub-class UX gate is
+  coherent. IPC is still required before native large-performance proof, but it
+  follows the browser/dev-server interaction contract instead of preceding it.
+
+## 2026-06-19 Reset Contract
+
+The implementation order is reset to this sequence:
+
+1. Re-anchor on local Pierre/DiffsHub source and BridgeWeb current code.
+2. Fix the design-system foundation: shadcn/Base UI primitives first, then
+   Bridge wrappers for compact review chrome.
+3. Fix the theme foundation: Pierre/Shiki `catppuccin-mocha` first, FileTree
+   through `themeToTreeStyles(...)`, Bridge chrome through shadcn/Tailwind
+   semantic tokens mapped to Catppuccin Mocha.
+4. Fix dev-server UX and Browser Mode proof on realistic large fixtures.
+5. Only then add semantic Swift IPC needed to drive native large-worktree proof.
+6. Finish with AgentStudio debug app, Victoria metrics/traces/logs, screenshots,
+   and PR-readiness gates.
+
+This reset supersedes any earlier implementation drift that treated the viewer
+as a hand-built Tailwind shell with Pierre inside it. BridgeWeb may customize
+generated shadcn/Base UI components, but it must not create a parallel control
+language for buttons, menus, toggles, filters, focus rings, disabled states, or
+overlay behavior.
+
+The comparison target is DiffsHub running Catppuccin Mocha. Local DiffsHub
+source shows `diffshub-dark-theme` is the dark-theme persistence key and
+Pierre's theme packages expose `catppuccin-mocha`; browser proof should set or
+select that theme before comparing. The DiffsHub default `pierre-dark` is useful
+as source prior art, but it is not the accepted visual target for this branch.
+
+Current known drift to correct before more feature work:
+
+- `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` has
+  in-progress scroll-anchor/collapse edits. Before implementation continues,
+  finish the helper path or back out the partial helper references without using
+  destructive git commands.
+- `BridgeWeb/src/review-viewer/code-view/bridge-code-view-theme.ts` registers a
+  custom CSS-variable theme under `catppuccin-mocha`. Audit this first. If it
+  masks Pierre's built-in Catppuccin theme, replace it with a Bridge-owned
+  adapter that uses Pierre's supported theme resolution without name collision.
+- `BridgeWeb/src/review-viewer/trees/bridge-trees-panel.tsx` hardcodes many
+  tree color variables. Replace the broad hand-authored palette with
+  `themeToTreeStyles(...)` output from the resolved Catppuccin/Pierre theme,
+  then layer only narrow AgentStudio overrides.
+- Do not begin Swift IPC while added-file content, markdown rendering,
+  collapse/expand anchoring, tree-click alignment, and visual parity are still
+  failing in the dev-server loop.
 
 ## Source Coverage
 
 ### User Requirements
 
 - Match the DiffsHub dark CodeView/FileTree target shown in the screenshots.
+- The comparison target is side-by-side strict: our viewer may differ from
+  DiffsHub only in the file rail location. DiffsHub keeps the rail on the left;
+  AgentStudio keeps it on the right. Header density, CodeView file rows,
+  collapse affordances, icon grammar, filter menus, scroll behavior, colors,
+  and file/tree interactions should otherwise match the DiffsHub/Catppuccin
+  Mocha experience as closely as the AgentStudio shell allows.
 - Keep the file sidebar on the right side.
 - Canvas background must be black.
 - Remove ugly/native browser controls.
 - Replace mismatched filter/dropdown/icon styling with AgentStudio/Pierre-style controls.
+- Use shadcn components generated/configured through `components.json`
+  (`style: "base-mira"`) with Base UI primitives. Do not build raw custom
+  controls when a shadcn/Base UI button, menu, popover, input, tooltip, or
+  toggle primitive applies. Customize those primitives downstream with Tailwind
+  classes and theme tokens.
+- Use Catppuccin Mocha as the visual basis for AgentStudio Bridge chrome and
+  the Pierre viewer surfaces. Where Pierre exposes a Catppuccin Mocha theme,
+  CodeView and FileTree must use Pierre's supported Catppuccin Mocha theme/API
+  rather than approximating it with ad hoc CSS. If a Pierre API requires a
+  theme object/name/style map, prove the exact API from local Pierre source or
+  DeepWiki before implementing.
 - Use Tailwind v4.
 - Use zod v4 schema/type conventions:
   - `xxxSchema` for zod schemas.
@@ -53,6 +123,10 @@ This is a hard polish and behavior pass over the current Bridge viewer shell. It
 - Add markdown rendering with `@shikijs/markdown-exit`.
 - Fix and prove CodeView scrolling.
 - Use Peekaboo screenshots in the proof loop.
+- Use Browser Mode / Playwright / CDP visual loops against the dev server and
+  DiffsHub examples before claiming UI parity. Subagents should be used for
+  parallel visual/API audits when they can inspect DiffsHub or Pierre without
+  conflicting with implementation.
 
 ### Local AgentStudio Evidence
 
@@ -79,6 +153,45 @@ Observed current problems:
 - The code plane can leave large blank/unstyled space and has an unproven scroll ownership bug.
 - Docs/plans projection is only a filter, not a markdown/prose presentation mode.
 
+Current hard feedback catalog from the DiffsHub comparison loop:
+
+- Theme mismatch: the live Bridge viewer is still not using Pierre/Catppuccin
+  Mocha end to end. CodeView syntax colors, added/deleted backgrounds, chrome
+  surfaces, rail colors, row hover/selection, and separators must converge on
+  the DiffsHub Catppuccin Mocha target.
+- Component-system mismatch: some controls still look hand-built. Buttons,
+  menus, filter popovers, search, toggles, and tooltips must be shadcn/Base UI
+  primitives customized with Tailwind and theme tokens, not bespoke raw
+  controls.
+- Top chrome mismatch: visible top metadata/text strips are not acceptable.
+  Any remaining top bar must be removed or replaced by DiffsHub-style compact
+  chrome that matches the app design. Review counts and scope controls must not
+  become an ugly full-width strip.
+- File header mismatch: CodeView file headers must use compact Lucide/Pierre
+  icon grammar, clear boundaries between files, no duplicate left/right path
+  text, no text cursor affordance, and no oversized expand/collapse control.
+- Sticky/collapse behavior mismatch: collapse/expand must preserve the file
+  header's current viewport offset. If the header is pinned at the top, it
+  stays pinned. If the header is in the middle of the viewport, it stays there
+  and content below moves up/down. Collapse must not snap mid-screen headers to
+  the top and must not push the header offscreen.
+- File navigation mismatch: clicking a file in the tree must scroll/select the
+  corresponding CodeView file aligned to the top/pinned header behavior, with
+  no sluggish or ambiguous movement.
+- Added-file mismatch: added files must expand/render full fetched content,
+  including full-file added green backgrounds as DiffsHub does. Empty headers
+  for added files are a failing state, not a future task.
+- Markdown mismatch: docs/plans markdown still does not render in the live
+  experience. Selected markdown docs/plans must render through the markdown
+  worker path and have browser tests plus visual proof.
+- Scrollbar/scroll-owner mismatch: scrollbars, scroll ownership, pinned header
+  behavior, and collapse/expand anchoring must match DiffsHub's feel. The
+  viewer cannot rely on the native app manual loop to discover these defects;
+  dev-server Browser Mode/Playwright gates must catch them.
+- Rail mismatch: the right rail is allowed, but its internal controls, tree
+  density, icons, filter menu, search affordance, stats, and selection styling
+  must follow DiffsHub/Catppuccin Mocha density and AgentStudio shadcn styling.
+
 ### Pierre/DiffsHub Evidence
 
 Read before implementation:
@@ -98,6 +211,18 @@ Borrow:
 - Compact review chrome with icon-first controls.
 - Custom dropdown/menu surfaces instead of native controls.
 - Dense FileTree settings: about 24px rows, low inline padding, flattened empty dirs, preserved review order, sticky folders when useful.
+- FileTree styling must follow Pierre's documented layering order:
+  host element styles for panel layout/framing, CSS custom properties for
+  tree-internal appearance, `themeToTreeStyles(...)` when inheriting a
+  VS Code/Shiki/editor palette, and only small/local `unsafeCSS` escape hatches
+  after supported surfaces are exhausted.
+- FileTree density must be set with Pierre's `density` option, preferably
+  `density: "compact"`, so virtualized and painted row heights remain aligned.
+  Do not hard-code item heights except when the preset cannot satisfy the
+  design after measuring.
+- FileTree theme implementation must layer explicit AgentStudio overrides on
+  top of Pierre's Catppuccin Mocha/theme-derived variables rather than
+  rebuilding the tree visual system from raw shadow-DOM selectors.
 - Hidden-until-open file search using Pierre `fileTreeSearchMode: 'expand-matches'` so search opens matching branches instead of only filtering the currently expanded visible rows.
 - Incremental FileTree model updates through Pierre model methods when data arrives progressively.
 - CodeView custom header hooks such as `renderHeaderPrefix`, `renderHeaderMetadata`, and, where needed, `renderCustomHeader`.
@@ -1030,6 +1155,7 @@ Create local BridgeWeb UI primitives so the shell stops hand-rolling inconsisten
 
 Likely files:
 
+- `BridgeWeb/src/components/ui/button-group.tsx`
 - `BridgeWeb/src/review-viewer/chrome/bridge-review-button.tsx`
 - `BridgeWeb/src/review-viewer/chrome/bridge-review-button-group.tsx`
 - `BridgeWeb/src/review-viewer/chrome/bridge-review-popover.tsx`
@@ -1040,11 +1166,20 @@ Likely files:
 
 Requirements:
 
+- Use `BridgeWeb/components.json` as the shadcn contract:
+  `style: "base-mira"`, Base UI primitives, Tailwind v4 CSS variables,
+  lucide icons, small-radius compact control variants.
+- Generate or add the missing shadcn-style `ButtonGroup` primitive before
+  building feature-local segmented controls. If the current CLI cannot generate
+  a Base UI version, compose it from the generated `Button` primitive and
+  document that fallback in the implementation proof.
 - Tailwind v4 classes only, merged through existing `cn`.
 - Icon-first controls where a familiar symbol exists.
 - Text only where meaning would be unclear.
 - No native select styling.
-- Dark-only tokens matching Bridge/Pierre.
+- Dark-only tokens mapped to Catppuccin Mocha through shadcn semantic variables
+  and Bridge/Pierre aliases. Avoid raw one-off RGB/hex values in feature-local
+  chrome unless the value is a named token in `bridge-app.css`.
 - Components are presentational and do not import app transport, workers, or content loaders.
 
 Proof:
@@ -1141,6 +1276,9 @@ Requirements:
 - Preserve review/projection order with `sort: () => 0`.
 - Reduce row height to about 24px unless visual proof shows it harms readability.
 - Tighten inline padding and chevron affordances.
+- Resolve/apply the Catppuccin/Pierre theme through `themeToTreeStyles(...)`
+  before adding Bridge-specific FileTree variables. Do not rebuild the FileTree
+  palette from raw shadow-DOM selectors.
 - Hide search until toggled, and configure Pierre `fileTreeSearchMode: 'expand-matches'`.
 - Support quick view switches:
   - all
@@ -1178,7 +1316,10 @@ Likely files:
 
 Requirements:
 
-- Keep `theme: { dark: 'agentstudio-bridge-dark', light: 'agentstudio-bridge-dark' }` with `themeType: 'dark'`, or the typed equivalent required by the installed Pierre version after registering Bridge's AgentStudio-owned CSS-variable theme locally.
+- Use Pierre/Shiki `catppuccin-mocha` as the CodeView dark theme. If BridgeWeb
+  must register a packaged local theme to satisfy WKWebView/worker asset
+  self-containment, do not register it under the same name in a way that masks
+  Pierre's supported theme without an explicit adapter/test proving equivalence.
 - Tighten `layout.paddingTop`, `layout.paddingBottom`, and `layout.gap`.
 - Use Pierre's interactive unchanged-section settings:
   - `hunkSeparators: 'line-info'`

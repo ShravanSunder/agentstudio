@@ -30,6 +30,13 @@ commands to select files, reveal tree paths, drive filters, fetch content, and
 collect telemetry snapshots, the real large-worktree proof depends on manual
 clicks and cannot be repeated by agents or CI-like harnesses.
 
+2026-06-19 reset amendment: the current pass restarts from source research,
+not more product-code edits. The local Pierre/DiffsHub code is the reference
+for CodeView/FileTree/theming patterns, BridgeWeb's generated shadcn/Base UI
+components are the reference for controls, and Catppuccin Mocha is the accepted
+visual target. The reset ledger is
+`tmp/research-workflows/2026-06-19-bridgeweb-diffshub-shadcn-reset/research-ledger.md`.
+
 ## Requirements
 
 1. BridgeWeb has a loopback-only Vite dev server script that opens a useful
@@ -60,9 +67,11 @@ clicks and cannot be repeated by agents or CI-like harnesses.
    custom menus, no native selects, and right-side file rail.
    The current visual gate is explicit: compare against
    `https://diffshub.com/ShravanSunder/agentstudio/pull/180` in dark mode with
-   DiffsHub's `pierre-dark` theme. Headless proof must set DiffsHub local
-   storage before navigation (`theme = dark`, `diffshub-dark-theme =
-   pierre-dark`) or the capture is not valid.
+   DiffsHub/Pierre's `catppuccin-mocha` theme selected. Local DiffsHub source
+   shows the dark-theme persistence key is `diffshub-dark-theme`, and Pierre's
+   Shiki theme collection exposes `catppuccin-mocha`; headless proof must set
+   or select that theme before navigation or record why storage seeding was not
+   available.
    The foundation is a shadcn/Base UI component layer, not one-off local rail
    widgets. BridgeWeb must initialize/adopt shadcn via the CLI for this package,
    generate the primitive components it needs, and then tune compact variants
@@ -427,7 +436,16 @@ Theme setup:
   token, or chunk contains `catppuccin` or `mocha`.
 - Cross-check the Pierre checkout before implementation:
   - `apps/diffshub/components.json`
+  - `apps/diffshub/components/ui/button.tsx`
+  - `apps/diffshub/components/ui/button-group.tsx`
+  - `apps/diffshub/components/ui/dropdown-menu.tsx`
   - `apps/diffshub/app/globals.css`
+  - `apps/diffshub/app/_components/CodeViewHeader.tsx`
+  - `apps/diffshub/app/_components/CodeViewSidebar.tsx`
+  - `apps/diffshub/app/_components/CodeViewFileTree.tsx`
+  - `apps/diffshub/app/_components/_theming/react/ThemedCodeView.tsx`
+  - `apps/diffshub/app/_components/_theming/react/ThemedFileTree.tsx`
+  - `apps/diffshub/app/_components/_theming/js/treeThemeProps.ts`
   - `packages/theming/src/collections/pierre.ts`
   - `packages/theming/src/collections/shiki.ts`
   - `packages/theming/test/color.test.ts`
@@ -440,12 +458,19 @@ Theme setup:
   `--input`, `--ring`, sidebar tokens) plus Bridge/Pierre aliases
   (`--bridge-app-bg`, `--bridge-canvas-bg`, `--bridge-surface-bg`,
   `--bridge-accent`, status colors).
-- Pierre CodeView highlighting should continue to use Pierre/Shiki APIs. In
-  packaged WKWebView, Bridge registers the local `catppuccin-mocha`
-  CSS-variable theme with Pierre before CodeView renders so CodeView and the
-  worker pool do not depend on a cold dynamic theme import. The shadcn UI theme
-  and CodeView syntax theme must be visually compatible, but they are not the
-  same mechanism.
+- Pierre CodeView highlighting should continue to use Pierre/Shiki APIs with
+  `catppuccin-mocha` as the named dark theme. If packaged WKWebView cannot rely
+  on Pierre's normal dynamic theme import path, BridgeWeb may add a packaged
+  local adapter, but it must not silently register a different CSS-variable
+  theme under `catppuccin-mocha` and call that parity. The adapter must prove
+  equivalence or use a Bridge-owned name while still producing Catppuccin Mocha
+  visuals. The shadcn UI theme and CodeView syntax theme must be visually
+  compatible, but they are not the same mechanism.
+- Pierre FileTree styling should come from the same resolved theme through
+  `themeToTreeStyles(...)`, with only narrow Bridge-specific overrides layered
+  after it. Direct `--trees-*-override` palettes are allowed only when the
+  public theme/style surface does not reach a necessary AgentStudio state, and
+  the implementation proof must name that gap.
 
 Proof:
 
