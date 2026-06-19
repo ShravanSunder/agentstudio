@@ -6,9 +6,10 @@ Goal id: `2026-06-16-bridge-viewer-diffshub-polish`
 
 Status: reviewed plan; accepted `shravan-dev-workflow:plan-review-swarm` findings addressed
 
-2026-06-19 reset: the active work is back in research/spec/plan mode until the
-DiffsHub/Shadcn/Catppuccin contract below is reflected in the plan and then
-implemented against visual proof. The reset ledger is
+2026-06-19 reset: the DiffsHub/Shadcn/Catppuccin contract below is the active
+implementation contract. The branch may already contain in-progress BridgeWeb
+edits; validate or reshape those edits against this contract instead of treating
+them as proof. The reset ledger is
 `tmp/research-workflows/2026-06-19-bridgeweb-diffshub-shadcn-reset/research-ledger.md`.
 
 ## Goal
@@ -24,9 +25,10 @@ This is a hard polish and behavior pass over the current Bridge viewer shell. It
 - No CI harness or unrelated Swift test infrastructure changes without explicit approval.
 - No DiffsHub pixel clone. Borrow the review grammar, APIs, density, and proof style, then fit AgentStudio.
 - No markdown diff renderer in this slice. Two-sided markdown diffs stay in CodeView until a rendered markdown diff design exists.
-- No Swift IPC implementation before the dev-server DiffsHub-class UX gate is
-  coherent. IPC is still required before native large-performance proof, but it
-  follows the browser/dev-server interaction contract instead of preceding it.
+- No Swift IPC implementation before the dev-server DiffsHub-class UX and
+  performance gates are coherent. IPC is a follow-on lane that may be delegated
+  after browser UX/perf proof stabilizes; it is required before repeatable
+  native large-worktree proof, not before the DiffsHub visual/interaction loop.
 
 ## 2026-06-19 Reset Contract
 
@@ -39,7 +41,9 @@ The implementation order is reset to this sequence:
    through `themeToTreeStyles(...)`, Bridge chrome through shadcn/Tailwind
    semantic tokens mapped to Catppuccin Mocha.
 4. Fix dev-server UX and Browser Mode proof on realistic large fixtures.
-5. Only then add semantic Swift IPC needed to drive native large-worktree proof.
+5. Hand off or implement semantic Swift IPC only after the browser loop proves
+   selection, reveal, filtering, content fetch, markdown, scroll, and visual
+   parity.
 6. Finish with AgentStudio debug app, Victoria metrics/traces/logs, screenshots,
    and PR-readiness gates.
 
@@ -52,8 +56,11 @@ overlay behavior.
 The comparison target is DiffsHub running Catppuccin Mocha. Local DiffsHub
 source shows `diffshub-dark-theme` is the dark-theme persistence key and
 Pierre's theme packages expose `catppuccin-mocha`; browser proof should set or
-select that theme before comparing. The DiffsHub default `pierre-dark` is useful
-as source prior art, but it is not the accepted visual target for this branch.
+select that theme before comparing. DiffsHub uses shadcn-style Radix wrappers,
+while BridgeWeb uses shadcn/Base UI; copy DiffsHub's review grammar,
+measurements, Pierre API usage, and Catppuccin target, not its Radix dependency
+choice. The DiffsHub default `pierre-dark` is useful source prior art, but it is
+not the accepted visual target for this branch.
 
 Current known drift to correct before more feature work:
 
@@ -72,6 +79,11 @@ Current known drift to correct before more feature work:
 - Do not begin Swift IPC while added-file content, markdown rendering,
   collapse/expand anchoring, tree-click alignment, and visual parity are still
   failing in the dev-server loop.
+- Generated packaged app assets are build outputs, not source. Check in
+  BridgeWeb source, shadcn component source, lockfiles, scripts, build/audit
+  contracts, and fixture definitions. Do not check in generated native app
+  resource bundles or dist assets that `mise run bridge-web-build`,
+  `pnpm --dir BridgeWeb run build`, or setup/build scripts can reproduce.
 
 ## Source Coverage
 
@@ -132,7 +144,7 @@ Current known drift to correct before more feature work:
 
 Read before planning:
 
-- `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` owns the right sidebar, search/filter chrome, canvas/sidebar grid, and summary stats. The review viewer must not render a visible top metadata strip above CodeView.
+- `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` owns the right sidebar, search/filter chrome, canvas/sidebar grid, and summary stats. The review viewer must not render a detached visible top metadata strip above CodeView; compact header-plane chrome is allowed only when it matches the shadcn/Catppuccin app surface.
 - `BridgeWeb/src/app/bridge-app.css` is 56 lines and owns the current dark tokens.
 - `BridgeWeb/src/review-viewer/trees/bridge-trees-panel.tsx` is 101 lines and wraps Pierre `FileTree`.
 - `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` is 232 lines and wraps Pierre `CodeView`.
@@ -163,10 +175,10 @@ Current hard feedback catalog from the DiffsHub comparison loop:
   menus, filter popovers, search, toggles, and tooltips must be shadcn/Base UI
   primitives customized with Tailwind and theme tokens, not bespoke raw
   controls.
-- Top chrome mismatch: visible top metadata/text strips are not acceptable.
-  Any remaining top bar must be removed or replaced by DiffsHub-style compact
-  chrome that matches the app design. Review counts and scope controls must not
-  become an ugly full-width strip.
+- Top chrome mismatch: detached top metadata/text strips are not acceptable.
+  Any remaining top plane must be compact shadcn/Catppuccin chrome that matches
+  the app design. Review counts and scope controls must not become an ugly
+  full-width strip or pure-black pill row.
 - File header mismatch: CodeView file headers must use compact Lucide/Pierre
   icon grammar, clear boundaries between files, no duplicate left/right path
   text, no text cursor affordance, and no oversized expand/collapse control.
@@ -1203,8 +1215,12 @@ Likely files:
 Requirements:
 
 - Preserve `data-sidebar-position="right"`.
-- Remove the plain text metadata/app bar from the top area and keep it absent.
-- Move projection/filter affordances into compact chrome.
+- Remove detached plain text metadata/app bars. If summary/projection controls
+  remain in the top plane, they must use compact shadcn/Catppuccin chrome that
+  visually belongs to the surrounding app surface.
+- Move projection/filter affordances into compact chrome; the projection mode
+  control should be a shadcn-style ButtonGroup/segmented toggle, not a dropdown
+  or pure-black pill row.
 - Keep counts visible but quiet in the right rail stats region.
 - Keep the code plane full-height with `min-height: 0` through every flex/grid parent.
 - Right rail has its own scroll region and does not resize the CodeView plane on hover/filter changes.
@@ -1214,7 +1230,9 @@ Proof:
 - Existing shell tests updated from old labels to structural expectations.
 - Tests assert no native selects.
 - Tests assert right rail exists and uses custom filter controls.
-- Tests and visual proof assert `bridge-review-top-header` is absent.
+- Tests and visual proof assert no detached `bridge-review-top-header`/metadata
+  strip exists. Compact integrated header-plane controls may exist only if their
+  background, height, radius, typography, and spacing match the app chrome.
 - Visual proof captures CodeView and the right rail against the live worktree dev server.
 
 ### Task 3: Fix Scroll Ownership
@@ -1572,6 +1590,13 @@ mise run test -- --filter Bridge
 git diff --check
 ```
 
+Generated asset hygiene is part of the validation gate. `pnpm --dir BridgeWeb
+run build` and the `mise` BridgeWeb build/setup tasks must reproduce packaged
+BridgeWeb resources from checked-in source, scripts, fixtures, and lockfiles.
+Do not stage generated native app resource bundles, `dist` output, or copied
+packaged app assets unless a future release plan explicitly changes that
+ownership model.
+
 If the implementation touches telemetry or debug runtime proof, run the full smoke/verify sequence for Bridge observability rather than the verifier alone:
 
 ```bash
@@ -1586,6 +1611,11 @@ If the implementation changes Swift runtime or Bridge IPC:
 mise run test
 ```
 
+Swift IPC is a follow-on lane after the browser/DiffsHub UX loop is proven. If a
+separate IPC subagent works in parallel, keep its write set disjoint from
+BridgeWeb visual/theming files and do not let IPC proof substitute for
+dev-server/browser visual proof.
+
 If `mise run test-fast` or GitHub CI times out outside this slice, do not change CI harness as part of this plan. Report it as unrelated infrastructure unless the user expands scope.
 
 ## Requirements/Proof Matrix
@@ -1594,7 +1624,7 @@ If `mise run test-fast` or GitHub CI times out outside this slice, do not change
 | --- | --- | --- | --- | --- | --- | --- |
 | Dark DiffsHub-style shell with black canvas | 1, 2 | executor + visual reviewer | Peekaboo screenshots and shell tests | smoke/manual + unit | current debug app capture after rebuild | red baseline screenshot, green final screenshot |
 | Right-side compact file rail | 2, 4 | executor | shell structural tests and Peekaboo | unit + smoke/manual | assert `data-sidebar-position="right"` in current code | green required |
-| No top metadata strip | 2, 8 | executor | shell structural tests and visual proof script | unit + smoke/manual | assert `bridge-review-top-header` is absent in React and browser proof | red/green required |
+| No detached top metadata strip | 2, 8 | executor | shell structural tests and visual proof script | unit + smoke/manual | reject detached `bridge-review-top-header`/metadata strips; allow only integrated compact shadcn/Catppuccin header-plane chrome | red/green required |
 | No native select controls | 1, 2 | executor | shell tests query absence of `select` | unit | inspect built shell, not only component source | red current tests/text, green absence |
 | Custom filter/menu controls | 1, 2 | executor | component tests and screenshot with menu open | unit + smoke/manual | menu proof captured in debug app | green required |
 | CodeView scroll works | 3 | executor + visual reviewer | Vitest Browser Mode scroll test plus Peekaboo large-fixture capture | integration/browser + smoke/manual | body/root must not be the scroll owner; selected visible code must change | red current behavior, green final |
@@ -1605,7 +1635,7 @@ If `mise run test-fast` or GitHub CI times out outside this slice, do not change
 | Markdown security policy | 6 | executor + security reviewer | DOMPurify sink plus unsafe HTML/link/image/resource URL tests | unit/security | raw HTML disabled; sanitized DOM insertion; no remote image load | green required |
 | Worker separation | 6, 7 | executor | architecture tests and worker RPC tests | unit/integration | no Pierre worker reuse for markdown | green required |
 | Zustand discipline | 7 | executor | architecture import guard + store tests | unit/architecture | check real files, not convention docs only | green required |
-| Bundle/asset integrity | 6, 9 | executor | BridgeWeb build and audit | build | generated manifest includes markdown worker | green required |
+| Bundle/asset integrity | 6, 9 | executor | BridgeWeb build and audit | build | generated packaged assets are reproducible build outputs and not checked in as source; generated manifest includes markdown worker | green required |
 | Performance not regressed | 8, 9 | executor | benchmark and observability verifier | benchmark + observability | compare named workload metrics, not anecdote | green required |
 | Native debug visual proof | 0, 8 | executor | Peekaboo proof artifact | smoke/manual | current app/window id captured | green required |
 | Browser-mode mocked backend harness exists | 0.5 | executor | `pnpm --dir BridgeWeb run test:browser` | integration/browser | test runs in Chromium via Vitest Browser Mode, not jsdom, with package push/RPC/content-handle mocks | red/green required |

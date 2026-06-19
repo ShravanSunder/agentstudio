@@ -24,17 +24,19 @@ not where we discover ordinary frontend layout, virtualization, click, and
 worker bugs.
 
 2026-06-19 ordering amendment: implementation proceeds as merge-current-main,
-then dev-server DiffsHub-class UX, then semantic IPC control, then native
-large-diff/Victoria performance proof. IPC is not late polish: without named
-commands to select files, reveal tree paths, drive filters, fetch content, and
-collect telemetry snapshots, the real large-worktree proof depends on manual
-clicks and cannot be repeated by agents or CI-like harnesses.
+then dev-server DiffsHub-class UX/performance proof, then semantic IPC control,
+then native large-diff/Victoria performance proof. IPC is a follow-on lane that
+may be delegated after the browser loop stabilizes. It is still required before
+repeatable native large-worktree proof: without named commands to select files,
+reveal tree paths, drive filters, fetch content, and collect telemetry snapshots,
+the real large-worktree proof depends on manual clicks and cannot be repeated by
+agents or CI-like harnesses.
 
-2026-06-19 reset amendment: the current pass restarts from source research,
-not more product-code edits. The local Pierre/DiffsHub code is the reference
-for CodeView/FileTree/theming patterns, BridgeWeb's generated shadcn/Base UI
+2026-06-19 reset amendment: the local Pierre/DiffsHub code is the reference for
+CodeView/FileTree/theming patterns, BridgeWeb's generated shadcn/Base UI
 components are the reference for controls, and Catppuccin Mocha is the accepted
-visual target. The reset ledger is
+visual target. Any in-progress BridgeWeb edits on this branch must be validated
+or reshaped against this contract before they count as proof. The reset ledger is
 `tmp/research-workflows/2026-06-19-bridgeweb-diffshub-shadcn-reset/research-ledger.md`.
 
 ## Requirements
@@ -75,7 +77,10 @@ visual target. The reset ledger is
    The foundation is a shadcn/Base UI component layer, not one-off local rail
    widgets. BridgeWeb must initialize/adopt shadcn via the CLI for this package,
    generate the primitive components it needs, and then tune compact variants
-   through the generated component source and shared tokens.
+   through the generated component source and shared tokens. Local DiffsHub uses
+   shadcn-style Radix wrappers; BridgeWeb intentionally uses shadcn/Base UI. Copy
+   DiffsHub's review grammar, measurements, Pierre API usage, and Catppuccin
+   target, not its Radix dependency choice.
    The canonical shadcn basis is Mira on Base UI with small radius. The local
    preset code is `b1D0dxoG`, which decodes to `style = mira`,
    `baseColor = neutral`, `theme = neutral`, `iconLibrary = lucide`,
@@ -347,8 +352,10 @@ visual target. The reset ledger is
 23. Before native large-performance proof, Bridge must expose a semantic IPC
     control surface for the diff/file review capability. IPC drives product
     actions, not WebKit internals: it targets a Bridge pane/capability,
-    validates permissions, and calls Bridge-owned ports. Required command groups
-    for this slice are:
+    validates permissions, and calls Bridge-owned ports. This IPC work is not a
+    prerequisite for the dev-server/DiffsHub UX slice and may run as a separate
+    delegated lane after browser click/scroll/filter/content behavior is stable.
+    Required command groups before native repeatable proof are:
     - `bridge.diff.load`
     - `bridge.diff.refresh`
     - `bridge.diff.getPackage`
@@ -434,6 +441,11 @@ Theme setup:
   remote URLs, unbounded dependency registries, and unsafe worker/resource
   loading. It must not reject assets merely because an intentional theme name,
   token, or chunk contains `catppuccin` or `mocha`.
+- Source-control boundary: generated native app resource bundles, copied
+  packaged app assets, and `dist` output are build products. They should be
+  reproducible from checked-in BridgeWeb source, generated shadcn component
+  source, scripts, fixtures, and lockfiles through `mise`/`pnpm` build tasks, not
+  checked in as source.
 - Cross-check the Pierre checkout before implementation:
   - `apps/diffshub/components.json`
   - `apps/diffshub/components/ui/button.tsx`
@@ -565,8 +577,8 @@ Packaged BridgeWeb build
   self-contained runtime import and worker asset audit
         |
         v
-Semantic IPC control
-  Bridge-scoped diff/fileTree/fileView/telemetry commands
+Semantic IPC control (follow-on lane)
+  Bridge-scoped diff/fileTree/fileView/telemetry commands after browser UX proof
         |
         v
 AgentStudio debug app
@@ -589,10 +601,11 @@ PR readiness
 - Browser screenshots show the repaired visual states.
 - `pnpm --dir BridgeWeb run build` proves packaged workers/assets still pass
   audit.
-- Semantic Bridge IPC commands can load/refresh a package, select/reveal a
-  file, drive tree search/filter, fetch content, request markdown preview, and
-  capture telemetry state without opening command palette UI or exposing raw
-  WebKit evaluation.
+- Before native repeatable proof, semantic Bridge IPC commands can load/refresh
+  a package, select/reveal a file, drive tree search/filter, fetch content,
+  request markdown preview, and capture telemetry state without opening command
+  palette UI or exposing raw WebKit evaluation. This gate follows the browser UX
+  gate and must not substitute for visual/browser proof.
 - The AgentStudio debug Bridge pane proves the same large-worktree behavior
   without blank page, scroll lock, selection stalls, or markdown render gaps.
 - Native proof includes the current `agent-studio.bridge-start` worktree on
