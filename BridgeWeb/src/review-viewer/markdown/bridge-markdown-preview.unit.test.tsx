@@ -98,6 +98,7 @@ describe('Bridge markdown preview', () => {
 		});
 
 		expect(element.props['data-testid']).toBe('bridge-markdown-preview');
+		expect(element.props['data-markdown-preview-source-path']).toBe('docs/plans/bridge.md');
 		const renderedHtml = Object.values(element.props.dangerouslySetInnerHTML).join('');
 		expect(renderedHtml).toContain('Bridge plan');
 		expect(renderedHtml).not.toContain('<script>');

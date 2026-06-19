@@ -8,6 +8,7 @@ export interface BridgeMarkdownPreviewProps {
 
 export interface BridgeMarkdownPreviewElementProps {
 	readonly className: string;
+	readonly 'data-markdown-preview-source-path': string;
 	readonly 'data-testid': string;
 	readonly dangerouslySetInnerHTML: { readonly __html: string };
 }
@@ -21,6 +22,7 @@ export function BridgeMarkdownPreview(
 		<article
 			aria-label={`Markdown preview ${props.sourcePath}`}
 			className="bridge-markdown-preview mx-auto min-h-full w-full max-w-[920px] px-10 py-8 text-[14px] leading-6 text-[var(--bridge-text-primary)]"
+			data-markdown-preview-source-path={props.sourcePath}
 			data-testid="bridge-markdown-preview"
 			dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
 		/>

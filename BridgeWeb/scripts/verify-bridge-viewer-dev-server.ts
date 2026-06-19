@@ -6,6 +6,8 @@ const defaultDevServerUrl =
 	'http://127.0.0.1:6173/?fixture=large-diffshub&workers=on&scenario=scroll';
 const targetAddedPath = 'Sources/BridgeViewer/NewPanel.ts';
 const targetAddedText = "return 'full added file content';";
+const targetMarkdownPath = 'docs/plans/bridge-viewer-browser.md';
+const targetMarkdownHeading = 'Browser fixture';
 
 interface DevServerVerificationResult {
 	readonly codeViewVisibleText: string;
@@ -24,54 +26,21 @@ interface HeaderCollapseButtonState {
 }
 
 const devServerUrl = process.env['BRIDGE_VIEWER_DEV_SERVER_URL'] ?? defaultDevServerUrl;
+const markdownDevServerUrl = devServerUrlWithScenario(devServerUrl, 'markdown');
 
 const browser = await chromium.launch({ headless: true });
 
 try {
-	const page = await browser.newPage({
-		deviceScaleFactor: 1,
-		viewport: {
-			width: 1728,
-			height: 980,
-		},
-	});
-	await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
-	await page.waitForTimeout(1_200);
-	await searchForAddedFile(page);
-	await clickFileTreePath(page, targetAddedPath);
-	await page.waitForTimeout(1_500);
-
-	const result = await readVerificationResult(page);
-	assertSelectedHeaderCollapseButton(result);
-	if (result.selectedDisplayPath !== targetAddedPath) {
-		throw new Error(
-			`Expected selected display path ${targetAddedPath}, got ${result.selectedDisplayPath ?? 'null'}`,
-		);
-	}
-	if (result.selectedContentState !== 'ready') {
-		throw new Error(
-			`Expected selected content state ready, got ${result.selectedContentState ?? 'null'}`,
-		);
-	}
-	if (result.workerPoolState !== 'ready') {
-		throw new Error(`Expected worker pool state ready, got ${result.workerPoolState ?? 'null'}`);
-	}
-	if (!result.codeViewVisibleText.includes(targetAddedText)) {
-		throw new Error(
-			[
-				'Expected added file content to be visible in the CodeView scroll owner.',
-				`Missing text: ${targetAddedText}`,
-				`Visible text: ${result.codeViewVisibleText.slice(0, 500)}`,
-			].join('\n'),
-		);
-	}
-	await assertSelectedHeaderCollapseRoundTrip(page);
+	const result = await verifyScrollScenario();
+	const markdownResult = await verifyMarkdownScenario();
 
 	console.log(
 		JSON.stringify(
 			{
 				ok: true,
 				devServerUrl,
+				markdownDevServerUrl,
+				markdownDisplayPath: markdownResult.displayPath,
 				selectedDisplayPath: result.selectedDisplayPath,
 				workerPoolState: result.workerPoolState,
 			},
@@ -81,6 +50,101 @@ try {
 	);
 } finally {
 	await browser.close();
+}
+
+async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
+	const page = await makeVerificationPage();
+	try {
+		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+		await page.waitForTimeout(1_200);
+		await searchForAddedFile(page);
+		await clickFileTreePath(page, targetAddedPath);
+		await page.waitForTimeout(1_500);
+
+		const result = await readVerificationResult(page);
+		assertSelectedHeaderCollapseButton(result);
+		if (result.selectedDisplayPath !== targetAddedPath) {
+			throw new Error(
+				`Expected selected display path ${targetAddedPath}, got ${
+					result.selectedDisplayPath ?? 'null'
+				}`,
+			);
+		}
+		if (result.selectedContentState !== 'ready') {
+			throw new Error(
+				`Expected selected content state ready, got ${result.selectedContentState ?? 'null'}`,
+			);
+		}
+		if (result.workerPoolState !== 'ready') {
+			throw new Error(`Expected worker pool state ready, got ${result.workerPoolState ?? 'null'}`);
+		}
+		if (!result.codeViewVisibleText.includes(targetAddedText)) {
+			throw new Error(
+				[
+					'Expected added file content to be visible in the CodeView scroll owner.',
+					`Missing text: ${targetAddedText}`,
+					`Visible text: ${result.codeViewVisibleText.slice(0, 500)}`,
+				].join('\n'),
+			);
+		}
+		await assertSelectedHeaderCollapseRoundTrip(page);
+		return result;
+	} finally {
+		await page.close();
+	}
+}
+
+interface MarkdownScenarioResult {
+	readonly displayPath: string | null;
+}
+
+async function verifyMarkdownScenario(): Promise<MarkdownScenarioResult> {
+	const page = await makeVerificationPage();
+	try {
+		await page.goto(markdownDevServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+		await page.waitForFunction(
+			(heading: string): boolean =>
+				document
+					.querySelector('[data-testid="bridge-markdown-preview"]')
+					?.textContent?.includes(heading) ?? false,
+			targetMarkdownHeading,
+			{ timeout: 10_000 },
+		);
+		const result = await page.evaluate((): MarkdownScenarioResult => {
+			return {
+				displayPath:
+					document
+						.querySelector('[data-markdown-preview-source-path]')
+						?.getAttribute('data-markdown-preview-source-path') ?? null,
+			};
+		});
+		if (result.displayPath !== targetMarkdownPath) {
+			throw new Error(
+				`Expected markdown preview source ${targetMarkdownPath}, got ${
+					result.displayPath ?? 'null'
+				}`,
+			);
+		}
+		return result;
+	} finally {
+		await page.close();
+	}
+}
+
+async function makeVerificationPage(): Promise<Page> {
+	return await browser.newPage({
+		deviceScaleFactor: 1,
+		viewport: {
+			width: 1728,
+			height: 980,
+		},
+	});
+}
+
+function devServerUrlWithScenario(url: string, scenario: string): string {
+	const parsedUrl = new URL(url);
+	parsedUrl.searchParams.set('scenario', scenario);
+	return parsedUrl.toString();
 }
 
 function assertSelectedHeaderCollapseButton(result: DevServerVerificationResult): void {
