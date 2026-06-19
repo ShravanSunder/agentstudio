@@ -91,10 +91,10 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 			<DropdownMenuContent
 				align="end"
 				className={cn(
-					'w-64 rounded-[10px] border border-[var(--bridge-border-opaque)]',
+					'z-[80] w-64 rounded-[10px] border border-[rgb(137_180_250_/_0.28)]',
 					'max-h-[min(460px,calc(100vh-96px))] bg-[var(--bridge-menu-bg)] p-2',
-					'text-[var(--bridge-text-secondary)] shadow-[0_24px_68px_rgb(0_0_0_/_0.72)]',
-					'ring-1 ring-[rgb(205_214_244_/_0.10)]',
+					'text-[var(--bridge-text-secondary)] shadow-[0_24px_68px_rgb(0_0_0_/_0.86)]',
+					'ring-1 ring-[rgb(205_214_244_/_0.16)]',
 				)}
 				data-testid="bridge-review-filter-popover"
 				sideOffset={6}
@@ -111,7 +111,10 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 				{menuOptions.map(
 					(option: BridgeReviewFilterOption<TValue>): ReactElement => (
 						<DropdownMenuCheckboxItem
-							checked={option.value === props.value}
+							checked={
+								option.value === props.value ||
+								(props.showDefaultOptionInMenu === false && isDefaultSelection)
+							}
 							className={cn(
 								'h-8 gap-2 rounded-[7px] px-2 py-0 pr-8 text-[13px]',
 								'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-accent-soft)]',

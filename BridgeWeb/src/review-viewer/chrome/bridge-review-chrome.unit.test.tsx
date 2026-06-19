@@ -250,6 +250,9 @@ describe('Bridge review chrome controls', () => {
 			'AAdded',
 			'MModified',
 		]);
+		expect(
+			checkboxItems.map((item: Element): string | null => item.getAttribute('aria-checked')),
+		).toEqual(['true', 'true']);
 		expect(clearButton.getAttribute('data-disabled')).not.toBeNull();
 	});
 
