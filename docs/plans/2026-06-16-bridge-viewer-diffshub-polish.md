@@ -4,12 +4,15 @@ Date: 2026-06-16
 
 Goal id: `2026-06-16-bridge-viewer-diffshub-polish`
 
-Status: reviewed plan; accepted `shravan-dev-workflow:plan-review-swarm` findings addressed
+Status: companion UX/style acceptance contract only after the 2026-06-19 reset.
+Do not execute this plan directly.
 
 2026-06-19 reset: the DiffsHub/Shadcn/Catppuccin contract below is the active
-implementation contract. The branch may already contain in-progress BridgeWeb
-edits; validate or reshape those edits against this contract instead of treating
-them as proof. The reset ledger is
+UX/style acceptance contract for execution through
+`docs/plans/2026-06-18-bridgeweb-large-diff-fast-loop-remediation.md`. The
+branch may already contain in-progress BridgeWeb edits; validate or reshape
+those edits against this contract instead of treating them as proof. The reset
+ledger is
 `tmp/research-workflows/2026-06-19-bridgeweb-diffshub-shadcn-reset/research-ledger.md`.
 
 ## Goal
@@ -1636,18 +1639,23 @@ If `mise run test-fast` or GitHub CI times out outside this slice, do not change
 
 ## Requirements/Proof Matrix
 
+Browser visual/DOM proof is the primary gate for the UX rows below. Native
+Peekaboo screenshots and AgentStudio debug captures are outer-loop
+confirmation after the browser/DiffsHub loop is green; they must not substitute
+for Vitest Browser Mode, Playwright geometry, and DiffsHub comparison proof.
+
 | Requirement | Owning task | proof owner: | Proof gate | Layer | stale-proof guard: | Red/green |
 | --- | --- | --- | --- | --- | --- | --- |
-| Dark DiffsHub-style shell with black canvas | 1, 2 | executor + visual reviewer | Peekaboo screenshots and shell tests | smoke/manual + unit | current debug app capture after rebuild | red baseline screenshot, green final screenshot |
-| Right-side compact file rail | 2, 4 | executor | shell structural tests and Peekaboo | unit + smoke/manual | assert `data-sidebar-position="right"` in current code | green required |
-| No detached top metadata strip | 2, 8 | executor | shell structural tests and visual proof script | unit + smoke/manual | reject detached `bridge-review-top-header`/metadata strips; allow only integrated compact shadcn/Catppuccin header-plane chrome | red/green required |
+| Dark DiffsHub-style shell with black canvas | 1, 2 | executor + visual reviewer | browser DiffsHub comparison, Playwright color/geometry probe, then native screenshot confirmation | visual/browser + smoke/native | current dev-server and debug-app captures after rebuild | red baseline screenshot, green final screenshot |
+| Right-side compact file rail | 2, 4 | executor | browser shell structural tests, Playwright rail geometry, then native confirmation | integration/browser + smoke/native | assert `data-sidebar-position="right"` in current code and rendered DOM | green required |
+| No detached top metadata strip | 2, 8 | executor | browser shell structural tests, rendered header geometry, visual proof script, then native confirmation | visual/browser + smoke/native | reject detached `bridge-review-top-header`/metadata strips; allow only integrated compact shadcn/Catppuccin header-plane chrome | red/green required |
 | No native select controls | 1, 2 | executor | shell tests query absence of `select` | unit | inspect built shell, not only component source | red current tests/text, green absence |
-| Custom filter/menu controls | 1, 2 | executor | component tests and screenshot with menu open | unit + smoke/manual | menu proof captured in debug app | green required |
-| CodeView scroll works | 3 | executor + visual reviewer | Vitest Browser Mode scroll test plus Peekaboo large-fixture capture | integration/browser + smoke/manual | body/root must not be the scroll owner; selected visible code must change | red current behavior, green final |
-| Right rail scroll independent | 3, 4 | executor + visual reviewer | Vitest Browser Mode rail virtualized-scroll test plus Peekaboo rail scroll proof | integration/browser + smoke/manual | Trees virtualized-scroll surface exists and body/page do not drift; manual proof covers visible row changes | green required |
+| Custom filter/menu controls | 1, 2 | executor | component tests, browser menu-open geometry screenshot, then native confirmation | unit + visual/browser + smoke/native | menu proof captured in dev server and debug app | green required |
+| CodeView scroll works | 3 | executor + visual reviewer | Vitest Browser Mode scroll test, Playwright large-fixture capture, then native confirmation | integration/browser + smoke/native | body/root must not be the scroll owner; selected visible code must change | red current behavior, green final |
+| Right rail scroll independent | 3, 4 | executor + visual reviewer | Vitest Browser Mode rail virtualized-scroll test, Playwright rail scroll proof, then native confirmation | integration/browser + smoke/native | Trees virtualized-scroll surface exists and body/page do not drift; browser proof covers visible row changes | green required |
 | FileTree dense and fast | 4 | executor | browser behavior tests + benchmark | integration/browser + benchmark | fixture includes thousands of paths and prepared/presorted input | green required |
-| CodeView custom headers and added-file content | 5 | executor | CodeView option/header/materialization tests + screenshot | unit + smoke/manual | prove hook is passed to CodeView and added selected file hydrates full content | green required |
-| Markdown preview for selected docs | 6 | executor | markdown unit tests, Browser Mode markdown integration, and screenshot | unit + integration/browser + smoke/manual | fixture uses real selected markdown content and non-null markdown worker/client path | red/green required |
+| CodeView custom headers and added-file content | 5 | executor | CodeView option/header/materialization tests, browser added-file screenshot, then native confirmation | unit + integration/browser + smoke/native | prove hook is passed to CodeView and added selected file hydrates full content | green required |
+| Markdown preview for selected docs | 6 | executor | markdown unit tests, Browser Mode markdown integration, browser screenshot, then native confirmation | unit + integration/browser + smoke/native | fixture uses real selected markdown content and non-null markdown worker/client path | red/green required |
 | Markdown security policy | 6 | executor + security reviewer | DOMPurify sink plus unsafe HTML/link/image/resource URL tests | unit/security | raw HTML disabled; sanitized DOM insertion; no remote image load | green required |
 | Worker separation | 6, 7 | executor | architecture tests and worker RPC tests | unit/integration | no Pierre worker reuse for markdown | green required |
 | Zustand discipline | 7 | executor | architecture import guard + store tests | unit/architecture | check real files, not convention docs only | green required |
@@ -1739,7 +1747,10 @@ Only require broad health if implementation touches Swift runtime, IPC, launch/d
 
 ## Next Workflow
 
-Run `shravan-dev-workflow:implementation-execute-plan` against this reviewed plan.
+Do not execute this companion plan directly. Execute
+`docs/plans/2026-06-18-bridgeweb-large-diff-fast-loop-remediation.md` and use
+this file as the DiffsHub/shadcn/Catppuccin UX acceptance contract during that
+execution.
 
 Expected execution focus:
 

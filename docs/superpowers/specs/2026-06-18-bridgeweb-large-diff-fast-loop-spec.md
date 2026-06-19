@@ -348,18 +348,20 @@ BridgeWeb's component implementation remains shadcn/Base UI.
     debug Bridge pane proves sanitized markdown rendering in the manual/WKWebView
     path. Browser, mock, or small-smoke proof can validate lower layers, but it
     cannot close the native markdown acceptance gate.
-21. The current branch/worktree is a required performance fixture:
+22. The current branch/worktree is a required performance fixture:
     `/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start`
     on branch `luna-338-pierreshikitrees-review-viewer`. It is not optional
     synthetic context because manual use on this branch observed slow
     selection, scroll, and render behavior. Mocked Node-PR-class fixtures remain
     necessary, but they are not sufficient for PR readiness.
-22. Native performance proof must include the real Bridge package/worktree path
+23. Native performance proof must include the real Bridge package/worktree path
     for the current branch and record stage timings for package push, tree
     render/search/reveal, file select, CodeView hydration/render, markdown
     render, and scroll responsiveness. A fast mocked fixture does not prove the
     slow real-worktree path.
-23. Before native large-performance proof, Bridge must expose a semantic IPC
+    PR 180 is the visual-parity baseline; Node PR 59805 is the
+    scale/performance baseline.
+24. Before native large-performance proof, Bridge must expose a semantic IPC
     control surface for the diff/file review capability. IPC drives product
     actions, not WebKit internals: it targets a Bridge pane/capability,
     validates permissions, and calls Bridge-owned ports. This IPC work is not a
@@ -384,7 +386,7 @@ BridgeWeb's component implementation remains shadcn/Base UI.
     stay Bridge-scoped and semantic. Avoid generic `webview.evaluateJavaScript`,
     raw event-bus command routing, or unscoped `diff.*` globals that could
     collide with future non-Bridge surfaces.
-24. Observability is a product proof gate. Browser and native large-diff proof
+25. Observability is a product proof gate. Browser and native large-diff proof
     must emit or query Victoria-backed telemetry for package push, tree
     projection/render/search/reveal, file selection, CodeView hydration/render,
     markdown render, content fetch, worker readiness, and scroll/interaction

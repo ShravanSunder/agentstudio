@@ -227,7 +227,12 @@ use Vitest Browser Mode + Playwright as the first behavior/performance proof
 layer, fix the reproduced scrolling/click/header/content problems, then prove
 the same behavior in the real AgentStudio debug Bridge pane.
 
-The live visual/performance reference for this plan is DiffsHub rendering Node
+The live visual baseline for this plan is DiffsHub rendering the AgentStudio PR
+180 shape:
+
+- `https://diffshub.com/ShravanSunder/agentstudio/pull/180`
+
+The live scale/performance reference for this plan is DiffsHub rendering Node
 PR 59805:
 
 - `https://diffshub.com/nodejs/node/pull/59805`
@@ -346,7 +351,7 @@ Loaded and checked:
   has 356 lines, read in full.
 - Existing DiffsHub polish plan:
   `docs/plans/2026-06-16-bridge-viewer-diffshub-polish.md`
-  has 1,525 lines, read in full.
+  was re-read in full after the 2026-06-19 reset amendments.
 - Current BridgeWeb evidence:
   `package.json`, `vite.config.ts`, `index.html`, `bridge-app-bootstrap.tsx`,
   `bridge-app.tsx`, `vitest.browser.config.ts`,
@@ -399,9 +404,11 @@ Important current-state facts:
 | Added files show full fetched content | 2, 5 | executor | Browser click test and materialization unit test | unit + browser | content must arrive through handle fetch ledger | red/green required |
 | Large-fixture file clicks are responsive and stable | 3 | executor | large browser performance scenario and interaction test | browser + performance | row uses `fixtureClass: large-diffshub`, visible selected text changes, mark-viewed command captured, no snapback | red/green required |
 | Large search/reveal/select is stage-proven | 3 | executor | targeted Browser Mode or Playwright stage artifact | browser + performance | stages record search settle, row click, selected row state, selected item/store state, CodeView header/path, content hydration, and scroll movement | red/green required |
+| Large projection/search/filter stays off main thread | 3, 4, 7, 8 | executor | browser artifacts and native Victoria telemetry | browser/performance + native/observability | large search, reveal, select, projection-chip, and filter scenarios record `projectionExecutionLane=worker` or equivalent; product-runtime sync fallback is allowed only for tiny fixtures or unit-test-only seams and cannot satisfy PR readiness | red/green required |
 | Selected deep paths reveal collapsed ancestors | 3, 4 | executor | FileTree controller unit test and large browser proof | unit + browser | selected path expands ancestor directories before `scrollToPath`; no hidden-path no-op | red/green required |
 | Large-fixture CodeView scroll works | 4 | executor | large browser scroll test plus screenshot | browser + visual | row uses `fixtureClass: large-diffshub`; body/document/shell root scroll remain stable | red/green required |
 | Large-fixture right rail scroll works independently | 4 | executor | large Browser rail scroll test plus screenshot | browser + visual | tree visible row window changes without CodeView drift | red/green required |
+| File click and collapse preserve header geometry | 3, 4, 5, 8 | executor | Playwright top-offset assertions plus native stage proof | visual/browser + native | rail click aligns the target file header to the top/sticky threshold; mid-viewport collapse/expand preserves the header top within a small tolerance while content below moves; pinned-header collapse remains pinned | red/green required |
 | Header/chrome matches target grammar | 5 | executor + reviewer | structural tests and screenshot | unit + visual | no native selects; compact custom controls visible | red/green required |
 | Filter popover matches DiffsHub/AgentStudio grammar | 5 | executor + visual reviewer | screenshot with menu open plus component/browser assertions and bbox probe | unit + visual/browser | open popover shows raised surface, separators, status badges, selected checkmarks, clear affordance, no tiny native-looking dropdown pills, `aria-haspopup="menu"`, toggled `aria-expanded`, `menuitemcheckbox` or equivalent checked state, and measured width/row/badge/checkmark geometry close to DiffsHub | red/green required |
 | Rail rows match DiffsHub density and icon discipline | 5 | executor + visual reviewer | screenshot crop plus browser row assertions | visual/browser | compact 24px-ish rows, 13px-ish text, pointer/no text-selection behavior, consistent icons, right-aligned status, selected row contrast, proportionate disclosure controls, and real Pierre tree disclosure/search/selection state | red/green required |
@@ -414,6 +421,7 @@ Important current-state facts:
 | Failure/unavailable UI remains proven | 7, 8 | executor | Browser scenario and screenshot/state capture | browser + native | content failure cannot be optimized away or counted as optional | red/green required |
 | Streaming append and stale-drop remain proven | 1, 7 | executor | benchmark rows and hold/release browser tests | browser + performance | current `medium-streaming-append-delta` and `stale-generation-drop` scenario contract is preserved | red/green required |
 | Browser performance rows are durable and verified | 7 | executor | `test:benchmark:browser` artifact verifier | performance | current runner `requiredScenarioIds` is the floor; recompute p50/p95 from raw samples | red/green required |
+| Large select and scroll rows are mandatory floor scenarios | 3, 4, 7, 8 | executor | benchmark runner contract and verifier | performance/browser + native/performance | required scenario floor includes large-fixture semantic select, large CodeView scroll ownership, and large rail scroll ownership rows with `fixtureClass: large-diffshub`; native proof records comparable real-worktree stages | red/green required |
 | Semantic Bridge IPC drives native proof | 8 | executor | IPC integration tests and debug IPC transcript | integration/native | Bridge-scoped `bridge.diff.*`, `bridge.fileTree.*`, `bridge.fileView.*`, and `bridge.telemetry.*` commands drive product ports, not command palette UI or raw WebKit evaluation | red/green required |
 | Victoria Stack is performance source of truth | 8 | executor | Victoria metrics/traces/log query artifact | native/performance/observability | native proof correlates IPC actions and screenshots with debug-scoped Bridge/Pierre telemetry for package push, tree render/search/reveal, file select, content fetch, CodeView hydration/render, markdown render, worker readiness, and scroll responsiveness | green required |
 | Current real worktree performance is stage-proven | 8 | executor | real AgentStudio debug pane stage artifact | native/performance | uses `/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start` on `luna-338-pierreshikitrees-review-viewer`; records package push, tree render/search/reveal, file select, CodeView hydration/render, markdown render, and scroll responsiveness timings | green required |
@@ -459,7 +467,7 @@ Proof:
 
 Write surfaces:
 
-- `tmp/workflow-state/2026-06-18-bridgeweb-large-diff-ux-proof/details.md`
+- `tmp/workflow-state/2026-06-19-bridgeweb-diffshub-shadcn-reset/details.md`
 - `tmp/bridge-viewer-visual-proof/<timestamp>/implementation-inventory.md`
 
 Implementation:
@@ -992,6 +1000,15 @@ Implementation:
 - Add large-specific selection/scroll scenario rows required by Tasks 3 and 4.
   These may be new scenario ids or explicit large-fixture variants, but the
   artifact must clearly show `fixtureClass: 'large-diffshub'`.
+- The mandatory floor must include large-fixture semantic select, large
+  CodeView scroll ownership, and large rail scroll ownership rows, for example
+  `large-semantic-select`, `large-scroll-ownership`, and
+  `large-rail-scroll`. Renaming is allowed only if the verifier still proves
+  those three capabilities by fixture class and correctness ledger.
+- Large projection, search, reveal, select, and filter benchmark rows must
+  record whether the projection work ran on the worker lane. A synchronous
+  product-runtime fallback is a failing PR-readiness signal unless the scenario
+  is explicitly a tiny-fixture/unit-only case.
 - If any existing required scenario is intentionally removed, the plan must be
   revised again with the removal named, justified, and covered by compensating
   proof. Do not silently shrink the scenario contract.
@@ -1033,6 +1050,16 @@ Implementation:
   - `bridge.fileTree.*` for search, filter, reveal, and tree state
   - `bridge.fileView.*` for content fetch and markdown-preview requests
   - `bridge.telemetry.*` for debug snapshot/flush of Bridge/Pierre telemetry
+- Required command groups before native repeatable proof are at least:
+  `bridge.diff.load`, `bridge.diff.refresh`, `bridge.diff.getPackage`,
+  `bridge.diff.selectFile`, `bridge.diff.scrollToFile`,
+  `bridge.diff.expandFile`, `bridge.diff.collapseFile`,
+  `bridge.fileTree.search`, `bridge.fileTree.setFilter`,
+  `bridge.fileTree.revealPath`, `bridge.fileView.getContent`,
+  `bridge.fileView.showMarkdownPreview`, `bridge.telemetry.snapshot`, and
+  `bridge.telemetry.flush`. Exact names may be refined during implementation,
+  but the native proof must still cover these semantic capabilities without
+  command palette UI, raw WebKit evaluation, or event-bus command routing.
 - IPC must route through AgentStudio IPC target resolution to a Bridge pane or
   Bridge capability port. It must not open command palette UI, publish
   command-events on the event bus, expose raw WebKit evaluation, or bypass
@@ -1145,12 +1172,16 @@ mise run test
 - Generated BridgeWeb assets should be regenerated from source, not edited by
   hand.
 
-## Current Checkpoint: 2026-06-19 Dev-Server Proof
+## Historical Partial Checkpoint: 2026-06-19 Dev-Server Proof
 
-The inner browser loop is active on `http://127.0.0.1:5173/` and currently
-proves both a large DiffsHub-style fixture and the real worktree fixture.
+This checkpoint records useful evidence from an earlier browser-loop pass, but
+it is not accepted DiffsHub-class proof after the 2026-06-19 reset. Treat these
+values as regression context only. The current gate is the proof matrix above:
+real-worktree dev-server behavior, DiffsHub side-by-side visual comparison,
+geometry assertions, markdown rendering, added-file full content, no-jump
+collapse, file-click-to-top alignment, and shadcn/Catppuccin visual parity.
 
-Fresh green proof:
+Historical commands from that partial checkpoint:
 
 ```bash
 pnpm --dir BridgeWeb run fmt
@@ -1161,7 +1192,7 @@ pnpm --dir BridgeWeb run test:dev-server:worktree
 pnpm --dir BridgeWeb run proof:visual:dev-server
 ```
 
-Observed proof values:
+Observed historical proof values:
 
 - Large fixture: `codeViewScrollHeight = 1153975`,
   `codeViewScrollTop = 1000143`, worker pool ready, markdown fixture reachable,
@@ -1210,6 +1241,7 @@ swift test --filter AgentStudioIPCClientCoreTests
 
 ## Next Workflow
 
-Execute with `shravan-dev-workflow:implementation-execute-plan`. Plan review
-findings were accepted and addressed in
-`tmp/workflow-state/2026-06-18-bridgeweb-large-diff-ux-proof/plan-review-report.md`.
+Run `shravan-dev-workflow:plan-review-swarm` against this reset, then execute
+with `shravan-dev-workflow:implementation-execute-plan` only after accepted
+plan-review findings are addressed. Current reset state lives under
+`tmp/workflow-state/2026-06-19-bridgeweb-diffshub-shadcn-reset/`.
