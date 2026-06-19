@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, type CSSProperties, type ReactElement } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
@@ -83,7 +83,7 @@ vi.mock('@pierre/trees/react', () => ({
 	},
 }));
 
-let mountedRoot: Root | null = null;
+let mountedRoot: ReturnType<typeof createRoot> | null = null;
 
 describe('BridgeReviewTreesPanel', () => {
 	afterEach(() => {

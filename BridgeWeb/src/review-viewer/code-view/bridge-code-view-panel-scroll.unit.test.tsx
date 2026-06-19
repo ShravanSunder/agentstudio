@@ -3,7 +3,7 @@
 import type { CodeViewItem, CodeViewOptions, CodeViewScrollTarget } from '@pierre/diffs';
 import type { ReactElement, ReactNode } from 'react';
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
@@ -63,7 +63,7 @@ vi.mock('@pierre/diffs/react', async () => {
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe('BridgeCodeViewPanel initial selection scroll', () => {
-	let mountedRoot: Root | null = null;
+	let mountedRoot: ReturnType<typeof createRoot> | null = null;
 
 	beforeEach(() => {
 		vi.clearAllMocks();

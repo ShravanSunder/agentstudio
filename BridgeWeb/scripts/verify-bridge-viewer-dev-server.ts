@@ -10,6 +10,8 @@ const targetMarkdownPath = 'docs/plans/bridge-viewer-browser.md';
 const targetMarkdownHeading = 'Browser fixture';
 
 interface DevServerVerificationResult {
+	readonly codeViewScrollHeight: number;
+	readonly codeViewScrollTop: number;
 	readonly codeViewVisibleText: string;
 	readonly selectedHeaderCollapseButtonState: HeaderCollapseButtonState | null;
 	readonly selectedContentState: string | null;
@@ -39,6 +41,8 @@ try {
 			{
 				ok: true,
 				devServerUrl,
+				codeViewScrollHeight: result.codeViewScrollHeight,
+				codeViewScrollTop: result.codeViewScrollTop,
 				markdownDevServerUrl,
 				markdownDisplayPath: markdownResult.displayPath,
 				selectedDisplayPath: result.selectedDisplayPath,
@@ -57,6 +61,7 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 	try {
 		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
 		await page.waitForTimeout(1_200);
+		const initialResult = await readVerificationResult(page);
 		await searchForAddedFile(page);
 		await clickFileTreePath(page, targetAddedPath);
 		await page.waitForTimeout(1_500);
@@ -87,6 +92,7 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 				].join('\n'),
 			);
 		}
+		assertCodeViewScrolledToSelectedItem({ initialResult, result });
 		await assertSelectedHeaderCollapseRoundTrip(page);
 		return result;
 	} finally {
@@ -167,6 +173,33 @@ function assertSelectedHeaderCollapseButton(result: DevServerVerificationResult)
 	if (collapseButtonState.height < 18 || collapseButtonState.height > 32) {
 		throw new Error(
 			`Expected selected CodeView header collapse button compact height, got ${collapseButtonState.height}`,
+		);
+	}
+}
+
+function assertCodeViewScrolledToSelectedItem(props: {
+	readonly initialResult: DevServerVerificationResult;
+	readonly result: DevServerVerificationResult;
+}): void {
+	if (props.initialResult.selectedDisplayPath === props.result.selectedDisplayPath) {
+		throw new Error(
+			`Expected dev verifier to switch selected files before scroll proof, stayed on ${
+				props.result.selectedDisplayPath ?? 'null'
+			}`,
+		);
+	}
+	if (props.result.codeViewScrollHeight <= 0) {
+		throw new Error('Expected CodeView scroll owner to report nonzero scroll height');
+	}
+	if (props.result.codeViewScrollTop <= props.initialResult.codeViewScrollTop) {
+		throw new Error(
+			[
+				'Expected file rail click to scroll the single CodeView list to the selected item.',
+				`Initial selected path: ${props.initialResult.selectedDisplayPath ?? 'null'}`,
+				`Final selected path: ${props.result.selectedDisplayPath ?? 'null'}`,
+				`Initial scrollTop: ${props.initialResult.codeViewScrollTop}`,
+				`Final scrollTop: ${props.result.codeViewScrollTop}`,
+			].join('\n'),
 		);
 	}
 }
@@ -362,6 +395,9 @@ async function readVerificationResult(page: Page): Promise<DevServerVerification
 			})
 			.join(' ');
 		return {
+			codeViewScrollHeight:
+				codeScrollOwner instanceof HTMLElement ? codeScrollOwner.scrollHeight : 0,
+			codeViewScrollTop: codeScrollOwner instanceof HTMLElement ? codeScrollOwner.scrollTop : 0,
 			codeViewVisibleText: [
 				codeScrollOwner instanceof HTMLElement ? (codeScrollOwner.textContent ?? '') : '',
 				shadowText,

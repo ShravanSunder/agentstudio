@@ -2,7 +2,7 @@
 
 import type { WorkerInitializationRenderOptions, WorkerPoolOptions } from '@pierre/diffs/react';
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, expectTypeOf, test, vi } from 'vitest';
 
 import { bridgePierreDarkThemeName } from '../../code-view/bridge-code-view-theme.js';
@@ -20,7 +20,7 @@ import {
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-let mountedRoot: Root | null = null;
+let mountedRoot: ReturnType<typeof createRoot> | null = null;
 
 describe('Bridge Pierre worker pool', () => {
 	afterEach(() => {

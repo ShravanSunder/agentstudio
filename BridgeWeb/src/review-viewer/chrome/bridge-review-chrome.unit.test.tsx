@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import { BridgeReviewFilterMenu } from './bridge-review-filter-menu.js';
@@ -10,7 +10,7 @@ import { BridgeReviewSearchControl } from './bridge-review-search-control.js';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe('Bridge review chrome controls', () => {
-	let mountedRoot: Root | null = null;
+	let mountedRoot: ReturnType<typeof createRoot> | null = null;
 
 	afterEach(() => {
 		if (mountedRoot !== null) {

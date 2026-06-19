@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import {
@@ -36,7 +36,7 @@ import { BridgeApp } from './bridge-app.js';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe('BridgeApp', () => {
-	let mountedRoot: Root | null = null;
+	let mountedRoot: ReturnType<typeof createRoot> | null = null;
 
 	beforeEach(() => {
 		installCodeViewDomAPIs();
