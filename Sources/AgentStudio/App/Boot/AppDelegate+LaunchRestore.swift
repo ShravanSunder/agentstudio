@@ -22,7 +22,7 @@ extension AppDelegate {
         RestoreTrace.log(
             "launchRestore triggered source=\(source) bounds=\(NSStringFromRect(restoreBounds)) windowFrame=\(NSStringFromRect(mainWindowController?.window?.frame ?? .zero)) contentRect=\(NSStringFromRect(mainWindowController?.window?.contentLayoutRect ?? .zero))"
         )
-        await paneCoordinator.restoreAllViews(in: restoreBounds)
+        await workspaceSurfaceCoordinator.restoreAllViews(in: restoreBounds)
         mainWindowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
         launchRestoreObservationState.complete()
         RestoreTrace.log("launchRestore end registeredViews=\(viewRegistry.registeredPaneIds.count)")

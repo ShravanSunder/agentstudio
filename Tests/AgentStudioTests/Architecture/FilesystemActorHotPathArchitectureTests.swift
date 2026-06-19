@@ -77,7 +77,7 @@ struct FilesystemActorHotPathArchitectureTests {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let coordinatorSource = try String(
             contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/App/Coordination/PaneCoordinator+FilesystemSource.swift"
+                path: "Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift"
             ),
             encoding: .utf8
         )

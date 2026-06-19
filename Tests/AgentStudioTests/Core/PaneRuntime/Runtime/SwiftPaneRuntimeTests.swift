@@ -230,7 +230,7 @@ struct SwiftPaneRuntimeTests {
 
     private func makeEnvelope(
         commandId: UUID = UUID(),
-        command: RuntimeCommand,
+        command: PaneRuntimeCommand,
         paneId: PaneId
     ) -> RuntimeCommandEnvelope {
         RuntimeCommandEnvelope(

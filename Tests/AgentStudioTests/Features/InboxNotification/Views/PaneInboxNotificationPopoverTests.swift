@@ -233,8 +233,8 @@ struct PaneInboxNotificationPopoverTests {
 
         try await withIsolatedCommandDispatcher(
             configure: {
-                CommandDispatcher.shared.handler = commandHandler
-                CommandDispatcher.shared.appCommandRouter = nil
+                AppCommandDispatcher.shared.handler = commandHandler
+                AppCommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
                 try withTestAtomRegistry { _ in
@@ -298,8 +298,8 @@ struct PaneInboxNotificationPopoverTests {
 
         try await withIsolatedCommandDispatcher(
             configure: {
-                CommandDispatcher.shared.handler = commandHandler
-                CommandDispatcher.shared.appCommandRouter = nil
+                AppCommandDispatcher.shared.handler = commandHandler
+                AppCommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
                 try withTestAtomRegistry { _ in

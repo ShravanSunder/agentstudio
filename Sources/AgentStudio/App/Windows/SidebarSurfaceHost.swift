@@ -81,7 +81,7 @@ struct SidebarSurfaceHost: View {
     static func showNotifications(
         for worktree: Worktree,
         inboxSidebarState: InboxSidebarState,
-        dispatcher: CommandDispatcher
+        dispatcher: AppCommandDispatcher
     ) {
         inboxSidebarState.setPendingFilter(.worktree(id: worktree.id))
         inboxSidebarState.setPendingDisplayOverride(

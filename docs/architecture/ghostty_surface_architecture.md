@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (singleton) **owns** all surfaces. `TerminalPaneMountView` only **displays** them, and it does so from inside a stable `PaneHostView`. `PaneCoordinator` is the sole intermediary — views and the model layer never call `SurfaceManager` directly. Surfaces live in exactly one of three collections (active, hidden, undoStack), with dual-layer health monitoring and crash isolation per terminal.
+Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (singleton) **owns** all surfaces. `TerminalPaneMountView` only **displays** them, and it does so from inside a stable `PaneHostView`. `WorkspaceSurfaceCoordinator` is the sole intermediary — views and the model layer never call `SurfaceManager` directly. Surfaces live in exactly one of three collections (active, hidden, undoStack), with dual-layer health monitoring and crash isolation per terminal.
 
 ---
 
@@ -11,7 +11,7 @@ Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (
 The key architectural decision is **separation of ownership from display**:
 - `SurfaceManager` **owns** all surfaces (creation, lifecycle, destruction)
 - `TerminalPaneMountView` containers only **display** surfaces
-- `PaneCoordinator` is the sole intermediary for surface/runtime lifecycle
+- `WorkspaceSurfaceCoordinator` is the sole intermediary for surface/runtime lifecycle
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -31,7 +31,7 @@ The key architectural decision is **separation of ownership from display**:
                               │
                     attach() / detach()
                               │
-                    (via PaneCoordinator)
+                    (via WorkspaceSurfaceCoordinator)
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -94,14 +94,14 @@ stateDiagram-v2
 
 ## Tab Close → Undo Flow
 
-The close/undo flow is coordinated through `PaneCoordinator` → `SurfaceManager`. Views never call `SurfaceManager` directly.
+The close/undo flow is coordinated through `WorkspaceSurfaceCoordinator` → `SurfaceManager`. Views never call `SurfaceManager` directly.
 
 ```
 User closes tab
        │
        ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ PaneCoordinator.executeCloseTab(tabId)                        │
+│ WorkspaceSurfaceCoordinator.executeCloseTab(tabId)                        │
 │   ├─► store.snapshotForClose() → TabCloseSnapshot            │
 │   ├─► Push to undo stack (max 10 entries)                    │
 │   │                                                          │
@@ -122,7 +122,7 @@ User presses Cmd+Shift+T
        │
        ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ PaneCoordinator.undoCloseTab()                                │
+│ WorkspaceSurfaceCoordinator.undoCloseTab()                                │
 │   ├─► Pop CloseEntry from undo stack                        │
 │   ├─► store.restoreFromSnapshot() → re-insert tab            │
 │   │                                                          │
@@ -182,7 +182,7 @@ That differs from Ghostty.app only in product choices such as Agent Studio's alw
 
 When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage pipeline.
 
-> **Current state:** Surface-local CWD changes already use the modern host-side path: callback router → `SurfaceView` closure callback → `SurfaceManager.surfaceCWDChanges` `AsyncStream` → `PaneCoordinator` → `WorkspaceStore`.
+> **Current state:** Surface-local CWD changes already use the modern host-side path: callback router → `SurfaceView` closure callback → `SurfaceManager.surfaceCWDChanges` `AsyncStream` → `WorkspaceSurfaceCoordinator` → `WorkspaceStore`.
 >
 > **Future routing target (LUNA-325):** This can still collapse further into `GhosttyAdapter` → `GhosttyEvent.cwdChanged` → `TerminalRuntime` → `PaneEventEnvelope` when the remaining runtime event expansion lands.
 
@@ -206,7 +206,7 @@ Terminal shell (cd /foo)
     │ SurfaceMetadata.workingDirectory = url
     │ AsyncStream yield SurfaceCWDChangeEvent(surfaceId, paneId, cwd)
     ▼
-④ PaneCoordinator                          [App/Coordination/PaneCoordinator.swift]
+④ WorkspaceSurfaceCoordinator                          [App/Coordination/WorkspaceSurfaceCoordinator.swift]
     │ for await event in surfaceManager.surfaceCWDChanges
     │ store.updatePaneCWD(paneId, url)
     ▼

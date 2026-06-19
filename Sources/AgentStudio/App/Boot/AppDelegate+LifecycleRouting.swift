@@ -78,15 +78,15 @@ extension AppDelegate {
         let watchedPaths = store.repositoryTopologyAtom.watchedPaths
         guard !watchedPaths.isEmpty else { return }
         _ = await watchedFolderCommands.refreshWatchedFolders(watchedPaths.map(\.path))
-        paneCoordinator.syncFilesystemRootsAndActivity()
+        workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
     }
 
     @objc func showCommandBarRepos() {
-        CommandDispatcher.shared.dispatch(.showCommandBarRepos)
+        AppCommandDispatcher.shared.dispatch(.showCommandBarRepos)
     }
 
     func showRepoCommandBar() {
-        CommandDispatcher.shared.dispatch(.showCommandBarRepos)
+        AppCommandDispatcher.shared.dispatch(.showCommandBarRepos)
     }
 
     func refreshWorktrees() {

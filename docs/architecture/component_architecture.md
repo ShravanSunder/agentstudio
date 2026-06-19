@@ -45,7 +45,7 @@ Configuration injection pattern: prefer constructor injection with defaults over
 │  │ Tab owners   │            │                       │               │
 │  └──────┬───────┘            │                       │               │
 │         │            ┌───────┴───────────────────────┴────────┐      │
-│         │            │      PaneCoordinator                   │      │
+│         │            │      WorkspaceSurfaceCoordinator                   │      │
 │         │            │   (sole bridge: model ↔ view ↔ surface) │      │
 │         │            └───────────────────┬────────────────────┘      │
 │         │                                │                           │
@@ -176,7 +176,7 @@ The **primary entity** in the window system. Stable identity for any content typ
 
 `launchDirectory` is cold-spawn metadata, not pane/worktree ownership.
 `facets` are the live pane location and grouping identity; they follow cwd via
-`PaneCoordinator` updates from runtime and surface cwd events. Command-bar
+`WorkspaceSurfaceCoordinator` updates from runtime and surface cwd events. Command-bar
 classification, dynamic views, and `RuntimeRegistry.findPaneWithWorktree` read
 live facets rather than any creation-time binding. Main-pane notes live alongside
 metadata so minimized labels, persistence, and `$` pane search read the same
@@ -337,15 +337,15 @@ AppDelegate (creates all services in dependency order)
 ├── ManagementLayerMonitor         ← management layer state tracking
 ├── SessionRuntime                ← backend status tracking (zmx health)
 ├── ViewRegistry                  ← paneId → PaneViewSlot mapping
-├── PaneCoordinator               ← action dispatch + model↔view↔surface orchestration
-│   ├── +ActionExecution          ← execute(PaneActionCommand), view creation, undo close/restore
+├── WorkspaceSurfaceCoordinator               ← action dispatch + model↔view↔surface orchestration
+│   ├── +ActionExecution          ← execute(WorkspaceActionCommand), view creation, undo close/restore
 │   ├── +ViewLifecycle            ← createViewForContent, teardownView, restoreAllViews
 │   ├── +TerminalPlaceholders     ← deferred view creation, placeholder management
 │   ├── +RuntimeDispatch          ← dispatchRuntimeCommand to RuntimeRegistry
 │   ├── +FilesystemSource         ← filesystem root sync, worktree activity tracking
 │   └── +Undo                     ← undoCloseTab, undo stack management
 ├── WorkspaceCacheCoordinator     ← event bus consumer, updates stores
-├── ActionExecutor                ← bridges CommandDispatcher to PaneCoordinator
+├── WorkspaceActionExecutor                ← bridges AppCommandDispatcher to WorkspaceSurfaceCoordinator
 ├── TabBarAdapter                 ← derived display state
 ├── CommandBarPanelController     ← command bar lifecycle (⌘P)
 │     init(store:, repoCache: RepoCacheAtom, dispatcher:)
@@ -363,16 +363,16 @@ Boot sequence (App/Boot/WorkspaceBootSequence.swift):
 
 Core/RuntimeEventSystem/ (shared pane-runtime domain):
 ├── PaneRuntime protocol     ← per-pane runtime contract
-├── RuntimeRegistry          ← paneId → runtime lookup (owned by PaneCoordinator)
+├── RuntimeRegistry          ← paneId → runtime lookup (owned by WorkspaceSurfaceCoordinator)
 ├── NotificationReducer      ← priority-aware event delivery
 ├── EventReplayBuffer        ← bounded replay for late-joining consumers
 ├── PaneRuntimeEvent         ← typed event vocabulary (GhosttyEvent, BrowserEvent, etc.)
-└── RuntimeCommand           ← typed command vocabulary (TerminalCommand, BrowserCommand, etc.)
+└── PaneRuntimeCommand           ← typed command vocabulary (TerminalCommand, BrowserCommand, etc.)
 
 Singletons:
 ├── SurfaceManager.shared    ← Ghostty surface lifecycle
 ├── GhosttyAdapter.shared    ← C FFI boundary, routes to per-pane TerminalRuntime
-├── CommandDispatcher.shared ← command definitions + dispatch
+├── AppCommandDispatcher.shared ← command definitions + dispatch
 ├── WorktrunkService.shared  ← git worktree CLI
 └── Ghostty.shared           ← Ghostty C API wrapper
 ```
@@ -419,7 +419,7 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 - `WorkspaceLegacySQLiteImporter` — Owns only legacy `workspace.state.json` import policy: scanning, corrupt-file quarantine, pending-status filtering, retry behavior, and active-workspace selection for first boot or incomplete initial import. It returns `WorkspaceLegacySQLiteImportOutcome` instead of booleans so every caller handles `noLegacyFiles`, `noPendingFilesKeepingSelection`, `importedInitialActive`, `retriedWithoutSelectionChange`, `failedButImportedSome`, and `failedNoUsableImport` explicitly.
 - `flush()` — Cancel pending debounce, persist immediately
 - `observePersistedState()` — Uses `withObservationTracking` on persisted fields across all atoms; triggers debounced save on change
-- `prePersistHook` — Called before each persist (used by `PaneCoordinator` to sync webview states)
+- `prePersistHook` — Called before each persist (used by `WorkspaceSurfaceCoordinator` to sync webview states)
 
 > **File:** `Core/State/MainActor/Persistence/WorkspaceStore.swift`
 
@@ -478,12 +478,12 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
 
 > **Files:** `App/Panes/ViewRegistry.swift`, `Core/Views/Panes/SplitContainerDropCaptureOverlay.swift`
 
-### 3.6 PaneCoordinator
+### 3.6 WorkspaceSurfaceCoordinator
 
-The `PaneCoordinator` is the canonical orchestration boundary for action execution and model↔view↔surface coordination. It owns no domain state and performs only sequencing.
+The `WorkspaceSurfaceCoordinator` is the canonical orchestration boundary for action execution and model↔view↔surface coordination. It owns no domain state and performs only sequencing.
 
 - Coordinates `WorkspaceStore`, `SessionRuntime`, `SurfaceManager`, and `ViewRegistry`.
-- Owns the `RuntimeRegistry`, subscribes to the `EventBus`, feeds the `NotificationReducer`, and dispatches `RuntimeCommand`s to individual runtimes.
+- Owns the `RuntimeRegistry`, subscribes to the `EventBus`, feeds the `NotificationReducer`, and dispatches `PaneRuntimeCommand`s to individual runtimes.
 - Applies action intent through command validation and mutation APIs.
 - Manages undo sequencing with deterministic restore/reattach behavior.
 - Conforms to `TopologyEffectHandler` for orphan pane detection and filesystem root sync after topology changes.
@@ -492,19 +492,19 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 
 | Extension | File | Role |
 |-----------|------|------|
-| `+ActionExecution` | `PaneCoordinator+ActionExecution.swift` | `execute(PaneActionCommand)`, view creation helpers, undo close/restore, terminal tab creation |
-| `+ViewLifecycle` | `PaneCoordinator+ViewLifecycle.swift` | `createViewForContent`, `createView(for:worktree:repo:)`, `teardownView`, `restoreAllViews`, `restoreViewsForActiveTabIfNeeded` |
-| `+TerminalPlaceholders` | `PaneCoordinator+TerminalPlaceholders.swift` | Deferred view creation using current geometry, placeholder registration for zmx panes awaiting bounds |
-| `+RuntimeDispatch` | `PaneCoordinator+RuntimeDispatch.swift` | `dispatchRuntimeCommand` to `RuntimeRegistry` with target resolution |
-| `+FilesystemSource` | `PaneCoordinator+FilesystemSource.swift` | Filesystem root sync, worktree activity tracking, `FilesystemGitPipeline` registration |
-| `+Undo` | `PaneCoordinator+Undo.swift` | `undoCloseTab()`, undo stack management, pane/tab close snapshot restore |
+| `+ActionExecution` | `WorkspaceSurfaceCoordinator+ActionExecution.swift` | `execute(WorkspaceActionCommand)`, view creation helpers, undo close/restore, terminal tab creation |
+| `+ViewLifecycle` | `WorkspaceSurfaceCoordinator+ViewLifecycle.swift` | `createViewForContent`, `createView(for:worktree:repo:)`, `teardownView`, `restoreAllViews`, `restoreViewsForActiveTabIfNeeded` |
+| `+TerminalPlaceholders` | `WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift` | Deferred view creation using current geometry, placeholder registration for zmx panes awaiting bounds |
+| `+RuntimeDispatch` | `WorkspaceSurfaceCoordinator+RuntimeDispatch.swift` | `dispatchRuntimeCommand` to `RuntimeRegistry` with target resolution |
+| `+FilesystemSource` | `WorkspaceSurfaceCoordinator+FilesystemSource.swift` | Filesystem root sync, worktree activity tracking, `FilesystemGitPipeline` registration |
+| `+Undo` | `WorkspaceSurfaceCoordinator+Undo.swift` | `undoCloseTab()`, undo stack management, pane/tab close snapshot restore |
 
 **Two action layers flow through the coordinator:**
-- **Workspace actions** (`PaneActionCommand` from `Core/Actions/`): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `WorkspaceCommandResolver`, validated by `WorkspaceCommandValidator`, executed against `WorkspaceStore`.
-- **Runtime commands** (`RuntimeCommand` from `Core/RuntimeEventSystem/Contracts/`): commands to individual runtimes (sendInput, navigate, requestAgentReview, etc.) → dispatched via `RuntimeRegistry.runtime(for:).handleCommand(envelope)`.
+- **Workspace actions** (`WorkspaceActionCommand` from `Core/Actions/`): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `WorkspaceCommandResolver`, validated by `WorkspaceCommandValidator`, executed against `WorkspaceStore`.
+- **Runtime commands** (`PaneRuntimeCommand` from `Core/RuntimeEventSystem/Contracts/`): commands to individual runtimes (sendInput, navigate, requestAgentReview, etc.) → dispatched via `RuntimeRegistry.runtime(for:).handleCommand(envelope)`.
 
 **Key operations:**
-- `execute(_ action: PaneActionCommand)` — dispatch workspace actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, arrangements, drawers, repair)
+- `execute(_ action: WorkspaceActionCommand)` — dispatch workspace actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, arrangements, drawers, repair)
 - `openTerminal(for:in:)` — Focus existing worktree tab or create pane + surface + tab
 - `openNewTerminal(for:in:)` — Always create a fresh pane + tab (never navigate to existing)
 - `openWorktreeInPane(for:in:)` — Open worktree as a split pane in the active tab
@@ -524,9 +524,9 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 - `.pane(PaneCloseSnapshot)` captures: `pane`, `drawerChildPanes`, `tabId`, `anchorPaneId`
 - Oldest entries GC'd when stack exceeds limit; orphaned panes cleaned up
 
-**Reentrant-safety invariant:** The coordinator has both synchronous mutation methods (e.g., `execute(_ action: PaneActionCommand)`) and an async `for await` event loop consuming from the EventBus. Since both are `@MainActor`, synchronous methods can interleave between event loop iterations — the `for await` yields at each iteration, and synchronous calls execute during the yield. This is correct and expected (same model as Python asyncio). The multiplexing rule guarantees safety: `@Observable` mutation happens synchronously on MainActor **before** `bus.post()`, so by the time the coordinator's event loop picks up an envelope, all store state is already consistent. The coordinator never sees an envelope whose corresponding `@Observable` state hasn't been applied yet. Frame-level interleaving between synchronous UI mutations and async event processing is expected and safe — UI sees updates immediately (synchronous `@Observable`), coordination consumers see complete envelopes within one frame (~16ms). This is not a race; it's the intended scheduling model.
+**Reentrant-safety invariant:** The coordinator has both synchronous mutation methods (e.g., `execute(_ action: WorkspaceActionCommand)`) and an async `for await` event loop consuming from the EventBus. Since both are `@MainActor`, synchronous methods can interleave between event loop iterations — the `for await` yields at each iteration, and synchronous calls execute during the yield. This is correct and expected (same model as Python asyncio). The multiplexing rule guarantees safety: `@Observable` mutation happens synchronously on MainActor **before** `bus.post()`, so by the time the coordinator's event loop picks up an envelope, all store state is already consistent. The coordinator never sees an envelope whose corresponding `@Observable` state hasn't been applied yet. Frame-level interleaving between synchronous UI mutations and async event processing is expected and safe — UI sees updates immediately (synchronous `@Observable`), coordination consumers see complete envelopes within one frame (~16ms). This is not a race; it's the intended scheduling model.
 
-> **Files:** `App/Coordination/PaneCoordinator.swift`, `App/Coordination/PaneCoordinator+ActionExecution.swift`, `App/Coordination/PaneCoordinator+ViewLifecycle.swift`, `App/Coordination/PaneCoordinator+TerminalPlaceholders.swift`, `App/Coordination/PaneCoordinator+RuntimeDispatch.swift`, `App/Coordination/PaneCoordinator+FilesystemSource.swift`, `App/Coordination/PaneCoordinator+Undo.swift`
+> **Files:** `App/Coordination/WorkspaceSurfaceCoordinator.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+ActionExecution.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+TerminalPlaceholders.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+RuntimeDispatch.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+FilesystemSource.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+Undo.swift`
 
 ### 3.7 TabBarAdapter
 
@@ -726,7 +726,7 @@ Git worktree management via the `wt` CLI tool. Singleton.
 
 Keyboard-driven search/command palette (⌘P) providing unified access to tabs, panes, commands, repos, and worktrees. Modeled after Linear's ⌘K.
 
-**`CommandBarPanelController`** — Owns the panel lifecycle and state. Created by `AppDelegate` with `init(store: WorkspaceStore, repoCache: RepoCacheAtom, dispatcher: CommandDispatcher)`. Manages show/dismiss/toggle behavior, backdrop overlay, and animations.
+**`CommandBarPanelController`** — Owns the panel lifecycle and state. Created by `AppDelegate` with `init(store: WorkspaceStore, repoCache: RepoCacheAtom, dispatcher: AppCommandDispatcher)`. Manages show/dismiss/toggle behavior, backdrop overlay, and animations.
 
 **`CommandBarState`** — `@Observable` state for the command bar. Manages:
 - `rawInput` with prefix parsing: `"> "` → commands scope, `"$ "` → panes scope, `"# "` → repos scope
@@ -744,7 +744,7 @@ Keyboard-driven search/command palette (⌘P) providing unified access to tabs, 
 | `.panes` | `$ ` | Panes grouped by parent tab, tabs as selectable items |
 | `.repos` | `# ` | Repos and worktrees for opening, with presence awareness |
 
-**`CommandBarDataSource`** — Builds `CommandBarItem` arrays from live app state, scope-filtered. Constructor params: `scope`, `store: WorkspaceStore`, `repoCache: RepoCacheAtom`, `dispatcher: CommandDispatcher`. Also builds `CommandBarLevel` targets for drill-in commands (e.g., "Close Tab..." → list of open tabs). Visibility is driven by `CommandSpec.visibleWhen` against `atom(\.workspaceFocusContext).currentFocus`, while enablement continues to flow through `CommandDispatcher.canDispatch`.
+**`CommandBarDataSource`** — Builds `CommandBarItem` arrays from live app state, scope-filtered. Constructor params: `scope`, `store: WorkspaceStore`, `repoCache: RepoCacheAtom`, `dispatcher: AppCommandDispatcher`. Also builds `CommandBarLevel` targets for drill-in commands (e.g., "Close Tab..." → list of open tabs). Visibility is driven by `AppCommandSpec.visibleWhen` against `atom(\.workspaceFocusContext).currentFocus`, while enablement continues to flow through `AppCommandDispatcher.canDispatch`.
 
 **`WorktreePresence`** — Value type capturing a worktree's open state in the workspace: `worktreeId`, `repoId`, `openPanes: [WorktreePaneLocation]`, computed `openState: WorktreeOpenState` (`.notOpen`, `.singlePane`, `.multiplePanes`). Used by the `.repos` scope and `.everything` worktree rows to show presence indicators and resolve context-aware actions.
 
@@ -764,7 +764,7 @@ Keyboard-driven search/command palette (⌘P) providing unified access to tabs, 
 **Key design decisions:**
 - NSPanel over SwiftUI overlay — guarantees z-ordering above Ghostty `NSView` surfaces
 - Custom fuzzy matcher over third-party — FuzzyMatchingSwift lacks character match ranges needed for highlighting
-- Actions route through `CommandDispatcher` → full validation pipeline — the command bar never mutates `WorkspaceStore` directly
+- Actions route through `AppCommandDispatcher` → full validation pipeline — the command bar never mutates `WorkspaceStore` directly
 - Worktree presence awareness: items show open pane count, tab location, and adapt their enter behavior (go-to vs. drill-in) based on whether the worktree already has panes open
 
 > **Files:** `Features/CommandBar/CommandBarPanelController.swift`, `Features/CommandBar/CommandBarState.swift`, `Features/CommandBar/CommandBarDataSource.swift`, `Features/CommandBar/CommandBarDataSource+WorktreeRows.swift`, `Features/CommandBar/CommandBarSearch.swift`, `Features/CommandBar/CommandBarPanel.swift`, `Features/CommandBar/CommandBarItem.swift`, `Features/CommandBar/WorktreePresence.swift`, `Features/CommandBar/CommandBarWorktreeActionResolver.swift`, `Features/CommandBar/Views/*.swift`
@@ -773,8 +773,8 @@ Keyboard-driven search/command palette (⌘P) providing unified access to tabs, 
 
 Agent Studio has two typed presentation layers for user-triggerable UI:
 
-- **`AppCommand` + `CommandSpec`** for dispatchable app commands
-- **`LocalActionSpec` / `ActionSpec`** for local UI actions that do not route through `CommandDispatcher`
+- **`AppCommand` + `AppCommandSpec`** for dispatchable app commands
+- **`LocalActionSpec` / `ActionSpec`** for local UI actions that do not route through `AppCommandDispatcher`
 
 `AppCommand` is still the authoritative command ID. The metadata lives in an exhaustive
 `AppCommand.definition` switch, so adding a new command case forces metadata completion at compile time.
@@ -787,7 +787,7 @@ Agent Studio has two typed presentation layers for user-triggerable UI:
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ CommandSpec                                                  │
+│ AppCommandSpec                                                  │
 │ authoritative metadata for dispatchable commands             │
 │                                                              │
 │ - command                                                    │
@@ -810,7 +810,7 @@ Agent Studio has two typed presentation layers for user-triggerable UI:
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ CommandDispatcher                                             │
+│ AppCommandDispatcher                                             │
 │ - lookup definition by AppCommand                            │
 │ - route execution                                             │
 │ - canDispatch gate                                            │
@@ -826,9 +826,9 @@ Agent Studio has two typed presentation layers for user-triggerable UI:
                                           ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ WorkspaceCommandResolver                                    │
-│ resolves AppCommand → PaneActionCommand? using live state   │
+│ resolves AppCommand → WorkspaceActionCommand? using live state   │
 │ builds ActionStateSnapshot for validation                   │
-│ → WorkspaceCommandValidator → PaneCoordinator               │
+│ → WorkspaceCommandValidator → WorkspaceSurfaceCoordinator               │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -846,7 +846,7 @@ editor menus, settings buttons, and command-bar mode entries — the app uses
 This keeps labels, help text, and icons centralized even when an action is not a dispatcher-backed command.
 
 **Why two metadata layers?**
-- `CommandSpec` owns anything that must dispatch through the validated command pipeline.
+- `AppCommandSpec` owns anything that must dispatch through the validated command pipeline.
 - `LocalActionSpec` owns UI-only actions that do not have an `AppCommand` identity.
 
 This keeps `AppCommand` as the single command ID while still removing duplicated labels/tooltips across the UI.
@@ -863,7 +863,7 @@ The command bar is a presentation layer over the shared command and focus models
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ CommandSpec                                                 │
+│ AppCommandSpec                                                 │
 │ authoritative metadata for dispatchable commands            │
 └──────────────────────────────────────────────────────────────┘
                            │
@@ -871,13 +871,13 @@ The command bar is a presentation layer over the shared command and focus models
           ▼                ▼                ▼                 ▼
 ┌─────────────────┐ ┌───────────────┐ ┌──────────────┐ ┌──────────────┐
 │ menus/toolbars  │ │ command bar   │ │ sidebar      │ │ drawer       │
-│ read CommandSpec│ │ reads Command │ │ reads specs  │ │ reads specs  │
+│ read AppCommandSpec│ │ reads Command │ │ reads specs  │ │ reads specs  │
 │ + ActionSpec    │ │ Spec + focus  │ │ + ActionSpec │ │ + ActionSpec │
 └─────────────────┘ └───────────────┘ └──────────────┘ └──────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ CommandDispatcher                                            │
+│ AppCommandDispatcher                                            │
 │ - lookup spec by AppCommand                                  │
 │ - filter visibility                                           │
 │ - route execution                                             │
@@ -893,23 +893,23 @@ The command bar is a presentation layer over the shared command and focus models
                                           ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ WorkspaceCommandResolver                                    │
-│ resolves AppCommand → PaneActionCommand? using live state   │
+│ resolves AppCommand → WorkspaceActionCommand? using live state   │
 │ builds ActionStateSnapshot for validation                   │
 └──────────────────────────────────────────────────────────────┘
                                           │
                                           ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ WorkspaceCommandValidator                                   │
-│ validates PaneActionCommand                                 │
+│ validates WorkspaceActionCommand                                 │
 └──────────────────────────────────────────────────────────────┘
                                           │
                                           ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ ActionExecutor / PaneCoordinator                            │
+│ WorkspaceActionExecutor / WorkspaceSurfaceCoordinator                            │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-This architecture gives us one true command ID (`AppCommand`), one true command metadata record (`CommandSpec`), one shared focus surface (`atom(\.workspaceFocus).currentFocus(...)`), and one shared UI metadata shape (`ActionSpec`).
+This architecture gives us one true command ID (`AppCommand`), one true command metadata record (`AppCommandSpec`), one shared focus surface (`atom(\.workspaceFocus).currentFocus(...)`), and one shared UI metadata shape (`ActionSpec`).
 
 ---
 
@@ -923,14 +923,14 @@ Every state change follows this path:
 sequenceDiagram
     participant User
     participant PaneTabViewController
-    participant PC as PaneCoordinator
+    participant PC as WorkspaceSurfaceCoordinator
     participant Store as WorkspaceStore
     participant SM as SurfaceManager
     participant VR as ViewRegistry
 
     User->>PaneTabViewController: keyboard / mouse / drag
     PaneTabViewController->>PaneTabViewController: AppCommand / Notification
-    PaneTabViewController->>PC: execute(PaneActionCommand)
+    PaneTabViewController->>PC: execute(WorkspaceActionCommand)
     PC->>Store: mutate state (private(set))
     Store-->>Store: @Observable tracks
     Store-->>PaneTabViewController: SwiftUI re-renders
@@ -956,7 +956,7 @@ sequenceDiagram
     participant AD as AppDelegate
     participant Store as WorkspaceStore
     participant DB as WorkspaceSQLiteDatastore
-    participant Coord as PaneCoordinator
+    participant Coord as WorkspaceSurfaceCoordinator
     participant RT as SessionRuntime
     participant SM as SurfaceManager
     participant VR as ViewRegistry
@@ -980,14 +980,14 @@ sequenceDiagram
 
 ### 4.3 Undo Close Flow
 
-1. **Close**: `PaneCoordinator.executeCloseTab(tabId)`
+1. **Close**: `WorkspaceSurfaceCoordinator.executeCloseTab(tabId)`
    - `store.snapshotForClose()` → `TabCloseSnapshot` (tab + panes + tabIndex)
    - Push snapshot to `undoStack` (max 10)
    - `coordinator.teardownView()` for each pane → `SurfaceManager.detach(.close)` (surfaces enter undo stack with TTL)
    - `store.removeTab(tabId)` — panes stay in `store.panes`
    - GC oldest undo entries if stack > 10
 
-2. **Undo** (`Cmd+Shift+T`): `PaneCoordinator.undoCloseTab()`
+2. **Undo** (`Cmd+Shift+T`): `WorkspaceSurfaceCoordinator.undoCloseTab()`
    - Pop `WorkspaceMutationCoordinator.CloseEntry` from undo stack
    - `store.restoreFromSnapshot()` → re-insert tab at original position
    - `coordinator.restoreView()` for each pane (reversed order, matching SurfaceManager LIFO)
@@ -1003,14 +1003,14 @@ CommandBarView.executeItem(item)
 ├─ If dimmed (canDispatch == false) → blocked, no action
 │
 ├─ .dispatch(command)
-│   └─ onDismiss() → CommandDispatcher.dispatch(command)
+│   └─ onDismiss() → AppCommandDispatcher.dispatch(command)
 │       → WorkspaceCommandHandling.execute(command)
-│         → WorkspaceCommandResolver → WorkspaceCommandValidator → PaneCoordinator → WorkspaceStore
+│         → WorkspaceCommandResolver → WorkspaceCommandValidator → WorkspaceSurfaceCoordinator → WorkspaceStore
 │
 ├─ .dispatchTargeted(command, target: UUID, targetType)
-│   └─ onDismiss() → CommandDispatcher.dispatch(command, target, targetType)
+│   └─ onDismiss() → AppCommandDispatcher.dispatch(command, target, targetType)
 │       → WorkspaceCommandHandling.execute(command, target, targetType)
-│         → WorkspaceCommandResolver (with explicit target) → WorkspaceCommandValidator → PaneCoordinator
+│         → WorkspaceCommandResolver (with explicit target) → WorkspaceCommandValidator → WorkspaceSurfaceCoordinator
 │
 ├─ .navigate(level)
 │   └─ state.pushLevel(level) — drill into nested target picker
@@ -1136,7 +1136,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Infrastructure/SQLite/SQLiteSidecarQuarantine.swift` | Generic SQLite database/WAL/SHM quarantine helper with no product schema knowledge |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
-| `App/Coordination/PaneCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
+| `App/Coordination/WorkspaceSurfaceCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
 | `App/Windows/MainWindowController.swift` | Primary window management |
 | `App/Windows/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
 | `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
@@ -1144,27 +1144,27 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift` | Placeholder shown for zmx panes awaiting geometry (`.preparing`) or failed starts |
 | `Features/Terminal/Restore/TerminalRestoreScheduler.swift` | Orders panes by `VisibilityTier` for staged restore (visible first) |
 | **Core/Actions** (workspace mutations) | |
-| `Core/Actions/PaneActionCommand.swift` | Workspace-level action enum (selectTab, closePane, insertPane, etc.) |
-| `Core/Actions/ActionResolver.swift` | `WorkspaceCommandResolver` resolves user input → PaneActionCommand |
+| `Core/Actions/WorkspaceActionCommand.swift` | Workspace-level action enum (selectTab, closePane, insertPane, etc.) |
+| `Core/Actions/ActionResolver.swift` | `WorkspaceCommandResolver` resolves user input → WorkspaceActionCommand |
 | `Core/Actions/ActionValidator.swift` | `WorkspaceCommandValidator` validates actions before execution |
 | `Core/Actions/ActionStateSnapshot.swift` | Captures state for validation |
 | **Core/RuntimeEventSystem/** | |
 | `Core/RuntimeEventSystem/Contracts/PaneRuntime.swift` | Per-pane runtime protocol |
 | `Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift` | Typed event discriminated union + per-kind enums |
 | `Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift` | 3-tier event envelope (SystemEnvelope, WorktreeEnvelope, PaneEnvelope) |
-| `Core/RuntimeEventSystem/Contracts/RuntimeCommand.swift` | Runtime-level command enum + per-kind command enums |
+| `Core/RuntimeEventSystem/Contracts/PaneRuntimeCommand.swift` | Runtime-level command enum + per-kind command enums |
 | `Core/RuntimeEventSystem/Contracts/PaneMetadata.swift` | Rich pane identity (contentType, launch directory, live facets, execution backend) |
 | `Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift` | Workspace-level activity events |
 | `Core/RuntimeEventSystem/Runtime/PaneRuntimeEventChannel.swift` | Per-pane event channel for runtime communication |
 | `Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift` | Swift-side pane runtime implementation |
-| `Core/RuntimeEventSystem/Registry/RuntimeRegistry.swift` | paneId → runtime lookup (owned by PaneCoordinator) |
+| `Core/RuntimeEventSystem/Registry/RuntimeRegistry.swift` | paneId → runtime lookup (owned by WorkspaceSurfaceCoordinator) |
 | `Core/RuntimeEventSystem/Reduction/NotificationReducer.swift` | Priority-aware event delivery (critical + lossy queues) |
 | `Core/RuntimeEventSystem/Reduction/VisibilityTier.swift` | p0/p1 — two tiers: visible and hidden |
 | `Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift` | Bounded ring buffer for late-joining consumers |
 | **Features/CommandBar** | |
 | `Features/CommandBar/CommandBarPanelController.swift` | Panel lifecycle: show/dismiss/toggle, backdrop, animation |
 | `Features/CommandBar/CommandBarState.swift` | Observable state: prefix parsing, navigation, selection, recents |
-| `Features/CommandBar/CommandBarDataSource.swift` | Builds items from `WorkspaceStore` + `CommandDispatcher`, scope-filtered |
+| `Features/CommandBar/CommandBarDataSource.swift` | Builds items from `WorkspaceStore` + `AppCommandDispatcher`, scope-filtered |
 | `Features/CommandBar/CommandBarSearch.swift` | Custom fuzzy matching with score + character match ranges |
 | `Features/CommandBar/CommandBarPanel.swift` | `NSPanel` subclass with `NSVisualEffectView` + `NSHostingView` |
 | `Features/CommandBar/CommandBarItem.swift` | Data models: `CommandBarItem`, `CommandBarLevel`, `CommandBarAction`, `ShortcutKey` |

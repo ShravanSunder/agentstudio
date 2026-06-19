@@ -63,6 +63,23 @@ struct AgentStudioIPCCommandAdapterTests {
             #expect(error.reason == .unsupportedCommand)
         }
     }
+
+    @Test("target handles are rejected without adding command execute target semantics")
+    func targetHandlesAreRejectedWithoutAddingCommandExecuteTargetSemantics() throws {
+        let harness = CommandAdapterHarness(
+            windowSnapshot: .singleActiveWindow(UUID())
+        )
+
+        do {
+            _ = try harness.adapter.executeCommand(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: "futureCommand"), targetHandle: "pane:1")
+            )
+            Issue.record("targeted command.execute unexpectedly added target semantics")
+        } catch let error as AppIPCCommandError {
+            #expect(error.reason == .targetNotFound)
+        }
+    }
 }
 
 @MainActor

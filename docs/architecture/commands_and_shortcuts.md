@@ -10,7 +10,7 @@ hint — it's how you avoid creating parallel constants that drift.
 |------|------|
 | `Sources/AgentStudio/App/Commands/AppCommand.swift` | Command **identities** (the things you can dispatch). |
 | `Sources/AgentStudio/App/Commands/AppShortcut.swift` | Keyboard **bindings** + contexts where they fire. |
-| `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift` | `CommandSpec` — ties an `AppCommand` to its `AppShortcut` plus command-bar metadata. |
+| `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift` | `AppCommandSpec` — ties an `AppCommand` to its `AppShortcut` plus command-bar metadata. |
 | `Sources/AgentStudio/Core/Actions/UIActionPresentation.swift` | `LocalActionSpec` — UI **presentation** for tooltips, button labels, menu items. |
 
 ## The four layers
@@ -29,26 +29,56 @@ hint — it's how you avoid creating parallel constants that drift.
                                                   │ executed by
                                                   ▼
                                        ┌──────────────────────┐
-                                       │  CommandDispatcher   │
-                                       │  → handler           │
+                                       │ AppCommandDispatcher │
+                                       │ → handler            │
                                        └──────────────────────┘
 
    command bar / button asks:                ┌──────────────────────┐
-        "what's this command's hint?"  ◄─────│  CommandSpec or      │
-                                             │  LocalActionSpec     │
+        "what's this command's hint?"  ◄─────│ AppCommandSpec or    │
+                                             │ LocalActionSpec      │
                                              └──────────────────────┘
 ```
 
 `AppCommand` is the identity. `AppShortcut` decides which keystrokes
-fire it. `CommandSpec` exposes it in the command bar. `LocalActionSpec`
+fire it. `AppCommandSpec` exposes it in the command bar. `LocalActionSpec`
 provides UI text for buttons/menus that aren't part of the command bar.
+
+## Command planes
+
+The command system has multiple planes. Use the narrowest plane that owns the
+behavior:
+
+```text
+┌─ Command Plane Decision Map ────────────────────────────────────┐
+│ AppCommand + AppCommandSpec                                      │
+│   app command identity, shortcut metadata, command-bar rows      │
+│                                                                  │
+│ WorkspaceActionCommand                                           │
+│   resolved workspace graph mutations: tabs, panes, drawers,      │
+│   arrangements, worktrees, orphaned panes, repairs               │
+│                                                                  │
+│ PaneRuntimeCommand                                               │
+│   one targeted pane runtime: terminal input/scroll/prompt jump,  │
+│   browser navigation, diff/editor/runtime-specific operations    │
+│                                                                  │
+│ UI presentation                                                  │
+│   command bar, picker, sheet, panel, prompt                      │
+│                                                                  │
+│ Runtime events                                                   │
+│   facts after work happened; waits, subscriptions, replay        │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Commands ask owners to do work. Runtime events report facts after work happened.
+Do not route commands through EventBus, and do not make `command.execute`
+silently present UI.
 
 ## Adding a new command — decision tree
 
 1. **New command identity?** Add a case to `AppCommand` enum.
 2. **Keyboard binding?** Add a case to `AppShortcut` with its trigger and
    contexts.
-3. **Visible in the command bar / used in tooltips?** Add a `CommandSpec`
+3. **Visible in the command bar / used in tooltips?** Add a `AppCommandSpec`
    entry in `AppCommand+Catalog.swift` that ties the command to the
    shortcut plus label / icon / `helpText`.
 4. **UI button or menu item that isn't in the command bar?** Add a
@@ -60,7 +90,7 @@ about to create a parallel system — back up to step 1.
 
 ## Choosing the execution owner
 
-`CommandDispatcher` can route to two handler families:
+`AppCommandDispatcher` can route to two handler families:
 
 | Handler | Owns | Examples |
 |---------|------|----------|
@@ -81,13 +111,13 @@ parent pane even when the drawer is closed or empty.
 The drawer command pattern is:
 
 ```text
-AppShortcut → AppCommand → CommandDispatcher
+AppShortcut → AppCommand → AppCommandDispatcher
   → PaneTabViewController.execute(...)
   → drawer-aware target resolver
   → atom/binding read by DrawerIconBar
 ```
 
-The command bar uses the same `CommandDispatcher.dispatch(...)` path as
+The command bar uses the same `AppCommandDispatcher.dispatch(...)` path as
 keyboard shortcuts. If a command works from a button but not from
 `Cmd-P`, the execution owner is probably wrong or the command is using a
 side channel instead of the same binding/state model as the button.

@@ -32,7 +32,7 @@ All data flow in the pane runtime architecture follows one of three planes. Ever
 | Plane | Direction | Mechanism | Invariant |
 |-------|-----------|-----------|-----------|
 | **Event plane** | Producers → EventBus → consumers | Runtimes (`@MainActor`) and boundary actors (FilesystemActor, GitWorkingDirectoryProjector, ForgeActor, ContainerActor) post `RuntimeEnvelope`s (3-tier: `SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`) to `EventBus`. `WorkspaceCacheCoordinator`, `NotificationReducer`, and future analytics subscribe from the bus independently. | One-way. Events never flow backward. Bus is dumb fan-out (`post()` + `subscribe()` only). See [EventBus Design](pane_runtime_eventbus_design.md) and [Workspace Data Architecture](workspace_data_architecture.md). |
-| **Command plane** | User/system → coordinator → runtime | Coordinator dispatches `RuntimeCommand`s directly via `RuntimeRegistry` (`runtime.handleCommand(envelope)`). Command-plane calls to boundary actors (e.g., `forgeActor.refresh(repo:)`) are also direct. | Request-response. Commands never flow through the EventBus. |
+| **Command plane** | User/system → coordinator → runtime | Coordinator dispatches `PaneRuntimeCommand`s directly via `RuntimeRegistry` (`runtime.handleCommand(envelope)`). Command-plane calls to boundary actors (e.g., `forgeActor.refresh(repo:)`) are also direct. | Request-response. Commands never flow through the EventBus. |
 | **UI plane** | Runtime → SwiftUI view | `@Observable` properties on each runtime, views bind directly. `@Observable` mutation happens synchronously on `@MainActor` **before** any bus post. | Synchronous, zero-overhead. UI is never stale relative to coordination consumers. Bus is for coordination, not UI state transport. |
 
 **The multiplexing rule:** When a runtime processes a domain event (e.g., `titleChanged`), it writes `@Observable` state first (UI plane), then posts to the bus (event plane). Both happen, in that order. **Why this ordering is critical:** `@Observable` mutation is synchronous on `@MainActor` — SwiftUI views see the new state immediately on the current frame. The bus post is async (`await bus.post()`), meaning coordination consumers may process the event one or more frames later. If the bus post happened first, a coordination consumer could react to the event (e.g., update a tab bar label) before the runtime's own `@Observable` state reflected the change, creating a visible inconsistency. `@Observable` first guarantees the source-of-truth view is never stale relative to downstream consumers. The test for whether an event needs the bus: "Would any other component in the system care?" If yes → bus. If only the bound view cares → `@Observable` only.
@@ -166,7 +166,7 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **Why controller and runtime are separate:** The controller owns the backend resource (WebKit page, RPC wiring). The runtime owns the PaneRuntime protocol surface (lifecycle, events, commands). Separating them means the runtime is testable without a real WebKit instance, and the controller can be reused across content types (one `BridgePaneController` class serves diff, editor, review, agent).
 
-**5. Coordinator** — Cross-store sequencing. Routes commands to runtimes via `RuntimeRegistry`. Consumes coordination events. No pane-type-specific logic. See [PaneCoordinator](#architecture-overview).
+**5. Coordinator** — Cross-store sequencing. Routes commands to runtimes via `RuntimeRegistry`. Consumes coordination events. No pane-type-specific logic. See [WorkspaceSurfaceCoordinator](#architecture-overview).
 
 ### D6: Priority-aware event processing
 
@@ -271,7 +271,7 @@ This is deliberate:
 | **Built-in** | FilesystemActor | App-wide | `TopologyEvent` (.repoDiscovered — watched folder diff, .repoRemoved — watched folder diff, .worktreeRegistered, .worktreeUnregistered) | `SystemEnvelope` | Core (via bus) |
 | **Built-in** | GitWorkingDirectoryProjector | Per-worktree | `GitWorkingDirectoryEvent` (snapshotChanged, branchChanged, originChanged, worktreeDiscovered, worktreeRemoved) | `WorktreeEnvelope` | Core projector |
 | **Built-in** | Security backend | Per-worktree | `SecurityEvent` (future) | `WorktreeEnvelope` | Core |
-| **Built-in** | PaneCoordinator | App-wide | `LifecycleEvent` (tabSwitched, etc.) | `SystemEnvelope` | Core |
+| **Built-in** | WorkspaceSurfaceCoordinator | App-wide | `LifecycleEvent` (tabSwitched, etc.) | `SystemEnvelope` | Core |
 | **Service** | ForgeActor | Per-repo | `ForgeEvent` (pullRequestCountsChanged, checksUpdated, refreshFailed) | `WorktreeEnvelope` | Bus-subscriber + self-polling (GitHub, GitLab, Bitbucket) |
 | **Service** | Container service | App-wide | `ContainerEvent` (future: containerStarted, healthChanged, logOutput) | `WorktreeEnvelope` | Plugin backends (Docker, Podman, cloud) |
 | **Plugin** | _(open)_ | Varies | `any PaneKindEvent` via `.plugin(kind:event:)` | Varies | Plugin-defined |
@@ -483,7 +483,7 @@ Runtime classes are organized by **transport mechanism** — the underlying tech
 **Content type → runtime resolution:** When a pane is created, `PaneContentType` determines which runtime class to instantiate. This mapping is static and exhaustive:
 
 ```swift
-// Conceptual — resolution happens in PaneCoordinator at pane creation time
+// Conceptual — resolution happens in WorkspaceSurfaceCoordinator at pane creation time
 func runtimeClass(for contentType: PaneContentType) -> PaneRuntime.Type {
     switch contentType {
     case .terminal:                return TerminalRuntime.self
@@ -608,7 +608,7 @@ AGENT PROCESS (Claude/Codex)
   │                      └─────────┬─────────────────┘
   │                                │
   │                                ▼
-  │                        PaneCoordinator
+  │                        WorkspaceSurfaceCoordinator
   │                                │
   │              ┌─────────────────┼─────────────────┐
   │              │                 │                  │
@@ -630,7 +630,7 @@ AGENT PROCESS (Claude/Codex)
   │                        User completes review
   │                                │
   │                                ▼
-  │                        PaneCoordinator
+  │                        WorkspaceSurfaceCoordinator
   │                        signals next agent
   │                                │
   └────────────────────────────────┘
@@ -741,7 +741,7 @@ Sources are categorized by scope. Topology sources use `SystemEnvelope`; worktre
 | **App** | FilesystemActor | Built-in | `SystemEnvelope` | `TopologyEvent` (.repoDiscovered — watched-folder diff, .repoRemoved — watched-folder diff, .worktreeRegistered, .worktreeUnregistered) | Via bus |
 | **Worktree** | FilesystemActor | Built-in | `WorktreeEnvelope` | `FilesystemEvent` (.filesChanged, .worktreeRegistered, .worktreeUnregistered) | ✅ Implemented |
 | **Worktree** | GitWorkingDirectoryProjector | Built-in | `WorktreeEnvelope` | `GitWorkingDirectoryEvent` (.snapshotChanged, .branchChanged, .originChanged, .worktreeDiscovered, .worktreeRemoved) | ✅ Implemented |
-| **App** | PaneCoordinator | Built-in | `SystemEnvelope` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
+| **App** | WorkspaceSurfaceCoordinator | Built-in | `SystemEnvelope` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
 | **Repo** | ForgeActor | Service | `WorktreeEnvelope` | `ForgeEvent` (.pullRequestCountsChanged, .checksUpdated, .refreshFailed) | ✅ Implemented |
 | **App** | Container service | Service | `WorktreeEnvelope` | Future: `ContainerEvent` | Future (plugin-based) |
 | **Pane** | Agent RPC channel | — | `PaneEnvelope` | Future: Contract 15 events | Deferred (LUNA-344) |
@@ -1362,7 +1362,7 @@ Application/window lifecycle is separate from pane runtime lifecycle. AppKit ing
 - `AppLifecycleAtom` for app-wide active/terminating state
 - `WindowLifecycleAtom` for key/focused window identity, registration, transient terminal container geometry, and launch-layout-settle state
 
-Those stores are lifecycle ingress state, not runtime coordination state. The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain has been removed; user-triggered workspace work now enters the validated `PaneActionCommand` pipeline directly.
+Those stores are lifecycle ingress state, not runtime coordination state. The old `AppCommand -> AppEventBus -> controller -> WorkspaceActionCommand` chain has been removed; user-triggered workspace work now enters the validated `WorkspaceActionCommand` pipeline directly.
 
 ### Contract 5a: Attach Readiness Policy (LUNA-295)
 
@@ -1731,11 +1731,11 @@ Every `ghostty_action_tag_e` case has a defined handling policy. The adapter's s
 | `cwdChanged` | Runtime → Coordinator | Updates `PaneMetadata.cwd` | critical | Dynamic view recomputation |
 | `commandFinished` | Runtime → Coordinator | Workflow/logging signal | critical | Agent completion signal |
 | `bellRang` | Runtime → Coordinator | Posts `AppEvent.worktreeBellRang` | critical | User attention request |
-| `newTab` | Coordinator | Creates new tab via PaneActionCommand | critical | Keyboard shortcut passthrough |
-| `closeTab` | Coordinator | Closes tab via PaneActionCommand (with undo) | critical | Keyboard shortcut passthrough |
+| `newTab` | Coordinator | Creates new tab via WorkspaceActionCommand | critical | Keyboard shortcut passthrough |
+| `closeTab` | Coordinator | Closes tab via WorkspaceActionCommand (with undo) | critical | Keyboard shortcut passthrough |
 | `gotoTab` | Coordinator | Tab navigation | critical | |
 | `moveTab` | Coordinator | Tab reorder | critical | |
-| `newSplit` | Coordinator | Creates split via PaneActionCommand | critical | |
+| `newSplit` | Coordinator | Creates split via WorkspaceActionCommand | critical | |
 | `gotoSplit` | Coordinator | Focus navigation between splits | critical | |
 | `resizeSplit` | Coordinator | Split resize | critical | |
 | `equalizeSplits` | Coordinator | Reset split ratios | critical | |
@@ -1971,15 +1971,15 @@ enum TunnelType: String, Sendable { case ssh, zmx }
 /// Command envelope dispatched TO a runtime (inbound).
 /// Mirror of PaneEventEnvelope (outbound from runtime → coordinator).
 ///
-/// NOTE: "RuntimeCommand" is the runtime-level command vocabulary —
-/// distinct from the workspace-level `PaneActionCommand` in `Core/Actions/`
-/// which handles tab/layout/arrangement mutations. RuntimeCommand tells
-/// a runtime what to DO; PaneActionCommand tells the workspace what to CHANGE.
+/// NOTE: "PaneRuntimeCommand" is the runtime-level command vocabulary —
+/// distinct from the workspace-level `WorkspaceActionCommand` in `Core/Actions/`
+/// which handles tab/layout/arrangement mutations. PaneRuntimeCommand tells
+/// a runtime what to DO; WorkspaceActionCommand tells the workspace what to CHANGE.
 struct RuntimeCommandEnvelope: Sendable {
     let commandId: UUID                     // idempotency
     let correlationId: UUID?                // links workflow steps
     let targetPaneId: PaneId                // sole routing field on the envelope
-    let command: RuntimeCommand
+    let command: PaneRuntimeCommand
     let timestamp: ContinuousClock.Instant
 }
 
@@ -2002,7 +2002,7 @@ protocol RuntimeKindCommand: Sendable {}
 /// What the coordinator can tell any runtime to do.
 /// Discriminated union with plugin escape hatch — same pattern as
 /// PaneRuntimeEvent.
-enum RuntimeCommand: Sendable {
+enum PaneRuntimeCommand: Sendable {
     // Generic lifecycle — all runtimes handle these
     case activate                           // pane became visible/focused
     case deactivate                         // pane hidden/backgrounded
@@ -2101,7 +2101,7 @@ enum EditorCommand: Sendable {
 USER ACTION (command bar, keyboard, menu)
        │
        ▼
-  PaneCoordinator
+  WorkspaceSurfaceCoordinator
        │
        ├─► resolve target paneId
        ├─► RuntimeRegistry.runtime(for: paneId)
@@ -2122,7 +2122,7 @@ USER ACTION (command bar, keyboard, menu)
 ### Contract 11: Runtime Registry
 
 ```swift
-/// Central paneId → runtime lookup. Owned by PaneCoordinator.
+/// Central paneId → runtime lookup. Owned by WorkspaceSurfaceCoordinator.
 /// Pure lookup — no domain logic, no event processing.
 @MainActor
 final class RuntimeRegistry {
@@ -2371,7 +2371,7 @@ extension PaneRuntimeEvent {
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ PaneCoordinator event consumption loop                    │
+│ WorkspaceSurfaceCoordinator event consumption loop                    │
 │                                                          │
 │  // Single bus subscription — all runtimes and system    │
 │  // producers post to EventBus, coordinator consumes     │
@@ -2507,7 +2507,7 @@ func submit(_ envelope: PaneEventEnvelope) {
 > Deferred workflow planning now lives in
 > [Pane Runtime Ticket Mapping (Minimal)](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#deferred-workflow-engine).
 >
-> Tracks temporal workflows spanning multiple panes and events ("agent finishes → create diff → user completes review → signal next agent"). Owned by PaneCoordinator. Implementation deferred until multi-agent orchestration (JTBD 6) moves to automated cross-agent handoffs.
+> Tracks temporal workflows spanning multiple panes and events ("agent finishes → create diff → user completes review → signal next agent"). Owned by WorkspaceSurfaceCoordinator. Implementation deferred until multi-agent orchestration (JTBD 6) moves to automated cross-agent handoffs.
 >
 > Key types: `WorkflowTracker`, `WorkflowStep`, `StepPredicate`, `WorkflowAdvance`. Integration points: `PaneEventEnvelope.correlationId`, `PaneKindEvent.eventName` for step matching, `EventReplayBuffer` for restart recovery.
 
@@ -2625,7 +2625,7 @@ final class EventReplayBuffer {
 Dynamic view opens (e.g., "group by worktree")
        │
        ▼
-  PaneCoordinator
+  WorkspaceSurfaceCoordinator
        │
        ├─► For each pane in target worktree:
        │     runtime = registry.runtime(for: paneId)
@@ -2748,7 +2748,7 @@ Agent Studio Command Gateway
 (authz, scope checks, idempotency)
         │
         ▼
-PaneCoordinator / WorkflowTracker / Stores
+WorkspaceSurfaceCoordinator / WorkflowTracker / Stores
         │
         ▼
 PaneRuntimeEvent stream → Harness Event Gateway → adapters → agent
@@ -2922,7 +2922,7 @@ The historical codebase used `NotificationCenter` and `DispatchQueue.main.async`
 |---|---|---|
 | `NotificationCenter.default.post(name: .ghosttyAction, ...)` | `GhosttyAdapter` → typed `GhosttyEvent` → `TerminalRuntime.handleEvent()` | LUNA-325 |
 | `DispatchQueue.main.async { ... }` in C callback trampolines | `Task { @MainActor in ... }` or direct `@MainActor` calls | LUNA-342 (partial — wakeup_cb, initialize), LUNA-325 (remaining 23 instances) |
-| `@objc` notification observers in `PaneCoordinator` | `for await envelope in bus.subscribe()` in coordinator event loop (EventBus fan-out) | LUNA-325 |
+| `@objc` notification observers in `WorkspaceSurfaceCoordinator` | `for await envelope in bus.subscribe()` in coordinator event loop (EventBus fan-out) | LUNA-325 |
 | `userInfo` dictionaries on notifications | Typed `GhosttyEvent` enum cases with associated values | LUNA-325 |
 | String-keyed notification names (`.ghosttyTitleChanged`, etc.) | Exhaustive `GhosttyEvent` enum switch (compile-time coverage) | LUNA-325 |
 
@@ -2936,7 +2936,7 @@ The historical codebase used `NotificationCenter` and `DispatchQueue.main.async`
 
 ### Migration Order
 
-1. **LUNA-327 (done):** `@Observable` migration, `private(set)` stores, `PaneCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
+1. **LUNA-327 (done):** `@Observable` migration, `private(set)` stores, `WorkspaceSurfaceCoordinator` consolidation. Foundation for the event bus. `DispatchQueue.main.async` → `MainActor` primitives where touched.
 2. **LUNA-342 (done):** Contract freeze + Swift 6 language mode migration. `.swiftLanguageMode(.v6)` enforced, all `isolated deinit` migrations complete, `MainActor.assumeIsolated` removed from Sources, C callback trampolines partially migrated (`wakeup_cb` done), existential Sendable constraints added. SwiftLint concurrency rules added (44 violations marking LUNA-325 scope). See [migration spec](../plans/2026-02-22-swift6-language-mode-migration.md) and [mapping doc](../plans/2026-02-21-pane-runtime-luna-295-luna-325-mapping.md#luna-342-implementation-record) for details.
 3. **LUNA-325 (in progress):** `GhosttyAdapter`, `TerminalRuntime`, `RuntimeRegistry`, `NotificationReducer`, and runtime command dispatch scaffolding are landed. Migrated split/tab action families are now routed through typed runtime events (no dual-path NotificationCenter posts for migrated actions). Remaining full-contract parity is tracked through the LUNA-325/LUNA-345 closure gate.
 4. **LUNA-295 (attach orchestration):** Build attach readiness policies and visibility-tier scheduling. Consumes the event stream infrastructure from LUNA-325.
@@ -3084,7 +3084,7 @@ You **accept** the discipline of classifying every event kind (critical vs lossy
 | **LUNA-324** (Restart Reconcile) | zmx session reconcile on app launch, non-destructive startup classification, health monitoring, and future background janitor boundary. | Contract 5b (Restart Reconcile Policy) |
 | **LUNA-325** (Bridge Pattern + Surface State Refactor) | Implements terminal runtime + Ghostty adapter + GhosttyEvent enum + surface registry. Primary implementation ticket. | Contract 1, 2, 3, 4, 7, 7a, 8, 10, 11, 12, 14 |
 | **LUNA-326** (Native Scrollbar) | Consumes the terminal runtime contract. Scrollbar behavior binds to `TerminalRuntime.scrollbarState` via @Observable. Does not invent new transport. | None (consumer only) |
-| **LUNA-327** (State Ownership + Observable Migration) | The current branch. Establishes @Observable store pattern, PaneCoordinator consolidation, `private(set)` unidirectional flow, and `DispatchQueue.main.async` → `MainActor` migration. | D1, D5, Swift 6 invariants, Migration section |
+| **LUNA-327** (State Ownership + Observable Migration) | The current branch. Establishes @Observable store pattern, WorkspaceSurfaceCoordinator consolidation, `private(set)` unidirectional flow, and `DispatchQueue.main.async` → `MainActor` migration. | D1, D5, Swift 6 invariants, Migration section |
 | **LUNA-342** (Contract Freeze) | Freeze gate — all design decisions, contracts, and invariants locked. No implementation. | All invariants (A1-A15), Swift 6 invariants (1-9), envelope/source shape |
 | **LUNA-344** (Deferred Contracts) | Implements deferred contracts: workflow engine, terminal process RPC, pane filesystem context. | Contract 13, 15, 16 |
 | **LUNA-345** (Architecture Completion Gate) | Integration checkpoint — verifies all runtime conformers, system sources, and deferred contracts are complete. | None (gate only) |
@@ -3100,10 +3100,10 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 
 | Type | Directory | Rationale |
 |------|-----------|-----------|
-| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneRuntimeTypes, RuntimeCommand, RuntimeEnvelope, RuntimeEnvelopeCore, RuntimeEnvelopeFactories, RuntimeEnvelopeMetadata, RuntimeEnvelopeSources, PaneKindEvent, PaneMetadata, PaneContextFacets, PaneId, WorkspaceActivityEvent, per-kind event/command enums) | `Core/RuntimeEventSystem/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
-| **RuntimeRegistry** | `Core/RuntimeEventSystem/Registry/` | Feature-agnostic lookup; consumed by PaneCoordinator in App/ |
-| **NotificationReducer**, VisibilityTier types | `Core/RuntimeEventSystem/Reduction/` | Feature-agnostic event processing; consumed by PaneCoordinator |
-| **EventReplayBuffer** | `Core/RuntimeEventSystem/Replay/` | Feature-agnostic buffering; consumed by PaneCoordinator |
+| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneRuntimeTypes, PaneRuntimeCommand, RuntimeEnvelope, RuntimeEnvelopeCore, RuntimeEnvelopeFactories, RuntimeEnvelopeMetadata, RuntimeEnvelopeSources, PaneKindEvent, PaneMetadata, PaneContextFacets, PaneId, WorkspaceActivityEvent, per-kind event/command enums) | `Core/RuntimeEventSystem/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
+| **RuntimeRegistry** | `Core/RuntimeEventSystem/Registry/` | Feature-agnostic lookup; consumed by WorkspaceSurfaceCoordinator in App/ |
+| **NotificationReducer**, VisibilityTier types | `Core/RuntimeEventSystem/Reduction/` | Feature-agnostic event processing; consumed by WorkspaceSurfaceCoordinator |
+| **EventReplayBuffer** | `Core/RuntimeEventSystem/Replay/` | Feature-agnostic buffering; consumed by WorkspaceSurfaceCoordinator |
 | **GhosttyAdapter** | `Features/Terminal/Ghostty/` | FFI-specific; translates C callbacks into Core event types |
 | **TerminalRuntime** | `Features/Terminal/Runtime/` | Terminal-specific `PaneRuntime` conformance |
 | **BridgeRuntime** | `Features/Bridge/Runtime/` | Bridge-specific `PaneRuntime` conformance (serves .diff, .editor, .review, .agent, .plugin) |
@@ -3115,23 +3115,23 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 | **PaneFilesystemProjectionAtom** | `Core/State/MainActor/Atoms/` | C16 projection: derives per-pane filesystem snapshots from worktree-level C6 events, filtered to each pane's CWD subtree |
 | **EventChannels** (`PaneRuntimeEventBus`) | `Core/RuntimeEventSystem/Events/` | Singleton `EventBus<RuntimeEnvelope>` factory with replay configuration |
 | **FSEventsWatcher** (future) | `Core/RuntimeEventSystem/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
-| **PaneCoordinator** | `App/Coordination/` | Imports from multiple features; composition root |
+| **WorkspaceSurfaceCoordinator** | `App/Coordination/` | Imports from multiple features; composition root |
 
 ### Why per-kind event enums live in Core
 
 `GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in `Core/RuntimeEventSystem/Contracts/` and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
 
-### Naming: RuntimeCommand vs PaneActionCommand
+### Naming: PaneRuntimeCommand vs WorkspaceActionCommand
 
 Two distinct action layers exist with different scopes:
 
 | Layer | Type | Location | Purpose |
 |-------|------|----------|---------|
-| **Workspace** | `PaneActionCommand` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
-| **Runtime** | `RuntimeCommand` | `Core/RuntimeEventSystem/Contracts/` | Commands to individual runtimes — sendInput, navigate, requestAgentReview |
+| **Workspace** | `WorkspaceActionCommand` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
+| **Runtime** | `PaneRuntimeCommand` | `Core/RuntimeEventSystem/Contracts/` | Commands to individual runtimes — sendInput, navigate, requestAgentReview |
 
-`PaneActionCommand` flows: User → WorkspaceCommandResolver → WorkspaceCommandValidator → PaneCoordinator → WorkspaceStore.
-`RuntimeCommand` flows: PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.
+`WorkspaceActionCommand` flows: User → WorkspaceCommandResolver → WorkspaceCommandValidator → WorkspaceSurfaceCoordinator → WorkspaceStore.
+`PaneRuntimeCommand` flows: WorkspaceSurfaceCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.
 
 `AppEventBus` is reserved for app-level notifications that are not commands. `ApplicationLifecycleMonitor` owns AppKit/macOS lifecycle ingress and writes the lifecycle stores; it does not route workspace commands.
 

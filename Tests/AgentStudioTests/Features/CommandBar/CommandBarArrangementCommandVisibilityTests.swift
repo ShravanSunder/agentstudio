@@ -10,7 +10,7 @@ struct CommandBarArrangementCommandVisibilityTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    private let dispatcher = CommandDispatcher.shared
+    private let dispatcher = AppCommandDispatcher.shared
 
     @Test
     func commandsScope_hidesCycleArrangementWhenOnlyDefaultArrangementExists() {

@@ -358,6 +358,7 @@ struct GhosttyActionRouterTests {
         )
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router",
@@ -386,6 +387,7 @@ struct GhosttyActionRouterTests {
         )
         await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
 
+        await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"body\":\"ghostty.action.translated\""))
@@ -419,6 +421,7 @@ struct GhosttyActionRouterTests {
         )
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router-activity-only",
@@ -472,6 +475,7 @@ struct GhosttyActionRouterTests {
         )
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router-scrollbar",

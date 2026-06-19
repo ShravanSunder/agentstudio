@@ -28,7 +28,7 @@ struct CommandBarTerminalCommandTests {
             scope: .commands,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: CommandDispatcher.shared,
+            dispatcher: AppCommandDispatcher.shared,
             focus: focus
         )
 

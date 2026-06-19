@@ -11,7 +11,7 @@ private let viewRegistryLogger = Logger(subsystem: "com.agentstudio", category: 
 ///
 /// Each pane gets its own `@Observable PaneViewSlot`. SwiftUI views read
 /// `slot(for: paneId).host` to get automatic, scoped invalidation when
-/// `register()` fires. Imperative callers (PaneCoordinator, PaneTabViewController)
+/// `register()` fires. Imperative callers (WorkspaceSurfaceCoordinator, PaneTabViewController)
 /// use `view(for:)` which does a plain lookup with no observation overhead.
 ///
 /// ## Slot lifecycle
@@ -61,7 +61,7 @@ final class ViewRegistry {
     }
 
     /// Create the slot proactively when a pane enters workspace structure.
-    /// Called by PaneCoordinator before any SwiftUI body can read the slot.
+    /// Called by WorkspaceSurfaceCoordinator before any SwiftUI body can read the slot.
     /// Idempotent — safe to call multiple times for the same paneId.
     @discardableResult
     func ensureSlot(for paneId: UUID) -> PaneViewSlot {

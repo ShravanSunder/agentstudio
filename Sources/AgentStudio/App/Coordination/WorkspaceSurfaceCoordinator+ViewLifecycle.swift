@@ -1,0 +1,983 @@
+import AppKit
+import Foundation
+import GhosttyKit
+
+@MainActor
+extension WorkspaceSurfaceCoordinator {
+    private struct RestoreAllViewsProgress {
+        var restored = 0
+        var drawerRestored = 0
+        var failedPaneIds: [UUID] = []
+        var failedDrawerPaneIds: [UUID] = []
+        var restoredPaneIds: Set<UUID> = []
+    }
+
+    private struct TerminalSurfaceStartupPreparation {
+        let strategy: Ghostty.SurfaceStartupStrategy
+        let showsRestorePresentationDuringStartup: Bool
+        let environmentVariables: [String: String]
+    }
+
+    private enum TerminalSurfaceStartupContext {
+        case worktree
+        case floating(launchDirectory: URL)
+
+        var diagnosticsTracePrefix: String {
+            switch self {
+            case .worktree:
+                "createView"
+            case .floating:
+                "createFloatingView"
+            }
+        }
+
+        var missingZmxLogMessage: String {
+            switch self {
+            case .worktree:
+                "zmx not found; using ephemeral session"
+            case .floating:
+                "zmx not found; using ephemeral floating session"
+            }
+        }
+    }
+    @discardableResult
+    func registerHostedView(
+        mountedView: NSView & PaneMountedContent,
+        for paneId: UUID
+    ) -> PaneHostView {
+        let host = PaneHostView(paneId: paneId)
+        host.onAttachedToWindow = { [weak self] attachedPaneId in
+            self?.handlePaneHostAttachedToWindow(attachedPaneId)
+        }
+        host.mountContentView(mountedView)
+        viewRegistry.register(host, for: paneId)
+        return host
+    }
+
+    static func floatingZmxRestoreSessionId(for pane: Pane, launchDirectory: URL) -> String {
+        if let parentPaneId = pane.parentPaneId {
+            return ZmxBackend.drawerSessionId(
+                parentPaneId: parentPaneId,
+                drawerPaneId: pane.id
+            )
+        }
+
+        return ZmxBackend.floatingSessionId(
+            launchDirectory: launchDirectory,
+            paneId: pane.id
+        )
+    }
+
+    /// Create a view for any pane content type. Dispatches to the appropriate factory.
+    /// Returns the created mounted content view, or nil on failure.
+    func createViewForContent(
+        pane: Pane,
+        initialFrame: NSRect? = nil,
+        treatAsRestoredSessionStart: Bool = false
+    ) -> NSView? {
+        viewRegistry.ensureSlot(for: pane.id)
+        registerPaneFilesystemContextIfNeeded(for: pane)
+
+        switch pane.content {
+        case .terminal:
+            if let worktreeId = pane.worktreeId,
+                let repoId = pane.repoId,
+                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
+                let repo = store.repositoryTopologyAtom.repo(repoId)
+            {
+                return createView(
+                    for: pane,
+                    worktree: worktree,
+                    repo: repo,
+                    initialFrame: initialFrame,
+                    treatAsRestoredSessionStart: treatAsRestoredSessionStart
+                )
+
+            } else if let parentPaneId = pane.parentPaneId,
+                let parentPane = store.paneAtom.pane(parentPaneId),
+                let worktreeId = parentPane.worktreeId,
+                let repoId = parentPane.repoId,
+                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
+                let repo = store.repositoryTopologyAtom.repo(repoId)
+            {
+                return createView(
+                    for: pane,
+                    worktree: worktree,
+                    repo: repo,
+                    initialFrame: initialFrame,
+                    treatAsRestoredSessionStart: treatAsRestoredSessionStart
+                )
+
+            } else {
+                return createFloatingTerminalView(
+                    for: pane,
+                    initialFrame: initialFrame,
+                    treatAsRestoredSessionStart: treatAsRestoredSessionStart
+                )
+            }
+
+        case .webview(let state):
+            let view = WebviewPaneMountView(paneId: pane.id, state: state)
+            let paneId = pane.id
+            view.controller.onTitleChange = { [weak self] title in
+                self?.store.paneAtom.updatePaneTitle(paneId, title: title)
+            }
+            registerHostedView(mountedView: view, for: pane.id)
+            registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
+            Self.logger.info("Created webview pane \(pane.id)")
+            return view
+
+        case .codeViewer(let state):
+            let initialText: String?
+            if let codeViewerRuntime = registerCodeViewerRuntimeIfNeeded(for: pane) {
+                if codeViewerRuntime.lifecycle == .created {
+                    let transitioned = codeViewerRuntime.transitionToReady()
+                    if !transitioned {
+                        Self.logger.warning(
+                            "Code viewer runtime for pane \(pane.id.uuidString, privacy: .public) failed ready transition"
+                        )
+                    }
+                }
+                initialText = codeViewerRuntime.displayedText.isEmpty ? nil : codeViewerRuntime.displayedText
+            } else {
+                initialText = nil
+            }
+
+            let view = CodeViewerPaneMountView(
+                paneId: pane.id,
+                state: state,
+                initialText: initialText
+            )
+            registerHostedView(mountedView: view, for: pane.id)
+            Self.logger.info("Created code viewer pane \(pane.id)")
+            return view
+
+        case .bridgePanel(let state):
+            let controller = BridgePaneController(
+                paneId: pane.id,
+                state: state,
+                reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
+                traceRuntime: traceRuntime
+            )
+            let view = BridgePaneMountView(paneId: pane.id, controller: controller)
+            registerHostedView(mountedView: view, for: pane.id)
+            registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
+            controller.loadApp()
+            Self.logger.info("Created bridge panel view for pane \(pane.id)")
+            return view
+
+        case .unsupported:
+            Self.logger.warning("Cannot create view for unsupported content type — pane \(pane.id)")
+            return nil
+        }
+    }
+
+    @discardableResult
+    func createView(
+        for pane: Pane,
+        worktree: Worktree,
+        repo: Repo,
+        initialFrame: NSRect? = nil,
+        treatAsRestoredSessionStart: Bool = false
+    ) -> TerminalPaneMountView? {
+        if pane.provider == .zmx, initialFrame == nil {
+            RestoreTrace.log(
+                "createView deferred pane=\(pane.id) reason=missingInitialFrame"
+            )
+            Self.logger.warning(
+                "Deferring zmx pane \(pane.id, privacy: .public) until trusted initialFrame exists"
+            )
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
+            return nil
+        }
+        let launchDirectory = pane.metadata.cwd ?? pane.metadata.launchDirectory ?? worktree.path
+
+        let shellCommand = "\(getDefaultShell()) -i -l"
+        guard
+            let startupPreparation = prepareTerminalSurfaceStartup(
+                for: pane,
+                shellCommand: shellCommand,
+                treatAsRestoredSessionStart: treatAsRestoredSessionStart,
+                context: .worktree
+            )
+        else { return nil }
+
+        let config = Ghostty.SurfaceConfiguration(
+            launchDirectory: launchDirectory.path,
+            startupStrategy: startupPreparation.strategy,
+            initialFrame: initialFrame,
+            environmentVariables: startupPreparation.environmentVariables
+        )
+
+        let metadata = SurfaceMetadata(
+            launchDirectory: launchDirectory,
+            command: startupPreparation.strategy.startupCommandForSurface,
+            title: worktree.name,
+            worktreeId: worktree.id,
+            repoId: repo.id,
+            contextFacets: pane.metadata.facets,
+            paneId: pane.id
+        )
+
+        let preparedRuntime = prepareTerminalRuntimeForFreshSurfaceIfNeeded(for: pane)
+        traceSurfaceCreateStarted(
+            pane: pane,
+            initialFrame: config.initialFrame,
+            startupCommandPresent: startupPreparation.strategy.startupCommandForSurface != nil,
+            environmentVariableCount: startupPreparation.environmentVariables.count
+        )
+        let result = surfaceManager.createSurface(config: config, metadata: metadata)
+
+        switch result {
+        case .success(let managed):
+            traceSurfaceCreateSucceeded(pane: pane, surfaceID: managed.id)
+            viewRegistry.unregister(pane.id)
+            RestoreTrace.log(
+                "createView success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
+            )
+            surfaceManager.attach(managed.id, to: pane.id)
+            traceSurfaceAttached(pane: pane, surfaceID: managed.id)
+
+            let view = TerminalPaneMountView(
+                worktree: worktree,
+                repo: repo,
+                restoredSurfaceId: managed.id,
+                paneId: pane.id,
+                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup,
+                performanceTraceRecorder: performanceTraceRecorder
+            )
+            view.onRepairRequested = { [weak self] paneId in
+                self?.execute(.repair(.recreateSurface(paneId: paneId)))
+            }
+            view.displaySurface(managed.surface)
+            if let runtime = preparedRuntime?.runtime {
+                view.bind(runtime: runtime)
+            }
+
+            registerHostedView(mountedView: view, for: pane.id)
+            traceSurfaceDisplayed(pane: pane, surfaceID: managed.id)
+            runtime.markRunning(pane.id)
+            RestoreTrace.log(
+                "createView complete pane=\(pane.id) surface=\(managed.id) viewBounds=\(NSStringFromRect(view.bounds))"
+            )
+
+            Self.logger.info("Created view for pane \(pane.id) worktree: \(worktree.name)")
+            return view
+
+        case .failure(let error):
+            traceSurfaceCreateFailed(
+                pane: pane,
+                error: error,
+                initialFrame: config.initialFrame,
+                startupCommandPresent: startupPreparation.strategy.startupCommandForSurface != nil,
+                environmentVariableCount: startupPreparation.environmentVariables.count
+            )
+            RestoreTrace.log(
+                "createSurface failure pane=\(pane.id) error=\(error.localizedDescription)"
+            )
+            Self.logger.error("Failed to create surface for pane \(pane.id): \(error.localizedDescription)")
+            rollbackPreparedTerminalRuntimeIfNeeded(preparedRuntime)
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
+            return nil
+        }
+    }
+
+    @discardableResult
+    private func createFloatingTerminalView(
+        for pane: Pane,
+        initialFrame: NSRect? = nil,
+        treatAsRestoredSessionStart: Bool = false
+    ) -> TerminalPaneMountView? {
+        if pane.provider == .zmx, initialFrame == nil {
+            RestoreTrace.log(
+                "createFloatingTerminalView deferred pane=\(pane.id) reason=missingInitialFrame"
+            )
+            Self.logger.warning(
+                "Deferring floating zmx pane \(pane.id, privacy: .public) until trusted initialFrame exists"
+            )
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
+            return nil
+        }
+        let launchDirectory =
+            pane.metadata.cwd ?? pane.metadata.launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser
+        let shellCommand = "\(getDefaultShell()) -i -l"
+        guard
+            let startupPreparation = prepareTerminalSurfaceStartup(
+                for: pane,
+                shellCommand: shellCommand,
+                treatAsRestoredSessionStart: treatAsRestoredSessionStart,
+                context: .floating(launchDirectory: launchDirectory)
+            )
+        else { return nil }
+
+        RestoreTrace.log(
+            "createFloatingView pane=\(pane.id) cwd=\(launchDirectory.path) cmd=\(shellCommand)"
+        )
+
+        let config = Ghostty.SurfaceConfiguration(
+            launchDirectory: launchDirectory.path,
+            startupStrategy: startupPreparation.strategy,
+            initialFrame: initialFrame,
+            environmentVariables: startupPreparation.environmentVariables
+        )
+
+        let metadata = SurfaceMetadata(
+            launchDirectory: launchDirectory,
+            command: startupPreparation.strategy.startupCommandForSurface,
+            title: pane.metadata.title,
+            contextFacets: pane.metadata.facets,
+            paneId: pane.id
+        )
+
+        let preparedRuntime = prepareTerminalRuntimeForFreshSurfaceIfNeeded(for: pane)
+        traceSurfaceCreateStarted(
+            pane: pane,
+            initialFrame: config.initialFrame,
+            startupCommandPresent: startupPreparation.strategy.startupCommandForSurface != nil,
+            environmentVariableCount: startupPreparation.environmentVariables.count
+        )
+        let result = surfaceManager.createSurface(config: config, metadata: metadata)
+
+        switch result {
+        case .success(let managed):
+            traceSurfaceCreateSucceeded(pane: pane, surfaceID: managed.id)
+            viewRegistry.unregister(pane.id)
+            RestoreTrace.log(
+                "createFloatingSurface success pane=\(pane.id) surface=\(managed.id) initialSurfaceFrame=\(NSStringFromRect(managed.surface.frame))"
+            )
+            surfaceManager.attach(managed.id, to: pane.id)
+            traceSurfaceAttached(pane: pane, surfaceID: managed.id)
+
+            let view = TerminalPaneMountView(
+                restoredSurfaceId: managed.id,
+                paneId: pane.id,
+                title: pane.metadata.title,
+                showsRestorePresentationDuringStartup: startupPreparation.showsRestorePresentationDuringStartup,
+                performanceTraceRecorder: performanceTraceRecorder
+            )
+            view.onRepairRequested = { [weak self] paneId in
+                self?.execute(.repair(.recreateSurface(paneId: paneId)))
+            }
+            view.displaySurface(managed.surface)
+            if let runtime = preparedRuntime?.runtime {
+                view.bind(runtime: runtime)
+            }
+
+            registerHostedView(mountedView: view, for: pane.id)
+            traceSurfaceDisplayed(pane: pane, surfaceID: managed.id)
+            runtime.markRunning(pane.id)
+            RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
+
+            Self.logger.info("Created floating terminal view for pane \(pane.id)")
+            return view
+
+        case .failure(let error):
+            traceSurfaceCreateFailed(
+                pane: pane,
+                error: error,
+                initialFrame: config.initialFrame,
+                startupCommandPresent: startupPreparation.strategy.startupCommandForSurface != nil,
+                environmentVariableCount: startupPreparation.environmentVariables.count
+            )
+            RestoreTrace.log(
+                "createFloatingSurface failure pane=\(pane.id) error=\(error.localizedDescription)"
+            )
+            Self.logger.error(
+                "Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
+            rollbackPreparedTerminalRuntimeIfNeeded(preparedRuntime)
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
+            return nil
+        }
+    }
+
+    private func prepareTerminalSurfaceStartup(
+        for pane: Pane,
+        shellCommand: String,
+        treatAsRestoredSessionStart: Bool,
+        context: TerminalSurfaceStartupContext
+    ) -> TerminalSurfaceStartupPreparation? {
+        switch pane.provider {
+        case .zmx:
+            let diagnostics = terminalRestoreRuntime.zmxAttachDiagnostics(for: pane, store: store)
+            if let diagnostics {
+                RestoreTrace.log(
+                    "\(context.diagnosticsTracePrefix) zmxDiagnostics pane=\(diagnostics.paneId) session=\(diagnostics.sessionId) socketPathLen=\(diagnostics.socketPathLength) socketPathHeadroom=\(diagnostics.socketPathHeadroom) maxSocketPathLen=\(diagnostics.maxSocketPathLength)"
+                )
+            }
+            if let attachCommand = terminalRestoreRuntime.zmxAttachCommand(for: pane, store: store) {
+                traceZmxAttachPrepared(pane: pane, diagnostics: diagnostics)
+                // Prevent nested Agent Studio launches from inheriting an outer zmx session.
+                let environmentVariables: [String: String] = [
+                    "ZMX_DIR": sessionConfig.zmxDir,
+                    "ZMX_SESSION": "",
+                ]
+                if case .floating(let launchDirectory) = context {
+                    RestoreTrace.log(
+                        "createFloatingView zmx pane=\(pane.id) session=\(Self.floatingZmxRestoreSessionId(for: pane, launchDirectory: launchDirectory)) cwd=\(launchDirectory.path)"
+                    )
+                }
+                return TerminalSurfaceStartupPreparation(
+                    strategy: .surfaceCommand(attachCommand),
+                    showsRestorePresentationDuringStartup: treatAsRestoredSessionStart,
+                    environmentVariables: environmentVariables
+                )
+            }
+
+            traceZmxAttachFailed(pane: pane)
+            Self.logger.error(
+                "\(context.missingZmxLogMessage) for \(pane.id) (state will not persist)"
+            )
+            if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
+                store.paneAtom.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
+            }
+            return TerminalSurfaceStartupPreparation(
+                strategy: .surfaceCommand(shellCommand),
+                showsRestorePresentationDuringStartup: false,
+                environmentVariables: [:]
+            )
+
+        case .ghostty:
+            return TerminalSurfaceStartupPreparation(
+                strategy: .surfaceCommand(shellCommand),
+                showsRestorePresentationDuringStartup: false,
+                environmentVariables: [:]
+            )
+
+        case .none:
+            Self.logger.error("Cannot create view for non-terminal pane \(pane.id)")
+            return nil
+        }
+    }
+
+    /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
+    func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
+        removePaneFilesystemProjectionContext(paneId: paneId)
+        if let terminal = viewRegistry.terminalView(for: paneId),
+            let surfaceId = terminal.surfaceId
+        {
+            surfaceManager.detach(surfaceId, reason: .close)
+        }
+
+        if let bridgeView = viewRegistry.view(for: paneId)?.mountedContent(as: BridgePaneMountView.self) {
+            bridgeView.controller.teardown()
+        }
+
+        viewRegistry.unregister(paneId)
+        if shouldUnregisterRuntime {
+            if UUIDv7.isV7(paneId) {
+                let runtimePaneId = PaneId(uuid: paneId)
+                _ = unregisterRuntime(runtimePaneId)
+                Task { [paneEventBus] in
+                    await paneEventBus.evictReplay(sourceKey: EventSource.pane(runtimePaneId).description)
+                }
+            } else {
+                Self.logger.warning(
+                    "Skipping runtime unregister for non-v7 pane id \(paneId.uuidString, privacy: .public)"
+                )
+            }
+            runtime.removeSession(paneId)
+        }
+        Self.logger.debug("Tore down view for pane \(paneId)")
+    }
+
+    /// Detach a pane's surface for a view switch (hide, not destroy).
+    func detachForViewSwitch(paneId: UUID) {
+        if let terminal = viewRegistry.terminalView(for: paneId),
+            let surfaceId = terminal.surfaceId
+        {
+            surfaceManager.detach(surfaceId, reason: .hide)
+        }
+        Self.logger.debug("Detached pane \(paneId) for view switch")
+    }
+
+    /// Reattach a pane's surface after a view switch.
+    func reattachForViewSwitch(paneId: UUID) {
+        restoreVisiblePaneIfNeeded(paneId, forceWhenBoundsExist: true)
+        guard let terminal = viewRegistry.terminalView(for: paneId) else {
+            if viewRegistry.view(for: paneId) != nil {
+                Self.logger.debug(
+                    "Skipped terminal reattach for pane \(paneId.uuidString, privacy: .public): restored view is not an attachable terminal host"
+                )
+                return
+            }
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): terminal view not found"
+            )
+            return
+        }
+        guard let surfaceId = terminal.surfaceId else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): terminal view has no surface id"
+            )
+            return
+        }
+        guard let surfaceView = surfaceManager.attach(surfaceId, to: paneId) else {
+            Self.logger.warning(
+                "Unable to reattach pane \(paneId.uuidString, privacy: .public): attach returned nil for surface \(surfaceId.uuidString, privacy: .public)"
+            )
+            return
+        }
+        terminal.displaySurface(surfaceView, geometryVerificationReason: "reattachForViewSwitch")
+        if let pane = store.paneAtom.pane(paneId) {
+            registerTerminalRuntimeIfNeeded(for: pane)
+        }
+        Self.logger.debug("Reattached pane \(paneId.uuidString, privacy: .public) for view switch")
+    }
+
+    private func registerCodeViewerRuntimeIfNeeded(for pane: Pane) -> SwiftPaneRuntime? {
+        guard let runtimePaneId = runtimePaneId(for: pane.id) else {
+            Self.logger.warning(
+                "Skipping code viewer runtime registration for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
+            )
+            return nil
+        }
+        let canonicalMetadata = pane.metadata.canonicalizedIdentity(
+            paneId: runtimePaneId,
+            contentType: .codeViewer
+        )
+
+        if let existing = runtimeForPane(runtimePaneId) as? SwiftPaneRuntime {
+            if existing.lifecycle == .terminated {
+                _ = unregisterRuntime(runtimePaneId)
+            } else {
+                return existing
+            }
+        }
+
+        let runtime = SwiftPaneRuntime(
+            paneId: runtimePaneId,
+            metadata: canonicalMetadata
+        )
+        registerRuntime(runtime)
+        return runtime
+    }
+
+    private func registerRuntimeIfNeeded(runtime: any PaneRuntime, for pane: Pane) {
+        guard let runtimePaneId = runtimePaneId(for: pane.id) else { return }
+        guard runtime.paneId == runtimePaneId else {
+            Self.logger.error(
+                "Runtime pane id mismatch during registration for pane \(pane.id.uuidString, privacy: .public)"
+            )
+            return
+        }
+
+        if let existing = runtimeForPane(runtimePaneId) {
+            let existingId = ObjectIdentifier(existing as AnyObject)
+            let incomingId = ObjectIdentifier(runtime as AnyObject)
+            if existingId == incomingId {
+                return
+            }
+            _ = unregisterRuntime(runtimePaneId)
+        }
+        registerRuntime(runtime)
+    }
+
+    private func runtimePaneId(for paneId: UUID) -> PaneId? {
+        guard UUIDv7.isV7(paneId) else {
+            Self.logger.error(
+                "Runtime registration requested for non-v7 pane id \(paneId.uuidString, privacy: .public)"
+            )
+            return nil
+        }
+        return PaneId(uuid: paneId)
+    }
+
+    private func registerPaneFilesystemContextIfNeeded(for pane: Pane) {
+        upsertPaneFilesystemProjectionContext(for: pane)
+    }
+
+    /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.
+    @discardableResult
+    func restoreView(
+        for pane: Pane,
+        worktree: Worktree,
+        repo: Repo
+    ) -> TerminalPaneMountView? {
+        guard UUIDv7.isV7(pane.id) else {
+            Self.logger.error(
+                "Unable to restore runtime for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
+            )
+            return nil
+        }
+        let runtimePaneId = PaneId(uuid: pane.id)
+        let runtimeWasAlreadyRegistered = runtimeForPane(runtimePaneId) != nil
+        if let undone = surfaceManager.undoClose() {
+            if undone.metadata.paneId == pane.id {
+                let view = TerminalPaneMountView(
+                    worktree: worktree,
+                    repo: repo,
+                    restoredSurfaceId: undone.id,
+                    paneId: pane.id,
+                    performanceTraceRecorder: performanceTraceRecorder
+                )
+                surfaceManager.attach(undone.id, to: pane.id)
+                view.displaySurface(undone.surface)
+                registerHostedView(mountedView: view, for: pane.id)
+                registerTerminalRuntimeIfNeeded(for: pane)
+                runtime.markRunning(pane.id)
+                Self.logger.info("Restored view from undo for pane \(pane.id)")
+                return view
+            } else {
+                Self.logger.warning(
+                    "Undo surface metadata mismatch: expected pane \(pane.id), got \(undone.metadata.paneId?.uuidString ?? "nil") — creating fresh"
+                )
+                surfaceManager.requeueUndo(undone.id)
+            }
+        }
+
+        Self.logger.info("Creating fresh view for pane \(pane.id)")
+        let restoredView =
+            createViewForContentUsingCurrentGeometry(
+                pane: pane,
+                treatAsRestoredSessionStart: true
+            ) as? TerminalPaneMountView
+        if restoredView == nil, !runtimeWasAlreadyRegistered {
+            _ = unregisterRuntime(runtimePaneId)
+        }
+        return restoredView
+    }
+
+    /// Recreate views for all restored panes in all tabs, including drawer panes.
+    /// Called once at launch after store.restore() populates persisted state.
+    ///
+    /// Startup is staged so the active tab is restored first, then background tabs
+    /// are hydrated cooperatively with yields to keep first-interaction latency low.
+    func restoreAllViews(in terminalContainerBounds: CGRect? = nil) async {
+        defer {
+            viewRegistry.completeInitialRestore()
+        }
+        if let terminalContainerBounds {
+            RestoreTrace.log(
+                "restoreAllViews inputBounds=\(NSStringFromRect(terminalContainerBounds))"
+            )
+        } else {
+            RestoreTrace.log("restoreAllViews inputBounds=nil")
+        }
+        let orderedPaneIds = TerminalRestoreScheduler.order(
+            Self.orderedUniquePaneIds(store.tabLayoutAtom.tabs.flatMap(\.allPaneIds)).map(PaneId.init(uuid:)),
+            resolver: visibilityTierResolver
+        ).map(\.uuid)
+        RestoreTrace.log(
+            "restoreAllViews begin tabs=\(store.tabLayoutAtom.tabs.count) paneIds=\(orderedPaneIds.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
+        )
+        guard !orderedPaneIds.isEmpty else {
+            Self.logger.info("No panes to restore views for")
+            RestoreTrace.log("restoreAllViews no panes")
+            return
+        }
+
+        // Seed slots for all panes before creating any views.
+        // Panes already exist in the store from store.restore().
+        // SwiftUI body may run before restoreAllViews completes,
+        // so slots must exist before the first createViewForContent call.
+        let allPaneIds = store.tabLayoutAtom.tabs.flatMap(\.activePaneIds)
+        for paneId in allPaneIds {
+            viewRegistry.ensureSlot(for: paneId)
+        }
+        for pane in store.paneAtom.panes.values {
+            if pane.drawer != nil, let drawerView = arrangementView.drawerView(forParent: pane.id) {
+                for drawerPaneId in drawerView.layout.paneIds {
+                    viewRegistry.ensureSlot(for: drawerPaneId)
+                }
+            }
+        }
+
+        let visiblePaneIds = orderedPaneIds.filter {
+            visibilityTierResolver.tier(for: PaneId(uuid: $0)) == .p0Visible
+        }
+        let hiddenPaneIds = orderedPaneIds.filter {
+            visibilityTierResolver.tier(for: PaneId(uuid: $0)) == .p1Hidden
+        }
+        let liveHiddenSessionIds = await hiddenLiveSessionIds()
+        let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
+        var progress = RestoreAllViewsProgress()
+
+        // Stage 1: restore currently visible panes first for fast first paint/interaction.
+        for paneId in visiblePaneIds {
+            restorePaneAndDrawers(
+                paneId,
+                resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
+                liveHiddenSessionIds: liveHiddenSessionIds,
+                progress: &progress
+            )
+        }
+
+        if let activeTab = store.tabLayoutAtom.activeTab,
+            let activePaneId = activeTab.activePaneId,
+            let terminalView = viewRegistry.terminalView(for: activePaneId)
+        {
+            surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
+            RestoreTrace.log(
+                "restoreAllViews syncFocus activeTab=\(activeTab.id) activePane=\(activePaneId) activeSurface=\(terminalView.surfaceId?.uuidString ?? "nil")"
+            )
+        }
+
+        // Stage 2: restore eligible hidden panes cooperatively after visible work.
+        for (index, paneId) in hiddenPaneIds.enumerated() {
+            if Task.isCancelled { break }
+            restorePaneAndDrawers(
+                paneId,
+                resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
+                liveHiddenSessionIds: liveHiddenSessionIds,
+                progress: &progress
+            )
+            if index.isMultiple(of: 2) {
+                await Task.yield()
+            }
+        }
+
+        Self.logger.info(
+            "Restored \(progress.restored)/\(orderedPaneIds.count) pane views, \(progress.drawerRestored) drawer pane views"
+        )
+        if !progress.failedPaneIds.isEmpty || !progress.failedDrawerPaneIds.isEmpty {
+            let failedPrimary = progress.failedPaneIds.map(\.uuidString).joined(separator: ", ")
+            let failedDrawer = progress.failedDrawerPaneIds.map(\.uuidString).joined(separator: ", ")
+            Self.logger.error(
+                """
+                restoreAllViews: failed view creation primary=[\(failedPrimary)] drawer=[\(failedDrawer)] \
+                (panes remain in store/layout and may appear as placeholders)
+                """
+            )
+        }
+
+        RestoreTrace.log("restoreAllViews end restored=\(progress.restored) drawerRestored=\(progress.drawerRestored)")
+    }
+
+    private static func orderedUniquePaneIds(_ paneIds: [UUID]) -> [UUID] {
+        var seen: Set<UUID> = []
+        return paneIds.filter { seen.insert($0).inserted }
+    }
+
+    private func hiddenLiveSessionIds() async -> Set<String> {
+        let hiddenZmxPaneIds = store.paneAtom.panes.values.compactMap { pane -> UUID? in
+            guard pane.provider == .zmx else { return nil }
+            let paneId = PaneId(uuid: pane.id)
+            return visibilityTierResolver.tier(for: paneId) == .p1Hidden ? pane.id : nil
+        }
+        let needsHiddenSessionDiscovery = !hiddenZmxPaneIds.isEmpty
+        if !needsHiddenSessionDiscovery {
+            return []
+        }
+        return await terminalRestoreRuntime.discoverLiveSessionIds()
+    }
+
+    private func shouldRestoreHiddenPane(
+        _ pane: Pane,
+        liveHiddenSessionIds: Set<String>
+    ) -> Bool {
+        let paneId = PaneId(uuid: pane.id)
+        guard visibilityTierResolver.tier(for: paneId) == .p1Hidden else {
+            return true
+        }
+        return terminalRestoreRuntime.shouldRestoreHiddenPane(
+            pane,
+            store: store,
+            liveSessionIds: liveHiddenSessionIds
+        )
+    }
+
+    func initialFrame(
+        for pane: Pane,
+        resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]]
+    ) -> NSRect? {
+        let owningPaneId = pane.parentPaneId ?? pane.id
+        guard let tab = store.tabLayoutAtom.tabContaining(paneId: owningPaneId) else {
+            return nil
+        }
+        guard let frame = resolvedPaneFramesByTabId[tab.id]?[pane.id], !frame.isEmpty else {
+            return nil
+        }
+        return NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height)
+    }
+
+    private func restorePaneAndDrawers(
+        _ paneId: UUID,
+        resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
+        liveHiddenSessionIds: Set<String>,
+        progress: inout RestoreAllViewsProgress
+    ) {
+        guard progress.restoredPaneIds.insert(paneId).inserted else { return }
+        guard let pane = store.paneAtom.pane(paneId) else {
+            Self.logger.warning("Skipping view restore for pane \(paneId) — not in store")
+            RestoreTrace.log("restoreAllViews skip missing pane=\(paneId)")
+            return
+        }
+        guard shouldRestoreHiddenPane(pane, liveHiddenSessionIds: liveHiddenSessionIds) else {
+            RestoreTrace.log("restoreAllViews skip hidden pane=\(paneId) reason=policy")
+            restoreDrawerPanes(
+                for: pane,
+                resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
+                liveHiddenSessionIds: liveHiddenSessionIds,
+                progress: &progress
+            )
+            return
+        }
+
+        RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
+        if viewRegistry.view(for: paneId) != nil
+            || createViewForContent(
+                pane: pane,
+                initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
+                treatAsRestoredSessionStart: true
+            ) != nil
+        {
+            progress.restored += 1
+        } else {
+            progress.failedPaneIds.append(paneId)
+        }
+
+        restoreDrawerPanes(
+            for: pane,
+            resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
+            liveHiddenSessionIds: liveHiddenSessionIds,
+            progress: &progress
+        )
+    }
+
+    private func restoreDrawerPanes(
+        for parentPane: Pane,
+        resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
+        liveHiddenSessionIds: Set<String>,
+        progress: inout RestoreAllViewsProgress
+    ) {
+        guard let drawer = parentPane.drawer else { return }
+        for drawerPaneId in drawer.paneIds {
+            guard progress.restoredPaneIds.insert(drawerPaneId).inserted else { continue }
+            guard let drawerPane = store.paneAtom.pane(drawerPaneId) else {
+                Self.logger.warning(
+                    "restoreAllViews: drawer pane \(drawerPaneId) referenced by parent \(parentPane.id) is missing from store"
+                )
+                continue
+            }
+            guard shouldRestoreHiddenPane(drawerPane, liveHiddenSessionIds: liveHiddenSessionIds) else {
+                RestoreTrace.log(
+                    "restoreAllViews skip hidden drawer pane=\(drawerPaneId) parent=\(parentPane.id) reason=policy"
+                )
+                continue
+            }
+            RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(parentPane.id)")
+            if viewRegistry.view(for: drawerPaneId) != nil
+                || createViewForContent(
+                    pane: drawerPane,
+                    initialFrame: initialFrame(
+                        for: drawerPane,
+                        resolvedPaneFramesByTabId: resolvedPaneFramesByTabId
+                    ),
+                    treatAsRestoredSessionStart: true
+                ) != nil
+            {
+                progress.drawerRestored += 1
+            } else {
+                progress.failedDrawerPaneIds.append(drawerPaneId)
+            }
+        }
+    }
+
+    func resolveInitialFramesByTabId(in terminalContainerBounds: CGRect?) -> [UUID: [UUID: CGRect]] {
+        guard let terminalContainerBounds else {
+            Self.logger.warning("resolveInitialFramesByTabId: terminal container bounds unavailable")
+            RestoreTrace.log("resolveInitialFramesByTabId unavailableBounds")
+            return [:]
+        }
+        guard !terminalContainerBounds.isEmpty else {
+            Self.logger.warning("resolveInitialFramesByTabId: terminal container bounds empty")
+            RestoreTrace.log("resolveInitialFramesByTabId emptyBounds")
+            return [:]
+        }
+
+        return store.tabLayoutAtom.tabs.reduce(into: [UUID: [UUID: CGRect]]()) { result, tab in
+            var resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
+                for: tab.layout,
+                in: terminalContainerBounds,
+                dividerThickness: AppStyles.General.Layout.paneGap,
+                minimizedPaneIds: tab.activeMinimizedPaneIds,
+                collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
+            )
+            if resolvedFrames.isEmpty, !tab.layout.isEmpty {
+                Self.logger.warning(
+                    "resolveInitialFramesByTabId: no resolved frames for non-empty tab \(tab.id.uuidString, privacy: .public)"
+                )
+                RestoreTrace.log("resolveInitialFramesByTabId noFrames tab=\(tab.id)")
+            }
+
+            for paneId in tab.activePaneIds {
+                guard
+                    let parentFrame = resolvedFrames[paneId],
+                    let drawer = store.paneAtom.pane(paneId)?.drawer,
+                    drawer.isExpanded,
+                    let drawerView = arrangementView.drawerView(forParent: paneId),
+                    let drawerContentRect = resolvedDrawerContentRect(
+                        parentPaneFrame: parentFrame,
+                        tabSize: terminalContainerBounds.size
+                    )
+                else {
+                    if store.paneAtom.pane(paneId)?.drawer?.isExpanded == true {
+                        Self.logger.warning(
+                            "resolveInitialFramesByTabId: missing expanded drawer geometry for parent pane \(paneId.uuidString, privacy: .public)"
+                        )
+                        RestoreTrace.log("resolveInitialFramesByTabId missingDrawerGeometry parent=\(paneId)")
+                    }
+                    continue
+                }
+                let drawerFrames = TerminalPaneGeometryResolver.resolveFrames(
+                    for: drawerView.layout,
+                    in: drawerContentRect,
+                    dividerThickness: AppStyles.General.Layout.paneGap,
+                    minimizedPaneIds: drawerView.minimizedPaneIds,
+                    collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
+                )
+
+                for (drawerPaneId, drawerPaneFrame) in drawerFrames {
+                    resolvedFrames[drawerPaneId] = drawerPaneFrame
+                }
+            }
+
+            result[tab.id] = resolvedFrames
+        }
+    }
+
+    private func resolvedDrawerContentRect(
+        parentPaneFrame: CGRect,
+        tabSize: CGSize
+    ) -> CGRect? {
+        guard tabSize.width > 0, tabSize.height > 0 else { return nil }
+
+        let heightRatio = drawerHeightRatio()
+        let panelWidth = tabSize.width * DrawerLayout.panelWidthRatio
+        let panelHeight = max(
+            DrawerLayout.panelMinHeight,
+            min(tabSize.height * CGFloat(heightRatio), tabSize.height - DrawerLayout.panelBottomMargin)
+        )
+        let totalHeight = panelHeight + DrawerLayout.overlayConnectorHeight
+        let overlayBottomY = parentPaneFrame.maxY - DrawerLayout.iconBarFrameHeight
+        let centerY = overlayBottomY - totalHeight / 2
+        let halfPanel = panelWidth / 2
+        let edgeMargin = DrawerLayout.tabEdgeMargin
+        let centerX = max(
+            halfPanel + edgeMargin,
+            min(tabSize.width - halfPanel - edgeMargin, parentPaneFrame.midX)
+        )
+        let panelLeft = centerX - halfPanel
+        let panelTop = centerY - totalHeight / 2
+
+        let contentRect = CGRect(
+            x: panelLeft + DrawerLayout.panelContentPadding,
+            y: panelTop + DrawerLayout.resizeHandleHeight,
+            width: max(panelWidth - (DrawerLayout.panelContentPadding * 2), 1),
+            height: max(
+                panelHeight - DrawerLayout.resizeHandleHeight - DrawerLayout.panelContentPadding,
+                1
+            )
+        )
+        return contentRect.isEmpty ? nil : contentRect
+    }
+
+    private func drawerHeightRatio() -> Double {
+        let storedValue = UserDefaults.standard.object(forKey: "drawerHeightRatio") as? Double
+        return storedValue ?? DrawerLayout.heightRatioMax
+    }
+
+    private func getDefaultShell() -> String {
+        SessionConfiguration.defaultShell()
+    }
+}

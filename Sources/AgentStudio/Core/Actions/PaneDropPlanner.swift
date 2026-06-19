@@ -19,7 +19,7 @@ enum PaneDropIneligibilityReason: Equatable {
 enum DropCommitPlan: Equatable {
     case moveTab(tabId: UUID, toIndex: Int)
     case extractPaneToTabThenMove(paneId: UUID, sourceTabId: UUID, toIndex: Int)
-    case paneAction(PaneActionCommand)
+    case paneAction(WorkspaceActionCommand)
 }
 
 struct PaneSplitDropDestination: Equatable {
@@ -97,14 +97,14 @@ enum PaneDropPlanner {
         }
 
         if sourceTab.visiblePaneCount == 1 {
-            let action = PaneActionCommand.moveTab(tabId: sourceTabId, delta: 0)
+            let action = WorkspaceActionCommand.moveTab(tabId: sourceTabId, delta: 0)
             if let failure = actionValidationFailure(action, state: state) {
                 return .ineligible(.validationFailed(failure))
             }
             return .eligible(.moveTab(tabId: sourceTabId, toIndex: targetTabIndex))
         }
 
-        let extractAction = PaneActionCommand.extractPaneToTab(tabId: sourceTabId, paneId: paneId)
+        let extractAction = WorkspaceActionCommand.extractPaneToTab(tabId: sourceTabId, paneId: paneId)
         if let failure = actionValidationFailure(extractAction, state: state) {
             return .ineligible(.validationFailed(failure))
         }
@@ -155,7 +155,7 @@ enum PaneDropPlanner {
     }
 
     private static func eligiblePaneAction(
-        _ action: PaneActionCommand,
+        _ action: WorkspaceActionCommand,
         state: ActionStateSnapshot
     ) -> PaneDropPreviewDecision {
         if let failure = actionValidationFailure(action, state: state) {
@@ -165,7 +165,7 @@ enum PaneDropPlanner {
     }
 
     private static func actionValidationFailure(
-        _ action: PaneActionCommand,
+        _ action: WorkspaceActionCommand,
         state: ActionStateSnapshot
     ) -> ActionValidationError? {
         let validation = WorkspaceCommandValidator.validate(action, state: state)

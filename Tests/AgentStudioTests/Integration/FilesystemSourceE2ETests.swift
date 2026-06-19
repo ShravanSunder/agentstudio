@@ -56,11 +56,11 @@ extension E2ESerializedTests {
             cacheCoordinator.startConsuming()
             await filesystemSource.start()
 
-            let coordinator = PaneCoordinator(
+            let coordinator = WorkspaceSurfaceCoordinator(
                 store: store,
                 viewRegistry: ViewRegistry(),
                 runtime: SessionRuntime(store: store),
-                surfaceManager: MockPaneCoordinatorSurfaceManagerFilesystemE2E(),
+                surfaceManager: FilesystemE2ESurfaceManager(),
                 runtimeRegistry: RuntimeRegistry(),
                 paneEventBus: paneEventBus,
                 filesystemSource: filesystemSource,
@@ -118,7 +118,9 @@ extension E2ESerializedTests {
 }
 
 @MainActor
-private final class MockPaneCoordinatorSurfaceManagerFilesystemE2E: PaneCoordinatorSurfaceManaging {
+private final class FilesystemE2ESurfaceManager:
+    WorkspaceSurfaceManaging
+{
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> = AsyncStream { continuation in
         continuation.finish()
     }

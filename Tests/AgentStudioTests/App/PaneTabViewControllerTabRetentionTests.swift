@@ -32,7 +32,7 @@ struct PaneTabViewControllerTabRetentionTests {
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
         )
-        let coordinator = makeTestPaneCoordinator(
+        let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -45,7 +45,8 @@ struct PaneTabViewControllerTabRetentionTests {
             repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
-            executor: ActionExecutor(coordinator: coordinator, store: store),
+            executor: WorkspaceActionExecutor(coordinator: coordinator, store: store),
+            runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
             registersAsCommandHandler: false
@@ -259,15 +260,20 @@ struct PaneTabViewControllerTabRetentionTests {
         try registerAttachedPaneHost(otherPane.id, in: harness)
         harness.store.setActiveTab(parentTab.id)
         harness.store.setActivePane(parentPane.id, inTab: parentTab.id)
-        atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id)
+        harness.controller.handlePaneFocusTrigger(
+            .drawer(.selectPane(parentPaneId: parentPane.id, drawerPaneId: drawerPane.id)))
         harness.controller.view.layoutSubtreeIfNeeded()
+
+        let drawerHost = try #require(harness.viewRegistry.view(for: drawerPane.id))
+        await eventually("drawer pane should own responder before tab round trip") {
+            harness.window.firstResponder === drawerHost
+        }
 
         harness.controller.selectTab(at: 1)
         harness.controller.view.layoutSubtreeIfNeeded()
         harness.controller.selectTab(at: 0)
         harness.controller.view.layoutSubtreeIfNeeded()
 
-        let drawerHost = try #require(harness.viewRegistry.view(for: drawerPane.id))
         await eventually("tab round trip should restore drawer pane responder") {
             harness.window.firstResponder === drawerHost
         }
@@ -527,7 +533,7 @@ struct PaneTabViewControllerTabRetentionTests {
 }
 
 @MainActor
-private final class MockPersistentTabSurfaceManager: PaneCoordinatorSurfaceManaging {
+private final class MockPersistentTabSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
         continuation.finish()
     }

@@ -8,7 +8,7 @@ struct BridgeReviewVocabularyBoundaryTests {
     func bridgeDiffRuntimeVocabularyStaysReadOnly() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let relativeSourcePaths = [
-            "Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeCommand.swift",
+            "Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeCommand.swift",
             "Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift",
             "Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneKindEvent.swift",
             "Sources/AgentStudio/Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift",

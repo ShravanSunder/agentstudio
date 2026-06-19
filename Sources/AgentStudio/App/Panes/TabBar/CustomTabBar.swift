@@ -64,7 +64,7 @@ struct CustomTabBar: View {
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
     var onOpenGitHub: (() -> Void)?
-    var onPaneAction: ((PaneActionCommand) -> Void)?
+    var onPaneAction: ((WorkspaceActionCommand) -> Void)?
     var onSaveArrangement: ((UUID) -> Void)?
     var onOpenRepoInTab: (() -> Void)?
     var workspaceWindowId: UUID?
@@ -419,7 +419,7 @@ private struct GitHubTabButton: View {
 private struct TabBarArrangementButton: View {
     @Bindable var adapter: TabBarAdapter
     @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
-    let onPaneAction: ((PaneActionCommand) -> Void)?
+    let onPaneAction: ((WorkspaceActionCommand) -> Void)?
     let onSaveArrangement: ((UUID) -> Void)?
     let workspaceWindowId: UUID?
 
@@ -602,7 +602,7 @@ private struct TabBarManagementLayerButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(CommandDispatcher.shared.definition(for: .toggleManagementLayer).controlToolTip)
+        .help(AppCommandDispatcher.shared.definition(for: .toggleManagementLayer).controlToolTip)
     }
 }
 
@@ -645,7 +645,7 @@ private struct NewTabButton: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .onHover { isHovered = $0 }
-        .help(CommandDispatcher.shared.definition(for: .newTab).controlToolTip)
+        .help(AppCommandDispatcher.shared.definition(for: .newTab).controlToolTip)
     }
 }
 

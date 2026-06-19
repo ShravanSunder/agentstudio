@@ -19,7 +19,7 @@ enum WorkspaceCommandResolver {
         tabs: [T],
         activeTabId: UUID?,
         visiblePaneIds: (T) -> [UUID] = { $0.visiblePaneIds }
-    ) -> PaneActionCommand? {
+    ) -> WorkspaceActionCommand? {
         if isNonPaneCommand(command) {
             return nil
         }
@@ -72,22 +72,8 @@ enum WorkspaceCommandResolver {
 
         case .focusPane:
             return nil
-        case .scrollToBottom:
-            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
-            else { return nil }
-            return .scrollToBottom(tabId: tab.id, paneId: paneId)
-        case .scrollPageUp:
-            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
-            else { return nil }
-            return .scrollPageUp(tabId: tab.id, paneId: paneId)
-        case .jumpToPreviousPrompt:
-            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
-            else { return nil }
-            return .jumpToPrompt(tabId: tab.id, paneId: paneId, delta: -1)
-        case .jumpToNextPrompt:
-            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
-            else { return nil }
-            return .jumpToPrompt(tabId: tab.id, paneId: paneId, delta: 1)
+        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
+            return nil
         case .extractPaneToTab:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
@@ -179,6 +165,7 @@ enum WorkspaceCommandResolver {
             .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
             .openWebview, .openBridgeReview, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
+            .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
             .switchArrangement, .previousArrangement, .nextArrangement, .cycleArrangement, .saveArrangement,
             .deleteArrangement, .renameArrangement,
             .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown,
@@ -199,7 +186,7 @@ enum WorkspaceCommandResolver {
             .selectTab, .nextTab, .prevTab,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-            .closePane, .focusPane, .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt,
+            .closePane, .focusPane,
             .extractPaneToTab, .movePaneToTab,
             .equalizePanes,
             .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
@@ -221,7 +208,7 @@ enum WorkspaceCommandResolver {
         zone: DropZoneSide,
         sizingMode: DropSizingMode,
         state: ActionStateSnapshot
-    ) -> PaneActionCommand? {
+    ) -> WorkspaceActionCommand? {
         let direction = splitNewDirection(for: zone)
 
         switch payload.kind {
@@ -311,7 +298,7 @@ enum WorkspaceCommandResolver {
 
     private static func selectTabByIndex<T: ResolvableTab>(
         _ index: Int, tabs: [T]
-    ) -> PaneActionCommand? {
+    ) -> WorkspaceActionCommand? {
         guard index >= 0, index < tabs.count else { return nil }
         return .selectTab(tabId: tabs[index].id)
     }
@@ -337,7 +324,7 @@ enum WorkspaceCommandResolver {
     private static func resolveSplit<T: ResolvableTab>(
         _ direction: SplitNewDirection,
         tabs: [T], activeTabId: UUID?
-    ) -> PaneActionCommand? {
+    ) -> WorkspaceActionCommand? {
         guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
         else { return nil }
         return .insertPane(

@@ -19,10 +19,10 @@ extension AppCommand {
         .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
     ]
 
-    var definition: CommandSpec {
+    var definition: AppCommandSpec {
         switch self {
         case .closeTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .closeTab,
                 label: "Close Tab",
@@ -34,7 +34,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .breakUpTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Split Tab Into Individuals",
                 icon: .system(.rectangleSplit3x1),
@@ -45,7 +45,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .renameTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Rename Tab...",
                 icon: .system(.pencil),
@@ -56,7 +56,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .newTerminalInTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Add Terminal to Tab",
                 icon: .system(.terminal),
@@ -67,7 +67,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .newTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "New Tab",
                 icon: .system(.plusSquare),
@@ -76,7 +76,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .undoCloseTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .undoCloseTab,
                 label: "Undo Close Tab",
@@ -86,7 +86,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .selectTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Select Tab",
                 icon: .system(.rectangleStack),
@@ -98,7 +98,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .nextTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .nextTab,
                 label: "Next Tab",
@@ -109,7 +109,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .prevTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .prevTab,
                 label: "Previous Tab",
@@ -138,7 +138,7 @@ extension AppCommand {
         case .selectTab9:
             return hiddenTabSelectionDefinition(index: 9)
         case .closePane:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Close Pane",
                 icon: .system(.xmarkSquare),
@@ -150,7 +150,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .extractPaneToTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Move Pane to New Tab",
                 icon: .system(.arrowUpRightSquare),
@@ -161,7 +161,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .movePaneToTab:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Move Pane to Existing Tab",
                 icon: .system(.arrowLeftAndRightSquare),
@@ -173,7 +173,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .focusPane:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Focus Pane",
                 icon: .system(.scope),
@@ -185,7 +185,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .scrollToBottom:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .scrollToBottom,
                 label: "Scroll to Bottom",
@@ -197,7 +197,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.terminal
             )
         case .scrollPageUp:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .scrollPageUp,
                 label: "Page Up",
@@ -209,7 +209,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.terminal
             )
         case .jumpToPreviousPrompt:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .jumpToPreviousPrompt,
                 label: "Previous Prompt",
@@ -221,7 +221,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.terminal
             )
         case .jumpToNextPrompt:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .jumpToNextPrompt,
                 label: "Next Prompt",
@@ -233,7 +233,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.terminal
             )
         case .splitRight:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Split Right",
                 icon: .system(.rectangleSplit1x2),
@@ -244,7 +244,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .splitLeft:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Split Left",
                 icon: .system(.rectangleSplit1x2),
@@ -255,7 +255,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .equalizePanes:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Equalize Panes",
                 icon: .system(.equalSquare),
@@ -320,7 +320,7 @@ extension AppCommand {
         case .focusPane9:
             return hiddenFocusPaneDefinition(index: 9)
         case .toggleSplitZoom:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Toggle Split Zoom",
                 icon: .system(.plusMagnifyingglass),
@@ -331,7 +331,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .minimizePane:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Minimize Pane",
                 icon: .system(.minusCircle),
@@ -342,7 +342,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .expandPane:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Expand Pane",
                 icon: .system(.arrowUpLeftAndArrowDownRight),
@@ -360,7 +360,7 @@ extension AppCommand {
                 helpText: "Show arrangements for the active tab"
             )
         case .previousArrangement:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .previousArrangement,
                 label: "Previous Arrangement",
@@ -371,7 +371,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .nextArrangement:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .nextArrangement,
                 label: "Next Arrangement",
@@ -382,7 +382,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .cycleArrangement:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Cycle Arrangement",
                 icon: .system(.rectangle3Group),
@@ -393,7 +393,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .saveArrangement:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Save Arrangement As...",
                 icon: .system(.rectangle3GroupFill),
@@ -416,7 +416,7 @@ extension AppCommand {
                 helpText: "Rename a saved arrangement in the active tab"
             )
         case .enterDrawer:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Enter Drawer",
                 icon: .system(.rectangleBottomhalfFilled),
@@ -440,7 +440,7 @@ extension AppCommand {
                 default:
                     .init(key: .character(.j), modifiers: [.option])
                 }
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 displayShortcutTrigger: displayShortcutTrigger,
                 label: "Move Drawer Focus",
@@ -470,7 +470,7 @@ extension AppCommand {
         case .focusDrawerPane9:
             return hiddenFocusDrawerPaneDefinition(index: 9)
         case .detachDrawerPane:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Detach Drawer Pane",
                 icon: .system(.rectanglePortraitAndArrowRight),
@@ -482,7 +482,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .addDrawerPane:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .addDrawerPane,
                 label: "Add Drawer Pane",
@@ -494,7 +494,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .toggleDrawer:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .toggleDrawer,
                 label: "Toggle Drawer",
@@ -506,7 +506,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .navigateDrawerPane:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Switch Drawer Pane",
                 icon: .system(.arrowDownToLine),
@@ -517,7 +517,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .closeDrawerPane:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Close Drawer Pane",
                 icon: .system(.xmarkRectanglePortrait),
@@ -528,7 +528,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .watchFolder:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Watch Folder",
                 icon: .system(.folderFillBadgePlus),
@@ -537,7 +537,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.repo
             )
         case .removeRepo:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Remove Repo",
                 icon: .system(.folderBadgeMinus),
@@ -559,7 +559,7 @@ extension AppCommand {
                 helpText: "Open a worktree in a split pane"
             )
         case .openPaneLocationInBookmarkedEditor:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .openPaneLocationInBookmarkedEditor,
                 label: "Open Pane Location in Bookmarked Editor",
@@ -571,7 +571,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .openPaneLocationInFinder:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .openPaneLocationInFinder,
                 label: "Open Pane Location in Finder",
@@ -583,7 +583,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .openPaneLocationInEditorMenu:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .openPaneLocationInEditorMenu,
                 label: "Open In Menu",
@@ -595,7 +595,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .editPaneNote:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .editPaneNote,
                 label: "Edit Pane Note",
@@ -607,7 +607,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .copyCurrentPanePath:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .copyCurrentPanePath,
                 label: "Copy Current Pane Path",
@@ -619,7 +619,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .toggleManagementLayer:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .toggleManagementLayer,
                 label: "Manage Workspace",
@@ -643,7 +643,7 @@ extension AppCommand {
                 helpText: "Move focus right in management mode"
             )
         case .managementLayerEnterDrawer:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .managementLayerEnterDrawer,
                 label: "Management Enter Drawer",
@@ -688,7 +688,7 @@ extension AppCommand {
                 helpText: "Exit management mode"
             )
         case .toggleSidebar:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .toggleSidebar,
                 label: "Toggle Sidebar",
@@ -698,7 +698,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .showInboxNotifications:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .showInboxNotifications,
                 label: "Toggle Inbox",
@@ -708,7 +708,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .toggleInboxNotificationSort:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Toggle Inbox Sort Order",
                 icon: .system(.arrowUpArrowDown),
@@ -717,7 +717,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .clearReadInboxNotifications:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Clear Read Inbox Notifications",
                 icon: .system(.deleteLeft),
@@ -726,7 +726,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .clearAllInboxNotifications:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Clear All Inbox Notifications",
                 icon: .system(.deleteLeft),
@@ -735,7 +735,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .showPaneInboxNotifications:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .showPaneInboxNotifications,
                 label: "Toggle Pane Inbox",
@@ -747,7 +747,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .clearPaneInboxNotifications:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Clear Pane Inbox",
                 icon: .system(.deleteLeft),
@@ -758,7 +758,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .showWorktreeSidebar:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .showWorktreeSidebar,
                 label: "Toggle Worktrees",
@@ -768,7 +768,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .newFloatingTerminal:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "New Floating Terminal",
                 icon: .system(.terminalFill),
@@ -777,7 +777,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .newWindow:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .newWindow,
                 label: "New Window",
@@ -788,7 +788,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .closeWindow:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .closeWindow,
                 label: "Close Window",
@@ -799,7 +799,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .showCommandBarEverything:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .showCommandBarEverything,
                 label: "Quick Find",
@@ -809,7 +809,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarCommands:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .showCommandBarCommands,
                 label: "Command Palette",
@@ -819,7 +819,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarPanes:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .showCommandBarPanes,
                 label: "Go to Pane",
@@ -829,7 +829,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarRepos:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .newTab,
                 label: "New Tab or Worktree",
@@ -839,7 +839,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .openWebview:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Open New Webview Tab",
                 icon: .system(.globe),
@@ -848,7 +848,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )
         case .openBridgeReview:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Open Bridge Review",
                 icon: .system(.rectangleSplit2x1),
@@ -857,7 +857,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )
         case .signInGitHub:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Sign in to GitHub",
                 icon: .system(.personBadgeKey),
@@ -867,7 +867,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .signInGoogle:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 label: "Sign in to Google",
                 icon: .system(.personBadgeKey),
@@ -877,7 +877,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .filterSidebar:
-            return CommandSpec(
+            return AppCommandSpec(
                 command: self,
                 shortcut: .filterSidebar,
                 label: "Filter Sidebar",
@@ -895,8 +895,8 @@ extension AppCommand {
         }
     }
 
-    private func hiddenTabSelectionDefinition(index: Int) -> CommandSpec {
-        CommandSpec(
+    private func hiddenTabSelectionDefinition(index: Int) -> AppCommandSpec {
+        AppCommandSpec(
             command: self,
             shortcut: Self.selectTabShortcut(index: index),
             label: "Select Tab \(index)",
@@ -908,8 +908,8 @@ extension AppCommand {
         )
     }
 
-    private func hiddenFocusPaneDefinition(index: Int) -> CommandSpec {
-        CommandSpec(
+    private func hiddenFocusPaneDefinition(index: Int) -> AppCommandSpec {
+        AppCommandSpec(
             command: self,
             shortcut: Self.focusPaneShortcut(index: index),
             label: "Focus Pane \(index)",
@@ -922,8 +922,8 @@ extension AppCommand {
         )
     }
 
-    private func hiddenFocusDrawerPaneDefinition(index: Int) -> CommandSpec {
-        CommandSpec(
+    private func hiddenFocusDrawerPaneDefinition(index: Int) -> AppCommandSpec {
+        AppCommandSpec(
             command: self,
             label: "Focus Drawer Pane \(index)",
             icon: .system(.rectangleBottomhalfInsetFilled),
@@ -935,8 +935,8 @@ extension AppCommand {
         )
     }
 
-    private func focusDefinition(label: String, icon: CommandIcon, helpText: String) -> CommandSpec {
-        CommandSpec(
+    private func focusDefinition(label: String, icon: CommandIcon, helpText: String) -> AppCommandSpec {
+        AppCommandSpec(
             command: self,
             label: label,
             icon: icon,
@@ -952,8 +952,8 @@ extension AppCommand {
         label: String,
         icon: CommandIcon,
         helpText: String
-    ) -> CommandSpec {
-        CommandSpec(
+    ) -> AppCommandSpec {
+        AppCommandSpec(
             command: self,
             shortcut: shortcut,
             label: label,
@@ -966,8 +966,8 @@ extension AppCommand {
         )
     }
 
-    private func worktreeDefinition(label: String, icon: CommandIcon, helpText: String) -> CommandSpec {
-        CommandSpec(
+    private func worktreeDefinition(label: String, icon: CommandIcon, helpText: String) -> AppCommandSpec {
+        AppCommandSpec(
             command: self,
             label: label,
             icon: icon,
@@ -979,9 +979,9 @@ extension AppCommand {
     }
 
     private func managementDefinition(shortcut: AppShortcut, label: String, icon: CommandIcon, helpText: String)
-        -> CommandSpec
+        -> AppCommandSpec
     {
-        CommandSpec(
+        AppCommandSpec(
             command: self,
             shortcut: shortcut,
             label: label,

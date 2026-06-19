@@ -155,7 +155,7 @@ struct BridgeRuntimeTests {
         )
     }
 
-    private func makeEnvelope(command: RuntimeCommand, paneId: PaneId) -> RuntimeCommandEnvelope {
+    private func makeEnvelope(command: PaneRuntimeCommand, paneId: PaneId) -> RuntimeCommandEnvelope {
         RuntimeCommandEnvelope(
             commandId: UUID(),
             correlationId: nil,
