@@ -158,6 +158,7 @@ struct AgentStudioStartupTraceRecorderTests {
     ) -> AgentStudioTraceRuntime {
         AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_TAGS": tags,
             ]),

@@ -13,7 +13,7 @@ struct WorkspaceStoreArchitectureTests {
 
         #expect(!source.contains("WorkspaceCommandResolver"))
         #expect(!source.contains("WorkspaceCommandValidator"))
-        #expect(!source.contains("PaneActionCommand"))
+        #expect(!source.contains("WorkspaceActionCommand"))
     }
 
     @Test("WorkspaceStore does not expose query or mutation facades")

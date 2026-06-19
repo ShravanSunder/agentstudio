@@ -3,42 +3,16 @@ import AgentStudioProgrammaticControl
 import Foundation
 
 @MainActor
-protocol AppIPCRuntimeCommandDispatching: Sendable {
-    func dispatchRuntimeCommand(
-        _ command: RuntimeCommand,
-        target: RuntimeCommandTarget,
-        correlationId: UUID?
-    ) async -> ActionResult
-}
-
-@MainActor
-struct ActionExecutorRuntimeCommandDispatcher: AppIPCRuntimeCommandDispatching, @unchecked Sendable {
-    private let actionExecutor: ActionExecutor
-
-    init(actionExecutor: ActionExecutor) {
-        self.actionExecutor = actionExecutor
-    }
-
-    func dispatchRuntimeCommand(
-        _ command: RuntimeCommand,
-        target: RuntimeCommandTarget,
-        correlationId: UUID?
-    ) async -> ActionResult {
-        await actionExecutor.dispatchRuntimeCommand(command, target: target, correlationId: correlationId)
-    }
-}
-
-@MainActor
 struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
     private let workspaceStore: WorkspaceStore
     private let runtimeRegistry: RuntimeRegistry
-    private let commandDispatcher: any AppIPCRuntimeCommandDispatching
+    private let commandDispatcher: any PaneRuntimeCommandDispatching
     private let eventBus: EventBus<RuntimeEnvelope>
 
     init(
         workspaceStore: WorkspaceStore,
         runtimeRegistry: RuntimeRegistry,
-        commandDispatcher: any AppIPCRuntimeCommandDispatching,
+        commandDispatcher: any PaneRuntimeCommandDispatching,
         eventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared
     ) {
         self.workspaceStore = workspaceStore
@@ -63,7 +37,8 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
         let paneId = try resolveTerminalPaneId(handle)
         let runtime = try terminalRuntime(for: paneId)
         let runtimeSnapshot = runtime.snapshot()
-        let terminalRuntime = runtime as? TerminalRuntime
+        let terminalRuntimeFacts = (runtime as? any TerminalRuntimeSnapshotFactProviding)?
+            .terminalRuntimeSnapshotFacts()
         return IPCTerminalSnapshotResult(
             paneId: paneId,
             lifecycle: IPCRuntimeLifecycle(runtimeSnapshot.lifecycle),
@@ -71,9 +46,9 @@ struct AgentStudioIPCRuntimeAdapter: AppIPCRuntimePort, @unchecked Sendable {
             capabilities: capabilityNames(runtimeSnapshot.capabilities),
             lastSequence: runtimeSnapshot.lastSeq,
             timestamp: runtimeSnapshot.timestamp,
-            rendererHealthy: terminalRuntime?.rendererHealthy,
-            readOnly: terminalRuntime?.isReadOnly,
-            secureInput: terminalRuntime?.isSecureInput
+            rendererHealthy: terminalRuntimeFacts?.rendererHealthy,
+            readOnly: terminalRuntimeFacts?.readOnly,
+            secureInput: terminalRuntimeFacts?.secureInput
         )
     }
 

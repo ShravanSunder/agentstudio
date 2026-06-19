@@ -139,6 +139,7 @@ struct TerminalActivityRouterTests {
         let paneId = PaneId()
 
         await router.start()
+        await waitForBusSubscriberCount(bus, atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
@@ -163,6 +164,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity",
@@ -177,10 +179,11 @@ struct TerminalActivityRouterTests {
         let correlationId = UUID()
 
         await router.start()
+        await waitForBusSubscriberCount(bus, atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
-                    event: .terminal(.bellRang),
+                    event: .terminal(.openURLRequested(url: "https://example.com/trace", kind: .text)),
                     paneId: paneId,
                     paneKind: .terminal,
                     seq: 7,
@@ -189,19 +192,19 @@ struct TerminalActivityRouterTests {
             )
         )
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("terminal activity router should write a trace record") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"terminal.activity.observed\"") == true
+        await assertEventuallyMain("terminal activity router should consume before trace drain") {
+            atom.snapshot(for: paneId.uuid)?.recentURLRequests.count == 1
         }
+        await router.stop()
 
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
+        #expect(contents.contains("\"body\":\"terminal.activity.observed\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.openURLRequested\""))
         #expect(contents.contains("\"agentstudio.envelope.seq\":7"))
         #expect(contents.contains("\"agentstudio.pane.id\":\"\(paneId.uuidString)\""))
         #expect(contents.contains("\"agentstudio.envelope.correlation_id\":\"\(correlationId.uuidString)\""))
         #expect(contents.contains("\"agentstudio.session.id\":\"terminal-session\""))
-        await router.stop()
     }
 
     @Test("records eventbus delivery summaries without scrollbar spam")
@@ -211,6 +214,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-eventbus",
@@ -224,6 +228,7 @@ struct TerminalActivityRouterTests {
         let paneId = PaneId()
 
         await router.start()
+        await waitForBusSubscriberCount(bus, atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
@@ -245,12 +250,9 @@ struct TerminalActivityRouterTests {
             )
         )
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("terminal activity router should write eventbus delivery summary") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"eventbus.deliver\"") == true
-        }
+        await router.stop()
 
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         let records = try traceRecords(in: outputFileURL)
         let deliveryRecords = records.filter { $0.body == "eventbus.deliver" }
@@ -267,7 +269,6 @@ struct TerminalActivityRouterTests {
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
         #expect(contents.contains("\"agentstudio.envelope.seq\":1"))
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.scrollbarChanged\"") == false)
-        await router.stop()
     }
 
     @Test("stop drains buffered terminal activity trace records")
@@ -277,6 +278,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-drain",
                 "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
@@ -321,6 +323,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-order",
                 "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
@@ -366,6 +369,7 @@ struct TerminalActivityRouterTests {
         let nowMilliseconds = MillisecondBox(1000)
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-unseen",
@@ -400,7 +404,7 @@ struct TerminalActivityRouterTests {
             )
         }
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
+        await clock.waitForPendingSleepGeneration(2)
         clock.advance(by: .milliseconds(750))
         await router.stop()
 
@@ -426,6 +430,7 @@ struct TerminalActivityRouterTests {
         let attendedPane = makeAttendedPaneAtom(activePaneId: paneId.uuid)
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-attended",
@@ -471,6 +476,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-stop-close",
                 "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
@@ -519,6 +525,7 @@ struct TerminalActivityRouterTests {
         let nowMilliseconds = MillisecondBox(2000)
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-debounce-failure",
@@ -581,22 +588,36 @@ struct TerminalActivityRouterTests {
     func paneClosePrunesUnseenActivityWindowImmediately() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let clock = TestPushClock()
+        let traceSink = TerminalActivityTraceRecordingSink()
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-pane-close",
                 "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
             ]),
             processIdentifier: 253,
             sessionID: "terminal-session",
+            sinkFactory: AgentStudioTraceSinkFactory(
+                makeJSONLSink: { _ in traceSink },
+                makeOTLPSink: { _ in traceSink }
+            ),
             timeUnixNano: { 1002 }
         )
-        let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atom,
+            traceRuntime: traceRuntime,
+            unseenActivityDebounceDuration: .milliseconds(750),
+            unseenActivityClock: clock
+        )
         let paneId = PaneId()
 
         await router.start()
+        await waitForBusSubscriberCount(bus, atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
@@ -606,6 +627,7 @@ struct TerminalActivityRouterTests {
                 )
             )
         )
+        await clock.waitForPendingSleepCount(atLeast: 1)
         _ = await bus.post(
             .pane(
                 .test(
@@ -616,14 +638,12 @@ struct TerminalActivityRouterTests {
             )
         )
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("terminal activity router should process pane close") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"terminal.activity.close_reason\":\"pane.closed\"") == true
+        await assertEventuallyMain("terminal activity router should cancel debounce on pane close") {
+            clock.pendingSleepCount == 0
         }
         await router.stop()
 
-        let closeRecords = try traceRecords(in: outputFileURL)
+        let closeRecords = await traceSink.records()
             .filter { $0.body == "terminal.activity.unseenWindowClosed" }
         #expect(closeRecords.count == 1)
         #expect(closeRecords.first?.attributes["terminal.activity.close_reason"] == .string("pane.closed"))
@@ -636,6 +656,7 @@ struct TerminalActivityRouterTests {
         let traceDirectory = temporaryTraceDirectoryURL()
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
                 "AGENTSTUDIO_TRACE_NAME": "terminal-activity-decreasing-scrollbar",
                 "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
@@ -793,4 +814,23 @@ struct TerminalActivityRouterTests {
         }
     }
 
+    private actor TerminalActivityTraceRecordingSink: AgentStudioTraceSink {
+        private var recordedRecords: [AgentStudioTraceRecord] = []
+
+        func record(_ record: AgentStudioTraceRecord) {
+            recordedRecords.append(record)
+        }
+
+        func flush() {}
+
+        func shutdown() {}
+
+        func diagnostics() -> AgentStudioTraceWriterDiagnostics {
+            .empty
+        }
+
+        func records() -> [AgentStudioTraceRecord] {
+            recordedRecords
+        }
+    }
 }

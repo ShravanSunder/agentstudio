@@ -481,7 +481,7 @@ struct PaneLeafContainer: View {
                                     isHovered: isDetachHovered,
                                     toolTipText: AppCommand.detachDrawerPane.definition.helpText
                                 ) {
-                                    CommandDispatcher.shared.dispatch(
+                                    AppCommandDispatcher.shared.dispatch(
                                         .detachDrawerPane,
                                         target: paneHost.id,
                                         targetType: .pane

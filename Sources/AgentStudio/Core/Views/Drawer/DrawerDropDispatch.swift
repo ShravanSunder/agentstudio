@@ -70,7 +70,7 @@ enum DrawerDropDispatch {
             return false
         }
 
-        let moveAction = PaneActionCommand.moveDrawerPane(
+        let moveAction = WorkspaceActionCommand.moveDrawerPane(
             parentPaneId: context.parentPaneId,
             drawerPaneId: sourcePaneId,
             target: target,

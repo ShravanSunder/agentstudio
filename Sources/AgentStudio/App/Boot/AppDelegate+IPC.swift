@@ -41,12 +41,12 @@ extension AppDelegate {
                         workspaceStore: store,
                         windowLifecycleReader: windowLifecycleReader,
                         paneFocusControl: paneFocusControl,
-                        actionExecutor: executor
+                        workspaceActionExecutor: executor
                     ),
                     runtimePort: AgentStudioIPCRuntimeAdapter(
                         workspaceStore: store,
-                        runtimeRegistry: paneCoordinator.runtimeRegistry,
-                        commandDispatcher: ActionExecutorRuntimeCommandDispatcher(actionExecutor: executor)
+                        runtimeRegistry: workspaceSurfaceCoordinator.runtimeRegistry,
+                        commandDispatcher: workspaceSurfaceCoordinator
                     ),
                     commandPort: AgentStudioIPCCommandAdapter(
                         windowLifecycleReader: windowLifecycleReader

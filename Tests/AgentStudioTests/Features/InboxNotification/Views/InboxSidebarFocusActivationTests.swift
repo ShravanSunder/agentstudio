@@ -42,7 +42,7 @@ struct InboxSidebarFocusActivationTests {
                 workspacePaneAtom: workspacePaneAtom,
                 workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
-                dispatcher: CommandDispatcher.shared,
+                dispatcher: AppCommandDispatcher.shared,
                 onRefocusActivePane: { didRefocusActivePane = true }
             )
             .frame(width: 320, height: 420)

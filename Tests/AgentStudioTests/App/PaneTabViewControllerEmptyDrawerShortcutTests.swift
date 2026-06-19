@@ -27,8 +27,8 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
                     harness.store.setActivePane(parent.id, inTab: tab.id)
                     harness.store.toggleDrawer(for: parent.id)
                     atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
-                    CommandDispatcher.shared.handler = harness.controller
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = harness.controller
+                    AppCommandDispatcher.shared.appCommandRouter = nil
 
                     let event = try #require(rawPEvent(windowNumber: 0))
 
@@ -60,8 +60,8 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
                     harness.store.setActivePane(parent.id, inTab: tab.id)
                     harness.store.toggleDrawer(for: parent.id)
                     atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
-                    CommandDispatcher.shared.handler = handler
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
 
                     let event = try #require(rawPEvent(windowNumber: 0))
 
@@ -105,8 +105,8 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
                     harness.store.setActivePane(parent.id, inTab: tab.id)
                     harness.store.toggleDrawer(for: parent.id)
                     atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
-                    CommandDispatcher.shared.handler = handler
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = handler
+                    AppCommandDispatcher.shared.appCommandRouter = nil
 
                     let event = try #require(rawPEvent(windowNumber: 0))
 
@@ -194,8 +194,8 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
                     harness.store.setActivePane(parent.id, inTab: tab.id)
                     harness.store.toggleDrawer(for: parent.id)
                     atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
-                    CommandDispatcher.shared.handler = harness.controller
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = harness.controller
+                    AppCommandDispatcher.shared.appCommandRouter = nil
 
                     let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
                     let textView = NSTextView()
@@ -240,8 +240,8 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
                     harness.store.setActivePane(parent.id, inTab: tab.id)
                     harness.store.toggleDrawer(for: parent.id)
                     atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
-                    CommandDispatcher.shared.handler = harness.controller
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = harness.controller
+                    AppCommandDispatcher.shared.appCommandRouter = nil
 
                     let event = try #require(rawPEvent(windowNumber: 0))
 

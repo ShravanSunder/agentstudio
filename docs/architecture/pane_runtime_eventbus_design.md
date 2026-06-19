@@ -99,9 +99,9 @@ The app has two separate event buses. They serve different purposes and carry di
 | `PaneRuntimeEventBus` | `EventBus<RuntimeEnvelope>` | Runtime facts: filesystem changes, git status, forge data, topology, terminal activity, notification-relevant pane facts | FilesystemActor, GitProjector, ForgeActor, AppDelegate (boot topology replay), pane runtimes, terminal activity derivers | WorkspaceCacheCoordinator, ForgeActor (fan-out), NotificationReducer, inbox feature consumers, pane coordinators |
 | `AppEventBus` | `EventBus<AppEvent>` | App-level notifications that are not commands | App shell coordinators, terminal/viewport notifications | AppDelegate and small app-shell consumers |
 
-**These are not redundant.** `AppEventBus` carries app-level notifications such as `.worktreeBellRang` (pre-LUNA-361; see note below) and other app-shell fan-out that is not itself a workspace command. `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). Workspace work does **not** route through `AppEventBus`; it uses `PaneActionCommand` and the validated coordinator pipeline directly. AppKit/macOS lifecycle ingress uses `ApplicationLifecycleMonitor` plus lifecycle stores, not either bus. A notification on `AppEventBus` may RESULT in a runtime fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
+**These are not redundant.** `AppEventBus` carries app-level notifications such as `.worktreeBellRang` (pre-LUNA-361; see note below) and other app-shell fan-out that is not itself a workspace command. `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). Workspace work does **not** route through `AppEventBus`; it uses `WorkspaceActionCommand` and the validated coordinator pipeline directly. AppKit/macOS lifecycle ingress uses `ApplicationLifecycleMonitor` plus lifecycle stores, not either bus. A notification on `AppEventBus` may RESULT in a runtime fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
 
-> **Note on `.worktreeBellRang` (post LUNA-361).** The notification inbox feature consumes `GhosttyEvent.bellRang` directly from `PaneRuntimeEventBus` via the notification inbox promoter/router, not from `AppEventBus.worktreeBellRang`. Whether the existing `AppEventBus.worktreeBellRang` post in `PaneCoordinator` stays as a peer signal for other consumers or is removed is a follow-up decision; the notification inbox does not depend on it.
+> **Note on `.worktreeBellRang` (post LUNA-361).** The notification inbox feature consumes `GhosttyEvent.bellRang` directly from `PaneRuntimeEventBus` via the notification inbox promoter/router, not from `AppEventBus.worktreeBellRang`. Whether the existing `AppEventBus.worktreeBellRang` post in `WorkspaceSurfaceCoordinator` stays as a peer signal for other consumers or is removed is a follow-up decision; the notification inbox does not depend on it.
 
 > **Derived notification rule.** Inferred terminal activity such as unseen output bursts stays on the existing runtime event plane. Do not add a third derived-activity bus. A terminal activity deriver translates qualifying high-volume runtime facts into typed, lower-volume product facts under the non-Ghostty namespace `PaneRuntimeEvent.terminalActivity(TerminalActivityEvent)`. Derived product facts use the deriver's own `EventSource` and monotonic sequence space so they do not duplicate the causal pane runtime event's `(source, seq)`. Because the event is still carried in `RuntimeEnvelope.pane`, visibility tiering resolves through `PaneEnvelope.paneId`, not through the derived provenance source. Feature-level inbox promotion remains the single owner of promotion, coalescing, and `InboxNotificationAtom` writes. Trace records observe these product facts; tracing must never be the source of product notification behavior.
 
@@ -228,7 +228,7 @@ User input and commands. These start on MainActor, target the C API or `@Observa
 | Resize | AppKit layout | `ghostty_surface_set_size()` C call |
 | Focus change | NSWindow delegate | `ghostty_surface_set_focus()` C call |
 | Tab click / split drag | UI gesture | `WorkspaceStore` mutation |
-| Command palette selection | `CommandBarState` | `PaneCoordinator.dispatch()` |
+| Command palette selection | `CommandBarState` | `WorkspaceSurfaceCoordinator.dispatch()` |
 | Bridge RPC commands (Swift→React) | Coordinator | `PushTransport` / `RPCRouter` |
 
 ### Category 2: @Observable UI State (multiplexed when domain-significant)
@@ -314,7 +314,7 @@ Pane/tab lifecycle transitions. Originate on MainActor, rare, but multiple consu
 |-------|--------|-----------|-----|
 | `surfaceCreated` | `SurfaceManager` | Rare | Yes |
 | `attachStarted` / `attachSucceeded` | `SurfaceManager` | Rare | Yes |
-| `paneClosed` | `PaneCoordinator` | Rare | Yes |
+| `paneClosed` | `WorkspaceSurfaceCoordinator` | Rare | Yes |
 | `tabSwitched` | `WorkspaceStore` | Low | Yes |
 
 App shell lifecycle is intentionally separate from this bus. Application active/resign/terminate and window key/focus events are translated by `ApplicationLifecycleMonitor` into `AppLifecycleAtom` and `WindowLifecycleAtom` state instead of being published here.
@@ -362,7 +362,7 @@ actor EventBus<Envelope: Sendable> {
 **Why actor, not class with lock:** Swift actors are the standard concurrency primitive. The cooperative pool gives fair scheduling without dedicated thread overhead. `await bus.post()` is the consistent interface for all producers regardless of their isolation context.
 
 **Buffer policy:** `AsyncStream.makeStream()` defaults to unbounded buffering. Under burst conditions (agent dumps 500 lines → 500 events in quick succession), subscriber streams can grow unbounded. Policy per subscriber tier:
-- **Critical subscribers** (NotificationReducer, feature-level inbox promoters, PaneCoordinator): unbounded. These must never drop events — correctness depends on completeness. They consume quickly on MainActor.
+- **Critical subscribers** (NotificationReducer, feature-level inbox promoters, WorkspaceSurfaceCoordinator): unbounded. These must never drop events — correctness depends on completeness. They consume quickly on MainActor.
 - **Lossy subscribers** (analytics, logging, future plugin sinks): use `.bufferingPolicy(.bufferingNewest(100))` on `makeStream()`. Dropping oldest events under burst is acceptable — these consumers don't need total recall.
 - **The bus itself does not enforce buffer policy** — it yields to every continuation unconditionally. Buffer policy is chosen at `subscribe()` time by the caller, not imposed by the bus. This keeps the bus dumb.
 
@@ -481,7 +481,7 @@ Per-terminal actor for container lifecycle management during agent execution. Do
 Git mutations (`git commit`, `git stash`, `git push`, `git checkout`) are **stateless request-response**. They go through the existing command dispatch path:
 
 ```
-User action → PaneCoordinator → ProcessExecutor → git commit → result
+User action → WorkspaceSurfaceCoordinator → ProcessExecutor → git commit → result
 ```
 
 No ongoing state = no actor. ProcessExecutor already offloads to `DispatchQueue.global()`. The feedback loop is natural:
@@ -493,7 +493,7 @@ The command doesn't post to the bus directly — the reactive system handles fan
 
 ### `@MainActor` (existing, extended)
 
-All runtimes (`TerminalRuntime`, future `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime`), all stores (`WorkspaceStore`, `RepoCacheAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `SurfaceManager`, `SessionRuntime`), `PaneCoordinator`, `WorkspaceCacheCoordinator`, NotificationReducer, feature-level inbox promoters/routers, views, `ViewRegistry`.
+All runtimes (`TerminalRuntime`, future `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime`), all stores (`WorkspaceStore`, `RepoCacheAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `SurfaceManager`, `SessionRuntime`), `WorkspaceSurfaceCoordinator`, `WorkspaceCacheCoordinator`, NotificationReducer, feature-level inbox promoters/routers, views, `ViewRegistry`.
 
 These consume from EventBus via `for await`:
 
@@ -603,7 +603,7 @@ COMMANDS (one-way, user/system → coordinator → runtime):
   User Input / CommandBar / External API
          │
          ▼
-  PaneCoordinator
+  WorkspaceSurfaceCoordinator
          │
          ▼
   RuntimeRegistry.lookup(paneId)
@@ -768,7 +768,7 @@ No AsyncStream — wrapping individual C callbacks in a stream would yield one, 
 
 Pure sink. Consumes from bus stream, writes to @Observable.
 
-#### PaneCoordinator (@MainActor)
+#### WorkspaceSurfaceCoordinator (@MainActor)
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
@@ -778,7 +778,7 @@ Pure sink. Consumes from bus stream, writes to @Observable.
 | **Out** | Store mutations | Direct call | `workspace.closeTab()`, `surfaces.moveSurfacesToUndo()` — known targets. |
 | **Out** | `filesystemSource.register/unregister` | Direct call | Filesystem root sync after topology changes — sole owner of registration. |
 
-**Note:** PaneCoordinator no longer subscribes to `.system(.topology)` events on the bus. It receives topology changes exclusively via the `TopologyEffectHandler` protocol, which the coordinator calls after mutating the store. This makes ordering deterministic — the store is always mutated before PaneCoordinator reacts.
+**Note:** WorkspaceSurfaceCoordinator no longer subscribes to `.system(.topology)` events on the bus. It receives topology changes exclusively via the `TopologyEffectHandler` protocol, which the coordinator calls after mutating the store. This makes ordering deterministic — the store is always mutated before WorkspaceSurfaceCoordinator reacts.
 
 #### Sink+Source actors (CheckpointActor pattern, future)
 
@@ -911,7 +911,7 @@ COMMAND DISPATCH (C10: coordinator → runtime):
   User taps "Approve"
        │
        ▼
-  PaneCoordinator (@MainActor)
+  WorkspaceSurfaceCoordinator (@MainActor)
        │
        │  let runtime = registry[paneId]       ← lookup
        │  let result = await runtime            ← direct call
@@ -924,7 +924,7 @@ COMMAND DISPATCH (C10: coordinator → runtime):
 
 COORDINATOR → STORES (cross-store sequencing):
 
-  PaneCoordinator.closeTab(tabId)
+  WorkspaceSurfaceCoordinator.closeTab(tabId)
        │
        ├──► workspace.removeTab(tabId)           direct call
        │         returns TabSnapshot
@@ -1127,7 +1127,7 @@ C callback (arbitrary thread)
          GhosttyAdapter.translate()     ~100ns
          TerminalRuntime.handleEvent()  ~500ns
          NotificationReducer.submit()   ~200ns
-         PaneCoordinator.route()        ~200ns
+         WorkspaceSurfaceCoordinator.route()        ~200ns
                                         ────────
                                  Total: ~1μs + 1 hop
 ```
@@ -1153,7 +1153,7 @@ C callback (arbitrary thread)
                     │
                     ▼
          NotificationReducer.submit()   ~200ns
-         PaneCoordinator.route()        ~200ns
+         WorkspaceSurfaceCoordinator.route()        ~200ns
                                         ────────
                                  Total: ~1μs work + 2-3 hops (~4-18μs)
 ```
@@ -1225,7 +1225,7 @@ Incremental, each step independently shippable:
 
 2. **Introduce `actor EventBus<RuntimeEnvelope>`.** Central merge point. Runtimes and boundary actors post to bus after mutation/enrichment. Reducer and coordinator subscribe from bus instead of per-runtime streams.
 
-3. **Migrate consumers to bus subscriptions.** `NotificationReducer`, `PaneCoordinator`, and any future consumers subscribe to the bus. Per-runtime subscriptions become an implementation detail (runtime → bus posting).
+3. **Migrate consumers to bus subscriptions.** `NotificationReducer`, `WorkspaceSurfaceCoordinator`, and any future consumers subscribe to the bus. Per-runtime subscriptions become an implementation detail (runtime → bus posting).
 
 4. **Add `actor FilesystemActor`** when FSEvents watcher ships (LUNA-349). First real boundary actor. Posts enriched envelopes with `source = .system(.builtin(.filesystemWatcher))`.
 

@@ -3,7 +3,7 @@ import GhosttyKit
 
 @testable import AgentStudio
 
-final class MockPaneCoordinatorSurfaceManagerForHarness: PaneCoordinatorSurfaceManaging {
+final class HarnessSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     init() {
@@ -48,7 +48,7 @@ final class MockPaneCoordinatorSurfaceManagerForHarness: PaneCoordinatorSurfaceM
     }
 }
 
-actor RecordingFilesystemSourceHarness: PaneCoordinatorFilesystemSourceManaging {
+actor RecordingFilesystemSourceHarness: WorkspaceFilesystemSourceManaging {
     private var registeredRoots: [UUID: URL] = [:]
     private var activityByWorktreeId: [UUID: Bool] = [:]
     private var activePaneWorktreeId: UUID?
@@ -147,7 +147,7 @@ struct GitTopologyPipelineHarness {
     let workspaceStore: WorkspaceStore
     let repoCache: RepoCacheAtom
     let coordinator: WorkspaceCacheCoordinator
-    let paneCoordinator: PaneCoordinator
+    let workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator
     let discoveryActor: FilesystemActor
     let scanner: ControllableGroupedWatchedFolderScanner
     let fseventClient: ControllableFSEventStreamClient
@@ -173,11 +173,11 @@ struct GitTopologyPipelineHarness {
             maxFlushLatency: .zero
         )
         let filesystemSource = RecordingFilesystemSourceHarness()
-        let paneCoordinator = PaneCoordinator(
+        let workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
             store: workspaceStore,
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: workspaceStore),
-            surfaceManager: MockPaneCoordinatorSurfaceManagerForHarness(),
+            surfaceManager: HarnessSurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: bus,
             filesystemSource: filesystemSource,
@@ -188,7 +188,7 @@ struct GitTopologyPipelineHarness {
             bus: bus,
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            topologyEffectHandler: paneCoordinator,
+            topologyEffectHandler: workspaceSurfaceCoordinator,
             scopeSyncHandler: { _ in }
         )
         coordinator.startConsuming()
@@ -198,7 +198,7 @@ struct GitTopologyPipelineHarness {
             workspaceStore: workspaceStore,
             repoCache: repoCache,
             coordinator: coordinator,
-            paneCoordinator: paneCoordinator,
+            workspaceSurfaceCoordinator: workspaceSurfaceCoordinator,
             discoveryActor: discoveryActor,
             scanner: scanner,
             fseventClient: fseventClient,
@@ -209,7 +209,7 @@ struct GitTopologyPipelineHarness {
 
     func shutdown() async {
         await coordinator.shutdown()
-        await paneCoordinator.shutdown()
+        await workspaceSurfaceCoordinator.shutdown()
         await discoveryActor.shutdown()
         try? FileManager.default.removeItem(at: tempDir)
     }

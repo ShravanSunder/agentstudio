@@ -36,7 +36,7 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
         )
-        let coordinator = PaneCoordinator(
+        let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -49,7 +49,8 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
-            executor: ActionExecutor(coordinator: coordinator, store: store),
+            executor: WorkspaceActionExecutor(coordinator: coordinator, store: store),
+            runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
             installedEditorTargetsProvider: { installedEditorTargets },
@@ -118,7 +119,7 @@ struct PaneTabViewControllerEditorChooserCommandTests {
     }
 }
 
-private final class MockEditorChooserCommandSurfaceManager: PaneCoordinatorSurfaceManaging {
+private final class MockEditorChooserCommandSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 

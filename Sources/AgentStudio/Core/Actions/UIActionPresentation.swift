@@ -37,7 +37,7 @@ extension KeyBinding {
     }
 }
 
-extension CommandSpec {
+extension AppCommandSpec {
     var actionSpec: ActionSpec {
         ActionSpec(
             label: label,

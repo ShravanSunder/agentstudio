@@ -273,7 +273,7 @@ struct FlatPaneDivider: View {
         for intent: FlatTabStripMetrics.DividerSegment.ResizeIntent,
         tabId: UUID,
         ratio: Double
-    ) -> PaneActionCommand? {
+    ) -> WorkspaceActionCommand? {
         switch intent {
         case .structural(let splitId):
             return .resizePane(tabId: tabId, splitId: splitId, ratio: ratio)

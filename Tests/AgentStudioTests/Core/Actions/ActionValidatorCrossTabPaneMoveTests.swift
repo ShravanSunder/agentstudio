@@ -120,7 +120,7 @@ struct ActionValidatorCrossTabPaneMoveTests {
         sourceTabId: UUID,
         destTabId: UUID,
         targetPaneId: UUID
-    ) -> PaneActionCommand {
+    ) -> WorkspaceActionCommand {
         .movePaneAcrossTabs(
             CrossTabPaneMoveRequest(
                 paneId: paneId,

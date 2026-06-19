@@ -142,7 +142,7 @@ Pane metadata has two identity channels:
   `startingRepoId` or `startingWorktreeId` parallel fields.
 - `PaneMetadata.facets` is live identity. Runtime cwd changes refresh
   `facets.cwd`, `facets.repoId`, and `facets.worktreeId` through
-  `PaneCoordinator`, which already receives surface/runtime cwd facts and can
+  `WorkspaceSurfaceCoordinator`, which already receives surface/runtime cwd facts and can
   resolve the current repository topology.
 
 If a pane's cwd leaves all known worktrees, live repo/worktree facets clear
@@ -310,7 +310,7 @@ WorkspaceCacheCoordinator (@MainActor, topology accumulator)
     → WorktreeReconciler.reconcile(existing, discovered) → (merged, delta)
     → reconcileDiscoveredWorktrees(repoId, merged)
     → cache prune for delta.removedWorktrees
-    → topologyEffectHandler.topologyDidChange(delta) → PaneCoordinator
+    → topologyEffectHandler.topologyDidChange(delta) → WorkspaceSurfaceCoordinator
   .topology(.repoDiscovered, linkedWorktrees: .notScanned):
     → register/reassociate repo only, skip worktree reconciliation (boot replay)
   .topology(.repoRemoved) → mark unavailable → orphan panes → prune cache
@@ -320,7 +320,7 @@ WorkspaceCacheCoordinator (@MainActor, topology accumulator)
       │
       │ topology effects via TopologyEffectHandler (NOT bus):
       ▼
-PaneCoordinator (ordered post-topology effects)
+WorkspaceSurfaceCoordinator (ordered post-topology effects)
   topologyDidChange(delta):
     → orphanPanesForWorktree for delta.removedWorktrees
     → syncFilesystemRootsAndActivity() (register new / unregister removed)
@@ -342,7 +342,7 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 |--------|--------|
 | **Owns** | FSEvents ingestion via DarwinFSEventStreamClient, path filtering, debounce, batching |
 | **Scope** | Worktree root paths (deep FSEvents watch) |
-| **Reads** | Registered worktree paths from PaneCoordinator sync |
+| **Reads** | Registered worktree paths from WorkspaceSurfaceCoordinator sync |
 | **Produces** | `SystemEnvelope(.topology(.repoDiscovered/.repoRemoved))` — discovery events |
 | | `WorktreeEnvelope(.filesystem(.filesChanged))` — file change facts |
 | **Does not** | Run git commands, access network, mutate canonical store |
@@ -385,7 +385,7 @@ handleTopology_*    — CANONICAL mutations (WorkspaceStore)
     → WorktreeReconciler.reconcile(existing, discovered) → (merged, delta)
     → store.reconcileDiscoveredWorktrees(repoId, merged)
     → cache prune for delta.removedWorktrees (coordinator owns repoCache)
-    → topologyEffectHandler.topologyDidChange(delta) → PaneCoordinator
+    → topologyEffectHandler.topologyDidChange(delta) → WorkspaceSurfaceCoordinator
   For .repoDiscovered with .notScanned:
     → register/reassociate repo only, skip reconciliation (boot replay)
 
@@ -498,7 +498,7 @@ WorkspaceBootStep (in order):
  10. readyForReactiveSidebar  → prune stale cache entries, sidebar enters reactive mode
 ```
 
-After the boot sequence completes, `AppDelegate` calls `observeLaunchRestoreReadiness()` which creates a `WindowRestoreBridge`. The bridge observes `WindowLifecycleAtom.isReadyForLaunchRestore` and yields trusted terminal container bounds once the window layout has settled. `AppDelegate` then calls `paneCoordinator.restoreAllViews(in: bounds)` to create views for all persisted panes. See [Deferred Launch Restore](#deferred-launch-restore) for the geometry gate that handles panes whose bounds are not yet available.
+After the boot sequence completes, `AppDelegate` calls `observeLaunchRestoreReadiness()` which creates a `WindowRestoreBridge`. The bridge observes `WindowLifecycleAtom.isReadyForLaunchRestore` and yields trusted terminal container bounds once the window layout has settled. `AppDelegate` then calls `workspaceSurfaceCoordinator.restoreAllViews(in: bounds)` to create views for all persisted panes. See [Deferred Launch Restore](#deferred-launch-restore) for the geometry gate that handles panes whose bounds are not yet available.
 
 Boot replay uses the same `.repoDiscovered` event and same coordinator code path as live discovery. The cached data provides instant display; the replay validates and refreshes everything.
 
@@ -522,7 +522,7 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
 6. WorkspaceCacheCoordinator.handleTopology(.repoDiscovered):
    a. Idempotent check by stableKey — skip if repo already exists
    b. Seed enrichment to .awaitingOrigin in RepoEnrichmentCacheAtom
-7. PaneCoordinator reacts from topology facts and syncs registered worktree roots
+7. WorkspaceSurfaceCoordinator reacts from topology facts and syncs registered worktree roots
 8. Actors start producing enrichment events → cache updates → sidebar renders
 ```
 
@@ -564,17 +564,17 @@ When a repo directory moves on disk, the plan is:
 
 ### Deferred Launch Restore
 
-> **Files:** `App/Boot/AppDelegate+LaunchRestore.swift`, `App/Lifecycle/WindowRestoreBridge.swift`, `App/Boot/AppDelegateLaunchRestoreObservationState.swift`, `App/Coordination/PaneCoordinator+ViewLifecycle.swift`, `Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift`, `Features/Terminal/Restore/TerminalRestoreScheduler.swift`
+> **Files:** `App/Boot/AppDelegate+LaunchRestore.swift`, `App/Lifecycle/WindowRestoreBridge.swift`, `App/Boot/AppDelegateLaunchRestoreObservationState.swift`, `App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift`, `Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift`, `Features/Terminal/Restore/TerminalRestoreScheduler.swift`
 
 zmx terminal panes require a trusted `initialFrame` before Ghostty surface creation. During app boot, `terminalContainerBounds` may be zero because the window has not settled layout yet. The deferred launch restore flow handles this geometry gate.
 
-**Geometry gate.** When `PaneCoordinator.createView(for:...)` is called for a zmx pane and `initialFrame` is nil, it does not create a Ghostty surface. Instead it registers a `.preparing` placeholder via `registerTerminalPlaceholderIfNeeded(for:mode:)` and returns nil. The same gate applies to floating zmx panes (drawers, standalone terminals) in `createFloatingTerminalView`.
+**Geometry gate.** When `WorkspaceSurfaceCoordinator.createView(for:...)` is called for a zmx pane and `initialFrame` is nil, it does not create a Ghostty surface. Instead it registers a `.preparing` placeholder via `registerTerminalPlaceholderIfNeeded(for:mode:)` and returns nil. The same gate applies to floating zmx panes (drawers, standalone terminals) in `createFloatingTerminalView`.
 
 **Placeholder modes.** `TerminalStatusPlaceholderView` has two modes:
 - `.preparing` — transient waiting-for-geometry state. `shouldRetryCreationWhenBoundsChange` returns true.
 - `.failedToStart` — resting startup-failure state (surface creation failed). `shouldRetryCreationWhenBoundsChange` returns false. The user can retry or close.
 
-**Retry trigger.** When AppKit delivers a layout pass, `PaneTabViewController.handleTerminalContainerBoundsChanged()` calls `PaneCoordinator.restoreViewsForActiveTabIfNeeded()`. This method checks the active tab for any `.preparing` placeholders, resolves geometry from the now-settled bounds, and calls `createViewForContent(pane:initialFrame:treatAsRestoredSessionStart:)` with real frames. The placeholder is replaced by the live terminal surface.
+**Retry trigger.** When AppKit delivers a layout pass, `PaneTabViewController.handleTerminalContainerBoundsChanged()` calls `WorkspaceSurfaceCoordinator.restoreViewsForActiveTabIfNeeded()`. This method checks the active tab for any `.preparing` placeholders, resolves geometry from the now-settled bounds, and calls `createViewForContent(pane:initialFrame:treatAsRestoredSessionStart:)` with real frames. The placeholder is replaced by the live terminal surface.
 
 **Restore ordering.** `TerminalRestoreScheduler.order(_:resolver:)` sorts panes by `VisibilityTier` — `p0Visible` first, then `p1Hidden`. Within the visible tier, the active pane sorts first. This ensures the active tab paints before background tabs are hydrated. Background tabs are restored cooperatively with `Task.yield()` after every two panes.
 
@@ -594,7 +594,7 @@ WindowLifecycleAtom: recordTerminalContainerBounds() + recordLaunchLayoutSettled
 WindowRestoreBridge: yields trusted bounds via AsyncStream
   ↓
 AppDelegate: finishLaunchRestore(using: bounds)
-  → paneCoordinator.restoreAllViews(in: bounds)
+  → workspaceSurfaceCoordinator.restoreAllViews(in: bounds)
   ↓
 restoreAllViews:
   → TerminalRestoreScheduler orders panes (p0Visible first)
@@ -807,7 +807,7 @@ Publication        EventBus                         Fan-out to all subscribers (
 Accumulator        WorkspaceCacheCoordinator         Interpreting facts, sequencing effects
 Reconciler         WorktreeReconciler (pure func)   Identity preservation, diff computation
 State              WorkspaceStore                   Canonical truth, mutation methods
-Effects            TopologyEffectHandler             Ordered follow-on work (PaneCoordinator)
+Effects            TopologyEffectHandler             Ordered follow-on work (WorkspaceSurfaceCoordinator)
 Reader             Sidebar                          Rendering truth via @Observable
 ```
 
@@ -819,10 +819,10 @@ Reader             Sidebar                          Rendering truth via @Observa
 - `WorkspaceCacheCoordinator` produces a `WorktreeTopologyDelta` after reconciliation
 - It handles cache cleanup itself (it owns `repoCache`)
 - It calls `topologyEffectHandler.topologyDidChange(delta)` for ordering-sensitive effects
-- `PaneCoordinator` conforms to `TopologyEffectHandler`: orphans panes for removed worktrees, syncs filesystem roots
-- `PaneCoordinator` does NOT subscribe to topology events on the bus — it receives topology changes only via the handler
+- `WorkspaceSurfaceCoordinator` conforms to `TopologyEffectHandler`: orphans panes for removed worktrees, syncs filesystem roots
+- `WorkspaceSurfaceCoordinator` does NOT subscribe to topology events on the bus — it receives topology changes only via the handler
 
-This replaces the previous pattern where `PaneCoordinator` subscribed to topology events on the bus and scheduled a deferred filesystem sync. That worked by accident (deferred `Task` ran after the coordinator's synchronous store mutation) but was fragile — any change to the timing would break ordering.
+This replaces the previous pattern where `WorkspaceSurfaceCoordinator` subscribed to topology events on the bus and scheduled a deferred filesystem sync. That worked by accident (deferred `Task` ran after the coordinator's synchronous store mutation) but was fragile — any change to the timing would break ordering.
 
 **Constraint:** FilesystemActor may emit `.repoDiscovered` and `.repoRemoved` only for paths under a persisted watched scope (`store.watchedPaths`). This is structurally enforced — watched-folder refresh scans only `watchedFolderIds` paths and diffs against the actor-owned baseline for those roots. The `parentPath` field on `.repoDiscovered` provides traceability back to the watched scope without coupling the event type to `WatchedPath.id`.
 

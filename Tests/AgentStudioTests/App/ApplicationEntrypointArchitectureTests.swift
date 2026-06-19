@@ -42,7 +42,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(workspaceBootSource.contains("makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)"))
     }
 
-    @Test("startup diagnostic trigger is opt in and routes through CommandDispatcher")
+    @Test("startup diagnostic trigger is opt in and routes through AppCommandDispatcher")
     func startupDiagnosticTriggerIsOptInAndRoutesThroughCommandDispatcher() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appDelegateURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift")
@@ -73,8 +73,8 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(actionDebugGuardIndex < actionIPCSmokeCaseIndex)
         #expect(actionIPCSmokeCaseIndex < actionDebugEndIndex)
         #expect(startupDiagnosticsSource.contains("AgentStudioStartupDiagnosticAction.fromEnvironment()"))
-        #expect(startupDiagnosticsSource.contains("CommandDispatcher.shared.dispatch(.newTab)"))
-        #expect(startupDiagnosticsSource.contains("CommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
+        #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.newTab)"))
+        #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
         #expect(startupDiagnosticsSource.contains("commandBarController.state.rawInput = \"# repo\""))
         #expect(startupDiagnosticsSource.contains("handleWatchFolderRequested(startingAt: folderURL)"))
         let dispatchDebugGuardIndex = try #require(startupDiagnosticsSource.range(of: "#if DEBUG")?.lowerBound)
@@ -89,7 +89,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(dispatchIPCSmokeCaseIndex < dispatchDebugEndIndex)
         #expect(startupDiagnosticsSource.contains("WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)"))
         #expect(startupDiagnosticsSource.contains("isReadyForLaunchRestore"))
-        #expect(startupDiagnosticsSource.contains("paneCoordinator.openFloatingTerminal("))
+        #expect(startupDiagnosticsSource.contains("workspaceSurfaceCoordinator.openFloatingTerminal("))
         #expect(startupDiagnosticsSource.contains("provider: .zmx"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.command_exercised"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.blocked"))

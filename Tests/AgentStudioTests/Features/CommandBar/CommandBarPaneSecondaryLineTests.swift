@@ -13,7 +13,7 @@ struct CommandBarPaneSecondaryLineTests {
     @Test
     func panesScopePaneNoteProvidesSecondaryLineOnlyWhenPresent() {
         let store = WorkspaceStore()
-        let dispatcher = CommandDispatcher.shared
+        let dispatcher = AppCommandDispatcher.shared
         let notedPane = store.createPane()
         store.paneAtom.updatePaneNote(notedPane.id, note: "hiii")
         let plainPane = store.createPane()

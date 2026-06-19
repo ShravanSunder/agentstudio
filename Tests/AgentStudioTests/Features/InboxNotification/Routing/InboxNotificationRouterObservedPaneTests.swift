@@ -428,10 +428,12 @@ struct InboxNotificationRouterObservedPaneTests {
             makeNotification(kind: .terminalSecureInputRequested, paneId: paneId.uuid)
         )
         await fixture.router.start()
+        await fixture.router.flushTraceRecords()
         await assertEventuallyMain("startup should trace the kept user-action-required row") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.observedPaneCleared\"") == true
         }
+        await fixture.router.flushTraceRecords()
         await assertEventuallyMain("focus processing should settle before scrollbar events") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.focusGainedObservedPane\"") == true
@@ -462,6 +464,7 @@ struct InboxNotificationRouterObservedPaneTests {
                 seq: 4
             )
         )
+        await fixture.router.flushTraceRecords()
         await assertEventuallyMain("barrier event should prove scrollbar events were consumed") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"agentstudio.envelope.seq\":4") == true
@@ -498,6 +501,7 @@ struct InboxNotificationRouterObservedPaneTests {
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1)
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await fixture.router.flushTraceRecords()
         await assertEventuallyMain("kept observed pane row should explain why in trace") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.observedPaneCleared\"") == true
@@ -775,6 +779,7 @@ struct InboxNotificationRouterObservedPaneTests {
     private func makeTraceRuntime(name: String, processIdentifier: Int32) -> AgentStudioTraceRuntime {
         AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": name,

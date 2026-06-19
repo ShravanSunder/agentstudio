@@ -212,9 +212,9 @@ private final class DrawerDispatchFixture {
 
 @MainActor
 private final class RecordingPaneActionDispatcher: PaneActionDispatching {
-    private(set) var dispatchedActions: [PaneActionCommand] = []
+    private(set) var dispatchedActions: [WorkspaceActionCommand] = []
 
-    func dispatch(_ action: PaneActionCommand) {
+    func dispatch(_ action: WorkspaceActionCommand) {
         dispatchedActions.append(action)
     }
 

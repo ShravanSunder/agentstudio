@@ -7,7 +7,7 @@ import Testing
 struct UIActionPresentationTests {
     @Test
     func detachDrawerPaneCommandDefinition_hasStablePresentation() {
-        let definition = CommandDispatcher.shared.definition(for: .detachDrawerPane)
+        let definition = AppCommandDispatcher.shared.definition(for: .detachDrawerPane)
 
         #expect(definition.label == "Detach Drawer Pane")
         #expect(definition.helpText == "Promote the selected drawer pane into the main layout")
@@ -30,7 +30,7 @@ struct UIActionPresentationTests {
 
     @Test
     func controlToolTip_withoutShortcutAndNoOverride_usesHelpText() {
-        let definition = CommandSpec(
+        let definition = AppCommandSpec(
             command: .renameArrangement,
             label: "Rename Arrangement",
             icon: .system(.pencil),
@@ -51,7 +51,7 @@ struct UIActionPresentationTests {
 
     @Test
     func controlToolTip_withOverrideAndNoShortcut_usesOverrideOnly() {
-        let definition = CommandSpec(
+        let definition = AppCommandSpec(
             command: .renameArrangement,
             label: "Rename Arrangement",
             icon: .system(.pencil),

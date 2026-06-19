@@ -91,7 +91,7 @@ Follow-up design should add a dedicated Ghostty embedder API or an Agent Studio 
   - Resolve prompt commands against the active terminal pane.
 - Modify: `Sources/AgentStudio/Core/Actions/ActionValidator.swift`
   - Validate prompt actions with the same tab/pane containment and terminal-kind check as `scrollToBottom`.
-- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeCommand.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeCommand.swift`
   - Add `TerminalCommand.jumpToPrompt(delta:)`.
 - Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator+ActionExecution.swift`
   - Dispatch prompt actions to `RuntimeCommand.terminal(.jumpToPrompt(delta:))`.
@@ -1196,7 +1196,7 @@ git commit -m "feat: route arrangement shortcuts to panel and selection"
 - Modify: `Sources/AgentStudio/Core/Actions/PaneActionCommand.swift`
 - Modify: `Sources/AgentStudio/Core/Actions/ActionResolver.swift`
 - Modify: `Sources/AgentStudio/Core/Actions/ActionValidator.swift`
-- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeCommand.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeCommand.swift`
 - Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator+ActionExecution.swift`
 - Modify: `Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceActionPerforming.swift`
 - Modify: `Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift`
@@ -1381,7 +1381,7 @@ Expected: PASS for the new prompt tests and no regression in resolver tests.
 git add Sources/AgentStudio/Core/Actions/PaneActionCommand.swift \
   Sources/AgentStudio/Core/Actions/ActionResolver.swift \
   Sources/AgentStudio/Core/Actions/ActionValidator.swift \
-  Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeCommand.swift \
+  Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeCommand.swift \
   Sources/AgentStudio/App/Coordination/PaneCoordinator+ActionExecution.swift \
   Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceActionPerforming.swift \
   Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift \
