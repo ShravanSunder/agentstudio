@@ -185,11 +185,13 @@ public final class UnixSocketListener: @unchecked Sendable {
 
     private let stateLock = NSLock()
     private let acceptQueue = DispatchQueue(label: "com.agentstudio.ipc.unix-socket-listener")
+    private let acceptQueueSpecificKey = DispatchSpecificKey<Bool>()
     private var fileDescriptor: Int32?
     private var isStopping = false
 
     public init(endpoint: UnixSocketEndpoint) {
         self.endpoint = endpoint
+        acceptQueue.setSpecific(key: acceptQueueSpecificKey, value: true)
     }
 
     deinit {
@@ -246,6 +248,10 @@ public final class UnixSocketListener: @unchecked Sendable {
             }
 
             _ = endpoint.path.withCString { Darwin.unlink($0) }
+
+            if DispatchQueue.getSpecific(key: acceptQueueSpecificKey) != true {
+                acceptQueue.sync {}
+            }
         #endif
     }
 
