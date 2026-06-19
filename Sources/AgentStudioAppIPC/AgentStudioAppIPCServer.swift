@@ -343,8 +343,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 target: targetScope(fromCanonicalHandle: canonicalHandle)
             )
         case "bridge.diff.getPackage", "bridge.diff.renderState", "bridge.diff.refresh",
-            "bridge.diff.selectFile", "bridge.fileView.getContent", "bridge.telemetry.snapshot",
-            "bridge.telemetry.flush":
+            "bridge.diff.selectFile", "bridge.diff.scrollToFile", "bridge.fileTree.search",
+            "bridge.fileTree.setFilter", "bridge.fileTree.revealPath", "bridge.fileView.getContent",
+            "bridge.fileView.showMarkdownPreview", "bridge.telemetry.snapshot", "bridge.telemetry.flush":
             return try await bridgeAuthorizationContext(for: request)
         case "pane.split":
             let params = try decodeParams(IPCPaneSplitParams.self, from: request.params)
@@ -400,56 +401,6 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
         default:
             return AuthorizedRequestContext(request: request, target: .app)
-        }
-    }
-
-    private func bridgeAuthorizationContext(for request: JSONRPCRequest) async throws -> AuthorizedRequestContext {
-        switch request.method {
-        case "bridge.diff.getPackage", "bridge.diff.renderState", "bridge.telemetry.snapshot",
-            "bridge.telemetry.flush":
-            let params = try decodeParams(IPCBridgePaneParams.self, from: request.params)
-            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
-            return try AuthorizedRequestContext(
-                request: request.replacingHandle(canonicalHandle.rawIPCHandleString),
-                target: targetScope(fromCanonicalHandle: canonicalHandle)
-            )
-        case "bridge.diff.refresh":
-            let params = try decodeParams(IPCBridgeReviewRefreshParams.self, from: request.params)
-            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
-            let canonicalParams = IPCBridgeReviewRefreshParams(
-                handle: canonicalHandle.rawIPCHandleString,
-                correlationId: params.correlationId
-            )
-            return try AuthorizedRequestContext(
-                request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
-                target: targetScope(fromCanonicalHandle: canonicalHandle)
-            )
-        case "bridge.diff.selectFile":
-            let params = try decodeParams(IPCBridgeReviewSelectFileParams.self, from: request.params)
-            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
-            let canonicalParams = IPCBridgeReviewSelectFileParams(
-                handle: canonicalHandle.rawIPCHandleString,
-                itemId: params.itemId,
-                correlationId: params.correlationId
-            )
-            return try AuthorizedRequestContext(
-                request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
-                target: targetScope(fromCanonicalHandle: canonicalHandle)
-            )
-        case "bridge.fileView.getContent":
-            let params = try decodeParams(IPCBridgeContentGetParams.self, from: request.params)
-            let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
-            let canonicalParams = IPCBridgeContentGetParams(
-                handle: canonicalHandle.rawIPCHandleString,
-                contentHandleId: params.contentHandleId,
-                reviewGeneration: params.reviewGeneration
-            )
-            return try AuthorizedRequestContext(
-                request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
-                target: targetScope(fromCanonicalHandle: canonicalHandle)
-            )
-        default:
-            throw AgentStudioAppIPCRequestError.methodNotFound
         }
     }
 
@@ -687,7 +638,7 @@ private struct AgentStudioAppIPCConnectionState {
     var authenticationFailed = false
 }
 
-private struct AuthorizedRequestContext {
+struct AuthorizedRequestContext {
     let request: JSONRPCRequest
     let target: IPCTargetScope
 }

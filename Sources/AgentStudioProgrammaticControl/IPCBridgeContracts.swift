@@ -379,6 +379,193 @@ public struct IPCBridgeReviewSelectFileResult: Codable, Equatable, Sendable {
     }
 }
 
+public struct IPCBridgeDiffScrollToFileParams: Codable, Equatable, Sendable {
+    public let handle: String
+    public let itemId: String
+    public let correlationId: UUID?
+
+    public init(handle: String, itemId: String, correlationId: UUID? = nil) {
+        self.handle = handle
+        self.itemId = itemId
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCBridgeFileTreeSearchParams: Codable, Equatable, Sendable {
+    public let handle: String
+    public let searchText: String
+    public let correlationId: UUID?
+
+    public init(handle: String, searchText: String, correlationId: UUID? = nil) {
+        self.handle = handle
+        self.searchText = searchText
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCBridgeFileTreeSetFilterParams: Codable, Equatable, Sendable {
+    public let handle: String
+    public let gitStatusFilter: String
+    public let fileClassFilter: String
+    public let correlationId: UUID?
+
+    public init(
+        handle: String,
+        gitStatusFilter: String,
+        fileClassFilter: String,
+        correlationId: UUID? = nil
+    ) {
+        self.handle = handle
+        self.gitStatusFilter = gitStatusFilter
+        self.fileClassFilter = fileClassFilter
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCBridgeFileTreeRevealPathParams: Codable, Equatable, Sendable {
+    public let handle: String
+    public let path: String
+    public let correlationId: UUID?
+
+    public init(handle: String, path: String, correlationId: UUID? = nil) {
+        self.handle = handle
+        self.path = path
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCBridgeFileViewShowMarkdownPreviewParams: Codable, Equatable, Sendable {
+    public let handle: String
+    public let itemId: String?
+    public let correlationId: UUID?
+
+    public init(handle: String, itemId: String? = nil, correlationId: UUID? = nil) {
+        self.handle = handle
+        self.itemId = itemId
+        self.correlationId = correlationId
+    }
+}
+
+public enum IPCBridgePageControlCommand: Equatable, Sendable {
+    case scrollToFile(itemId: String)
+    case fileTreeSearch(searchText: String)
+    case fileTreeSetFilter(gitStatusFilter: String, fileClassFilter: String)
+    case fileTreeRevealPath(path: String)
+    case fileViewShowMarkdownPreview(itemId: String?)
+
+    public var method: String {
+        switch self {
+        case .scrollToFile:
+            "bridge.diff.scrollToFile"
+        case .fileTreeSearch:
+            "bridge.fileTree.search"
+        case .fileTreeSetFilter:
+            "bridge.fileTree.setFilter"
+        case .fileTreeRevealPath:
+            "bridge.fileTree.revealPath"
+        case .fileViewShowMarkdownPreview:
+            "bridge.fileView.showMarkdownPreview"
+        }
+    }
+}
+
+extension IPCBridgePageControlCommand: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case method
+        case itemId
+        case searchText
+        case gitStatusFilter
+        case fileClassFilter
+        case path
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let method = try container.decode(String.self, forKey: .method)
+        switch method {
+        case "bridge.diff.scrollToFile":
+            self = .scrollToFile(itemId: try container.decode(String.self, forKey: .itemId))
+        case "bridge.fileTree.search":
+            self = .fileTreeSearch(searchText: try container.decode(String.self, forKey: .searchText))
+        case "bridge.fileTree.setFilter":
+            self = .fileTreeSetFilter(
+                gitStatusFilter: try container.decode(String.self, forKey: .gitStatusFilter),
+                fileClassFilter: try container.decode(String.self, forKey: .fileClassFilter)
+            )
+        case "bridge.fileTree.revealPath":
+            self = .fileTreeRevealPath(path: try container.decode(String.self, forKey: .path))
+        case "bridge.fileView.showMarkdownPreview":
+            self = .fileViewShowMarkdownPreview(
+                itemId: try container.decodeIfPresent(String.self, forKey: .itemId)
+            )
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: .method,
+                in: container,
+                debugDescription: "Unsupported Bridge page-control method \(method)"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(method, forKey: .method)
+        switch self {
+        case .scrollToFile(let itemId):
+            try container.encode(itemId, forKey: .itemId)
+        case .fileTreeSearch(let searchText):
+            try container.encode(searchText, forKey: .searchText)
+        case .fileTreeSetFilter(let gitStatusFilter, let fileClassFilter):
+            try container.encode(gitStatusFilter, forKey: .gitStatusFilter)
+            try container.encode(fileClassFilter, forKey: .fileClassFilter)
+        case .fileTreeRevealPath(let path):
+            try container.encode(path, forKey: .path)
+        case .fileViewShowMarkdownPreview(let itemId):
+            try container.encodeIfPresent(itemId, forKey: .itemId)
+        }
+    }
+}
+
+public struct IPCBridgePageControlResult: Codable, Equatable, Sendable {
+    public let paneId: UUID
+    public let method: String
+    public let status: String
+    public let itemId: String?
+    public let path: String?
+    public let treeSearchText: String
+    public let gitStatusFilter: String
+    public let fileClassFilter: String
+    public let renderMode: String
+    public let reason: String?
+    public let correlationId: UUID?
+
+    public init(
+        paneId: UUID,
+        method: String,
+        status: String,
+        itemId: String?,
+        path: String?,
+        treeSearchText: String,
+        gitStatusFilter: String,
+        fileClassFilter: String,
+        renderMode: String,
+        reason: String?,
+        correlationId: UUID?
+    ) {
+        self.paneId = paneId
+        self.method = method
+        self.status = status
+        self.itemId = itemId
+        self.path = path
+        self.treeSearchText = treeSearchText
+        self.gitStatusFilter = gitStatusFilter
+        self.fileClassFilter = fileClassFilter
+        self.renderMode = renderMode
+        self.reason = reason
+        self.correlationId = correlationId
+    }
+}
+
 public struct IPCBridgeContentGetParams: Codable, Equatable, Sendable {
     public let handle: String
     public let contentHandleId: String

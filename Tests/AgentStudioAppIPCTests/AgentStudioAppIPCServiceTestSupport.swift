@@ -165,15 +165,21 @@ struct FakeBridgePort: AppIPCBridgePort {
     let paneId: UUID
     let itemId: String
     let contentHandleId: String
+    let pageControlStatus: String
+    let pageControlReason: String?
 
     nonisolated init(
         paneId: UUID = UUID(),
         itemId: String = "item-source",
-        contentHandleId: String = "handle-head"
+        contentHandleId: String = "handle-head",
+        pageControlStatus: String = "accepted",
+        pageControlReason: String? = nil
     ) {
         self.paneId = paneId
         self.itemId = itemId
         self.contentHandleId = contentHandleId
+        self.pageControlStatus = pageControlStatus
+        self.pageControlReason = pageControlReason
     }
 
     func openReview(_ params: IPCBridgeReviewOpenParams) throws -> IPCBridgeReviewOpenResult {
@@ -267,6 +273,57 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
+    func scrollToFile(_ params: IPCBridgeDiffScrollToFileParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.diff.scrollToFile",
+            itemId: params.itemId,
+            path: nil,
+            correlationId: params.correlationId
+        )
+    }
+
+    func searchFileTree(_ params: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.fileTree.search",
+            itemId: nil,
+            path: nil,
+            treeSearchText: params.searchText,
+            correlationId: params.correlationId
+        )
+    }
+
+    func setFileTreeFilter(_ params: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.fileTree.setFilter",
+            itemId: nil,
+            path: nil,
+            gitStatusFilter: params.gitStatusFilter,
+            fileClassFilter: params.fileClassFilter,
+            correlationId: params.correlationId
+        )
+    }
+
+    func revealFileTreePath(_ params: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.fileTree.revealPath",
+            itemId: itemId,
+            path: params.path,
+            correlationId: params.correlationId
+        )
+    }
+
+    func showMarkdownPreview(
+        _ params: IPCBridgeFileViewShowMarkdownPreviewParams
+    ) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.fileView.showMarkdownPreview",
+            itemId: params.itemId ?? itemId,
+            path: nil,
+            renderMode: "markdownPreview",
+            correlationId: params.correlationId
+        )
+    }
+
     func getContent(_: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult {
         let data = Data("let value = 1\n".utf8)
         return IPCBridgeContentGetResult(
@@ -296,6 +353,31 @@ struct FakeBridgePort: AppIPCBridgePort {
 
     func flushTelemetry(_: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult {
         IPCBridgeTelemetryFlushResult(paneId: paneId, flushed: true)
+    }
+
+    private func bridgePageControlResult(
+        method: String,
+        itemId: String?,
+        path: String?,
+        treeSearchText: String = "",
+        gitStatusFilter: String = "all",
+        fileClassFilter: String = "all",
+        renderMode: String = "codeView",
+        correlationId: UUID?
+    ) -> IPCBridgePageControlResult {
+        IPCBridgePageControlResult(
+            paneId: paneId,
+            method: method,
+            status: pageControlStatus,
+            itemId: itemId,
+            path: path,
+            treeSearchText: treeSearchText,
+            gitStatusFilter: gitStatusFilter,
+            fileClassFilter: fileClassFilter,
+            renderMode: renderMode,
+            reason: pageControlReason,
+            correlationId: correlationId
+        )
     }
 
     private var bridgeContentHandleSummary: IPCBridgeContentHandleSummary {
@@ -388,6 +470,7 @@ struct LiveServerFixture {
         channel: AgentStudioIPCChannel = .debug,
         panes: [IPCPaneSummary] = [],
         runtimePort: any AppIPCRuntimePort = FakeRuntimePort(),
+        bridgePort: (any AppIPCBridgePort)? = nil,
         commandPort: any AppIPCCommandPort = FakeCommandPort(),
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         debugTokenEscrowEnabled: Bool = false
@@ -410,7 +493,7 @@ struct LiveServerFixture {
                 queryPort: FakeQueryPort(runtimeId: runtimeId, panes: panes),
                 layoutPort: FakeLayoutPort(),
                 runtimePort: runtimePort,
-                bridgePort: FakeBridgePort(paneId: panes.first?.id ?? boundPaneId),
+                bridgePort: bridgePort ?? FakeBridgePort(paneId: panes.first?.id ?? boundPaneId),
                 commandPort: commandPort,
                 uiPresentationPort: uiPresentationPort,
                 permissionApprovalPort: FakePermissionApprovalPort()
@@ -748,6 +831,10 @@ struct TestFrameReader {
                 return queuedFrames.removeFirst()
             }
         }
+    }
+
+    func hasBufferedFrame(containing text: String) -> Bool {
+        queuedFrames.contains { $0.contains(text) }
     }
 
     mutating func receiveResponseWithoutBlockingMainActor(connection: UnixSocketConnection) async throws

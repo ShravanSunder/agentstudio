@@ -10,7 +10,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "orchestration."]
 
-        #expect(registry.definitions.count == 40)
+        #expect(registry.definitions.count == 45)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
             #expect(!definition.resultSchema.name.isEmpty)
@@ -42,7 +42,12 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             "bridge.diff.getPackage": (["bridgeRead"], "bridgeCapability"),
             "bridge.diff.renderState": (["bridgeRead"], "bridgeCapability"),
             "bridge.diff.selectFile": (["bridgeControl"], "bridgeCapability"),
+            "bridge.diff.scrollToFile": (["bridgeControl"], "bridgeCapability"),
+            "bridge.fileTree.search": (["bridgeControl"], "bridgeCapability"),
+            "bridge.fileTree.setFilter": (["bridgeControl"], "bridgeCapability"),
+            "bridge.fileTree.revealPath": (["bridgeControl"], "bridgeCapability"),
             "bridge.fileView.getContent": (["bridgeContentRead"], "bridgeCapability"),
+            "bridge.fileView.showMarkdownPreview": (["bridgeControl"], "bridgeCapability"),
             "bridge.telemetry.snapshot": (["bridgeTelemetryRead"], "bridgeCapability"),
             "bridge.telemetry.flush": (["bridgeTelemetryFlush"], "bridgeCapability"),
         ]
@@ -76,6 +81,115 @@ struct AgentStudioIPCRegistryAuthorizationTests {
                 activePaneId: nil
             )
         }
+    }
+
+    @Test("Bridge grant checks keep read content control and telemetry scopes distinct")
+    func bridgeGrantChecksKeepReadContentControlAndTelemetryScopesDistinct() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let grantLedger = GrantLedger()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: grantLedger,
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let principal = makeAutomationAuthorizationPrincipal()
+        let target = IPCTargetScope.pane("pane-1")
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .bridgeRead, target: target, dataScope: .bridgeReviewPackage),
+            to: principal.principalId
+        )
+
+        try service.authorize(
+            principal: principal,
+            methodName: "bridge.diff.getPackage",
+            requestedTarget: target,
+            activePaneId: nil
+        )
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.fileView.getContent",
+                requestedTarget: target,
+                activePaneId: nil
+            )
+        }
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.diff.selectFile",
+                requestedTarget: target,
+                activePaneId: nil
+            )
+        }
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.telemetry.snapshot",
+                requestedTarget: target,
+                activePaneId: nil
+            )
+        }
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.telemetry.flush",
+                requestedTarget: target,
+                activePaneId: nil
+            )
+        }
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .bridgeContentRead, target: target, dataScope: .bridgeContent),
+            to: principal.principalId
+        )
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .bridgeControl, target: target, dataScope: .bridgeReviewPackage),
+            to: principal.principalId
+        )
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .bridgeTelemetryRead, target: target, dataScope: .bridgeTelemetry),
+            to: principal.principalId
+        )
+
+        try service.authorize(
+            principal: principal,
+            methodName: "bridge.fileView.getContent",
+            requestedTarget: target,
+            activePaneId: nil
+        )
+        try service.authorize(
+            principal: principal,
+            methodName: "bridge.diff.selectFile",
+            requestedTarget: target,
+            activePaneId: nil
+        )
+        try service.authorize(
+            principal: principal,
+            methodName: "bridge.telemetry.snapshot",
+            requestedTarget: target,
+            activePaneId: nil
+        )
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: principal,
+                methodName: "bridge.telemetry.flush",
+                requestedTarget: target,
+                activePaneId: nil
+            )
+        }
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .bridgeTelemetryFlush, target: target, dataScope: .bridgeTelemetry),
+            to: principal.principalId
+        )
+
+        try service.authorize(
+            principal: principal,
+            methodName: "bridge.telemetry.flush",
+            requestedTarget: target,
+            activePaneId: nil
+        )
     }
 
     @Test("authorizes selfPane terminal send from the bound principal pane")
@@ -287,6 +401,16 @@ private func makeAuthorizationPrincipal(boundPaneId: String) -> IPCPrincipal {
         runtimeId: UUID(),
         accessMode: .agentStudioOnly,
         kind: .spawnedPaneAgent(boundPaneId: boundPaneId, boundWorkspaceId: nil),
+        approvalAuthority: .noApprovalAuthority
+    )
+}
+
+private func makeAutomationAuthorizationPrincipal() -> IPCPrincipal {
+    IPCPrincipal(
+        principalId: UUID(),
+        runtimeId: UUID(),
+        accessMode: .agentStudioOnly,
+        kind: .automationClient,
         approvalAuthority: .noApprovalAuthority
     )
 }

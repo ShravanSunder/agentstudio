@@ -227,6 +227,30 @@ public enum AgentStudioIPCClientArguments {
             return .bridgeDiffSelectFile(
                 IPCBridgeReviewSelectFileParams(handle: values[0], itemId: values[1])
             )
+        case "bridge-diff-scroll-to-file":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeDiffScrollToFile(
+                IPCBridgeDiffScrollToFileParams(handle: values[0], itemId: values[1])
+            )
+        case "bridge-file-tree-search":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeFileTreeSearch(
+                IPCBridgeFileTreeSearchParams(handle: values[0], searchText: values[1])
+            )
+        case "bridge-file-tree-set-filter":
+            let values = try requireCount(remainingArguments, 3)
+            return .bridgeFileTreeSetFilter(
+                IPCBridgeFileTreeSetFilterParams(
+                    handle: values[0],
+                    gitStatusFilter: values[1],
+                    fileClassFilter: values[2]
+                )
+            )
+        case "bridge-file-tree-reveal-path":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeFileTreeRevealPath(
+                IPCBridgeFileTreeRevealPathParams(handle: values[0], path: values[1])
+            )
         case "bridge-file-view-get-content":
             let values = try requireCount(remainingArguments, 3)
             guard let reviewGeneration = Int(values[2]) else {
@@ -237,6 +261,16 @@ public enum AgentStudioIPCClientArguments {
                     handle: values[0],
                     contentHandleId: values[1],
                     reviewGeneration: reviewGeneration
+                )
+            )
+        case "bridge-file-view-show-markdown-preview":
+            guard remainingArguments.count == 1 || remainingArguments.count == 2 else {
+                throw AgentStudioIPCClientError(reason: .invalidArguments)
+            }
+            return .bridgeFileViewShowMarkdownPreview(
+                IPCBridgeFileViewShowMarkdownPreviewParams(
+                    handle: remainingArguments[0],
+                    itemId: remainingArguments.count == 2 ? remainingArguments[1] : nil
                 )
             )
         case "bridge-telemetry-snapshot":

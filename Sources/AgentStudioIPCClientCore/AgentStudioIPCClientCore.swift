@@ -92,7 +92,12 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     case bridgeDiffGetPackage(handle: String)
     case bridgeDiffRenderState(handle: String)
     case bridgeDiffSelectFile(IPCBridgeReviewSelectFileParams)
+    case bridgeDiffScrollToFile(IPCBridgeDiffScrollToFileParams)
+    case bridgeFileTreeSearch(IPCBridgeFileTreeSearchParams)
+    case bridgeFileTreeSetFilter(IPCBridgeFileTreeSetFilterParams)
+    case bridgeFileTreeRevealPath(IPCBridgeFileTreeRevealPathParams)
     case bridgeFileViewGetContent(IPCBridgeContentGetParams)
+    case bridgeFileViewShowMarkdownPreview(IPCBridgeFileViewShowMarkdownPreviewParams)
     case bridgeTelemetrySnapshot(handle: String)
     case bridgeTelemetryFlush(handle: String)
     case eventsSubscribe(eventNames: [IPCEventName])
@@ -138,8 +143,18 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             "bridge.diff.renderState"
         case .bridgeDiffSelectFile:
             "bridge.diff.selectFile"
+        case .bridgeDiffScrollToFile:
+            "bridge.diff.scrollToFile"
+        case .bridgeFileTreeSearch:
+            "bridge.fileTree.search"
+        case .bridgeFileTreeSetFilter:
+            "bridge.fileTree.setFilter"
+        case .bridgeFileTreeRevealPath:
+            "bridge.fileTree.revealPath"
         case .bridgeFileViewGetContent:
             "bridge.fileView.getContent"
+        case .bridgeFileViewShowMarkdownPreview:
+            "bridge.fileView.showMarkdownPreview"
         case .bridgeTelemetrySnapshot:
             "bridge.telemetry.snapshot"
         case .bridgeTelemetryFlush:
@@ -158,8 +173,9 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
             .currentPane, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend, .terminalWait,
             .bridgeDiffLoad, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
-            .bridgeDiffSelectFile, .bridgeFileViewGetContent, .bridgeTelemetrySnapshot, .bridgeTelemetryFlush,
-            .eventsUnsubscribe:
+            .bridgeDiffSelectFile, .bridgeDiffScrollToFile, .bridgeFileTreeSearch, .bridgeFileTreeSetFilter,
+            .bridgeFileTreeRevealPath, .bridgeFileViewGetContent, .bridgeFileViewShowMarkdownPreview,
+            .bridgeTelemetrySnapshot, .bridgeTelemetryFlush, .eventsUnsubscribe:
             false
         }
     }
@@ -209,7 +225,17 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             return .object(["handle": .string(handle)])
         case .bridgeDiffSelectFile(let params):
             return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeDiffScrollToFile(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileTreeSearch(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileTreeSetFilter(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileTreeRevealPath(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
         case .bridgeFileViewGetContent(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileViewShowMarkdownPreview(let params):
             return try JSONRPCCodec.encodeJSONValue(params)
         case .bridgeTelemetrySnapshot(let handle):
             return .object(["handle": .string(handle)])

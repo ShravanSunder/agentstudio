@@ -57,6 +57,51 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
         )
     }
 
+    func scrollToFile(_ params: IPCBridgeDiffScrollToFileParams) async throws -> IPCBridgePageControlResult {
+        let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
+        return try await controller.applyPageControlForIPC(
+            .scrollToFile(itemId: params.itemId),
+            correlationId: params.correlationId
+        )
+    }
+
+    func searchFileTree(_ params: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult {
+        let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
+        return try await controller.applyPageControlForIPC(
+            .fileTreeSearch(searchText: params.searchText),
+            correlationId: params.correlationId
+        )
+    }
+
+    func setFileTreeFilter(_ params: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult {
+        let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
+        return try await controller.applyPageControlForIPC(
+            .fileTreeSetFilter(
+                gitStatusFilter: params.gitStatusFilter,
+                fileClassFilter: params.fileClassFilter
+            ),
+            correlationId: params.correlationId
+        )
+    }
+
+    func revealFileTreePath(_ params: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult {
+        let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
+        return try await controller.applyPageControlForIPC(
+            .fileTreeRevealPath(path: params.path),
+            correlationId: params.correlationId
+        )
+    }
+
+    func showMarkdownPreview(
+        _ params: IPCBridgeFileViewShowMarkdownPreviewParams
+    ) async throws -> IPCBridgePageControlResult {
+        let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
+        return try await controller.applyPageControlForIPC(
+            .fileViewShowMarkdownPreview(itemId: params.itemId),
+            correlationId: params.correlationId
+        )
+    }
+
     func getContent(_ params: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
         return try await controller.loadContentForIPC(

@@ -351,6 +351,28 @@ private struct PaneAgentTestBridgePort: AppIPCBridgePort {
         throw AppIPCBridgeError(reason: .targetNotFound)
     }
 
+    func scrollToFile(_: IPCBridgeDiffScrollToFileParams) async throws -> IPCBridgePageControlResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func searchFileTree(_: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func setFileTreeFilter(_: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func revealFileTreePath(_: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
+    func showMarkdownPreview(_: IPCBridgeFileViewShowMarkdownPreviewParams) async throws
+        -> IPCBridgePageControlResult
+    {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
     func getContent(_: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult {
         throw AppIPCBridgeError(reason: .contentUnavailable)
     }

@@ -133,6 +133,13 @@ public protocol AppIPCBridgePort: Sendable {
     func getPackage(_ handle: IPCHandle) throws -> IPCBridgeReviewPackageResult
     func renderState(_ handle: IPCHandle) async throws -> IPCBridgeRenderStateResult
     func selectFile(_ params: IPCBridgeReviewSelectFileParams) async throws -> IPCBridgeReviewSelectFileResult
+    func scrollToFile(_ params: IPCBridgeDiffScrollToFileParams) async throws -> IPCBridgePageControlResult
+    func searchFileTree(_ params: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult
+    func setFileTreeFilter(_ params: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult
+    func revealFileTreePath(_ params: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult
+    func showMarkdownPreview(
+        _ params: IPCBridgeFileViewShowMarkdownPreviewParams
+    ) async throws -> IPCBridgePageControlResult
     func getContent(_ params: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult
     func telemetrySnapshot(_ handle: IPCHandle) throws -> IPCBridgeTelemetrySnapshotResult
     func flushTelemetry(_ handle: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult

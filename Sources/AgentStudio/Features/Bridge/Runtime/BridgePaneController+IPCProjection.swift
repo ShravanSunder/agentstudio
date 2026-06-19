@@ -13,6 +13,23 @@ private struct BridgePageRenderSnapshot: Decodable {
     let pageErrorMessages: [String]
 }
 
+private struct BridgePageControlProbeSnapshot: Decodable {
+    let sequence: Int
+    let method: String
+    let status: String
+    let itemId: String?
+    let path: String?
+    let treeSearchText: String
+    let gitStatusFilter: String
+    let fileClassFilter: String
+    let renderMode: BridgePageControlRenderModeSnapshot
+    let reason: String?
+}
+
+private struct BridgePageControlRenderModeSnapshot: Decodable {
+    let kind: String
+}
+
 @MainActor
 extension BridgePaneController {
     func ipcReviewPackageSnapshot() throws -> IPCBridgeReviewPackageResult {
@@ -120,6 +137,58 @@ extension BridgePaneController {
             }));
             """,
             contentWorld: .page
+        )
+    }
+
+    func applyPageControlForIPC(
+        _ command: IPCBridgePageControlCommand,
+        correlationId: UUID?
+    ) async throws -> IPCBridgePageControlResult {
+        let commandLiteral = try javaScriptLiteral(command)
+        let methodLiteral = try javaScriptStringLiteral(command.method)
+        let result = try await page.callJavaScript(
+            """
+            return JSON.stringify((() => {
+              window.__bridgeReviewControlProbe = undefined;
+              window.dispatchEvent(new CustomEvent('__bridge_review_control', {
+                detail: \(commandLiteral)
+              }));
+              const nextProbe = window.__bridgeReviewControlProbe || null;
+              return nextProbe || {
+                sequence: -1,
+                method: \(methodLiteral),
+                status: 'rejected',
+                itemId: null,
+                path: null,
+                treeSearchText: '',
+                gitStatusFilter: 'all',
+                fileClassFilter: 'all',
+                renderMode: { kind: 'codeView' },
+                reason: 'missing_control_probe'
+              };
+            })())
+            """,
+            contentWorld: .page
+        )
+        guard let json = result as? String, let data = json.data(using: .utf8) else {
+            throw AppIPCBridgeError(reason: .validationRejected)
+        }
+        let snapshot = try JSONDecoder().decode(BridgePageControlProbeSnapshot.self, from: data)
+        guard snapshot.method == command.method, snapshot.sequence >= 0 else {
+            throw AppIPCBridgeError(reason: .validationRejected)
+        }
+        return IPCBridgePageControlResult(
+            paneId: paneId,
+            method: snapshot.method,
+            status: snapshot.status,
+            itemId: snapshot.itemId,
+            path: snapshot.path,
+            treeSearchText: snapshot.treeSearchText,
+            gitStatusFilter: snapshot.gitStatusFilter,
+            fileClassFilter: snapshot.fileClassFilter,
+            renderMode: snapshot.renderMode.kind,
+            reason: snapshot.reason,
+            correlationId: correlationId
         )
     }
 
@@ -304,6 +373,14 @@ extension BridgePaneController {
     }
 
     private nonisolated func javaScriptStringLiteral(_ value: String) throws -> String {
+        let data = try JSONEncoder().encode(value)
+        guard let literal = String(data: data, encoding: .utf8) else {
+            throw AppIPCBridgeError(reason: .validationRejected)
+        }
+        return literal
+    }
+
+    private nonisolated func javaScriptLiteral<T: Encodable>(_ value: T) throws -> String {
         let data = try JSONEncoder().encode(value)
         guard let literal = String(data: data, encoding: .utf8) else {
             throw AppIPCBridgeError(reason: .validationRejected)

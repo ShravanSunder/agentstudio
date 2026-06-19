@@ -17,8 +17,9 @@ extension AgentStudioAppIPCServer {
         case "terminal.status", "terminal.snapshot", "terminal.send", "terminal.wait":
             return try await processRuntimeRequest(request)
         case "bridge.diff.load", "bridge.diff.refresh", "bridge.diff.getPackage", "bridge.diff.renderState",
-            "bridge.diff.selectFile", "bridge.fileView.getContent", "bridge.telemetry.snapshot",
-            "bridge.telemetry.flush":
+            "bridge.diff.selectFile", "bridge.diff.scrollToFile", "bridge.fileTree.search",
+            "bridge.fileTree.setFilter", "bridge.fileTree.revealPath", "bridge.fileView.getContent",
+            "bridge.fileView.showMarkdownPreview", "bridge.telemetry.snapshot", "bridge.telemetry.flush":
             return try await processBridgeRequest(request)
         case "command.list", "command.execute", "ui.commandBar.open":
             return try await processCommandOrUIRequest(request)
@@ -158,30 +159,23 @@ extension AgentStudioAppIPCServer {
     }
 
     private func processBridgeRequest(_ request: JSONRPCRequest) async throws -> JSONValue {
+        try await requireAuthorizedBridgePaneTarget(for: request)
+
         switch request.method {
         case "bridge.diff.load":
             let params = try decodeParams(IPCBridgeReviewOpenParams.self, from: request.params)
             let result = try await MainActor.run {
                 try service.ports.bridgePort.openReview(params)
             }
-            await publishBridgeEvent(
-                name: .bridgeReviewUpdated,
-                payload: IPCBridgeEventPayload(
-                    paneId: result.paneId,
-                    correlationId: result.correlationId
-                )
-            )
+            await publishBridgeReviewUpdated(paneId: result.paneId, correlationId: result.correlationId)
             return try encodeResult(result)
         case "bridge.diff.refresh":
             let params = try decodeParams(IPCBridgeReviewRefreshParams.self, from: request.params)
             let result = try await service.ports.bridgePort.refreshReview(params)
-            await publishBridgeEvent(
-                name: .bridgeReviewUpdated,
-                payload: IPCBridgeEventPayload(
-                    paneId: result.paneId,
-                    packageId: result.packageId,
-                    correlationId: result.correlationId
-                )
+            await publishBridgeReviewUpdated(
+                paneId: result.paneId,
+                packageId: result.packageId,
+                correlationId: result.correlationId
             )
             return try encodeResult(result)
         case "bridge.diff.getPackage":
@@ -193,26 +187,36 @@ extension AgentStudioAppIPCServer {
         case "bridge.diff.selectFile":
             let params = try decodeParams(IPCBridgeReviewSelectFileParams.self, from: request.params)
             let result = try await service.ports.bridgePort.selectFile(params)
-            await publishBridgeEvent(
-                name: .bridgeFileSelected,
-                payload: IPCBridgeEventPayload(
-                    paneId: result.paneId,
-                    itemId: result.itemId,
-                    correlationId: result.correlationId
-                )
+            await publishBridgeFileSelectedIfAccepted(
+                paneId: result.paneId,
+                itemId: result.itemId,
+                accepted: result.selected,
+                correlationId: result.correlationId
             )
             return try encodeResult(result)
+        case "bridge.diff.scrollToFile":
+            let params = try decodeParams(IPCBridgeDiffScrollToFileParams.self, from: request.params)
+            let result = try await service.ports.bridgePort.scrollToFile(params)
+            await publishBridgePageControlSelectionIfAccepted(result)
+            return try encodeResult(result)
+        case "bridge.fileTree.search":
+            let params = try decodeParams(IPCBridgeFileTreeSearchParams.self, from: request.params)
+            return try await encodeResult(service.ports.bridgePort.searchFileTree(params))
+        case "bridge.fileTree.setFilter":
+            let params = try decodeParams(IPCBridgeFileTreeSetFilterParams.self, from: request.params)
+            return try await encodeResult(service.ports.bridgePort.setFileTreeFilter(params))
+        case "bridge.fileTree.revealPath":
+            let params = try decodeParams(IPCBridgeFileTreeRevealPathParams.self, from: request.params)
+            let result = try await service.ports.bridgePort.revealFileTreePath(params)
+            await publishBridgePageControlSelectionIfAccepted(result)
+            return try encodeResult(result)
+        case "bridge.fileView.showMarkdownPreview":
+            let params = try decodeParams(IPCBridgeFileViewShowMarkdownPreviewParams.self, from: request.params)
+            return try await encodeResult(service.ports.bridgePort.showMarkdownPreview(params))
         case "bridge.fileView.getContent":
             let params = try decodeParams(IPCBridgeContentGetParams.self, from: request.params)
             let result = try await service.ports.bridgePort.getContent(params)
-            await publishBridgeEvent(
-                name: .bridgeContentReady,
-                payload: IPCBridgeEventPayload(
-                    paneId: result.paneId,
-                    itemId: result.handle.itemId,
-                    contentHandleId: result.handle.handleId
-                )
-            )
+            await publishBridgeContentReady(result)
             return try encodeResult(result)
         case "bridge.telemetry.snapshot":
             let handle = try decodeHandle(from: request.params)
@@ -220,14 +224,73 @@ extension AgentStudioAppIPCServer {
         case "bridge.telemetry.flush":
             let handle = try decodeHandle(from: request.params)
             let result = try await service.ports.bridgePort.flushTelemetry(handle)
-            await publishBridgeEvent(
-                name: .bridgeTelemetrySampled,
-                payload: IPCBridgeEventPayload(paneId: result.paneId)
-            )
+            await publishBridgeTelemetrySampled(paneId: result.paneId)
             return try encodeResult(result)
         default:
             throw AgentStudioAppIPCRequestError.methodNotFound
         }
+    }
+
+    private func publishBridgeReviewUpdated(
+        paneId: UUID,
+        packageId: String? = nil,
+        correlationId: UUID?
+    ) async {
+        await publishBridgeEvent(
+            name: .bridgeReviewUpdated,
+            payload: IPCBridgeEventPayload(
+                paneId: paneId,
+                packageId: packageId,
+                correlationId: correlationId
+            )
+        )
+    }
+
+    private func publishBridgePageControlSelectionIfAccepted(_ result: IPCBridgePageControlResult) async {
+        await publishBridgeFileSelectedIfAccepted(
+            paneId: result.paneId,
+            itemId: result.itemId,
+            accepted: result.status == "accepted",
+            correlationId: result.correlationId
+        )
+    }
+
+    private func publishBridgeFileSelectedIfAccepted(
+        paneId: UUID,
+        itemId: String?,
+        accepted: Bool,
+        correlationId: UUID?
+    ) async {
+        guard accepted, itemId != nil else {
+            return
+        }
+
+        await publishBridgeEvent(
+            name: .bridgeFileSelected,
+            payload: IPCBridgeEventPayload(
+                paneId: paneId,
+                itemId: itemId,
+                correlationId: correlationId
+            )
+        )
+    }
+
+    private func publishBridgeContentReady(_ result: IPCBridgeContentGetResult) async {
+        await publishBridgeEvent(
+            name: .bridgeContentReady,
+            payload: IPCBridgeEventPayload(
+                paneId: result.paneId,
+                itemId: result.handle.itemId,
+                contentHandleId: result.handle.handleId
+            )
+        )
+    }
+
+    private func publishBridgeTelemetrySampled(paneId: UUID) async {
+        await publishBridgeEvent(
+            name: .bridgeTelemetrySampled,
+            payload: IPCBridgeEventPayload(paneId: paneId)
+        )
     }
 
     private func publishBridgeEvent(name: IPCEventName, payload: IPCBridgeEventPayload) async {

@@ -145,6 +145,26 @@ struct AgentStudioIPCClientCoreTests {
             ["--socket", "/tmp/app.sock", "bridge-diff-select-file", "pane:2", "item-source"],
             environment: [:]
         )
+        let scrollInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-diff-scroll-to-file", "pane:2", "item-source"],
+            environment: [:]
+        )
+        let searchInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-file-tree-search", "pane:2", "BridgePaneController"],
+            environment: [:]
+        )
+        let filterInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-file-tree-set-filter", "pane:2", "modified", "source"],
+            environment: [:]
+        )
+        let revealInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-file-tree-reveal-path", "pane:2", "Sources/App/View.swift"],
+            environment: [:]
+        )
+        let markdownInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-file-view-show-markdown-preview", "pane:2", "item-source"],
+            environment: [:]
+        )
         let telemetryFlushInvocation = try AgentStudioIPCClientArguments.parse(
             ["--socket", "/tmp/app.sock", "bridge-telemetry-flush", "pane:2"],
             environment: [:]
@@ -167,8 +187,71 @@ struct AgentStudioIPCClientCoreTests {
                     IPCBridgeReviewSelectFileParams(handle: "pane:2", itemId: "item-source")
                 )
         )
+        #expect(
+            scrollInvocation.command
+                == .bridgeDiffScrollToFile(
+                    IPCBridgeDiffScrollToFileParams(handle: "pane:2", itemId: "item-source")
+                )
+        )
+        #expect(
+            searchInvocation.command
+                == .bridgeFileTreeSearch(
+                    IPCBridgeFileTreeSearchParams(handle: "pane:2", searchText: "BridgePaneController")
+                )
+        )
+        #expect(
+            filterInvocation.command
+                == .bridgeFileTreeSetFilter(
+                    IPCBridgeFileTreeSetFilterParams(
+                        handle: "pane:2",
+                        gitStatusFilter: "modified",
+                        fileClassFilter: "source"
+                    )
+                )
+        )
+        #expect(
+            revealInvocation.command
+                == .bridgeFileTreeRevealPath(
+                    IPCBridgeFileTreeRevealPathParams(handle: "pane:2", path: "Sources/App/View.swift")
+                )
+        )
+        #expect(
+            markdownInvocation.command
+                == .bridgeFileViewShowMarkdownPreview(
+                    IPCBridgeFileViewShowMarkdownPreviewParams(handle: "pane:2", itemId: "item-source")
+                )
+        )
         #expect(telemetrySnapshotInvocation.command == .bridgeTelemetrySnapshot(handle: "pane:2"))
         #expect(telemetryFlushInvocation.command == .bridgeTelemetryFlush(handle: "pane:2"))
+    }
+
+    @Test("builds semantic bridge control request frames")
+    func buildsSemanticBridgeControlRequestFrames() throws {
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+        )
+
+        let frame = try client.requestFrame(
+            .bridgeFileTreeSetFilter(
+                IPCBridgeFileTreeSetFilterParams(
+                    handle: "pane:2",
+                    gitStatusFilter: "modified",
+                    fileClassFilter: "source"
+                )
+            ),
+            requestId: 16
+        )
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(16))
+        #expect(request.method == "bridge.fileTree.setFilter")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["handle"] == .string("pane:2"))
+        #expect(params["gitStatusFilter"] == .string("modified"))
+        #expect(params["fileClassFilter"] == .string("source"))
     }
 
     @Test("builds bridge file view content request frame")
