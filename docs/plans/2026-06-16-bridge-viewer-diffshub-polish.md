@@ -58,7 +58,7 @@ This is a hard polish and behavior pass over the current Bridge viewer shell. It
 
 Read before planning:
 
-- `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` is 430 lines and owns the visible header, right sidebar, search field, native `<select>` filters, canvas/sidebar grid, and summary stats.
+- `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` owns the right sidebar, search/filter chrome, canvas/sidebar grid, and summary stats. The review viewer must not render a visible top metadata strip above CodeView.
 - `BridgeWeb/src/app/bridge-app.css` is 56 lines and owns the current dark tokens.
 - `BridgeWeb/src/review-viewer/trees/bridge-trees-panel.tsx` is 101 lines and wraps Pierre `FileTree`.
 - `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` is 232 lines and wraps Pierre `CodeView`.
@@ -71,7 +71,7 @@ Read before planning:
 Observed current problems:
 
 - Shell chrome is custom and minimal, while only the inner CodeView is Pierre-like.
-- Header exposes counts and internal metadata as plain text instead of compact review chrome.
+- Earlier shell revisions exposed counts and internal metadata as a plain top text strip. That strip must stay removed; compact rail chrome and CodeView file headers own visible review metadata.
 - Projection buttons are text pills and do not share a durable component system.
 - Sidebar uses native `<select>` for `Git status` and `File class`.
 - Sidebar search is always visible with labels, not a compact DiffsHub-style search affordance.
@@ -1059,7 +1059,6 @@ Refactor `ReviewViewerShell` into smaller components because the current 430-lin
 Likely files:
 
 - `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx`
-- `BridgeWeb/src/review-viewer/shell/bridge-review-top-bar.tsx`
 - `BridgeWeb/src/review-viewer/shell/bridge-review-main-layout.tsx`
 - `BridgeWeb/src/review-viewer/shell/bridge-review-right-rail.tsx`
 - `BridgeWeb/src/review-viewer/shell/bridge-review-filter-controls.tsx`
@@ -1069,9 +1068,9 @@ Likely files:
 Requirements:
 
 - Preserve `data-sidebar-position="right"`.
-- Remove plain text metadata rows from the top area.
+- Remove the plain text metadata/app bar from the top area and keep it absent.
 - Move projection/filter affordances into compact chrome.
-- Keep counts visible but quiet.
+- Keep counts visible but quiet in the right rail stats region.
 - Keep the code plane full-height with `min-height: 0` through every flex/grid parent.
 - Right rail has its own scroll region and does not resize the CodeView plane on hover/filter changes.
 
@@ -1080,7 +1079,8 @@ Proof:
 - Existing shell tests updated from old labels to structural expectations.
 - Tests assert no native selects.
 - Tests assert right rail exists and uses custom filter controls.
-- Visual proof captures top bar, CodeView, and right rail.
+- Tests and visual proof assert `bridge-review-top-header` is absent.
+- Visual proof captures CodeView and the right rail against the live worktree dev server.
 
 ### Task 3: Fix Scroll Ownership
 
@@ -1453,6 +1453,7 @@ If `mise run test-fast` or GitHub CI times out outside this slice, do not change
 | --- | --- | --- | --- | --- | --- | --- |
 | Dark DiffsHub-style shell with black canvas | 1, 2 | executor + visual reviewer | Peekaboo screenshots and shell tests | smoke/manual + unit | current debug app capture after rebuild | red baseline screenshot, green final screenshot |
 | Right-side compact file rail | 2, 4 | executor | shell structural tests and Peekaboo | unit + smoke/manual | assert `data-sidebar-position="right"` in current code | green required |
+| No top metadata strip | 2, 8 | executor | shell structural tests and visual proof script | unit + smoke/manual | assert `bridge-review-top-header` is absent in React and browser proof | red/green required |
 | No native select controls | 1, 2 | executor | shell tests query absence of `select` | unit | inspect built shell, not only component source | red current tests/text, green absence |
 | Custom filter/menu controls | 1, 2 | executor | component tests and screenshot with menu open | unit + smoke/manual | menu proof captured in debug app | green required |
 | CodeView scroll works | 3 | executor + visual reviewer | Vitest Browser Mode scroll test plus Peekaboo large-fixture capture | integration/browser + smoke/manual | body/root must not be the scroll owner; selected visible code must change | red current behavior, green final |

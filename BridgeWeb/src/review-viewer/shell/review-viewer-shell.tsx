@@ -17,8 +17,6 @@ import type {
 	BridgeFileChangeKind,
 	BridgeFileClass,
 	BridgeReviewPackage,
-	BridgeSourceEndpoint,
-	BridgeSourceEndpointKind,
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
@@ -109,10 +107,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 		selectedItemId: props.selectedItemId,
 	});
 	const summary = props.reviewPackage.summary;
-	const filterLabels = reviewFilterLabels(props.reviewPackage);
-	const groupingLabel =
-		props.reviewPackage.query.grouping.label ?? props.reviewPackage.query.grouping.kind;
-	const reviewScopeLabel = reviewCheckpointOrCollationLabel(props.reviewPackage);
 	const projectionMode = props.projectionMode ?? { kind: 'allFiles' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
 	const fileClassFilter = props.fileClassFilter ?? 'all';
@@ -125,37 +119,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			data-sidebar-position="right"
 			data-testid="review-viewer-shell"
 		>
-			<header
-				className="flex min-h-9 shrink-0 items-center gap-3 border-b border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-bg)] px-3"
-				data-testid="bridge-review-top-header"
-			>
-				<section aria-label="Review summary" className="flex min-w-0 flex-1 items-center gap-3">
-					<div className="flex min-w-0 items-center gap-2 text-sm">
-						<span className="shrink-0 font-semibold text-[var(--bridge-text-primary)]">
-							{summary.filesChanged} {summary.filesChanged === 1 ? 'file' : 'files'} changed
-						</span>
-						<span className="shrink-0 text-xs text-[var(--bridge-added)]">
-							+{summary.additions}
-						</span>
-						<span className="shrink-0 text-xs text-[var(--bridge-deleted)]">
-							-{summary.deletions}
-						</span>
-						<span className="truncate text-xs text-[var(--bridge-text-secondary)]">
-							{props.reviewPackage.baseEndpoint.label} to {props.reviewPackage.headEndpoint.label}
-						</span>
-					</div>
-					<div className="hidden min-w-0 items-center gap-2 text-[11px] text-[var(--bridge-text-muted)] md:flex">
-						<span className="shrink-0">Generation {props.reviewPackage.reviewGeneration}</span>
-						<span aria-hidden="true">/</span>
-						<span className="shrink-0">{groupingLabel}</span>
-						<span aria-hidden="true">/</span>
-						<span className="truncate">{reviewScopeLabel}</span>
-						<span className="sr-only">
-							{filterLabels.length === 0 ? 'All files' : filterLabels.join(' ')}
-						</span>
-					</div>
-				</section>
-			</header>
 			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
 				<section
 					aria-label="Selected content"
@@ -299,7 +262,11 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							)}
 						</nav>
 					</div>
-					<div className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-1 border-t border-[var(--bridge-border-subtle)] p-2 text-[11px] text-[var(--bridge-text-secondary)]">
+					<div
+						aria-label="Review summary"
+						className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-1 border-t border-[var(--bridge-border-subtle)] p-2 text-[11px] text-[var(--bridge-text-secondary)]"
+						data-testid="bridge-review-rail-stats"
+					>
 						<span>Files</span>
 						<span className="text-right text-[var(--bridge-text-primary)]">
 							{summary.filesChanged}
@@ -468,39 +435,4 @@ const fileClassOptions: readonly BridgeReviewFilterOption<BridgeFileClass | 'all
 
 function sentenceCase(value: string): string {
 	return value.length === 0 ? value : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
-}
-
-function reviewFilterLabels(reviewPackage: BridgeReviewPackage): readonly string[] {
-	const filter = reviewPackage.filterState;
-	return [
-		...reviewPackage.query.pathScope.map((pathScope: string): string => `Folder: ${pathScope}`),
-		...filter.includedFileClasses.map((fileClass: string): string => `Class: ${fileClass}`),
-		...filter.changeKinds.map((changeKind: string): string => `Change: ${changeKind}`),
-		...filter.reviewStates.map((reviewState: string): string => `State: ${reviewState}`),
-		...filter.includedExtensions.map((extension: string): string => `Extension: ${extension}`),
-	];
-}
-
-function reviewCheckpointOrCollationLabel(reviewPackage: BridgeReviewPackage): string {
-	const checkpointEndpoint =
-		checkpointEndpointLabel(reviewPackage.headEndpoint) ??
-		checkpointEndpointLabel(reviewPackage.baseEndpoint);
-	if (checkpointEndpoint !== null) {
-		return `Checkpoint: ${checkpointEndpoint}`;
-	}
-	const groupingLabel = reviewPackage.query.grouping.label ?? reviewPackage.query.grouping.kind;
-	return `Collation: ${groupingLabel}`;
-}
-
-function checkpointEndpointLabel(endpoint: BridgeSourceEndpoint): string | null {
-	return isCheckpointEndpointKind(endpoint.kind) ? endpoint.label : null;
-}
-
-function isCheckpointEndpointKind(kind: BridgeSourceEndpointKind): boolean {
-	return (
-		kind === 'promptCheckpoint' ||
-		kind === 'sessionCheckpoint' ||
-		kind === 'manualCheckpoint' ||
-		kind === 'savedTimeWindowCheckpoint'
-	);
 }

@@ -10,7 +10,7 @@ import { buildBridgeReviewProjection } from '../navigation/review-projection.js'
 import { BridgeReviewProjectionMenu, ReviewViewerShell } from './review-viewer-shell.js';
 
 describe('review viewer shell', () => {
-	test('renders review package summary endpoints filters and visible item list', () => {
+	test('renders compact rail summary controls and visible item list', () => {
 		const basePackage = makeBridgeReviewPackage();
 		const reviewPackage = {
 			...basePackage,
@@ -43,14 +43,15 @@ describe('review viewer shell', () => {
 				'data-testid': 'review-viewer-shell',
 			},
 		});
+		const shell = requireTestElement(element);
 		const text = collectText(element);
-		expect(text).toContain('1 file changed');
-		expect(text).toContain('Prompt checkpoint');
-		expect(text).toContain('Working tree');
-		expect(text).toContain('Checkpoint: Prompt checkpoint');
-		expect(text).toContain('Folder: Sources/App/**');
-		expect(text).toContain('Class: source');
-		expect(text).toContain('Change: modified');
+		const railStats = findElementByTestId(shell, 'bridge-review-rail-stats');
+
+		expect(findElementByTestId(shell, 'bridge-review-top-header')).toBeNull();
+		expect(collectText(railStats)).toContain('Files');
+		expect(collectText(railStats)).toContain('1');
+		expect(collectText(railStats)).toContain('Additions');
+		expect(collectText(railStats)).toContain('Deletions');
 		expect(text).toContain('Sources/App/View.swift');
 	});
 
@@ -69,10 +70,10 @@ describe('review viewer shell', () => {
 		expect(text).toContain('Search files');
 		expect(text).toContain('Git status');
 		expect(text).toContain('File class');
-		expect(text).toContain('Collation:');
+		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 	});
 
-	test('keeps projection scope in compact rail chrome instead of the top app bar', () => {
+	test('keeps projection scope in compact rail chrome without a top app bar', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
 			ReviewViewerShell({
@@ -84,17 +85,16 @@ describe('review viewer shell', () => {
 			}),
 		);
 
-		const header = findElementByTestId(element, 'bridge-review-top-header');
 		const projectionScope = findElementByTestId(element, 'bridge-review-projection-scope');
 		const projectionMenu = findElementByComponent(element, BridgeReviewProjectionMenu);
 		const projectionButtons = findElementsByComponent(element, BridgeReviewButton);
+		const railStats = findElementByTestId(element, 'bridge-review-rail-stats');
 
-		expect(header?.type).toBe('header');
-		expect(classNameForElement(header)).toContain('bg-[var(--bridge-header-bg)]');
-		expect(headerContainsTestId(header, 'bridge-review-projection-scope')).toBe(false);
+		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 		expect(projectionScope).toBeNull();
 		expect(projectionMenu).not.toBeNull();
 		expect(projectionButtons).toHaveLength(2);
+		expect(railStats).not.toBeNull();
 	});
 
 	test('renders custom review controls without native select widgets', () => {
@@ -282,9 +282,7 @@ describe('review viewer shell', () => {
 		const text = collectText(element);
 		expect(text).toContain('Sources/App/View.swift');
 		expect(text).not.toContain('docs/architecture/old.md');
-		expect(text).toContain('Folder: Sources/**');
-		expect(text).toContain('Class: source');
-		expect(text).toContain('Change: modified');
+		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 	});
 });
 
@@ -347,10 +345,6 @@ function findElementByTestId(
 		return node;
 	}
 	return findElementByTestId(node.props.children, testId);
-}
-
-function headerContainsTestId(node: ReactNode, testId: string): boolean {
-	return findElementByTestId(node, testId) !== null;
 }
 
 function findElementsByType(

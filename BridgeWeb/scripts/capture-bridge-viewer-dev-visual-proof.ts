@@ -31,6 +31,7 @@ const bridgeViewerVisualProofSchema = z.object({
 		documentClassName: z.string(),
 	}),
 	shellChrome: z.object({
+		hasTopHeader: z.boolean(),
 		hasTopProjectionScope: z.boolean(),
 		projectionMenuControlHeight: z.number().nonnegative(),
 		projectionMenuControlWidth: z.number().nonnegative(),
@@ -312,13 +313,18 @@ async function readShellChrome(page: Page): Promise<BridgeViewerVisualProof['she
 		const rightRailToolbarBounds =
 			rightRailToolbar instanceof HTMLElement ? rightRailToolbar.getBoundingClientRect() : null;
 		return {
+			hasTopHeader: topHeader !== null,
 			hasTopProjectionScope:
-				topHeader?.querySelector('[data-testid="bridge-review-projection-scope"]') !== null,
+				topHeader !== null &&
+				topHeader.querySelector('[data-testid="bridge-review-projection-scope"]') !== null,
 			projectionMenuControlHeight: projectionMenuControlBounds?.height ?? 0,
 			projectionMenuControlWidth: projectionMenuControlBounds?.width ?? 0,
 			rightRailToolbarHeight: rightRailToolbarBounds?.height ?? 0,
 		};
 	});
+	if (shellChrome.hasTopHeader) {
+		throw new Error('Bridge visual proof failed: top review metadata header is still mounted');
+	}
 	if (shellChrome.hasTopProjectionScope) {
 		throw new Error('Bridge visual proof failed: top projection strip is still mounted');
 	}
