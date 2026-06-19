@@ -7,7 +7,7 @@ import { BridgeReviewButton } from '../chrome/bridge-review-button.js';
 import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
-import { ReviewViewerShell } from './review-viewer-shell.js';
+import { BridgeReviewProjectionMenu, ReviewViewerShell } from './review-viewer-shell.js';
 
 describe('review viewer shell', () => {
 	test('renders review package summary endpoints filters and visible item list', () => {
@@ -65,20 +65,14 @@ describe('review viewer shell', () => {
 		});
 
 		const text = collectText(element);
-		expect(text).toContain('All');
-		expect(text).toContain('Changed');
-		expect(text).toContain('Guided');
-		expect(text).toContain('Change set');
-		expect(text).toContain('Docs/plans');
-		expect(text).toContain('Tests');
-		expect(text).toContain('Source');
+		expect(findElementByComponent(element, BridgeReviewProjectionMenu)).not.toBeNull();
 		expect(text).toContain('Search files');
 		expect(text).toContain('Git status');
 		expect(text).toContain('File class');
 		expect(text).toContain('Collation:');
 	});
 
-	test('keeps top projection scope as compact shadcn chrome instead of a detached black pill', () => {
+	test('keeps projection scope in compact rail chrome instead of the top app bar', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
 			ReviewViewerShell({
@@ -92,31 +86,15 @@ describe('review viewer shell', () => {
 
 		const header = findElementByTestId(element, 'bridge-review-top-header');
 		const projectionScope = findElementByTestId(element, 'bridge-review-projection-scope');
+		const projectionMenu = findElementByComponent(element, BridgeReviewProjectionMenu);
 		const projectionButtons = findElementsByComponent(element, BridgeReviewButton);
 
 		expect(header?.type).toBe('header');
 		expect(classNameForElement(header)).toContain('bg-[var(--bridge-header-bg)]');
-		expect(projectionScope?.props['data-bridge-segmented-control']).toBe('true');
-		expect(projectionScope?.props.role).toBe('group');
-		expect(classNameForElement(projectionScope)).toContain('bg-transparent');
-		expect(classNameForElement(projectionScope)).toContain('h-7');
-		expect(classNameForElement(projectionScope)).toContain('rounded-md');
-		expect(classNameForElement(projectionScope)).not.toContain(
-			'bg-[var(--bridge-header-control-bg)]',
-		);
-		expect(classNameForElement(projectionScope)).not.toContain('bridge-canvas-bg');
-		expect(classNameForElement(projectionScope)).not.toContain(
-			'border-[var(--bridge-border-subtle)]',
-		);
-		expect(projectionButtons).toHaveLength(9);
-		const projectionOnlyButtons = projectionButtons.filter((button) =>
-			(button.props['data-testid'] ?? '').startsWith('bridge-review-projection-'),
-		);
-		expect(projectionOnlyButtons).toHaveLength(7);
-		for (const button of projectionOnlyButtons) {
-			expect(classNameForElement(button)).toContain('bridge-review-projection-button');
-		}
-		expect(projectionOnlyButtons.some((button) => button.props.ariaPressed === true)).toBe(true);
+		expect(headerContainsTestId(header, 'bridge-review-projection-scope')).toBe(false);
+		expect(projectionScope).toBeNull();
+		expect(projectionMenu).not.toBeNull();
+		expect(projectionButtons).toHaveLength(2);
 	});
 
 	test('renders custom review controls without native select widgets', () => {
@@ -369,6 +347,10 @@ function findElementByTestId(
 		return node;
 	}
 	return findElementByTestId(node.props.children, testId);
+}
+
+function headerContainsTestId(node: ReactNode, testId: string): boolean {
+	return findElementByTestId(node, testId) !== null;
 }
 
 function findElementsByType(

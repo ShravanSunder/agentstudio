@@ -1,6 +1,14 @@
-import { FolderTreeIcon, MessageSquareIcon } from 'lucide-react';
+import { FolderTreeIcon, ListFilterIcon, MessageSquareIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu.js';
 import {
 	createBridgeReviewItemRegistry,
 	reviewItemPathLabel,
@@ -147,27 +155,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 						</span>
 					</div>
 				</section>
-				<nav aria-label="Review controls" className="flex shrink-0 items-center gap-1">
-					<div
-						aria-label="Projection"
-						className="inline-flex h-7 items-center gap-0.5 rounded-md bg-transparent p-0"
-						data-bridge-segmented-control="true"
-						data-testid="bridge-review-projection-scope"
-						role="group"
-					>
-						{projectionButtonSpecs.map((spec) => (
-							<BridgeReviewButton
-								ariaPressed={projectionMode.kind === spec.mode.kind}
-								className="bridge-review-projection-button h-6 rounded-[5px] px-2"
-								data-testid={`bridge-review-projection-${spec.testIdSuffix}`}
-								key={spec.label}
-								onClick={() => props.onProjectionModeChange?.(spec.mode)}
-							>
-								{spec.label}
-							</BridgeReviewButton>
-						))}
-					</div>
-				</nav>
 			</header>
 			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
 				<section
@@ -252,6 +239,12 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								className="flex min-w-0 items-center justify-end gap-1"
 								data-testid="bridge-review-rail-toolbar-trailing"
 							>
+								<BridgeReviewProjectionMenu
+									projectionMode={projectionMode}
+									{...(props.onProjectionModeChange === undefined
+										? {}
+										: { onProjectionModeChange: props.onProjectionModeChange })}
+								/>
 								<div data-testid="bridge-review-search-control-slot">
 									<span className="sr-only">Search files</span>
 									<BridgeReviewSearchControl
@@ -322,6 +315,74 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	);
 }
 
+export function BridgeReviewProjectionMenu(props: {
+	readonly projectionMode: BridgeReviewProjectionMode;
+	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
+}): ReactElement {
+	const selectedProjectionSpec =
+		projectionButtonSpecs.find((spec): boolean => spec.mode.kind === props.projectionMode.kind) ??
+		projectionButtonSpecs[0];
+	const selectedValue = selectedProjectionSpec?.value ?? 'allFiles';
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				aria-label="Review view"
+				className={[
+					'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent bg-transparent px-0',
+					'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
+					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
+					'focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none',
+					'data-popup-open:bg-[var(--bridge-accent-soft)] data-popup-open:text-[var(--bridge-text-primary)]',
+				].join(' ')}
+				data-testid="bridge-review-projection-menu-control"
+				title="Review view"
+			>
+				<ListFilterIcon aria-hidden="true" className="size-4" />
+				<span className="sr-only">{selectedProjectionSpec?.label ?? 'All'}</span>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="end"
+				className={[
+					'z-[80] w-52 rounded-[10px] border border-[rgb(137_180_250_/_0.24)]',
+					'bg-[var(--bridge-menu-bg)] p-2 text-[var(--bridge-text-secondary)]',
+					'shadow-[0_24px_68px_rgb(0_0_0_/_0.86)] ring-1 ring-[rgb(205_214_244_/_0.14)]',
+				].join(' ')}
+				data-testid="bridge-review-projection-menu"
+				sideOffset={6}
+			>
+				<header className="px-2 pb-2 pt-1">
+					<p className="text-[13px] font-medium text-[var(--bridge-text-primary)]">Review view</p>
+					<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">
+						Scope the visible review set
+					</p>
+				</header>
+				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+				<DropdownMenuRadioGroup value={selectedValue}>
+					{projectionButtonSpecs.map((spec) => (
+						<DropdownMenuRadioItem
+							className={[
+								'h-8 gap-2 rounded-[7px] px-2 py-0 pr-8 text-[13px]',
+								'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-accent-soft)]',
+								'focus:text-[var(--bridge-text-primary)]',
+								spec.value === selectedValue && 'text-[var(--bridge-text-primary)]',
+							]
+								.filter(Boolean)
+								.join(' ')}
+							data-testid={`bridge-review-projection-${spec.testIdSuffix}`}
+							key={spec.value}
+							onClick={() => props.onProjectionModeChange?.(spec.mode)}
+							value={spec.value}
+						>
+							<span className="min-w-0 truncate">{spec.label}</span>
+						</DropdownMenuRadioItem>
+					))}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
 function BridgeReviewContentUnavailableState(props: { readonly sourcePath: string }): ReactElement {
 	return (
 		<section
@@ -341,18 +402,35 @@ const projectionButtonSpecs: readonly {
 	readonly label: string;
 	readonly mode: BridgeReviewProjectionMode;
 	readonly testIdSuffix: string;
+	readonly value: string;
 }[] = [
-	{ label: 'All', mode: { kind: 'allFiles' }, testIdSuffix: 'all-files' },
-	{ label: 'Changed', mode: { kind: 'changedFiles' }, testIdSuffix: 'changed-files' },
-	{ label: 'Guided', mode: { kind: 'guidedReview' }, testIdSuffix: 'guided-review' },
+	{ label: 'All', mode: { kind: 'allFiles' }, testIdSuffix: 'all-files', value: 'allFiles' },
+	{
+		label: 'Changed',
+		mode: { kind: 'changedFiles' },
+		testIdSuffix: 'changed-files',
+		value: 'changedFiles',
+	},
+	{
+		label: 'Guided',
+		mode: { kind: 'guidedReview' },
+		testIdSuffix: 'guided-review',
+		value: 'guidedReview',
+	},
 	{
 		label: 'Change set',
 		mode: { kind: 'currentChangeSet', scope: { kind: 'activePackage' } },
 		testIdSuffix: 'change-set',
+		value: 'currentChangeSet',
 	},
-	{ label: 'Docs/plans', mode: { kind: 'docsAndPlans' }, testIdSuffix: 'docs-plans' },
-	{ label: 'Tests', mode: { kind: 'tests' }, testIdSuffix: 'tests' },
-	{ label: 'Source', mode: { kind: 'source' }, testIdSuffix: 'source' },
+	{
+		label: 'Docs/plans',
+		mode: { kind: 'docsAndPlans' },
+		testIdSuffix: 'docs-plans',
+		value: 'docsAndPlans',
+	},
+	{ label: 'Tests', mode: { kind: 'tests' }, testIdSuffix: 'tests', value: 'tests' },
+	{ label: 'Source', mode: { kind: 'source' }, testIdSuffix: 'source', value: 'source' },
 ];
 
 const gitStatusOptions: readonly BridgeReviewFilterOption<BridgeFileChangeKind | 'all'>[] = [
