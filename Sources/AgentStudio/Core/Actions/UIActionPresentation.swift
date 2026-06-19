@@ -6,6 +6,21 @@ struct ActionSpec: Equatable, Sendable {
     let icon: CommandIcon
 }
 
+extension ActionSpec {
+    func controlToolTip(
+        textOverride: String? = nil,
+        shortcutText: String? = nil
+    ) -> String {
+        let baseText = textOverride ?? label
+
+        guard let shortcutText else {
+            return baseText
+        }
+
+        return "\(baseText) (\(shortcutText))"
+    }
+}
+
 extension KeyBinding {
     var displayString: String {
         var keys: [String] = []
@@ -37,7 +52,8 @@ extension CommandSpec {
 
     func controlToolTip(
         textOverride: String? = nil,
-        includeShortcut: Bool = true
+        includeShortcut: Bool = true,
+        shortcutTextOverride: String? = nil
     ) -> String {
         let baseText: String
 
@@ -49,11 +65,17 @@ extension CommandSpec {
             baseText = actionSpec.helpText
         }
 
-        guard includeShortcut, let keyBinding else {
+        guard includeShortcut else {
             return baseText
         }
 
-        return "\(baseText) (\(keyBinding.displayString))"
+        let shortcutText = shortcutTextOverride ?? keyBinding?.displayString
+
+        guard let shortcutText else {
+            return baseText
+        }
+
+        return "\(baseText) (\(shortcutText))"
     }
 }
 

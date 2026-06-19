@@ -206,7 +206,7 @@ struct InboxSidebarHeader: View {
                 .menuIndicator(.hidden)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(deleteInboxAction.label)
-                .help("\(deleteInboxAction.helpText). \(clearReadInboxSpec.helpText). \(clearAllInboxSpec.helpText).")
+                .help(Self.toolbarTooltipText(for: .delete, rowStateFilter: rowStateFilter, contentMode: contentMode))
                 .simultaneousGesture(
                     TapGesture().onEnded {
                         suppressDeleteTooltipUntilHoverExit = true
@@ -244,7 +244,7 @@ struct InboxSidebarHeader: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(toggleSortSpec.label)
                 .accessibilityIdentifier("inboxSidebarSortButton")
-                .help("\(toggleSortSpec.helpText) (\(InboxSidebarKeyboardHint.toggleSort))")
+                .help(Self.toolbarTooltipText(for: .sort, rowStateFilter: rowStateFilter, contentMode: contentMode))
                 .onHover { updateTooltipTarget(.sort, isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.sort, in: Self.tooltipCoordinateSpaceName)
                 .background(
@@ -260,7 +260,7 @@ struct InboxSidebarHeader: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(rowStateAction.label)
                 .accessibilityIdentifier("inboxSidebarRowStateFilterButton")
-                .help(rowStateAction.helpText)
+                .help(Self.toolbarTooltipText(for: .rowState, rowStateFilter: rowStateFilter, contentMode: contentMode))
                 .onHover { updateTooltipTarget(.rowState, isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.rowState, in: Self.tooltipCoordinateSpaceName)
 
@@ -270,7 +270,10 @@ struct InboxSidebarHeader: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(markVisibleReadAction.label)
                 .accessibilityIdentifier("inboxSidebarMarkVisibleReadButton")
-                .help(markVisibleReadAction.helpText)
+                .help(
+                    Self.toolbarTooltipText(
+                        for: .markVisibleRead, rowStateFilter: rowStateFilter, contentMode: contentMode)
+                )
                 .onHover { updateTooltipTarget(.markVisibleRead, isHovered: $0) }
                 .hoverTooltipAnchor(
                     InboxSidebarToolbarTooltipTarget.markVisibleRead,
@@ -283,7 +286,9 @@ struct InboxSidebarHeader: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(contentModeAction.label)
                 .accessibilityIdentifier("inboxSidebarContentModeButton")
-                .help(contentModeAction.helpText)
+                .help(
+                    Self.toolbarTooltipText(for: .contentMode, rowStateFilter: rowStateFilter, contentMode: contentMode)
+                )
                 .onHover { updateTooltipTarget(.contentMode, isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.contentMode, in: Self.tooltipCoordinateSpaceName)
 
@@ -295,7 +300,7 @@ struct InboxSidebarHeader: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(groupingAction.label)
                 .accessibilityIdentifier("inboxSidebarGroupingButton")
-                .help("\(groupingAction.helpText) (\(InboxSidebarKeyboardHint.toggleGroupingMenu))")
+                .help(Self.toolbarTooltipText(for: .grouping, rowStateFilter: rowStateFilter, contentMode: contentMode))
                 .onHover { updateTooltipTarget(.grouping, isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.grouping, in: Self.tooltipCoordinateSpaceName)
                 .popover(isPresented: $groupingMenuOpen) {
@@ -393,28 +398,41 @@ struct InboxSidebarHeader: View {
     ) -> String {
         switch target {
         case .delete:
-            let deleteAction = LocalActionSpec.deleteInboxNotifications.actionSpec
-            let clearReadSpec = AppCommand.clearReadInboxNotifications.definition
-            let clearAllSpec = AppCommand.clearAllInboxNotifications.definition
-            return "\(deleteAction.helpText). \(clearReadSpec.helpText). \(clearAllSpec.helpText)."
+            return LocalActionSpec.deleteInboxNotifications.actionSpec.controlToolTip(
+                textOverride: "Clear notifications"
+            )
         case .sort:
             let sortSpec = AppCommand.toggleInboxNotificationSort.definition
-            return "\(sortSpec.helpText) (\(InboxSidebarKeyboardHint.toggleSort))"
+            return sortSpec.controlToolTip(
+                textOverride: "Sort inbox",
+                shortcutTextOverride: InboxSidebarKeyboardHint.toggleSort
+            )
         case .rowState:
-            return LocalActionSpec.toggleInboxRowStateFilter(
+            let rowStateAction = LocalActionSpec.toggleInboxRowStateFilter(
                 showingUnreadOnly: rowStateFilter == .unreadOnly
             )
-            .actionSpec.helpText
+            .actionSpec
+            return rowStateAction.controlToolTip(
+                textOverride: rowStateFilter == .unreadOnly ? "Show all" : "Unread only"
+            )
         case .markVisibleRead:
-            return LocalActionSpec.markVisibleInboxScopeRead.actionSpec.helpText
+            return LocalActionSpec.markVisibleInboxScopeRead.actionSpec.controlToolTip(
+                textOverride: "Mark visible read"
+            )
         case .contentMode:
-            return LocalActionSpec.toggleInboxAttentionFilter(
+            let contentModeAction = LocalActionSpec.toggleInboxAttentionFilter(
                 isAttentionOnly: contentMode == .rollUpAlerts
             )
-            .actionSpec.helpText
+            .actionSpec
+            return contentModeAction.controlToolTip(
+                textOverride: contentMode == .rollUpAlerts ? "Show all notifications" : "Attention only"
+            )
         case .grouping:
             let groupingAction = LocalActionSpec.groupInboxNotifications.actionSpec
-            return "\(groupingAction.helpText) (\(InboxSidebarKeyboardHint.toggleGroupingMenu))"
+            return groupingAction.controlToolTip(
+                textOverride: "Group",
+                shortcutText: InboxSidebarKeyboardHint.toggleGroupingMenu
+            )
         }
     }
 

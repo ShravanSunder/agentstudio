@@ -32,24 +32,42 @@ struct InboxSidebarToolbarPresentationTests {
                 for: .sort,
                 rowStateFilter: .unreadOnly,
                 contentMode: .rollUpAlerts
-            )
-            .contains(InboxSidebarKeyboardHint.toggleSort)
+            ) == "Sort inbox (\(InboxSidebarKeyboardHint.toggleSort))"
+        )
+        #expect(
+            InboxSidebarHeader.toolbarTooltipText(
+                for: .rowState,
+                rowStateFilter: .unreadOnly,
+                contentMode: .rollUpAlerts
+            ) == "Show all"
+        )
+        #expect(
+            InboxSidebarHeader.toolbarTooltipText(
+                for: .markVisibleRead,
+                rowStateFilter: .unreadOnly,
+                contentMode: .rollUpAlerts
+            ) == "Mark visible read"
+        )
+        #expect(
+            InboxSidebarHeader.toolbarTooltipText(
+                for: .contentMode,
+                rowStateFilter: .unreadOnly,
+                contentMode: .rollUpAlerts
+            ) == "Show all notifications"
         )
         #expect(
             InboxSidebarHeader.toolbarTooltipText(
                 for: .grouping,
                 rowStateFilter: .unreadOnly,
                 contentMode: .rollUpAlerts
-            )
-            .contains(InboxSidebarKeyboardHint.toggleGroupingMenu)
+            ) == "Group (\(InboxSidebarKeyboardHint.toggleGroupingMenu))"
         )
         #expect(
             InboxSidebarHeader.toolbarTooltipText(
                 for: .delete,
                 rowStateFilter: .unreadOnly,
                 contentMode: .rollUpAlerts
-            )
-            .contains(AppCommand.clearReadInboxNotifications.definition.helpText)
+            ) == "Clear notifications"
         )
         #expect(sortIcon != .system(.rectangle3GroupFill))
         #expect(InboxSidebarHeader.groupIconName != InboxSidebarHeader.filterIconName)
