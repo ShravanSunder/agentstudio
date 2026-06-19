@@ -250,7 +250,8 @@ struct InboxSidebarHeader: View {
                 .background(
                     AccessibilityLabelBridge(
                         identifier: "inboxSidebarSortButtonFrame",
-                        label: toggleSortSpec.label
+                        label: toggleSortSpec.label,
+                        exposesAccessibility: false
                     )
                 )
 

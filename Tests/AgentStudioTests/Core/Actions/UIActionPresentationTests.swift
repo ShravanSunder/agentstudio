@@ -22,6 +22,13 @@ struct UIActionPresentationTests {
     }
 
     @Test
+    func controlToolTip_withDisplayShortcutTrigger_usesLabelAndDisplayShortcut() {
+        let toolTip = AppCommand.focusDrawerPaneUp.definition.controlToolTip
+
+        #expect(toolTip == "Move Drawer Focus (⌥I)")
+    }
+
+    @Test
     func controlToolTip_withoutShortcutAndNoOverride_usesHelpText() {
         let definition = CommandSpec(
             command: .renameArrangement,

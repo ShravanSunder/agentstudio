@@ -59,7 +59,7 @@ extension CommandSpec {
 
         if let textOverride {
             baseText = textOverride
-        } else if keyBinding != nil {
+        } else if commandBarShortcutTrigger != nil {
             baseText = actionSpec.label
         } else {
             baseText = actionSpec.helpText
@@ -69,7 +69,7 @@ extension CommandSpec {
             return baseText
         }
 
-        let shortcutText = shortcutTextOverride ?? keyBinding?.displayString
+        let shortcutText = shortcutTextOverride ?? commandBarShortcutTrigger?.displayString
 
         guard let shortcutText else {
             return baseText

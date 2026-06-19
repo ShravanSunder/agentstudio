@@ -222,6 +222,8 @@ struct InboxNotificationSidebarViewTests {
                 #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarToolbarRow") == 1)
                 #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarDeleteMenu") == 1)
                 #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 0)
+                #expect(
+                    inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarSortButtonFrame") == 0)
                 guard
                     let searchRow = inboxSidebarDescendant(
                         in: hostingView,
