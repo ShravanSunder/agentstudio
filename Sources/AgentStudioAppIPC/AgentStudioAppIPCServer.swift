@@ -72,7 +72,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         self.service = service
         self.paths = paths
         self.channel = channel
-        self.methodRegistry = AppIPCMethodRegistry(definitions: service.configuration.methodDefinitions)
+        self.methodRegistry = service.methodRegistry
         self.grantLedger = GrantLedger()
         self.principalRegistry = AgentStudioIPCPrincipalRegistry(
             runtimeId: service.configuration.runtimeId,
@@ -332,10 +332,18 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private func authorizationContext(for request: JSONRPCRequest, principal: IPCPrincipal) async throws
         -> AuthorizedRequestContext
     {
+        if let contribution = methodRegistry.contribution(named: request.method) {
+            let tools = AppIPCContributionAuthorizationTools { [self] rawHandle in
+                try await canonicalHandle(fromRawHandle: rawHandle)
+            }
+            let context = try await contribution.authorizationContext(request, principal, tools)
+            return AuthorizedRequestContext(request: context.request, target: context.target)
+        }
+
         switch request.method {
         case "system.identify", "system.version", "system.capabilities", "auth.status":
             return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
-        case "terminal.status", "terminal.snapshot", "terminal.send", "terminal.wait", "pane.focus", "pane.snapshot":
+        case "terminal.status", "terminal.snapshot", "terminal.send", "terminal.wait", "pane.focus":
             let params = try decodeParams(HandleParams.self, from: request.params)
             let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
             return try AuthorizedRequestContext(
@@ -637,7 +645,7 @@ private struct AuthorizedRequestContext {
 }
 
 extension JSONRPCRequest {
-    fileprivate func replacingHandle(_ handle: String) throws -> JSONRPCRequest {
+    package func replacingHandle(_ handle: String) throws -> JSONRPCRequest {
         guard case .object(var params) = params else {
             throw AgentStudioAppIPCRequestError.invalidParams
         }
@@ -645,13 +653,13 @@ extension JSONRPCRequest {
         return JSONRPCRequest(id: id, method: method, params: .object(params))
     }
 
-    fileprivate func replacingParams(_ params: JSONValue) -> JSONRPCRequest {
+    package func replacingParams(_ params: JSONValue) -> JSONRPCRequest {
         JSONRPCRequest(id: id, method: method, params: params)
     }
 }
 
 extension IPCHandle {
-    fileprivate var rawIPCHandleString: String {
+    package var rawIPCHandleString: String {
         switch reference {
         case .friendlyOrdinal(let ordinal):
             "\(kind.rawValue):\(ordinal)"

@@ -80,6 +80,7 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     case listWorkspaces
     case listPanes
     case currentPane
+    case paneSnapshot(handle: String)
     case paneFocus(handle: String)
     case commandList
     case commandExecute(IPCCommandExecuteParams)
@@ -108,6 +109,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             "pane.list"
         case .currentPane:
             "pane.current"
+        case .paneSnapshot:
+            "pane.snapshot"
         case .paneFocus:
             "pane.focus"
         case .commandList:
@@ -132,8 +135,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         case .eventsSubscribe:
             true
         case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
-            .currentPane, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend, .terminalWait,
-            .eventsUnsubscribe:
+            .currentPane, .paneSnapshot, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend,
+            .terminalWait, .eventsUnsubscribe:
             false
         }
     }
@@ -148,6 +151,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         case .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes, .currentPane,
             .commandList:
             return .object([:])
+        case .paneSnapshot(let handle):
+            return .object(["handle": .string(handle)])
         case .paneFocus(let handle):
             return .object(["handle": .string(handle)])
         case .commandExecute(let params):

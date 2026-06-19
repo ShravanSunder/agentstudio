@@ -58,6 +58,73 @@ struct FakeQueryPort: AppIPCQueryPort {
     }
 }
 
+final class RecordingSnapshotQueryPort: AppIPCQueryPort, @unchecked Sendable {
+    let runtimeId: UUID
+    let panes: [IPCPaneSummary]
+    private let lock = NSLock()
+    nonisolated(unsafe) private var snapshotPaneIdsStorage: [UUID] = []
+
+    nonisolated init(runtimeId: UUID = UUID(), panes: [IPCPaneSummary]) {
+        self.runtimeId = runtimeId
+        self.panes = panes
+    }
+
+    nonisolated var snapshotPaneIds: [UUID] {
+        lock.withLock {
+            snapshotPaneIdsStorage
+        }
+    }
+
+    func systemIdentify() throws -> IPCSystemIdentifyResult {
+        IPCSystemIdentifyResult(runtimeId: runtimeId, accessMode: .agentStudioOnly, appVersion: "test")
+    }
+
+    func systemVersion() throws -> IPCSystemVersionResult {
+        IPCSystemVersionResult(appVersion: "test")
+    }
+
+    func systemCapabilities() throws -> IPCSystemCapabilitiesResult {
+        IPCSystemCapabilitiesResult(methods: [])
+    }
+
+    func listWindows() throws -> IPCWindowListResult {
+        IPCWindowListResult(windows: [])
+    }
+
+    func currentWindow() throws -> IPCCurrentWindowResult {
+        throw AppIPCQueryError(reason: .noActiveWindow)
+    }
+
+    func listWorkspaces() throws -> IPCWorkspaceListResult {
+        IPCWorkspaceListResult(workspaces: [])
+    }
+
+    func currentWorkspace() throws -> IPCCurrentWorkspaceResult {
+        throw AppIPCQueryError(reason: .noActiveWindow)
+    }
+
+    func listPanes() throws -> IPCPaneListResult {
+        IPCPaneListResult(panes: panes)
+    }
+
+    func currentPane() throws -> IPCPaneSnapshotResult {
+        guard let pane = panes.first else {
+            throw AppIPCQueryError(reason: .targetNotFound)
+        }
+        return makePaneSnapshotResult(pane: pane, paneCount: panes.count)
+    }
+
+    func snapshotPane(_ paneId: UUID) throws -> IPCPaneSnapshotResult {
+        lock.withLock {
+            snapshotPaneIdsStorage.append(paneId)
+        }
+        guard let pane = panes.first(where: { $0.id == paneId }) else {
+            throw AppIPCQueryError(reason: .targetNotFound)
+        }
+        return makePaneSnapshotResult(pane: pane, paneCount: panes.count)
+    }
+}
+
 struct FakeLayoutPort: AppIPCLayoutPort {
     func focusPane(_: IPCHandle) throws -> IPCPaneFocusResult {
         throw AppIPCLayoutError(reason: .targetNotFound)
@@ -178,7 +245,7 @@ struct FakeCommandPort: AppIPCCommandPort {
         if params.targetHandle != nil {
             throw AppIPCCommandError(reason: .targetNotFound)
         }
-        guard IPCCommandIdentifier.allCases.contains(params.commandId) else {
+        guard params.commandId.rawValue != "futureCommand" else {
             throw AppIPCCommandError(reason: .unsupportedCommand)
         }
         guard workspaceWindowId != nil, activeScope != nil else {
@@ -232,10 +299,12 @@ struct LiveServerFixture {
         accessMode: IPCAccessMode = .agentStudioOnly,
         channel: AgentStudioIPCChannel = .debug,
         panes: [IPCPaneSummary] = [],
+        queryPort: (any AppIPCQueryPort)? = nil,
         runtimePort: any AppIPCRuntimePort = FakeRuntimePort(),
         commandPort: any AppIPCCommandPort = FakeCommandPort(),
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
-        debugTokenEscrowEnabled: Bool = false
+        debugTokenEscrowEnabled: Bool = false,
+        methodContributions: [AppIPCMethodContribution] = []
     ) throws {
         rootURL = URL(
             fileURLWithPath: "/tmp/asipc-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))",
@@ -247,21 +316,26 @@ struct LiveServerFixture {
         #endif
         paths = AgentStudioIPCPathResolver().paths(rootDirectory: rootURL)
         let methodRegistry = try AppIPCMethodRegistry.phaseOne()
-        let service = AgentStudioAppIPCService(
+        let contributedMethodNames = Set(methodContributions.map(\.definition.name))
+        let baseDefinitions = methodRegistry.definitions
+            .filter { !contributedMethodNames.contains($0.name) }
+        let ports = AgentStudioAppIPCPorts(
+            queryPort: queryPort ?? FakeQueryPort(runtimeId: runtimeId, panes: panes),
+            layoutPort: FakeLayoutPort(),
+            runtimePort: runtimePort,
+            commandPort: commandPort,
+            uiPresentationPort: uiPresentationPort,
+            permissionApprovalPort: FakePermissionApprovalPort()
+        )
+        let service = try AgentStudioAppIPCService(
             configuration: AgentStudioAppIPCConfiguration(
                 runtimeId: runtimeId,
                 accessMode: accessMode,
-                methodDefinitions: methodRegistry.definitions,
+                methodDefinitions: baseDefinitions,
                 debugTokenEscrowEnabled: debugTokenEscrowEnabled
             ),
-            ports: AgentStudioAppIPCPorts(
-                queryPort: FakeQueryPort(runtimeId: runtimeId, panes: panes),
-                layoutPort: FakeLayoutPort(),
-                runtimePort: runtimePort,
-                commandPort: commandPort,
-                uiPresentationPort: uiPresentationPort,
-                permissionApprovalPort: FakePermissionApprovalPort()
-            )
+            ports: ports,
+            methodContributions: methodContributions
         )
         server = AgentStudioAppIPCServer(service: service, paths: paths, channel: channel)
     }
@@ -283,6 +357,74 @@ func makePaneSummary(id: UUID, ordinal: Int) -> IPCPaneSummary {
         worktreeId: nil,
         isActive: false,
         isDrawerChild: false
+    )
+}
+
+func makePaneSnapshotTestContribution() throws -> AppIPCMethodContribution {
+    try AppIPCMethodContribution(
+        definition: IPCMethodDefinition(
+            name: "pane.snapshot",
+            paramsSchema: IPCSchemaDescription(name: "pane.snapshot.params"),
+            resultSchema: IPCSchemaDescription(name: "pane.snapshot.result"),
+            privilegeClasses: [.paneContextRead],
+            executionOwner: .queryReader,
+            resultSemantics: .applied
+        ),
+        securityContract: AppIPCContributionSecurityContract(
+            targetVocabulary: [.pane],
+            dataScopes: [.paneContext],
+            sensitiveDataExclusions: [
+                "cwd",
+                "paneTitle",
+                "rawTerminalOutput",
+                "rawRuntimePayload",
+                "tabTitle",
+                "url",
+                "zmxSessionIdentifier",
+            ]
+        ),
+        authorizationContext: { request, _, tools in
+            let params = try decodeContributionHandleParams(from: request.params)
+            let canonicalHandle = try await tools.canonicalizePaneHandle(params.handle)
+            guard case .canonicalUUID(let paneId) = canonicalHandle.reference else {
+                throw AppIPCQueryError(reason: .targetNotFound)
+            }
+            return try AppIPCAuthorizedRequestContext(
+                request: request.replacingHandle(canonicalHandle.rawIPCHandleString),
+                target: .pane(paneId.uuidString)
+            )
+        },
+        dispatch: { request, _, context in
+            let params = try decodeContributionHandleParams(from: request.params)
+            let paneId = try context.uuidFromPaneHandle(params.handle)
+            let snapshot = try await context.snapshotPane(paneId)
+            return try JSONRPCCodec.encodeJSONValue(snapshot)
+        }
+    )
+}
+
+private struct ContributionHandleParams: Decodable {
+    let handle: String
+}
+
+private func decodeContributionHandleParams(from params: JSONValue?) throws -> ContributionHandleParams {
+    let value = params ?? .object([:])
+    let data = try JSONEncoder().encode(value)
+    return try JSONDecoder().decode(ContributionHandleParams.self, from: data)
+}
+
+private func makePaneSnapshotResult(pane: IPCPaneSummary, paneCount: Int) -> IPCPaneSnapshotResult {
+    IPCPaneSnapshotResult(
+        pane: pane,
+        tab: nil,
+        workspace: IPCWorkspaceSummary(
+            id: UUID(),
+            ordinal: 1,
+            name: "Test Workspace",
+            tabCount: 1,
+            paneCount: paneCount,
+            isCurrent: true
+        )
     )
 }
 

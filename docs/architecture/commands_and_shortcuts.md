@@ -123,7 +123,9 @@ keyboard shortcuts. If a command works from a button but not from
 side channel instead of the same binding/state model as the button.
 
 Programmatic control uses the same command metadata, but it does not treat
-command-bar presentation as command execution. App IPC reserves `command.*` for
+command-bar presentation as command execution. `command.list` projects
+`AppCommandSpec` IPC metadata for discovery, including execution mode, target
+handle kinds, and required privileges. `command.execute` is still reserved for
 headless semantic commands and exposes command-bar presentation explicitly as
 `ui.commandBar.open`; see
 [AgentStudio IPC Architecture](agentstudio_ipc_architecture.md#command-and-ui-presentation-boundary).

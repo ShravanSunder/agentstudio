@@ -7,7 +7,7 @@ extension AppDelegate {
         guard appIPCServer == nil else { return }
 
         do {
-            let methodRegistry = try AppIPCMethodRegistry.phaseOne()
+            let ipcComposition = try AgentStudioIPCContributionRegistry.phaseAComposition()
             let runtimeId = UUID()
             let accessMode = Self.appIPCAccessMode()
             let rootDirectory = AppDataPaths.rootDirectory()
@@ -21,11 +21,11 @@ extension AppDelegate {
                 return
             }
 
-            let service = AgentStudioAppIPCService(
+            let service = try AgentStudioAppIPCService(
                 configuration: AgentStudioAppIPCConfiguration(
                     runtimeId: runtimeId,
                     accessMode: accessMode,
-                    methodDefinitions: methodRegistry.definitions,
+                    methodDefinitions: ipcComposition.baseDefinitions,
                     debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled()
                 ),
                 ports: AgentStudioAppIPCPorts(
@@ -33,7 +33,7 @@ extension AppDelegate {
                         runtimeId: runtimeId,
                         accessMode: accessMode,
                         appVersion: Self.appIPCAppVersion(),
-                        methodRegistry: methodRegistry,
+                        methodRegistry: ipcComposition.methodRegistry,
                         workspaceStore: store,
                         windowLifecycleReader: windowLifecycleReader
                     ),
@@ -53,7 +53,8 @@ extension AppDelegate {
                     ),
                     uiPresentationPort: AgentStudioIPCUIPresentationAdapter(presenter: self),
                     permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
-                )
+                ),
+                methodContributions: ipcComposition.methodContributions
             )
             let server = AgentStudioAppIPCServer(
                 service: service,
@@ -122,11 +123,5 @@ extension AppDelegate {
         #else
             return nil
         #endif
-    }
-}
-
-private struct AgentStudioIPCHumanApprovalPort: AppIPCPermissionApprovalPort {
-    func decision(for _: PermissionRecord, requester _: IPCPrincipal) -> ApprovalPolicyDecision {
-        .ask
     }
 }

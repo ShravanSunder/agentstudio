@@ -1,3 +1,4 @@
+import AgentStudioProgrammaticControl
 import AppKit
 import Foundation
 import Observation
@@ -183,6 +184,7 @@ struct AppCommandSpec {
     let commandBarGroupName: String
     let commandBarGroupPriority: Int
     let isHiddenInCommandBar: Bool
+    let ipcExposure: AppCommandIPCExposure
 
     init(
         command: AppCommand,
@@ -196,7 +198,8 @@ struct AppCommandSpec {
         visibleWhen: Set<FocusRequirement> = [],
         commandBarGroupName: String = "Commands",
         commandBarGroupPriority: Int = 8,
-        isHiddenInCommandBar: Bool = false
+        isHiddenInCommandBar: Bool = false,
+        ipcExposure: AppCommandIPCExposure? = nil
     ) {
         self.command = command
         self.shortcut = shortcut
@@ -210,10 +213,88 @@ struct AppCommandSpec {
         self.commandBarGroupName = commandBarGroupName
         self.commandBarGroupPriority = commandBarGroupPriority
         self.isHiddenInCommandBar = isHiddenInCommandBar
+        self.ipcExposure =
+            ipcExposure
+            ?? AppCommandIPCExposure.defaultInteractive(
+                command: command,
+                targetKinds: Self.ipcTargetKinds(for: appliesTo)
+            )
     }
 
     var keyBinding: KeyBinding? { shortcut?.keyBinding }
     var commandBarShortcutTrigger: ShortcutTrigger? { displayShortcutTrigger ?? shortcut?.trigger }
+
+    private static func ipcTargetKinds(for searchItemTypes: Set<SearchItemType>) -> [IPCHandleKind] {
+        var targetKinds: [IPCHandleKind] = []
+        if searchItemTypes.contains(.tab) {
+            targetKinds.append(.tab)
+        }
+        if searchItemTypes.contains(.pane) || searchItemTypes.contains(.floatingTerminal) {
+            targetKinds.append(.pane)
+        }
+        return targetKinds
+    }
+}
+
+struct AppCommandIPCExposure: Equatable, Sendable {
+    let executionModes: [IPCCommandExecutionMode]
+    let targetKinds: [IPCHandleKind]
+    let requiredPrivileges: [IPCPrivilegeClass]
+
+    static func defaultInteractive(command: AppCommand, targetKinds: [IPCHandleKind]) -> Self {
+        Self(
+            executionModes: [.requiresInteractiveInput],
+            targetKinds: targetKinds,
+            requiredPrivileges: Self.defaultRequiredPrivileges(for: command)
+        )
+    }
+
+    static func uiPresentation() -> Self {
+        Self(
+            executionModes: [.uiPresentation],
+            targetKinds: [],
+            requiredPrivileges: [.uiPresent]
+        )
+    }
+
+    var commandListEntryIsHeadlessExecutable: Bool {
+        executionModes.contains(.headless)
+    }
+
+    private static func defaultRequiredPrivileges(for command: AppCommand) -> [IPCPrivilegeClass] {
+        switch command {
+        case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,
+            .selectTab, .nextTab, .prevTab, .selectTab1, .selectTab2, .selectTab3, .selectTab4,
+            .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .closePane, .extractPaneToTab, .movePaneToTab, .focusPane, .splitRight, .splitLeft,
+            .equalizePanes, .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane, .focusPane1, .focusPane2, .focusPane3, .focusPane4,
+            .focusPane5, .focusPane6, .focusPane7, .focusPane8, .focusPane9, .toggleSplitZoom,
+            .minimizePane, .expandPane, .switchArrangement, .previousArrangement, .nextArrangement,
+            .cycleArrangement, .saveArrangement, .deleteArrangement, .renameArrangement, .enterDrawer,
+            .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown, .focusDrawerPaneRight,
+            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
+            .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
+            .focusDrawerPane9, .detachDrawerPane, .addDrawerPane, .toggleDrawer, .navigateDrawerPane,
+            .closeDrawerPane, .toggleManagementLayer, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit, .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
+            .clearPaneInboxNotifications, .showWorktreeSidebar, .newFloatingTerminal, .newWindow,
+            .closeWindow, .openNewTerminalInTab:
+            return [.layoutMutate]
+        case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
+            return [.terminalInputWrite]
+        case .editPaneNote, .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
+            .openWebview, .openBridgeReview:
+            return [.layoutMutate]
+        case .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
+            .copyCurrentPanePath, .signInGitHub, .signInGoogle, .filterSidebar, .showCommandBarEverything,
+            .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
+            return [.workspaceRead]
+        }
+    }
 }
 
 // MARK: - WorkspaceCommandHandling

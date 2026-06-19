@@ -125,7 +125,8 @@ Sources/AgentStudioProgrammaticControl/
 
 Sources/AgentStudioAppIPC/
   App IPC service shell, auth, method registry, authorization, grant ledger,
-  permission broker, event broker, and protocol ports into app/runtime owners.
+  permission broker, event broker, generic app-method contribution substrate,
+  and protocol ports into app/runtime owners.
   No concrete app/runtime owner imports and no direct atom reads.
 
 Sources/AgentStudioIPCClientCore/
@@ -144,7 +145,10 @@ Sources/AgentStudioPaneAgent/
 
 Sources/AgentStudio/App/IPCComposition/
   Concrete adapters from AgentStudioAppIPC protocol ports into WorkspaceSurfaceCoordinator,
-  RuntimeRegistry, PaneRuntime, and app-owned state.
+  RuntimeRegistry, PaneRuntime, app-owned state, and app-owned method
+  contribution files such as `Panes/PaneSnapshotIPCContribution.swift`.
+  Feature-specific IPC contributions belong in subfolders here, not in
+  `Sources/AgentStudioAppIPC/` and not inside `Features/*`.
 
 Sources/AgentStudio/App/PaneAgents/
   App-owned launch and lifecycle surface for pane-agent child processes.

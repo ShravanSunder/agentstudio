@@ -91,6 +91,9 @@ public enum AgentStudioIPCClientArguments {
         case "current-pane":
             try requireCount(remainingArguments, 0)
             return .currentPane
+        case "pane-snapshot":
+            let values = try requireCount(remainingArguments, 1)
+            return .paneSnapshot(handle: values[0])
         case "pane-focus":
             let values = try requireCount(remainingArguments, 1)
             return .paneFocus(handle: values[0])

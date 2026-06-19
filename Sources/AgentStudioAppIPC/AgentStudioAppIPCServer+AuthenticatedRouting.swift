@@ -8,9 +8,21 @@ extension AgentStudioAppIPCServer {
         principal: IPCPrincipal,
         socketSubscriber: any IPCEventSubscriber
     ) async throws -> JSONValue {
+        if let contribution = service.methodRegistry.contribution(named: request.method) {
+            let dispatchContext = AppIPCContributionDispatchContext(
+                paneSnapshotReader: { [self] paneId in
+                    try await service.ports.queryPort.snapshotPane(paneId)
+                },
+                paneHandleDecoder: { [self] rawHandle in
+                    try uuidFromPaneHandle(rawHandle)
+                }
+            )
+            return try await contribution.dispatch(request, principal, dispatchContext) ?? .null
+        }
+
         switch request.method {
         case "system.identify", "system.version", "system.capabilities", "window.list", "window.current",
-            "workspace.list", "workspace.current", "pane.list", "pane.current", "pane.snapshot":
+            "workspace.list", "workspace.current", "pane.list", "pane.current":
             return try await processQueryRequest(request)
         case "pane.focus", "pane.split", "pane.close", "drawer.addPane", "drawer.toggle":
             return try await processLayoutRequest(request)
@@ -52,10 +64,6 @@ extension AgentStudioAppIPCServer {
             return try await encodeResult(service.ports.queryPort.listPanes())
         case "pane.current":
             return try await encodeResult(service.ports.queryPort.currentPane())
-        case "pane.snapshot":
-            let params = try decodeParams(HandleParams.self, from: request.params)
-            let paneId = try uuidFromPaneHandle(params.handle)
-            return try await encodeResult(service.ports.queryPort.snapshotPane(paneId))
         default:
             throw AgentStudioAppIPCRequestError.methodNotFound
         }
