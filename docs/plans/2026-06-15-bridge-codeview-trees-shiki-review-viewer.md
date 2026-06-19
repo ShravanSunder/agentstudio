@@ -872,22 +872,29 @@ Work:
    - `bridge_viewer_large_diff_scroll_v1`
 2. CI-safe tests assert bounded behavior and invariants, not flaky wall-clock
    browser timing.
-3. Add a benchmark route/harness only after the relevant UI surface exists.
-4. Follow Pierre's DiffsHub benchmark runbook shape:
+3. Add a dev-only Vite worktree provider after the relevant UI surface exists.
+   It may point at an allowlisted local repo/worktree and compare target, but it
+   must still emit Bridge-shaped metadata packages and lazy content handles
+   rather than letting browser code read arbitrary local files or bypass Bridge
+   projection/content boundaries.
+4. Add a benchmark route/harness only after the relevant UI surface exists.
+5. Follow Pierre's DiffsHub benchmark runbook shape:
    fixed workload, fixed viewport, stable-page checks, one warmup, three kept
    runs, deterministic scroll writes, checksum, raw metrics, and machine-state
    notes.
-5. Add `mise run bridge-viewer-benchmark` as the named viewer benchmark gate.
+6. Add `mise run bridge-viewer-benchmark` as the named viewer benchmark gate.
    It may call existing Swift/WebKit benchmark infrastructure internally, but it
    must emit viewer-owned artifacts for `bridge_viewer_large_tree_v1` and
    `bridge_viewer_large_diff_scroll_v1`.
-6. Report large-tree and large-diff performance targets as measured baselines
+7. Report large-tree and large-diff performance targets as measured baselines
    in the first implementation PR. Do not invent hard pass/fail numbers before
    the packaged WKWebView route and variance policy exist.
 
 Proof:
 
 - CI-safe medium-review tests
+- Vite dev-server proof against an allowlisted real local worktree, including
+  selected path, markdown path, worker state, and no eager body-in-package proof
 - benchmark artifact with workload id, viewport, runs, checksum, raw metrics,
   and commit/worktree identity
 - `mise run bridge-viewer-benchmark`

@@ -490,6 +490,40 @@ Mocked backend contract checks:
   see which fixture class, delivery mode, item/path count, diff-line count,
   package byte size, latency profile, and worker modes produced each p50/p95.
 
+Real-worktree Vite provider:
+
+- Add a dev-only Vite provider that can point at an allowlisted local
+  repo/worktree and generate the same Bridge boundary shape the Swift app sends:
+  metadata-only review package first, lazy content-handle fetches second.
+- The provider is a high-realism design/performance loop, not a replacement for
+  deterministic mocked-backend tests or packaged WKWebView proof.
+- Configure the provider through local dev configuration or environment such as
+  `BRIDGE_WEB_DEV_WORKTREE`, `BRIDGE_WEB_DEV_BASE`, and
+  `BRIDGE_WEB_DEV_COMPARE`; do not require raw filesystem paths in normal
+  browser URLs.
+- The browser must not read arbitrary local files. Vite/Node owns local
+  worktree access, path allowlisting, package generation, content-handle
+  creation, and bounded content serving.
+- The provider must preserve the product data contract:
+  - package and delta pushes contain descriptors, stats, statuses, ordered
+    paths, handles, and bounded metadata only
+  - source/diff/markdown bodies are returned only through content handles
+  - file ordering, filtering, and class/status projection use the same zod
+    schemas and discriminated unions as the mocked backend and app path
+  - heavy diff generation, tree shaping, markdown preparation, or projection
+    work that is not trivial must run in Node or worker lanes, not in the
+    browser main thread
+- Required local proof:
+  - `pnpm --dir BridgeWeb run dev` or the named dev-server script can load the
+    current branch/worktree as a source without a Swift rebuild
+  - the large local AgentStudio branch can select files, scroll CodeView, show
+    added-file full content, render docs/plans markdown, collapse/expand file
+    headers, and switch file tree filters
+  - `pnpm --dir BridgeWeb run test:dev-server` covers at least one large
+    added-file path and one markdown docs/plan path through Playwright
+  - the dev-server verifier reports the selected path, markdown path, worker
+    state, and scenario URLs
+
 Worker-backed proof requirement:
 
 - Browser tests may mount with `codeViewWorkerPoolEnabled={false}` only as an

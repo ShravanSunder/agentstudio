@@ -1760,6 +1760,31 @@ These public examples are scale and interaction references only. Canonical
 proof uses repo-local deterministic fixtures and generated workloads, not live
 GitHub responses or checked-in public patch snapshots.
 
+Local worktree rehearsal:
+
+- BridgeWeb may provide a dev-only Vite data provider that points at an
+  allowlisted local repo/worktree for high-realism iteration.
+- This lane exists to reproduce real AgentStudio branch scale quickly without
+  rebuilding Swift or launching the native app for every CSS/interaction
+  change.
+- It must not become a production data path and must not weaken deterministic
+  fixture proof. CI correctness still uses generated repo-local fixtures and
+  typed mocked Bridge backends.
+- The provider returns Bridge-shaped metadata packages, deltas, ordering,
+  statuses, file classes, tree paths, content handles, and bounded diagnostics.
+  It must not put full source/diff/markdown bodies in package pushes.
+- Content is fetched lazily through content handles from a Vite/Node endpoint
+  that enforces the allowlisted worktree root and bounded response sizes.
+- Browser URLs should select a named source or scenario; raw local paths belong
+  in local configuration or environment variables, not shareable app URLs.
+- The same zod schemas, discriminated unions, Zustand reference discipline,
+  worker lanes, and telemetry fields used by the mocked backend and packaged
+  app path apply to this provider.
+- Required dev proof includes one large real-worktree scenario that can select
+  files, scroll CodeView, show added-file full content, render docs/plans
+  markdown, collapse/expand file headers, switch filters, and report worker
+  readiness.
+
 Fixture construction rules:
 
 - Store compact deterministic builders and small JSON fixtures in the repo.
