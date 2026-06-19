@@ -43,6 +43,7 @@ import {
 	resolveBridgeMarkdownPreviewDecision,
 	type BridgeMarkdownPreviewFallbackReason,
 } from '../review-viewer/markdown/bridge-markdown-render-mode.js';
+import type { BridgeReviewProjectionResult } from '../review-viewer/models/review-projection-models.js';
 import { loadSelectedReviewItemContentResources } from '../review-viewer/runtime/review-content-loader.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/runtime/use-review-projection-coordinator.js';
 import {
@@ -55,6 +56,8 @@ import {
 	createBridgeReviewViewerStore,
 	selectBridgeReviewViewerRootSnapshot,
 	type BridgeReviewViewerStore,
+	type BridgeReviewViewerRootSnapshot,
+	type BridgeReviewViewerStoreActions,
 } from '../review-viewer/state/review-viewer-store.js';
 import { recordBridgeViewerContentQueueTelemetry } from '../review-viewer/telemetry/bridge-review-viewer-telemetry.js';
 import type {
@@ -64,6 +67,11 @@ import type {
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/rpc/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/rpc/review-projection-worker-transport.js';
+import {
+	bridgeAppControlCommandSchema,
+	type BridgeAppControlCommand,
+	type BridgeAppControlProbe,
+} from './bridge-app-control.js';
 
 export interface BridgeAppProps {
 	readonly target?: EventTarget;
@@ -72,6 +80,12 @@ export interface BridgeAppProps {
 	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
+}
+
+declare global {
+	interface Window {
+		bridgeReviewControlProbe?: BridgeAppControlProbe;
+	}
 }
 
 interface BridgeReviewPackageTelemetryContext {
@@ -129,6 +143,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const lastFirstRenderPackageRef = useRef<string | null>(null);
 	const reviewPackageRef = useRef<BridgeReviewPackage | null>(null);
 	reviewPackageRef.current = reviewPackage;
+	const projectionRef = useRef(projection);
+	projectionRef.current = projection;
+	const rootSnapshotRef = useRef(rootSnapshot);
+	rootSnapshotRef.current = rootSnapshot;
+	const controlProbeSequenceRef = useRef(0);
 	const rpcClient = useMemo(
 		() =>
 			createBridgeRPCClient({
@@ -174,10 +193,10 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		telemetryRecorderRef.current.flush();
 	}, []);
 	const selectReviewItem = useCallback(
-		(itemId: string): void => {
+		(itemId: string): boolean => {
 			const currentReviewPackage = reviewPackageRef.current;
 			if (currentReviewPackage === null || !(itemId in currentReviewPackage.itemsById)) {
-				return;
+				return false;
 			}
 			viewerActions.setSelectedItemId(itemId);
 			viewerActions.setRenderMode({ kind: 'codeView' });
@@ -187,6 +206,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				method: 'review.markFileViewed',
 				params: { fileId: itemId },
 			});
+			return true;
 		},
 		[rpcClient, viewerActions],
 	);
@@ -265,6 +285,62 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			}
 		};
 	}, [selectReviewItem, target]);
+
+	useLayoutEffect((): (() => void) => {
+		const handleBridgeAppControl = (event: Event): void => {
+			const detail = 'detail' in event ? event.detail : null;
+			const parsedCommand = bridgeAppControlCommandSchema.safeParse(detail);
+			if (!parsedCommand.success) {
+				publishBridgeAppControlProbe({
+					probe: makeBridgeAppControlProbe({
+						command: { method: 'bridge.fileTree.search', searchText: '' },
+						status: 'rejected',
+						reason: 'invalid_control_command',
+						sequence: nextBridgeAppControlProbeSequence(controlProbeSequenceRef),
+						rootSnapshot: rootSnapshotRef.current,
+					}),
+				});
+				return;
+			}
+			const result = applyBridgeAppControlCommand({
+				command: parsedCommand.data,
+				markdownWorkerClient,
+				projection: projectionRef.current,
+				rootSnapshot: rootSnapshotRef.current,
+				reviewPackage: reviewPackageRef.current,
+				selectReviewItem,
+				selectedContentResources,
+				viewerActions,
+			});
+			publishBridgeAppControlProbe({
+				probe: makeBridgeAppControlProbe({
+					command: parsedCommand.data,
+					status: result.status,
+					reason: result.reason,
+					sequence: nextBridgeAppControlProbeSequence(controlProbeSequenceRef),
+					rootSnapshot: viewerStore.getState().rootSnapshot,
+				}),
+			});
+		};
+		const windowTarget = typeof window === 'undefined' ? null : window;
+		target.addEventListener('__bridge_review_control', handleBridgeAppControl);
+		if (windowTarget !== null && windowTarget !== target) {
+			windowTarget.addEventListener('__bridge_review_control', handleBridgeAppControl);
+		}
+		return (): void => {
+			target.removeEventListener('__bridge_review_control', handleBridgeAppControl);
+			if (windowTarget !== null && windowTarget !== target) {
+				windowTarget.removeEventListener('__bridge_review_control', handleBridgeAppControl);
+			}
+		};
+	}, [
+		markdownWorkerClient,
+		selectReviewItem,
+		selectedContentResources,
+		target,
+		viewerActions,
+		viewerStore,
+	]);
 
 	useEffect((): (() => void) => {
 		let didCancel = false;
@@ -588,6 +664,130 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			)}
 		</div>
 	);
+}
+
+interface ApplyBridgeAppControlCommandProps {
+	readonly command: BridgeAppControlCommand;
+	readonly markdownWorkerClient: BridgeMarkdownRenderWorkerClient | null;
+	readonly projection: BridgeReviewProjectionResult | null;
+	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly selectReviewItem: (itemId: string) => boolean;
+	readonly selectedContentResources: BridgeCodeViewContentResources | null;
+	readonly viewerActions: BridgeReviewViewerStoreActions;
+}
+
+interface ApplyBridgeAppControlCommandResult {
+	readonly status: BridgeAppControlProbe['status'];
+	readonly reason: string | null;
+}
+
+interface MakeBridgeAppControlProbeProps {
+	readonly command: BridgeAppControlCommand;
+	readonly status: BridgeAppControlProbe['status'];
+	readonly reason: string | null;
+	readonly sequence: number;
+	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
+}
+
+function applyBridgeAppControlCommand(
+	props: ApplyBridgeAppControlCommandProps,
+): ApplyBridgeAppControlCommandResult {
+	const {
+		command,
+		markdownWorkerClient,
+		projection,
+		reviewPackage,
+		selectReviewItem,
+		selectedContentResources,
+		viewerActions,
+	} = props;
+	switch (command.method) {
+		case 'bridge.diff.scrollToFile':
+			return selectReviewItem(command.itemId)
+				? { status: 'accepted', reason: null }
+				: { status: 'rejected', reason: 'item_not_found' };
+		case 'bridge.fileTree.search':
+			viewerActions.setTreeSearchText(command.searchText);
+			return { status: 'accepted', reason: null };
+		case 'bridge.fileTree.setFilter':
+			viewerActions.setGitStatusFilter(command.gitStatusFilter);
+			viewerActions.setFileClassFilter(command.fileClassFilter);
+			return { status: 'accepted', reason: null };
+		case 'bridge.fileTree.revealPath': {
+			const itemId = projection?.primaryItemIdByTreePath[command.path] ?? null;
+			if (itemId === null) {
+				return { status: 'rejected', reason: 'path_not_found' };
+			}
+			return selectReviewItem(itemId)
+				? { status: 'accepted', reason: null }
+				: { status: 'rejected', reason: 'item_not_found' };
+		}
+		case 'bridge.fileView.showMarkdownPreview': {
+			const itemId = command.itemId ?? props.rootSnapshot.selectedItemId;
+			if (itemId === null) {
+				return { status: 'rejected', reason: 'item_not_selected' };
+			}
+			if (reviewPackage === null || !(itemId in reviewPackage.itemsById)) {
+				return { status: 'rejected', reason: 'item_not_found' };
+			}
+			if (itemId !== props.rootSnapshot.selectedItemId) {
+				return selectReviewItem(itemId)
+					? { status: 'pending', reason: 'preview_selection_pending' }
+					: { status: 'rejected', reason: 'item_not_found' };
+			}
+			const decision = resolveBridgeMarkdownPreviewDecision({
+				reviewPackage,
+				selectedItemId: itemId,
+				resources: selectedContentResources,
+			});
+			if (decision.kind === 'codeView') {
+				return decision.reason === 'contentPending'
+					? { status: 'pending', reason: 'preview_content_pending' }
+					: { status: 'rejected', reason: decision.reason };
+			}
+			if (markdownWorkerClient === null) {
+				return { status: 'rejected', reason: 'worker_unavailable' };
+			}
+			return props.rootSnapshot.renderMode.kind === 'markdownPreview'
+				? { status: 'accepted', reason: null }
+				: { status: 'pending', reason: 'preview_render_pending' };
+		}
+	}
+	return { status: 'rejected', reason: 'unsupported_method' };
+}
+
+function makeBridgeAppControlProbe(props: MakeBridgeAppControlProbeProps): BridgeAppControlProbe {
+	const path = props.command.method === 'bridge.fileTree.revealPath' ? props.command.path : null;
+	const itemId =
+		props.command.method === 'bridge.diff.scrollToFile' ||
+		props.command.method === 'bridge.fileView.showMarkdownPreview'
+			? (props.command.itemId ?? props.rootSnapshot.selectedItemId)
+			: props.rootSnapshot.selectedItemId;
+	return {
+		sequence: props.sequence,
+		method: props.command.method,
+		status: props.status,
+		itemId,
+		path,
+		treeSearchText: props.rootSnapshot.treeSearchText,
+		gitStatusFilter: props.rootSnapshot.gitStatusFilter,
+		fileClassFilter: props.rootSnapshot.fileClassFilter,
+		renderMode: props.rootSnapshot.renderMode,
+		reason: props.reason,
+	};
+}
+
+function publishBridgeAppControlProbe(props: { readonly probe: BridgeAppControlProbe }): void {
+	if (typeof window === 'undefined') {
+		return;
+	}
+	window.bridgeReviewControlProbe = props.probe;
+}
+
+function nextBridgeAppControlProbeSequence(ref: { current: number }): number {
+	ref.current += 1;
+	return ref.current;
 }
 
 function createChildTraceContext(parent: BridgeTraceContext | null): BridgeTraceContext | null {

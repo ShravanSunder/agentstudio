@@ -1,32 +1,46 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 import {
 	createBridgeWorktreeDevProvider,
+	resolveBridgeWorktreeDevProviderConfig,
 	type BridgeWorktreeDevProvider,
 } from './scripts/dev-server/bridge-worktree-dev-provider.js';
 
 type BridgeWorktreeDevProviderPromise = Promise<BridgeWorktreeDevProvider>;
 
+const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig({
 	base: './',
+	resolve: {
+		alias: {
+			'@': `${bridgeWebPackageRoot}/src`,
+		},
+	},
 	plugins: [
 		react(),
 		{
 			name: 'bridge-worktree-dev-provider',
 			configureServer(server) {
-				const configuredWorktreeRoot = process.env['BRIDGE_WEB_DEV_WORKTREE'];
-				if (configuredWorktreeRoot === undefined || configuredWorktreeRoot.length === 0) {
-					return;
-				}
-				let providerPromise: BridgeWorktreeDevProviderPromise | null = null;
-				const getProvider = (): BridgeWorktreeDevProviderPromise => {
-					providerPromise ??= createBridgeWorktreeDevProvider({
-						baseRef: process.env['BRIDGE_WEB_DEV_BASE'] ?? 'HEAD',
-						worktreeRoot: configuredWorktreeRoot,
+				const providerPromisesByConfig = new Map<string, BridgeWorktreeDevProviderPromise>();
+				const getProvider = async (requestUrl: string | null): BridgeWorktreeDevProviderPromise => {
+					const config = await resolveBridgeWorktreeDevProviderConfig({
+						env: process.env,
+						packageRoot: bridgeWebPackageRoot,
+						requestUrl,
 					});
+					const configKey = `${config.worktreeRoot}\u0000${config.baseRef}`;
+					const existingProviderPromise = providerPromisesByConfig.get(configKey);
+					if (existingProviderPromise !== undefined) {
+						return existingProviderPromise;
+					}
+					const providerPromise = createBridgeWorktreeDevProvider(config);
+					providerPromisesByConfig.set(configKey, providerPromise);
 					return providerPromise;
 				};
 				server.middlewares.use('/__bridge-worktree/package', (request, response) => {
@@ -49,7 +63,7 @@ export default defineConfig({
 });
 
 async function handleBridgeWorktreePackageRequest(props: {
-	readonly getProvider: () => BridgeWorktreeDevProviderPromise;
+	readonly getProvider: (requestUrl: string | null) => BridgeWorktreeDevProviderPromise;
 	readonly request: IncomingMessage;
 	readonly response: ServerResponse;
 }): Promise<void> {
@@ -59,7 +73,7 @@ async function handleBridgeWorktreePackageRequest(props: {
 		return;
 	}
 	try {
-		const provider = await props.getProvider();
+		const provider = await props.getProvider(props.request.url ?? null);
 		const reviewPackage = await provider.loadReviewPackage();
 		props.response.setHeader('Content-Type', 'application/json; charset=utf-8');
 		props.response.end(JSON.stringify(reviewPackage));
@@ -70,7 +84,7 @@ async function handleBridgeWorktreePackageRequest(props: {
 }
 
 async function handleBridgeWorktreeContentRequest(props: {
-	readonly getProvider: () => BridgeWorktreeDevProviderPromise;
+	readonly getProvider: (requestUrl: string | null) => BridgeWorktreeDevProviderPromise;
 	readonly request: IncomingMessage;
 	readonly response: ServerResponse;
 }): Promise<void> {
@@ -79,14 +93,16 @@ async function handleBridgeWorktreeContentRequest(props: {
 		props.response.end('Method Not Allowed');
 		return;
 	}
-	const handleId = decodeURIComponent(props.request.url?.replace(/^\//u, '') ?? '');
+	const requestUrl = props.request.url ?? null;
+	const contentUrl = new URL(requestUrl ?? '/', 'http://127.0.0.1');
+	const handleId = decodeURIComponent(contentUrl.pathname.replace(/^\//u, ''));
 	if (handleId.length === 0 || handleId.includes('/')) {
 		props.response.statusCode = 400;
 		props.response.end('Invalid Bridge worktree content handle');
 		return;
 	}
 	try {
-		const provider = await props.getProvider();
+		const provider = await props.getProvider(requestUrl);
 		const content = await provider.loadContent(handleId);
 		props.response.setHeader('Content-Type', 'text/plain; charset=utf-8');
 		props.response.end(content);

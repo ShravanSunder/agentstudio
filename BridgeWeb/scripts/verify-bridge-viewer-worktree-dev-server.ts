@@ -2,7 +2,7 @@ import { chromium, type Page } from 'playwright';
 
 import { bridgeReviewPackageSchema } from '../src/foundation/review-package/bridge-review-package-schema.ts';
 
-const defaultWorktreeDevServerUrl = 'http://127.0.0.1:6174/?fixture=worktree&workers=on';
+const defaultWorktreeDevServerUrl = 'http://127.0.0.1:5173/?fixture=worktree&workers=on';
 const worktreeDevServerUrl =
 	process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] ?? defaultWorktreeDevServerUrl;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
@@ -67,7 +67,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 
 	const page = await makeVerificationPage();
 	try {
-		await page.goto(worktreeDevServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForFunction(
 			(path: string): boolean =>
 				document

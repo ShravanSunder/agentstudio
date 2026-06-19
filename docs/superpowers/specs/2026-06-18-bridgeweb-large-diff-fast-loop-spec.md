@@ -62,13 +62,20 @@ clicks and cannot be repeated by agents or CI-like harnesses.
    widgets. BridgeWeb must initialize/adopt shadcn via the CLI for this package,
    generate the primitive components it needs, and then tune compact variants
    through the generated component source and shared tokens.
+   The canonical shadcn basis is Mira on Base UI with small radius. The local
+   preset code is `b1D0dxoG`, which decodes to `style = mira`,
+   `baseColor = neutral`, `theme = neutral`, `iconLibrary = lucide`,
+   `radius = small`, `menuAccent = subtle`, `menuColor = default`,
+   `font = geist`, and `fontHeading = inherit`.
    Required primitives for this slice are at least Button, Tooltip, Popover or
    Dropdown/Menu, and Input/Search. If the shadcn CLI offers Base UI versions
    for a primitive, use the Base UI version. If a required primitive is not
    available in Base UI through the CLI, document the fallback and keep the
    wrapper API compatible with the generated shadcn style.
-   The theme foundation is Catppuccin Mocha adapted to AgentStudio's dark app
-   chrome and Pierre's dark review grammar. Use Pierre's DiffsHub/Trees/Diffs
+   Shadcn theming is the first layer. Generated primitives and their semantic
+   tokens own button/menu/input/popover/focus/radius behavior. Catppuccin Mocha
+   is then mapped onto those semantic tokens for AgentStudio's dark app chrome
+   and Pierre's dark review grammar. Use Pierre's DiffsHub/Trees/Diffs
    references as layout and interaction inputs, then expose BridgeWeb tokens
    through Tailwind v4 CSS variables. Do not add an unaudited remote/runtime
    theme dependency for this slice. If Pierre or Shiki would pull a broad
@@ -77,6 +84,40 @@ clicks and cannot be repeated by agents or CI-like harnesses.
    assets remain self-contained. The review canvas stays black where the product
    needs it, but sidebar, popover, input, ring, border, status colors, and
    CodeView token defaults should intentionally align with Catppuccin Mocha.
+   Component-level overrides happen downstream of this theme layer and only for
+   Bridge density/layout/domain states. They must not introduce a parallel
+   one-off color, radius, typography, or focus system.
+   The top review summary and projection-mode strip is part of this chrome
+   contract. It must not render as a high-contrast black island pasted over the
+   Mocha surface. The stats, endpoint label, generation/grouping text, and
+   `All / Changed / Guided / Change set / Docs/plans / Tests / Source` controls
+   must sit on the same compact AgentStudio/Pierre header plane, using Mocha
+   surface, border, hover, pressed, and muted-text tokens. The active scope
+   affordance should be quiet and segmented, not a detached pure-black pill row.
+   Each projection button must have a stable semantic test id, compact 11px
+   typography, exactly one active pressed state, and no wrapper background that
+   reads as a separate black strip. Browser proof must measure the rendered
+   header state because screenshots have caught regressions that prop-level
+   tests missed.
+   Browser and native visual proof must include a top-header crop and reject
+   controls whose background, height, radius, typography, or spacing visibly
+   diverge from the surrounding AgentStudio dark chrome.
+   Shadcn/Base UI adoption is measured at the rendered Bridge controls, not by
+   the mere presence of generated files. The generated primitives must own
+   control semantics for buttons, menus, popovers, inputs, disabled states,
+   focus rings, and pressed/open states. Bridge-specific wrappers may tune
+   density and tokens, but the shell must not build a parallel control language
+   with bespoke inline SVG buttons, native-looking selects, or detached bars.
+   The top projection mode control must be a compact shadcn-style
+   toggle/segmented control that belongs to the header plane, not a floating
+   black strip. An unexplained hamburger/list icon in the review header is not
+   acceptable unless it maps to an intentional app action and matches the same
+   compact icon-button component. CodeView file headers must also stay visually
+   sparse: Bridge may add the collapse/expand affordance through Pierre's
+   `header-prefix` slot, but it must not add a second Bridge status badge or
+   Bridge file-kind icon before Pierre's own file icon/path. Status belongs in
+   the file rail/tree and metadata, not as a third leading token in every
+   CodeView header.
 10. The rail filter/search controls must feel like a designed DiffsHub-class
     inspector, not generic web form controls. The open filter popover must use a
     dark raised surface, clear separators, 24-32px menu rows, colored status
@@ -90,6 +131,11 @@ clicks and cannot be repeated by agents or CI-like harnesses.
     icon button is acceptable when it follows the surrounding AgentStudio sidebar
     language; decorative status dots or large badge pills that compete with the
     file rows are not.
+    Test ids must identify the actual interactive control, not both a wrapper
+    and a nested button. Hover and focus behavior should be consistent across
+    the rail icon controls; unavailable future features may no-op, but should
+    not become visually inert because a native disabled state suppresses hover
+    affordances in the toolbar.
     The reference sidebar grammar uses quiet outline icons for tree/comments,
     search, and filter controls; the active filter can use a tiny blue indicator
     attached to the icon button. BridgeWeb should match that scale and icon
@@ -182,6 +228,14 @@ clicks and cannot be repeated by agents or CI-like harnesses.
     native proof must reject `cursor: text`, unexpected text selection, hidden
     selected rows, or folder rows whose visual disclosure state is out of sync
     with `aria-expanded`.
+    File headers in CodeView are part of this same interaction contract. They
+    must use Lucide or generated-system icons, expose a single stable
+    collapse/expand control with synced `aria-expanded`, avoid duplicate path
+    text on both left and right sides, preserve a faint but visible boundary
+    between files, and keep the active header stable during scroll. A rail file
+    click must scroll the matching CodeView header to the top of the viewport;
+    collapse and expand must not cause unexpected scroll jumps or desync the
+    chevron from the actual collapsed state.
 13. Pierre APIs must be used through public exports and explicit options:
     compact tree density, `fileTreeSearchMode: 'expand-matches'`, prepared or
     presorted tree input, CodeView layout options, custom header hooks, and
@@ -243,6 +297,14 @@ clicks and cannot be repeated by agents or CI-like harnesses.
     attach images: control size, row density, status badge/checkmark alignment,
     tree disclosure affordance, file-click scroll result, and header cursor /
     collapse behavior.
+    The visual packet must explicitly reject the latest manual failure modes:
+    buttons with mismatched permanent outlines, detached black scope strips,
+    unclear hamburger/list buttons, text-cursor file headers, duplicated file
+    paths in headers, selected files that do not align to the top after a rail
+    click, collapse/open operations that jump scroll position, added files that
+    render as black/empty placeholders instead of full green added content, and
+    scrollbars or separators that do not match the dark AgentStudio/DiffsHub
+    grammar.
 20. Native AgentStudio debug proof still gates PR readiness. It must prove the
     same repaired behavior in the WKWebView Bridge pane after browser proof is
     green.
@@ -314,6 +376,8 @@ components, compact variants, Catppuccin Mocha tokens, and AgentStudio/Pierre
 aliases. Product components compose those primitives and use `cn` for class
 merging; they do not reinvent buttons, popovers, menus, search inputs, focus
 management, or disabled/checked states in feature-local code.
+The canonical shadcn preset is Mira on Base UI with small radius. The local
+preset code for this contract is `b1D0dxoG`.
 
 Required setup:
 
@@ -323,6 +387,10 @@ Required setup:
   source into BridgeWeb-owned paths such as `BridgeWeb/src/components/ui/*`.
 - Configure for React/Vite, TypeScript, Tailwind v4 CSS variables, and Base UI
   primitives where the current CLI supports them.
+- Keep the shadcn alias contract real. If `components.json` declares `@/*`
+  aliases, `BridgeWeb/tsconfig.json` and `BridgeWeb/vite.config.ts` must define
+  matching resolution so `shadcn apply`, generated imports, typecheck, Vite dev,
+  and packaged builds all agree.
 - Keep the existing `cn` utility or have the generated utility delegate to it;
   do not create competing class-name helpers.
 - Use the generated primitives as the base for review chrome wrappers:
@@ -336,10 +404,12 @@ Required setup:
 
 Theme setup:
 
-- Start from Catppuccin Mocha for AgentStudio BridgeWeb chrome, adapted to
-  Pierre's dark review grammar and the required black review canvas. Pierre
-  informs layout and component behavior; shadcn/Base UI owns control
-  primitives; BridgeWeb owns the final token mapping.
+- Start from the shadcn Mira/Base UI/small-radius preset, then map Catppuccin
+  Mocha onto the shadcn semantic variables for AgentStudio BridgeWeb chrome,
+  adapted to Pierre's dark review grammar and the required black review canvas.
+  Pierre informs layout and component behavior; shadcn/Base UI owns control
+  primitives and semantic token names; BridgeWeb owns the final Catppuccin token
+  mapping.
 - Palette and asset boundary: use shadcn/Base UI semantic chrome tokens plus
   Bridge-owned aliases for product UI. Catppuccin Mocha is the intended color
   source for this slice. The build guard should reject external runtime imports,
@@ -371,9 +441,9 @@ Theme setup:
 Proof:
 
 - Commit or record the exact shadcn CLI commands used. For the installed shadcn
-  CLI, the Base UI selection is represented by `style: "base-nova"` in
-  `components.json`; do not add unsupported schema fields just to make the base
-  explicit.
+  CLI, the accepted Base UI/Mira selection is represented by
+  `style: "base-mira"` in `components.json`; do not add unsupported schema
+  fields just to make the base explicit.
 - Build/typecheck must prove generated imports resolve without Next-style
   aliases unless those aliases are intentionally added.
 - Component tests must assert review chrome uses generated primitives or

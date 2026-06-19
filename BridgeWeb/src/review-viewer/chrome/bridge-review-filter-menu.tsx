@@ -1,3 +1,4 @@
+import { ChevronDownIcon, FolderIcon, SlidersHorizontalIcon, XIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
 import { cn } from '../../app/class-name.js';
@@ -47,10 +48,9 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 				aria-label={titleForFilterLabel(props.label)}
 				className={cn(
 					'flex h-8 w-9 shrink-0 items-center justify-center gap-0 rounded-[7px]',
-					'border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-raised-bg)] px-0',
+					'border border-transparent bg-transparent px-0',
 					'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
-					'shadow-[inset_0_0_0_1px_rgb(255_255_255_/_0.02)]',
-					'hover:bg-[var(--bridge-accent-soft)] hover:text-[var(--bridge-text-primary)]',
+					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
 					'focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none',
 					'data-popup-open:bg-[var(--bridge-accent-soft)] data-popup-open:text-[var(--bridge-text-primary)]',
 				)}
@@ -71,21 +71,11 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 					<span className="sr-only">{selectedLabel}</span>
 				</span>
 				<BridgeReviewIcon>
-					<svg
+					<ChevronDownIcon
 						aria-hidden="true"
 						className="size-3"
 						data-testid="bridge-review-filter-chevron"
-						viewBox="0 0 16 16"
-					>
-						<path
-							d="m4.5 6.25 3.5 3.5 3.5-3.5"
-							fill="none"
-							stroke="currentColor"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-							strokeWidth="1.6"
-						/>
-					</svg>
+					/>
 				</BridgeReviewIcon>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
@@ -156,15 +146,7 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 					}}
 				>
 					<span className="flex size-5 shrink-0 items-center justify-center rounded-[6px] bg-[var(--bridge-surface-muted-bg)] text-[var(--bridge-text-secondary)]">
-						<svg aria-hidden="true" className="size-3.5" viewBox="0 0 16 16">
-							<path
-								d="m4.5 4.5 7 7m0-7-7 7"
-								fill="none"
-								stroke="currentColor"
-								strokeLinecap="round"
-								strokeWidth="1.8"
-							/>
-						</svg>
+						<XIcon aria-hidden="true" className="size-3.5" />
 					</span>
 					<span>Clear filter</span>
 				</DropdownMenuItem>
@@ -176,37 +158,19 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 function FilterTriggerGlyph(props: { readonly label: string }): ReactElement {
 	if (props.label === 'File class filter') {
 		return (
-			<svg
+			<FolderIcon
 				aria-hidden="true"
 				className="size-4 text-[var(--bridge-text-secondary)]"
 				data-testid="bridge-review-filter-trigger-glyph"
-				viewBox="0 0 16 16"
-			>
-				<path
-					d="M2.75 4.5h4l1 1h5.5v6.75H2.75z"
-					fill="none"
-					stroke="currentColor"
-					strokeLinejoin="round"
-					strokeWidth="1.4"
-				/>
-			</svg>
+			/>
 		);
 	}
 	return (
-		<svg
+		<SlidersHorizontalIcon
 			aria-hidden="true"
 			className="size-4 text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-filter-trigger-glyph"
-			viewBox="0 0 16 16"
-		>
-			<path
-				d="M3 4h10M5.5 8h5M7 12h2"
-				fill="none"
-				stroke="currentColor"
-				strokeLinecap="round"
-				strokeWidth="1.5"
-			/>
-		</svg>
+		/>
 	);
 }
 

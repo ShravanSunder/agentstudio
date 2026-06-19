@@ -1,3 +1,4 @@
+import { SearchIcon } from 'lucide-react';
 import type { ChangeEvent, MouseEvent, ReactElement } from 'react';
 
 import { cn } from '../../app/class-name.js';
@@ -18,8 +19,7 @@ export function BridgeReviewSearchControl(props: BridgeReviewSearchControlProps)
 			<BridgeReviewButton
 				ariaLabel="Search files"
 				className={cn(
-					'h-8 w-8 rounded-[7px] border-[var(--bridge-border-subtle)]',
-					'bg-[var(--bridge-canvas-bg)] px-0',
+					'h-7 w-7 rounded-md border-transparent bg-transparent px-0',
 					props.value.length > 0 && 'text-[var(--bridge-text-primary)]',
 				)}
 				onClick={focusSiblingSearchInput}
@@ -27,29 +27,21 @@ export function BridgeReviewSearchControl(props: BridgeReviewSearchControlProps)
 				title="Search files"
 			>
 				<BridgeReviewIcon>
-					<svg aria-hidden="true" className="size-4" viewBox="0 0 16 16">
-						<circle cx="7" cy="7" fill="none" r="4.5" stroke="currentColor" strokeWidth="1.5" />
-						<path
-							d="m10.5 10.5 3 3"
-							stroke="currentColor"
-							strokeLinecap="round"
-							strokeWidth="1.5"
-						/>
-					</svg>
+					<SearchIcon aria-hidden="true" className="size-4" />
 				</BridgeReviewIcon>
 			</BridgeReviewButton>
 			<Input
 				aria-label="Search files"
 				autoComplete="off"
 				className={cn(
-					'absolute right-0 top-[calc(100%+4px)] z-50 h-8 w-56 min-w-0',
-					'rounded-[7px] border border-[var(--bridge-border-opaque)]',
-					'bg-[var(--bridge-canvas-bg)] px-2 text-[12px] text-[var(--bridge-text-primary)]',
-					'pointer-events-none opacity-0 shadow-[0_18px_48px_rgb(0_0_0_/_0.52)]',
-					'outline-none transition-opacity placeholder:text-[var(--bridge-text-muted)]',
-					'focus:pointer-events-auto focus:opacity-100 focus:border-[var(--bridge-accent)]',
-					'group-focus-within/search:pointer-events-auto group-focus-within/search:opacity-100',
-					props.value.length > 0 && 'pointer-events-auto opacity-100',
+					'h-7 w-0 min-w-0 shrink-0 rounded-md border border-transparent px-0',
+					'bg-[var(--bridge-surface-raised-bg)] text-[12px] text-[var(--bridge-text-primary)]',
+					'pointer-events-none opacity-0 outline-none transition-[width,opacity,border-color,padding]',
+					'placeholder:text-[var(--bridge-text-muted)]',
+					'focus:pointer-events-auto focus:w-36 focus:border-[var(--bridge-accent)] focus:px-2 focus:opacity-100',
+					'group-focus-within/search:pointer-events-auto group-focus-within/search:w-36 group-focus-within/search:border-[var(--bridge-border-opaque)] group-focus-within/search:px-2 group-focus-within/search:opacity-100',
+					props.value.length > 0 &&
+						'pointer-events-auto w-36 border-[var(--bridge-border-opaque)] px-2 opacity-100',
 				)}
 				data-testid="bridge-review-search-input"
 				onChange={(event: ChangeEvent<HTMLInputElement>): void =>

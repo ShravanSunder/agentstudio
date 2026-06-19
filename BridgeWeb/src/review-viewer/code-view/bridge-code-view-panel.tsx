@@ -340,6 +340,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						'bridge-code-view-scroll-owner cv-scrollbar relative h-full min-h-0 min-w-0',
 						'flex-1 overflow-y-auto overflow-x-hidden overscroll-contain',
 						'[overflow-anchor:none] [will-change:scroll-position]',
+						'[&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]',
+						'[&_diffs-container]:shadow-[0_-1px_0_var(--bridge-code-view-file-separator),0_1px_0_var(--bridge-code-view-file-separator)]',
 					)}
 					key={viewerKey}
 					ref={setCodeViewHandle}
@@ -488,11 +490,11 @@ function renderBridgeCodeViewHeaderPrefix(props: RenderBridgeCodeViewHeaderProps
 	const collapsed = props.collapsedItemIds?.has(itemId) === true || props.item.collapsed === true;
 
 	return (
-		<span className="ml-[-2px] inline-flex items-center gap-1">
+		<span className="ml-[-2px] inline-flex items-center">
 			<button
 				aria-expanded={!collapsed}
 				aria-label={collapsed ? 'Expand file' : 'Collapse file'}
-				className="inline-flex size-5 cursor-pointer select-none items-center justify-center rounded-[5px] text-[11px] text-[var(--bridge-text-secondary)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]"
+				className="inline-flex size-5 cursor-pointer select-none items-center justify-center rounded-md border border-transparent text-[11px] text-[var(--bridge-text-secondary)] hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)] focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none"
 				data-testid="bridge-code-view-header-collapse-button"
 				onClick={(event): void => {
 					event.preventDefault();
@@ -507,13 +509,6 @@ function renderBridgeCodeViewHeaderPrefix(props: RenderBridgeCodeViewHeaderProps
 					<ChevronDownIcon aria-hidden="true" className="size-3" />
 				)}
 			</button>
-			<span
-				aria-hidden="true"
-				className="inline-flex size-5 items-center justify-center rounded-[5px] bg-[var(--bridge-surface-raised-bg)] text-[10px] font-semibold text-[var(--bridge-text-secondary)]"
-				data-testid="bridge-code-view-header-status"
-			>
-				{statusLabelForChangeKind(descriptor.changeKind)}
-			</span>
 		</span>
 	);
 }
@@ -529,7 +524,6 @@ function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderPro
 			className="ml-auto inline-flex min-w-0 items-center gap-2 text-[11px] text-[var(--bridge-text-muted)]"
 			data-testid="bridge-code-view-header-metadata"
 		>
-			<span className="min-w-0 truncate">{props.item.bridgeMetadata.displayPath}</span>
 			<span className="shrink-0 text-[var(--bridge-deleted)]">{`-${descriptor.deletions}`}</span>
 			<span className="shrink-0 text-[var(--bridge-added)]">{`+${descriptor.additions}`}</span>
 		</span>
@@ -547,23 +541,6 @@ function bridgeReviewItemForCodeViewItem(
 
 function isBridgeCodeViewItem(item: CodeViewItem): item is BridgeCodeViewItem {
 	return 'bridgeMetadata' in item;
-}
-
-function statusLabelForChangeKind(changeKind: string): string {
-	switch (changeKind) {
-		case 'added':
-			return 'A';
-		case 'deleted':
-			return 'D';
-		case 'modified':
-			return 'M';
-		case 'renamed':
-			return 'R';
-		case 'copied':
-			return 'C';
-		default:
-			return '?';
-	}
 }
 
 interface ControllerForHandleProps {

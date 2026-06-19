@@ -3,7 +3,7 @@
 import { chromium, type Page } from 'playwright';
 
 const defaultDevServerUrl =
-	'http://127.0.0.1:6173/?fixture=large-diffshub&workers=on&scenario=scroll';
+	'http://127.0.0.1:5173/?fixture=large-diffshub&workers=on&scenario=scroll';
 const targetAddedPath = 'Sources/BridgeViewer/NewPanel.ts';
 const targetAddedText = "return 'full added file content';";
 const targetMarkdownPath = 'docs/plans/bridge-viewer-browser.md';
@@ -17,14 +17,18 @@ interface DevServerVerificationResult {
 	readonly selectedHeaderCollapseButtonState: HeaderCollapseButtonState | null;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
+	readonly topScopeState: TopScopeState | null;
 	readonly workerPoolState: string | null;
 }
 
 interface HeaderCollapseButtonState {
 	readonly ariaExpanded: string | null;
 	readonly ariaLabel: string | null;
+	readonly hasBridgeHeaderKindIcon: boolean;
+	readonly hasBridgeHeaderStatus: boolean;
 	readonly height: number;
 	readonly text: string;
+	readonly topOffsetFromScrollOwner: number | null;
 	readonly width: number;
 }
 
@@ -36,6 +40,18 @@ interface GitStatusFilterMenuState {
 	readonly optionLabels: readonly string[];
 	readonly rowHeights: readonly number[];
 	readonly width: number;
+}
+
+interface TopScopeState {
+	readonly activePressedCount: number;
+	readonly backgroundColor: string;
+	readonly buttonCount: number;
+	readonly buttonFontSizes: readonly string[];
+	readonly headerBackgroundColor: string;
+	readonly height: number;
+	readonly isSegmentedControl: boolean;
+	readonly projectionButtonTestIds: readonly string[];
+	readonly role: string | null;
 }
 
 const devServerUrl = process.env['BRIDGE_VIEWER_DEV_SERVER_URL'] ?? defaultDevServerUrl;
@@ -55,9 +71,11 @@ try {
 				codeViewScrollHeight: result.codeViewScrollHeight,
 				codeViewScrollTop: result.codeViewScrollTop,
 				gitStatusFilterMenu: result.gitStatusFilterMenuState,
+				selectedHeaderCollapseButton: result.selectedHeaderCollapseButtonState,
 				markdownDevServerUrl,
 				markdownDisplayPath: markdownResult.displayPath,
 				selectedDisplayPath: result.selectedDisplayPath,
+				topScope: result.topScopeState,
 				workerPoolState: result.workerPoolState,
 			},
 			null,
@@ -74,6 +92,7 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
 		await page.waitForTimeout(1_200);
 		const initialResult = await readVerificationResult(page);
+		assertTopScopeState(initialResult.topScopeState);
 		const gitStatusFilterMenuState = await inspectGitStatusFilterMenu(page);
 		assertGitStatusFilterMenu(gitStatusFilterMenuState);
 		await searchForAddedFile(page);
@@ -192,6 +211,23 @@ function assertSelectedHeaderCollapseButton(result: DevServerVerificationResult)
 			`Expected selected CodeView header collapse button compact height, got ${collapseButtonState.height}`,
 		);
 	}
+	if (
+		collapseButtonState.topOffsetFromScrollOwner === null ||
+		collapseButtonState.topOffsetFromScrollOwner < -2 ||
+		collapseButtonState.topOffsetFromScrollOwner > 40
+	) {
+		throw new Error(
+			`Expected selected CodeView header to align near the top of the scroll owner, got ${
+				collapseButtonState.topOffsetFromScrollOwner?.toString() ?? 'null'
+			}`,
+		);
+	}
+	if (collapseButtonState.hasBridgeHeaderKindIcon) {
+		throw new Error('Expected CodeView header to omit Bridge-owned file-kind icon');
+	}
+	if (collapseButtonState.hasBridgeHeaderStatus) {
+		throw new Error('Expected CodeView header to omit Bridge-owned status badge');
+	}
 }
 
 function assertCodeViewScrolledToSelectedItem(props: {
@@ -252,6 +288,54 @@ function assertGitStatusFilterMenu(menuState: GitStatusFilterMenuState): void {
 	}
 }
 
+function assertTopScopeState(scopeState: TopScopeState | null): void {
+	if (scopeState === null) {
+		throw new Error('Expected top projection scope state');
+	}
+	if (!scopeState.isSegmentedControl) {
+		throw new Error('Expected projection scope to declare segmented-control composition');
+	}
+	if (scopeState.role !== 'group') {
+		throw new Error(`Expected projection scope role=group, got ${scopeState.role ?? 'null'}`);
+	}
+	if (scopeState.buttonCount !== 7) {
+		throw new Error(`Expected seven projection scope buttons, got ${scopeState.buttonCount}`);
+	}
+	if (scopeState.activePressedCount !== 1) {
+		throw new Error(
+			`Expected exactly one active projection scope button, got ${scopeState.activePressedCount}`,
+		);
+	}
+	if (scopeState.projectionButtonTestIds.length !== 7) {
+		throw new Error(
+			`Expected seven explicit projection button test ids, got ${scopeState.projectionButtonTestIds.length}`,
+		);
+	}
+	for (const fontSize of scopeState.buttonFontSizes) {
+		if (fontSize !== '11px') {
+			throw new Error(`Expected compact 11px projection scope button font, got ${fontSize}`);
+		}
+	}
+	if (scopeState.height < 24 || scopeState.height > 34) {
+		throw new Error(`Expected compact projection scope height, got ${scopeState.height}`);
+	}
+	const backgroundIsTransparent =
+		scopeState.backgroundColor === 'rgba(0, 0, 0, 0)' ||
+		scopeState.backgroundColor === 'transparent';
+	if (!backgroundIsTransparent && scopeState.backgroundColor !== scopeState.headerBackgroundColor) {
+		throw new Error(
+			[
+				'Expected projection scope to sit on the same header plane.',
+				`Scope background: ${scopeState.backgroundColor}`,
+				`Header background: ${scopeState.headerBackgroundColor}`,
+			].join('\n'),
+		);
+	}
+	if (scopeState.backgroundColor === 'rgb(0, 0, 0)') {
+		throw new Error('Expected projection scope not to render as a detached black strip');
+	}
+}
+
 async function assertSelectedHeaderCollapseRoundTrip(page: Page): Promise<void> {
 	const didCollapse = await clickSelectedHeaderCollapseButton(page);
 	if (!didCollapse) {
@@ -263,10 +347,7 @@ async function assertSelectedHeaderCollapseRoundTrip(page: Page): Promise<void> 
 		(path: string): boolean => {
 			function findCodeViewHeaderCollapseButton(targetPath: string): HTMLButtonElement | null {
 				for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
-					const matchingMetadata = Array.from(
-						container.querySelectorAll('[data-testid="bridge-code-view-header-metadata"]'),
-					).find((element: Element): boolean => element.textContent?.includes(targetPath) ?? false);
-					if (matchingMetadata === undefined) {
+					if (container.shadowRoot?.textContent?.includes(targetPath) !== true) {
 						continue;
 					}
 					const button = container.querySelector(
@@ -299,10 +380,7 @@ async function assertSelectedHeaderCollapseRoundTrip(page: Page): Promise<void> 
 		(path: string): boolean => {
 			function findCodeViewHeaderCollapseButton(targetPath: string): HTMLButtonElement | null {
 				for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
-					const matchingMetadata = Array.from(
-						container.querySelectorAll('[data-testid="bridge-code-view-header-metadata"]'),
-					).find((element: Element): boolean => element.textContent?.includes(targetPath) ?? false);
-					if (matchingMetadata === undefined) {
+					if (container.shadowRoot?.textContent?.includes(targetPath) !== true) {
 						continue;
 					}
 					const button = container.querySelector(
@@ -344,10 +422,7 @@ async function clickSelectedHeaderCollapseButton(page: Page): Promise<boolean> {
 	return await page.evaluate((path: string): boolean => {
 		function findCodeViewHeaderCollapseButton(targetPath: string): HTMLButtonElement | null {
 			for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
-				const matchingMetadata = Array.from(
-					container.querySelectorAll('[data-testid="bridge-code-view-header-metadata"]'),
-				).find((element: Element): boolean => element.textContent?.includes(targetPath) ?? false);
-				if (matchingMetadata === undefined) {
+				if (container.shadowRoot?.textContent?.includes(targetPath) !== true) {
 					continue;
 				}
 				const button = container.querySelector(
@@ -439,30 +514,49 @@ async function clickFileTreePath(page: Page, path: string): Promise<void> {
 
 async function readVerificationResult(page: Page): Promise<DevServerVerificationResult> {
 	return await page.evaluate((): DevServerVerificationResult => {
-		function findCodeViewHeaderCollapseButton(path: string): HTMLButtonElement | null {
+		interface SelectedHeaderElements {
+			readonly button: HTMLButtonElement;
+			readonly container: Element;
+		}
+
+		function findCodeViewHeaderElements(path: string): SelectedHeaderElements | null {
 			for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
-				const matchingMetadata = Array.from(
-					container.querySelectorAll('[data-testid="bridge-code-view-header-metadata"]'),
-				).find((element: Element): boolean => element.textContent?.includes(path) ?? false);
-				if (matchingMetadata === undefined) {
+				if (container.shadowRoot?.textContent?.includes(path) !== true) {
 					continue;
 				}
 				const button = container.querySelector(
 					'[data-testid="bridge-code-view-header-collapse-button"]',
 				);
 				if (button instanceof HTMLButtonElement) {
-					return button;
+					return { button, container };
 				}
 			}
 			return null;
 		}
 		const codeScrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+		const topHeader = document.querySelector('[data-testid="bridge-review-top-header"]');
+		const topScope = document.querySelector('[data-testid="bridge-review-projection-scope"]');
+		const topScopeBounds =
+			topScope instanceof HTMLElement ? topScope.getBoundingClientRect() : null;
+		const topScopeStyle = topScope instanceof HTMLElement ? getComputedStyle(topScope) : null;
+		const topHeaderStyle = topHeader instanceof HTMLElement ? getComputedStyle(topHeader) : null;
+		const projectionButtons =
+			topScope instanceof HTMLElement
+				? Array.from(
+						topScope.querySelectorAll<HTMLButtonElement>(
+							'button[data-testid^="bridge-review-projection-"]',
+						),
+					)
+				: [];
+		const codeScrollOwnerBounds =
+			codeScrollOwner instanceof HTMLElement ? codeScrollOwner.getBoundingClientRect() : null;
 		const selectedDisplayPath =
 			document
 				.querySelector('[data-selected-display-path]')
 				?.getAttribute('data-selected-display-path') ?? null;
-		const selectedHeaderCollapseButton =
-			selectedDisplayPath === null ? null : findCodeViewHeaderCollapseButton(selectedDisplayPath);
+		const selectedHeaderElements =
+			selectedDisplayPath === null ? null : findCodeViewHeaderElements(selectedDisplayPath);
+		const selectedHeaderCollapseButton = selectedHeaderElements?.button ?? null;
 		const selectedHeaderCollapseButtonBounds =
 			selectedHeaderCollapseButton === null
 				? null
@@ -496,8 +590,20 @@ async function readVerificationResult(page: Page): Promise<DevServerVerification
 					: {
 							ariaExpanded: selectedHeaderCollapseButton.getAttribute('aria-expanded'),
 							ariaLabel: selectedHeaderCollapseButton.getAttribute('aria-label'),
+							hasBridgeHeaderKindIcon:
+								selectedHeaderElements?.container.querySelector(
+									'[data-testid="bridge-code-view-header-kind-icon"]',
+								) !== null,
+							hasBridgeHeaderStatus:
+								selectedHeaderElements?.container.querySelector(
+									'[data-testid="bridge-code-view-header-status"]',
+								) !== null,
 							height: selectedHeaderCollapseButtonBounds.height,
 							text: selectedHeaderCollapseButton.textContent ?? '',
+							topOffsetFromScrollOwner:
+								codeScrollOwnerBounds === null
+									? null
+									: selectedHeaderCollapseButtonBounds.top - codeScrollOwnerBounds.top,
 							width: selectedHeaderCollapseButtonBounds.width,
 						},
 			selectedContentState:
@@ -505,6 +611,24 @@ async function readVerificationResult(page: Page): Promise<DevServerVerification
 					.querySelector('[data-selected-content-state]')
 					?.getAttribute('data-selected-content-state') ?? null,
 			selectedDisplayPath,
+			topScopeState:
+				topScope instanceof HTMLElement && topScopeBounds !== null && topScopeStyle !== null
+					? {
+							activePressedCount: topScope.querySelectorAll('[aria-pressed="true"]').length,
+							backgroundColor: topScopeStyle.backgroundColor,
+							buttonCount: topScope.querySelectorAll('button').length,
+							buttonFontSizes: projectionButtons.map(
+								(button: HTMLButtonElement): string => getComputedStyle(button).fontSize,
+							),
+							headerBackgroundColor: topHeaderStyle?.backgroundColor ?? '',
+							height: topScopeBounds.height,
+							isSegmentedControl: topScope.getAttribute('data-bridge-segmented-control') === 'true',
+							projectionButtonTestIds: projectionButtons.map(
+								(button: HTMLButtonElement): string => button.dataset['testid'] ?? '',
+							),
+							role: topScope.getAttribute('role'),
+						}
+					: null,
 			workerPoolState:
 				document
 					.querySelector('[data-bridge-pierre-worker-pool-state]')

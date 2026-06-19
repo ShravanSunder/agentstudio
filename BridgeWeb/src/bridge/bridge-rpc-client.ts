@@ -1,13 +1,25 @@
+import { z } from 'zod';
+
+import { bridgeTelemetryBatchSchema } from '../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 
-export type BridgeRPCId = string | number;
+export const bridgeRPCIdSchema = z.union([z.string(), z.number()]);
 
-export interface BridgeRPCCommand {
-	readonly id?: BridgeRPCId;
-	readonly method: string;
-	readonly params?: unknown;
-}
+export const bridgeRPCCommandSchema = z.discriminatedUnion('method', [
+	z.object({
+		id: bridgeRPCIdSchema.optional(),
+		method: z.literal('review.markFileViewed'),
+		params: z.object({ fileId: z.string().min(1) }),
+	}),
+	z.object({
+		id: bridgeRPCIdSchema.optional(),
+		method: z.literal('system.bridgeTelemetry'),
+		params: bridgeTelemetryBatchSchema,
+	}),
+]);
+
+export type BridgeRPCCommand = z.infer<typeof bridgeRPCCommandSchema>;
 
 export interface BridgeRPCClient {
 	readonly sendCommand: (command: BridgeRPCCommand) => boolean;
@@ -30,17 +42,20 @@ export function createBridgeRPCClient(props: CreateBridgeRPCClientProps = {}): B
 
 	return {
 		sendCommand: (command: BridgeRPCCommand): boolean => {
+			const validatedCommand = bridgeRPCCommandSchema.parse(command);
 			const bridgeNonce = getBridgeNonce();
 			if (bridgeNonce === null) {
 				return false;
 			}
-			const traceContext = shouldAttachTraceContext(command) ? getTraceContext(command) : null;
+			const traceContext = shouldAttachTraceContext(validatedCommand)
+				? getTraceContext(validatedCommand)
+				: null;
 			target.dispatchEvent(
 				new CustomEvent('__bridge_command', {
-					detail: makeCommandDetail(command, bridgeNonce, createCommandId(), traceContext),
+					detail: makeCommandDetail(validatedCommand, bridgeNonce, createCommandId(), traceContext),
 				}),
 			);
-			if (shouldRecordRPCTelemetry(command)) {
+			if (shouldRecordRPCTelemetry(validatedCommand)) {
 				telemetryRecorder?.record({
 					scope: 'web',
 					name: 'performance.bridge.web.rpc_send',
@@ -50,7 +65,7 @@ export function createBridgeRPCClient(props: CreateBridgeRPCClientProps = {}): B
 						'agentstudio.bridge.phase': 'send',
 						'agentstudio.bridge.plane': 'control',
 						'agentstudio.bridge.priority': 'warm',
-						'agentstudio.bridge.rpc.method_class': rpcMethodClass(command.method),
+						'agentstudio.bridge.rpc.method_class': rpcMethodClass(validatedCommand.method),
 						'agentstudio.bridge.slice': 'review_rpc',
 						'agentstudio.bridge.transport': 'rpc',
 					},

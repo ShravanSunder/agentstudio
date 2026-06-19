@@ -4,6 +4,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, test } from 'vitest';
 
+import { BridgeReviewButton } from './bridge-review-button.js';
 import { BridgeReviewFilterMenu } from './bridge-review-filter-menu.js';
 import { BridgeReviewSearchControl } from './bridge-review-search-control.js';
 
@@ -20,6 +21,24 @@ describe('Bridge review chrome controls', () => {
 			mountedRoot = null;
 		}
 		document.body.replaceChildren();
+	});
+
+	test('pressed chrome buttons use quiet fill without a permanent outline', () => {
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(<BridgeReviewButton ariaPressed>All</BridgeReviewButton>);
+		});
+
+		const button = requireElement(container.querySelector<HTMLButtonElement>('button'));
+
+		expect(button.getAttribute('aria-pressed')).toBe('true');
+		expect(button.className).toContain('bg-[var(--bridge-accent-soft)]');
+		expect(button.className).toContain('border-transparent');
+		expect(button.className.split(/\s+/)).not.toContain('border-[var(--bridge-border-opaque)]');
+		expect(button.className).toContain('hover:border-[var(--bridge-border-opaque)]');
 	});
 
 	test('search control avoids native WebKit search input decorations', () => {
@@ -75,7 +94,7 @@ describe('Bridge review chrome controls', () => {
 		expect(input.value).toBe('332');
 	});
 
-	test('search input opens as an overlay instead of widening the rail toolbar', () => {
+	test('search input stays inline with the rail toolbar instead of floating over the tree', () => {
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -88,10 +107,10 @@ describe('Bridge review chrome controls', () => {
 			container.querySelector<HTMLInputElement>('[data-testid="bridge-review-search-input"]'),
 		);
 
-		expect(input.className).toContain('absolute');
-		expect(input.className).not.toContain('w-32');
-		expect(input.className).not.toContain('group-focus-within/search:w-32');
-		expect(input.className).not.toContain('focus:w-32');
+		expect(input.className).not.toContain('absolute');
+		expect(input.className).toContain('w-36');
+		expect(input.className).toContain('group-focus-within/search:w-36');
+		expect(input.className).toContain('focus:w-36');
 	});
 
 	test('filter menu trigger uses an icon chevron instead of a text glyph', () => {

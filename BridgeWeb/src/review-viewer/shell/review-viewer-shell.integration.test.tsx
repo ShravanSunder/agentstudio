@@ -78,6 +78,47 @@ describe('review viewer shell', () => {
 		expect(text).toContain('Collation:');
 	});
 
+	test('keeps top projection scope as compact shadcn chrome instead of a detached black pill', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const element = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+			}),
+		);
+
+		const header = findElementByTestId(element, 'bridge-review-top-header');
+		const projectionScope = findElementByTestId(element, 'bridge-review-projection-scope');
+		const projectionButtons = findElementsByComponent(element, BridgeReviewButton);
+
+		expect(header?.type).toBe('header');
+		expect(classNameForElement(header)).toContain('bg-[var(--bridge-header-bg)]');
+		expect(projectionScope?.props['data-bridge-segmented-control']).toBe('true');
+		expect(projectionScope?.props.role).toBe('group');
+		expect(classNameForElement(projectionScope)).toContain('bg-transparent');
+		expect(classNameForElement(projectionScope)).toContain('h-7');
+		expect(classNameForElement(projectionScope)).toContain('rounded-md');
+		expect(classNameForElement(projectionScope)).not.toContain(
+			'bg-[var(--bridge-header-control-bg)]',
+		);
+		expect(classNameForElement(projectionScope)).not.toContain('bridge-canvas-bg');
+		expect(classNameForElement(projectionScope)).not.toContain(
+			'border-[var(--bridge-border-subtle)]',
+		);
+		expect(projectionButtons).toHaveLength(9);
+		const projectionOnlyButtons = projectionButtons.filter((button) =>
+			(button.props['data-testid'] ?? '').startsWith('bridge-review-projection-'),
+		);
+		expect(projectionOnlyButtons).toHaveLength(7);
+		for (const button of projectionOnlyButtons) {
+			expect(classNameForElement(button)).toContain('bridge-review-projection-button');
+		}
+		expect(projectionOnlyButtons.some((button) => button.props.ariaPressed === true)).toBe(true);
+	});
+
 	test('renders custom review controls without native select widgets', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
@@ -93,7 +134,7 @@ describe('review viewer shell', () => {
 		expect(findElementsByType(element, 'select')).toEqual([]);
 		expect(findElementByTestId(element, 'bridge-review-git-status-menu')).not.toBeNull();
 		expect(findElementByTestId(element, 'bridge-review-file-class-menu')).not.toBeNull();
-		expect(findElementByTestId(element, 'bridge-review-search-toggle')).not.toBeNull();
+		expect(findElementByTestId(element, 'bridge-review-search-control-slot')).not.toBeNull();
 	});
 
 	test('groups right rail controls as compact sidebar toolbar chrome', () => {
@@ -120,6 +161,7 @@ describe('review viewer shell', () => {
 		expect(classNameForElement(trailingGroup)).toContain('gap-1');
 		expect(fileTreeButton?.type).toBe(BridgeReviewButton);
 		expect(commentsButton?.type).toBe(BridgeReviewButton);
+		expect(commentsButton?.props.disabled).toBeUndefined();
 		expect(collectText(fileTreeButton)).toBe('');
 		expect(collectText(commentsButton)).toBe('');
 	});
@@ -286,10 +328,14 @@ function collectTextFragments(node: ReactNode): readonly string[] {
 }
 
 interface TestElementProps {
+	readonly ariaPressed?: boolean;
 	readonly children?: ReactNode;
 	readonly className?: string;
+	readonly 'data-bridge-segmented-control'?: string;
 	readonly 'data-sidebar-position'?: string;
 	readonly 'data-testid'?: string;
+	readonly disabled?: boolean;
+	readonly role?: string;
 }
 
 function isReactElement(node: ReactNode): node is ReactElement<TestElementProps> {
@@ -360,6 +406,24 @@ function findElementByComponent(
 		return node;
 	}
 	return findElementByComponent(node.props.children, component);
+}
+
+function findElementsByComponent(
+	node: ReactNode,
+	component: ReactElement['type'],
+): readonly ReactElement<TestElementProps>[] {
+	if (Array.isArray(node)) {
+		return node.flatMap((child: ReactNode): readonly ReactElement<TestElementProps>[] =>
+			findElementsByComponent(child, component),
+		);
+	}
+	if (!isReactElement(node)) {
+		return [];
+	}
+	return [
+		...(node.type === component ? [node] : []),
+		...findElementsByComponent(node.props.children, component),
+	];
 }
 
 function classNameForElement(element: ReactElement<TestElementProps> | null): string {

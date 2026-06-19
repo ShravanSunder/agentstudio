@@ -214,8 +214,27 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(props?.options?.unsafeCSS).toContain('data-diffs-header');
 		expect(props?.renderHeaderPrefix).toEqual(expect.any(Function));
 		expect(props?.renderHeaderMetadata).toEqual(expect.any(Function));
-		expect(collectText(props?.renderHeaderPrefix?.(firstItem))).toContain('M');
-		expect(collectText(props?.renderHeaderMetadata?.(firstItem))).toContain(
+		const headerPrefix = props?.renderHeaderPrefix?.(firstItem);
+		expect(collectText(headerPrefix)).not.toContain('M');
+		const headerContainer = document.createElement('div');
+		document.body.append(headerContainer);
+		const headerRoot = createRoot(headerContainer);
+		await act(async (): Promise<void> => {
+			headerRoot.render(<>{headerPrefix}</>);
+			await Promise.resolve();
+		});
+		expect(
+			headerContainer.querySelector('[data-testid="bridge-code-view-header-kind-icon"]'),
+		).toBeNull();
+		expect(
+			headerContainer.querySelector('[data-testid="bridge-code-view-header-status"]'),
+		).toBeNull();
+		await act(async (): Promise<void> => {
+			headerRoot.unmount();
+			await Promise.resolve();
+		});
+		headerContainer.remove();
+		expect(collectText(props?.renderHeaderMetadata?.(firstItem))).not.toContain(
 			'Sources/App/Core.swift',
 		);
 		expect(collectText(props?.renderHeaderMetadata?.(firstItem))).toContain('+3');

@@ -31,6 +31,12 @@ export const bridgeWorktreeDevProviderConfigSchema = z
 
 export type BridgeWorktreeDevProviderConfig = z.infer<typeof bridgeWorktreeDevProviderConfigSchema>;
 
+export interface ResolveBridgeWorktreeDevProviderConfigProps {
+	readonly env: Readonly<Record<string, string | undefined>>;
+	readonly packageRoot: string;
+	readonly requestUrl: string | null;
+}
+
 export interface BridgeWorktreeDevProvider {
 	readonly loadContent: (handleId: string) => Promise<string>;
 	readonly loadReviewPackage: () => Promise<BridgeReviewPackage>;
@@ -53,6 +59,27 @@ interface ProviderState {
 interface GitNameStatusRecord {
 	readonly changeKind: BridgeFileChangeKind;
 	readonly path: string;
+}
+
+export async function resolveBridgeWorktreeDevProviderConfig(
+	props: ResolveBridgeWorktreeDevProviderConfigProps,
+): Promise<BridgeWorktreeDevProviderConfig> {
+	const requestSearchParams = searchParamsForRequestUrl(props.requestUrl);
+	const worktreeRoot = await resolveAllowedWorktreeRoot(
+		firstNonEmptyStringOrNull([
+			requestSearchParams.get('worktree'),
+			requestSearchParams.get('repo'),
+			props.env['BRIDGE_WEB_DEV_WORKTREE'],
+			resolve(props.packageRoot, '..'),
+		]) ?? resolve(props.packageRoot, '..'),
+	);
+	const baseRef =
+		firstNonEmptyStringOrNull([
+			requestSearchParams.get('base'),
+			props.env['BRIDGE_WEB_DEV_BASE'],
+			null,
+		]) ?? (await resolveDefaultBaseRef(worktreeRoot));
+	return bridgeWorktreeDevProviderConfigSchema.parse({ baseRef, worktreeRoot });
 }
 
 export async function createBridgeWorktreeDevProvider(
@@ -382,6 +409,44 @@ async function resolveAllowedWorktreeRoot(rawWorktreeRoot: string): Promise<stri
 		throw new Error(`Bridge worktree dev provider root must be the git root: ${realGitRoot}`);
 	}
 	return worktreeRoot;
+}
+
+async function resolveDefaultBaseRef(worktreeRoot: string): Promise<string> {
+	const mergeBaseCandidates = await Promise.all(
+		['origin/main', 'main', 'origin/master', 'master'].map(
+			async (candidateRef): Promise<string | null> =>
+				await gitMergeBaseOrNull(worktreeRoot, candidateRef),
+		),
+	);
+	return mergeBaseCandidates.find((mergeBase): mergeBase is string => mergeBase !== null) ?? 'HEAD';
+}
+
+async function gitMergeBaseOrNull(
+	worktreeRoot: string,
+	candidateRef: string,
+): Promise<string | null> {
+	try {
+		const mergeBase = (await gitStdout(worktreeRoot, ['merge-base', 'HEAD', candidateRef])).trim();
+		return mergeBase.length === 0 ? null : mergeBase;
+	} catch {
+		return null;
+	}
+}
+
+function searchParamsForRequestUrl(requestUrl: string | null): URLSearchParams {
+	if (requestUrl === null) {
+		return new URLSearchParams();
+	}
+	return new URL(requestUrl, 'http://127.0.0.1').searchParams;
+}
+
+function firstNonEmptyStringOrNull(values: readonly (string | null | undefined)[]): string | null {
+	return (
+		values.find(
+			(candidate): candidate is string =>
+				candidate !== null && candidate !== undefined && candidate.length > 0,
+		) ?? null
+	);
 }
 
 async function readWorktreeFileText(props: {

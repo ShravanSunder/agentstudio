@@ -22,6 +22,10 @@
 		"noUnusedLocals": true,
 		"noUnusedParameters": true,
 		"outDir": "./dist",
+		"paths": {
+			"@/lib/utils": ["./src/lib/utils.ts"],
+			"@/*": ["./src/*"]
+		},
 		"resolveJsonModule": true,
 		"rootDir": ".",
 		"skipLibCheck": true,

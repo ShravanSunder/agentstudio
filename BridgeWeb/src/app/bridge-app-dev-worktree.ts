@@ -13,9 +13,11 @@ export interface BridgeAppDevWorktreeBackend {
 const bridgeWorktreePushNonce = 'dev-worktree-push-nonce';
 const worktreePackageEndpoint = '/__bridge-worktree/package';
 const worktreeContentEndpointPrefix = '/__bridge-worktree/content/';
+const worktreeForwardedSearchParamNames = ['worktree', 'repo', 'base'] as const;
 
 export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBackend {
 	let didReceiveHandshakeRequest = false;
+	const forwardedSearchParams = bridgeWorktreeForwardedSearchParams(window.location.search);
 	const handshakeRequestListener = (): void => {
 		didReceiveHandshakeRequest = true;
 		document.dispatchEvent(
@@ -39,13 +41,18 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 				return new Response(`Invalid Bridge worktree content URL: ${url}`, { status: 400 });
 			}
 			return await fetch(
-				`${worktreeContentEndpointPrefix}${encodeURIComponent(resourceUrl.handleId)}`,
+				bridgeWorktreeEndpoint(
+					`${worktreeContentEndpointPrefix}${encodeURIComponent(resourceUrl.handleId)}`,
+					forwardedSearchParams,
+				),
 				init,
 			);
 		},
 		pushPackage: async (): Promise<void> => {
 			await waitForBridgeHandshakeRequest((): boolean => didReceiveHandshakeRequest);
-			const response = await fetch(worktreePackageEndpoint);
+			const response = await fetch(
+				bridgeWorktreeEndpoint(worktreePackageEndpoint, forwardedSearchParams),
+			);
 			if (!response.ok) {
 				throw new Error(`Bridge worktree package request failed: ${response.status}`);
 			}
@@ -70,6 +77,23 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 			);
 		},
 	};
+}
+
+function bridgeWorktreeForwardedSearchParams(search: string): URLSearchParams {
+	const sourceSearchParams = new URLSearchParams(search);
+	const forwardedSearchParams = new URLSearchParams();
+	for (const searchParamName of worktreeForwardedSearchParamNames) {
+		const value = sourceSearchParams.get(searchParamName);
+		if (value !== null && value.length > 0) {
+			forwardedSearchParams.set(searchParamName, value);
+		}
+	}
+	return forwardedSearchParams;
+}
+
+function bridgeWorktreeEndpoint(path: string, searchParams: URLSearchParams): string {
+	const query = searchParams.toString();
+	return query.length === 0 ? path : `${path}?${query}`;
 }
 
 async function waitForBridgeHandshakeRequest(

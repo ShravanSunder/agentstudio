@@ -5,7 +5,7 @@ import { chromium, type Page } from 'playwright';
 import { z } from 'zod';
 
 const defaultDevServerUrl =
-	'http://127.0.0.1:6173/?fixture=large-diffshub&workers=on&scenario=scroll';
+	'http://127.0.0.1:5173/?fixture=large-diffshub&workers=on&scenario=scroll';
 const targetAddedPath = 'Sources/BridgeViewer/NewPanel.ts';
 const targetSearchText = 'NewPanel';
 
@@ -70,6 +70,7 @@ try {
 
 		await clearRailSearch(page);
 		const gitStatusFilterMenu = await openGitStatusFilterMenu(page);
+		await waitForFilterPopoverSettled(page);
 		const gitStatusFilterOpenPath = resolve(artifactDirectory, 'git-status-filter-open.png');
 		await page.screenshot({ fullPage: false, path: gitStatusFilterOpenPath });
 		const gitStatusFilterPopoverCropPath = resolve(
@@ -199,6 +200,20 @@ async function openGitStatusFilterMenu(
 			width: bounds?.width ?? 0,
 		};
 	});
+}
+
+async function waitForFilterPopoverSettled(page: Page): Promise<void> {
+	await page.waitForFunction(
+		(): boolean => {
+			const popover = document.querySelector('[data-testid="bridge-review-filter-popover"]');
+			if (!(popover instanceof HTMLElement)) {
+				return false;
+			}
+			const computedStyle = window.getComputedStyle(popover);
+			return computedStyle.opacity === '1' && computedStyle.transform === 'none';
+		},
+		{ timeout: 10_000 },
+	);
 }
 
 async function readSelectedState(page: Page): Promise<{

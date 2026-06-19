@@ -31,6 +31,7 @@ import {
 	type BridgeReviewProjectionWorkerRequest,
 	type BridgeReviewProjectionWorkerResponse,
 } from '../review-viewer/workers/rpc/review-projection-worker-rpc.js';
+import type { BridgeAppControlCommand } from './bridge-app-control.js';
 import { BridgeApp } from './bridge-app.js';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -1340,6 +1341,146 @@ describe('BridgeApp', () => {
 		expect(document.querySelector('script')).toBeNull();
 	});
 
+	test('page control reports markdown preview pending until the mounted viewer actually shows it', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeAddedFileReviewPackage({
+			itemId: 'item-control-plan',
+			path: 'docs/plans/control-plan.md',
+			language: 'markdown',
+			extension: 'md',
+			fileClass: 'docs',
+			mimeType: 'text/markdown',
+		});
+		const requestedUrls: string[] = [];
+		const capturedRequests: BridgeMarkdownRenderWorkerRequest[] = [];
+		const deferredResponse = createDeferred<BridgeMarkdownRenderWorkerResponse>();
+		const transport: BridgeMarkdownRenderWorkerTransport = {
+			send: (request: BridgeMarkdownRenderWorkerRequest): Promise<unknown> => {
+				capturedRequests.push(request);
+				return deferredResponse.promise;
+			},
+			abort: () => undefined,
+		};
+		const markdownWorkerClient = createBridgeMarkdownRenderWorkerClient({
+			transport,
+			createRequestId: (): string => 'markdown-control-request',
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response('# Control Plan\n');
+					}}
+					markdownWorkerClient={markdownWorkerClient}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForRequestedUrl(requestedUrls, 'handle-item-control-plan-head');
+		await waitForMarkdownRequest(capturedRequests);
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileView.showMarkdownPreview',
+			itemId: 'item-control-plan',
+		});
+		expect(window.bridgeReviewControlProbe).toMatchObject({
+			method: 'bridge.fileView.showMarkdownPreview',
+			status: 'pending',
+			itemId: 'item-control-plan',
+			reason: 'preview_render_pending',
+			renderMode: { kind: 'codeView' },
+		});
+
+		const request = capturedRequests[0];
+		if (request === undefined) {
+			throw new Error('expected markdown render request');
+		}
+		deferredResponse.resolve(
+			await buildBridgeMarkdownRenderWorkerSuccessResponse({
+				request,
+				renderMarkdown: async (): Promise<string> => '<h1>Control Plan</h1>',
+			}),
+		);
+		await act(async (): Promise<void> => {
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileView.showMarkdownPreview',
+			itemId: 'item-control-plan',
+		});
+		expect(window.bridgeReviewControlProbe).toMatchObject({
+			method: 'bridge.fileView.showMarkdownPreview',
+			status: 'accepted',
+			itemId: 'item-control-plan',
+			reason: null,
+			renderMode: { kind: 'markdownPreview' },
+		});
+	});
+
+	test('page control overwrites stale probes and rejects non-markdown preview requests', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeAddedFileReviewPackage({
+			itemId: 'item-control-source',
+			path: 'Sources/NewFeature/ControlFile.ts',
+			language: 'typescript',
+			extension: 'ts',
+			fileClass: 'source',
+			mimeType: 'text/typescript',
+		});
+		const requestedUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response("export const controlFile = 'source';\n");
+					}}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForRequestedUrl(requestedUrls, 'handle-item-control-source-head');
+		window.bridgeReviewControlProbe = {
+			sequence: 99,
+			method: 'bridge.fileTree.search',
+			status: 'accepted',
+			itemId: null,
+			path: null,
+			treeSearchText: 'stale',
+			gitStatusFilter: 'all',
+			fileClassFilter: 'all',
+			renderMode: { kind: 'codeView' },
+			reason: null,
+		};
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileView.showMarkdownPreview',
+			itemId: 'item-control-source',
+		});
+
+		expect(window.bridgeReviewControlProbe).toMatchObject({
+			sequence: 1,
+			method: 'bridge.fileView.showMarkdownPreview',
+			status: 'rejected',
+			itemId: 'item-control-source',
+			reason: 'notMarkdown',
+			renderMode: { kind: 'codeView' },
+		});
+	});
+
 	test('falls back to CodeView when markdown worker output exceeds the preview budget', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeAddedFileReviewPackage({
@@ -1533,6 +1674,13 @@ async function waitForMarkdownRequest(
 	await Promise.resolve();
 	await waitForAnimationFrame();
 	await waitForMarkdownRequest(requests, remainingAttempts - 1);
+}
+
+async function dispatchBridgeAppControl(command: BridgeAppControlCommand): Promise<void> {
+	await act(async (): Promise<void> => {
+		window.dispatchEvent(new CustomEvent('__bridge_review_control', { detail: command }));
+		await Promise.resolve();
+	});
 }
 
 async function pushReviewPackage(reviewPackage: BridgeReviewPackage): Promise<void> {

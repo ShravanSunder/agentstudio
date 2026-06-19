@@ -1,5 +1,10 @@
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import react from '@vitejs/plugin-react';
 import { defineConfig, type UserConfig } from 'vitest/config';
+
+const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 
 const browserConfig = {
 	enabled: true,
@@ -21,6 +26,11 @@ const browserConfig = {
 
 export default defineConfig({
 	plugins: [react()],
+	resolve: {
+		alias: {
+			'@': `${bridgeWebPackageRoot}/src`,
+		},
+	},
 	optimizeDeps: {
 		include: ['react-dom/client'],
 	},
@@ -29,6 +39,11 @@ export default defineConfig({
 		projects: [
 			{
 				plugins: [react()],
+				resolve: {
+					alias: {
+						'@': `${bridgeWebPackageRoot}/src`,
+					},
+				},
 				test: {
 					name: 'integration-browser',
 					setupFiles: ['./tests/vitest-browser-setup.ts'],
@@ -44,6 +59,11 @@ export default defineConfig({
 			},
 			{
 				plugins: [react()],
+				resolve: {
+					alias: {
+						'@': `${bridgeWebPackageRoot}/src`,
+					},
+				},
 				test: {
 					name: 'benchmarks-browser',
 					setupFiles: ['./tests/vitest-browser-setup.ts'],

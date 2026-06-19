@@ -21,12 +21,12 @@ export function BridgeReviewButton(props: BridgeReviewButtonProps): ReactElement
 			aria-label={props.ariaLabel}
 			aria-pressed={props.ariaPressed}
 			className={cn(
-				'h-6 shrink-0 gap-1 rounded-[5px] px-1.5 text-[11px] leading-none',
+				'h-6 shrink-0 gap-1 rounded-md border border-transparent px-1.5 text-[11px] leading-none',
 				'text-[var(--bridge-text-secondary)] transition-colors',
-				'hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
+				'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
 				'focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none',
 				props.ariaPressed === true &&
-					'bg-[var(--bridge-accent-soft)] text-[var(--bridge-text-primary)]',
+					'border-transparent bg-[var(--bridge-accent-soft)] text-[var(--bridge-text-primary)]',
 				props.className,
 			)}
 			data-testid={props.testId ?? props['data-testid']}

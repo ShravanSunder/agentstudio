@@ -7,6 +7,27 @@ import { createBridgeReviewProjectionWebWorkerClient } from './review-projection
 describe('Bridge review projection web worker transport', () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
+		RecordingProjectionWorker.constructedUrls = [];
+	});
+
+	test('creates the default module worker from the Vite-served entrypoint', () => {
+		vi.stubGlobal('Worker', RecordingProjectionWorker);
+		const client = createBridgeReviewProjectionWebWorkerClient();
+
+		expect(client).not.toBeNull();
+		expect(RecordingProjectionWorker.constructedUrls).toEqual([]);
+
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		client?.startProjection({
+			projectionInput: makeBridgeReviewProjectionInput(reviewPackage),
+			projectionRequest: { base: { kind: 'allFiles' }, refinements: [] },
+			visibleItemIds: [],
+			workloadId: 'interactive',
+		});
+
+		expect(RecordingProjectionWorker.constructedUrls[0]?.pathname).toMatch(
+			/review-projection-worker-entry\.ts$/u,
+		);
 	});
 
 	test('rejects pending projection requests when the worker posts a malformed response', async () => {
@@ -111,5 +132,14 @@ class FakeProjectionWorker extends EventTarget implements Worker {
 
 	emitError(event: Event): void {
 		this.dispatchEvent(event);
+	}
+}
+
+class RecordingProjectionWorker extends FakeProjectionWorker {
+	static constructedUrls: URL[] = [];
+
+	constructor(scriptURL: string | URL, _options?: WorkerOptions) {
+		super();
+		RecordingProjectionWorker.constructedUrls.push(new URL(scriptURL));
 	}
 }

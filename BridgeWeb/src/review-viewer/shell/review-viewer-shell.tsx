@@ -1,3 +1,4 @@
+import { FolderTreeIcon, MessageSquareIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 import {
@@ -116,20 +117,12 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			data-sidebar-position="right"
 			data-testid="review-viewer-shell"
 		>
-			<header className="flex min-h-10 shrink-0 items-center gap-3 border-b border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)] px-3">
+			<header
+				className="flex min-h-9 shrink-0 items-center gap-3 border-b border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-bg)] px-3"
+				data-testid="bridge-review-top-header"
+			>
 				<section aria-label="Review summary" className="flex min-w-0 flex-1 items-center gap-3">
 					<div className="flex min-w-0 items-center gap-2 text-sm">
-						<BridgeReviewIcon>
-							<svg aria-hidden="true" className="size-3.5" viewBox="0 0 16 16">
-								<path
-									d="M3 4.5h10M3 8h10M3 11.5h10"
-									fill="none"
-									stroke="currentColor"
-									strokeLinecap="round"
-									strokeWidth="1.5"
-								/>
-							</svg>
-						</BridgeReviewIcon>
 						<span className="shrink-0 font-semibold text-[var(--bridge-text-primary)]">
 							{summary.filesChanged} {summary.filesChanged === 1 ? 'file' : 'files'} changed
 						</span>
@@ -157,11 +150,16 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 				<nav aria-label="Review controls" className="flex shrink-0 items-center gap-1">
 					<div
 						aria-label="Projection"
-						className="flex items-center gap-0.5 rounded-[7px] bg-[var(--bridge-canvas-bg)] p-0.5"
+						className="inline-flex h-7 items-center gap-0.5 rounded-md bg-transparent p-0.5"
+						data-bridge-segmented-control="true"
+						data-testid="bridge-review-projection-scope"
+						role="group"
 					>
 						{projectionButtonSpecs.map((spec) => (
 							<BridgeReviewButton
-								aria-pressed={projectionMode.kind === spec.mode.kind}
+								ariaPressed={projectionMode.kind === spec.mode.kind}
+								className="bridge-review-projection-button h-6 rounded-[5px] px-2"
+								data-testid={`bridge-review-projection-${spec.testIdSuffix}`}
 								key={spec.label}
 								onClick={() => props.onProjectionModeChange?.(spec.mode)}
 							>
@@ -232,38 +230,21 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									data-testid="bridge-review-rail-files-view"
 									ariaPressed
 									ariaLabel="Show changed files"
-									className="h-8 w-8 rounded-[7px] border-[var(--bridge-border-subtle)] bg-transparent px-0"
+									className="h-7 w-7 rounded-md border-transparent bg-transparent px-0"
 									title="Changed files"
 								>
 									<BridgeReviewIcon>
-										<svg aria-hidden="true" className="size-4" viewBox="0 0 16 16">
-											<path
-												d="M3.25 2.75h3.5l1 1h5v3.5m-9.5-2h10v7h-10z"
-												fill="none"
-												stroke="currentColor"
-												strokeLinejoin="round"
-												strokeWidth="1.4"
-											/>
-										</svg>
+										<FolderTreeIcon aria-hidden="true" className="size-4" />
 									</BridgeReviewIcon>
 								</BridgeReviewButton>
 								<BridgeReviewButton
 									data-testid="bridge-review-rail-comments-view"
 									ariaLabel="Show review comments"
-									className="h-8 w-8 rounded-[7px] border-[var(--bridge-border-subtle)] bg-transparent px-0"
-									disabled
+									className="h-7 w-7 rounded-md border-transparent bg-transparent px-0"
 									title="Review comments"
 								>
 									<BridgeReviewIcon>
-										<svg aria-hidden="true" className="size-4" viewBox="0 0 16 16">
-											<path
-												d="M3.5 4.25h9v5.5h-5l-3 2.25V9.75h-1z"
-												fill="none"
-												stroke="currentColor"
-												strokeLinejoin="round"
-												strokeWidth="1.4"
-											/>
-										</svg>
+										<MessageSquareIcon aria-hidden="true" className="size-4" />
 									</BridgeReviewIcon>
 								</BridgeReviewButton>
 							</div>
@@ -271,7 +252,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								className="flex min-w-0 items-center justify-end gap-1"
 								data-testid="bridge-review-rail-toolbar-trailing"
 							>
-								<div data-testid="bridge-review-search-toggle">
+								<div data-testid="bridge-review-search-control-slot">
 									<span className="sr-only">Search files</span>
 									<BridgeReviewSearchControl
 										onChange={(value: string): void => props.onTreeSearchTextChange?.(value)}
@@ -359,17 +340,19 @@ function BridgeReviewContentUnavailableState(props: { readonly sourcePath: strin
 const projectionButtonSpecs: readonly {
 	readonly label: string;
 	readonly mode: BridgeReviewProjectionMode;
+	readonly testIdSuffix: string;
 }[] = [
-	{ label: 'All', mode: { kind: 'allFiles' } },
-	{ label: 'Changed', mode: { kind: 'changedFiles' } },
-	{ label: 'Guided', mode: { kind: 'guidedReview' } },
+	{ label: 'All', mode: { kind: 'allFiles' }, testIdSuffix: 'all-files' },
+	{ label: 'Changed', mode: { kind: 'changedFiles' }, testIdSuffix: 'changed-files' },
+	{ label: 'Guided', mode: { kind: 'guidedReview' }, testIdSuffix: 'guided-review' },
 	{
 		label: 'Change set',
 		mode: { kind: 'currentChangeSet', scope: { kind: 'activePackage' } },
+		testIdSuffix: 'change-set',
 	},
-	{ label: 'Docs/plans', mode: { kind: 'docsAndPlans' } },
-	{ label: 'Tests', mode: { kind: 'tests' } },
-	{ label: 'Source', mode: { kind: 'source' } },
+	{ label: 'Docs/plans', mode: { kind: 'docsAndPlans' }, testIdSuffix: 'docs-plans' },
+	{ label: 'Tests', mode: { kind: 'tests' }, testIdSuffix: 'tests' },
+	{ label: 'Source', mode: { kind: 'source' }, testIdSuffix: 'source' },
 ];
 
 const gitStatusOptions: readonly BridgeReviewFilterOption<BridgeFileChangeKind | 'all'>[] = [

@@ -16,6 +16,12 @@ Execution order amendment, 2026-06-19:
   markdown rendering, added-file content, collapsible headers, file click to
   CodeView scroll, and browser-controlled visual comparison against DiffsHub
   example PRs.
+- The top review summary and projection-scope strip is part of that interaction
+  loop, not later polish. Do not resume new Swift IPC surface work while the
+  browser or native screenshot still shows a detached pure-black
+  `All / Changed / Guided / Change set / Docs/plans / Tests / Source` strip,
+  mismatched header typography, or controls that do not sit on the Mocha
+  AgentStudio/Pierre header plane.
 - Add semantic Bridge IPC control before large native performance proof. The
   real branch cannot be measured repeatably if agents cannot drive file
   selection, tree search/filter/reveal, content fetch, markdown preview, and
@@ -25,6 +31,102 @@ Execution order amendment, 2026-06-19:
   truth for package push, tree/render/search/reveal, file selection, CodeView
   hydration/render, markdown render, worker readiness, content fetch, and scroll
   responsiveness.
+
+Manual visual review blocker, 2026-06-19:
+
+- Current BridgeWeb code partially uses shadcn/Base UI, but not enough for this
+  gate. `BridgeWeb/components.json` now exists with `style = base-mira`, and
+  generated `Button`, `DropdownMenu`, `Input`, `Popover`, and `Tooltip`
+  primitives exist under `BridgeWeb/src/components/ui`. The failing surfaces are
+  the Bridge-owned wrappers and shell composition: top header/scope controls,
+  right rail toolbar, filter/search wrappers, and CodeView custom headers still
+  look like bespoke Tailwind widgets instead of compact shadcn/Base UI controls
+  tuned with AgentStudio/Pierre Mocha tokens.
+- Buttons must match the app sidebar language: compact icon-led shadcn controls,
+  no always-visible heavy outlines, no native/select-looking black pills, and
+  only hover/focus/pressed states drawing the border or raised surface.
+- Remove or replace the detached top `All / Changed / Guided / Change set /
+  Docs/plans / Tests / Source` bar. The projection mode affordance must become a
+  compact shadcn-style toggle/segmented control that belongs to the header
+  plane, or be moved out of that row. A black floating strip is a failed proof
+  state. The unexplained hamburger/list icon in the top-left header is also a
+  failed proof state unless it owns a clear app action and matches the icon
+  system.
+- File headers must use Lucide or generated-system icons, not local ad hoc SVG
+  drawings. Each header needs a stable collapse/expand button with synced
+  `aria-expanded`, no text cursor affordance, no duplicate path rendered on both
+  left and right, no extra Bridge-owned status/kind icon stacked before
+  Pierre's file icon, a clear faint boundary between files, and DiffsHub-like
+  sticky behavior while scrolling.
+- File rail clicks must align the target file header to the top of the CodeView
+  viewport and remain stable after collapse/expand. Collapse/open must not jump
+  the scroll owner unexpectedly, desync the chevron, or make the file boundary
+  ambiguous.
+- Added files must render as full added content through the Bridge content
+  handle path and Pierre CodeView item model. A mostly black body or placeholder
+  row for added files is a failed UX state.
+- Scrollbars, file separators, status colors, added/deleted backgrounds, and
+  selected row/header colors must be compared against the DiffsHub Node PR
+  reference and the AgentStudio Mocha palette. Current screenshots with black
+  file bodies, mismatched green backgrounds, or detached top chrome do not pass.
+- Tests must capture these exact blockers: browser/Playwright assertions for
+  shadcn primitive composition on controls, no detached top strip, no hamburger
+  without action, file header icon/collapse state, no Bridge status/kind icon
+  in the CodeView prefix slot, no duplicate header path, click-to-top alignment,
+  collapse no-jump behavior, added-file full green content, and visual-proof
+  crops for top header, open filter, scrolled rail, scrolled CodeView, and
+  added-file content.
+
+Visual checkpoint, 2026-06-19:
+
+- Browser visual QA confirmed the apparent "three icons before the file name"
+  came from CodeView header slot composition: Bridge rendered a collapse button
+  and status badge in `slot[name="header-prefix"]`, while Pierre rendered its
+  own `svg[data-change-icon="file"]` for the file path. The accepted contract is
+  now stricter: Bridge's prefix slot renders only the collapse/expand button.
+  File status remains in the file rail/tree and summary metadata; it does not
+  stack beside Pierre's file icon in the CodeView header.
+- Header proof must inspect the slotted DOM, not only normal descendants:
+  `slot[name="header-prefix"].assignedElements()` for Bridge controls and
+  `slot[name="header-metadata"].assignedElements()` for count metadata. A
+  selector that looks only inside `diffs-container.shadowRoot` can miss the
+  Bridge-owned prefix and produce false confidence.
+- Top projection proof must inspect the actual browser-rendered header, not
+  just React props. The accepted state is seven explicit
+  `bridge-review-projection-*` buttons, one active `aria-pressed` button, 11px
+  compact typography, transparent/same-plane background, and no detached pure
+  black scope strip. The dev-server verifier owns this check.
+- The right rail toolbar must not duplicate test ids between wrappers and
+  buttons. `bridge-review-search-toggle` belongs to the button only; wrapper
+  slots use their own ids. Icon controls in the rail must remain hoverable and
+  visually consistent even when the underlying feature is not implemented yet.
+
+Shadcn theming source-of-truth amendment, 2026-06-19:
+
+- Canonical shadcn preset is Mira on Base UI with small radius. The preset code
+  resolved locally is `b1D0dxoG`, which decodes to `style = mira`,
+  `baseColor = neutral`, `theme = neutral`, `iconLibrary = lucide`,
+  `radius = small`, `menuAccent = subtle`, `menuColor = default`, `font = geist`,
+  and `fontHeading = inherit`.
+- Shadcn theming is the first layer. BridgeWeb must let shadcn own semantic UI
+  token names, component primitives, menu/button/input focus semantics, and
+  radius scale. AgentStudio then maps those semantic tokens to Catppuccin Mocha
+  and app-specific dark chrome in `BridgeWeb/src/app/bridge-app.css`.
+- Component overrides are downstream of the theme. Bridge review wrappers may
+  tune density, layout, and domain-specific states, but they must not replace
+  the shadcn semantic token layer with unrelated one-off colors, radii, fonts,
+  or focus styles.
+- Current shadcn CLI guard: `shadcn apply mira` failed because
+  `BridgeWeb/components.json` declares `@/*` aliases, but `BridgeWeb/tsconfig.json`
+  and `BridgeWeb/vite.config.ts` do not define matching aliases. Fix the alias
+  contract first, then apply/regenerate the Mira/Base UI theme/components.
+- 2026-06-19 correction: after adding matching `@/*` resolution in
+  `BridgeWeb/tsconfig.json` and `BridgeWeb/vite.config.ts`,
+  `pnpm --dir BridgeWeb exec shadcn info` reports Tailwind v4, import alias
+  `@`, `style = base-mira`, `base = base`, `iconLibrary = lucide`,
+  `radius = small`, installed `button`, `dropdown-menu`, `input`, `popover`,
+  and `tooltip`. Do not reintroduce `base-nova`, Hugeicons, or font package
+  dependencies for BridgeWeb chrome.
 
 Execution checkpoint, 2026-06-18 20:42 local:
 
@@ -113,6 +215,7 @@ or an explicitly approved split/replan says why a row moved out of scope.
 | shadcn/Base UI design foundation | Generated files, typecheck, component tests, and screenshot | BridgeWeb has package-local shadcn CLI configuration, generated Base UI primitives where supported, compact variants, and AgentStudio-owned dark tokens before rail chrome is considered complete. |
 | Design system composition | Component tests, source review, and screenshot | BridgeWeb composes generated shadcn/Base UI primitives with `cn`, compact variants, and Catppuccin Mocha tokens; Tailwind classes are transport/layout, not a bespoke feature-local control system. |
 | Visual parity with DiffsHub grammar | Side-by-side or comparable screenshots | Headers, separators, rail density, icon-first controls, and dark palette are close enough to the DiffsHub Node PR reference while matching AgentStudio styling. |
+| Top review scope/header chrome | Browser screenshot crop, native screenshot crop, and bbox/color checks | The summary row and `All / Changed / Guided / Change set / Docs/plans / Tests / Source` controls sit on the Mocha/AgentStudio header plane; no detached pure-black pill strip, no oversized tab bar, no mismatched typography, and no header controls that look visually unrelated to the surrounding app chrome. |
 | DiffsHub-class filter popovers | Browser screenshot with filter menu open, semantic assertions, and bbox measurements | Filter/search controls are compact icon-first buttons; open filter popover uses a dark raised surface, clear separators, about 32px rows, colored status badges, trailing selected checkmarks, disabled/clear affordance, `menuitemcheckbox` semantics, and no native/select-looking black pills. |
 | Rail row/icon alignment | Browser screenshot, DOM checks, and bbox measurements | Tree rows use compact 24px-ish stable height, `button[role="treeitem"][data-item-path]`, consistent file/folder/status icons, right-aligned status letters, readable selected-row contrast, and disclosure chevrons sized like DiffsHub/AgentStudio controls rather than oversized row text. |
 | Native packaged proof | AgentStudio debug app evidence | Packaged BridgeWeb renders the same repaired behavior through Bridge package push and `agentstudio://resource/content/...`, not a Vite/mock-only path. |
@@ -730,8 +833,8 @@ Proof:
 
 - shadcn CLI setup proof records the exact commands used, generated file paths,
   and any documented fallback for unavailable Base UI primitives. For the
-  installed shadcn CLI, the Base UI selection is represented by
-  `style: "base-nova"` in `BridgeWeb/components.json`; do not add unsupported
+  installed shadcn CLI, the Base UI/Mira selection is represented by
+  `style: "base-mira"` in `BridgeWeb/components.json`; do not add unsupported
   schema fields just to make the base explicit.
 - `pnpm --dir BridgeWeb run typecheck` proves generated imports and any alias
   changes are valid.
@@ -997,6 +1100,69 @@ mise run test
 - Header/chrome changes are BridgeWeb-local.
 - Generated BridgeWeb assets should be regenerated from source, not edited by
   hand.
+
+## Current Checkpoint: 2026-06-19 Dev-Server Proof
+
+The inner browser loop is active on `http://127.0.0.1:5173/` and currently
+proves both a large DiffsHub-style fixture and the real worktree fixture.
+
+Fresh green proof:
+
+```bash
+pnpm --dir BridgeWeb run fmt
+pnpm --dir BridgeWeb exec tsc --noEmit --pretty false
+pnpm --dir BridgeWeb exec vitest run src/review-viewer/chrome/bridge-review-chrome.unit.test.tsx src/review-viewer/shell/review-viewer-shell.integration.test.tsx src/review-viewer/code-view/bridge-code-view-panel-scroll.unit.test.tsx
+pnpm --dir BridgeWeb run test:dev-server
+pnpm --dir BridgeWeb run test:dev-server:worktree
+pnpm --dir BridgeWeb run proof:visual:dev-server
+```
+
+Observed proof values:
+
+- Large fixture: `codeViewScrollHeight = 1153975`,
+  `codeViewScrollTop = 1000143`, worker pool ready, markdown fixture reachable,
+  selected file `Sources/BridgeViewer/NewPanel.ts`.
+- Real worktree fixture: selected `.github/workflows/ci.yml`, loaded `19721`
+  characters and `557` lines, worker pool ready, package handle text remains
+  scrubbed.
+- Visual artifacts:
+  `tmp/bridge-viewer-visual-proof/2026-06-19T17-00-07-679Z-dev-server`.
+
+Still not accepted by the DiffsHub-class visual gate:
+
+- The top review scope strip must become quieter and more integrated with the
+  AgentStudio/Pierre Mocha header chrome.
+- Main CodeView file sections need clearer DiffsHub-like boundaries, sticky
+  behavior, and collapse/expand affordances.
+- CodeView file headers must not stack redundant icons. The accepted header
+  grammar is collapse affordance plus Bridge status badge plus Pierre-owned
+  file icon/path; do not add an extra Bridge file-kind icon before the path.
+- File-click selection must keep aligning the target file header to the top of
+  the scroll viewport without jumpiness.
+- Large fixture tree-click behavior must be consistent for all visible file
+  rows. Clicking a file row must resolve to a review item, update selected
+  content state, and scroll the corresponding CodeView header into the viewport.
+- Fixture-specific path checks must target paths that exist in that fixture;
+  `Sources/BridgeViewer/NewPanel.ts` belongs to the large DiffsHub fixture, not
+  the real-worktree fixture.
+- The browser proof must continue to check added-file full content, markdown
+  rendering, right-rail compact controls, and filter/search behavior before new
+  Swift IPC expansion becomes the critical path.
+
+Parallel IPC checkpoint:
+
+- Existing-handle Bridge IPC methods now have focused proof for Bridge-pane
+  target canonicalization and typed `unsupported target` errors for non-Bridge
+  panes.
+- `bridge.diff.load` remains app/layout-scoped because it opens/loads Bridge
+  review state without an existing pane handle.
+- Focused IPC proof currently green:
+
+```bash
+swift test --filter AgentStudioIPCBridgeServiceTests
+swift test --filter AgentStudioIPCRegistryAuthorizationTests
+swift test --filter AgentStudioIPCClientCoreTests
+```
 
 ## Next Workflow
 

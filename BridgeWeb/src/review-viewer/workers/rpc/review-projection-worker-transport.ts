@@ -20,7 +20,7 @@ interface PendingWorkerRequest {
 	readonly reject: (error: Error) => void;
 }
 
-const defaultProjectionWorkerUrl = new URL('./review-projection-worker.js', import.meta.url);
+const defaultProjectionWorkerUrl = new URL('./review-projection-worker-entry.ts', import.meta.url);
 
 export function createBridgeReviewProjectionWebWorkerClient(
 	props: CreateBridgeReviewProjectionWebWorkerClientProps = {},
