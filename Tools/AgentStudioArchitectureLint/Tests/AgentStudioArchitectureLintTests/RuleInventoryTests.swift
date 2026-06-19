@@ -38,5 +38,7 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_ipc_public_surface_sanitization", severity: .error),
         ExpectedRule(id: "agentstudio_ipc_no_direct_atom_access", severity: .error),
         ExpectedRule(id: "agentstudio_no_forbidden_architecture_marker", severity: .error),
+        ExpectedRule(id: "agentstudio_no_generic_clock_sleep", severity: .error),
+        ExpectedRule(id: "agentstudio_no_task_sleep_in_tests", severity: .error),
     ]
 }
