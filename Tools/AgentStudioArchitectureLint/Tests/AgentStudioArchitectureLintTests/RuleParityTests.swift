@@ -70,6 +70,65 @@ struct RuleParityTests {
         #expect(deniedDiagnostics.map(\.ruleID) == ["agentstudio_no_generic_clock_sleep"])
     }
 
+    @Test("test task sleep rule diagnoses every denied fixture call shape")
+    func testTaskSleepRuleDiagnosesEveryDeniedFixtureCallShape() throws {
+        let taskSleepFixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Tests")
+            .appendingPathComponent("AgentStudioTests")
+            .appendingPathComponent("BadTaskSleepTest.swift")
+            .path
+
+        let diagnostics = try lint(files: [taskSleepFixture])
+            .filter { $0.ruleID == "agentstudio_no_task_sleep_in_tests" }
+
+        #expect(diagnostics.map(\.line) == [5, 9, 13, 17, 23, 27, 31])
+    }
+
+    @Test("test task sleep rule scopes to workspace-relative test paths")
+    func testTaskSleepRuleScopesToWorkspaceRelativeTestPaths() {
+        let testDiagnostics = TestTaskSleepRule().validate(
+            context: context(
+                path: "Tests/AgentStudioTests/BadTaskSleepTest.swift",
+                source: """
+                    import Foundation
+
+                    func waitsWithTaskSleep() async throws {
+                        try await Task.sleep(nanoseconds: 1_000_000)
+                    }
+                    """
+            )
+        )
+        let sourceDiagnostics = TestTaskSleepRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/App/BadTaskSleepSource.swift",
+                source: """
+                    import Foundation
+
+                    func waitsWithTaskSleep() async throws {
+                        try await Task.sleep(nanoseconds: 1_000_000)
+                    }
+                    """
+            )
+        )
+        let externalSourceUnderTestsParentDiagnostics = TestTaskSleepRule().validate(
+            context: context(
+                path: "/tmp/Tests/Project/Sources/AgentStudio/App/BadTaskSleepSource.swift",
+                source: """
+                    import Foundation
+
+                    func waitsWithTaskSleep() async throws {
+                        try await Task.sleep(nanoseconds: 1_000_000)
+                    }
+                    """
+            )
+        )
+
+        #expect(testDiagnostics.map(\.ruleID) == ["agentstudio_no_task_sleep_in_tests"])
+        #expect(sourceDiagnostics.isEmpty)
+        #expect(externalSourceUnderTestsParentDiagnostics.isEmpty)
+    }
+
     private func lintFixtureCorpus(_ corpus: String) throws -> [ArchitectureDiagnostic] {
         let files = try SourceFileDiscovery(fileManager: .default)
             .swiftFiles(under: [fixtureRoot().appendingPathComponent(corpus).path])
