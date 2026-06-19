@@ -30,6 +30,10 @@ struct WorkspaceSettingsStoreTests {
         inboxPrefs.setGrouping(.byRepo)
         inboxPrefs.setSort(.oldestFirst)
         inboxPrefs.setBellEnabled(true)
+        inboxPrefs.setGlobalInboxContentMode(.activity)
+        inboxPrefs.setGlobalInboxRowStateFilter(.all)
+        inboxPrefs.setPaneInboxContentMode(.all)
+        inboxPrefs.setPaneInboxRowStateFilter(.unreadOnly)
 
         try store.flush(for: workspaceId)
 
@@ -51,6 +55,10 @@ struct WorkspaceSettingsStoreTests {
         #expect(restoredInboxPrefs.grouping == .byRepo)
         #expect(restoredInboxPrefs.sort == .oldestFirst)
         #expect(restoredInboxPrefs.bellEnabled)
+        #expect(restoredInboxPrefs.globalInboxContentMode == .activity)
+        #expect(restoredInboxPrefs.globalInboxRowStateFilter == .all)
+        #expect(restoredInboxPrefs.paneInboxContentMode == .all)
+        #expect(restoredInboxPrefs.paneInboxRowStateFilter == .unreadOnly)
     }
 
     @Test
@@ -77,6 +85,10 @@ struct WorkspaceSettingsStoreTests {
         #expect(inboxPrefs.grouping == .byTab)
         #expect(inboxPrefs.sort == .newestFirst)
         #expect(!inboxPrefs.bellEnabled)
+        #expect(inboxPrefs.globalInboxContentMode == .rollUpAlerts)
+        #expect(inboxPrefs.globalInboxRowStateFilter == .unreadOnly)
+        #expect(inboxPrefs.paneInboxContentMode == .rollUpAlerts)
+        #expect(inboxPrefs.paneInboxRowStateFilter == .unreadOnly)
     }
 
     @Test
@@ -511,21 +523,21 @@ struct WorkspaceSettingsStoreTests {
         inboxPrefs.setBellEnabled(true)
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))
+        await store.waitForPendingAutosave()
 
-        await assertEventuallyMain("settings mutations should autosave") {
-            guard let settings = readSettingsJSON(for: workspaceId) else {
-                return false
-            }
-            let editorChooser = settings["editorChooser"] as? [String: Any]
-            let sidebar = settings["sidebar"] as? [String: Any]
-            let checkoutColors = sidebar?["checkoutColors"] as? [String: String]
-            let notifications = settings["notifications"] as? [String: Any]
-            return editorChooser?["bookmarkedEditorId"] as? String == "cursor"
-                && checkoutColors?[SidebarCheckoutColorKey("repo:agent-studio").rawValue] == "#22cc88"
-                && notifications?["grouping"] as? String == "byRepo"
-                && notifications?["sort"] as? String == "oldestFirst"
-                && notifications?["bellEnabled"] as? Bool == true
+        guard let settings = readSettingsJSON(for: workspaceId) else {
+            Issue.record("Expected settings autosave to write JSON")
+            return
         }
+        let editorChooser = settings["editorChooser"] as? [String: Any]
+        let sidebar = settings["sidebar"] as? [String: Any]
+        let checkoutColors = sidebar?["checkoutColors"] as? [String: String]
+        let notifications = settings["notifications"] as? [String: Any]
+        #expect(editorChooser?["bookmarkedEditorId"] as? String == "cursor")
+        #expect(checkoutColors?[SidebarCheckoutColorKey("repo:agent-studio").rawValue] == "#22cc88")
+        #expect(notifications?["grouping"] as? String == "byRepo")
+        #expect(notifications?["sort"] as? String == "oldestFirst")
+        #expect(notifications?["bellEnabled"] as? Bool == true)
     }
 
     @Test
@@ -546,7 +558,6 @@ struct WorkspaceSettingsStoreTests {
         await clock.waitForPendingSleepCount()
         store.restore(for: workspaceBId)
         clock.advance(by: .milliseconds(10))
-        await Task.yield()
 
         #expect(!FileManager.default.fileExists(atPath: settingsFileURL(for: workspaceAId).path))
     }

@@ -35,6 +35,7 @@ struct PaneInboxPresentation {
     let unreadCount: @MainActor ([UUID]) -> Int
     let clear: @MainActor (UUID, [UUID]) -> Void
     let open: @MainActor (UUID, [UUID]) -> Void
+    let openRollUpAlerts: @MainActor (UUID, [UUID]) -> Void
     let toggle: @MainActor (UUID, [UUID]) -> Void
     let setPresented: @MainActor (UUID, [UUID], Bool) -> Void
     let pendingRequest: @MainActor () -> PaneInboxRequest?
@@ -56,7 +57,7 @@ struct PaneInboxPresentation {
             editorMenuPresented: baseTrailingActions.editorMenuPresented,
             buttonTitle: baseTrailingActions.buttonTitle,
             onOpenFinder: baseTrailingActions.onOpenFinder,
-            onOpenInbox: { toggle(parentPaneId, paneIds) },
+            onOpenInbox: { openRollUpAlerts(parentPaneId, paneIds) },
             inboxPopoverPresented: inboxPopoverPresented,
             inboxPopoverContent: popoverContent(
                 parentPaneId, paneIds,

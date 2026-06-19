@@ -318,6 +318,9 @@ struct FakeCommandPort: AppIPCCommandPort {
     }
 
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
+        if params.targetHandle != nil {
+            throw AppIPCCommandError(reason: .targetNotFound)
+        }
         guard IPCCommandIdentifier.allCases.contains(params.commandId) else {
             throw AppIPCCommandError(reason: .unsupportedCommand)
         }
@@ -643,6 +646,18 @@ func sendRequest(socketPath: String, request: JSONRPCClientRequest) throws -> JS
     return try reader.receiveResponse(connection: connection)
 }
 
+func sendRequestWithoutBlockingMainActor(socketPath: String, request: JSONRPCClientRequest) async throws
+    -> JSONRPCResponseMessage
+{
+    let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: socketPath))
+    defer {
+        connection.close()
+    }
+    try sendRequest(connection: connection, request: request)
+    var reader = TestFrameReader()
+    return try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
+}
+
 func sendRequest(connection: UnixSocketConnection, request: JSONRPCClientRequest) throws {
     try connection.send(
         try NDJSONFrameEncoder.encode(
@@ -666,6 +681,25 @@ func login(
         )
     )
     let response = try reader.receiveResponse(connection: connection)
+    #expect(response.id == .number(requestId))
+    #expect(response.error == nil)
+}
+
+func loginWithoutBlockingMainActor(
+    connection: UnixSocketConnection,
+    token: AgentStudioIPCSubjectToken,
+    requestId: Int,
+    reader: inout TestFrameReader
+) async throws {
+    try sendRequest(
+        connection: connection,
+        request: JSONRPCClientRequest(
+            id: .number(requestId),
+            method: "auth.login",
+            params: .object(["token": .string(token.rawValue)])
+        )
+    )
+    let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
     #expect(response.id == .number(requestId))
     #expect(response.error == nil)
 }
@@ -700,6 +734,33 @@ struct TestFrameReader {
             queuedFrames.append(contentsOf: try decoder.append(data))
             if !queuedFrames.isEmpty {
                 return queuedFrames.removeFirst()
+            }
+        }
+    }
+
+    mutating func receiveResponseWithoutBlockingMainActor(connection: UnixSocketConnection) async throws
+        -> JSONRPCResponseMessage
+    {
+        if !queuedFrames.isEmpty {
+            return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
+        }
+        while true {
+            let data = try await receiveDataWithoutBlockingMainActor(connection: connection)
+            queuedFrames.append(contentsOf: try decoder.append(data))
+            if !queuedFrames.isEmpty {
+                return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
+            }
+        }
+    }
+
+    private func receiveDataWithoutBlockingMainActor(connection: UnixSocketConnection) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                do {
+                    continuation.resume(returning: try connection.receive(maxBytes: 4096))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }

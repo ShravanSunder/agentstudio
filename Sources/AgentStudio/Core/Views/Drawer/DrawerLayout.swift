@@ -90,7 +90,7 @@ enum DrawerLayout {
     static let iconBarTotalHeight: CGFloat = connectorHeight + iconStripHeight
 
     /// Approximate icon bar height for imperative layout calculations
-    /// outside SwiftUI (e.g. PaneCoordinator drawer content rect).
+    /// outside SwiftUI (e.g. WorkspaceSurfaceCoordinator drawer content rect).
     /// SwiftUI code should use the measured iconBarFrame preference instead.
     static let iconBarFrameHeight: CGFloat = iconBarTotalHeight
 }

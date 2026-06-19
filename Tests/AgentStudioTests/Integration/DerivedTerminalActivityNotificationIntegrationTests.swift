@@ -72,7 +72,8 @@ struct DerivedActivityNotificationIntegrationTests {
         )
         let visibleRows = PaneInboxNotificationPopover.relevantNotifications(
             paneIds: scope.paneIds,
-            notifications: fixture.inboxAtom.notifications
+            notifications: fixture.inboxAtom.notifications,
+            contentMode: .activity
         )
         #expect(notification.kind == .unseenActivity)
         #expect(notification.paneId == drawerPane.id)
@@ -198,7 +199,8 @@ struct DerivedActivityNotificationIntegrationTests {
         )
         let visibleRows = PaneInboxNotificationPopover.relevantNotifications(
             paneIds: scope.paneIds,
-            notifications: fixture.inboxAtom.notifications
+            notifications: fixture.inboxAtom.notifications,
+            contentMode: .activity
         )
         #expect(Set(visibleRows.compactMap(\.paneId)) == Set([firstDrawerPane.id, secondDrawerPane.id]))
         #expect(visibleRows.allSatisfy { $0.kind == .unseenActivity })
@@ -489,7 +491,8 @@ struct DerivedActivityNotificationIntegrationTests {
         )
         let visibleRows = PaneInboxNotificationPopover.relevantNotifications(
             paneIds: scope.paneIds,
-            notifications: fixture.inboxAtom.notifications
+            notifications: fixture.inboxAtom.notifications,
+            contentMode: .activity
         )
         #expect(fixture.inboxAtom.globalUnreadCount == 1)
         #expect(notification.paneId == drawerPane.id)
@@ -836,6 +839,7 @@ extension DerivedActivityNotificationIntegrationTests {
                 sizingMode: .proportional
             ) == true
         )
+        fixture.tabLayout.setActivePane(activePaneId, inTab: activeTab.id)
     }
 
     private func makeWindowKey(_ atom: WindowLifecycleAtom) {

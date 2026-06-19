@@ -474,10 +474,11 @@ final class BridgePaneController {
         let body = params.body?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
+        let boundedText = InboxNotificationTextPolicy.bounded(title: title, body: body)
 
         return .init(
-            title: title.limited(to: AppPolicies.InboxNotification.maxTitleCharacters),
-            body: body?.limited(to: AppPolicies.InboxNotification.maxBodyCharacters)
+            title: boundedText.title,
+            body: boundedText.body
         )
     }
 
@@ -831,10 +832,5 @@ struct BridgeMethodUnimplementedError: Error, LocalizedError, Sendable {
 extension String {
     fileprivate var nilIfEmpty: String? {
         isEmpty ? nil : self
-    }
-
-    fileprivate func limited(to maxCharacters: Int) -> String {
-        guard count > maxCharacters else { return self }
-        return String(prefix(maxCharacters))
     }
 }

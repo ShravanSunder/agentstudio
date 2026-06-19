@@ -2261,6 +2261,25 @@ final class WorkspaceStoreTests {
         #expect(abs((store.tabs[0].layout.ratioForSplit(dividerId) ?? 0.0) - (0.7)) <= 0.001)
     }
 
+    @Test
+    func test_resizeVisiblePanePair_preservesMinimizedRatioAndUnrelatedPane() {
+        let p1 = store.createPane()
+        let p2 = store.createPane()
+        let p3 = store.createPane()
+        let p4 = store.createPane()
+        let tab = makeTab(paneIds: [p1.id, p2.id, p3.id, p4.id], activePaneId: p1.id)
+        store.appendTab(tab)
+        store.minimizePane(p2.id, inTab: tab.id)
+        let before = store.tabs[0].layout
+
+        store.resizeVisiblePanePair(tabId: tab.id, leftPaneId: p1.id, rightPaneId: p3.id, ratio: 0.7)
+
+        let after = store.tabs[0].layout
+        #expect(abs((after.ratioForPanePair(leftPaneId: p1.id, rightPaneId: p3.id) ?? 0) - 0.7) <= 0.001)
+        #expect(abs((after.paneRatio(p2.id) ?? 0) - (before.paneRatio(p2.id) ?? 0)) <= 1e-9)
+        #expect(abs((after.paneRatio(p4.id) ?? 0) - (before.paneRatio(p4.id) ?? 0)) <= 1e-9)
+    }
+
     // MARK: - resizePaneByDelta
 
     @Test
@@ -2282,6 +2301,38 @@ final class WorkspaceStoreTests {
 
         // Assert — ratio changed
         #expect(store.tabs[0].layout.ratioForSplit(dividerId) != ratioBefore)
+    }
+
+    @Test
+    func test_resizePaneByDelta_skipsMinimizedNeighbor() {
+        let p1 = store.createPane()
+        let p2 = store.createPane()
+        let p3 = store.createPane()
+        let tab = makeTab(paneIds: [p1.id, p2.id, p3.id], activePaneId: p1.id)
+        store.appendTab(tab)
+        store.minimizePane(p2.id, inTab: tab.id)
+        let before = store.tabs[0].layout
+
+        store.resizePaneByDelta(tabId: tab.id, paneId: p1.id, direction: .right, amount: 10)
+
+        let after = store.tabs[0].layout
+        #expect(abs((after.paneRatio(p2.id) ?? 0) - (before.paneRatio(p2.id) ?? 0)) <= 1e-9)
+        #expect((after.ratioForPanePair(leftPaneId: p1.id, rightPaneId: p3.id) ?? 0) > 0.5)
+    }
+
+    @Test
+    func test_resizePaneByDelta_noOpsWhenMinimizedNeighborHasNoVisiblePartner() {
+        let p1 = store.createPane()
+        let p2 = store.createPane()
+        let p3 = store.createPane()
+        let tab = makeTab(paneIds: [p1.id, p2.id, p3.id], activePaneId: p2.id)
+        store.appendTab(tab)
+        store.minimizePane(p3.id, inTab: tab.id)
+        let before = store.tabs[0].layout
+
+        store.resizePaneByDelta(tabId: tab.id, paneId: p2.id, direction: .right, amount: 10)
+
+        #expect(store.tabs[0].layout == before)
     }
 
     @Test

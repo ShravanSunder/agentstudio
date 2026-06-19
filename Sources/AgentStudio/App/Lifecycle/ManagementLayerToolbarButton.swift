@@ -21,7 +21,7 @@ struct ManagementLayerToolbarButton: View {
             .foregroundStyle(isManagementLayerActive ? Color.accentColor : .primary)
         }
         .buttonStyle(.plain)
-        .help(CommandDispatcher.shared.definition(for: .toggleManagementLayer).controlToolTip)
+        .help(AppCommandDispatcher.shared.definition(for: .toggleManagementLayer).controlToolTip)
         .frame(width: 36, height: 24)
     }
 }

@@ -641,7 +641,7 @@ struct TerminalRuntimeTests {
         #expect(result == .failure(.runtimeNotReady(lifecycle: .terminated)))
     }
 
-    private func makeEnvelope(command: RuntimeCommand, paneId: PaneId) -> RuntimeCommandEnvelope {
+    private func makeEnvelope(command: PaneRuntimeCommand, paneId: PaneId) -> RuntimeCommandEnvelope {
         let clock = ContinuousClock()
         return RuntimeCommandEnvelope(
             commandId: UUID(),

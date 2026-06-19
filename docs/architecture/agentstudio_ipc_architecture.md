@@ -70,12 +70,16 @@ The remaining app integration boundaries are:
   live debug proof shows app IPC can identify the debug runtime, reject
   command-bar presentation through `command.execute`, present command-bar
   scope through `ui.commandBar.open`, split panes, create drawer panes, toggle
-  drawers, and verify debug observability. Earlier terminal proof showed
-  `terminal.status`, `pane.focus`, `terminal.send`, and
-  `terminal.wait(titleChanged, afterSequence:)` reach a ready runtime through
-  the debug app socket. The system still does not yet prove shell command
-  completion, shell output, cwd changes, or prompt readiness through exported
-  events.
+  drawers, and verify generic debug observability. A clean `ipc-terminal-smoke`
+  launch can request and dispatch the startup diagnostic, but current proof
+  blocks before terminal command control when Ghostty surface creation fails to
+  mount (`terminal_view.count=1`, `surface_reference.count=0`, `surface.count=0`,
+  `valid_geometry.count=0`). Earlier terminal proof showed `terminal.status`,
+  `pane.focus`, `terminal.send`, and `terminal.wait(titleChanged,
+  afterSequence:)` can reach a ready runtime through the debug app socket. The
+  current required follow-up is to restore reliable terminal surface readiness,
+  then prove shell command completion, shell output, cwd changes, or prompt
+  readiness through exported events.
 
 ## Target Ownership
 
@@ -102,7 +106,7 @@ AgentStudioAppIPC
 
 AgentStudio/App/Boot + AgentStudio/App/IPCComposition
   Owns:     AppDelegate server composition/lifecycle plus concrete port adapters
-            from AgentStudioAppIPC protocols into PaneCoordinator,
+            from AgentStudioAppIPC protocols into WorkspaceSurfaceCoordinator,
             RuntimeRegistry, PaneRuntime, and app state owners.
   Imports:  AgentStudioAppIPC plus the concrete app modules it adapts.
 
@@ -169,7 +173,7 @@ pane.split / pane.close / drawer.addPane / drawer.toggle
        verifies active workspace window
        resolves pane handle by UUID or friendly ordinal
        resolves owning tab where the action requires it
-  -> ActionExecutor.execute(PaneActionCommand)
+  -> WorkspaceActionExecutor.execute(WorkspaceActionCommand)
   -> existing PaneTabViewController / workspace mutation owner path
 ```
 
@@ -243,9 +247,8 @@ terminal.send
   -> AgentStudioIPCRuntimeAdapter
        resolves pane handle by UUID or friendly ordinal
        requires a terminal pane and registered runtime
-  -> ActionExecutorRuntimeCommandDispatcher
-  -> ActionExecutor.dispatchRuntimeCommand(.terminal(.sendInput), correlationId:)
-  -> PaneCoordinator.dispatchRuntimeCommand
+  -> PaneRuntimeCommandDispatching
+  -> WorkspaceSurfaceCoordinator.dispatchRuntimeCommand
   -> RuntimeRegistry.runtime(for:)
   -> PaneRuntime.handleCommand(...)
 

@@ -55,6 +55,8 @@ struct TerminalSettledActivity: Sendable, Equatable {
 
 enum TerminalActivityEvent: Sendable, Equatable {
     case unseenActivitySettled(TerminalSettledActivity)
+    case agentSettledActivityPromoted(TerminalSettledActivity)
+    case agentSettledActivityRevoked
 
     var actionPolicy: ActionPolicy {
         .critical

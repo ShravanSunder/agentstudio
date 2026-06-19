@@ -33,7 +33,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     convenience init(
         store: WorkspaceStore,
-        actionExecutor: ActionExecutor,
+        workspaceActionExecutor: WorkspaceActionExecutor,
+        runtimeCommandDispatcher: any PaneRuntimeCommandDispatching,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
@@ -77,7 +78,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         let splitVC = MainSplitViewController(
             store: store,
             workspaceWindowId: windowId,
-            actionExecutor: actionExecutor,
+            workspaceActionExecutor: workspaceActionExecutor,
+            runtimeCommandDispatcher: runtimeCommandDispatcher,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
@@ -168,8 +170,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Titlebar Accessory
 
     private func setupTitlebarAccessory() {
-        let worktreeSidebarPresentation = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
-        let inboxSidebarPresentation = CommandDispatcher.shared.definition(for: .showInboxNotifications)
+        let worktreeSidebarPresentation = AppCommandDispatcher.shared.definition(for: .showWorktreeSidebar)
+        let inboxSidebarPresentation = AppCommandDispatcher.shared.definition(for: .showInboxNotifications)
 
         // Worktree sidebar button
         let worktreeButton = makeSidebarToolbarButton(
@@ -241,12 +243,13 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         applySidebarToolbarImage(
             symbolName: worktreeSymbol,
-            accessibilityDescription: CommandDispatcher.shared.definition(for: .showWorktreeSidebar).actionSpec.label,
+            accessibilityDescription: AppCommandDispatcher.shared.definition(for: .showWorktreeSidebar).actionSpec
+                .label,
             to: worktreeToolbarButton
         )
         applySidebarToolbarImage(
             symbolName: inboxSymbol,
-            accessibilityDescription: CommandDispatcher.shared.definition(for: .showInboxNotifications).actionSpec
+            accessibilityDescription: AppCommandDispatcher.shared.definition(for: .showInboxNotifications).actionSpec
                 .label,
             to: inboxToolbarButton
         )
@@ -324,7 +327,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func updateInboxUnreadBadge() {
-        let unreadCount = inboxAtom?.globalUnreadCount ?? 0
+        let unreadCount = inboxAtom?.globalRollUpAlertCount ?? 0
         guard unreadCount > 0 else {
             inboxToolbarBadgeHostingView?.isHidden = true
             return
@@ -339,7 +342,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         guard !isObservingInboxUnread else { return }
         isObservingInboxUnread = true
         withObservationTracking {
-            _ = inboxAtom?.globalUnreadCount
+            _ = inboxAtom?.globalRollUpAlertCount
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -373,6 +376,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func showInboxNotifications(commandBarIsKey: Bool) {
         splitViewController?.showInboxNotifications(commandBarIsKey: commandBarIsKey)
+    }
+
+    func showRollUpInboxNotifications(commandBarIsKey: Bool) {
+        splitViewController?.showRollUpInboxNotifications(commandBarIsKey: commandBarIsKey)
     }
 
     func showWorktreeSidebar() {
@@ -437,19 +444,19 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func showInboxSidebarAction() {
-        showInboxNotifications(commandBarIsKey: false)
+        showRollUpInboxNotifications(commandBarIsKey: false)
         updateSidebarToolbarIcons()
     }
 
     @objc private func watchFolderAction() {
-        CommandDispatcher.shared.dispatch(.watchFolder)
+        AppCommandDispatcher.shared.dispatch(.watchFolder)
     }
 
     private func commandToolbarButtonItem(
         for command: AppCommand,
         action: Selector
     ) -> NSToolbarItem {
-        let definition = CommandDispatcher.shared.definition(for: command)
+        let definition = AppCommandDispatcher.shared.definition(for: command)
         let item = NSToolbarItem(itemIdentifier: .watchFolder)
         item.label = definition.actionSpec.label
         item.paletteLabel = definition.actionSpec.label
@@ -503,7 +510,7 @@ extension MainWindowController: NSToolbarDelegate {
     ) -> NSToolbarItem? {
         switch itemIdentifier {
         case .managementLayer:
-            let presentation = CommandDispatcher.shared.definition(for: .toggleManagementLayer).actionSpec
+            let presentation = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer).actionSpec
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = presentation.label
             item.paletteLabel = presentation.label

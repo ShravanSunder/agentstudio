@@ -98,6 +98,10 @@ extension AppDelegate {
             startupTraceRecorder: startupTraceRecorder,
             isPaneCurrentlyAttended: { [weak self] paneId in
                 self?.isPaneCurrentlyAttendedForNotifications(paneId) ?? false
+            },
+            isPaneAgentClassified: { [weak self] paneId, paneKind in
+                if paneKind == .agent { return true }
+                return self?.store.paneAtom.pane(paneId)?.metadata.contentType == .agent
             }
         )
         Task { @MainActor [weak self] in

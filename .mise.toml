@@ -236,8 +236,16 @@ description = "Run default test suite (excludes E2E + ZmxE2E by default)"
 run = "/bin/bash scripts/run-swift-test-task.sh test"
 
 [tasks.test-fast]
-description = "Run fast lane: unit + non-WebKit integration tests, excluding WebKit/E2E/ZmxE2E"
+description = "Run fast lane: fast non-WebKit tests, excluding large script/smoke/integration/benchmark proof"
 run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
+
+[tasks.test-large]
+description = "Run large non-WebKit script, smoke, and integration tests"
+run = "/bin/bash scripts/run-swift-test-task.sh test-large"
+
+[tasks.test-prebuild]
+description = "Prebuild Swift test bundles for cached CI test lanes"
+run = "/bin/bash scripts/run-swift-test-task.sh test-prebuild"
 
 [tasks.test-webkit]
 description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
@@ -493,6 +501,15 @@ run = "/bin/bash scripts/verify-beta-observability.sh"
 [tasks.verify-debug-observability]
 description = "Verify AgentStudio debug startup records and scrubbed fields in VictoriaLogs"
 run = "/bin/bash scripts/verify-debug-observability.sh"
+
+[tasks.smoke-debug-launchservices]
+description = "Launch debug AgentStudio and require real LaunchServices GUI proof"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+/bin/bash scripts/run-debug-observability.sh --detach
+AGENTSTUDIO_REQUIRE_LAUNCHSERVICES=1 /bin/bash scripts/verify-debug-observability.sh
+"""
 
 [tasks.verify-git-refresh-performance-workload]
 description = "Run disposable AgentStudio git-refresh performance workload proof"

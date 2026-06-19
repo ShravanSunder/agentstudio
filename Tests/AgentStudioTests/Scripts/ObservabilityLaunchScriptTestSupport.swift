@@ -151,27 +151,65 @@ struct LauncherScriptFixture {
     }
 
     func waitForFile(_ url: URL, timeoutSeconds: TimeInterval) throws {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while Date() < deadline {
-            if FileManager.default.fileExists(atPath: url.path) {
-                return
-            }
-            usleep(20_000)
+        let condition: @Sendable () -> Bool = {
+            FileManager.default.fileExists(atPath: url.path)
         }
-        throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: url.path])
+        guard waitForFileSystemCondition(url, timeoutSeconds: timeoutSeconds, condition: condition) else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: url.path])
+        }
     }
 
     func waitForFile(_ url: URL, containing expectedContent: String, timeoutSeconds: TimeInterval) throws {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while Date() < deadline {
-            if let contents = try? String(contentsOf: url, encoding: .utf8),
-                contents.contains(expectedContent)
-            {
-                return
+        let condition: @Sendable () -> Bool = {
+            guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+                return false
             }
-            usleep(20_000)
+            return contents.contains(expectedContent)
         }
-        throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: url.path])
+        guard waitForFileSystemCondition(url, timeoutSeconds: timeoutSeconds, condition: condition) else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: url.path])
+        }
+    }
+
+    private func waitForFileSystemCondition(
+        _ url: URL,
+        timeoutSeconds: TimeInterval,
+        condition: @escaping @Sendable () -> Bool
+    ) -> Bool {
+        let deadline = DispatchTime.now() + .nanoseconds(Int(timeoutSeconds * 1_000_000_000))
+        while DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds {
+            if condition() {
+                return true
+            }
+            waitForFileSystemChange(affecting: url, until: deadline)
+        }
+        return condition()
+    }
+
+    private func waitForFileSystemChange(affecting url: URL, until deadline: DispatchTime) {
+        let watchedURL = FileManager.default.fileExists(atPath: url.path) ? url : url.deletingLastPathComponent()
+        let fileDescriptor = open(watchedURL.path, O_EVTONLY)
+        guard fileDescriptor >= 0 else {
+            return
+        }
+        let eventSemaphore = DispatchSemaphore(value: 0)
+        let cancelSemaphore = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .extend, .attrib, .rename, .delete],
+            queue: DispatchQueue.global(qos: .userInitiated)
+        )
+        source.setEventHandler {
+            eventSemaphore.signal()
+        }
+        source.setCancelHandler {
+            close(fileDescriptor)
+            cancelSemaphore.signal()
+        }
+        source.resume()
+        _ = eventSemaphore.wait(timeout: deadline)
+        source.cancel()
+        cancelSemaphore.wait()
     }
 
     private func run(_ process: Process) throws -> ScriptRunResult {

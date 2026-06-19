@@ -9,10 +9,10 @@ final class DrawerCommandIntegrationTests {
 
     private var store: WorkspaceStore!
     private var viewRegistry: ViewRegistry!
-    private var coordinator: PaneCoordinator!
+    private var coordinator: WorkspaceSurfaceCoordinator!
     private var runtime: SessionRuntime!
-    private var surfaceManager: MockPaneCoordinatorSurfaceManager!
-    private var executor: ActionExecutor!
+    private var surfaceManager: MockWorkspaceSurfaceCoordinatorSurfaceManager!
+    private var executor: WorkspaceActionExecutor!
     private var tempDir: URL!
 
     init() {
@@ -24,8 +24,8 @@ final class DrawerCommandIntegrationTests {
         store.restore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
-        surfaceManager = MockPaneCoordinatorSurfaceManager()
-        coordinator = PaneCoordinator(
+        surfaceManager = MockWorkspaceSurfaceCoordinatorSurfaceManager()
+        coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -33,7 +33,7 @@ final class DrawerCommandIntegrationTests {
             runtimeRegistry: RuntimeRegistry(),
             windowLifecycleStore: WindowLifecycleAtom()
         )
-        executor = ActionExecutor(coordinator: coordinator, store: store)
+        executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     }
 
     deinit {
@@ -343,6 +343,58 @@ final class DrawerCommandIntegrationTests {
     }
 
     @Test
+    func test_resizeDrawerVisiblePanePair_updatesVisiblePair() throws {
+        let (parentPaneId, _) = createParentPaneInTab()
+        let drawerPane1 = try #require(store.addDrawerPane(to: parentPaneId))
+        let drawerPane2 = try #require(store.addDrawerPane(to: parentPaneId))
+        let drawerPane3 = try #require(store.addDrawerPane(to: parentPaneId))
+        store.minimizeDrawerPane(drawerPane2.id, in: parentPaneId)
+        let before = try #require(drawerView(for: parentPaneId)?.layout.topRow)
+
+        executor.execute(
+            .resizeDrawerVisiblePanePair(
+                parentPaneId: parentPaneId,
+                leftPaneId: drawerPane1.id,
+                rightPaneId: drawerPane3.id,
+                ratio: 0.3
+            )
+        )
+
+        let after = try #require(drawerView(for: parentPaneId)?.layout.topRow)
+        #expect(
+            abs((after.ratioForPanePair(leftPaneId: drawerPane1.id, rightPaneId: drawerPane3.id) ?? 0) - 0.3) < 0.001)
+        #expect(abs((after.paneRatio(drawerPane2.id) ?? 0) - (before.paneRatio(drawerPane2.id) ?? 0)) < 1e-9)
+    }
+
+    @Test
+    func test_drawerPanelTranslatesVisiblePairResizeToDrawerOwnedCommand() {
+        let parentPaneId = UUID()
+        let tabId = UUID()
+        let leftPaneId = UUID()
+        let rightPaneId = UUID()
+
+        let command = DrawerPanel.drawerCommand(
+            for: .resizeVisiblePanePair(
+                tabId: tabId,
+                leftPaneId: leftPaneId,
+                rightPaneId: rightPaneId,
+                ratio: 0.4
+            ),
+            parentPaneId: parentPaneId
+        )
+
+        #expect(
+            command
+                == .resizeDrawerVisiblePanePair(
+                    parentPaneId: parentPaneId,
+                    leftPaneId: leftPaneId,
+                    rightPaneId: rightPaneId,
+                    ratio: 0.4
+                )
+        )
+    }
+
+    @Test
 
     func test_equalizeDrawerPanes_resetsRatios() {
         // Arrange — create 2-pane drawer and skew the ratio
@@ -435,7 +487,7 @@ final class DrawerCommandIntegrationTests {
 }
 
 @MainActor
-private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceManaging {
+private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     init() {

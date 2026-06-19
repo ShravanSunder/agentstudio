@@ -38,7 +38,7 @@ struct CommandBarPaneSearchTests {
             scope: .panes,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: CommandDispatcher.shared
+            dispatcher: AppCommandDispatcher.shared
         )
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
@@ -74,7 +74,7 @@ struct CommandBarPaneSearchTests {
             scope: .panes,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: CommandDispatcher.shared
+            dispatcher: AppCommandDispatcher.shared
         )
 
         #expect(
@@ -104,7 +104,7 @@ struct CommandBarPaneSearchTests {
             scope: .panes,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: CommandDispatcher.shared
+            dispatcher: AppCommandDispatcher.shared
         )
 
         #expect(

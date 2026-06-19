@@ -173,6 +173,13 @@ require_live_debug_process() {
     exit 1
   fi
 
+  if [ "${AGENTSTUDIO_REQUIRE_LAUNCHSERVICES:-0}" = "1" ] &&
+    [ "$state_launch_method" = "direct_executable" ]; then
+    echo "AgentStudio debug observability strict GUI proof requires LaunchServices launch; state recorded direct_executable fallback" >&2
+    echo "state file: $STATE_FILE" >&2
+    exit 1
+  fi
+
   local executable_path
   executable_path="$(process_executable_path "$state_pid")"
   if [ -z "$executable_path" ]; then

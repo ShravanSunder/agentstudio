@@ -20,8 +20,8 @@ final class PaneTabViewControllerCommandLaunchRecorder {
 @MainActor
 struct PaneTabViewControllerCommandHarness {
     let store: WorkspaceStore
-    let coordinator: PaneCoordinator
-    let executor: ActionExecutor
+    let coordinator: WorkspaceSurfaceCoordinator
+    let executor: WorkspaceActionExecutor
     let controller: PaneTabViewController
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let viewRegistry: ViewRegistry
@@ -79,11 +79,15 @@ func makePaneTabViewControllerCommandHarness(
     let arrangementInlineRenameState = ArrangementInlineRenameState()
     let paneInboxPresenter = PaneInboxNotificationPresenter()
     let launchRecorder = PaneTabViewControllerCommandLaunchRecorder()
+    let paneInboxPresentation = makePaneTabViewControllerCommandPaneInboxPresentation(
+        presenter: paneInboxPresenter,
+        launchRecorder: launchRecorder
+    )
     let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
         appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: windowLifecycleStore
     )
-    let coordinator = PaneCoordinator(
+    let coordinator = WorkspaceSurfaceCoordinator(
         store: store,
         viewRegistry: viewRegistry,
         runtime: runtime,
@@ -92,7 +96,7 @@ func makePaneTabViewControllerCommandHarness(
         closeTransitionCoordinator: closeTransitionCoordinator,
         windowLifecycleStore: windowLifecycleStore
     )
-    let executor = ActionExecutor(coordinator: coordinator, store: store)
+    let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let controller = PaneTabViewController(
         store: store,
         repoCache: RepoCacheAtom(),
@@ -101,29 +105,10 @@ func makePaneTabViewControllerCommandHarness(
         windowLifecycleStore: windowLifecycleStore,
         workspaceWindowId: workspaceWindowId,
         executor: executor,
+        runtimeCommandDispatcher: coordinator,
         tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
         viewRegistry: viewRegistry,
-        paneInboxPresentation: PaneInboxPresentation(
-            unreadCount: { _ in 0 },
-            clear: { parentPaneId, paneIds in
-                launchRecorder.clearedPaneInboxRequests.append((parentPaneId: parentPaneId, paneIds: paneIds))
-            },
-            open: { parentPaneId, paneIds in
-                paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
-            },
-            toggle: { parentPaneId, paneIds in
-                paneInboxPresenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
-            },
-            setPresented: { parentPaneId, paneIds, isPresented in
-                paneInboxPresenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: isPresented)
-            },
-            pendingRequest: { paneInboxPresenter.request },
-            clearRequest: { request in
-                paneInboxPresenter.clearRequest(request)
-            },
-            popoverContent: { _, _, _, _ in AnyView(EmptyView()) },
-            pruneFilterModes: { _ in }
-        ),
+        paneInboxPresentation: paneInboxPresentation,
         installedEditorTargetsProvider: { [.cursor, .vscode] },
         openEditorHandler: { editorId, path, _ in
             launchRecorder.openedEditors.append((id: editorId, path: path))
@@ -164,6 +149,37 @@ func makePaneTabViewControllerCommandHarness(
         arrangementPanelPresentation: arrangementPanelPresentation,
         paneInboxPresenter: paneInboxPresenter,
         launchRecorder: launchRecorder
+    )
+}
+
+@MainActor
+private func makePaneTabViewControllerCommandPaneInboxPresentation(
+    presenter paneInboxPresenter: PaneInboxNotificationPresenter,
+    launchRecorder: PaneTabViewControllerCommandLaunchRecorder
+) -> PaneInboxPresentation {
+    PaneInboxPresentation(
+        unreadCount: { _ in 0 },
+        clear: { parentPaneId, paneIds in
+            launchRecorder.clearedPaneInboxRequests.append((parentPaneId: parentPaneId, paneIds: paneIds))
+        },
+        open: { parentPaneId, paneIds in
+            paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
+        },
+        openRollUpAlerts: { parentPaneId, paneIds in
+            paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
+        },
+        toggle: { parentPaneId, paneIds in
+            paneInboxPresenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
+        },
+        setPresented: { parentPaneId, paneIds, isPresented in
+            paneInboxPresenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: isPresented)
+        },
+        pendingRequest: { paneInboxPresenter.request },
+        clearRequest: { request in
+            paneInboxPresenter.clearRequest(request)
+        },
+        popoverContent: { _, _, _, _ in AnyView(EmptyView()) },
+        pruneFilterModes: { _ in }
     )
 }
 
@@ -270,7 +286,7 @@ final class FocusablePaneTabCommandMountedContentView: NSView, PaneMountedConten
     func setContentInteractionEnabled(_: Bool) {}
 }
 
-final class MockPaneTabCommandSurfaceManager: PaneCoordinatorSurfaceManaging {
+final class MockPaneTabCommandSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 

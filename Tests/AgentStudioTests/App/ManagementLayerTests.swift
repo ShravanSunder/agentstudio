@@ -344,7 +344,7 @@ struct ManagementLayerTests {
     @Test("toggleManagementLayer has expected command definition")
     func test_toggleManagementLayer_commandDefinition() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .toggleManagementLayer)
+            let definition = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer)
             #expect(definition.keyBinding?.key == "r")
             #expect(definition.keyBinding?.modifiers == [.command])
             #expect(definition.icon == .system(.rectangleSplit2x2))
@@ -354,7 +354,7 @@ struct ManagementLayerTests {
     @Test("managementLayerExit uses active management icon")
     func test_managementLayerExit_commandDefinition() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .managementLayerExit)
+            let definition = AppCommandDispatcher.shared.definition(for: .managementLayerExit)
             #expect(definition.icon == .system(.rectangleSplit2x2Fill))
         }
     }
@@ -362,7 +362,7 @@ struct ManagementLayerTests {
     @Test("closePane command requires management layer")
     func test_closePane_requiresManagementLayer() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .closePane)
+            let definition = AppCommandDispatcher.shared.definition(for: .closePane)
             #expect(definition.requiresManagementLayer == true)
         }
     }
@@ -370,7 +370,7 @@ struct ManagementLayerTests {
     @Test("closeTab does not require management layer")
     func test_closeTab_doesNotRequireManagementLayer() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .closeTab)
+            let definition = AppCommandDispatcher.shared.definition(for: .closeTab)
             #expect(definition.requiresManagementLayer == false)
         }
     }
@@ -378,7 +378,7 @@ struct ManagementLayerTests {
     @Test("splitRight does not require management layer")
     func test_splitRight_doesNotRequireManagementLayer() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .splitRight)
+            let definition = AppCommandDispatcher.shared.definition(for: .splitRight)
             #expect(definition.requiresManagementLayer == false)
         }
     }
@@ -386,7 +386,7 @@ struct ManagementLayerTests {
     @Test("watchFolder does not require management layer")
     func test_watchFolder_doesNotRequireManagementLayer() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .watchFolder)
+            let definition = AppCommandDispatcher.shared.definition(for: .watchFolder)
             #expect(definition.requiresManagementLayer == false)
         }
     }

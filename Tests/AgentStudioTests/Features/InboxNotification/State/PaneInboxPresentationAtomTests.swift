@@ -52,4 +52,16 @@ struct PaneInboxPresentationAtomTests {
         #expect(atom.filterMode(for: retainedParentPaneId) == .all)
         #expect(atom.filterMode(for: closedParentPaneId) == .unread)
     }
+
+    @Test("chrome override is consumed without changing explicit preferences")
+    func chromeOverrideIsConsumedWithoutChangingExplicitPreferences() {
+        let atom = PaneInboxPresentationAtom()
+
+        atom.requestTemporaryOverride(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
+        let override = atom.consumeTemporaryOverride()
+
+        #expect(override?.contentMode == .rollUpAlerts)
+        #expect(override?.rowStateFilter == .unreadOnly)
+        #expect(atom.consumeTemporaryOverride() == nil)
+    }
 }

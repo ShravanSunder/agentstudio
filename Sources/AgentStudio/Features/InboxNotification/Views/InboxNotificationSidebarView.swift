@@ -13,7 +13,8 @@ private struct InboxNotificationListModelKey: Equatable {
     let sort: InboxNotificationSort
     let searchText: String
     let filter: InboxFilter?
-    let unreadOnly: Bool
+    let contentMode: InboxNotificationContentMode
+    let rowStateFilter: InboxNotificationRowStateFilter
     let collapsedGroups: Set<InboxNotificationGroupKey>
     let repoPresentationFingerprint: String
 }
@@ -32,7 +33,7 @@ struct InboxNotificationSidebarView: View {
     let workspacePaneAtom: WorkspacePaneAtom
     let workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
     let repoCache: RepoCacheAtom
-    let dispatcher: CommandDispatcher
+    let dispatcher: AppCommandDispatcher
     let onRefocusActivePane: @MainActor @Sendable () -> Void
 
     @State private var searchText = ""
@@ -41,7 +42,7 @@ struct InboxNotificationSidebarView: View {
     @State private var groupingMenuOpen = false
     @State private var flashingRowIds: Set<UUID> = []
     @State private var activeFilter: InboxFilter?
-    @State private var unreadOnly = false
+    @State private var displayOverride: InboxNotificationDisplayOverride?
     @FocusState private var focusedField: InboxFocus?
 
     private let flashDelay = AsyncDelay.taskSleep
@@ -55,7 +56,7 @@ struct InboxNotificationSidebarView: View {
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
         repoCache: RepoCacheAtom,
-        dispatcher: CommandDispatcher,
+        dispatcher: AppCommandDispatcher,
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
     ) {
         self.inboxAtom = inboxAtom
@@ -83,7 +84,8 @@ struct InboxNotificationSidebarView: View {
             sort: prefsAtom.sort,
             searchText: "",
             filter: nil,
-            unreadOnly: false,
+            contentMode: prefsAtom.globalInboxContentMode,
+            rowStateFilter: prefsAtom.globalInboxRowStateFilter,
             collapsedGroups: inboxSidebarState.collapsedGroups,
             repoPresentationFingerprint: Self.repoPresentationFingerprint(
                 initialRepoPresentationByRepoId
@@ -96,7 +98,8 @@ struct InboxNotificationSidebarView: View {
                 grouping: prefsAtom.grouping,
                 sort: prefsAtom.sort,
                 searchText: "",
-                unreadOnly: false,
+                contentMode: prefsAtom.globalInboxContentMode,
+                rowStateFilter: prefsAtom.globalInboxRowStateFilter,
                 filter: nil,
                 collapsedGroups: inboxSidebarState.collapsedGroups,
                 repoPresentation: { repoId in
@@ -113,7 +116,8 @@ struct InboxNotificationSidebarView: View {
             searchText: $searchText,
             activeFilter: activeFilter,
             activeFilterLabel: activeFilterLabel,
-            unreadOnly: unreadOnly,
+            contentMode: effectiveContentMode,
+            rowStateFilter: effectiveRowStateFilter,
             sort: prefsAtom.sort,
             groupingMenuOpen: $groupingMenuOpen,
             grouping: prefsAtom.grouping,
@@ -123,7 +127,9 @@ struct InboxNotificationSidebarView: View {
             actions: .init(
                 onEscape: handleEscape,
                 onToggleSort: toggleSort,
-                onToggleUnreadOnly: { unreadOnly.toggle() },
+                onToggleRowStateFilter: toggleRowStateFilter,
+                onCycleContentMode: cycleContentMode,
+                onMarkVisibleScopeRead: markVisibleScopeRead,
                 onClearFilter: clearFilter,
                 onClearReadHistory: clearReadInboxNotifications,
                 onClearAllHistory: clearAllInboxNotifications,
@@ -138,13 +144,22 @@ struct InboxNotificationSidebarView: View {
         .onChange(of: inboxAtom.notifications) { _, _ in refreshListModel() }
         .onChange(of: prefsAtom.grouping) { _, _ in refreshListModel() }
         .onChange(of: prefsAtom.sort) { _, _ in refreshListModel() }
+        .onChange(of: prefsAtom.globalInboxContentMode) { _, _ in refreshListModel() }
+        .onChange(of: prefsAtom.globalInboxRowStateFilter) { _, _ in refreshListModel() }
+        .onChange(of: displayOverride) { _, _ in refreshListModel() }
         .onChange(of: searchText) { _, _ in refreshListModel() }
         .onChange(of: activeFilter) { _, _ in refreshListModel() }
-        .onChange(of: unreadOnly) { _, _ in refreshListModel() }
         .onChange(of: inboxSidebarState.collapsedGroups) { _, _ in refreshListModel() }
         .onChange(of: repoPresentationFingerprint) { _, _ in refreshListModel() }
         .onChange(of: inboxSidebarState.pendingFilter) { _, _ in
             applyPendingFilterDraft()
+        }
+        .onChange(of: inboxSidebarState.pendingDisplayOverride) { _, _ in
+            applyPendingFilterDraft()
+        }
+        .onChange(of: inboxSidebarState.dismissalGeneration) { _, _ in
+            activeFilter = nil
+            displayOverride = nil
         }
         .task {
             applyPendingFilterDraft()
@@ -153,6 +168,14 @@ struct InboxNotificationSidebarView: View {
 
     private var listModel: InboxNotificationListModel {
         cachedListModel
+    }
+
+    private var effectiveContentMode: InboxNotificationContentMode {
+        displayOverride?.contentMode ?? prefsAtom.globalInboxContentMode
+    }
+
+    private var effectiveRowStateFilter: InboxNotificationRowStateFilter {
+        displayOverride?.rowStateFilter ?? prefsAtom.globalInboxRowStateFilter
     }
 
     private var activeFilterLabel: String? {
@@ -204,7 +227,8 @@ struct InboxNotificationSidebarView: View {
             sort: prefsAtom.sort,
             searchText: searchText,
             filter: activeFilter,
-            unreadOnly: unreadOnly,
+            contentMode: effectiveContentMode,
+            rowStateFilter: effectiveRowStateFilter,
             collapsedGroups: inboxSidebarState.collapsedGroups,
             repoPresentationFingerprint: Self.repoPresentationFingerprint(resolvedRepoPresentationByRepoId)
         )
@@ -215,7 +239,8 @@ struct InboxNotificationSidebarView: View {
             grouping: key.grouping,
             sort: key.sort,
             searchText: key.searchText,
-            unreadOnly: key.unreadOnly,
+            contentMode: key.contentMode,
+            rowStateFilter: key.rowStateFilter,
             filter: key.filter,
             collapsedGroups: key.collapsedGroups,
             repoPresentation: { repoId in
@@ -327,6 +352,29 @@ struct InboxNotificationSidebarView: View {
         dispatcher.dispatch(.toggleInboxNotificationSort)
     }
 
+    private func toggleRowStateFilter() {
+        displayOverride = nil
+        prefsAtom.setGlobalInboxRowStateFilter(effectiveRowStateFilter == .unreadOnly ? .all : .unreadOnly)
+    }
+
+    private func cycleContentMode() {
+        displayOverride = nil
+        switch effectiveContentMode {
+        case .rollUpAlerts:
+            prefsAtom.setGlobalInboxContentMode(.activity)
+        case .activity:
+            prefsAtom.setGlobalInboxContentMode(.all)
+        case .all:
+            prefsAtom.setGlobalInboxContentMode(.rollUpAlerts)
+        }
+    }
+
+    func markVisibleScopeRead() {
+        for notificationId in listModel.sections.visibleNotificationIds {
+            _ = inboxAtom.markRead(id: notificationId)
+        }
+    }
+
     func clearReadInboxNotifications() {
         dispatcher.dispatch(.clearReadInboxNotifications)
     }
@@ -337,12 +385,23 @@ struct InboxNotificationSidebarView: View {
 
     private func clearFilter() {
         inboxSidebarState.clearPendingFilter()
+        inboxSidebarState.clearPendingDisplayOverride()
         activeFilter = nil
+        displayOverride = nil
     }
 
     private func applyPendingFilterDraft() {
-        guard let filter = inboxSidebarState.consumePendingFilter() else { return }
-        activeFilter = filter
+        if inboxSidebarState.consumeFilterClearOnNextRetarget() {
+            activeFilter = nil
+        }
+        let filter = inboxSidebarState.consumePendingFilter()
+        let override = inboxSidebarState.consumePendingDisplayOverride()
+        if let filter {
+            activeFilter = filter
+        }
+        if let override {
+            displayOverride = override
+        }
     }
 
     private func toggleGroupCollapse(_ sectionId: String) {

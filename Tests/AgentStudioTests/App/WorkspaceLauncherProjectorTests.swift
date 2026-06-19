@@ -158,37 +158,51 @@ struct WorkspaceLauncherProjectorTests {
                 )
             )
             atoms.repoCache.setPullRequestCount(3, for: worktree.id)
+            let approvalPaneId = UUID()
             atoms.inboxNotification.append(
                 InboxNotification(
                     id: UUID(),
                     timestamp: Date(timeIntervalSince1970: 1),
-                    kind: .unseenActivity,
-                    title: "Unread",
-                    body: "Unread notification",
+                    kind: .approvalRequested,
+                    title: "Approval",
+                    body: nil,
                     source: .pane(
                         .init(
-                            paneId: UUID(),
+                            paneId: approvalPaneId,
                             worktreeId: worktree.id,
                             worktreeName: worktree.name
                         )
+                    ),
+                    claimKey: .init(
+                        paneId: approvalPaneId,
+                        lane: .actionNeeded,
+                        semantic: .approvalRequested,
+                        sessionId: nil
                     ),
                     isRead: false,
                     isDismissedFromPaneInbox: false
                 )
             )
+            let securityPaneId = UUID()
             atoms.inboxNotification.append(
                 InboxNotification(
                     id: UUID(),
                     timestamp: Date(timeIntervalSince1970: 2),
-                    kind: .unseenActivity,
-                    title: "Unread",
-                    body: "Unread notification",
+                    kind: .securityEvent,
+                    title: "Security",
+                    body: nil,
                     source: .pane(
                         .init(
-                            paneId: UUID(),
+                            paneId: securityPaneId,
                             worktreeId: worktree.id,
                             worktreeName: worktree.name
                         )
+                    ),
+                    claimKey: .init(
+                        paneId: securityPaneId,
+                        lane: .safety,
+                        semantic: .securityEvent,
+                        sessionId: nil
                     ),
                     isRead: false,
                     isDismissedFromPaneInbox: false

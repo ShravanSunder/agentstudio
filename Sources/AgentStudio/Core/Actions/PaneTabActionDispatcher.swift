@@ -2,13 +2,13 @@ import Foundation
 
 @MainActor
 final class PaneTabActionDispatcher: PaneActionDispatching {
-    private let dispatchClosure: (PaneActionCommand) -> Void
+    private let dispatchClosure: (WorkspaceActionCommand) -> Void
     private let shouldHandleSplitDragPayloadClosure: (SplitDropPayload) -> Bool
     private let shouldAcceptDropClosure: (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Bool
     private let handleDropClosure: (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Void
 
     init(
-        dispatch: @escaping (PaneActionCommand) -> Void,
+        dispatch: @escaping (WorkspaceActionCommand) -> Void,
         shouldHandleSplitDragPayload: @escaping (SplitDropPayload) -> Bool,
         shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Bool,
         handleDrop: @escaping (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Void
@@ -19,7 +19,7 @@ final class PaneTabActionDispatcher: PaneActionDispatching {
         self.handleDropClosure = handleDrop
     }
 
-    func dispatch(_ action: PaneActionCommand) {
+    func dispatch(_ action: WorkspaceActionCommand) {
         if Thread.isMainThread == false {
             RestoreTrace.log("PaneTabActionDispatcher.dispatch offMainThread action=\(String(describing: action))")
         }

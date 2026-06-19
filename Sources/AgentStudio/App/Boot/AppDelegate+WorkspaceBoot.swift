@@ -4,6 +4,21 @@ import Observation
 
 @MainActor
 extension AppDelegate {
+    static func tabNotificationDotColor(
+        for lane: InboxNotificationClaimLane?
+    ) -> TabNotificationDotColor? {
+        switch lane {
+        case .actionNeeded:
+            return .red
+        case .safety:
+            return .amber
+        case .settledAgent:
+            return .yellow
+        case .activity, nil:
+            return nil
+        }
+    }
+
     func bootWorkspaceServices(
         persistor: WorkspacePersistor,
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
@@ -267,7 +282,7 @@ extension AppDelegate {
         filesystemSource = pipeline
         watchedFolderCommands = pipeline
         SurfaceManager.shared.setPerformanceTraceRecorder(performanceTraceRecorder)
-        paneCoordinator = PaneCoordinator(
+        workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -286,7 +301,7 @@ extension AppDelegate {
             workspaceStore: store,
             repoCache: repoCache,
             welcomeAtom: atomStore.welcome,
-            topologyEffectHandler: paneCoordinator,
+            topologyEffectHandler: workspaceSurfaceCoordinator,
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
                 await pipeline.applyScopeChange(change)
@@ -295,15 +310,23 @@ extension AppDelegate {
                 await self?.refreshTraceIdentitySnapshot()
             }
         )
-        paneCoordinator.removeRepoHandler = { [weak self] repoId in
+        workspaceSurfaceCoordinator.removeRepoHandler = { [weak self] repoId in
             self?.workspaceCacheCoordinator.handleRepoRemoval(repoId: repoId)
-            self?.paneCoordinator.syncFilesystemRootsAndActivity()
+            self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
-        executor = ActionExecutor(coordinator: paneCoordinator, store: store)
+        executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
         tabBarAdapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            performanceTraceRecorder: performanceTraceRecorder
+            performanceTraceRecorder: performanceTraceRecorder,
+            notificationDotColorProvider: { paneIds in
+                Self.tabNotificationDotColor(
+                    for: atom(\.inboxNotification).attentionLane(forPaneIds: paneIds)
+                )
+            },
+            observeNotificationDotInputs: {
+                _ = atom(\.inboxNotification).notifications
+            }
         )
         commandBarController = CommandBarPanelController(
             store: store,
@@ -315,7 +338,7 @@ extension AppDelegate {
         )
         bootStartInboxNotificationRouter(bus: paneRuntimeBus)
         bootStartTerminalActivityRouter(bus: paneRuntimeBus)
-        CommandDispatcher.shared.appCommandRouter = self
+        AppCommandDispatcher.shared.appCommandRouter = self
         oauthService = OAuthService()
     }
 
@@ -340,7 +363,7 @@ extension AppDelegate {
             if let filesystemPipelineBootTask = self.filesystemPipelineBootTask {
                 await filesystemPipelineBootTask.value
             }
-            self.paneCoordinator.syncFilesystemRootsAndActivity()
+            self.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
             await self.refreshTraceIdentitySnapshot()
             self.observeTraceIdentityInputs()
         }

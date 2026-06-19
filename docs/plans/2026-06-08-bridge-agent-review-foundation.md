@@ -728,7 +728,7 @@ Expected result:
 
 **Files:**
 
-- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeCommand.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeCommand.swift`
 - Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift`
 - Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneKindEvent.swift`
 - Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift`

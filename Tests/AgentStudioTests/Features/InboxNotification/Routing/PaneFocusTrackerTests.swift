@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("PaneFocusTracker")
+@Suite("PaneFocusTracker", .serialized)
 struct PaneFocusTrackerTests {
     private func makeWindowKey(_ atom: WindowLifecycleAtom) {
         let id = UUID()
@@ -107,6 +107,7 @@ struct PaneFocusTrackerTests {
         )
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "pane-focus-tracker",
@@ -130,6 +131,7 @@ struct PaneFocusTrackerTests {
         let collected = await collect(from: tracker, expected: 2)
         #expect(collected == [paneA, paneB])
         let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await tracker.stop()
         await assertEventuallyMain("focus tracker should write attended-pane trace records") {
             guard let contents = try? String(contentsOf: outputFileURL, encoding: .utf8) else {
                 return false
@@ -139,7 +141,6 @@ struct PaneFocusTrackerTests {
                 && contents.contains("\"agentstudio.pane.id\":\"\(paneB.uuidString)\"")
         }
 
-        await tracker.stop()
         attendedPane.stop()
     }
 

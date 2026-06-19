@@ -16,7 +16,9 @@ protocol WatchedFolderCommandHandling: AnyObject, Sendable {
 ///
 /// `FilesystemActor` owns filesystem ingestion/routing and emits filesystem facts.
 /// `GitWorkingDirectoryProjector` subscribes to those facts and emits git snapshot projections.
-final class FilesystemGitPipeline: PaneCoordinatorFilesystemSourceManaging, WatchedFolderCommandHandling, Sendable {
+final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFolderCommandHandling,
+    Sendable
+{
     private let filesystemActor: FilesystemActor
     private let gitWorkingDirectoryProjector: GitWorkingDirectoryProjector
     private let forgeActor: ForgeActor

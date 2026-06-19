@@ -28,6 +28,7 @@ struct InboxNotificationListModelTests {
     private func makeInboxNotification(
         id: UUID = UUID(),
         timestamp: Date,
+        kind: InboxNotificationKind = .agentRpc,
         title: String,
         body: String? = nil,
         paneId: UUID? = nil,
@@ -47,12 +48,13 @@ struct InboxNotificationListModelTests {
         parentPaneOrdinal: Int? = nil,
         drawerOrdinal: Int? = nil,
         runtimeDisplayLabel: String? = nil,
+        claimKey: InboxNotificationClaimKey? = nil,
         isRead: Bool = false
     ) -> InboxNotification {
         InboxNotification(
             id: id,
             timestamp: timestamp,
-            kind: .agentRpc,
+            kind: kind,
             title: title,
             body: body,
             source: makeSource(
@@ -76,6 +78,7 @@ struct InboxNotificationListModelTests {
                     runtimeDisplayLabel: runtimeDisplayLabel
                 )
             ),
+            claimKey: claimKey,
             isRead: isRead,
             isDismissedFromPaneInbox: false
         )
@@ -221,6 +224,148 @@ struct InboxNotificationListModelTests {
         #expect(model.sections.flatMap(\.notifications).map(\.id) == [unread.id])
     }
 
+    @Test("section unread count excludes activity rows")
+    func sectionUnreadCountExcludesActivityRows() {
+        let paneId = UUID()
+        let activity = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: .unseenActivity,
+            title: "Activity",
+            claimKey: .init(
+                paneId: paneId,
+                lane: .activity,
+                semantic: .unseenActivity,
+                sessionId: UUID()
+            )
+        )
+        let action = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            kind: .approvalRequested,
+            title: "Approval",
+            claimKey: .init(
+                paneId: paneId,
+                lane: .actionNeeded,
+                semantic: .approvalRequested,
+                sessionId: UUID()
+            )
+        )
+        let readSafety = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 300),
+            kind: .securityEvent,
+            title: "Read safety",
+            claimKey: .init(
+                paneId: paneId,
+                lane: .safety,
+                semantic: .securityEvent,
+                sessionId: nil
+            ),
+            isRead: true
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [activity, action, readSafety],
+            grouping: .none,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections[0].unreadCount == 1)
+    }
+
+    @Test("content mode filters roll-up alerts and activity rows")
+    func contentModeFiltersRollUpAlertsAndActivityRows() {
+        let activity = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: .unseenActivity,
+            title: "Activity",
+            claimKey: .init(
+                paneId: UUID(),
+                lane: .activity,
+                semantic: .unseenActivity,
+                sessionId: nil
+            )
+        )
+        let action = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 101),
+            kind: .approvalRequested,
+            title: "Action",
+            claimKey: .init(
+                paneId: UUID(),
+                lane: .actionNeeded,
+                semantic: .approvalRequested,
+                sessionId: nil
+            )
+        )
+        let settled = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 102),
+            kind: .agentSettledActivity,
+            title: "Settled",
+            claimKey: .init(
+                paneId: UUID(),
+                lane: .settledAgent,
+                semantic: .agentSettled,
+                sessionId: nil
+            )
+        )
+
+        let rollUpModel = InboxNotificationListModel(
+            notifications: [activity, action, settled],
+            grouping: .none,
+            sort: .oldestFirst,
+            searchText: "",
+            contentMode: .rollUpAlerts
+        )
+        let activityModel = InboxNotificationListModel(
+            notifications: [activity, action, settled],
+            grouping: .none,
+            sort: .oldestFirst,
+            searchText: "",
+            contentMode: .activity
+        )
+
+        let rollUpTitles = rollUpModel.sections.flatMap { $0.notifications }.map { $0.title }
+        let activityTitles = activityModel.sections.flatMap { $0.notifications }.map { $0.title }
+
+        #expect(rollUpTitles == ["Action", "Settled"])
+        #expect(activityTitles == ["Activity"])
+    }
+
+    @Test("row state filter limits read rows when requested")
+    func rowStateFilterLimitsReadRowsWhenRequested() {
+        let unread = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: .approvalRequested,
+            title: "Unread",
+            isRead: false
+        )
+        let read = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 101),
+            kind: .approvalRequested,
+            title: "Read",
+            isRead: true
+        )
+
+        let unreadOnlyModel = InboxNotificationListModel(
+            notifications: [unread, read],
+            grouping: .none,
+            sort: .oldestFirst,
+            searchText: "",
+            contentMode: .rollUpAlerts,
+            rowStateFilter: .unreadOnly
+        )
+        let allRowsModel = InboxNotificationListModel(
+            notifications: [unread, read],
+            grouping: .none,
+            sort: .oldestFirst,
+            searchText: "",
+            contentMode: .rollUpAlerts,
+            rowStateFilter: .all
+        )
+
+        #expect(unreadOnlyModel.sections.flatMap(\.notifications).map(\.title) == ["Unread"])
+        #expect(allRowsModel.sections.flatMap(\.notifications).map(\.title) == ["Unread", "Read"])
+    }
+
     @Test("missing repo names use pane label instead of UUID prefix")
     func missingRepoNamesUsePaneLabelInsteadOfUUIDPrefix() {
         let repoId = UUID()
@@ -342,10 +487,11 @@ struct InboxNotificationListModelTests {
         #expect(model.sections.flatMap(\.notifications).map(\.id) == [notification.id])
     }
 
-    @Test("collapsed grouped sections keep unread counts but hide rows")
-    func collapsedGroupedSectionsKeepUnreadCountsButHideRows() {
+    @Test("collapsed grouped sections keep roll-up alert counts but hide rows")
+    func collapsedGroupedSectionsKeepRollUpAlertCountsButHideRows() {
         let notification = makeInboxNotification(
             timestamp: Date(timeIntervalSince1970: 100),
+            kind: .approvalRequested,
             title: "Hidden row",
             repoName: "agent-studio",
             isRead: false
@@ -365,10 +511,11 @@ struct InboxNotificationListModelTests {
         #expect(model.sections[0].visibleNotifications.isEmpty)
     }
 
-    @Test("groups by repo with unread counts")
-    func groupsByRepoWithUnreadCounts() {
+    @Test("groups by repo with roll-up alert counts")
+    func groupsByRepoWithRollUpAlertCounts() {
         let betaUnread = makeInboxNotification(
             timestamp: Date(timeIntervalSince1970: 100),
+            kind: .approvalRequested,
             title: "Beta unread",
             repoName: "beta",
             isRead: false
@@ -381,6 +528,7 @@ struct InboxNotificationListModelTests {
         )
         let alphaUnread = makeInboxNotification(
             timestamp: Date(timeIntervalSince1970: 300),
+            kind: .approvalRequested,
             title: "Alpha unread",
             repoName: "alpha",
             isRead: false

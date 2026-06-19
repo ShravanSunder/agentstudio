@@ -64,11 +64,12 @@ struct InboxRow: View {
         HStack(spacing: AppStyles.General.Spacing.tight) {
             if !notification.isRead {
                 Circle()
-                    .fill(.red)
+                    .fill(laneDotColor)
                     .frame(
                         width: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize,
                         height: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize
                     )
+                    .accessibilityLabel(laneAccessibilityLabel)
             }
 
             Text(relativeTime)
@@ -84,6 +85,32 @@ struct InboxRow: View {
 
     private var display: InboxNotificationSourceDisplay {
         InboxNotificationSourceDisplay(notification: notification, rowContext: rowContext, grouping: grouping)
+    }
+
+    private var laneDotColor: Color {
+        switch notification.displayLane {
+        case .actionNeeded:
+            return .red
+        case .safety:
+            return .orange
+        case .settledAgent:
+            return .yellow
+        case .activity:
+            return .blue
+        }
+    }
+
+    private var laneAccessibilityLabel: String {
+        switch notification.displayLane {
+        case .actionNeeded:
+            return "Action needed unread"
+        case .safety:
+            return "Safety unread"
+        case .settledAgent:
+            return "Agent settled unread"
+        case .activity:
+            return "Activity unread"
+        }
     }
 
     private var relativeTime: String {

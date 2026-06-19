@@ -1,4 +1,4 @@
-extension PaneActionCommand {
+extension WorkspaceActionCommand {
     var performanceTraceName: String {
         switch self {
         case .selectTab:
@@ -13,16 +13,12 @@ extension PaneActionCommand {
             return "closePane"
         case .extractPaneToTab:
             return "extractPaneToTab"
-        case .scrollToBottom:
-            return "scrollToBottom"
-        case .scrollPageUp:
-            return "scrollPageUp"
-        case .jumpToPrompt:
-            return "jumpToPrompt"
         case .insertPaneRequest:
             return "insertPaneRequest"
         case .resizePane:
             return "resizePane"
+        case .resizeVisiblePanePair:
+            return "resizeVisiblePanePair"
         case .equalizePanes:
             return "equalizePanes"
         case .toggleSplitZoom:
@@ -89,6 +85,8 @@ extension PaneActionCommand {
             return "setActiveDrawerPane"
         case .resizeDrawerPane:
             return "resizeDrawerPane"
+        case .resizeDrawerVisiblePanePair:
+            return "resizeDrawerVisiblePanePair"
         case .equalizeDrawerPanes:
             return "equalizeDrawerPanes"
         case .minimizeDrawerPane:

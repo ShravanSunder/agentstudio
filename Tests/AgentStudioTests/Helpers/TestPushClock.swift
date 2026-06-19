@@ -50,6 +50,7 @@ struct TestPushClock: Clock {
         case atLeast(Int)
         case exactly(Int)
         case generation(Int)
+        case atLeastFromGeneration(count: Int, generation: Int)
 
         func isSatisfied(by state: State) -> Bool {
             switch self {
@@ -59,6 +60,8 @@ struct TestPushClock: Clock {
                 state.pending.count == expectedCount
             case .generation(let expectedGeneration):
                 state.pending.contains { $0.generation == expectedGeneration }
+            case .atLeastFromGeneration(let count, let generation):
+                state.pending.filter { $0.generation >= generation }.count >= count
             }
         }
     }
@@ -171,6 +174,10 @@ struct TestPushClock: Clock {
 
     func waitForPendingSleepGeneration(_ generation: Int) async {
         await waitForPendingSleepCount(matching: .generation(generation))
+    }
+
+    func waitForPendingSleepCount(atLeast count: Int, fromGeneration generation: Int) async {
+        await waitForPendingSleepCount(matching: .atLeastFromGeneration(count: count, generation: generation))
     }
 
     private func waitForPendingSleepCount(matching condition: PendingSleepWaiterCondition) async {

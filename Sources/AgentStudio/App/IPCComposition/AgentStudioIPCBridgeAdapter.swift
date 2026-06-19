@@ -7,7 +7,7 @@ protocol AgentStudioIPCBridgeActionExecuting: AnyObject {
     func openBridgeReview(worktreeId: UUID?) -> Pane?
 }
 
-extension ActionExecutor: AgentStudioIPCBridgeActionExecuting {}
+extension WorkspaceActionExecutor: AgentStudioIPCBridgeActionExecuting {}
 
 @MainActor
 struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {

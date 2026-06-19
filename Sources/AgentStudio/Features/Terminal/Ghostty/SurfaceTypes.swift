@@ -171,6 +171,28 @@ enum SurfaceError: Error, LocalizedError {
     case operationFailed(String)
     case ghosttyNotInitialized
 
+    var diagnosticKind: String {
+        switch self {
+        case .surfaceNotFound:
+            return "surface_not_found"
+        case .surfaceNotInitialized:
+            return "surface_not_initialized"
+        case .surfaceDied:
+            return "surface_died"
+        case .creationFailed:
+            return "creation_failed"
+        case .operationFailed:
+            return "operation_failed"
+        case .ghosttyNotInitialized:
+            return "ghostty_not_initialized"
+        }
+    }
+
+    var creationRetryCount: Int? {
+        guard case .creationFailed(let retries) = self else { return nil }
+        return retries
+    }
+
     var errorDescription: String? {
         switch self {
         case .surfaceNotFound:

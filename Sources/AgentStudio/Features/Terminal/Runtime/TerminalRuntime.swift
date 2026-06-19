@@ -14,7 +14,7 @@ protocol TerminalSurfaceCommandDispatching: AnyObject {
 
 @MainActor
 @Observable
-final class TerminalRuntime: BusPostingPaneRuntime {
+final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnapshotFactProviding {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "TerminalRuntime")
 
     let paneId: PaneId
@@ -119,6 +119,14 @@ final class TerminalRuntime: BusPostingPaneRuntime {
             metadata: metadata,
             lifecycle: lifecycle,
             capabilities: capabilities
+        )
+    }
+
+    func terminalRuntimeSnapshotFacts() -> TerminalRuntimeSnapshotFacts {
+        TerminalRuntimeSnapshotFacts(
+            rendererHealthy: rendererHealthy,
+            readOnly: isReadOnly,
+            secureInput: isSecureInput
         )
     }
 

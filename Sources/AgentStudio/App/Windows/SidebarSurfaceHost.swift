@@ -42,7 +42,7 @@ struct SidebarSurfaceHost: View {
                     )
                 },
                 unreadCount: { worktree in
-                    Self.unreadCount(for: worktree, inboxAtom: inboxAtom)
+                    Self.rollUpAlertCount(for: worktree, inboxAtom: inboxAtom)
                 },
                 performanceTraceRecorder: performanceTraceRecorder
             )
@@ -71,19 +71,22 @@ struct SidebarSurfaceHost: View {
         }
     }
 
-    static func unreadCount(
+    static func rollUpAlertCount(
         for worktree: Worktree,
         inboxAtom: InboxNotificationAtom
     ) -> Int {
-        inboxAtom.unreadCount(forWorktreeId: worktree.id)
+        inboxAtom.rollUpAlertCount(forWorktreeId: worktree.id)
     }
 
     static func showNotifications(
         for worktree: Worktree,
         inboxSidebarState: InboxSidebarState,
-        dispatcher: CommandDispatcher
+        dispatcher: AppCommandDispatcher
     ) {
         inboxSidebarState.setPendingFilter(.worktree(id: worktree.id))
+        inboxSidebarState.setPendingDisplayOverride(
+            .init(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
+        )
         dispatcher.dispatch(.showInboxNotifications)
     }
 }

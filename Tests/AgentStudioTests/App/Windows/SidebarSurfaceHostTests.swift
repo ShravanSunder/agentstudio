@@ -20,23 +20,55 @@ struct SidebarSurfaceHostTests {
         #expect(SidebarSurfaceHost.currentChildKind(uiState: uiState) == .inbox)
     }
 
-    @Test("worktree unread count is resolved from inbox atom")
-    func worktreeUnreadCountResolvedFromInboxAtom() {
+    @Test("worktree roll-up alert count excludes activity notifications")
+    func worktreeRollUpAlertCountExcludesActivityNotifications() {
         let worktreeId = UUID()
+        let actionPaneId = UUID()
+        let activityPaneId = UUID()
         let inboxAtom = InboxNotificationAtom()
         inboxAtom.append(
             InboxNotification(
                 id: UUID(),
                 timestamp: Date(timeIntervalSince1970: 100),
-                kind: .agentRpc,
-                title: "Build finished",
+                kind: .approvalRequested,
+                title: "Approval requested",
                 body: nil,
                 source: .pane(
                     .init(
-                        paneId: UUID(),
+                        paneId: actionPaneId,
                         worktreeId: worktreeId,
                         worktreeName: "main"
                     )
+                ),
+                claimKey: .init(
+                    paneId: actionPaneId,
+                    lane: .actionNeeded,
+                    semantic: .approvalRequested,
+                    sessionId: nil
+                ),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+        inboxAtom.append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(timeIntervalSince1970: 101),
+                kind: .unseenActivity,
+                title: "Activity",
+                body: nil,
+                source: .pane(
+                    .init(
+                        paneId: activityPaneId,
+                        worktreeId: worktreeId,
+                        worktreeName: "main"
+                    )
+                ),
+                claimKey: .init(
+                    paneId: activityPaneId,
+                    lane: .activity,
+                    semantic: .unseenActivity,
+                    sessionId: nil
                 ),
                 isRead: false,
                 isDismissedFromPaneInbox: false
@@ -50,7 +82,7 @@ struct SidebarSurfaceHostTests {
             path: URL(fileURLWithPath: "/tmp/repo")
         )
 
-        #expect(SidebarSurfaceHost.unreadCount(for: worktree, inboxAtom: inboxAtom) == 1)
+        #expect(SidebarSurfaceHost.rollUpAlertCount(for: worktree, inboxAtom: inboxAtom) == 1)
     }
 
     @Test("worktree notification action sets sidebar state before dispatching inbox command")
@@ -67,8 +99,8 @@ struct SidebarSurfaceHostTests {
 
         try await withIsolatedCommandDispatcher(
             configure: {
-                CommandDispatcher.shared.appCommandRouter = router
-                CommandDispatcher.shared.handler = nil
+                AppCommandDispatcher.shared.appCommandRouter = router
+                AppCommandDispatcher.shared.handler = nil
             },
             body: {
                 SidebarSurfaceHost.showNotifications(
@@ -78,6 +110,10 @@ struct SidebarSurfaceHostTests {
                 )
 
                 #expect(sidebarState.peekPendingFilter() == .worktree(id: worktree.id))
+                #expect(
+                    sidebarState.peekPendingDisplayOverride()
+                        == .init(contentMode: .rollUpAlerts, rowStateFilter: .unreadOnly)
+                )
                 #expect(router.handledCommands == [.showInboxNotifications])
             }
         )

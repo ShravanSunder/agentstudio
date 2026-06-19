@@ -66,7 +66,7 @@ let menu = NSHostingMenu(rootView: MenuView())
 The full data model, service layer, and mutation pipeline are documented in [Component Architecture](component_architecture.md). Key patterns relevant to the AppKit+SwiftUI boundary:
 
 - **Atomic stores**: `WorkspaceStore`, `SurfaceManager`, `SessionRuntime` — each `@Observable @MainActor`, each owns one domain. All state is `private(set)` for unidirectional flow. SwiftUI views observe store properties automatically via `@Observable` property tracking. No `@Published`, no `objectWillChange`, no Combine subscriptions.
-- **Coordinator**: `PaneCoordinator` sequences cross-store operations (e.g., close tab touches `WorkspaceStore` + `SurfaceManager` + `SessionRuntime`). Owns no domain state.
+- **Coordinator**: `WorkspaceSurfaceCoordinator` sequences cross-store operations (e.g., close tab touches `WorkspaceStore` + `SurfaceManager` + `SessionRuntime`). Owns no domain state.
 - **AppKit observation**: Non-SwiftUI code (e.g., `TabBarAdapter`) bridges to `@Observable` using `withObservationTracking` with re-registration pattern.
 - **Event transport**: New plumbing uses `AsyncStream` + `swift-async-algorithms`. Existing `NotificationCenter` for AppKit menu actions migrated incrementally.
 
@@ -109,8 +109,8 @@ AppDelegate
 ├── ApplicationLifecycleMonitor ← AppKit lifecycle ingress → lifecycle stores
 ├── ManagementLayerMonitor      ← management layer state tracking
 ├── ViewRegistry               ← paneId → PaneViewSlot mapping (@Observable per-pane slots)
-├── PaneCoordinator            ← action dispatch + model↔view↔surface orchestration
-├── ActionExecutor             ← validated action execution
+├── WorkspaceSurfaceCoordinator            ← action dispatch + model↔view↔surface orchestration
+├── WorkspaceActionExecutor             ← validated action execution
 ├── TabBarAdapter              ← bridges @Observable store via withObservationTracking
 ├── CommandBarPanelController  ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
 └── MainWindowController
@@ -168,7 +168,7 @@ This replaces the older single-host `ActiveTabContent` pattern, which rendered o
 
 Slots have **pane-lifetime identity**, not host-lifetime identity. This ensures SwiftUI observers survive across unregister/re-register cycles (repair, undo). The old `viewRevision` global invalidation bridge has been removed.
 
-**Slot seeding on restore:** `AppDelegate.seedSlotsForRestoredPanes()` calls `ensureSlot` for every restored pane *before* `PersistentTabHostView` creation. `PaneCoordinator.restoreAllViews()` also seeds slots for all layout and drawer panes before the first `createViewForContent` call, because SwiftUI body evaluation may run before restore completes.
+**Slot seeding on restore:** `AppDelegate.seedSlotsForRestoredPanes()` calls `ensureSlot` for every restored pane *before* `PersistentTabHostView` creation. `WorkspaceSurfaceCoordinator.restoreAllViews()` also seeds slots for all layout and drawer panes before the first `createViewForContent` call, because SwiftUI body evaluation may run before restore completes.
 
 ### PaneHostView Identity
 
@@ -197,7 +197,7 @@ Management-mode split insertion is coordinated at the tab container level:
 
 - `PaneLeafContainer` renders pane content and controls uniformly for all pane kinds.
 - `PaneFramePreferenceKey` reports pane frames in `tabContainer` coordinates.
-- `SplitContainerDropCaptureOverlay` resolves drag location using `PaneDragCoordinator` and submits validated drop actions through existing `PaneActionCommand` flow.
+- `SplitContainerDropCaptureOverlay` resolves drag location using `PaneDragCoordinator` and submits validated drop actions through existing `WorkspaceActionCommand` flow.
 - `PaneDropTargetOverlay` renders the active destination marker from `PaneDropTarget` + `DropZoneSide`.
 
 This keeps split targeting pane-type-agnostic (terminal/webview/bridge/future panes).
@@ -429,8 +429,8 @@ The command bar never mutates `WorkspaceStore` directly. All actions flow throug
 
 ```
 CommandBarView.executeItem()
-  ├── .dispatch(command)         → CommandDispatcher.dispatch() → full pipeline
-  ├── .dispatchTargeted(cmd,id)  → CommandDispatcher.dispatch(_:target:targetType:)
+  ├── .dispatch(command)         → AppCommandDispatcher.dispatch() → full pipeline
+  ├── .dispatchTargeted(cmd,id)  → AppCommandDispatcher.dispatch(_:target:targetType:)
   ├── .navigate(level)           → state.pushLevel() (nested drill-in)
   ├── .worktreeAction(presence)  → CommandBarWorktreeActionResolver → dispatch/navigate/choice
   └── .custom(closure)           → Direct execution (e.g., tab switching via Notification)
@@ -442,7 +442,7 @@ CommandBarView.executeItem()
 |-----------|------|
 | `CommandBarPanelController` | Lifecycle: show/dismiss/toggle, backdrop, animation, state ownership. Depends on `WorkspaceStore` and `repoCache: RepoCacheAtom` |
 | `CommandBarState` | Observable state: visibility, prefix parsing (`> `, `$ `, `# `), navigation stack, selection, recents |
-| `CommandBarDataSource` | Builds `CommandBarItem` arrays from `WorkspaceStore`, `atom(\\.workspaceFocusContext).currentFocus`, and `CommandDispatcher` metadata |
+| `CommandBarDataSource` | Builds `CommandBarItem` arrays from `WorkspaceStore`, `atom(\\.workspaceFocusContext).currentFocus`, and `AppCommandDispatcher` metadata |
 | `CommandBarWorktreeActionResolver` | Resolves worktree selection into dispatch/navigate/choice based on presence state and modifier keys |
 | `CommandBarSearch` | Custom fuzzy matching with score + character match ranges for highlighting |
 | `CommandBarPanel` | `NSPanel` subclass with `NSVisualEffectView` and `NSHostingView` |
@@ -451,7 +451,7 @@ CommandBarView.executeItem()
 Notable views: `CommandBarBackRow` (nested back navigation), `CommandBarScopePill` (scope indicator), `CommandBarStatusStrip` (app mode display), `CommandBarSearchField` (search input with pill), `CommandBarFooter` (contextual keyboard hints).
 
 The command bar no longer owns its own hidden-command or grouping switches. `AppCommand` remains
-the authoritative command ID, `CommandSpec` carries the authoritative metadata for dispatchable
+the authoritative command ID, `AppCommandSpec` carries the authoritative metadata for dispatchable
 commands, and `atom(\.workspaceFocus).currentFocus(...)` provides the shared app-wide focus context.
 The command bar consumes those shared models; it does not define commands itself.
 
@@ -481,7 +481,7 @@ For the Ghostty surface lifecycle, ownership model, state machine, and health mo
 
 ## Session Restore
 
-Terminal session state is managed by `WorkspaceStore` (persistence) and `SessionRuntime` (health/lifecycle). `PaneCoordinator` is the active intermediary for surface and runtime orchestration — views never call `SurfaceManager` or `SessionRuntime` directly. The zmx backend (`ZmxBackend`) provides session persistence across app restarts via raw byte passthrough daemons.
+Terminal session state is managed by `WorkspaceStore` (persistence) and `SessionRuntime` (health/lifecycle). `WorkspaceSurfaceCoordinator` is the active intermediary for surface and runtime orchestration — views never call `SurfaceManager` or `SessionRuntime` directly. The zmx backend (`ZmxBackend`) provides session persistence across app restarts via raw byte passthrough daemons.
 
 For the full session lifecycle, restore flow, and zmx configuration, see: **[Session Lifecycle](session_lifecycle.md)**
 

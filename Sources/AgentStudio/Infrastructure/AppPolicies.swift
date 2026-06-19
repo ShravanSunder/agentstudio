@@ -132,6 +132,11 @@ enum AppPolicies {
         static let commandFinishedMaxTrustedDurationNanoseconds: UInt64 = 604_800_000_000_000
         static let terminalActivityOutputBurstThresholdRows: Int = 30
         static let terminalActivityQuietDebounceDuration: Duration = .milliseconds(750)
+        static let agentSettledMinimumRows: Int = 100
+        static let agentSettledHighConfidenceRows: Int = 500
+        static let agentSettledMinimumCandidateDuration: Duration = .seconds(60)
+        static let agentSettledMinimumActiveDuration: Duration = .seconds(360)
+        static let agentSettledQuietDuration: Duration = .seconds(180)
         static let terminalActivitySessionIdleTimeoutDuration: Duration = .seconds(300)
     }
 

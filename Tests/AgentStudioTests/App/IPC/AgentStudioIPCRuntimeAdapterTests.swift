@@ -5,6 +5,8 @@ import Testing
 
 @testable import AgentStudio
 
+private let schedulerStressIPCWaitTimeout: Duration = .seconds(30)
+
 @MainActor
 @Suite("AgentStudio IPC runtime adapter")
 struct AgentStudioIPCRuntimeAdapterTests {
@@ -60,8 +62,27 @@ struct AgentStudioIPCRuntimeAdapterTests {
         #expect(!encoded.contains("zmx"))
     }
 
-    @Test("terminal send uses ActionExecutor runtime dispatch and preserves correlation id")
-    func terminalSendUsesActionExecutorRuntimeDispatchAndPreservesCorrelationId() async throws {
+    @Test("terminal snapshot maps runtime-owned health facts")
+    func terminalSnapshotMapsRuntimeOwnedHealthFacts() throws {
+        let harness = RuntimeAdapterHarness()
+        let pane = harness.createTerminalPane()
+        let runtime = RecordingTerminalIPCRuntime(paneId: PaneId(uuid: pane.id))
+        runtime.terminalSnapshotFacts = TerminalRuntimeSnapshotFacts(
+            rendererHealthy: true,
+            readOnly: false,
+            secureInput: true
+        )
+        harness.runtimeRegistry.register(runtime)
+
+        let snapshot = try harness.adapter.terminalSnapshot(IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)))
+
+        #expect(snapshot.rendererHealthy == true)
+        #expect(snapshot.readOnly == false)
+        #expect(snapshot.secureInput == true)
+    }
+
+    @Test("terminal send uses runtime dispatcher and preserves correlation id")
+    func terminalSendUsesRuntimeDispatcherAndPreservesCorrelationId() async throws {
         try await withAsyncTestAtomRegistry { _ in
             let harness = makeHarness()
             let pane = harness.store.createPane(title: "Terminal")
@@ -73,7 +94,7 @@ struct AgentStudioIPCRuntimeAdapterTests {
             let adapter = AgentStudioIPCRuntimeAdapter(
                 workspaceStore: harness.store,
                 runtimeRegistry: harness.runtimeRegistry,
-                commandDispatcher: ActionExecutorRuntimeCommandDispatcher(actionExecutor: harness.executor)
+                commandDispatcher: harness.coordinator
             )
             let correlationId = UUID()
 
@@ -91,10 +112,30 @@ struct AgentStudioIPCRuntimeAdapterTests {
             if case .terminal(.sendInput(let input)) = runtime.receivedCommands.first?.command {
                 #expect(input == "echo hi\n")
             } else {
-                Issue.record("terminal.send did not dispatch RuntimeCommand.terminal(.sendInput)")
+                Issue.record("terminal.send did not dispatch PaneRuntimeCommand.terminal(.sendInput)")
             }
             #expect(result.commandId == runtime.receivedCommands.first?.commandId)
         }
+    }
+
+    @Test("runtime IPC composition does not depend on action executor dispatch")
+    func runtimeIPCCompositionDoesNotDependOnActionExecutorDispatch() throws {
+        let source = try Self.projectSource(
+            "Sources/AgentStudio/App/IPCComposition/AgentStudioIPCRuntimeAdapter.swift"
+        )
+
+        #expect(!source.contains("ActionExecutorRuntimeCommandDispatcher"))
+        #expect(!source.contains("workspaceActionExecutor.dispatchRuntimeCommand"))
+    }
+
+    @Test("runtime IPC snapshots do not downcast to concrete terminal runtime")
+    func runtimeIPCSnapshotsDoNotDowncastToConcreteTerminalRuntime() throws {
+        let source = try Self.projectSource(
+            "Sources/AgentStudio/App/IPCComposition/AgentStudioIPCRuntimeAdapter.swift"
+        )
+
+        #expect(!source.contains("as? TerminalRuntime"))
+        #expect(!source.contains("as! TerminalRuntime"))
     }
 
     @Test("terminal send reports missing pane as target not found")
@@ -168,9 +209,10 @@ struct AgentStudioIPCRuntimeAdapterTests {
             try await harness.adapter.waitForTerminal(
                 IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
                 condition: .commandFinished,
-                timeout: .milliseconds(100)
+                timeout: schedulerStressIPCWaitTimeout
             )
         }
+        await runtime.waitForSubscriptionCount(atLeast: 1)
         runtime.emit(
             RuntimeEnvelope.pane(
                 PaneEnvelope(
@@ -249,11 +291,13 @@ struct AgentStudioIPCRuntimeAdapterTests {
             try await harness.adapter.waitForTerminal(
                 IPCHandle(kind: .pane, reference: .canonicalUUID(pane.id)),
                 condition: .titleChanged,
-                timeout: .seconds(1),
+                timeout: schedulerStressIPCWaitTimeout,
                 afterSequence: 10
             )
         }
         await Task.yield()
+        await runtime.waitForSubscriptionCount(atLeast: 1)
+        await runtime.waitForReplayCallCount(atLeast: 1)
         runtime.emit(
             RuntimeEnvelope.pane(
                 PaneEnvelope(
@@ -427,7 +471,7 @@ private struct RuntimeAdapterHarness {
     let adapter: AgentStudioIPCRuntimeAdapter
 
     init(
-        commandDispatcher: any AppIPCRuntimeCommandDispatching = StaticRuntimeCommandDispatcher(
+        commandDispatcher: any PaneRuntimeCommandDispatching = StaticRuntimeCommandDispatcher(
             result: .success(commandId: UUID())),
         eventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus()
     ) {
@@ -454,12 +498,19 @@ private struct RuntimeAdapterHarness {
     }
 }
 
+extension AgentStudioIPCRuntimeAdapterTests {
+    private static func projectSource(_ relativePath: String) throws -> String {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        return try String(contentsOf: projectRoot.appending(path: relativePath), encoding: .utf8)
+    }
+}
+
 @MainActor
-private struct StaticRuntimeCommandDispatcher: AppIPCRuntimeCommandDispatching {
+private struct StaticRuntimeCommandDispatcher: PaneRuntimeCommandDispatching {
     let result: ActionResult
 
     func dispatchRuntimeCommand(
-        _ command: RuntimeCommand,
+        _ command: PaneRuntimeCommand,
         target: RuntimeCommandTarget,
         correlationId: UUID?
     ) async -> ActionResult {
@@ -468,25 +519,26 @@ private struct StaticRuntimeCommandDispatcher: AppIPCRuntimeCommandDispatching {
 }
 
 @MainActor
-private final class RecordingTerminalIPCRuntime: PaneRuntime {
+private final class RecordingTerminalIPCRuntime: TerminalRuntimeSnapshotFactProviding {
     let paneId: PaneId
     var metadata: PaneMetadata
     var lifecycle: PaneRuntimeLifecycle = .ready
     var capabilities: Set<PaneCapability> = [.input, .resize, .search]
     var lastSeq: UInt64 = 0
+    var terminalSnapshotFacts: TerminalRuntimeSnapshotFacts?
     var replayEvents: [RuntimeEnvelope] = []
     var replayGapDetected = false
     private(set) var receivedCommands: [RuntimeCommandEnvelope] = []
 
-    private let stream: AsyncStream<RuntimeEnvelope>
-    private let continuation: AsyncStream<RuntimeEnvelope>.Continuation
+    private var liveContinuations: [UUID: AsyncStream<RuntimeEnvelope>.Continuation] = [:]
+    private var subscriptionCount = 0
+    private var subscriptionWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var replayCallCount = 0
+    private var replayCallWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     init(paneId: PaneId) {
         self.paneId = paneId
         self.metadata = PaneMetadata(paneId: paneId, contentType: .terminal, title: "Terminal")
-        let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
-        self.stream = stream
-        self.continuation = continuation
     }
 
     func handleCommand(_ envelope: RuntimeCommandEnvelope) async -> ActionResult {
@@ -495,11 +547,69 @@ private final class RecordingTerminalIPCRuntime: PaneRuntime {
     }
 
     func subscribe() -> AsyncStream<RuntimeEnvelope> {
-        stream
+        subscriptionCount += 1
+        resumeSatisfiedSubscriptionWaiters()
+        let subscriptionId = UUID()
+        let (stream, continuation) = AsyncStream.makeStream(of: RuntimeEnvelope.self)
+        liveContinuations[subscriptionId] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.liveContinuations.removeValue(forKey: subscriptionId)
+            }
+        }
+        return stream
     }
 
     func emit(_ envelope: RuntimeEnvelope) {
-        continuation.yield(envelope)
+        for continuation in liveContinuations.values {
+            continuation.yield(envelope)
+        }
+    }
+
+    func waitForSubscriptionCount(atLeast count: Int) async {
+        if subscriptionCount >= count { return }
+        await withCheckedContinuation { continuation in
+            subscriptionWaiters.append((count: count, continuation: continuation))
+        }
+    }
+
+    func waitForReplayCallCount(atLeast count: Int) async {
+        if replayCallCount >= count { return }
+        await withCheckedContinuation { continuation in
+            replayCallWaiters.append((count: count, continuation: continuation))
+        }
+    }
+
+    private func resumeSatisfiedSubscriptionWaiters() {
+        var remainingWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        var satisfiedWaiters: [CheckedContinuation<Void, Never>] = []
+        for waiter in subscriptionWaiters {
+            if subscriptionCount >= waiter.count {
+                satisfiedWaiters.append(waiter.continuation)
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+        subscriptionWaiters = remainingWaiters
+        for continuation in satisfiedWaiters {
+            continuation.resume()
+        }
+    }
+
+    private func resumeSatisfiedReplayCallWaiters() {
+        var remainingWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        var satisfiedWaiters: [CheckedContinuation<Void, Never>] = []
+        for waiter in replayCallWaiters {
+            if replayCallCount >= waiter.count {
+                satisfiedWaiters.append(waiter.continuation)
+            } else {
+                remainingWaiters.append(waiter)
+            }
+        }
+        replayCallWaiters = remainingWaiters
+        for continuation in satisfiedWaiters {
+            continuation.resume()
+        }
     }
 
     func snapshot() -> PaneRuntimeSnapshot {
@@ -513,7 +623,18 @@ private final class RecordingTerminalIPCRuntime: PaneRuntime {
         )
     }
 
+    func terminalRuntimeSnapshotFacts() -> TerminalRuntimeSnapshotFacts {
+        terminalSnapshotFacts
+            ?? TerminalRuntimeSnapshotFacts(
+                rendererHealthy: nil,
+                readOnly: nil,
+                secureInput: nil
+            )
+    }
+
     func eventsSince(seq: UInt64) async -> EventReplayBuffer.ReplayResult {
+        replayCallCount += 1
+        resumeSatisfiedReplayCallWaiters()
         let events = replayEvents.filter { $0.seq > seq }
         return EventReplayBuffer.ReplayResult(
             events: events,
@@ -523,7 +644,10 @@ private final class RecordingTerminalIPCRuntime: PaneRuntime {
     }
 
     func shutdown(timeout: Duration) async -> [UUID] {
-        continuation.finish()
+        for continuation in liveContinuations.values {
+            continuation.finish()
+        }
+        liveContinuations.removeAll()
         return []
     }
 }

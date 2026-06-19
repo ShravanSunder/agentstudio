@@ -166,7 +166,7 @@ enum WorkspaceLauncherProjector {
         )
         let chipModel = WorkspaceStatusChipsModel(
             branchStatus: branchStatus,
-            notificationCount: WorkspaceNotificationCountProjection.unreadCount(
+            notificationCount: WorkspaceNotificationCountProjection.rollUpAlertCount(
                 worktreeId: worktree.id,
                 inboxAtom: inboxAtom
             )

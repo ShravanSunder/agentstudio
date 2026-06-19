@@ -52,8 +52,16 @@ hot path is not perturbed by high-volume atom tracing. Dedicated atom telemetry
 proof can opt into `AGENTSTUDIO_TRACE_TAGS=atoms` or `*`.
 
 High-volume or domain-sensitive lanes remain explicit opt-in for ordinary app
-startup. This includes `atoms`, `eventbus`, `terminal.activity`, `inbox`,
-`paneInbox`, and `persistence.snapshot`.
+startup. This includes `atoms`, `eventbus`, `terminal.activity`,
+`terminal.signal`, `inbox`, `paneInbox`, and `persistence.snapshot`.
+
+Terminal signal instrumentation is controlled by the `terminal.signal` tag. It
+captures low-volume Ghostty action/control facts such as desktop notification,
+command-finished, progress, and routing outcomes. Terminal output growth and
+debounced unseen-activity windows remain under `terminal.activity`. Keep raw
+terminal payloads, pane ids, surface ids, and notification ids JSONL-only; OTLP
+may export only controlled signal class, action name, route result, reason, and
+safe aggregate counters.
 
 Atom instrumentation is controlled by the `atoms` tag. It emits reduced,
 aggregate-safe events such as `performance.atom.read`,

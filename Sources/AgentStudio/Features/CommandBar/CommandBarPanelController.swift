@@ -20,7 +20,7 @@ final class CommandBarPanelController {
 
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
-    private let dispatcher: CommandDispatcher
+    private let dispatcher: AppCommandDispatcher
     private let notificationInboxCommands: InboxNotificationCommands?
     private let commandBarSurface: CommandBarSurfaceAtom
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -44,7 +44,7 @@ final class CommandBarPanelController {
     init(
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: CommandDispatcher,
+        dispatcher: AppCommandDispatcher,
         notificationInboxCommands: InboxNotificationCommands? = nil,
         commandBarSurface: CommandBarSurfaceAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil

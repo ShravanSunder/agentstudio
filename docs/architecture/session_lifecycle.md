@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-A pane's identity (`PaneId`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns pane records. `SessionRuntime` tracks runtime health. `PaneCoordinator` bridges panes to surfaces. Panes can be undone via a `CloseEntry` stack. The zmx backend provides persistence across app restarts.
+A pane's identity (`PaneId`) is stable across its entire lifecycle — creation, layout changes, view switches, close/undo, persistence, and restore. `WorkspaceStore` owns pane records. `SessionRuntime` tracks runtime health. `WorkspaceSurfaceCoordinator` bridges panes to surfaces. Panes can be undone via a `CloseEntry` stack. The zmx backend provides persistence across app restarts.
 
 ---
 
@@ -42,7 +42,7 @@ not restore-time source of truth.
 USER ACTION (open terminal / split / drawer)
     |
     v
-PaneCoordinator.create/open*
+WorkspaceSurfaceCoordinator.create/open*
     |
     v
 WorkspaceStore.createPane(...)
@@ -66,7 +66,7 @@ Restore (WorkspaceStore.restore)
     -> repair invariants (activePaneId, duplicate pane IDs, etc.)
     |
     v
-PaneCoordinator.restoreAllViews()
+WorkspaceSurfaceCoordinator.restoreAllViews()
     -> lookup Pane by paneId
     -> create/reattach surface + register view by paneId
 ```
@@ -210,7 +210,7 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     participant User
-    participant PC as PaneCoordinator
+    participant PC as WorkspaceSurfaceCoordinator
     participant Store as WorkspaceStore
     participant SM as SurfaceManager
     participant VR as ViewRegistry
@@ -245,7 +245,7 @@ sequenceDiagram
 
 ### Close Tab
 
-1. `PaneCoordinator.executeCloseTab(tabId)`:
+1. `WorkspaceSurfaceCoordinator.executeCloseTab(tabId)`:
    - `store.snapshotForClose(tabId)` → `TabCloseSnapshot` (tab, panes, tabIndex)
    - Push to `undoStack` (LIFO, max 10 entries)
    - For each pane in the tab: `coordinator.teardownView(paneId)`
@@ -256,7 +256,7 @@ sequenceDiagram
 
 ### Undo Close Tab (`Cmd+Shift+T`)
 
-2. `PaneCoordinator.undoCloseTab()`:
+2. `WorkspaceSurfaceCoordinator.undoCloseTab()`:
    - Pop `WorkspaceStore.CloseEntry` from undo stack
    - `store.restoreFromSnapshot(snapshot)` — re-insert tab at original position
    - For each pane in **reversed** order (matching SurfaceManager LIFO):
@@ -283,7 +283,7 @@ sequenceDiagram
     participant AD as AppDelegate
     participant Store as WorkspaceStore
     participant DB as WorkspaceSQLiteDatastore
-    participant Coord as PaneCoordinator
+    participant Coord as WorkspaceSurfaceCoordinator
 
     AD->>Store: restore()
     Store->>DB: load()
@@ -512,7 +512,7 @@ stateDiagram-v2
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper over the canonical workspace atoms |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | Legacy JSON persistence/import I/O |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime health monitoring and status tracking |
-| `App/Coordination/PaneCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
+| `App/Coordination/WorkspaceSurfaceCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
 | `Core/Models/Pane.swift` | Pane identity and content metadata |
 | `Core/Models/SessionLifetime.swift` | `.persistent` / `.temporary` enum |
 | `Core/Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` enum |

@@ -64,7 +64,7 @@ struct CustomTabBar: View {
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
     var onOpenGitHub: (() -> Void)?
-    var onPaneAction: ((PaneActionCommand) -> Void)?
+    var onPaneAction: ((WorkspaceActionCommand) -> Void)?
     var onSaveArrangement: ((UUID) -> Void)?
     var onOpenRepoInTab: (() -> Void)?
     var workspaceWindowId: UUID?
@@ -419,7 +419,7 @@ private struct GitHubTabButton: View {
 private struct TabBarArrangementButton: View {
     @Bindable var adapter: TabBarAdapter
     @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
-    let onPaneAction: ((PaneActionCommand) -> Void)?
+    let onPaneAction: ((WorkspaceActionCommand) -> Void)?
     let onSaveArrangement: ((UUID) -> Void)?
     let workspaceWindowId: UUID?
 
@@ -602,7 +602,7 @@ private struct TabBarManagementLayerButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(CommandDispatcher.shared.definition(for: .toggleManagementLayer).controlToolTip)
+        .help(AppCommandDispatcher.shared.definition(for: .toggleManagementLayer).controlToolTip)
     }
 }
 
@@ -645,7 +645,7 @@ private struct NewTabButton: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .onHover { isHovered = $0 }
-        .help(CommandDispatcher.shared.definition(for: .newTab).controlToolTip)
+        .help(AppCommandDispatcher.shared.definition(for: .newTab).controlToolTip)
     }
 }
 
@@ -800,6 +800,14 @@ struct TabPillView: View {
 
                 Spacer()
 
+                if let notificationDotColor = tab.notificationDotColor {
+                    Circle()
+                        .fill(notificationDotColor.swiftUIColor)
+                        .frame(width: 7, height: 7)
+                        .accessibilityLabel(notificationDotColor.accessibilityLabel)
+                        .padding(.trailing, AppStyles.General.Spacing.tight)
+                }
+
                 if index < 9 {
                     Text("⌘\(index + 1)")
                         .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
@@ -828,6 +836,30 @@ struct TabPillView: View {
         if isActive { return Color.white.opacity(AppStyles.General.Fill.active) }
         if isHovering { return Color.white.opacity(AppStyles.General.Fill.hover) }
         return Color.white.opacity(AppStyles.General.Fill.subtle)
+    }
+}
+
+extension TabNotificationDotColor {
+    fileprivate var swiftUIColor: Color {
+        switch self {
+        case .red:
+            .red
+        case .amber:
+            .orange
+        case .yellow:
+            .yellow
+        }
+    }
+
+    fileprivate var accessibilityLabel: String {
+        switch self {
+        case .red:
+            "Tab has action notifications"
+        case .amber:
+            "Tab has safety notifications"
+        case .yellow:
+            "Tab has settled agent attention"
+        }
     }
 }
 

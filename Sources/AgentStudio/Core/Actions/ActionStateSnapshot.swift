@@ -12,7 +12,9 @@ struct ArrangementSnapshot: Equatable {
 struct TabSnapshot: Equatable {
     let id: UUID
     let visiblePaneIds: [UUID]
+    let layoutPaneIds: [UUID]
     let ownedPaneIds: [UUID]
+    let minimizedPaneIds: Set<UUID>
     let activePaneId: UUID?
     let activeArrangementId: UUID?
     let arrangements: [ArrangementSnapshot]
@@ -21,7 +23,9 @@ struct TabSnapshot: Equatable {
     init(
         id: UUID,
         visiblePaneIds: [UUID],
+        layoutPaneIds: [UUID]? = nil,
         ownedPaneIds: [UUID],
+        minimizedPaneIds: Set<UUID> = [],
         activePaneId: UUID?,
         isLayoutSplit: Bool? = nil,
         activeArrangementId: UUID? = nil,
@@ -29,7 +33,9 @@ struct TabSnapshot: Equatable {
     ) {
         self.id = id
         self.visiblePaneIds = visiblePaneIds
+        self.layoutPaneIds = layoutPaneIds ?? visiblePaneIds
         self.ownedPaneIds = ownedPaneIds
+        self.minimizedPaneIds = minimizedPaneIds
         self.activePaneId = activePaneId
         self.activeArrangementId = activeArrangementId
         self.arrangements = arrangements

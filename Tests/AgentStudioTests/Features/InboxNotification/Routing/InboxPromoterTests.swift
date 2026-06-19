@@ -153,6 +153,203 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications[0].activityContext?.rowsAdded == 40)
     }
 
+    @Test("agent settled activity upgrades existing blue activity row instead of adding sibling row")
+    func agentSettledActivityUpgradesExistingBlueActivityRowInsteadOfAddingSiblingRow() throws {
+        let fixture = Fixture()
+        let paneId = UUID()
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(burstWindowId: UUID(), rowsAdded: 120),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+        let notificationId = fixture.atom.notifications[0].id
+        let sessionId = try #require(fixture.atom.notifications[0].claimKey?.sessionId)
+
+        fixture.promoter.promoteAgentSettledActivity(
+            makeSettledActivity(burstWindowId: UUID(), rowsAdded: 620),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+
+        #expect(fixture.atom.notifications.count == 1)
+        #expect(fixture.atom.notifications[0].id == notificationId)
+        #expect(fixture.atom.notifications[0].kind == .agentSettledActivity)
+        #expect(fixture.atom.notifications[0].claimKey?.lane == .settledAgent)
+        #expect(fixture.atom.notifications[0].claimKey?.sessionId == sessionId)
+        #expect(fixture.atom.notifications[0].activityContext?.rowsAdded == 620)
+    }
+
+    @Test("repeated unread agent settled activity refreshes one yellow row")
+    func repeatedUnreadAgentSettledActivityRefreshesOneYellowRow() throws {
+        let fixture = Fixture()
+        let paneId = UUID()
+
+        fixture.promoter.promoteAgentSettledActivity(
+            makeSettledActivity(burstWindowId: UUID(), eventCount: 3, rowsAdded: 620),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+        let notificationId = fixture.atom.notifications[0].id
+        let sessionId = try #require(fixture.atom.notifications[0].claimKey?.sessionId)
+        fixture.promoter.promoteAgentSettledActivity(
+            makeSettledActivity(burstWindowId: UUID(), eventCount: 4, rowsAdded: 760),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+
+        #expect(fixture.atom.notifications.count == 1)
+        #expect(fixture.atom.notifications[0].id == notificationId)
+        #expect(fixture.atom.notifications[0].kind == .agentSettledActivity)
+        #expect(fixture.atom.notifications[0].claimKey?.lane == .settledAgent)
+        #expect(fixture.atom.notifications[0].claimKey?.sessionId == sessionId)
+        #expect(fixture.atom.notifications[0].activityContext?.eventCount == 7)
+        #expect(fixture.atom.notifications[0].activityContext?.rowsAdded == 760)
+        #expect(fixture.atom.globalUnreadCount == 1)
+        #expect(fixture.atom.globalRollUpAlertCount == 1)
+    }
+
+    @Test("read dismissed yellow row does not absorb future agent settled activity")
+    func readDismissedYellowRowDoesNotAbsorbFutureAgentSettledActivity() throws {
+        let fixture = Fixture()
+        let paneId = UUID()
+
+        fixture.promoter.promoteAgentSettledActivity(
+            makeSettledActivity(rowsAdded: 620),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+        let firstNotificationId = fixture.atom.notifications[0].id
+        let firstSessionId = try #require(fixture.atom.notifications[0].claimKey?.sessionId)
+        #expect(fixture.atom.markRead(id: firstNotificationId))
+        #expect(fixture.atom.dismissFromPaneInbox(id: firstNotificationId))
+
+        fixture.promoter.promoteAgentSettledActivity(
+            makeSettledActivity(rowsAdded: 760),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+
+        #expect(fixture.atom.notifications.count == 2)
+        #expect(fixture.atom.notifications[0].id == firstNotificationId)
+        #expect(fixture.atom.notifications[0].isRead)
+        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox)
+        #expect(fixture.atom.notifications[1].kind == .agentSettledActivity)
+        #expect(fixture.atom.notifications[1].claimKey?.lane == .settledAgent)
+        #expect(fixture.atom.notifications[1].claimKey?.sessionId != firstSessionId)
+        #expect(fixture.atom.notifications[1].isRead == false)
+        #expect(fixture.atom.notifications[1].isDismissedFromPaneInbox == false)
+        #expect(fixture.atom.globalUnreadCount == 1)
+        #expect(fixture.atom.globalRollUpAlertCount == 1)
+    }
+
+    @Test("approval request reopens observed read activity history")
+    func approvalRequestReopensObservedReadActivityHistory() throws {
+        let paneId = UUID()
+        let fixture = Fixture(
+            policySnapshot: .init(observedPaneIds: [paneId], pinnedToBottomByPaneId: [paneId: true])
+        )
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 60),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+        let notificationId = fixture.atom.notifications[0].id
+        let sessionId = try #require(fixture.atom.notifications[0].claimKey?.sessionId)
+        #expect(fixture.atom.notifications[0].isRead)
+        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox)
+
+        fixture.promoter.promoteExplicit(
+            .init(
+                kind: .approvalRequested,
+                title: "Approval requested",
+                body: "Allow command?",
+                semantic: .approvalRequested,
+                paneId: paneId,
+                sessionId: sessionId,
+                context: .init(paneId: paneId)
+            ))
+
+        #expect(fixture.atom.notifications.count == 1)
+        #expect(fixture.atom.notifications[0].id == notificationId)
+        #expect(fixture.atom.notifications[0].claimKey?.lane == .actionNeeded)
+        #expect(fixture.atom.notifications[0].isRead == false)
+        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox == false)
+        #expect(fixture.atom.globalUnreadCount == 1)
+    }
+
+    @Test("approval request reopens marked-read activity history")
+    func approvalRequestReopensMarkedReadActivityHistory() throws {
+        let paneId = UUID()
+        let fixture = Fixture()
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 60),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+        let notificationId = fixture.atom.notifications[0].id
+        let sessionId = try #require(fixture.atom.notifications[0].claimKey?.sessionId)
+        fixture.atom.markRead(scope: .paneIds([paneId]))
+        #expect(fixture.atom.notifications[0].isRead)
+        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox == false)
+
+        fixture.promoter.promoteExplicit(
+            .init(
+                kind: .approvalRequested,
+                title: "Approval requested",
+                body: "Allow command?",
+                semantic: .approvalRequested,
+                paneId: paneId,
+                sessionId: sessionId,
+                context: .init(paneId: paneId)
+            ))
+
+        #expect(fixture.atom.notifications.count == 1)
+        #expect(fixture.atom.notifications[0].id == notificationId)
+        #expect(fixture.atom.notifications[0].claimKey?.lane == .actionNeeded)
+        #expect(fixture.atom.notifications[0].isRead == false)
+        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox == false)
+        #expect(fixture.atom.globalRollUpAlertCount == 1)
+    }
+
+    @Test("safety request reopens observed read activity history")
+    func safetyRequestReopensObservedReadActivityHistory() throws {
+        let paneId = UUID()
+        let fixture = Fixture(
+            policySnapshot: .init(observedPaneIds: [paneId], pinnedToBottomByPaneId: [paneId: true])
+        )
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 60),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+        let notificationId = fixture.atom.notifications[0].id
+        let sessionId = try #require(fixture.atom.notifications[0].claimKey?.sessionId)
+        #expect(fixture.atom.notifications[0].isRead)
+        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox)
+
+        fixture.promoter.promoteExplicit(
+            .init(
+                kind: .terminalRendererUnhealthy,
+                title: "Terminal renderer unhealthy",
+                body: nil,
+                semantic: .rendererUnhealthy,
+                paneId: paneId,
+                sessionId: sessionId,
+                context: .init(paneId: paneId)
+            ))
+
+        #expect(fixture.atom.notifications.count == 1)
+        #expect(fixture.atom.notifications[0].id == notificationId)
+        #expect(fixture.atom.notifications[0].claimKey?.lane == .safety)
+        #expect(fixture.atom.notifications[0].isRead == false)
+        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox == false)
+        #expect(fixture.atom.globalRollUpAlertCount == 1)
+    }
+
     @Test("approval request upgrade preserves denormalized source labels")
     func approvalRequestUpgradePreservesDenormalizedSourceLabels() throws {
         let fixture = Fixture()

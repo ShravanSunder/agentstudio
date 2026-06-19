@@ -220,6 +220,10 @@ extension TerminalActivityEvent {
         switch self {
         case .unseenActivitySettled:
             return "terminalActivity.unseenActivitySettled"
+        case .agentSettledActivityPromoted:
+            return "terminalActivity.agentSettledActivityPromoted"
+        case .agentSettledActivityRevoked:
+            return "terminalActivity.agentSettledActivityRevoked"
         }
     }
 }

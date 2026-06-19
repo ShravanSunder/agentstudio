@@ -1,14 +1,19 @@
 import Foundation
 
 final class AgentStudioTraceEventQueue: @unchecked Sendable {
-    private struct TraceRequest: Sendable {
-        let tag: AgentStudioTraceTag
-        let body: String
-        let traceID: String?
-        let spanID: String?
-        let parentSpanID: String?
-        let eventTimeUnixNano: UInt64?
-        let attributes: [String: AgentStudioTraceValue]
+    private enum TraceRequest: Sendable {
+        case record(RecordRequest)
+        case flush(UnsafeContinuation<Void, Error>)
+    }
+
+    private struct RecordRequest: Sendable {
+        var tag: AgentStudioTraceTag
+        var body: String
+        var traceID: String?
+        var spanID: String?
+        var parentSpanID: String?
+        var eventTimeUnixNano: UInt64?
+        var attributes: [String: AgentStudioTraceValue]
     }
 
     private let traceRuntime: AgentStudioTraceRuntime
@@ -34,7 +39,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         eventTimeUnixNano: UInt64? = nil,
         attributes: [String: AgentStudioTraceValue]
     ) {
-        let request = TraceRequest(
+        let request = RecordRequest(
             tag: tag,
             body: body,
             traceID: traceID,
@@ -51,7 +56,26 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         ensureWorkerStartedLocked()
         let continuation = continuation
         lock.unlock()
-        continuation?.yield(request)
+        continuation?.yield(.record(request))
+    }
+
+    func flush() async throws {
+        let continuation = openContinuationForFlush()
+        guard let continuation else {
+            try await traceRuntime.flush()
+            return
+        }
+
+        try await withUnsafeThrowingContinuation { (flushContinuation: UnsafeContinuation<Void, Error>) in
+            switch continuation.yield(.flush(flushContinuation)) {
+            case .enqueued:
+                break
+            case .dropped, .terminated:
+                flushContinuation.resume(throwing: CancellationError())
+            @unknown default:
+                flushContinuation.resume(throwing: CancellationError())
+            }
+        }
     }
 
     func drain() async throws {
@@ -86,6 +110,18 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         return (continuation, workerTask)
     }
 
+    private func openContinuationForFlush() -> AsyncStream<TraceRequest>.Continuation? {
+        lock.lock()
+        guard !isClosed else {
+            lock.unlock()
+            return nil
+        }
+        ensureWorkerStartedLocked()
+        let continuation = continuation
+        lock.unlock()
+        return continuation
+    }
+
     private func ensureWorkerStartedLocked() {
         guard workerTask == nil else { return }
         let (stream, continuation) = AsyncStream.makeStream(
@@ -98,15 +134,25 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         // swiftlint:disable:next no_task_detached
         workerTask = Task.detached(priority: .utility) {
             for await request in stream {
-                await traceRuntime.record(
-                    tag: request.tag,
-                    body: request.body,
-                    traceID: request.traceID,
-                    spanID: request.spanID,
-                    parentSpanID: request.parentSpanID,
-                    eventTimeUnixNano: request.eventTimeUnixNano,
-                    attributes: request.attributes
-                )
+                switch request {
+                case .record(let request):
+                    await traceRuntime.record(
+                        tag: request.tag,
+                        body: request.body,
+                        traceID: request.traceID,
+                        spanID: request.spanID,
+                        parentSpanID: request.parentSpanID,
+                        eventTimeUnixNano: request.eventTimeUnixNano,
+                        attributes: request.attributes
+                    )
+                case .flush(let continuation):
+                    do {
+                        try await traceRuntime.flush()
+                        continuation.resume()
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
             }
         }
     }

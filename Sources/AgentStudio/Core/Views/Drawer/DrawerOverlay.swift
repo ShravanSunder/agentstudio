@@ -42,7 +42,7 @@ struct DrawerOverlay: View {
     let drawer: Drawer?
     let isIconBarVisible: Bool
     let trailingActions: TrailingActions?
-    let action: (PaneActionCommand) -> Void
+    let action: (WorkspaceActionCommand) -> Void
     let onPaneFocusTrigger: PaneFocusTriggerHandler
 
     var body: some View {

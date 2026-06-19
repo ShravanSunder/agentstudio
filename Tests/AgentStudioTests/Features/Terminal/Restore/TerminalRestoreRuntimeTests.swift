@@ -159,7 +159,7 @@ struct TerminalRestoreRuntimeTests {
             facets: PaneContextFacets(repoId: repoA.id, worktreeId: worktreeA.id, cwd: worktreeA.path)
         )
 
-        // Roam: the live facet rewrite that PaneCoordinator performs on cwd change.
+        // Roam: the live facet rewrite that WorkspaceSurfaceCoordinator performs on cwd change.
         _ = store.paneAtom.updatePaneCWDAndResolvedContext(
             bornPane.id,
             cwd: worktreeB.path,

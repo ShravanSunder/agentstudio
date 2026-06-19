@@ -220,8 +220,10 @@ final class EventReplayBuffer {
 
     private static func estimateSize(of event: TerminalActivityEvent) -> Int {
         switch event {
-        case .unseenActivitySettled:
+        case .unseenActivitySettled, .agentSettledActivityPromoted:
             return 88
+        case .agentSettledActivityRevoked:
+            return 16
         }
     }
 
