@@ -105,7 +105,7 @@ private final class TestPaneActionDispatcher: PaneActionDispatching {
         self.shouldAcceptDropResult = shouldAcceptDropResult
     }
 
-    func dispatch(_ action: PaneActionCommand) {}
+    func dispatch(_ action: WorkspaceActionCommand) {}
 
     func shouldHandleSplitDragPayload(_ payload: SplitDropPayload) -> Bool {
         shouldHandleSplitDragPayloadResult

@@ -324,7 +324,7 @@ struct RepoExplorerView: View {
                         }
 
                         Button(LocalActionSpec.refreshWorktrees.actionSpec.label) {
-                            CommandDispatcher.shared.appCommandRouter?.refreshWorktrees()
+                            AppCommandDispatcher.shared.appCommandRouter?.refreshWorktrees()
                         }
                     }
 
@@ -355,21 +355,21 @@ struct RepoExplorerView: View {
                                 onShowNotificationsForWorktree(resolvedWorktreeContext.worktree)
                             },
                             onOpen: {
-                                CommandDispatcher.shared.dispatch(
+                                AppCommandDispatcher.shared.dispatch(
                                     .openWorktree,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
                             },
                             onOpenNew: {
-                                CommandDispatcher.shared.dispatch(
+                                AppCommandDispatcher.shared.dispatch(
                                     .openNewTerminalInTab,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
                             },
                             onOpenInPane: {
-                                CommandDispatcher.shared.dispatch(
+                                AppCommandDispatcher.shared.dispatch(
                                     .openWorktreeInPane,
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree

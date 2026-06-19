@@ -119,7 +119,7 @@ Dynamic Views (computed, ephemeral — generates tabs)
 | `NSHostingView` / `NSHostingController` bridge | Pane overlay controls, drawer UI |
 | Surface management (Ghostty `NSView`) | All visual content and animations |
 
-One command system, multiple trigger surfaces. Every operation dispatches `PaneActionCommand` through `PaneCoordinator`. All UI surfaces are entry points to the same pipeline.
+One command system, multiple trigger surfaces. Every operation dispatches `WorkspaceActionCommand` through `WorkspaceSurfaceCoordinator`. All UI surfaces are entry points to the same pipeline.
 
 ---
 
@@ -552,19 +552,19 @@ The central interaction point for all window system operations. All actions rout
 
 ### Definition
 
-Multiple UI surfaces that trigger operations through the same `PaneActionCommand` → `PaneCoordinator` pipeline. Every control dispatches typed actions — the UI is just a trigger surface.
+Multiple UI surfaces that trigger operations through the same `WorkspaceActionCommand` → `WorkspaceSurfaceCoordinator` pipeline. Every control dispatches typed actions — the UI is just a trigger surface.
 
 ### Trigger Surface Matrix
 
 | Trigger | Surface | Pattern |
 |---|---|---|
-| Command bar (Cmd+P) | `CommandBarDataSource` → `CommandDispatcher` | Text search → action |
-| Keyboard shortcut | Menu item → `PaneActionCommand` | Direct dispatch |
-| Right-click context menu | Tab context menu → `PaneActionCommand` | Direct dispatch |
-| Arrangement button | Floating button under active tab → `PaneActionCommand` | Click → action |
-| Pane management panel | SwiftUI popover from arrangement button → `PaneActionCommand` | Click → action |
-| Pane overlay controls | SwiftUI overlays on pane → `PaneActionCommand` | Hover → click → action |
-| Drawer icon bar | SwiftUI bar at pane bottom → `PaneActionCommand` | Click → action |
+| Command bar (Cmd+P) | `CommandBarDataSource` → `AppCommandDispatcher` | Text search → action |
+| Keyboard shortcut | Menu item → `WorkspaceActionCommand` | Direct dispatch |
+| Right-click context menu | Tab context menu → `WorkspaceActionCommand` | Direct dispatch |
+| Arrangement button | Floating button under active tab → `WorkspaceActionCommand` | Click → action |
+| Pane management panel | SwiftUI popover from arrangement button → `WorkspaceActionCommand` | Click → action |
+| Pane overlay controls | SwiftUI overlays on pane → `WorkspaceActionCommand` | Hover → click → action |
+| Drawer icon bar | SwiftUI bar at pane bottom → `WorkspaceActionCommand` | Click → action |
 
 ### Edit Mode
 
@@ -760,7 +760,7 @@ These are architectural details discovered during implementation that affect the
 
 ### Flat Strip Direction Mapping
 
-The current layout is a horizontal flat pane strip — vertical splits are not supported. Ghostty's keybindings emit vertical split/focus/resize directions (up, down) which are mapped to horizontal equivalents in `PaneCoordinator`:
+The current layout is a horizontal flat pane strip — vertical splits are not supported. Ghostty's keybindings emit vertical split/focus/resize directions (up, down) which are mapped to horizontal equivalents in `WorkspaceSurfaceCoordinator`:
 
 | Ghostty direction | Mapped to | Applies to |
 |-------------------|-----------|------------|
@@ -770,7 +770,7 @@ The current layout is a horizontal flat pane strip — vertical splits are not s
 | `right` | `right` | unchanged |
 | `previous` / `next` | `focusPrevPane` / `focusNextPane` | focus only |
 
-This mapping lives in `mapSplitDirection`, `mapResizeSplitDirection`, and `mapGotoSplitDirection` in `App/Coordination/PaneCoordinator.swift`.
+This mapping lives in `mapSplitDirection`, `mapResizeSplitDirection`, and `mapGotoSplitDirection` in `App/Coordination/WorkspaceSurfaceCoordinator.swift`.
 
 ### Drawer Pane Tab Resolution
 

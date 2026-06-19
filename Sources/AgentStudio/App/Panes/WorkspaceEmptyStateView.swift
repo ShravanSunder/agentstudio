@@ -294,21 +294,21 @@ struct WorkspaceEmptyStateView: View {
                     key: quickFindDefinition.keyBinding?.displayString,
                     title: quickFindDefinition.label,
                     subtitle: "Everything in the app, one keypress away.",
-                    action: { CommandDispatcher.shared.dispatch(quickFindDefinition.command) }
+                    action: { AppCommandDispatcher.shared.dispatch(quickFindDefinition.command) }
                 )
 
                 launcherShortcutRow(
                     key: newTabOrWorktreeDefinition.keyBinding?.displayString,
                     title: newTabOrWorktreeDefinition.label,
                     subtitle: "Opens the # picker. New Empty Tab is always first.",
-                    action: { CommandDispatcher.shared.dispatch(newTabOrWorktreeDefinition.command) }
+                    action: { AppCommandDispatcher.shared.dispatch(newTabOrWorktreeDefinition.command) }
                 )
 
                 launcherShortcutRow(
                     keyImage: "folder.badge.plus",
                     title: "Watch Folder",
                     subtitle: "Scan and keep watching a folder for repos.",
-                    action: { CommandDispatcher.shared.dispatch(.watchFolder) }
+                    action: { AppCommandDispatcher.shared.dispatch(.watchFolder) }
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)

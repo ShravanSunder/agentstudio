@@ -85,7 +85,7 @@ final class WorkspaceCommandValidatorArrangementTests {
         let tabId = UUID()
         let arrangementId = UUID()
         let snapshot = makeSnapshot(tabs: [])
-        let cases: [(action: PaneActionCommand, expected: ActionValidationError)] = [
+        let cases: [(action: WorkspaceActionCommand, expected: ActionValidationError)] = [
             (
                 .createArrangement(tabId: tabId, name: "Focus"),
                 .tabNotFound(tabId: tabId)

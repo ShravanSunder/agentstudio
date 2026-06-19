@@ -50,8 +50,8 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = harness.controller
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = harness.controller
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     #expect(harness.controller.handleAppOwnedKeyEvent(event))
@@ -86,8 +86,8 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = harness.controller
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = harness.controller
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     #expect(harness.controller.handleAppOwnedKeyEvent(event))
@@ -126,8 +126,8 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = harness.controller
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = harness.controller
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     #expect(harness.controller.handleAppOwnedKeyEvent(event))
@@ -172,8 +172,8 @@ struct PaneTabViewControllerTerminalShortcutCommandTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = harness.controller
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = harness.controller
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     #expect(harness.controller.handleAppOwnedKeyEvent(event))

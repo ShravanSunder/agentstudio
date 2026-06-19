@@ -9,7 +9,7 @@ import SwiftUI
 struct MainSplitViewControllerHarness {
     let atoms: AtomRegistry
     let store: WorkspaceStore
-    let coordinator: PaneCoordinator
+    let coordinator: WorkspaceSurfaceCoordinator
     let controller: MainSplitViewController
     let window: NSWindow
     let tempDir: URL
@@ -50,7 +50,7 @@ private func makeMainSplitViewControllerHarness(
 
     let viewRegistry = ViewRegistry()
     let runtime = SessionRuntime(atom: atoms.sessionRuntime, store: store)
-    let coordinator = PaneCoordinator(
+    let coordinator = WorkspaceSurfaceCoordinator(
         store: store,
         viewRegistry: viewRegistry,
         runtime: runtime,
@@ -58,7 +58,7 @@ private func makeMainSplitViewControllerHarness(
         runtimeRegistry: RuntimeRegistry(),
         windowLifecycleStore: WindowLifecycleAtom()
     )
-    let actionExecutor = ActionExecutor(coordinator: coordinator, store: store)
+    let workspaceActionExecutor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let appLifecycleStore = AppLifecycleAtom()
     let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
         appLifecycleStore: appLifecycleStore,
@@ -67,7 +67,8 @@ private func makeMainSplitViewControllerHarness(
     let tabBarAdapter = TabBarAdapter(store: store, repoCache: atoms.repoCache)
     let controller = MainSplitViewController(
         store: store,
-        actionExecutor: actionExecutor,
+        workspaceActionExecutor: workspaceActionExecutor,
+        runtimeCommandDispatcher: coordinator,
         applicationLifecycleMonitor: applicationLifecycleMonitor,
         appLifecycleStore: appLifecycleStore,
         tabBarAdapter: tabBarAdapter,
@@ -234,7 +235,7 @@ struct MainSplitViewControllerTestInboxView: NSViewRepresentable {
     }
 }
 
-private final class MainSplitViewControllerTestSurfaceManager: PaneCoordinatorSurfaceManaging {
+private final class MainSplitViewControllerTestSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     init() {

@@ -6,6 +6,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneHostViewTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     @Test
     func paneHost_preservesIdentityAcrossMountedContentSwaps() {
         let paneId = UUID()

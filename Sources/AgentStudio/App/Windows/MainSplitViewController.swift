@@ -53,7 +53,8 @@ class MainSplitViewController: NSSplitViewController {
     private let workspaceWindowId: UUID?
     private var repoCache: RepoCacheAtom { atom(\.repoCache) }
     private var uiState: WorkspaceSidebarState { atom(\.workspaceSidebarState) }
-    private let actionExecutor: ActionExecutor
+    private let workspaceActionExecutor: WorkspaceActionExecutor
+    private let runtimeCommandDispatcher: any PaneRuntimeCommandDispatching
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleAtom
     private let windowLifecycleStore: WindowLifecycleAtom
@@ -85,7 +86,8 @@ class MainSplitViewController: NSSplitViewController {
     init(
         store: WorkspaceStore,
         workspaceWindowId: UUID? = nil,
-        actionExecutor: ActionExecutor,
+        workspaceActionExecutor: WorkspaceActionExecutor,
+        runtimeCommandDispatcher: any PaneRuntimeCommandDispatching,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
         windowLifecycleStore: WindowLifecycleAtom = atom(\.windowLifecycle),
@@ -103,7 +105,8 @@ class MainSplitViewController: NSSplitViewController {
     ) {
         self.store = store
         self.workspaceWindowId = workspaceWindowId
-        self.actionExecutor = actionExecutor
+        self.workspaceActionExecutor = workspaceActionExecutor
+        self.runtimeCommandDispatcher = runtimeCommandDispatcher
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
         self.windowLifecycleStore = windowLifecycleStore
@@ -134,7 +137,8 @@ class MainSplitViewController: NSSplitViewController {
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore,
             workspaceWindowId: workspaceWindowId,
-            executor: actionExecutor,
+            executor: workspaceActionExecutor,
+            runtimeCommandDispatcher: runtimeCommandDispatcher,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
             paneInboxPresentation: makePaneInboxPresentation(),

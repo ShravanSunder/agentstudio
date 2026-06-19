@@ -27,7 +27,7 @@ struct WelcomeLauncherArchitectureTests {
         #expect(source.contains("keyImage: \"folder.badge.plus\""))
         #expect(source.contains("title: \"Watch Folder\""))
         #expect(source.contains("subtitle: \"Scan and keep watching a folder for repos.\""))
-        #expect(source.contains("action: { CommandDispatcher.shared.dispatch(.watchFolder) }"))
+        #expect(source.contains("action: { AppCommandDispatcher.shared.dispatch(.watchFolder) }"))
         #expect(!source.contains("private func launcherIconShortcutButton("))
     }
 
@@ -45,10 +45,10 @@ struct WelcomeLauncherArchitectureTests {
         #expect(source.contains("let newTabOrWorktreeDefinition = AppCommand.showCommandBarRepos.definition"))
         #expect(source.contains("key: quickFindDefinition.keyBinding?.displayString"))
         #expect(source.contains("title: quickFindDefinition.label"))
-        #expect(source.contains("action: { CommandDispatcher.shared.dispatch(quickFindDefinition.command) }"))
+        #expect(source.contains("action: { AppCommandDispatcher.shared.dispatch(quickFindDefinition.command) }"))
         #expect(source.contains("key: newTabOrWorktreeDefinition.keyBinding?.displayString"))
         #expect(source.contains("title: newTabOrWorktreeDefinition.label"))
-        #expect(source.contains("action: { CommandDispatcher.shared.dispatch(newTabOrWorktreeDefinition.command) }"))
+        #expect(source.contains("action: { AppCommandDispatcher.shared.dispatch(newTabOrWorktreeDefinition.command) }"))
         #expect(!source.contains("title: \"Command palette\""))
     }
 
@@ -64,7 +64,7 @@ struct WelcomeLauncherArchitectureTests {
 
         #expect(source.contains(".watchFolder"))
         #expect(source.contains("commandToolbarButtonItem(for: .watchFolder, action: #selector(watchFolderAction))"))
-        #expect(source.contains("let definition = CommandDispatcher.shared.definition(for: command)"))
+        #expect(source.contains("let definition = AppCommandDispatcher.shared.definition(for: command)"))
         #expect(source.contains("item.toolTip = definition.controlToolTip"))
         #expect(source.contains("string: \"  \" + definition.actionSpec.label"))
         #expect(!source.contains("\"Watch Folder\""))

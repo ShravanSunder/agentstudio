@@ -115,8 +115,12 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         setRunning(true)
         do {
             try listener.start { [self] connection in
+                guard self.registerConnection(connection) else {
+                    connection.close()
+                    return
+                }
                 Task {
-                    await self.handle(connection)
+                    await self.handleRegisteredConnection(connection)
                 }
             }
             try secureSocketFile()
@@ -181,11 +185,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
         }
     }
 
-    private func handle(_ connection: UnixSocketConnection) async {
-        guard registerConnection(connection) else {
-            connection.close()
-            return
-        }
+    private func handleRegisteredConnection(_ connection: UnixSocketConnection) async {
         defer {
             unregisterConnection(connection)
             connection.close()

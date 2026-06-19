@@ -31,6 +31,6 @@ protocol PaneRuntime: AnyObject {
 /// Marker for runtimes that publish `RuntimeEnvelope` payloads directly onto `PaneRuntimeEventBus`.
 ///
 /// Legacy/fake runtimes that only support `subscribe()` are bridged to the bus
-/// by `PaneCoordinator`.
+/// by `WorkspaceSurfaceCoordinator`.
 @MainActor
 protocol BusPostingPaneRuntime: PaneRuntime {}

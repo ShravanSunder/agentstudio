@@ -18,8 +18,8 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
 
         try await withIsolatedCommandDispatcher(
             configure: {
-                CommandDispatcher.shared.handler = harness.controller
-                CommandDispatcher.shared.appCommandRouter = nil
+                AppCommandDispatcher.shared.handler = harness.controller
+                AppCommandDispatcher.shared.appCommandRouter = nil
             },
             body: {
                 let parentPane = harness.store.createPane()
@@ -28,9 +28,9 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
                 harness.store.setActiveTab(tab.id)
                 let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
 
-                #expect(CommandDispatcher.shared.canDispatch(.showPaneInboxNotifications))
+                #expect(AppCommandDispatcher.shared.canDispatch(.showPaneInboxNotifications))
 
-                CommandDispatcher.shared.dispatch(.showPaneInboxNotifications)
+                AppCommandDispatcher.shared.dispatch(.showPaneInboxNotifications)
 
                 #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
                 #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
@@ -48,8 +48,8 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
 
             try await withIsolatedCommandDispatcher(
                 configure: {
-                    CommandDispatcher.shared.handler = harness.controller
-                    CommandDispatcher.shared.appCommandRouter = nil
+                    AppCommandDispatcher.shared.handler = harness.controller
+                    AppCommandDispatcher.shared.appCommandRouter = nil
                 },
                 body: {
                     let parentPane = harness.store.createPane()

@@ -260,7 +260,7 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
         let drawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
-        let coordinator = PaneCoordinator(
+        let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,

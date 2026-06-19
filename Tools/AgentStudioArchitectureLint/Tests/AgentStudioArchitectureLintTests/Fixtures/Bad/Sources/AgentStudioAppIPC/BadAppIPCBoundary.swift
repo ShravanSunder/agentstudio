@@ -1,5 +1,5 @@
 import AppKit
 
 struct BadAppIPCBoundary {
-    let coordinator: PaneCoordinator?
+    let coordinator: WorkspaceSurfaceCoordinator?
 }

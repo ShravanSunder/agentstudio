@@ -11,10 +11,42 @@ struct PaneRuntimeContractsTests {
         #expect(event.actionPolicy == .critical)
     }
 
-    @Test("runtime command namespace is distinct from workspace PaneActionCommand")
+    @Test("runtime command namespace is distinct from workspace WorkspaceActionCommand")
     func commandTypeIsDistinct() {
-        let command = RuntimeCommand.activate
+        let command = PaneRuntimeCommand.activate
         #expect(String(describing: command).contains("activate"))
+    }
+
+    @Test("workspace action command does not own terminal runtime shortcuts")
+    func workspaceActionCommandDoesNotOwnTerminalRuntimeShortcuts() throws {
+        let source = try Self.projectSource(
+            "Sources/AgentStudio/Core/Actions/WorkspaceActionCommand.swift"
+        )
+
+        #expect(!source.contains("case scrollToBottom"))
+        #expect(!source.contains("case scrollPageUp"))
+        #expect(!source.contains("case jumpToPrompt"))
+    }
+
+    @Test("workspace action resolver does not resolve terminal runtime shortcuts")
+    func workspaceActionResolverDoesNotResolveTerminalRuntimeShortcuts() throws {
+        let source = try Self.projectSource(
+            "Sources/AgentStudio/Core/Actions/ActionResolver.swift"
+        )
+
+        #expect(!source.contains("return .scrollToBottom"))
+        #expect(!source.contains("return .scrollPageUp"))
+        #expect(!source.contains("return .jumpToPrompt"))
+    }
+
+    @Test("pane runtime contract does not own terminal snapshot facts")
+    func paneRuntimeContractDoesNotOwnTerminalSnapshotFacts() throws {
+        let source = try Self.projectSource(
+            "Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntime.swift"
+        )
+
+        #expect(!source.contains("TerminalRuntimeSnapshotFacts"))
+        #expect(!source.contains("TerminalRuntimeSnapshotFactProviding"))
     }
 
     @Test("event identifier supports built-in and plugin tags")
@@ -121,5 +153,10 @@ struct PaneRuntimeContractsTests {
             return
         }
         #expect(worktreeEnvelope.worktreeId == worktreeId)
+    }
+
+    private static func projectSource(_ relativePath: String) throws -> String {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        return try String(contentsOf: projectRoot.appending(path: relativePath), encoding: .utf8)
     }
 }

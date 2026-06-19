@@ -32,14 +32,14 @@ struct TerminalPaneMountViewExitBehaviorTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let surfaceManager = MockTerminalExitSurfaceManager()
-        let coordinator = makeTestPaneCoordinator(
+        let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry()
         )
-        let executor = ActionExecutor(coordinator: coordinator, store: store)
+        let executor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
         let appLifecycleStore = AppLifecycleAtom()
         let windowLifecycleStore = WindowLifecycleAtom()
         let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
@@ -52,6 +52,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             executor: executor,
+            runtimeCommandDispatcher: coordinator,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
             registersAsCommandHandler: false
@@ -360,7 +361,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
 }
 
 @MainActor
-private final class MockTerminalExitSurfaceManager: PaneCoordinatorSurfaceManaging {
+private final class MockTerminalExitSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     init() {

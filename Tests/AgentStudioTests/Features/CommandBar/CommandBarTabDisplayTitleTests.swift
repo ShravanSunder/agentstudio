@@ -49,7 +49,7 @@ struct CommandBarTabDisplayTitleTests {
             scope: .everything,
             store: store,
             repoCache: repoCache,
-            dispatcher: CommandDispatcher.shared
+            dispatcher: AppCommandDispatcher.shared
         )
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 

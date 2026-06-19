@@ -22,9 +22,9 @@ enum ArchitectureAllowlists {
     ]
 
     static let concreteAppRuntimeOwnerNames = Set([
-        "ActionExecutor",
-        "CommandDispatcher",
-        "PaneCoordinator",
+        "WorkspaceActionExecutor",
+        "AppCommandDispatcher",
+        "WorkspaceSurfaceCoordinator",
         "PaneRuntime",
         "RuntimeRegistry",
         "SurfaceManager",
