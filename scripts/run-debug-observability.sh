@@ -595,6 +595,13 @@ if [ -n "$existing_pids" ]; then
 fi
 
 if [ "$skip_build" = false ]; then
+  if ! mise run bridge-web-build; then
+    mkdir -p "$(dirname "$state_file")"
+    write_launch_failed_state bridge_web_build_failed
+    echo "BridgeWeb packaged resource build failed" >&2
+    echo "observability state: $state_file" >&2
+    exit 1
+  fi
   if ! swift build --build-path "$build_path"; then
     mkdir -p "$(dirname "$state_file")"
     write_launch_failed_state swift_build_failed
@@ -612,12 +619,18 @@ if [ ! -x "$binary_path" ]; then
   exit 1
 fi
 
-trace_tags="${AGENTSTUDIO_TRACE_TAGS:-*}"
+startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}"
+if [ -n "${AGENTSTUDIO_TRACE_TAGS:-}" ]; then
+  trace_tags="$AGENTSTUDIO_TRACE_TAGS"
+elif [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
+  trace_tags="app.startup,bridge.performance.*"
+else
+  trace_tags="*"
+fi
 trace_flush="${AGENTSTUDIO_TRACE_FLUSH:-immediate}"
 trace_backend=otlp
 trace_name="${AGENTSTUDIO_TRACE_NAME:-debug-observability-$debug_code-$(date +%s)-$$}"
 trace_proof_token="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}"
 startup_watch_folder="${AGENTSTUDIO_STARTUP_WATCH_FOLDER:-}"
 if ! trace_name_is_safe_path_component "$trace_name"; then
   mkdir -p "$(dirname "$state_file")"

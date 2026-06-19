@@ -33,6 +33,10 @@ xcuserdata/
 node_modules/
 BridgeWeb/dist/
 
+# Generated BridgeWeb app bundle resources. Regenerate with:
+#   mise run bridge-web-build
+Sources/AgentStudio/Resources/BridgeWeb/app/
+
 # Ghostty build artifacts and cache
 vendor/ghostty/.zig-cache/
 vendor/ghostty/macos/build/

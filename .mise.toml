@@ -115,9 +115,20 @@ echo "--- release script checks ---"
 
 [tasks.bridge-web-check]
 description = "Run BridgeWeb lint, format check, and TypeScript check"
-depends = ["bridge-web-sync-fixtures"]
+depends = ["bridge-web-install", "bridge-web-sync-fixtures"]
 dir = "BridgeWeb"
 run = "pnpm run check"
+
+[tasks.bridge-web-install]
+description = "Install BridgeWeb pnpm dependencies"
+dir = "BridgeWeb"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+corepack enable
+corepack prepare pnpm@10.33.0 --activate
+pnpm install --frozen-lockfile
+"""
 
 [tasks.bridge-web-sync-fixtures]
 description = "Verify BridgeWeb JSON contract fixtures match Swift source fixtures"
@@ -125,21 +136,25 @@ run = "bash scripts/bridge-web-sync-fixtures.sh"
 
 [tasks.bridge-web-test]
 description = "Run BridgeWeb Vitest suites"
+depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test"
 
 [tasks.bridge-web-build]
 description = "Build BridgeWeb into the SwiftPM resource bundle"
+depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run build"
 
 [tasks.bridge-web-audit]
 description = "Audit BridgeWeb packaged dependencies and app assets"
+depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run audit:assets"
 
 [tasks.bridge-viewer-benchmark]
 description = "Run Bridge viewer large-tree and large-diff benchmark proof"
+depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run benchmark:viewer && /bin/bash ../scripts/verify-bridge-viewer-benchmark.sh"
 
@@ -159,7 +174,7 @@ bash scripts/doctor-mac.sh
 
 [tasks.setup]
 description = "First-time setup: build zig deps, copy frameworks and resources"
-depends = ["copy-xcframework", "setup-dev-resources", "build-zmx", "install-hooks"]
+depends = ["copy-xcframework", "setup-dev-resources", "build-zmx", "bridge-web-install", "install-hooks"]
 run = "echo 'Setup complete. Run mise run build or mise run test.'"
 
 [tasks.install-hooks]
@@ -178,6 +193,7 @@ echo "Installed pre-push hook: .githooks/pre-push"
 
 [tasks.build]
 description = "Debug build (run mise run setup first time)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -191,6 +207,7 @@ swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.build-release]
 description = "Release build (run mise run setup first time)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail

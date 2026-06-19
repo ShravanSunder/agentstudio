@@ -29,6 +29,7 @@ struct ObservabilityDebugLaunchScriptsTests {
         let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
 
         #expect(script.contains("source \"$PROJECT_ROOT/scripts/swift-build-slot.sh\" debug"))
+        #expect(script.contains("mise run bridge-web-build"))
         #expect(script.contains("swift build --build-path \"$build_path\""))
     }
 
