@@ -1,3 +1,5 @@
+/* oxlint-disable unicorn/consistent-function-scoping -- Playwright page callbacks must carry their own DOM helpers. */
+
 import { chromium, type Page } from 'playwright';
 
 const defaultDevServerUrl =
@@ -7,9 +9,18 @@ const targetAddedText = "return 'full added file content';";
 
 interface DevServerVerificationResult {
 	readonly codeViewVisibleText: string;
+	readonly selectedHeaderCollapseButtonState: HeaderCollapseButtonState | null;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
 	readonly workerPoolState: string | null;
+}
+
+interface HeaderCollapseButtonState {
+	readonly ariaExpanded: string | null;
+	readonly ariaLabel: string | null;
+	readonly height: number;
+	readonly text: string;
+	readonly width: number;
 }
 
 const devServerUrl = process.env['BRIDGE_VIEWER_DEV_SERVER_URL'] ?? defaultDevServerUrl;
@@ -31,6 +42,7 @@ try {
 	await page.waitForTimeout(1_500);
 
 	const result = await readVerificationResult(page);
+	assertSelectedHeaderCollapseButton(result);
 	if (result.selectedDisplayPath !== targetAddedPath) {
 		throw new Error(
 			`Expected selected display path ${targetAddedPath}, got ${result.selectedDisplayPath ?? 'null'}`,
@@ -53,6 +65,7 @@ try {
 			].join('\n'),
 		);
 	}
+	await assertSelectedHeaderCollapseRoundTrip(page);
 
 	console.log(
 		JSON.stringify(
@@ -68,6 +81,146 @@ try {
 	);
 } finally {
 	await browser.close();
+}
+
+function assertSelectedHeaderCollapseButton(result: DevServerVerificationResult): void {
+	const collapseButtonState = result.selectedHeaderCollapseButtonState;
+	if (collapseButtonState === null) {
+		throw new Error(`Expected selected CodeView header collapse button for ${targetAddedPath}`);
+	}
+	if (collapseButtonState.ariaExpanded !== 'true') {
+		throw new Error(
+			`Expected selected CodeView header collapse button aria-expanded=true, got ${
+				collapseButtonState.ariaExpanded ?? 'null'
+			}`,
+		);
+	}
+	if (collapseButtonState.width < 18 || collapseButtonState.width > 32) {
+		throw new Error(
+			`Expected selected CodeView header collapse button compact width, got ${collapseButtonState.width}`,
+		);
+	}
+	if (collapseButtonState.height < 18 || collapseButtonState.height > 32) {
+		throw new Error(
+			`Expected selected CodeView header collapse button compact height, got ${collapseButtonState.height}`,
+		);
+	}
+}
+
+async function assertSelectedHeaderCollapseRoundTrip(page: Page): Promise<void> {
+	const didCollapse = await clickSelectedHeaderCollapseButton(page);
+	if (!didCollapse) {
+		throw new Error(
+			`Expected clickable selected CodeView header collapse button for ${targetAddedPath}`,
+		);
+	}
+	await page.waitForFunction(
+		(path: string): boolean => {
+			function findCodeViewHeaderCollapseButton(targetPath: string): HTMLButtonElement | null {
+				for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
+					const matchingMetadata = Array.from(
+						container.querySelectorAll('[data-testid="bridge-code-view-header-metadata"]'),
+					).find((element: Element): boolean => element.textContent?.includes(targetPath) ?? false);
+					if (matchingMetadata === undefined) {
+						continue;
+					}
+					const button = container.querySelector(
+						'[data-testid="bridge-code-view-header-collapse-button"]',
+					);
+					if (button instanceof HTMLButtonElement) {
+						return button;
+					}
+				}
+				return null;
+			}
+			const button = findCodeViewHeaderCollapseButton(path);
+			return button?.getAttribute('aria-expanded') === 'false';
+		},
+		targetAddedPath,
+		{ timeout: 10_000 },
+	);
+	const collapsedText = (await readVerificationResult(page)).codeViewVisibleText;
+	if (collapsedText.includes(targetAddedText)) {
+		throw new Error('Expected selected added file content to be hidden after header collapse');
+	}
+
+	const didExpand = await clickSelectedHeaderCollapseButton(page);
+	if (!didExpand) {
+		throw new Error(
+			`Expected clickable selected CodeView header expand button for ${targetAddedPath}`,
+		);
+	}
+	await page.waitForFunction(
+		(path: string): boolean => {
+			function findCodeViewHeaderCollapseButton(targetPath: string): HTMLButtonElement | null {
+				for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
+					const matchingMetadata = Array.from(
+						container.querySelectorAll('[data-testid="bridge-code-view-header-metadata"]'),
+					).find((element: Element): boolean => element.textContent?.includes(targetPath) ?? false);
+					if (matchingMetadata === undefined) {
+						continue;
+					}
+					const button = container.querySelector(
+						'[data-testid="bridge-code-view-header-collapse-button"]',
+					);
+					if (button instanceof HTMLButtonElement) {
+						return button;
+					}
+				}
+				return null;
+			}
+			const button = findCodeViewHeaderCollapseButton(path);
+			return button?.getAttribute('aria-expanded') === 'true';
+		},
+		targetAddedPath,
+		{ timeout: 10_000 },
+	);
+	await page.waitForFunction(
+		(expectedText: string): boolean => {
+			const shadowText = Array.from(document.querySelectorAll('diffs-container'))
+				.flatMap((container: Element): readonly string[] => {
+					const shadowRoot = container.shadowRoot;
+					if (shadowRoot === null) {
+						return [];
+					}
+					return Array.from(shadowRoot.querySelectorAll('[data-line], [data-content], pre')).map(
+						(element: Element): string => element.textContent ?? '',
+					);
+				})
+				.join(' ');
+			return shadowText.includes(expectedText);
+		},
+		targetAddedText,
+		{ timeout: 10_000 },
+	);
+}
+
+async function clickSelectedHeaderCollapseButton(page: Page): Promise<boolean> {
+	return await page.evaluate((path: string): boolean => {
+		function findCodeViewHeaderCollapseButton(targetPath: string): HTMLButtonElement | null {
+			for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
+				const matchingMetadata = Array.from(
+					container.querySelectorAll('[data-testid="bridge-code-view-header-metadata"]'),
+				).find((element: Element): boolean => element.textContent?.includes(targetPath) ?? false);
+				if (matchingMetadata === undefined) {
+					continue;
+				}
+				const button = container.querySelector(
+					'[data-testid="bridge-code-view-header-collapse-button"]',
+				);
+				if (button instanceof HTMLButtonElement) {
+					return button;
+				}
+			}
+			return null;
+		}
+		const button = findCodeViewHeaderCollapseButton(path);
+		if (button === null) {
+			return false;
+		}
+		button.click();
+		return true;
+	}, targetAddedPath);
 }
 
 async function searchForAddedFile(page: Page): Promise<void> {
@@ -105,7 +258,34 @@ async function clickFileTreePath(page: Page, path: string): Promise<void> {
 
 async function readVerificationResult(page: Page): Promise<DevServerVerificationResult> {
 	return await page.evaluate((): DevServerVerificationResult => {
+		function findCodeViewHeaderCollapseButton(path: string): HTMLButtonElement | null {
+			for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
+				const matchingMetadata = Array.from(
+					container.querySelectorAll('[data-testid="bridge-code-view-header-metadata"]'),
+				).find((element: Element): boolean => element.textContent?.includes(path) ?? false);
+				if (matchingMetadata === undefined) {
+					continue;
+				}
+				const button = container.querySelector(
+					'[data-testid="bridge-code-view-header-collapse-button"]',
+				);
+				if (button instanceof HTMLButtonElement) {
+					return button;
+				}
+			}
+			return null;
+		}
 		const codeScrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+		const selectedDisplayPath =
+			document
+				.querySelector('[data-selected-display-path]')
+				?.getAttribute('data-selected-display-path') ?? null;
+		const selectedHeaderCollapseButton =
+			selectedDisplayPath === null ? null : findCodeViewHeaderCollapseButton(selectedDisplayPath);
+		const selectedHeaderCollapseButtonBounds =
+			selectedHeaderCollapseButton === null
+				? null
+				: selectedHeaderCollapseButton.getBoundingClientRect();
 		const shadowText = Array.from(document.querySelectorAll('diffs-container'))
 			.flatMap((container: Element): readonly string[] => {
 				const shadowRoot = container.shadowRoot;
@@ -125,14 +305,21 @@ async function readVerificationResult(page: Page): Promise<DevServerVerification
 				.join(' ')
 				.replace(/\s+/g, ' ')
 				.trim(),
+			selectedHeaderCollapseButtonState:
+				selectedHeaderCollapseButton === null || selectedHeaderCollapseButtonBounds === null
+					? null
+					: {
+							ariaExpanded: selectedHeaderCollapseButton.getAttribute('aria-expanded'),
+							ariaLabel: selectedHeaderCollapseButton.getAttribute('aria-label'),
+							height: selectedHeaderCollapseButtonBounds.height,
+							text: selectedHeaderCollapseButton.textContent ?? '',
+							width: selectedHeaderCollapseButtonBounds.width,
+						},
 			selectedContentState:
 				document
 					.querySelector('[data-selected-content-state]')
 					?.getAttribute('data-selected-content-state') ?? null,
-			selectedDisplayPath:
-				document
-					.querySelector('[data-selected-display-path]')
-					?.getAttribute('data-selected-display-path') ?? null,
+			selectedDisplayPath,
 			workerPoolState:
 				document
 					.querySelector('[data-bridge-pierre-worker-pool-state]')
