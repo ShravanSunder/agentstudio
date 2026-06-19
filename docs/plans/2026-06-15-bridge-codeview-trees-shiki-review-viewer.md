@@ -618,7 +618,8 @@ Work:
 7. Preserve selected line/range only when the item and range still exist.
 8. Configure CodeView layout through Pierre's `layout` option and keep the
    worker-pool highlighter theme aligned with the mounted CodeView theme
-   (`pierre-dark` for this dark-only slice).
+   (`agentstudio-bridge-dark`, registered as a Bridge-owned CSS-variable theme,
+   for this dark-only slice).
 
 Proof:
 

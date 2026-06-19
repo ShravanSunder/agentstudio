@@ -1098,7 +1098,8 @@ Rules:
 - Use CodeView `layout` and `itemMetrics`; do not fake item spacing in CSS.
 - Keep token hooks off by default. Token metadata increases DOM size and should
   be enabled only when a later annotation or hover feature needs it.
-- The initial visual slice is dark-only and starts with Pierre's `pierre-dark`
+- The initial visual slice is dark-only and starts with Bridge's
+  AgentStudio-owned `agentstudio-bridge-dark`
   theme. When the Shiki worker pool is enabled, configure the same theme at the
   worker-pool render-options boundary; component-only theme settings are not
   sufficient proof that highlighted tokens use the intended theme.
