@@ -247,11 +247,24 @@ public final class UnixSocketListener: @unchecked Sendable {
                 _ = Darwin.close(descriptor)
             }
 
+            if descriptor != nil && DispatchQueue.getSpecific(key: acceptQueueSpecificKey) != true {
+                wakeAcceptLoop()
+            }
+
             _ = endpoint.path.withCString { Darwin.unlink($0) }
 
             if DispatchQueue.getSpecific(key: acceptQueueSpecificKey) != true {
                 acceptQueue.sync {}
             }
+        #endif
+    }
+
+    private func wakeAcceptLoop() {
+        #if canImport(Darwin)
+            guard let connection = try? UnixSocketClient.connect(endpoint: endpoint) else {
+                return
+            }
+            connection.close()
         #endif
     }
 
@@ -274,6 +287,14 @@ public final class UnixSocketListener: @unchecked Sendable {
                         return
                     }
                     continue
+                }
+
+                let shouldStopAfterAccept = stateLock.withLock {
+                    isStopping || fileDescriptor == nil
+                }
+                if shouldStopAfterAccept {
+                    _ = Darwin.close(acceptedDescriptor)
+                    return
                 }
 
                 do {
