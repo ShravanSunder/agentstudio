@@ -2,8 +2,19 @@
 
 Planned at: `luna-338-pierreshikitrees-review-viewer`
 Repo: `/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start`
-Status: implementation in progress; IPC merge follow-up added after `origin/main`
+Status: historical foundation after the 2026-06-19 BridgeWeb DiffsHub/Shadcn
+reset. Do not execute this plan directly.
 Linear: `LUNA-338`
+
+> 2026-06-19 supersession notice: this plan records the original LUNA-338
+> package-backed viewer foundation. Current execution is governed by
+> `docs/plans/2026-06-18-bridgeweb-large-diff-fast-loop-remediation.md` with
+> `docs/plans/2026-06-16-bridge-viewer-diffshub-polish.md` as the UX/style
+> companion and
+> `docs/superpowers/specs/2026-06-18-bridgeweb-large-diff-fast-loop-spec.md` as
+> the active spec amendment. This file must not be used as the executor-facing
+> plan for markdown, DiffsHub parity, shadcn/Base UI theming, dev-server proof,
+> or semantic IPC ordering.
 
 ## Goal
 
@@ -101,7 +112,9 @@ Pierre reference anchors:
 - No source editing, Monaco, patch apply, approve/reject, or accept-agent-change
   UI.
 - No durable annotation/comment-body persistence.
-- No rich markdown preview in slice 1; markdown renders as source text.
+- Historical note only: this original slice deferred rich markdown preview.
+  Current BridgeWeb execution requires markdown rendering through the active
+  remediation/spec reset plans listed above.
 - No general endpoint tree browser UI in slice 1.
 - No direct BridgeWeb OTLP exporter. Browser-originated telemetry still flows
   through Swift's existing debug telemetry path.
@@ -1190,10 +1203,9 @@ Observability:
 
 ## Next Workflow
 
-Run `shravan-dev-workflow:implementation-execute-plan` under
-`shravan-dev-workflow:orchestrator-goal`. Start with Task 0, then execute the
-tasks in order. Do not skip the dependency/export, packaged WKWebView,
-observability, benchmark, semantic IPC, and boundary-check proof gates.
+Do not execute this historical plan directly. Use
+`docs/plans/2026-06-18-bridgeweb-large-diff-fast-loop-remediation.md` as the
+active executor-facing plan and keep this file as background foundation only.
 
 ## Handoff Prompt
 
@@ -1201,14 +1213,19 @@ observability, benchmark, semantic IPC, and boundary-check proof gates.
 Required workflow skill: shravan-dev-workflow:orchestrator-goal
 Next workflow: shravan-dev-workflow:implementation-execute-plan
 
-Goal: Execute the reviewed LUNA-338 implementation plan.
+Goal: Resume LUNA-338 from the active BridgeWeb DiffsHub/Shadcn reset plan.
 
 Repo: /Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start
-Plan: docs/plans/2026-06-15-bridge-codeview-trees-shiki-review-viewer.md
-Spec: docs/superpowers/specs/2026-06-15-bridge-codeview-trees-viewer.md
+Active plan: docs/plans/2026-06-18-bridgeweb-large-diff-fast-loop-remediation.md
+Companion UX/style plan: docs/plans/2026-06-16-bridge-viewer-diffshub-polish.md
+Active spec amendment: docs/superpowers/specs/2026-06-18-bridgeweb-large-diff-fast-loop-spec.md
+Historical foundation only: docs/plans/2026-06-15-bridge-codeview-trees-shiki-review-viewer.md
 
 Required reading:
-- docs/plans/2026-06-15-bridge-codeview-trees-shiki-review-viewer.md
+- docs/plans/2026-06-18-bridgeweb-large-diff-fast-loop-remediation.md
+- docs/plans/2026-06-16-bridge-viewer-diffshub-polish.md
+- docs/superpowers/specs/2026-06-18-bridgeweb-large-diff-fast-loop-spec.md
+- docs/plans/2026-06-15-bridge-codeview-trees-shiki-review-viewer.md as historical foundation only
 - docs/superpowers/specs/2026-06-15-bridge-codeview-trees-viewer.md
 - BridgeWeb/package.json
 - BridgeWeb/src/app/bridge-app.tsx

@@ -7,6 +7,7 @@ Status: implementation-ready spec amendment
 Related:
 
 - `docs/superpowers/specs/2026-06-18-bridgeweb-dev-visual-proof-harness.md`
+- `docs/plans/2026-06-18-bridgeweb-large-diff-fast-loop-remediation.md`
 - `docs/plans/2026-06-16-bridge-viewer-diffshub-polish.md`
 
 ## Purpose
@@ -38,6 +39,15 @@ components are the reference for controls, and Catppuccin Mocha is the accepted
 visual target. Any in-progress BridgeWeb edits on this branch must be validated
 or reshaped against this contract before they count as proof. The reset ledger is
 `tmp/research-workflows/2026-06-19-bridgeweb-diffshub-shadcn-reset/research-ledger.md`.
+
+2026-06-19 source-truth amendment: DiffsHub parity means copying the local
+source behavior contract, not approximating screenshots with bespoke CSS.
+BridgeWeb must mirror DiffsHub's use of uncontrolled Pierre CodeView plus
+imperative item updates, `renderHeaderPrefix` for collapse only,
+CodeView-backed file scrolling, preserved-input-order FileTree updates,
+`themeToTreeStyles(...)` for the tree, and a chrome-token mapping layer for
+shadcn/Tailwind controls. DiffsHub's Radix shadcn wrappers are prior art;
+BridgeWeb's component implementation remains shadcn/Base UI.
 
 ## Requirements
 

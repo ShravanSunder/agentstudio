@@ -6,6 +6,22 @@ Goal id: `2026-06-18-bridgeweb-diffshub-node-pr-parity`
 
 Status: amended during execution after DiffsHub/Node PR parity research
 
+Current source-of-truth, 2026-06-19:
+
+- This is the active executor-facing plan for the BridgeWeb DiffsHub/Shadcn
+  reset. The companion UX/style plan is
+  `docs/plans/2026-06-16-bridge-viewer-diffshub-polish.md`; the older
+  `docs/plans/2026-06-15-bridge-codeview-trees-shiki-review-viewer.md` is
+  historical foundation only and must not be executed directly after this
+  reset.
+- Local Pierre/DiffsHub source is the primary behavior reference:
+  `apps/diffshub/app/_components/CodeViewWrapper.tsx`,
+  `CodeViewFileTree.tsx`, `ReviewUI.tsx`,
+  `_theming/js/treeThemeProps.ts`, and `_theming/js/diffshubChromeMapping.ts`.
+- Product-code edits already present on this branch are candidate partial
+  fixes. They must be validated or reshaped against this plan before they count
+  as accepted implementation proof.
+
 Execution order amendment, 2026-06-19:
 
 - Merge `origin/main` into this branch before more UX or IPC implementation.
@@ -83,8 +99,9 @@ Visual checkpoint, 2026-06-19:
   rendering. Reference URL:
   `https://diffshub.com/ShravanSunder/agentstudio/pull/180`.
   Browser capture must force dark mode with `theme = dark` and
-  `diffshub-dark-theme = pierre-dark`; otherwise DiffsHub falls back to light
-  in headless Chromium and the comparison is invalid. Current valid reference
+  `diffshub-dark-theme = catppuccin-mocha`; otherwise DiffsHub may fall back to
+  another dark theme in headless Chromium and the comparison is invalid.
+  Current valid reference
   screenshot:
   `BridgeWeb/tmp/bridge-viewer-visual-proof/compare-pr180-2026-06-19T18-56-50-515Z/diffshub-dark.png`.
 - Current local worktree screenshot:
@@ -121,6 +138,12 @@ Visual checkpoint, 2026-06-19:
   buttons. `bridge-review-search-toggle` belongs to the button only; wrapper
   slots use their own ids. Icon controls in the rail must remain hoverable and
   visually consistent even when the underlying feature is not implemented yet.
+
+2026-06-19 correction: earlier checkpoint text that allowed a Bridge status
+badge in the CodeView header is superseded. The canonical grammar is exactly:
+Bridge collapse/expand affordance in Pierre's header-prefix slot, then
+Pierre-owned file icon/path, then count metadata. File status and class remain
+in the right rail/tree and summary metadata.
 
 Shadcn theming source-of-truth amendment, 2026-06-19:
 
@@ -1156,8 +1179,8 @@ Still not accepted by the DiffsHub-class visual gate:
 - Main CodeView file sections need clearer DiffsHub-like boundaries, sticky
   behavior, and collapse/expand affordances.
 - CodeView file headers must not stack redundant icons. The accepted header
-  grammar is collapse affordance plus Bridge status badge plus Pierre-owned
-  file icon/path; do not add an extra Bridge file-kind icon before the path.
+  grammar is collapse affordance plus Pierre-owned file icon/path; do not add a
+  Bridge status badge or extra Bridge file-kind icon before the path.
 - File-click selection must keep aligning the target file header to the top of
   the scroll viewport without jumpiness.
 - Large fixture tree-click behavior must be consistent for all visible file

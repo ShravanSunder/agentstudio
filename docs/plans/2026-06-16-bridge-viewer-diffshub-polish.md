@@ -62,6 +62,22 @@ measurements, Pierre API usage, and Catppuccin target, not its Radix dependency
 choice. The DiffsHub default `pierre-dark` is useful source prior art, but it is
 not the accepted visual target for this branch.
 
+Local DiffsHub source anchors that the implementation must follow before more
+Swift IPC/native proof:
+
+- `apps/diffshub/app/_components/CodeViewWrapper.tsx`: uncontrolled
+  `ThemedCodeView`, `renderHeaderPrefix`, collapse `updateItem`, sticky
+  headers, and CodeView options.
+- `apps/diffshub/app/_components/CodeViewFileTree.tsx`: `useFileTree`,
+  preserved input order, compact density, sticky folders, append-only tree
+  update path, and tree selection mapped to CodeView item ids.
+- `apps/diffshub/app/_components/ReviewUI.tsx`: selected tree path expands a
+  collapsed CodeView item and scrolls the item to `align: "start"`.
+- `apps/diffshub/app/_components/_theming/js/treeThemeProps.ts`:
+  `themeToTreeStyles(...)` plus foreground reconciliation for the tree.
+- `apps/diffshub/app/_components/_theming/js/diffshubChromeMapping.ts`:
+  editor-theme-derived chrome tokens mapped into shadcn/Tailwind variables.
+
 Current known drift to correct before more feature work:
 
 - `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` has
@@ -1659,6 +1675,10 @@ If `mise run test-fast` or GitHub CI times out outside this slice, do not change
 | Browser performance artifact is durable | 8, 9 | executor | implementation proof update after `test:benchmark:browser` | proof artifact + performance/browser | exact per-scenario metric rows from structured stdout are pasted or summarized with scenario id, metric id, fixture id/class, delivery mode, latency profile, worker modes, correctness assertion, p50, p95, budget, and sample count | green required |
 | Browser performance artifact is verified | 8, 9 | executor | browser-performance artifact verifier | performance/browser + proof artifact | verifier fails on missing scenario ids, scenario-contract drift, missing fixture metadata, missing worker-mode flags, missing correctness assertion names, missing samples, NaN timings, underreported p50/p95, p95 above budget, unscoped content URLs, or missing push/projection/content/command ledgers | red/green required |
 | Node and browser benchmark ownership stays separate | 8, 9 | executor | `mise run bridge-viewer-benchmark` plus `pnpm --dir BridgeWeb run test:benchmark:browser` | benchmark + performance/browser | node deterministic workload metrics are not used as browser interaction proof unless Browser Mode mounted the same scenario | green required |
+| Real worktree dev-server proof passes | 0.5, 3, 4, 5, 6, 8 | executor | `pnpm --dir BridgeWeb run test:dev-server:worktree` | integration/browser | target repo is the current `agent-studio.bridge-start` worktree, selected path is fixture-resolved, package text is scrubbed, worker state is ready, and file click/scroll/content assertions run against real changed files | red/green required |
+| Dev visual proof compares against DiffsHub | 1, 2, 3, 4, 5 | executor + visual reviewer | `pnpm --dir BridgeWeb run proof:visual:dev-server` plus DiffsHub reference capture | visual/browser | proof sets/selects DiffsHub `catppuccin-mocha`, captures top header, right rail, open filter, scrolled CodeView, scrolled rail, added-file content, and records source URLs/artifact paths | red/green required |
+| Header/filter/tree geometry is measured | 1, 2, 4, 5 | executor | Playwright bbox/DOM assertions in browser proof | visual/browser + integration/browser | rows, buttons, popovers, header slots, file boundaries, font sizes, active states, and scrollbar ownership are measured from rendered DOM, not inferred from props | red/green required |
+| Logical checkpoint commits protect progress | all | executor | git status/diff plus focused proof before each commit | workflow proof | each commit stages only coherent source/docs/test surfaces; generated app assets/dist stay untracked or ignored unless explicitly source-owned | green required |
 
 ## Validation Detail
 
