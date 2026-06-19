@@ -4,7 +4,9 @@ import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../../app/bridge-app.css';
+import { reviewPackageForBridgeAppDevFixtureScenario } from '../../app/bridge-app-dev-fixture.js';
 import { BridgeApp } from '../../app/bridge-app.js';
+import { createBridgePierrePortableBlobWorkerFactory } from '../workers/pierre/bridge-pierre-dev-worker-factory.js';
 import {
 	bridgeViewerCodeTextContent,
 	bridgeViewerCodeGeometry,
@@ -446,6 +448,48 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		expect(backend.projectionRequests).toHaveLength(1);
 
 		backend.dispose();
+	});
+
+	test('large fixture search reveals added files and renders their fetched content', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
+
+		try {
+			render(
+				<BridgeApp
+					codeViewWorkerPoolEnabled={true}
+					codeViewWorkerFactory={workerFactory.workerFactory}
+					fetchContent={backend.fetchContent}
+					markdownWorkerClient={null}
+					projectionWorkerClient={backend.projectionWorkerClient}
+				/>,
+			);
+			await backend.pushPackage(
+				reviewPackageForBridgeAppDevFixtureScenario({
+					fixture,
+					scenario: 'scroll',
+				}),
+			);
+			await waitForBridgeViewerText(fixture.expected.largeText);
+
+			setBridgeViewerSearchText('NewPanel');
+			const addedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.addedPath);
+			addedButton.click();
+			await waitForBridgeViewerText(fixture.expected.addedText);
+			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+
+			expect(bridgeViewerRenderedTextContent()).toContain(fixture.expected.addedText);
+			expect(bridgeViewerVisibleCodeTextContent(codeScroll)).toContain(fixture.expected.addedText);
+			expect(
+				backend.requestedUrls.some((url: string): boolean =>
+					url.includes(fixture.expected.addedHeadHandleId),
+				),
+			).toBe(true);
+		} finally {
+			workerFactory.revoke();
+			backend.dispose();
+		}
 	});
 
 	test('custom filter controls route through projection requests and preserve a visible selection', async () => {

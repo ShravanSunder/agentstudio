@@ -277,7 +277,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			handle: codeViewHandle,
 			controllerEntryRef,
 		});
-		const updateResult = controller.applyItemUpdate(nextMaterializedItem);
+		const updateResult = controller.applyItemUpdate(nextMaterializedItem, {
+			scrollIntoView: true,
+		});
 		scheduleCodeViewRecoveryRender();
 		setMaterializationDiagnostic(
 			materializationDiagnosticForCodeViewItem({
