@@ -223,6 +223,22 @@ struct InboxNotificationSidebarViewTests {
                 #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarDeleteMenu") == 1)
                 #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 0)
                 guard
+                    let searchRow = inboxSidebarDescendant(
+                        in: hostingView,
+                        identifier: "inboxSidebarSearchRow"
+                    ),
+                    let toolbarRow = inboxSidebarDescendant(
+                        in: hostingView,
+                        identifier: "inboxSidebarToolbarRow"
+                    ),
+                    let deleteMenuView = inboxSidebarDescendant(
+                        in: hostingView,
+                        identifier: "inboxSidebarDeleteMenu"
+                    ),
+                    let sortButton = inboxSidebarDescendant(
+                        in: hostingView,
+                        identifier: "inboxSidebarSortButtonFrame"
+                    ),
                     let deleteMenuBridge = inboxSidebarAccessibleElement(
                         in: hostingView,
                         identifier: "inboxSidebarDeleteMenu"
@@ -231,6 +247,16 @@ struct InboxNotificationSidebarViewTests {
                     Issue.record("mounted inbox sidebar should expose the delete menu accessibility target")
                     return
                 }
+                let searchRowFrame = searchRow.convert(searchRow.bounds, to: hostingView)
+                let toolbarRowFrame = toolbarRow.convert(toolbarRow.bounds, to: hostingView)
+                let deleteMenuFrame = deleteMenuView.convert(deleteMenuView.bounds, to: hostingView)
+                let sortButtonFrame = sortButton.convert(sortButton.bounds, to: hostingView)
+
+                #expect(deleteMenuFrame.width > 0)
+                #expect(deleteMenuFrame.height > 0)
+                #expect(deleteMenuFrame.midX > searchRowFrame.midX)
+                #expect(deleteMenuFrame.maxX <= searchRowFrame.maxX)
+                #expect(sortButtonFrame.midX > toolbarRowFrame.midX)
 
                 pressInboxSidebarAccessibleElement(deleteMenuBridge)
 

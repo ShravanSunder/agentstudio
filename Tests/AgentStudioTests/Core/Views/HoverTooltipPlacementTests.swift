@@ -73,4 +73,17 @@ struct HoverTooltipPlacementTests {
 
         #expect(y == 48)
     }
+
+    @Test
+    func tooltipY_canAnchorAboveHoveredControlForHeaderToolbars() {
+        let anchorFrame = CGRect(x: 20, y: 42, width: 24, height: 24)
+
+        let y = HoverTooltipPlacement.positionedY(
+            anchorFrame: anchorFrame,
+            verticalAnchor: .aboveAnchor,
+            verticalOffset: HoverTooltipPlacement.aboveAnchorVerticalOffset
+        )
+
+        #expect(y == 8)
+    }
 }

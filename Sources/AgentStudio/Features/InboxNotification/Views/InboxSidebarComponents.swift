@@ -165,8 +165,8 @@ struct InboxSidebarHeader: View {
                         activeTarget: activeTooltipTarget,
                         anchorFrames: tooltipFrames,
                         availableWidth: geometryProxy.size.width,
-                        verticalAnchor: .belowAnchor,
-                        verticalOffset: HoverTooltipPlacement.belowAnchorVerticalOffset,
+                        verticalAnchor: .aboveAnchor,
+                        verticalOffset: HoverTooltipPlacement.aboveAnchorVerticalOffset,
                         tooltipText: tooltipText(for:)
                     )
                     .allowsHitTesting(false)
@@ -193,9 +193,7 @@ struct InboxSidebarHeader: View {
                     }
                 )
                 .help("Search inbox notifications (\(InboxSidebarKeyboardHint.focusSearch))")
-                .layoutPriority(1)
-
-                Spacer(minLength: 0)
+                .layoutPriority(0)
 
                 Menu {
                     Button("Delete Read", action: actions.onClearReadHistory)
@@ -217,6 +215,8 @@ struct InboxSidebarHeader: View {
                 )
                 .onHover { updateDeleteTooltipTarget(isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.delete, in: Self.tooltipCoordinateSpaceName)
+                .fixedSize()
+                .layoutPriority(1)
                 .background(
                     AccessibilityPressBridge(
                         identifier: "inboxSidebarDeleteMenu",
@@ -234,6 +234,8 @@ struct InboxSidebarHeader: View {
             )
 
             HStack(spacing: AppStyles.General.Spacing.standard) {
+                Spacer(minLength: 0)
+
                 Button(action: actions.onToggleSort) {
                     toolbarIcon(toggleSortSpec.icon)
                         .rotationEffect(.degrees(sort == .newestFirst ? 0 : 180))
@@ -245,6 +247,12 @@ struct InboxSidebarHeader: View {
                 .help("\(toggleSortSpec.helpText) (\(InboxSidebarKeyboardHint.toggleSort))")
                 .onHover { updateTooltipTarget(.sort, isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.sort, in: Self.tooltipCoordinateSpaceName)
+                .background(
+                    AccessibilityLabelBridge(
+                        identifier: "inboxSidebarSortButtonFrame",
+                        label: toggleSortSpec.label
+                    )
+                )
 
                 Button(action: actions.onToggleRowStateFilter) {
                     toolbarIcon(rowStateAction.icon, isActive: isUnreadOnly)
@@ -308,9 +316,8 @@ struct InboxSidebarHeader: View {
                     }
                     .padding(8)
                 }
-
-                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(
                 AccessibilityLabelBridge(
                     identifier: "inboxSidebarToolbarRow",

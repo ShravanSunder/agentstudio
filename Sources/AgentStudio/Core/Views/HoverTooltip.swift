@@ -3,10 +3,12 @@ import SwiftUI
 enum HoverTooltipPlacement {
     static let defaultEdgeInset: CGFloat = 6
     static let defaultVerticalOffset: CGFloat = -28
+    static let aboveAnchorVerticalOffset: CGFloat = -34
     static let belowAnchorVerticalOffset: CGFloat = 6
 
     enum VerticalAnchor {
         case containerTop
+        case aboveAnchor
         case belowAnchor
     }
 
@@ -29,6 +31,8 @@ enum HoverTooltipPlacement {
         switch verticalAnchor {
         case .containerTop:
             return verticalOffset
+        case .aboveAnchor:
+            return max(0, anchorFrame.minY + verticalOffset)
         case .belowAnchor:
             return anchorFrame.maxY + verticalOffset
         }
