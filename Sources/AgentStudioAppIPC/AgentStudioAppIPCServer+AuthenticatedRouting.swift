@@ -16,8 +16,8 @@ extension AgentStudioAppIPCServer {
             return try await processLayoutRequest(request)
         case "terminal.status", "terminal.snapshot", "terminal.send", "terminal.wait":
             return try await processRuntimeRequest(request)
-        case "bridge.review.open", "bridge.review.refresh", "bridge.review.getPackage", "bridge.review.renderState",
-            "bridge.review.selectFile", "bridge.content.get", "bridge.telemetry.flush":
+        case "bridge.diff.load", "bridge.diff.refresh", "bridge.diff.getPackage", "bridge.diff.renderState",
+            "bridge.diff.selectFile", "bridge.fileView.getContent", "bridge.telemetry.flush":
             return try await processBridgeRequest(request)
         case "command.list", "command.execute", "ui.commandBar.open":
             return try await processCommandOrUIRequest(request)
@@ -158,7 +158,7 @@ extension AgentStudioAppIPCServer {
 
     private func processBridgeRequest(_ request: JSONRPCRequest) async throws -> JSONValue {
         switch request.method {
-        case "bridge.review.open":
+        case "bridge.diff.load":
             let params = try decodeParams(IPCBridgeReviewOpenParams.self, from: request.params)
             let result = try await MainActor.run {
                 try service.ports.bridgePort.openReview(params)
@@ -171,7 +171,7 @@ extension AgentStudioAppIPCServer {
                 )
             )
             return try encodeResult(result)
-        case "bridge.review.refresh":
+        case "bridge.diff.refresh":
             let params = try decodeParams(IPCBridgeReviewRefreshParams.self, from: request.params)
             let result = try await service.ports.bridgePort.refreshReview(params)
             await publishBridgeEvent(
@@ -183,13 +183,13 @@ extension AgentStudioAppIPCServer {
                 )
             )
             return try encodeResult(result)
-        case "bridge.review.getPackage":
+        case "bridge.diff.getPackage":
             let handle = try decodeHandle(from: request.params)
             return try await encodeResult(service.ports.bridgePort.getPackage(handle))
-        case "bridge.review.renderState":
+        case "bridge.diff.renderState":
             let handle = try decodeHandle(from: request.params)
             return try await encodeResult(service.ports.bridgePort.renderState(handle))
-        case "bridge.review.selectFile":
+        case "bridge.diff.selectFile":
             let params = try decodeParams(IPCBridgeReviewSelectFileParams.self, from: request.params)
             let result = try await service.ports.bridgePort.selectFile(params)
             await publishBridgeEvent(
@@ -201,7 +201,7 @@ extension AgentStudioAppIPCServer {
                 )
             )
             return try encodeResult(result)
-        case "bridge.content.get":
+        case "bridge.fileView.getContent":
             let params = try decodeParams(IPCBridgeContentGetParams.self, from: request.params)
             let result = try await service.ports.bridgePort.getContent(params)
             await publishBridgeEvent(

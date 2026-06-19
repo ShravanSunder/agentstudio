@@ -5,8 +5,8 @@ import Testing
 
 @Suite("AgentStudio IPC Bridge service", .serialized)
 struct AgentStudioIPCBridgeServiceTests {
-    @Test("debug unsafe no-auth refreshes Bridge review package")
-    func debugUnsafeNoAuthRefreshesBridgeReviewPackage() throws {
+    @Test("debug unsafe no-auth refreshes Bridge diff package")
+    func debugUnsafeNoAuthRefreshesBridgeDiffPackage() throws {
         let paneId = UUID()
         let correlationId = UUID()
         let fixture = try LiveServerFixture(
@@ -23,7 +23,7 @@ struct AgentStudioIPCBridgeServiceTests {
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(65),
-                method: "bridge.review.refresh",
+                method: "bridge.diff.refresh",
                 params: .object([
                     "handle": .string("pane:1"),
                     "correlationId": .string(correlationId.uuidString),
@@ -41,8 +41,8 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(result.correlationId == correlationId)
     }
 
-    @Test("debug unsafe no-auth serves Bridge package and content methods")
-    func debugUnsafeNoAuthServesBridgePackageAndContentMethods() throws {
+    @Test("debug unsafe no-auth serves Bridge package and file view content methods")
+    func debugUnsafeNoAuthServesBridgePackageAndFileViewContentMethods() throws {
         let paneId = UUID()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
@@ -58,7 +58,7 @@ struct AgentStudioIPCBridgeServiceTests {
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(66),
-                method: "bridge.review.getPackage",
+                method: "bridge.diff.getPackage",
                 params: .object(["handle": .string("pane:1")])
             )
         )
@@ -75,7 +75,7 @@ struct AgentStudioIPCBridgeServiceTests {
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(67),
-                method: "bridge.content.get",
+                method: "bridge.fileView.getContent",
                 params: .object([
                     "handle": .string("pane:1"),
                     "contentHandleId": .string(headHandle.handleId),
@@ -109,7 +109,7 @@ struct AgentStudioIPCBridgeServiceTests {
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
                 id: .number(71),
-                method: "bridge.review.renderState",
+                method: "bridge.diff.renderState",
                 params: .object(["handle": .string("pane:1")])
             )
         )
@@ -156,7 +156,7 @@ struct AgentStudioIPCBridgeServiceTests {
             connection: connection,
             request: JSONRPCClientRequest(
                 id: .number(72),
-                method: "bridge.review.open",
+                method: "bridge.diff.load",
                 params: .object([
                     "target": .string("pane:active")
                 ])
@@ -220,7 +220,7 @@ struct AgentStudioIPCBridgeServiceTests {
             connection: connection,
             request: JSONRPCClientRequest(
                 id: .number(70),
-                method: "bridge.review.selectFile",
+                method: "bridge.diff.selectFile",
                 params: .object([
                     "handle": .string("pane:1"),
                     "itemId": .string("item-source"),

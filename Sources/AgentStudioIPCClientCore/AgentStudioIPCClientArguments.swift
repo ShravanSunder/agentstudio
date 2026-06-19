@@ -199,7 +199,7 @@ public enum AgentStudioIPCClientArguments {
         remainingArguments: [String]
     ) throws -> AgentStudioIPCClientCommand? {
         switch commandName {
-        case "bridge-review-open":
+        case "bridge-diff-load":
             guard remainingArguments.count <= 1 else {
                 throw AgentStudioIPCClientError(reason: .invalidArguments)
             }
@@ -212,27 +212,27 @@ public enum AgentStudioIPCClientArguments {
             } else {
                 worktreeId = nil
             }
-            return .bridgeReviewOpen(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
-        case "bridge-review-refresh":
+            return .bridgeDiffLoad(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
+        case "bridge-diff-refresh":
             let values = try requireCount(remainingArguments, 1)
-            return .bridgeReviewRefresh(IPCBridgeReviewRefreshParams(handle: values[0]))
-        case "bridge-review-get-package":
+            return .bridgeDiffRefresh(IPCBridgeReviewRefreshParams(handle: values[0]))
+        case "bridge-diff-get-package":
             let values = try requireCount(remainingArguments, 1)
-            return .bridgeReviewGetPackage(handle: values[0])
-        case "bridge-render-state":
+            return .bridgeDiffGetPackage(handle: values[0])
+        case "bridge-diff-render-state":
             let values = try requireCount(remainingArguments, 1)
-            return .bridgeReviewRenderState(handle: values[0])
-        case "bridge-review-select-file":
+            return .bridgeDiffRenderState(handle: values[0])
+        case "bridge-diff-select-file":
             let values = try requireCount(remainingArguments, 2)
-            return .bridgeReviewSelectFile(
+            return .bridgeDiffSelectFile(
                 IPCBridgeReviewSelectFileParams(handle: values[0], itemId: values[1])
             )
-        case "bridge-content-get":
+        case "bridge-file-view-get-content":
             let values = try requireCount(remainingArguments, 3)
             guard let reviewGeneration = Int(values[2]) else {
                 throw AgentStudioIPCClientError(reason: .invalidArguments)
             }
-            return .bridgeContentGet(
+            return .bridgeFileViewGetContent(
                 IPCBridgeContentGetParams(
                     handle: values[0],
                     contentHandleId: values[1],

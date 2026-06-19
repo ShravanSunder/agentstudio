@@ -51,12 +51,11 @@ subsystem. IPC must not expose generic methods such as
 Bridge IPC methods should be semantic and typed in
 `AgentStudioProgrammaticControl`. Preferred initial methods are:
 
-- `bridge.review.open`
-- `bridge.review.refresh`
-- `bridge.review.getPackage`
-- `bridge.review.selectFile`
-- `bridge.review.markViewed`
-- `bridge.content.get`
+- `bridge.diff.load`
+- `bridge.diff.refresh`
+- `bridge.diff.getPackage`
+- `bridge.diff.selectFile`
+- `bridge.fileView.getContent`
 - `bridge.telemetry.flush`
 
 Only methods with real product owners should enter the method catalog. A method
@@ -84,10 +83,10 @@ explicitly and test it. A terminal, webview, or missing pane target must fail
 with a typed unsupported-target outcome instead of fallback behavior.
 
 Content access should prefer Bridge content handles over raw paths. A package
-read may return item metadata and handles. `bridge.content.get` validates the
-handle, package id, review generation, role, and bounds before returning
-content. Raw filesystem paths, arbitrary refs, hashes, prompt text, or source
-paths must not become IPC payload shortcuts.
+read may return item metadata and handles. `bridge.fileView.getContent`
+validates the handle, package id, review generation, role, and bounds before
+returning content. Raw filesystem paths, arbitrary refs, hashes, prompt text, or
+source paths must not become IPC payload shortcuts.
 
 Bridge IPC events are notification-only facts:
 

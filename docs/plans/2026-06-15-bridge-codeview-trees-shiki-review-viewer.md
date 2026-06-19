@@ -999,16 +999,21 @@ Work:
    Bridge feature owners.
 3. Add typed public IPC contracts for the first semantic methods. Preferred
    initial surface:
-   - `bridge.review.open`
-   - `bridge.review.refresh`
-   - `bridge.review.getPackage`
-   - `bridge.review.selectFile`
-   - `bridge.review.markViewed`
-   - `bridge.content.get`
+   - `bridge.diff.load`
+   - `bridge.diff.refresh`
+   - `bridge.diff.getPackage`
+   - `bridge.diff.selectFile`
+   - `bridge.fileView.getContent`
    - `bridge.telemetry.flush`
 
    If a method lacks a real product owner in this slice, do not stub it as a
    fake success. Leave it out of the method catalog and record the follow-up.
+   Richer controls such as `bridge.diff.scrollToFile`,
+   `bridge.diff.expandFile`, `bridge.diff.collapseFile`,
+   `bridge.fileTree.search`, `bridge.fileTree.setFilter`,
+   `bridge.fileTree.revealPath`, `bridge.fileView.showMarkdownPreview`, and
+   `bridge.telemetry.snapshot` should enter the method catalog only when their
+   Bridge product owners exist.
 4. Extend capability-scoped authorization with closed privilege/data scopes for
    Bridge, for example:
    - `bridgeRead` for review package metadata, selected item, and status
@@ -1027,11 +1032,11 @@ Work:
 
    The resolver must prove the target is a live Bridge pane. Non-Bridge panes
    fail with a typed unsupported-target error, not fallback magic.
-6. Prefer stable Bridge content handles over raw paths. `bridge.review.getPackage`
-   may return package item metadata and handles; `bridge.content.get` validates
-   the handle, package id, review generation, role, and content bounds before
-   returning content. Raw filesystem paths, arbitrary refs, and private hashes
-   must not cross IPC.
+6. Prefer stable Bridge content handles over raw paths.
+   `bridge.diff.getPackage` may return package item metadata and handles;
+   `bridge.fileView.getContent` validates the handle, package id, review
+   generation, role, and content bounds before returning content. Raw filesystem
+   paths, arbitrary refs, and private hashes must not cross IPC.
 7. Add Bridge IPC events as notifications only, not command routing:
    - `bridge.review.updated`
    - `bridge.file.selected`
@@ -1044,7 +1049,7 @@ Work:
 8. Keep command/UI separation:
    - do not make `command.execute` open Bridge through command-bar UI
    - do not make Bridge IPC call `ui.commandBar.open`
-   - if `bridge.review.open` is added, it routes to the same semantic owner as
+   - if `bridge.diff.load` is added, it routes to the same semantic owner as
      `ActionExecutor.openBridgeReview()` or a narrower Bridge pane-opening port
 9. Add app/IPC tests proving:
    - method catalog lists only the implemented `bridge.*` semantic methods

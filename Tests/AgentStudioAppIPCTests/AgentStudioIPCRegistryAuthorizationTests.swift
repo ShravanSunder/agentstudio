@@ -37,12 +37,12 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         }
 
         let expectedBridgeMethods: [String: (privileges: Set<String>, owner: String)] = [
-            "bridge.review.open": (["layoutMutate"], "bridgeCapability"),
-            "bridge.review.refresh": (["bridgeControl"], "bridgeCapability"),
-            "bridge.review.getPackage": (["bridgeRead"], "bridgeCapability"),
-            "bridge.review.renderState": (["bridgeRead"], "bridgeCapability"),
-            "bridge.review.selectFile": (["bridgeControl"], "bridgeCapability"),
-            "bridge.content.get": (["bridgeContentRead"], "bridgeCapability"),
+            "bridge.diff.load": (["layoutMutate"], "bridgeCapability"),
+            "bridge.diff.refresh": (["bridgeControl"], "bridgeCapability"),
+            "bridge.diff.getPackage": (["bridgeRead"], "bridgeCapability"),
+            "bridge.diff.renderState": (["bridgeRead"], "bridgeCapability"),
+            "bridge.diff.selectFile": (["bridgeControl"], "bridgeCapability"),
+            "bridge.fileView.getContent": (["bridgeContentRead"], "bridgeCapability"),
             "bridge.telemetry.flush": (["bridgeTelemetryFlush"], "bridgeCapability"),
         ]
         for (methodName, expected) in expectedBridgeMethods {
@@ -53,10 +53,12 @@ struct AgentStudioIPCRegistryAuthorizationTests {
 
         #expect(registry.definition(named: "webview.evaluateJavaScript") == nil)
         #expect(registry.definition(named: "bridge.rawPostMessage") == nil)
+        #expect(registry.definition(named: "bridge.review.getPackage") == nil)
+        #expect(registry.definition(named: "bridge.content.get") == nil)
     }
 
-    @Test("Bridge review open is not a baseline self-pane Bridge control method")
-    func bridgeReviewOpenIsNotBaselineSelfPaneBridgeControl() throws {
+    @Test("Bridge diff load is not a baseline self-pane Bridge control method")
+    func bridgeDiffLoadIsNotBaselineSelfPaneBridgeControl() throws {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let service = AuthorizationService(
             methodRegistry: registry,
@@ -68,7 +70,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         #expect(throws: AuthorizationError.self) {
             try service.authorize(
                 principal: principal,
-                methodName: "bridge.review.open",
+                methodName: "bridge.diff.load",
                 requestedTarget: .selfPane,
                 activePaneId: nil
             )

@@ -342,8 +342,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 request: request.replacingHandle(canonicalHandle.rawIPCHandleString),
                 target: targetScope(fromCanonicalHandle: canonicalHandle)
             )
-        case "bridge.review.getPackage", "bridge.review.renderState", "bridge.review.refresh",
-            "bridge.review.selectFile", "bridge.content.get", "bridge.telemetry.flush":
+        case "bridge.diff.getPackage", "bridge.diff.renderState", "bridge.diff.refresh",
+            "bridge.diff.selectFile", "bridge.fileView.getContent", "bridge.telemetry.flush":
             return try await bridgeAuthorizationContext(for: request)
         case "pane.split":
             let params = try decodeParams(IPCPaneSplitParams.self, from: request.params)
@@ -390,7 +390,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             )
         case "permission.request":
             return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
-        case "bridge.review.open":
+        case "bridge.diff.load":
             return AuthorizedRequestContext(request: request, target: .app)
         case "ui.commandBar.open":
             return AuthorizedRequestContext(request: request, target: .app)
@@ -404,14 +404,14 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
 
     private func bridgeAuthorizationContext(for request: JSONRPCRequest) async throws -> AuthorizedRequestContext {
         switch request.method {
-        case "bridge.review.getPackage", "bridge.review.renderState", "bridge.telemetry.flush":
+        case "bridge.diff.getPackage", "bridge.diff.renderState", "bridge.telemetry.flush":
             let params = try decodeParams(IPCBridgePaneParams.self, from: request.params)
             let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
             return try AuthorizedRequestContext(
                 request: request.replacingHandle(canonicalHandle.rawIPCHandleString),
                 target: targetScope(fromCanonicalHandle: canonicalHandle)
             )
-        case "bridge.review.refresh":
+        case "bridge.diff.refresh":
             let params = try decodeParams(IPCBridgeReviewRefreshParams.self, from: request.params)
             let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
             let canonicalParams = IPCBridgeReviewRefreshParams(
@@ -422,7 +422,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
                 target: targetScope(fromCanonicalHandle: canonicalHandle)
             )
-        case "bridge.review.selectFile":
+        case "bridge.diff.selectFile":
             let params = try decodeParams(IPCBridgeReviewSelectFileParams.self, from: request.params)
             let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
             let canonicalParams = IPCBridgeReviewSelectFileParams(
@@ -434,7 +434,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 request: request.replacingParams(try JSONRPCCodec.encodeJSONValue(canonicalParams)),
                 target: targetScope(fromCanonicalHandle: canonicalHandle)
             )
-        case "bridge.content.get":
+        case "bridge.fileView.getContent":
             let params = try decodeParams(IPCBridgeContentGetParams.self, from: request.params)
             let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
             let canonicalParams = IPCBridgeContentGetParams(

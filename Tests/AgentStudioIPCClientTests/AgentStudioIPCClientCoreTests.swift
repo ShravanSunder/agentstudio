@@ -122,27 +122,27 @@ struct AgentStudioIPCClientCoreTests {
         )
     }
 
-    @Test("parses bridge review commands")
-    func parsesBridgeReviewCommands() throws {
+    @Test("parses bridge diff commands")
+    func parsesBridgeDiffCommands() throws {
         let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
         let openInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-review-open", worktreeId.uuidString],
+            ["--socket", "/tmp/app.sock", "bridge-diff-load", worktreeId.uuidString],
             environment: [:]
         )
         let refreshInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-review-refresh", "pane:2"],
+            ["--socket", "/tmp/app.sock", "bridge-diff-refresh", "pane:2"],
             environment: [:]
         )
         let packageInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-review-get-package", "pane:2"],
+            ["--socket", "/tmp/app.sock", "bridge-diff-get-package", "pane:2"],
             environment: [:]
         )
         let renderStateInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-render-state", "pane:2"],
+            ["--socket", "/tmp/app.sock", "bridge-diff-render-state", "pane:2"],
             environment: [:]
         )
         let selectInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-review-select-file", "pane:2", "item-source"],
+            ["--socket", "/tmp/app.sock", "bridge-diff-select-file", "pane:2", "item-source"],
             environment: [:]
         )
         let telemetryFlushInvocation = try AgentStudioIPCClientArguments.parse(
@@ -152,28 +152,28 @@ struct AgentStudioIPCClientCoreTests {
 
         #expect(
             openInvocation.command
-                == .bridgeReviewOpen(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
+                == .bridgeDiffLoad(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
         )
-        #expect(refreshInvocation.command == .bridgeReviewRefresh(IPCBridgeReviewRefreshParams(handle: "pane:2")))
-        #expect(packageInvocation.command == .bridgeReviewGetPackage(handle: "pane:2"))
-        #expect(renderStateInvocation.command == .bridgeReviewRenderState(handle: "pane:2"))
+        #expect(refreshInvocation.command == .bridgeDiffRefresh(IPCBridgeReviewRefreshParams(handle: "pane:2")))
+        #expect(packageInvocation.command == .bridgeDiffGetPackage(handle: "pane:2"))
+        #expect(renderStateInvocation.command == .bridgeDiffRenderState(handle: "pane:2"))
         #expect(
             selectInvocation.command
-                == .bridgeReviewSelectFile(
+                == .bridgeDiffSelectFile(
                     IPCBridgeReviewSelectFileParams(handle: "pane:2", itemId: "item-source")
                 )
         )
         #expect(telemetryFlushInvocation.command == .bridgeTelemetryFlush(handle: "pane:2"))
     }
 
-    @Test("builds bridge content request frame")
-    func buildsBridgeContentRequestFrame() throws {
+    @Test("builds bridge file view content request frame")
+    func buildsBridgeFileViewContentRequestFrame() throws {
         let client = AgentStudioIPCClient(
             configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
         )
 
         let frame = try client.requestFrame(
-            .bridgeContentGet(
+            .bridgeFileViewGetContent(
                 IPCBridgeContentGetParams(
                     handle: "pane:2",
                     contentHandleId: "content-123",
@@ -185,7 +185,7 @@ struct AgentStudioIPCClientCoreTests {
         let request = try JSONRPCCodec.decodeRequest(frame)
 
         #expect(request.id == .number(14))
-        #expect(request.method == "bridge.content.get")
+        #expect(request.method == "bridge.fileView.getContent")
         guard case .object(let params)? = request.params else {
             Issue.record("expected object params")
             return

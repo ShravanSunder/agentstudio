@@ -87,12 +87,12 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     case terminalSend(handle: String, input: String, correlationId: UUID?)
     case terminalWait(
         handle: String, condition: IPCTerminalWaitCondition, timeoutSeconds: Double, afterSequence: UInt64?)
-    case bridgeReviewOpen(IPCBridgeReviewOpenParams)
-    case bridgeReviewRefresh(IPCBridgeReviewRefreshParams)
-    case bridgeReviewGetPackage(handle: String)
-    case bridgeReviewRenderState(handle: String)
-    case bridgeReviewSelectFile(IPCBridgeReviewSelectFileParams)
-    case bridgeContentGet(IPCBridgeContentGetParams)
+    case bridgeDiffLoad(IPCBridgeReviewOpenParams)
+    case bridgeDiffRefresh(IPCBridgeReviewRefreshParams)
+    case bridgeDiffGetPackage(handle: String)
+    case bridgeDiffRenderState(handle: String)
+    case bridgeDiffSelectFile(IPCBridgeReviewSelectFileParams)
+    case bridgeFileViewGetContent(IPCBridgeContentGetParams)
     case bridgeTelemetryFlush(handle: String)
     case eventsSubscribe(eventNames: [IPCEventName])
     case eventsUnsubscribe(subscriptionId: UUID)
@@ -127,18 +127,18 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             "terminal.send"
         case .terminalWait:
             "terminal.wait"
-        case .bridgeReviewOpen:
-            "bridge.review.open"
-        case .bridgeReviewRefresh:
-            "bridge.review.refresh"
-        case .bridgeReviewGetPackage:
-            "bridge.review.getPackage"
-        case .bridgeReviewRenderState:
-            "bridge.review.renderState"
-        case .bridgeReviewSelectFile:
-            "bridge.review.selectFile"
-        case .bridgeContentGet:
-            "bridge.content.get"
+        case .bridgeDiffLoad:
+            "bridge.diff.load"
+        case .bridgeDiffRefresh:
+            "bridge.diff.refresh"
+        case .bridgeDiffGetPackage:
+            "bridge.diff.getPackage"
+        case .bridgeDiffRenderState:
+            "bridge.diff.renderState"
+        case .bridgeDiffSelectFile:
+            "bridge.diff.selectFile"
+        case .bridgeFileViewGetContent:
+            "bridge.fileView.getContent"
         case .bridgeTelemetryFlush:
             "bridge.telemetry.flush"
         case .eventsSubscribe:
@@ -154,8 +154,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             true
         case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
             .currentPane, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend, .terminalWait,
-            .bridgeReviewOpen, .bridgeReviewRefresh, .bridgeReviewGetPackage, .bridgeReviewRenderState,
-            .bridgeReviewSelectFile, .bridgeContentGet, .bridgeTelemetryFlush, .eventsUnsubscribe:
+            .bridgeDiffLoad, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
+            .bridgeDiffSelectFile, .bridgeFileViewGetContent, .bridgeTelemetryFlush, .eventsUnsubscribe:
             false
         }
     }
@@ -195,17 +195,17 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
                 params["afterSequence"] = .number(Double(afterSequence))
             }
             return .object(params)
-        case .bridgeReviewOpen(let params):
+        case .bridgeDiffLoad(let params):
             return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeReviewRefresh(let params):
+        case .bridgeDiffRefresh(let params):
             return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeReviewGetPackage(let handle):
+        case .bridgeDiffGetPackage(let handle):
             return .object(["handle": .string(handle)])
-        case .bridgeReviewRenderState(let handle):
+        case .bridgeDiffRenderState(let handle):
             return .object(["handle": .string(handle)])
-        case .bridgeReviewSelectFile(let params):
+        case .bridgeDiffSelectFile(let params):
             return try JSONRPCCodec.encodeJSONValue(params)
-        case .bridgeContentGet(let params):
+        case .bridgeFileViewGetContent(let params):
             return try JSONRPCCodec.encodeJSONValue(params)
         case .bridgeTelemetryFlush(let handle):
             return .object(["handle": .string(handle)])
