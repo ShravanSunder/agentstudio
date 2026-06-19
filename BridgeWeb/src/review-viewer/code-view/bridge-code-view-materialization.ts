@@ -71,11 +71,14 @@ export function materializeBridgeCodeViewItem(
 	props: MaterializeBridgeCodeViewItemProps,
 ): BridgeCodeViewItem | null {
 	const { item, resources } = props;
-	if (resources.base !== undefined && resources.head !== undefined) {
+	if (
+		shouldUseDiffPlaceholder(item) &&
+		(resources.base !== undefined || resources.head !== undefined)
+	) {
 		return createDiffItem({
 			item,
-			base: resources.base,
-			head: resources.head,
+			base: resources.base ?? null,
+			head: resources.head ?? null,
 		});
 	}
 
@@ -135,7 +138,10 @@ function createPlaceholderDiffItem(item: BridgeReviewItemDescriptor): BridgeCode
 		id: item.itemId,
 		type: 'diff',
 		fileDiff,
-		version: 0,
+		version: codeViewRenderVersion({
+			contentState: 'placeholder',
+			itemVersion: item.itemVersion,
+		}),
 		bridgeMetadata: createMetadata({
 			item,
 			contentState: 'placeholder',
@@ -162,7 +168,10 @@ function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
 		id: props.item.itemId,
 		type: 'file',
 		file,
-		version: props.version,
+		version: codeViewRenderVersion({
+			contentState: props.contentState,
+			itemVersion: props.version,
+		}),
 		bridgeMetadata: createMetadata({
 			item: props.item,
 			contentState: props.contentState,
@@ -174,8 +183,8 @@ function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
 
 interface CreateDiffItemProps {
 	readonly item: BridgeReviewItemDescriptor;
-	readonly base: BridgeContentResource;
-	readonly head: BridgeContentResource;
+	readonly base: BridgeContentResource | null;
+	readonly head: BridgeContentResource | null;
 }
 
 function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
@@ -194,14 +203,36 @@ function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
 		id: props.item.itemId,
 		type: 'diff',
 		fileDiff,
-		version: props.item.itemVersion,
+		version: codeViewRenderVersion({
+			contentState: 'hydrated',
+			itemVersion: props.item.itemVersion,
+		}),
 		bridgeMetadata: createMetadata({
 			item: props.item,
 			contentState: 'hydrated',
-			contentRoles: ['base', 'head'],
-			cacheKey: `${props.base.handle.cacheKey}|${props.head.handle.cacheKey}`,
+			contentRoles: loadedDiffContentRoles(props),
+			cacheKey: `${props.base?.handle.cacheKey ?? 'placeholder'}|${props.head?.handle.cacheKey ?? 'placeholder'}`,
 		}),
 	};
+}
+
+function codeViewRenderVersion(props: {
+	readonly contentState: BridgeCodeViewItemMetadata['contentState'];
+	readonly itemVersion: number;
+}): number {
+	const baseVersion = props.itemVersion * 2;
+	return props.contentState === 'hydrated' ? baseVersion + 1 : baseVersion;
+}
+
+function loadedDiffContentRoles(props: CreateDiffItemProps): readonly BridgeContentRole[] {
+	const roles: BridgeContentRole[] = [];
+	if (props.base !== null) {
+		roles.push('base');
+	}
+	if (props.head !== null) {
+		roles.push('head');
+	}
+	return roles;
 }
 
 interface CreateFileContentsProps {

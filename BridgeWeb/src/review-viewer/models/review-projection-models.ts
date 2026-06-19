@@ -157,6 +157,21 @@ export const bridgeReviewProjectionModeSchema = z.discriminatedUnion('kind', [
 
 export type BridgeReviewProjectionMode = z.infer<typeof bridgeReviewProjectionModeSchema>;
 
+export const bridgeReviewRenderModeSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('codeView') }),
+	z.object({ kind: z.literal('markdownPreview') }),
+]);
+
+export type BridgeReviewRenderMode = z.infer<typeof bridgeReviewRenderModeSchema>;
+
+export const bridgeReviewFilterStateSchema = z.object({
+	treeSearchText: z.string(),
+	gitStatusFilter: z.union([z.literal('all'), bridgeFileChangeKindSchema]),
+	fileClassFilter: z.union([z.literal('all'), bridgeFileClassSchema]),
+});
+
+export type BridgeReviewFilterState = z.infer<typeof bridgeReviewFilterStateSchema>;
+
 export const bridgeReviewProjectionRequestSchema = z.object({
 	base: bridgeReviewProjectionModeSchema,
 	refinements: z.array(bridgeReviewProjectionRefinementSchema).readonly(),

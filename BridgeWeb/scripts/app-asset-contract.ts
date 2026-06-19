@@ -7,7 +7,16 @@ import ts from 'typescript';
 export const appAssetManifestFileName = 'agentstudio-app-assets.json';
 
 const schemaVersion = 1;
-const devEntrypointReference = '/src/app/bridge-app-bootstrap.tsx';
+const legacyDevEntrypointReference = '/src/app/bridge-app-bootstrap.tsx';
+const devOnlyBridgeWebReferenceFragments: readonly string[] = [
+	legacyDevEntrypointReference,
+	'/src/app/bridge-app-dev-bootstrap.tsx',
+	'bridge-app-dev-bootstrap',
+	'bridge-app-dev-fixture',
+	'bridge-viewer-mocked-backend',
+	'bridge-viewer/test-support',
+	'review-viewer/test-support',
+];
 const packagedWorkerShikiWasmImportPattern = /import\((["'])\.\/wasm-[A-Za-z0-9_-]+\.js\1\)/gu;
 const packagedWorkerShikiWasmUnavailableExpression =
 	'Promise.reject(new Error("AgentStudio BridgeWeb packages only the shiki-js worker highlighter"))';
@@ -57,6 +66,14 @@ export interface AppAssetManifest {
 	readonly workers: readonly AppWorkerAssetRecord[];
 }
 
+export interface AppAssetTotals {
+	readonly appBytes: number;
+	readonly workerBytes: number;
+	readonly totalBytes: number;
+	readonly appAssetCount: number;
+	readonly workerAssetCount: number;
+}
+
 export interface ReadDependencyLicenseMetadataProps {
 	readonly packageRootPath: string;
 	readonly packageNames: readonly string[];
@@ -71,6 +88,11 @@ export interface DependencyLicenseMetadata {
 
 export interface ValidatePackagedAppOutputProps {
 	readonly indexHtml: string;
+	readonly manifest: AppAssetManifest;
+}
+
+export interface ValidatePackagedAppAssetContentsProps {
+	readonly appDirectoryPath: string;
 	readonly manifest: AppAssetManifest;
 }
 
@@ -190,6 +212,30 @@ export function formatAppAssetManifest(manifest: AppAssetManifest): string {
 	return `${JSON.stringify(manifest, null, '\t')}\n`;
 }
 
+export function summarizeAppAssetTotals(assetManifest: AppAssetManifest): AppAssetTotals {
+	const appAssets = [
+		assetManifest.entrypoints.mainScript,
+		...assetManifest.entrypoints.auxiliaryScripts,
+		...assetManifest.entrypoints.styles,
+	];
+	const workerAssets = assetManifest.workers;
+	const appBytes = sumAssetBytes(appAssets);
+	const workerBytes = sumAssetBytes(workerAssets);
+	const uniqueAssets = new Map<string, AppAssetRecord>();
+
+	for (const asset of [...appAssets, ...workerAssets]) {
+		uniqueAssets.set(asset.path, asset);
+	}
+
+	return {
+		appBytes,
+		workerBytes,
+		totalBytes: sumAssetBytes([...uniqueAssets.values()]),
+		appAssetCount: appAssets.length,
+		workerAssetCount: workerAssets.length,
+	};
+}
+
 export async function readDependencyLicenseMetadata(
 	props: ReadDependencyLicenseMetadataProps,
 ): Promise<readonly DependencyLicenseMetadata[]> {
@@ -229,9 +275,11 @@ export async function readDependencyLicenseMetadata(
 }
 
 export function validatePackagedAppOutput(props: ValidatePackagedAppOutputProps): void {
-	if (props.indexHtml.includes(devEntrypointReference)) {
+	if (props.indexHtml.includes(legacyDevEntrypointReference)) {
 		throw new Error('Packaged app HTML must not reference the dev entrypoint');
 	}
+
+	validateNoDevOnlyBridgeWebReferences(props.indexHtml);
 
 	if (!props.manifest.entrypoints.mainScript.path.endsWith('.js')) {
 		throw new Error('Packaged app manifest is missing a JavaScript entrypoint');
@@ -248,7 +296,28 @@ export function validatePackagedAppOutput(props: ValidatePackagedAppOutputProps)
 		...props.manifest.workers,
 	]) {
 		validateAssetRecord(asset);
+		validateNoDevOnlyBridgeWebReferences(asset.path);
 	}
+}
+
+export async function validatePackagedAppAssetContents(
+	props: ValidatePackagedAppAssetContentsProps,
+): Promise<void> {
+	await Promise.all(
+		[
+			props.manifest.entrypoints.mainScript,
+			...props.manifest.entrypoints.auxiliaryScripts,
+			...props.manifest.entrypoints.styles,
+			...props.manifest.workers,
+		].map(async (asset: AppAssetRecord): Promise<void> => {
+			const assetContent = await readFile(join(props.appDirectoryPath, asset.path), 'utf8');
+			validateNoDevOnlyBridgeWebReferences(assetContent);
+			validateNoExternalCssResourceLoads({
+				assetPath: asset.path,
+				assetContent,
+			});
+		}),
+	);
 }
 
 export function validateWorkerSourceSelfContained(
@@ -465,6 +534,40 @@ function validateAssetRecord(asset: AppAssetRecord): void {
 	if (!/^[a-f0-9]{64}$/.test(asset.sha256)) {
 		throw new Error(`Packaged app asset has invalid sha256: ${asset.path}`);
 	}
+}
+
+function validateNoDevOnlyBridgeWebReferences(value: string): void {
+	for (const devOnlyReference of devOnlyBridgeWebReferenceFragments) {
+		if (value.includes(devOnlyReference)) {
+			throw new Error(
+				`Packaged app output contains dev-only BridgeWeb reference: ${devOnlyReference}`,
+			);
+		}
+	}
+}
+
+interface ValidateNoExternalCssResourceLoadsProps {
+	readonly assetPath: string;
+	readonly assetContent: string;
+}
+
+function validateNoExternalCssResourceLoads(props: ValidateNoExternalCssResourceLoadsProps): void {
+	if (!props.assetPath.endsWith('.css')) {
+		return;
+	}
+
+	const externalCssResourcePattern =
+		/(?:@import\s+(?:url\()?["']?(?:https?:|\/\/|data:|blob:|file:)|url\(\s*["']?(?:https?:|\/\/|data:|blob:|file:))/iu;
+	if (externalCssResourcePattern.test(props.assetContent)) {
+		throw new Error(`Packaged CSS asset contains external resource load: ${props.assetPath}`);
+	}
+}
+
+function sumAssetBytes(assets: readonly AppAssetRecord[]): number {
+	return assets.reduce(
+		(totalBytes: number, asset: AppAssetRecord): number => totalBytes + asset.bytes,
+		0,
+	);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

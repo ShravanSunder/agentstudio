@@ -38,6 +38,22 @@ describe('Bridge review viewer Zustand store', () => {
 		unsubscribe();
 	});
 
+	test('owns viewer search filter and render-mode state as pure state transitions', () => {
+		const store = createBridgeReviewViewerStore();
+
+		store.getState().actions.setTreeSearchText('docs');
+		store.getState().actions.setGitStatusFilter('modified');
+		store.getState().actions.setFileClassFilter('docs');
+		store.getState().actions.setRenderMode({ kind: 'markdownPreview' });
+
+		expect(store.getState().rootSnapshot).toMatchObject({
+			treeSearchText: 'docs',
+			gitStatusFilter: 'modified',
+			fileClassFilter: 'docs',
+			renderMode: { kind: 'markdownPreview' },
+		});
+	});
+
 	test('discards stale worker projection results before mutating projection state', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projectionInput = makeBridgeReviewProjectionInput(reviewPackage);

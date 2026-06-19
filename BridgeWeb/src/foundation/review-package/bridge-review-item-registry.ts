@@ -202,7 +202,7 @@ function isExcludedByPathGlobs(
 
 function reviewItemCandidatePaths(item: BridgeReviewItemDescriptor): readonly string[] {
 	return [item.headPath, item.basePath].filter(
-		(path: string | null): path is string => path !== null,
+		(path: string | null | undefined): path is string => path !== null && path !== undefined,
 	);
 }
 

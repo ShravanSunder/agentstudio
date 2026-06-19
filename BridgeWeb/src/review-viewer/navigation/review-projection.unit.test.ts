@@ -80,6 +80,31 @@ describe('Bridge review projection', () => {
 		expect(projectedItem?.extension).toBeNull();
 	});
 
+	test('normalizes omitted Swift optional path fields for deleted files', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const deletedItem = reviewPackage.itemsById['deleted-source'];
+
+		if (deletedItem === undefined) {
+			throw new Error('expected deleted-source fixture item');
+		}
+
+		const nextPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				[deletedItem.itemId]: itemWithOmittedHeadPath(deletedItem),
+			},
+		};
+
+		const projectionInput = makeBridgeReviewProjectionInput(nextPackage);
+		const projectedItem = projectionInput.orderedItems.find(
+			(item) => item.itemId === deletedItem.itemId,
+		);
+
+		expect(projectedItem?.basePath).toBe('Sources/Removed.swift');
+		expect(projectedItem?.headPath).toBeNull();
+	});
+
 	test('keeps rename and duplicate display-path maps deterministic', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
@@ -185,4 +210,12 @@ function itemWithOmittedLanguageFields(
 	void omittedLanguage;
 	void omittedExtension;
 	return itemWithOmittedFields;
+}
+
+function itemWithOmittedHeadPath(
+	item: ReturnType<typeof makeBridgeViewerProjectionFixture>['itemsById'][string],
+): ReturnType<typeof makeBridgeViewerProjectionFixture>['itemsById'][string] {
+	const { headPath: omittedHeadPath, ...itemWithOmittedField } = item;
+	void omittedHeadPath;
+	return itemWithOmittedField;
 }

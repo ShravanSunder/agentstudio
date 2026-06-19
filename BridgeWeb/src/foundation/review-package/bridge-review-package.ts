@@ -102,8 +102,8 @@ export interface BridgeReviewItemDescriptor {
 	readonly itemId: string;
 	readonly itemKind: 'file' | 'diff';
 	readonly itemVersion: number;
-	readonly basePath: string | null;
-	readonly headPath: string | null;
+	readonly basePath?: string | null;
+	readonly headPath?: string | null;
 	readonly changeKind: BridgeFileChangeKind;
 	readonly fileClass: BridgeFileClass;
 	readonly language?: string | null;

@@ -24,6 +24,25 @@ describe('content resource loader', () => {
 		expect(loaded.handle).toEqual(handle);
 	});
 
+	test('rejects untrusted content URLs before fetch', async () => {
+		const handle = {
+			...makeBridgeContentHandle('item-source', 'head'),
+			resourceUrl: 'https://example.com/content',
+		};
+		let fetchCount = 0;
+
+		await expect(
+			loadBridgeContentResource({
+				handle,
+				fetchContent: async (): Promise<Response> => {
+					fetchCount += 1;
+					return new Response('should not load');
+				},
+			}),
+		).rejects.toThrow('Bridge content resource URL is not allowed');
+		expect(fetchCount).toBe(0);
+	});
+
 	test('can attach traceparent headers when the WebKit proof lane enables them', async () => {
 		const handle = makeBridgeContentHandle('item-source', 'head');
 		const loaded = await loadBridgeContentResource({

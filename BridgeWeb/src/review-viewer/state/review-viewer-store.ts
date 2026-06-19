@@ -2,6 +2,8 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { createStore, type Mutate, type StoreApi } from 'zustand/vanilla';
 
 import type {
+	BridgeReviewFilterState,
+	BridgeReviewRenderMode,
 	BridgeReviewProjectionMode,
 	BridgeReviewProjectionRefinement,
 	BridgeReviewProjectionRequestIdentity,
@@ -16,6 +18,10 @@ export interface BridgeReviewViewerRootSnapshot {
 	readonly selectedItemId: string | null;
 	readonly projectionMode: BridgeReviewProjectionMode;
 	readonly refinements: readonly BridgeReviewProjectionRefinement[];
+	readonly treeSearchText: string;
+	readonly gitStatusFilter: BridgeReviewFilterState['gitStatusFilter'];
+	readonly fileClassFilter: BridgeReviewFilterState['fileClassFilter'];
+	readonly renderMode: BridgeReviewRenderMode;
 	readonly projectionStatus: BridgeReviewProjectionStatus;
 }
 
@@ -42,9 +48,14 @@ export interface BridgeReviewViewerStoreActions {
 	readonly setProjectionRefinements: (
 		refinements: readonly BridgeReviewProjectionRefinement[],
 	) => void;
+	readonly setTreeSearchText: (searchText: string) => void;
+	readonly setGitStatusFilter: (status: BridgeReviewFilterState['gitStatusFilter']) => void;
+	readonly setFileClassFilter: (fileClass: BridgeReviewFilterState['fileClassFilter']) => void;
+	readonly setRenderMode: (renderMode: BridgeReviewRenderMode) => void;
 	readonly startProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity) => void;
 	readonly applyProjectionWorkerResult: (props: ApplyProjectionWorkerResultProps) => boolean;
 	readonly failProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity) => boolean;
+	readonly cancelProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity) => boolean;
 	readonly setWorkerStatus: (status: BridgeReviewWorkerStatus) => void;
 	readonly setContentHydrationStatus: (status: BridgeContentHydrationStatus) => void;
 }
@@ -66,6 +77,7 @@ export type BridgeReviewViewerStore = Mutate<
 >;
 
 const defaultProjectionMode: BridgeReviewProjectionMode = { kind: 'allFiles' };
+const defaultRenderMode: BridgeReviewRenderMode = { kind: 'codeView' };
 
 export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 	return createStore<BridgeReviewViewerStoreState>()(
@@ -86,6 +98,10 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 					selectedItemId: null,
 					projectionMode: defaultProjectionMode,
 					refinements: [],
+					treeSearchText: '',
+					gitStatusFilter: 'all',
+					fileClassFilter: 'all',
+					renderMode: defaultRenderMode,
 					projectionStatus: 'idle',
 				},
 				projection: null,
@@ -109,6 +125,18 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 						refinements: readonly BridgeReviewProjectionRefinement[],
 					): void => {
 						replaceRootSnapshot({ refinements });
+					},
+					setTreeSearchText: (searchText: string): void => {
+						replaceRootSnapshot({ treeSearchText: searchText });
+					},
+					setGitStatusFilter: (status: BridgeReviewFilterState['gitStatusFilter']): void => {
+						replaceRootSnapshot({ gitStatusFilter: status });
+					},
+					setFileClassFilter: (fileClass: BridgeReviewFilterState['fileClassFilter']): void => {
+						replaceRootSnapshot({ fileClassFilter: fileClass });
+					},
+					setRenderMode: (renderMode: BridgeReviewRenderMode): void => {
+						replaceRootSnapshot({ renderMode });
 					},
 					startProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): void => {
 						set((state: BridgeReviewViewerStoreState): Partial<BridgeReviewViewerStoreState> => {
@@ -160,6 +188,21 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 							},
 						});
 						replaceRootSnapshot({ projectionStatus: 'failed' });
+						return true;
+					},
+					cancelProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): boolean => {
+						const activeIdentity = get().activeProjectionRequestIdentity;
+						if (!requestIdentitiesMatch(activeIdentity, identity)) {
+							return false;
+						}
+						set({
+							activeProjectionRequestIdentity: null,
+							workerStatus: {
+								...get().workerStatus,
+								pendingRequestCount: Math.max(0, get().workerStatus.pendingRequestCount - 1),
+							},
+						});
+						replaceRootSnapshot({ projectionStatus: 'idle' });
 						return true;
 					},
 					setWorkerStatus: (status: BridgeReviewWorkerStatus): void => {

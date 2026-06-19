@@ -49,6 +49,31 @@ describe('BridgeWeb app asset collector', () => {
 		).rejects.toThrow(/runtime packages/);
 	});
 
+	test('rejects any unresolved bare module import in packaged app chunks', async () => {
+		await Promise.all(
+			[
+				'import "@shikijs/core";\n',
+				'import DOMPurify from "dompurify";\n',
+				'export { Button } from "@base-ui/react/button";\n',
+				'void import("lucide-react");\n',
+			].map(async (badImportSource): Promise<void> => {
+				const tempDirectory = await mkdtemp(join(tmpdir(), 'bridge-built-assets-'));
+				const assetsDirectoryPath = join(tempDirectory, 'assets');
+				await mkdir(assetsDirectoryPath, { recursive: true });
+				await writeFile(join(assetsDirectoryPath, 'bridge-app.js'), 'import "./bad-chunk.js";\n');
+				await writeFile(join(assetsDirectoryPath, 'bad-chunk.js'), badImportSource);
+
+				await expect(
+					collectBuiltBundleAssets({
+						appDirectoryPath: tempDirectory,
+						assetsDirectoryPath,
+						entrypointName: 'bridge-app',
+					}),
+				).rejects.toThrow(/runtime packages/);
+			}),
+		);
+	});
+
 	test('rejects chunks with external dynamic imports or worker URLs', async () => {
 		const tempDirectory = await mkdtemp(join(tmpdir(), 'bridge-built-assets-'));
 		const assetsDirectoryPath = join(tempDirectory, 'assets');
@@ -79,5 +104,64 @@ describe('BridgeWeb app asset collector', () => {
 				entrypointName: 'bridge-app',
 			}),
 		).rejects.toThrow(/external runtime import/);
+
+		await writeFile(
+			join(assetsDirectoryPath, 'bad-chunk.js'),
+			'const workerUrl = "https://example.invalid/worker.js";\nconst worker = new Worker(workerUrl);\nvoid worker;\n',
+		);
+
+		await expect(
+			collectBuiltBundleAssets({
+				appDirectoryPath: tempDirectory,
+				assetsDirectoryPath,
+				entrypointName: 'bridge-app',
+			}),
+		).rejects.toThrow(/external runtime import/);
+	});
+
+	test('allows blob-backed worker variables created inside packaged app chunks', async () => {
+		const tempDirectory = await mkdtemp(join(tmpdir(), 'bridge-built-assets-'));
+		const assetsDirectoryPath = join(tempDirectory, 'assets');
+		await mkdir(assetsDirectoryPath, { recursive: true });
+		await writeFile(join(assetsDirectoryPath, 'bridge-app.js'), 'import "./worker-chunk.js";\n');
+		await writeFile(
+			join(assetsDirectoryPath, 'worker-chunk.js'),
+			'let workerUrl = null;\nworkerUrl = URL.createObjectURL(new Blob([""]));\nconst worker = new Worker(workerUrl, { type: "module" });\nvoid worker;\n',
+		);
+
+		await expect(
+			collectBuiltBundleAssets({
+				appDirectoryPath: tempDirectory,
+				assetsDirectoryPath,
+				entrypointName: 'bridge-app',
+			}),
+		).resolves.toEqual({
+			mainScript: 'assets/bridge-app.js',
+			auxiliaryScripts: ['assets/worker-chunk.js'],
+			styles: [],
+		});
+	});
+
+	test('allows intentional Catppuccin Mocha theme metadata in packaged app chunks', async () => {
+		const tempDirectory = await mkdtemp(join(tmpdir(), 'bridge-built-assets-'));
+		const assetsDirectoryPath = join(tempDirectory, 'assets');
+		await mkdir(assetsDirectoryPath, { recursive: true });
+		await writeFile(join(assetsDirectoryPath, 'bridge-app.js'), 'import "./theme.js";\n');
+		await writeFile(
+			join(assetsDirectoryPath, 'theme.js'),
+			'export const themeName = "catppuccin-mocha";\n',
+		);
+
+		await expect(
+			collectBuiltBundleAssets({
+				appDirectoryPath: tempDirectory,
+				assetsDirectoryPath,
+				entrypointName: 'bridge-app',
+			}),
+		).resolves.toEqual({
+			mainScript: 'assets/bridge-app.js',
+			auxiliaryScripts: ['assets/theme.js'],
+			styles: [],
+		});
 	});
 });

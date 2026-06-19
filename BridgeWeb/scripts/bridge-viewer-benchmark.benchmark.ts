@@ -10,12 +10,18 @@ import { describe, expect, test } from 'vitest';
 
 import { materializeBridgeCodeViewItem } from '../src/review-viewer/code-view/bridge-code-view-materialization.js';
 import type { BridgeReviewProjectionWorkloadId } from '../src/review-viewer/models/review-projection-models.js';
-import { buildBridgeReviewProjection } from '../src/review-viewer/navigation/review-projection.js';
+import {
+	buildBridgeReviewProjection,
+	buildBridgeReviewProjectionFromInput,
+	makeBridgeReviewProjectionInput,
+} from '../src/review-viewer/navigation/review-projection.js';
 import {
 	makeBridgeViewerBenchmarkWorkload,
 	type BridgeViewerBenchmarkWorkload,
 } from '../src/review-viewer/test-support/bridge-viewer-benchmark-workloads.js';
 import { prepareBridgePresortedTreeInput } from '../src/review-viewer/trees/bridge-trees-controller.js';
+import { buildBridgeMarkdownRenderWorkerSuccessResponse } from '../src/review-viewer/workers/markdown/bridge-markdown-render-worker-renderer.js';
+import type { BridgeMarkdownRenderWorkerRequest } from '../src/review-viewer/workers/markdown/bridge-markdown-render-worker-rpc.js';
 
 interface BridgeViewerBenchmarkArtifact {
 	readonly schemaVersion: 1;
@@ -80,8 +86,8 @@ const proofRootPath = join(repoRootPath, 'tmp/bridge-viewer-benchmark');
 const viewport: BenchmarkViewport = {
 	width: 1_440,
 	height: 1_000,
-	rowHeight: 28,
-	overscanRows: 8,
+	rowHeight: 24,
+	overscanRows: 10,
 };
 const keptRunCount = 3;
 
@@ -129,12 +135,12 @@ async function runWorkloadBenchmark(
 	git: GitIdentity,
 ): Promise<BridgeViewerBenchmarkArtifact> {
 	const workload = makeBridgeViewerBenchmarkWorkload(workloadId);
-	const warmupRun = runBenchmarkIteration({ workload, iteration: 0, runKind: 'warmup' });
-	const keptRuns = Array.from(
-		{ length: keptRunCount },
-		(_value: unknown, index: number): BenchmarkRun =>
-			runBenchmarkIteration({ workload, iteration: index + 1, runKind: 'kept' }),
-	);
+	const warmupRun = await runBenchmarkIteration({ workload, iteration: 0, runKind: 'warmup' });
+	const keptRuns: BenchmarkRun[] = [];
+	for (let index = 0; index < keptRunCount; index += 1) {
+		// eslint-disable-next-line no-await-in-loop -- Benchmark samples must run sequentially so runs do not contend with each other.
+		keptRuns.push(await runBenchmarkIteration({ workload, iteration: index + 1, runKind: 'kept' }));
+	}
 	const summary = summarizeRuns(keptRuns);
 	const checksum = checksumObject({ workloadId, warmupRun, keptRuns, summary });
 
@@ -157,8 +163,8 @@ async function runWorkloadBenchmark(
 		summary,
 		checksum,
 		notes: [
-			'Node benchmark uses deterministic Pierre input preparation and CodeView item materialization.',
-			'Packaged WKWebView visual proof remains the runtime gate for actual browser painting.',
+			'Node benchmark uses deterministic Pierre input preparation, CodeView item materialization, and markdown worker rendering.',
+			'The scroll trace is a deterministic scroll-budget checksum; packaged WKWebView visual proof remains the runtime gate for actual browser painting and scrolling.',
 		],
 	};
 }
@@ -169,11 +175,11 @@ interface RunBenchmarkIterationProps {
 	readonly runKind: 'warmup' | 'kept';
 }
 
-function runBenchmarkIteration(props: RunBenchmarkIterationProps): BenchmarkRun {
+async function runBenchmarkIteration(props: RunBenchmarkIterationProps): Promise<BenchmarkRun> {
 	const metrics =
 		props.workload.workloadId === 'bridge_viewer_large_tree_v1'
 			? runLargeTreeIteration(props.workload)
-			: runLargeDiffIteration(props.workload);
+			: await runLargeDiffIteration(props.workload);
 	return {
 		iteration: props.iteration,
 		runKind: props.runKind,
@@ -189,31 +195,39 @@ function runLargeTreeIteration(
 	const preparedInput = prepareBridgePresortedTreeInput(workload.treePaths);
 	const prepareInputMilliseconds = elapsedSince(prepareStart);
 
-	const filterStart = performance.now();
-	const docsPathCount = workload.treePaths.filter((path: string): boolean =>
-		path.includes('/plans/'),
-	).length;
-	const pathFilterMilliseconds = elapsedSince(filterStart);
+	const projectionInputStart = performance.now();
+	const projectionInput = makeBridgeReviewProjectionInput(workload.reviewPackage);
+	const projectionInputMilliseconds = elapsedSince(projectionInputStart);
+
+	const projectionFilterStart = performance.now();
+	const docsProjection = buildBridgeReviewProjectionFromInput({
+		projectionInput,
+		request: { base: { kind: 'docsAndPlans' }, refinements: [] },
+	});
+	const projectionFilterMilliseconds = elapsedSince(projectionFilterStart);
 
 	return {
-		docsPathCount,
+		docsProjectionItemCount: docsProjection.orderedItemIds.length,
+		docsProjectionPathCount: docsProjection.orderedPaths.length,
 		estimatedVisibleRows:
 			Math.ceil(viewport.height / viewport.rowHeight) + viewport.overscanRows * 2,
-		pathFilterMilliseconds,
 		prepareInputMilliseconds,
 		preparedRootCount: Object.keys(preparedInput).length,
+		projectionFilterMilliseconds,
+		projectionInputMilliseconds,
 		treePathCount: workload.treePaths.length,
 	};
 }
 
-function runLargeDiffIteration(
+async function runLargeDiffIteration(
 	workload: BridgeViewerBenchmarkWorkload,
-): Readonly<Record<string, number>> {
+): Promise<Readonly<Record<string, number>>> {
 	const largeDiff = workload.largeDiff;
+	const largeMarkdown = workload.largeMarkdown;
 	const diffItem = Object.values(workload.reviewPackage.itemsById).find(
 		(item): boolean => item.contentRoles.base !== null && item.contentRoles.head !== null,
 	);
-	if (largeDiff === undefined || diffItem === undefined) {
+	if (largeDiff === undefined || largeMarkdown === undefined || diffItem === undefined) {
 		throw new Error('large diff benchmark workload is missing content');
 	}
 	const baseHandle = diffItem.contentRoles.base;
@@ -254,12 +268,27 @@ function runLargeDiffIteration(
 		throw new Error('large diff benchmark failed to materialize CodeView item');
 	}
 
+	const markdownStart = performance.now();
+	const markdownResponse = await buildBridgeMarkdownRenderWorkerSuccessResponse({
+		request: markdownBenchmarkRequest({
+			workload,
+			markdownText: largeMarkdown.markdownText,
+		}),
+	});
+	const markdownRenderWallMilliseconds = elapsedSince(markdownStart);
+
 	const scrollStart = performance.now();
 	const scroll = deterministicScrollTrace(largeDiff.lineCount);
 	const scrollTraceMilliseconds = elapsedSince(scrollStart);
 
 	return {
 		diffLineCount: largeDiff.lineCount,
+		markdownFencedBlockCount: largeMarkdown.fencedBlockCount,
+		markdownInputBytes: markdownResponse.metrics.inputBytes,
+		markdownLineCount: largeMarkdown.lineCount,
+		markdownRenderMilliseconds: markdownResponse.metrics.durationMilliseconds,
+		markdownRenderWallMilliseconds,
+		markdownRenderedOutputBytes: markdownResponse.metrics.outputBytes,
 		materializeDiffMilliseconds,
 		materializedLineSampleCount: materializationLineSampleCount,
 		projectionBuildMilliseconds,
@@ -267,6 +296,26 @@ function runLargeDiffIteration(
 		scrollSteps: scroll.steps,
 		scrollTraceMilliseconds,
 		virtualItemCount: projection.orderedItemIds.length,
+	};
+}
+
+function markdownBenchmarkRequest(props: {
+	readonly workload: BridgeViewerBenchmarkWorkload;
+	readonly markdownText: string;
+}): BridgeMarkdownRenderWorkerRequest {
+	return {
+		schemaVersion: 1,
+		method: 'markdown.render',
+		requestId: `${props.workload.workloadId}-markdown-benchmark`,
+		packageId: props.workload.reviewPackage.packageId,
+		reviewGeneration: props.workload.reviewPackage.reviewGeneration,
+		revision: props.workload.reviewPackage.revision,
+		itemId: 'benchmark-markdown-plan',
+		itemVersion: 1,
+		contentCacheKey: `${props.workload.workloadId}:markdown`,
+		contentHash: checksumObject(props.markdownText),
+		markdownText: props.markdownText,
+		sourcePath: 'docs/plans/benchmark-plan.md',
 	};
 }
 

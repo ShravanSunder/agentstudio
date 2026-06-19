@@ -10,7 +10,9 @@ type RuleId =
 	| 'pierre-codeview-import-boundary'
 	| 'pierre-trees-import-boundary'
 	| 'pierre-worker-import-boundary'
+	| 'markdown-render-worker-boundary'
 	| 'review-viewer-state-has-effects'
+	| 'review-viewer-shell-has-content-effects'
 	| 'telemetry-boundary'
 	| 'worker-boundary'
 	| 'no-raw-file-bodies-in-state';
@@ -170,8 +172,9 @@ function checkStringLiteral(context: SourceContext, node: ts.Node): void {
 	}
 
 	const text = node.text;
+	const normalizedSpecifier = normalizeImportSpecifier(text);
 
-	if (text.startsWith('@pierre/') && !publicPierreExports.has(text)) {
+	if (normalizedSpecifier.startsWith('@pierre/') && !publicPierreExports.has(normalizedSpecifier)) {
 		addViolation(context, {
 			ruleId: 'no-private-pierre-imports',
 			node,
@@ -190,11 +193,13 @@ function checkStringLiteral(context: SourceContext, node: ts.Node): void {
 }
 
 function checkImportSource(context: SourceContext, node: ts.Node): void {
-	const importSource = readImportSource(node);
+	const rawImportSource = readImportSource(node);
 
-	if (importSource === null || isTestPath(context.relativePath)) {
+	if (rawImportSource === null || isTestPath(context.relativePath)) {
 		return;
 	}
+
+	const importSource = normalizeImportSpecifier(rawImportSource);
 
 	if (
 		importSource.startsWith('@pierre/trees') &&
@@ -233,6 +238,25 @@ function checkImportSource(context: SourceContext, node: ts.Node): void {
 			message: `review-viewer/state must not import effectful boundary: ${importSource}`,
 		});
 	}
+
+	if (
+		isMarkdownRenderImport(importSource) &&
+		!isAllowedMarkdownRenderImportPath(context.relativePath)
+	) {
+		addViolation(context, {
+			ruleId: 'markdown-render-worker-boundary',
+			node,
+			message: `Markdown and Shiki rendering imports belong in the markdown worker renderer only: ${importSource}`,
+		});
+	}
+
+	if (isShellPath(context.relativePath) && isContentEffectImport(importSource)) {
+		addViolation(context, {
+			ruleId: 'review-viewer-shell-has-content-effects',
+			node,
+			message: `review-viewer/shell must not import content loading boundary: ${importSource}`,
+		});
+	}
 }
 
 function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
@@ -248,7 +272,8 @@ function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
 		addViolation(context, {
 			ruleId: 'worker-boundary',
 			node,
-			message: 'Worker construction belongs under review-viewer/workers/rpc or workers/pierre',
+			message:
+				'Worker construction belongs under review-viewer/workers/rpc, workers/pierre, or workers/markdown',
 		});
 	}
 
@@ -260,7 +285,8 @@ function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
 		addViolation(context, {
 			ruleId: 'worker-boundary',
 			node,
-			message: 'postMessage usage belongs under review-viewer/workers/rpc or workers/pierre',
+			message:
+				'postMessage usage belongs under review-viewer/workers/rpc, workers/pierre, or workers/markdown',
 		});
 	}
 }
@@ -389,6 +415,11 @@ function isPrivatePierrePath(text: string): boolean {
 	);
 }
 
+function normalizeImportSpecifier(text: string): string {
+	const queryIndex = text.search(/[?#]/);
+	return queryIndex === -1 ? text : text.slice(0, queryIndex);
+}
+
 function isCodeViewImport(importSource: string): boolean {
 	return importSource === '@pierre/diffs' || importSource === '@pierre/diffs/react';
 }
@@ -415,7 +446,25 @@ function isAllowedPierreWorkerImportPath(relativePath: string): boolean {
 function isAllowedWorkerPath(relativePath: string): boolean {
 	return (
 		isPathInside(relativePath, 'src/review-viewer/workers/rpc/') ||
-		isPathInside(relativePath, 'src/review-viewer/workers/pierre/')
+		isPathInside(relativePath, 'src/review-viewer/workers/pierre/') ||
+		isPathInside(relativePath, 'src/review-viewer/workers/markdown/')
+	);
+}
+
+function isMarkdownRenderImport(importSource: string): boolean {
+	return (
+		importSource === '@shikijs/markdown-exit' ||
+		importSource.startsWith('@shikijs/markdown-exit/') ||
+		importSource === 'markdown-exit' ||
+		importSource.startsWith('markdown-exit/') ||
+		importSource === 'shiki' ||
+		importSource.startsWith('shiki/')
+	);
+}
+
+function isAllowedMarkdownRenderImportPath(relativePath: string): boolean {
+	return (
+		relativePath === 'src/review-viewer/workers/markdown/bridge-markdown-render-worker-renderer.ts'
 	);
 }
 
@@ -433,13 +482,22 @@ function isStateEffectImport(importSource: string): boolean {
 	);
 }
 
+function isContentEffectImport(importSource: string): boolean {
+	return importSource.includes('/foundation/content');
+}
+
 function isStatePath(relativePath: string): boolean {
 	return isPathInside(relativePath, 'src/review-viewer/state/');
 }
 
+function isShellPath(relativePath: string): boolean {
+	return isPathInside(relativePath, 'src/review-viewer/shell/');
+}
+
 function isTestPath(relativePath: string): boolean {
 	return (
-		/\.(?:unit|integration|e2e)\.test\.[cm]?[jt]sx?$/u.test(relativePath) ||
+		/\.(?:unit|integration|e2e|browser)\.test\.[cm]?[jt]sx?$/u.test(relativePath) ||
+		/\.browser\.benchmark\.[cm]?[jt]sx?$/u.test(relativePath) ||
 		relativePath.includes('/test-fixtures/')
 	);
 }

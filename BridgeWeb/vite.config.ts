@@ -4,6 +4,9 @@ import { defineConfig } from 'vite';
 export default defineConfig({
 	base: './',
 	plugins: [react()],
+	server: {
+		host: '127.0.0.1',
+	},
 	build: {
 		outDir: '../Sources/AgentStudio/Resources/BridgeWeb/app',
 		emptyOutDir: true,

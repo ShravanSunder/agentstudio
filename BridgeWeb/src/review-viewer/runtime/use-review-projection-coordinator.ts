@@ -32,6 +32,19 @@ export interface UseBridgeReviewProjectionCoordinatorProps {
 	readonly flushTelemetry: () => void;
 }
 
+export interface StartBridgeReviewProjectionCoordinatorRequestProps {
+	readonly store: BridgeReviewViewerStore;
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly projectionMode: BridgeReviewProjectionMode;
+	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
+	readonly fileClassFilter: BridgeFileClass | 'all';
+	readonly projectionWorkerClient: BridgeReviewProjectionWorkerClient | null;
+	readonly syncProjectionClient: BridgeReviewProjectionWorkerClient;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly telemetryParentTraceContext: BridgeTraceContext | null;
+	readonly flushTelemetry: () => void;
+}
+
 const projectionAbortKey = 'bridge-review-projection';
 const projectionWorkloadId: BridgeReviewProjectionWorkloadId = 'interactive';
 
@@ -55,82 +68,18 @@ export function useBridgeReviewProjectionCoordinator(
 		if (reviewPackage === null) {
 			return undefined;
 		}
-
-		const projectionRequest = makeBridgeReviewProjectionRequest({
+		return startBridgeReviewProjectionCoordinatorRequest({
+			store,
+			reviewPackage,
 			projectionMode,
 			gitStatusFilter,
 			fileClassFilter,
+			projectionWorkerClient,
+			syncProjectionClient,
+			telemetryRecorder,
+			telemetryParentTraceContext,
+			flushTelemetry,
 		});
-		const projectionInput = makeBridgeReviewProjectionInput(reviewPackage);
-		const decision = selectBridgeReviewProjectionExecutionLane({
-			changedItemCount: projectionInput.orderedItems.length,
-			projectedTreePathCount: projectedTreePathCount(projectionInput.orderedItems),
-			activeRefinementPathCount: activeRefinementPathCount(
-				projectionInput.orderedItems,
-				projectionRequest.refinements,
-			),
-			hasActiveNonVisibilityRefinement: hasActiveNonVisibilityRefinement(
-				projectionRequest.refinements,
-			),
-			workloadId: projectionWorkloadId,
-		});
-		const executionLane =
-			decision.lane === 'worker' && projectionWorkerClient !== null ? 'worker' : 'sync';
-		const projectionClient =
-			executionLane === 'worker' && projectionWorkerClient !== null
-				? projectionWorkerClient
-				: syncProjectionClient;
-		const task = projectionClient.startProjection({
-			abortKey: projectionAbortKey,
-			projectionInput,
-			projectionRequest,
-			visibleItemIds: [],
-			workloadId: projectionWorkloadId,
-		});
-		store.getState().actions.startProjectionRequest(task.identity);
-		store.getState().actions.setWorkerStatus({
-			lane: executionLane,
-			pendingRequestCount: 1,
-			lastCompletedRequestId: store.getState().workerStatus.lastCompletedRequestId,
-		});
-
-		let isCurrentRequest = true;
-		void task.completed
-			.then((completion): void => {
-				if (!isCurrentRequest) {
-					return;
-				}
-				if (completion.status !== 'success') {
-					store.getState().actions.failProjectionRequest(completion.identity);
-					return;
-				}
-				const didApply = store.getState().actions.applyProjectionWorkerResult({
-					identity: completion.identity,
-					result: completion.response.result,
-				});
-				if (!didApply) {
-					return;
-				}
-				recordBridgeProjectionBuildTelemetry({
-					telemetryRecorder,
-					parentTraceContext: telemetryParentTraceContext,
-					reviewPackage,
-					projectionMode,
-					durationMilliseconds: completion.response.metrics.durationMilliseconds,
-					executionLane,
-					treePathCount: completion.response.metrics.treePathCount,
-				});
-				flushTelemetry();
-			})
-			.catch((): void => {
-				if (isCurrentRequest) {
-					store.getState().actions.failProjectionRequest(task.identity);
-				}
-			});
-
-		return (): void => {
-			isCurrentRequest = false;
-		};
 	}, [
 		fileClassFilter,
 		flushTelemetry,
@@ -145,12 +94,99 @@ export function useBridgeReviewProjectionCoordinator(
 	]);
 }
 
+export function startBridgeReviewProjectionCoordinatorRequest(
+	props: StartBridgeReviewProjectionCoordinatorRequestProps,
+): () => void {
+	const projectionRequest = makeBridgeReviewProjectionRequest({
+		projectionMode: props.projectionMode,
+		gitStatusFilter: props.gitStatusFilter,
+		fileClassFilter: props.fileClassFilter,
+	});
+	const projectionInput = makeBridgeReviewProjectionInput(props.reviewPackage);
+	const decision = selectBridgeReviewProjectionExecutionLane({
+		changedItemCount: projectionInput.orderedItems.length,
+		projectedTreePathCount: projectedTreePathCount(projectionInput.orderedItems),
+		activeRefinementPathCount: activeRefinementPathCount(
+			projectionInput.orderedItems,
+			projectionRequest.refinements,
+		),
+		hasActiveNonVisibilityRefinement: hasActiveNonVisibilityRefinement(
+			projectionRequest.refinements,
+		),
+		workloadId: projectionWorkloadId,
+	});
+	const executionLane =
+		decision.lane === 'worker' && props.projectionWorkerClient !== null ? 'worker' : 'sync';
+	const projectionClient =
+		executionLane === 'worker' && props.projectionWorkerClient !== null
+			? props.projectionWorkerClient
+			: props.syncProjectionClient;
+	const task = projectionClient.startProjection({
+		abortKey: projectionAbortKey,
+		projectionInput,
+		projectionRequest,
+		visibleItemIds: [],
+		workloadId: projectionWorkloadId,
+	});
+	props.store.getState().actions.startProjectionRequest(task.identity);
+	props.store.getState().actions.setWorkerStatus({
+		lane: executionLane,
+		pendingRequestCount: 1,
+		lastCompletedRequestId: props.store.getState().workerStatus.lastCompletedRequestId,
+	});
+
+	let isCurrentRequest = true;
+	void task.completed
+		.then((completion): void => {
+			if (!isCurrentRequest) {
+				return;
+			}
+			if (completion.status !== 'success') {
+				props.store.getState().actions.failProjectionRequest(completion.identity);
+				return;
+			}
+			const didApply = props.store.getState().actions.applyProjectionWorkerResult({
+				identity: completion.identity,
+				result: completion.response.result,
+			});
+			if (!didApply) {
+				return;
+			}
+			recordBridgeProjectionBuildTelemetry({
+				telemetryRecorder: props.telemetryRecorder,
+				parentTraceContext: props.telemetryParentTraceContext,
+				reviewPackage: props.reviewPackage,
+				projectionMode: props.projectionMode,
+				durationMilliseconds: completion.response.metrics.durationMilliseconds,
+				executionLane,
+				treePathCount: completion.response.metrics.treePathCount,
+			});
+			props.flushTelemetry();
+		})
+		.catch((): void => {
+			if (isCurrentRequest) {
+				props.store.getState().actions.failProjectionRequest(task.identity);
+			}
+		});
+
+	return (): void => {
+		isCurrentRequest = false;
+		task.abort();
+		props.store.getState().actions.cancelProjectionRequest(task.identity);
+	};
+}
+
 function projectedTreePathCount(
-	items: readonly { readonly basePath: string | null; readonly headPath: string | null }[],
+	items: readonly {
+		readonly basePath?: string | null;
+		readonly headPath?: string | null;
+	}[],
 ): number {
 	return new Set(
 		items.flatMap((item): readonly string[] =>
-			[item.basePath, item.headPath].filter((path): path is string => path !== null),
+			[item.basePath, item.headPath].filter(
+				(path: string | null | undefined): path is string => path !== null && path !== undefined,
+			),
 		),
 	).size;
 }

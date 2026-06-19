@@ -1,6 +1,6 @@
 import type { FileTreeSortComparator } from '@pierre/trees';
 import { FileTree, useFileTree } from '@pierre/trees/react';
-import type { ReactElement } from 'react';
+import type { CSSProperties, ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
@@ -8,6 +8,73 @@ import type { BridgeReviewProjectionResult } from '../models/review-projection-m
 import { BridgeTreesController, createBridgeTreesSource } from './bridge-trees-controller.js';
 
 const preserveInputOrderSort: FileTreeSortComparator = () => 0;
+const bridgeReviewTreeInitialVisibleRowCount = 24;
+const bridgeReviewTreeOverscan = 10;
+
+type BridgeReviewTreeStyle = CSSProperties &
+	Record<
+		| '--trees-bg-override'
+		| '--trees-fg-override'
+		| '--trees-fg-muted-override'
+		| '--trees-bg-muted-override'
+		| '--trees-search-fg-override'
+		| '--trees-search-bg-override'
+		| '--trees-border-color-override'
+		| '--trees-selected-fg-override'
+		| '--trees-selected-bg-override'
+		| '--trees-selected-focused-border-color-override'
+		| '--trees-focus-ring-color-override'
+		| '--trees-padding-inline-override'
+		| '--trees-git-renamed-color-override',
+		number | string
+	>;
+
+const bridgeReviewTreeStyle: BridgeReviewTreeStyle = {
+	colorScheme: 'dark',
+	display: 'block',
+	height: '100%',
+	'--trees-bg-override': 'var(--bridge-surface-bg)',
+	'--trees-fg-override': 'var(--bridge-text-primary)',
+	'--trees-fg-muted-override': 'var(--bridge-text-muted)',
+	'--trees-bg-muted-override': 'var(--bridge-surface-raised-bg)',
+	'--trees-search-fg-override': 'var(--bridge-text-primary)',
+	'--trees-search-bg-override': 'var(--bridge-canvas-bg)',
+	'--trees-border-color-override': 'var(--bridge-border-subtle)',
+	'--trees-selected-fg-override': 'var(--bridge-text-primary)',
+	'--trees-selected-bg-override': 'color-mix(in oklch, var(--bridge-accent) 18%, transparent)',
+	'--trees-selected-focused-border-color-override':
+		'color-mix(in oklch, var(--bridge-accent) 82%, white 8%)',
+	'--trees-focus-ring-color-override': 'var(--bridge-accent)',
+	'--trees-padding-inline-override': 8,
+	'--trees-git-renamed-color-override': 'var(--bridge-accent)',
+};
+
+const bridgeReviewTreeUnsafeCSS = `
+  [data-file-tree-virtualized-scroll="true"] {
+    padding-inline-start: 0;
+    padding-inline-end: 2px;
+    margin-inline-end: 2px;
+  }
+
+  [data-file-tree-search-container][data-open='false'] {
+    display: none;
+  }
+
+  [data-file-tree-search-container] {
+    margin: 0 4px 8px 0;
+    padding: 0 4px 8px 1px;
+    border-bottom: 1px solid var(--bridge-border-subtle);
+  }
+
+  [data-file-tree-sticky-overlay-content] {
+    box-shadow: 0 2px 4px -4px rgb(0 0 0 / 90%);
+  }
+
+  [data-item-type='folder'] {
+    color: var(--bridge-text-primary);
+    font-weight: 500;
+  }
+`;
 
 export interface BridgeReviewTreesPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
@@ -51,18 +118,34 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		gitStatus: initialSourceRef.current.gitStatusEntries,
 		sort: preserveInputOrderSort,
 		search: true,
-		fileTreeSearchMode: 'hide-non-matches',
+		fileTreeSearchMode: 'expand-matches',
 		flattenEmptyDirectories: true,
-		initialVisibleRowCount: 18,
-		itemHeight: 28,
-		overscan: 8,
+		density: 'compact',
+		initialVisibleRowCount: bridgeReviewTreeInitialVisibleRowCount,
+		overscan: bridgeReviewTreeOverscan,
 		onSelectionChange,
+		stickyFolders: true,
+		unsafeCSS: bridgeReviewTreeUnsafeCSS,
 	});
 	const controllerRef = useRef<BridgeTreesController | null>(null);
 	controllerRef.current ??= new BridgeTreesController({ model });
 
 	useEffect((): void => {
-		controllerRef.current?.applySource(source);
+		const updatePlan = controllerRef.current?.applySource(source);
+		if (updatePlan?.kind !== 'appendOnly') {
+			return;
+		}
+		const controller = controllerRef.current;
+		const pathsToReveal = updatePlan.addedPaths;
+		const revealAppendedPathAncestors = (): void => {
+			for (const path of pathsToReveal) {
+				controller?.revealTreePathAncestors(path);
+			}
+		};
+		revealAppendedPathAncestors();
+		queueMicrotask(revealAppendedPathAncestors);
+		requestAnimationFrame(revealAppendedPathAncestors);
+		setTimeout(revealAppendedPathAncestors, 0);
 	}, [source]);
 
 	useEffect((): void => {
@@ -83,10 +166,8 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		if (path === undefined) {
 			return;
 		}
-		const item = model.getItem(path);
-		item?.select();
-		model.focusPath(path);
-		model.scrollToPath(path, { focus: true });
+		controllerRef.current?.selectTreePath(path);
+		model.getItem(path)?.select();
 	}, [model, props.projection, props.selectedItemId]);
 
 	return (
@@ -95,7 +176,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			className="h-full min-h-0 overflow-hidden bg-[var(--bridge-surface-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-trees-panel"
 		>
-			<FileTree model={model} />
+			<FileTree model={model} style={bridgeReviewTreeStyle} />
 		</div>
 	);
 }

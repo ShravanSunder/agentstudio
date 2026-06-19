@@ -140,6 +140,18 @@ depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test"
 
+[tasks.bridge-web-browser-test]
+description = "Run BridgeWeb Vitest Browser Mode integration tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:browser"
+
+[tasks.bridge-web-browser-benchmark]
+description = "Run BridgeWeb browser performance proof"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:benchmark:browser"
+
 [tasks.bridge-web-build]
 description = "Build BridgeWeb into the SwiftPM resource bundle"
 depends = ["bridge-web-install"]

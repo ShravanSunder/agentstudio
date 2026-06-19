@@ -32,7 +32,7 @@ describe('Bridge CodeView materialization', () => {
 		expect(firstItem).toMatchObject({
 			id: 'source-high',
 			type: 'diff',
-			version: 0,
+			version: 2,
 			fileDiff: {
 				name: 'Sources/App/Core.swift',
 			},
@@ -44,7 +44,7 @@ describe('Bridge CodeView materialization', () => {
 		expectTypeOf(firstItem).toMatchTypeOf<BridgeCodeViewItem>();
 	});
 
-	test('hydrates a selected item as a file when only one role is loaded', () => {
+	test('keeps a diff placeholder as a diff when only one role is loaded', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['docs-plan'];
 		const headHandle = item?.contentRoles.head;
@@ -59,22 +59,136 @@ describe('Bridge CodeView materialization', () => {
 			},
 		});
 
-		if (materialized?.type !== 'file') {
-			throw new Error('expected file materialization');
+		if (materialized?.type !== 'diff') {
+			throw new Error('expected diff materialization');
 		}
 
 		expect(materialized).toMatchObject({
 			id: 'docs-plan',
-			type: 'file',
-			version: 7,
-			file: {
+			type: 'diff',
+			version: 15,
+			fileDiff: {
 				name: 'docs/plans/2026-bridge-plan.md',
-				contents: '# Plan\n\nText body.',
+				deletionLines: [],
+				additionLines: expect.arrayContaining(['# Plan\n', '\n', 'Text body.']),
 			},
 			bridgeMetadata: {
 				contentState: 'hydrated',
 				contentRoles: ['head'],
 				itemId: 'docs-plan',
+			},
+		});
+		expectTypeOf(materialized).toMatchTypeOf<BridgeCodeViewDiffItem>();
+	});
+
+	test('uses a newer CodeView render version when hydrating generation zero', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const originalItem = reviewPackage.itemsById['source-high'];
+		if (originalItem === undefined) {
+			throw new Error('expected source fixture item');
+		}
+		const generationZeroPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'source-high': {
+					...originalItem,
+					itemVersion: 0,
+				},
+			},
+		};
+		const projection = buildBridgeReviewProjection({
+			reviewPackage: generationZeroPackage,
+			request: { base: { kind: 'allFiles' }, refinements: [] },
+		});
+		const placeholder = createBridgeCodeViewInitialItems({
+			reviewPackage: generationZeroPackage,
+			projection,
+		}).find((item: BridgeCodeViewItem): boolean => item.id === 'source-high');
+		const item = generationZeroPackage.itemsById['source-high'];
+		const baseHandle = item?.contentRoles.base;
+		const headHandle = item?.contentRoles.head;
+		if (
+			placeholder === undefined ||
+			item === undefined ||
+			baseHandle === null ||
+			baseHandle === undefined ||
+			headHandle === null ||
+			headHandle === undefined
+		) {
+			throw new Error('expected source fixture with base and head handles');
+		}
+
+		const materialized = materializeBridgeCodeViewItem({
+			item: { ...item, itemVersion: 0 },
+			resources: {
+				base: makeContentResource(baseHandle, 'let value = 1\n'),
+				head: makeContentResource(headHandle, 'let value = 2\n'),
+			},
+		});
+
+		if (materialized?.type !== 'diff') {
+			throw new Error('expected diff materialization');
+		}
+		if (placeholder.version === undefined || materialized.version === undefined) {
+			throw new Error('expected CodeView render versions');
+		}
+
+		expect(placeholder.version).toBe(0);
+		expect(materialized.version).toBe(1);
+		expect(materialized.version).toBeGreaterThan(placeholder.version);
+	});
+
+	test('hydrates an added new file as full CodeView file content', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const item = reviewPackage.itemsById['hidden-binary'];
+		const headHandle = item?.contentRoles.head;
+		if (item === undefined || headHandle === null || headHandle === undefined) {
+			throw new Error('expected added fixture with head handle');
+		}
+		const sourceText = [
+			'export function renderAddedFile(): string {',
+			"\treturn 'new file content';",
+			'}',
+			'',
+		].join('\n');
+
+		const materialized = materializeBridgeCodeViewItem({
+			item: {
+				...item,
+				headPath: 'Sources/NewFeature/AddedFile.ts',
+				fileClass: 'source',
+				extension: 'ts',
+				language: 'typescript',
+				isHiddenByDefault: false,
+				hiddenReason: null,
+			},
+			resources: {
+				head: makeContentResource(
+					{
+						...headHandle,
+						isBinary: false,
+						mimeType: 'text/typescript',
+						language: 'typescript',
+					},
+					sourceText,
+				),
+			},
+		});
+
+		if (materialized?.type !== 'file') {
+			throw new Error('expected added file materialization');
+		}
+
+		expect(materialized).toMatchObject({
+			type: 'file',
+			file: {
+				name: 'Sources/NewFeature/AddedFile.ts',
+				contents: sourceText,
+			},
+			bridgeMetadata: {
+				contentState: 'hydrated',
+				contentRoles: ['head'],
 			},
 		});
 		expectTypeOf(materialized).toMatchTypeOf<BridgeCodeViewFileItem>();
@@ -108,7 +222,7 @@ describe('Bridge CodeView materialization', () => {
 		}
 
 		expect(materialized.fileDiff.name).toBe('Sources/App/Core.swift');
-		expect(materialized.version).toBe(9);
+		expect(materialized.version).toBe(19);
 		expect(materialized.fileDiff.deletionLines).toContain('let value = 1\n');
 		expect(materialized.fileDiff.additionLines).toContain('let value = 2\n');
 		expect(materialized.bridgeMetadata).toMatchObject({

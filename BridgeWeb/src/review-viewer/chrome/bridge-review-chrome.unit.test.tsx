@@ -1,0 +1,289 @@
+// @vitest-environment jsdom
+
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, describe, expect, test } from 'vitest';
+
+import { BridgeReviewFilterMenu } from './bridge-review-filter-menu.js';
+import { BridgeReviewSearchControl } from './bridge-review-search-control.js';
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+describe('Bridge review chrome controls', () => {
+	let mountedRoot: Root | null = null;
+
+	afterEach(() => {
+		if (mountedRoot !== null) {
+			act((): void => {
+				mountedRoot?.unmount();
+			});
+			mountedRoot = null;
+		}
+		document.body.replaceChildren();
+	});
+
+	test('search control avoids native WebKit search input decorations', () => {
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(<BridgeReviewSearchControl onChange={() => undefined} value="" />);
+		});
+
+		const input = requireElement(
+			container.querySelector<HTMLInputElement>('[data-testid="bridge-review-search-input"]'),
+		);
+
+		expect(input.dataset['slot']).toBe('input');
+		expect(input.type).toBe('text');
+		expect(input.role).toBe('searchbox');
+		expect(input.autocomplete).toBe('off');
+	});
+
+	test('search trigger focuses the hidden-until-open searchbox before typing', () => {
+		const changes: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(
+				<BridgeReviewSearchControl
+					onChange={(value: string): void => {
+						changes.push(value);
+					}}
+					value=""
+				/>,
+			);
+		});
+
+		const button = requireElement(
+			container.querySelector('[data-testid="bridge-review-search-toggle"]'),
+		);
+		const input = requireElement(
+			container.querySelector<HTMLInputElement>('input[role="searchbox"]'),
+		);
+
+		act((): void => {
+			button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		});
+		expect(document.activeElement).toBe(input);
+
+		input.value = '332';
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(input.value).toBe('332');
+	});
+
+	test('search input opens as an overlay instead of widening the rail toolbar', () => {
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(<BridgeReviewSearchControl onChange={() => undefined} value="heap" />);
+		});
+
+		const input = requireElement(
+			container.querySelector<HTMLInputElement>('[data-testid="bridge-review-search-input"]'),
+		);
+
+		expect(input.className).toContain('absolute');
+		expect(input.className).not.toContain('w-32');
+		expect(input.className).not.toContain('group-focus-within/search:w-32');
+		expect(input.className).not.toContain('focus:w-32');
+	});
+
+	test('filter menu trigger uses an icon chevron instead of a text glyph', () => {
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(
+				<BridgeReviewFilterMenu
+					label="Git status filter"
+					onChange={() => undefined}
+					options={[
+						{ value: 'all', label: 'All statuses', icon: 'All' },
+						{ value: 'added', label: 'Added', icon: 'A' },
+					]}
+					testId="test-filter"
+					value="all"
+				/>,
+			);
+		});
+
+		const chevron = requireElement(
+			container.querySelector('[data-testid="bridge-review-filter-chevron"]'),
+		);
+		expect(chevron.textContent).toBe('');
+		expect(chevron.tagName.toLowerCase()).toBe('svg');
+	});
+
+	test('filter menu trigger uses compact rail label instead of form-control copy', () => {
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(
+				<BridgeReviewFilterMenu
+					label="Git status filter"
+					onChange={() => undefined}
+					options={[
+						{ value: 'all', label: 'All statuses', selectedLabel: 'All', icon: 'All' },
+						{ value: 'added', label: 'Added', icon: 'A' },
+					]}
+					testId="test-filter"
+					value="all"
+				/>,
+			);
+		});
+		const triggerButton = requireElement(
+			container.querySelector<HTMLButtonElement>('[aria-label="Filter by Git status"]'),
+		);
+		const triggerGlyph = requireElement(
+			container.querySelector('[data-testid="bridge-review-filter-trigger-glyph"]'),
+		);
+
+		expect(triggerButton.className).toContain('h-8');
+		expect(triggerButton.className).toContain('w-9');
+		expect(triggerGlyph.tagName.toLowerCase()).toBe('svg');
+		expect(triggerButton.textContent).toContain('All');
+		expect(triggerButton.textContent).not.toContain('All statuses');
+	});
+
+	test('filter menu renders DiffsHub-style popover structure with badges and checks', () => {
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(
+				<BridgeReviewFilterMenu
+					label="Git status filter"
+					onChange={() => undefined}
+					options={[
+						{ value: 'all', label: 'All statuses', selectedLabel: 'All', icon: '*' },
+						{ value: 'added', label: 'Added', icon: 'A' },
+						{ value: 'modified', label: 'Modified', icon: 'M' },
+						{ value: 'renamed', label: 'Renamed', icon: 'R' },
+						{ value: 'deleted', label: 'Deleted', icon: 'D' },
+					]}
+					testId="test-filter"
+					value="added"
+				/>,
+			);
+		});
+
+		const triggerButton = requireElement(
+			container.querySelector<HTMLButtonElement>('[aria-label="Filter by Git status"]'),
+		);
+		act((): void => {
+			triggerButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		});
+
+		const popover = requireElement(
+			document.querySelector('[data-testid="bridge-review-filter-popover"]'),
+		);
+		const header = requireElement(
+			document.querySelector('[data-testid="bridge-review-filter-popover-header"]'),
+		);
+		const optionBadges = document.querySelectorAll(
+			'[data-testid="bridge-review-filter-option-badge"]',
+		);
+		const checkmarks = document.querySelectorAll(
+			'[data-slot="dropdown-menu-checkbox-item-indicator"]',
+		);
+		const checkboxItems = document.querySelectorAll('[role="menuitemcheckbox"]');
+		const clearButton = requireElement(
+			document.querySelector<HTMLElement>('[data-testid="bridge-review-filter-clear"]'),
+		);
+
+		expect(popover.getAttribute('data-slot')).toBe('dropdown-menu-content');
+		expect(popover.className).toContain('w-64');
+		expect(popover.className).toContain('rounded-[10px]');
+		expect(header.textContent).toContain('Filter by Git status');
+		expect(header.textContent).toContain('Option-click');
+		expect(optionBadges).toHaveLength(5);
+		expect(checkmarks).toHaveLength(5);
+		expect(checkboxItems).toHaveLength(5);
+		expect(clearButton.getAttribute('data-disabled')).toBeNull();
+	});
+
+	test('filtered trigger keeps the filter glyph and uses only a tiny active indicator', () => {
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(
+				<BridgeReviewFilterMenu
+					label="Git status filter"
+					onChange={() => undefined}
+					options={[
+						{ value: 'all', label: 'All statuses', selectedLabel: 'All', icon: '*' },
+						{ value: 'added', label: 'Added', icon: 'A' },
+					]}
+					testId="test-filter"
+					value="added"
+				/>,
+			);
+		});
+
+		const triggerGlyph = requireElement(
+			container.querySelector('[data-testid="bridge-review-filter-trigger-glyph"]'),
+		);
+		const activeIndicator = requireElement(
+			container.querySelector('[data-testid="bridge-review-filter-active-indicator"]'),
+		);
+
+		expect(triggerGlyph.tagName.toLowerCase()).toBe('svg');
+		expect(activeIndicator.className).toContain('size-1.5');
+		expect(
+			container.querySelector('[data-testid="bridge-review-filter-selected-badge"]'),
+		).toBeNull();
+	});
+
+	test('filter menu disables clear action when the all option is selected', () => {
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(
+				<BridgeReviewFilterMenu
+					label="Git status filter"
+					onChange={() => undefined}
+					options={[
+						{ value: 'all', label: 'All statuses', selectedLabel: 'All', icon: '*' },
+						{ value: 'added', label: 'Added', icon: 'A' },
+					]}
+					testId="test-filter"
+					value="all"
+				/>,
+			);
+		});
+
+		const triggerButton = requireElement(
+			container.querySelector<HTMLButtonElement>('[aria-label="Filter by Git status"]'),
+		);
+		act((): void => {
+			triggerButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		});
+
+		const clearButton = requireElement(
+			document.querySelector<HTMLElement>('[data-testid="bridge-review-filter-clear"]'),
+		);
+
+		expect(clearButton.getAttribute('data-disabled')).not.toBeNull();
+	});
+});
+
+function requireElement<TElement extends Element>(element: TElement | null): TElement {
+	if (element === null) {
+		throw new Error('expected element');
+	}
+	return element;
+}

@@ -3,12 +3,11 @@ import { describe, expect, test } from 'vitest';
 
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
+import { BridgeReviewButton } from '../chrome/bridge-review-button.js';
+import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
+import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
-import {
-	loadSelectedReviewItemContent,
-	loadSelectedReviewItemContentResources,
-	ReviewViewerShell,
-} from './review-viewer-shell.js';
+import { ReviewViewerShell } from './review-viewer-shell.js';
 
 describe('review viewer shell', () => {
 	test('renders review package summary endpoints filters and visible item list', () => {
@@ -79,6 +78,52 @@ describe('review viewer shell', () => {
 		expect(text).toContain('Collation:');
 	});
 
+	test('renders custom review controls without native select widgets', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const element = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+			}),
+		);
+
+		expect(findElementsByType(element, 'select')).toEqual([]);
+		expect(findElementByTestId(element, 'bridge-review-git-status-menu')).not.toBeNull();
+		expect(findElementByTestId(element, 'bridge-review-file-class-menu')).not.toBeNull();
+		expect(findElementByTestId(element, 'bridge-review-search-toggle')).not.toBeNull();
+	});
+
+	test('groups right rail controls as compact sidebar toolbar chrome', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const element = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+			}),
+		);
+
+		const toolbar = findElementByTestId(element, 'bridge-review-rail-toolbar');
+		const leadingGroup = findElementByTestId(element, 'bridge-review-rail-toolbar-leading');
+		const trailingGroup = findElementByTestId(element, 'bridge-review-rail-toolbar-trailing');
+		const fileTreeButton = findElementByTestId(element, 'bridge-review-rail-files-view');
+		const commentsButton = findElementByTestId(element, 'bridge-review-rail-comments-view');
+
+		expect(toolbar?.type).toBe('div');
+		expect(classNameForElement(toolbar)).toContain('justify-between');
+		expect(classNameForElement(leadingGroup)).toContain('gap-1');
+		expect(classNameForElement(trailingGroup)).toContain('gap-1');
+		expect(fileTreeButton?.type).toBe(BridgeReviewButton);
+		expect(commentsButton?.type).toBe(BridgeReviewButton);
+		expect(collectText(fileTreeButton)).toBe('');
+		expect(collectText(commentsButton)).toBe('');
+	});
+
 	test('uses the dark right-sidebar review layout', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
@@ -99,58 +144,78 @@ describe('review viewer shell', () => {
 
 		expect(canvas?.type).toBe('section');
 		expect(classNameForElement(canvas)).toContain('bg-[var(--bridge-canvas-bg)]');
+		expect(classNameForElement(canvas)).toContain('h-full');
+		expect(classNameForElement(canvas)).toContain('min-h-0');
 		expect(sidebar?.type).toBe('aside');
 		expect(classNameForElement(sidebar)).toContain('order-last');
 		expect(classNameForElement(sidebar)).toContain('border-l');
 	});
 
-	test('loads selected item content through the bridge content handle URL', async () => {
+	test('keeps CodeView and right rail scrolling owned by separate containers', () => {
 		const reviewPackage = makeBridgeReviewPackage();
-		const selectedItem = reviewPackage.itemsById['item-source'];
-		const headHandle = selectedItem?.contentRoles.head;
-		if (headHandle === undefined || headHandle === null) {
-			throw new Error('expected head content handle');
-		}
+		const element = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+			}),
+		);
+		const shell = findElementByTestId(element, 'review-viewer-shell');
+		const codeScroll = findElementByTestId(element, 'bridge-review-code-scroll');
+		const railScroll = findElementByTestId(element, 'bridge-review-rail-scroll');
+		const railTreeSlot = findElementByTestId(element, 'bridge-review-rail-tree-slot');
 
-		const loaded = await loadSelectedReviewItemContent({
-			reviewPackage,
-			selectedItemId: 'item-source',
-			fetchContent: async (url: string): Promise<Response> => {
-				expect(url).toBe(headHandle.resourceUrl);
-				return new Response('loaded head content');
-			},
-		});
-
-		expect(loaded?.text).toBe('loaded head content');
+		expect(classNameForElement(shell)).toContain('overflow-hidden');
+		expect(codeScroll?.type).toBe('section');
+		expect(railScroll?.type).toBe('div');
+		expect(railTreeSlot?.type).toBe('nav');
+		expect(classNameForElement(codeScroll)).toContain('overflow-auto');
+		expect(classNameForElement(railScroll)).toContain('overflow-hidden');
+		expect(classNameForElement(codeScroll)).toContain('min-h-0');
+		expect(classNameForElement(railScroll)).toContain('min-h-0');
+		expect(classNameForElement(railTreeSlot)).toContain('h-full');
+		expect(classNameForElement(railTreeSlot)).toContain('min-h-0');
 	});
 
-	test('loads selected diff content through base and head handles', async () => {
+	test('renders selected markdown preview in the code canvas when worker output is ready', () => {
 		const reviewPackage = makeBridgeReviewPackage();
-		const selectedItem = reviewPackage.itemsById['item-source'];
-		const baseHandle = selectedItem?.contentRoles.base;
-		const headHandle = selectedItem?.contentRoles.head;
-		if (baseHandle === undefined || baseHandle === null) {
-			throw new Error('expected base content handle');
-		}
-		if (headHandle === undefined || headHandle === null) {
-			throw new Error('expected head content handle');
-		}
-		const requestedUrls: string[] = [];
+		const element = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+				selectedMarkdownPreviewHtml: '<h1>Bridge plan</h1>',
+				selectedMarkdownPreviewSourcePath: 'docs/plans/bridge-plan.md',
+			}),
+		);
 
-		const loaded = await loadSelectedReviewItemContentResources({
-			reviewPackage,
-			selectedItemId: 'item-source',
-			fetchContent: async (url: string): Promise<Response> => {
-				requestedUrls.push(url);
-				return new Response(url === baseHandle.resourceUrl ? 'base text' : 'head text');
-			},
-		});
+		const markdownPreview = findElementByComponent(element, BridgeMarkdownPreview);
+		const codeViewPanel = findElementByComponent(element, BridgeCodeViewPanel);
 
-		expect(requestedUrls).toEqual([baseHandle.resourceUrl, headHandle.resourceUrl]);
-		expect(loaded).toMatchObject({
-			base: { text: 'base text' },
-			head: { text: 'head text' },
-		});
+		expect(markdownPreview?.type).toBe(BridgeMarkdownPreview);
+		expect(codeViewPanel).toBeNull();
+	});
+
+	test('keeps CodeView while markdown worker output is not ready', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const element = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+				selectedMarkdownPreviewHtml: null,
+				selectedMarkdownPreviewSourcePath: null,
+			}),
+		);
+
+		expect(findElementByComponent(element, BridgeMarkdownPreview)).toBeNull();
+		expect(findElementByComponent(element, BridgeCodeViewPanel)).not.toBeNull();
 	});
 
 	test('renders only items matching folder file-class and change-kind filter state', () => {
@@ -258,6 +323,43 @@ function findElementByTestId(
 		return node;
 	}
 	return findElementByTestId(node.props.children, testId);
+}
+
+function findElementsByType(
+	node: ReactNode,
+	type: string,
+): readonly ReactElement<TestElementProps>[] {
+	if (Array.isArray(node)) {
+		return node.flatMap((child: ReactNode): readonly ReactElement<TestElementProps>[] =>
+			findElementsByType(child, type),
+		);
+	}
+	if (!isReactElement(node)) {
+		return [];
+	}
+	return [...(node.type === type ? [node] : []), ...findElementsByType(node.props.children, type)];
+}
+
+function findElementByComponent(
+	node: ReactNode,
+	component: ReactElement['type'],
+): ReactElement | null {
+	if (Array.isArray(node)) {
+		for (const child of node) {
+			const match = findElementByComponent(child, component);
+			if (match !== null) {
+				return match;
+			}
+		}
+		return null;
+	}
+	if (!isReactElement(node)) {
+		return null;
+	}
+	if (node.type === component) {
+		return node;
+	}
+	return findElementByComponent(node.props.children, component);
 }
 
 function classNameForElement(element: ReactElement<TestElementProps> | null): string {

@@ -31,8 +31,9 @@ describe('BridgeCodeViewController', () => {
 			},
 		};
 
-		controller.applyItemUpdate(updatedItem, { scrollIntoView: true });
+		const result = controller.applyItemUpdate(updatedItem, { scrollIntoView: true });
 
+		expect(result).toBe('updated');
 		expect(model.addedItems).toEqual([]);
 		expect(model.updatedItems).toEqual([updatedItem]);
 		expect(model.scrollTargets).toEqual([
@@ -53,13 +54,23 @@ describe('BridgeCodeViewController', () => {
 		const model = new RecordingCodeViewModel([]);
 		const controller = new BridgeCodeViewController({ model });
 
-		controller.applyItemUpdate(firstItem, { scrollIntoView: true });
+		const result = controller.applyItemUpdate(firstItem, { scrollIntoView: true });
 
+		expect(result).toBe('added');
 		expect(model.addedItems).toEqual([firstItem]);
 		expect(model.updatedItems).toEqual([]);
 		expect(model.scrollTargets).toEqual([
 			{ type: 'item', id: firstItem.id, align: 'start', behavior: 'instant' },
 		]);
+	});
+
+	test('does not ask CodeView to scroll to an item missing from the current model', () => {
+		const model = new RecordingCodeViewModel([]);
+		const controller = new BridgeCodeViewController({ model });
+
+		controller.scrollToItem('filtered-out-item');
+
+		expect(model.scrollTargets).toEqual([]);
 	});
 
 	test('treats an unchanged existing item update as a no-op without adding a duplicate', () => {
@@ -77,8 +88,9 @@ describe('BridgeCodeViewController', () => {
 		});
 		const controller = new BridgeCodeViewController({ model });
 
-		controller.applyItemUpdate(firstItem, { scrollIntoView: true });
+		const result = controller.applyItemUpdate(firstItem, { scrollIntoView: true });
 
+		expect(result).toBe('unchanged');
 		expect(model.addedItems).toEqual([]);
 		expect(model.updatedItems).toEqual([firstItem]);
 		expect(model.scrollTargets).toEqual([

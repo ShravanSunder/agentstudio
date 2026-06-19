@@ -7,7 +7,9 @@ import { afterEach, describe, expect, test } from 'vitest';
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
+import { createBridgePierreWorkerHighlighterOptions } from '../workers/pierre/bridge-pierre-worker-pool.js';
 import { bridgeCodeViewOptions, BridgeCodeViewPanel } from './bridge-code-view-panel.js';
+import { bridgePierreDarkThemeName } from './bridge-code-view-theme.js';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -24,14 +26,31 @@ describe('BridgeCodeViewPanel', () => {
 		document.body.replaceChildren();
 	});
 
-	test('uses Pierre-owned dark theme and internal layout spacing', () => {
-		expect(bridgeCodeViewOptions.theme).toBe('pierre-dark');
+	test('uses Pierre-owned dark theme and compact internal layout spacing', () => {
+		expect(bridgeCodeViewOptions.theme).toEqual({
+			dark: bridgePierreDarkThemeName,
+			light: bridgePierreDarkThemeName,
+		});
 		expect(bridgeCodeViewOptions.themeType).toBe('dark');
 		expect(bridgeCodeViewOptions.layout).toEqual({
-			paddingTop: 8,
-			paddingBottom: 16,
-			gap: 8,
+			paddingTop: 0,
+			paddingBottom: 0,
+			gap: 1,
 		});
+		expect(bridgeCodeViewOptions.diffIndicators).toBe('bars');
+		expect(bridgeCodeViewOptions.stickyHeaders).toBe(true);
+	});
+
+	test('keeps worker-sensitive render options identical between CodeView and Pierre worker pool', () => {
+		const highlighterOptions = createBridgePierreWorkerHighlighterOptions();
+
+		expect(highlighterOptions.theme).toEqual(bridgeCodeViewOptions.theme);
+		expect(highlighterOptions.useTokenTransformer).toBe(bridgeCodeViewOptions.useTokenTransformer);
+		expect(highlighterOptions.tokenizeMaxLineLength).toBe(
+			bridgeCodeViewOptions.tokenizeMaxLineLength,
+		);
+		expect(highlighterOptions.lineDiffType).toBe(bridgeCodeViewOptions.lineDiffType);
+		expect(highlighterOptions.maxLineDiffLength).toBe(bridgeCodeViewOptions.maxLineDiffLength);
 	});
 
 	test('renders hydrated markdown source through the CodeView surface', async () => {

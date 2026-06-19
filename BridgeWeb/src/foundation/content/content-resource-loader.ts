@@ -1,3 +1,4 @@
+import { parseBridgeContentResourceUrl } from '../../bridge/bridge-resource-url.js';
 import type { BridgeContentHandle } from '../review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../telemetry/bridge-telemetry-recorder.js';
 import { bridgeTraceparent, type BridgeTraceContext } from '../telemetry/bridge-trace-context.js';
@@ -27,6 +28,7 @@ export async function loadBridgeContentResource(
 	const traceContext = props.traceContext ?? null;
 	const start = performance.now();
 	try {
+		assertAllowedBridgeContentResourceUrl(props.handle);
 		const response = await fetchContent(
 			props.handle.resourceUrl,
 			requestInitForContentFetch({
@@ -65,6 +67,17 @@ export async function loadBridgeContentResource(
 			},
 		});
 		props.telemetryRecorder?.flush();
+	}
+}
+
+function assertAllowedBridgeContentResourceUrl(handle: BridgeContentHandle): void {
+	const parsedResourceUrl = parseBridgeContentResourceUrl(handle.resourceUrl);
+	if (
+		parsedResourceUrl === null ||
+		parsedResourceUrl.handleId !== handle.handleId ||
+		parsedResourceUrl.generation !== handle.reviewGeneration
+	) {
+		throw new Error('Bridge content resource URL is not allowed');
 	}
 }
 

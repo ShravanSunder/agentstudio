@@ -19,11 +19,7 @@ import {
 	applyDeltaToBridgeReviewItemRegistry,
 	createBridgeReviewItemRegistry,
 } from '../foundation/review-package/bridge-review-item-registry.js';
-import type {
-	BridgeFileChangeKind,
-	BridgeFileClass,
-	BridgeReviewPackage,
-} from '../foundation/review-package/bridge-review-package.js';
+import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import {
 	createBridgeTelemetryRecorder,
 	type BridgeTelemetryRecorder,
@@ -38,19 +34,30 @@ import {
 	type BridgeTraceContext,
 } from '../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
-import type { BridgeReviewProjectionMode } from '../review-viewer/models/review-projection-models.js';
+import {
+	bridgeMarkdownPreviewMaxBytes,
+	resolveBridgeMarkdownPreviewDecision,
+	type BridgeMarkdownPreviewFallbackReason,
+} from '../review-viewer/markdown/bridge-markdown-render-mode.js';
+import { loadSelectedReviewItemContentResources } from '../review-viewer/runtime/review-content-loader.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/runtime/use-review-projection-coordinator.js';
 import {
 	BridgeReviewEmptyShell,
+	BridgeReviewProjectionFailedShell,
 	BridgeReviewProjectionPendingShell,
-	loadSelectedReviewItemContentResources,
 	ReviewViewerShell,
 } from '../review-viewer/shell/review-viewer-shell.js';
 import {
 	createBridgeReviewViewerStore,
+	selectBridgeReviewViewerRootSnapshot,
 	type BridgeReviewViewerStore,
 } from '../review-viewer/state/review-viewer-store.js';
 import { recordBridgeViewerContentQueueTelemetry } from '../review-viewer/telemetry/bridge-review-viewer-telemetry.js';
+import type {
+	BridgeMarkdownRenderWorkerClient,
+	BridgeMarkdownRenderWorkerClientCompletion,
+} from '../review-viewer/workers/markdown/bridge-markdown-render-worker-client.js';
+import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/rpc/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/rpc/review-projection-worker-transport.js';
 
@@ -58,6 +65,9 @@ export interface BridgeAppProps {
 	readonly target?: EventTarget;
 	readonly fetchContent?: BridgeContentFetch;
 	readonly projectionWorkerClient?: BridgeReviewProjectionWorkerClient;
+	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null;
+	readonly codeViewWorkerPoolEnabled?: boolean;
+	readonly codeViewWorkerFactory?: () => Worker;
 }
 
 interface BridgeReviewPackageTelemetryContext {
@@ -68,8 +78,23 @@ interface BridgeReviewPackageTelemetryContext {
 interface SelectedContentResourcesState {
 	readonly itemId: string;
 	readonly contentKey: string;
+	readonly status: 'loading' | 'ready' | 'failed';
 	readonly resources: BridgeCodeViewContentResources | null;
 }
+
+interface SelectedMarkdownPreviewState {
+	readonly itemId: string;
+	readonly contentKey: string;
+	readonly sourcePath: string;
+	readonly status: 'rendering' | 'ready' | 'failed';
+	readonly html: string | null;
+}
+
+const bridgeMarkdownPreviewAbortKey = 'bridge-review-markdown-preview';
+
+type MarkdownPreviewFallbackTelemetryReason =
+	| BridgeMarkdownPreviewFallbackReason
+	| 'workerUnavailable';
 
 function useBridgeReviewViewerStore(): BridgeReviewViewerStore {
 	const storeRef = useRef<BridgeReviewViewerStore | null>(null);
@@ -83,16 +108,13 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const target = props.target ?? document;
 	const viewerStore = useBridgeReviewViewerStore();
 	const projection = useStore(viewerStore, (state) => state.projection);
+	const rootSnapshot = useStore(viewerStore, selectBridgeReviewViewerRootSnapshot);
+	const viewerActions = useStore(viewerStore, (state) => state.actions);
 	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
-	const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 	const [selectedContentResourcesState, setSelectedContentResourcesState] =
 		useState<SelectedContentResourcesState | null>(null);
-	const [projectionMode, setProjectionMode] = useState<BridgeReviewProjectionMode>({
-		kind: 'allFiles',
-	});
-	const [treeSearchText, setTreeSearchText] = useState('');
-	const [gitStatusFilter, setGitStatusFilter] = useState<BridgeFileChangeKind | 'all'>('all');
-	const [fileClassFilter, setFileClassFilter] = useState<BridgeFileClass | 'all'>('all');
+	const [selectedMarkdownPreviewState, setSelectedMarkdownPreviewState] =
+		useState<SelectedMarkdownPreviewState | null>(null);
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
 	const currentReviewPackageTelemetryContextRef =
 		useRef<BridgeReviewPackageTelemetryContext | null>(null);
@@ -127,6 +149,23 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		[],
 	);
 	const projectionWorkerClient = props.projectionWorkerClient ?? defaultProjectionWorkerClient;
+	const defaultMarkdownWorkerClient = useMemo(
+		() => createBridgeMarkdownRenderWebWorkerClient(),
+		[],
+	);
+	const markdownWorkerClient =
+		props.markdownWorkerClient === undefined
+			? defaultMarkdownWorkerClient
+			: props.markdownWorkerClient;
+	const selectedContentResources = useMemo(
+		(): BridgeCodeViewContentResources | null =>
+			selectedContentResourcesForCurrentSelection({
+				reviewPackage,
+				selectedItemId: rootSnapshot.selectedItemId,
+				selectedContentResourcesState,
+			}),
+		[reviewPackage, rootSnapshot.selectedItemId, selectedContentResourcesState],
+	);
 	const flushTelemetry = useCallback((): void => {
 		telemetryRecorderRef.current.flush();
 	}, []);
@@ -136,7 +175,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			if (currentReviewPackage === null || !(itemId in currentReviewPackage.itemsById)) {
 				return;
 			}
-			setSelectedItemId(itemId);
+			viewerActions.setSelectedItemId(itemId);
+			viewerActions.setRenderMode({ kind: 'codeView' });
 			setSelectedContentResourcesState(null);
 			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
 			rpcClient.sendCommand({
@@ -144,15 +184,15 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				params: { fileId: itemId },
 			});
 		},
-		[rpcClient],
+		[rpcClient, viewerActions],
 	);
 
 	useBridgeReviewProjectionCoordinator({
 		store: viewerStore,
 		reviewPackage,
-		projectionMode,
-		gitStatusFilter,
-		fileClassFilter,
+		projectionMode: rootSnapshot.projectionMode,
+		gitStatusFilter: rootSnapshot.gitStatusFilter,
+		fileClassFilter: rootSnapshot.fileClassFilter,
 		projectionWorkerClient,
 		telemetryRecorder: telemetryRecorderRef.current,
 		telemetryParentTraceContext:
@@ -180,7 +220,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				applyReviewEnvelope(
 					envelope,
 					setReviewPackage,
-					setSelectedItemId,
+					(itemId: string | null): void => viewerActions.setSelectedItemId(itemId),
+					(): string | null => viewerStore.getState().rootSnapshot.selectedItemId,
 					reviewPackageRef,
 					reviewPackageTelemetryContextRef.current,
 					currentReviewPackageTelemetryContextRef,
@@ -198,7 +239,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			uninstallPushReceiver();
 			handshakeSession?.uninstall();
 		};
-	}, [rpcClient, target]);
+	}, [rpcClient, target, viewerActions, viewerStore]);
 
 	useLayoutEffect((): (() => void) => {
 		const handleSelectReviewItem = (event: Event): void => {
@@ -224,6 +265,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	useEffect((): (() => void) => {
 		let didCancel = false;
 		const contentAbortController = new AbortController();
+		const selectedItemId = rootSnapshot.selectedItemId;
 		if (reviewPackage === null || selectedItemId === null) {
 			setSelectedContentResourcesState(null);
 			return (): void => {
@@ -242,7 +284,14 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		const selectedContentKey = makeSelectedContentResourcesKey(reviewPackage, selectedItemId);
 		setSelectedContentResourcesState(
 			(current: SelectedContentResourcesState | null): SelectedContentResourcesState | null =>
-				current?.contentKey === selectedContentKey ? current : null,
+				current?.contentKey === selectedContentKey
+					? current
+					: {
+							itemId: selectedItemId,
+							contentKey: selectedContentKey,
+							status: 'loading',
+							resources: null,
+						},
 		);
 		const parentTraceContext =
 			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
@@ -278,6 +327,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					setSelectedContentResourcesState({
 						itemId: selectedItemId,
 						contentKey: selectedContentKey,
+						status: 'ready',
 						resources: contentResources,
 					});
 				}
@@ -287,6 +337,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					setSelectedContentResourcesState({
 						itemId: selectedItemId,
 						contentKey: selectedContentKey,
+						status: 'failed',
 						resources: null,
 					});
 				}
@@ -295,7 +346,124 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			didCancel = true;
 			contentAbortController.abort();
 		};
-	}, [props.fetchContent, reviewPackage, selectedItemId]);
+	}, [props.fetchContent, reviewPackage, rootSnapshot.selectedItemId]);
+
+	useEffect((): (() => void) => {
+		let didCancel = false;
+		const parentTraceContext =
+			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
+		if (reviewPackage === null || rootSnapshot.selectedItemId === null) {
+			viewerActions.setRenderMode({ kind: 'codeView' });
+			setSelectedMarkdownPreviewState(null);
+			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
+			return (): void => {
+				didCancel = true;
+			};
+		}
+
+		const selectedContentKey = makeSelectedContentResourcesKey(
+			reviewPackage,
+			rootSnapshot.selectedItemId,
+		);
+		const decision = resolveBridgeMarkdownPreviewDecision({
+			reviewPackage,
+			selectedItemId: rootSnapshot.selectedItemId,
+			resources: selectedContentResources,
+		});
+
+		if (decision.kind === 'codeView') {
+			viewerActions.setRenderMode({ kind: 'codeView' });
+			setSelectedMarkdownPreviewState(null);
+			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
+			if (decision.reason !== 'contentPending') {
+				recordMarkdownPreviewFallbackTelemetry({
+					telemetryRecorder: telemetryRecorderRef.current,
+					parentTraceContext,
+					reason: decision.reason,
+				});
+			}
+			return (): void => {
+				didCancel = true;
+			};
+		}
+
+		if (markdownWorkerClient === null) {
+			viewerActions.setRenderMode({ kind: 'codeView' });
+			setSelectedMarkdownPreviewState(null);
+			recordMarkdownPreviewFallbackTelemetry({
+				telemetryRecorder: telemetryRecorderRef.current,
+				parentTraceContext,
+				reason: 'workerUnavailable',
+			});
+			return (): void => {
+				didCancel = true;
+			};
+		}
+
+		const source = decision.source;
+		const task = markdownWorkerClient.startRender({
+			packageId: reviewPackage.packageId,
+			reviewGeneration: reviewPackage.reviewGeneration,
+			revision: reviewPackage.revision,
+			itemId: source.itemId,
+			itemVersion: source.itemVersion,
+			contentCacheKey: source.contentCacheKey,
+			contentHash: source.contentHash,
+			markdownText: source.markdownText,
+			sourcePath: source.sourcePath,
+			abortKey: bridgeMarkdownPreviewAbortKey,
+		});
+		setSelectedMarkdownPreviewState({
+			itemId: source.itemId,
+			contentKey: selectedContentKey,
+			sourcePath: source.sourcePath,
+			status: 'rendering',
+			html: null,
+		});
+		recordMarkdownRenderQueueTelemetry({
+			telemetryRecorder: telemetryRecorderRef.current,
+			parentTraceContext,
+		});
+		void task.completed.then((completion: BridgeMarkdownRenderWorkerClientCompletion): void => {
+			if (didCancel) {
+				return;
+			}
+			recordMarkdownRenderCompletionTelemetry({
+				telemetryRecorder: telemetryRecorderRef.current,
+				parentTraceContext,
+				completion,
+			});
+			if (completion.status !== 'success') {
+				viewerActions.setRenderMode({ kind: 'codeView' });
+				setSelectedMarkdownPreviewState(null);
+				return;
+			}
+			if (isOversizedMarkdownPreviewOutput(completion.response.html)) {
+				viewerActions.setRenderMode({ kind: 'codeView' });
+				setSelectedMarkdownPreviewState(null);
+				return;
+			}
+			setSelectedMarkdownPreviewState({
+				itemId: source.itemId,
+				contentKey: selectedContentKey,
+				sourcePath: source.sourcePath,
+				status: 'ready',
+				html: completion.response.html,
+			});
+			viewerActions.setRenderMode({ kind: 'markdownPreview' });
+		});
+
+		return (): void => {
+			didCancel = true;
+			markdownWorkerClient.abort(bridgeMarkdownPreviewAbortKey);
+		};
+	}, [
+		markdownWorkerClient,
+		reviewPackage,
+		rootSnapshot.selectedItemId,
+		selectedContentResources,
+		viewerActions,
+	]);
 
 	useEffect((): void => {
 		if (
@@ -332,21 +500,26 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	useEffect((): void => {
 		if (
 			reviewPackage === null ||
-			selectedItemId === null ||
+			rootSnapshot.selectedItemId === null ||
 			!telemetryRecorderRef.current.isEnabled('web')
 		) {
 			return;
 		}
-		const markedItemKey = makeTelemetryMarkedItemKey(reviewPackage, selectedItemId);
+		const markedItemKey = makeTelemetryMarkedItemKey(reviewPackage, rootSnapshot.selectedItemId);
 		if (lastTelemetryMarkedItemRef.current === markedItemKey) {
 			return;
 		}
 		lastTelemetryMarkedItemRef.current = markedItemKey;
 		rpcClient.sendCommand({
 			method: 'review.markFileViewed',
-			params: { fileId: selectedItemId },
+			params: { fileId: rootSnapshot.selectedItemId },
 		});
-	}, [reviewPackage, rpcClient, selectedItemId]);
+	}, [reviewPackage, rootSnapshot.selectedItemId, rpcClient]);
+
+	const currentSelectedContentKey =
+		reviewPackage !== null && rootSnapshot.selectedItemId !== null
+			? makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId)
+			: null;
 
 	return (
 		<div
@@ -355,33 +528,58 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		>
 			{reviewPackage === null ? (
 				<BridgeReviewEmptyShell />
+			) : rootSnapshot.projectionStatus === 'failed' ? (
+				<BridgeReviewProjectionFailedShell />
 			) : projection === null ? (
 				<BridgeReviewProjectionPendingShell />
 			) : (
 				<ReviewViewerShell
-					fileClassFilter={fileClassFilter}
-					gitStatusFilter={gitStatusFilter}
-					onFileClassFilterChange={setFileClassFilter}
-					onGitStatusFilterChange={setGitStatusFilter}
-					onProjectionModeChange={setProjectionMode}
+					fileClassFilter={rootSnapshot.fileClassFilter}
+					gitStatusFilter={rootSnapshot.gitStatusFilter}
+					onFileClassFilterChange={viewerActions.setFileClassFilter}
+					onGitStatusFilterChange={viewerActions.setGitStatusFilter}
+					onProjectionModeChange={viewerActions.setProjectionMode}
 					onSelectItem={selectReviewItem}
-					onTreeSearchTextChange={setTreeSearchText}
+					onTreeSearchTextChange={viewerActions.setTreeSearchText}
 					projection={projection}
-					projectionMode={projectionMode}
+					projectionMode={rootSnapshot.projectionMode}
 					reviewPackage={reviewPackage}
-					selectedContentResources={
-						selectedContentResourcesState?.itemId === selectedItemId &&
-						selectedContentResourcesState.contentKey ===
-							makeSelectedContentResourcesKey(reviewPackage, selectedItemId)
-							? selectedContentResourcesState.resources
+					selectedContentResources={selectedContentResources}
+					selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
+						reviewPackage,
+						selectedItemId: rootSnapshot.selectedItemId,
+						selectedContentResourcesState,
+					})}
+					selectedItemId={rootSnapshot.selectedItemId}
+					{...(props.codeViewWorkerPoolEnabled === undefined
+						? {}
+						: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+					{...(props.codeViewWorkerFactory === undefined
+						? {}
+						: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+					selectedMarkdownPreviewHtml={
+						rootSnapshot.renderMode.kind === 'markdownPreview' &&
+						selectedMarkdownPreviewState !== null &&
+						selectedMarkdownPreviewState.status === 'ready' &&
+						selectedMarkdownPreviewState.itemId === rootSnapshot.selectedItemId &&
+						selectedMarkdownPreviewState.contentKey === currentSelectedContentKey
+							? selectedMarkdownPreviewState.html
 							: null
 					}
-					selectedItemId={selectedItemId}
+					selectedMarkdownPreviewSourcePath={
+						rootSnapshot.renderMode.kind === 'markdownPreview' &&
+						selectedMarkdownPreviewState !== null &&
+						selectedMarkdownPreviewState.status === 'ready' &&
+						selectedMarkdownPreviewState.itemId === rootSnapshot.selectedItemId &&
+						selectedMarkdownPreviewState.contentKey === currentSelectedContentKey
+							? selectedMarkdownPreviewState.sourcePath
+							: null
+					}
 					telemetryParentTraceContext={
 						currentReviewPackageTelemetryContextRef.current?.traceContext ?? null
 					}
 					telemetryRecorder={telemetryRecorderRef.current}
-					treeSearchText={treeSearchText}
+					treeSearchText={rootSnapshot.treeSearchText}
 				/>
 			)}
 		</div>
@@ -425,6 +623,207 @@ function makeSelectedContentResourcesKey(
 		selectedItem.cacheKey,
 		roleKeys,
 	].join(':');
+}
+
+interface SelectedContentResourcesForCurrentSelectionProps {
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly selectedItemId: string | null;
+	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
+}
+
+function selectedContentResourcesForCurrentSelection(
+	props: SelectedContentResourcesForCurrentSelectionProps,
+): BridgeCodeViewContentResources | null {
+	if (props.reviewPackage === null || props.selectedItemId === null) {
+		return null;
+	}
+	if (
+		props.selectedContentResourcesState === null ||
+		props.selectedContentResourcesState.itemId !== props.selectedItemId ||
+		props.selectedContentResourcesState.status !== 'ready'
+	) {
+		return null;
+	}
+	const selectedContentKey = makeSelectedContentResourcesKey(
+		props.reviewPackage,
+		props.selectedItemId,
+	);
+	return props.selectedContentResourcesState.contentKey === selectedContentKey
+		? props.selectedContentResourcesState.resources
+		: null;
+}
+
+interface SelectedContentUnavailablePathForCurrentSelectionProps {
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly selectedItemId: string | null;
+	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
+}
+
+function selectedContentUnavailablePathForCurrentSelection(
+	props: SelectedContentUnavailablePathForCurrentSelectionProps,
+): string | null {
+	if (props.reviewPackage === null || props.selectedItemId === null) {
+		return null;
+	}
+	const selectedContentKey = makeSelectedContentResourcesKey(
+		props.reviewPackage,
+		props.selectedItemId,
+	);
+	if (
+		props.selectedContentResourcesState === null ||
+		props.selectedContentResourcesState.itemId !== props.selectedItemId ||
+		props.selectedContentResourcesState.contentKey !== selectedContentKey ||
+		props.selectedContentResourcesState.status !== 'failed'
+	) {
+		return null;
+	}
+	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
+	return selectedItem?.headPath ?? selectedItem?.basePath ?? props.selectedItemId;
+}
+
+interface RecordMarkdownRenderQueueTelemetryProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly parentTraceContext: BridgeTraceContext | null;
+}
+
+function recordMarkdownRenderQueueTelemetry(props: RecordMarkdownRenderQueueTelemetryProps): void {
+	if (!props.telemetryRecorder.isEnabled('web')) {
+		return;
+	}
+	props.telemetryRecorder.record({
+		scope: 'web',
+		name: 'performance.bridge.markdown.render_queue',
+		durationMilliseconds: null,
+		traceContext: createChildTraceContext(props.parentTraceContext),
+		stringAttributes: {
+			'agentstudio.bridge.phase': 'markdown_queue',
+			'agentstudio.bridge.plane': 'data',
+			'agentstudio.bridge.priority': 'warm',
+			'agentstudio.bridge.result': 'queued',
+			'agentstudio.bridge.slice': 'markdown_preview',
+			'agentstudio.bridge.transport': 'worker',
+			'agentstudio.bridge.worker.lane': 'markdown',
+		},
+		numericAttributes: {},
+		booleanAttributes: {},
+	});
+}
+
+interface RecordMarkdownRenderCompletionTelemetryProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly parentTraceContext: BridgeTraceContext | null;
+	readonly completion: BridgeMarkdownRenderWorkerClientCompletion;
+}
+
+function recordMarkdownRenderCompletionTelemetry(
+	props: RecordMarkdownRenderCompletionTelemetryProps,
+): void {
+	if (!props.telemetryRecorder.isEnabled('web')) {
+		return;
+	}
+	const durationMilliseconds =
+		props.completion.status === 'success'
+			? props.completion.response.metrics.durationMilliseconds
+			: null;
+	props.telemetryRecorder.record({
+		scope: 'web',
+		name: 'performance.bridge.markdown.render',
+		durationMilliseconds,
+		traceContext: createChildTraceContext(props.parentTraceContext),
+		stringAttributes: {
+			'agentstudio.bridge.content_bytes_bucket':
+				props.completion.status === 'success'
+					? byteCountBucket(props.completion.response.metrics.inputBytes)
+					: 'unknown',
+			'agentstudio.bridge.phase': 'markdown_render',
+			'agentstudio.bridge.plane': 'data',
+			'agentstudio.bridge.priority': 'warm',
+			'agentstudio.bridge.result': props.completion.status,
+			'agentstudio.bridge.slice': 'markdown_preview',
+			'agentstudio.bridge.transport': 'worker',
+			'agentstudio.bridge.worker.lane': 'markdown',
+		},
+		numericAttributes:
+			props.completion.status === 'success'
+				? {
+						'agentstudio.bridge.markdown.input_bytes': props.completion.response.metrics.inputBytes,
+						'agentstudio.bridge.markdown.output_bytes':
+							props.completion.response.metrics.outputBytes,
+					}
+				: {},
+		booleanAttributes: {},
+	});
+	props.telemetryRecorder.record({
+		scope: 'web',
+		name: 'performance.bridge.worker.task',
+		durationMilliseconds,
+		traceContext: createChildTraceContext(props.parentTraceContext),
+		stringAttributes: {
+			'agentstudio.bridge.phase': 'worker_task',
+			'agentstudio.bridge.plane': 'data',
+			'agentstudio.bridge.priority': 'warm',
+			'agentstudio.bridge.result': props.completion.status,
+			'agentstudio.bridge.slice': 'worker_task',
+			'agentstudio.bridge.transport': 'worker',
+			'agentstudio.bridge.worker.lane': 'markdown',
+			'agentstudio.bridge.worker.task_kind': 'markdown_render',
+		},
+		numericAttributes: {},
+		booleanAttributes: {},
+	});
+	props.telemetryRecorder.flush();
+}
+
+interface RecordMarkdownPreviewFallbackTelemetryProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly parentTraceContext: BridgeTraceContext | null;
+	readonly reason: MarkdownPreviewFallbackTelemetryReason;
+}
+
+function recordMarkdownPreviewFallbackTelemetry(
+	props: RecordMarkdownPreviewFallbackTelemetryProps,
+): void {
+	if (!props.telemetryRecorder.isEnabled('web')) {
+		return;
+	}
+	props.telemetryRecorder.record({
+		scope: 'web',
+		name: 'performance.bridge.markdown.fallback',
+		durationMilliseconds: null,
+		traceContext: createChildTraceContext(props.parentTraceContext),
+		stringAttributes: {
+			'agentstudio.bridge.markdown.fallback_reason': props.reason,
+			'agentstudio.bridge.phase': 'markdown_decision',
+			'agentstudio.bridge.plane': 'data',
+			'agentstudio.bridge.priority': 'warm',
+			'agentstudio.bridge.result': 'fallback',
+			'agentstudio.bridge.slice': 'markdown_preview',
+			'agentstudio.bridge.transport': 'worker',
+			'agentstudio.bridge.worker.lane': 'markdown',
+		},
+		numericAttributes: {},
+		booleanAttributes: {},
+	});
+}
+
+function isOversizedMarkdownPreviewOutput(html: string): boolean {
+	return new TextEncoder().encode(html).byteLength > bridgeMarkdownPreviewMaxBytes;
+}
+
+function byteCountBucket(byteCount: number): 'empty' | 'small' | 'medium' | 'large' | 'huge' {
+	if (byteCount <= 0) {
+		return 'empty';
+	}
+	if (byteCount <= 32_768) {
+		return 'small';
+	}
+	if (byteCount <= 512_000) {
+		return 'medium';
+	}
+	if (byteCount <= 5_000_000) {
+		return 'large';
+	}
+	return 'huge';
 }
 
 function recordPackageApplyTelemetry(
@@ -479,7 +878,8 @@ function applyReviewEnvelope(
 	setReviewPackage: (
 		update: (current: BridgeReviewPackage | null) => BridgeReviewPackage | null,
 	) => void,
-	setSelectedItemId: (update: (current: string | null) => string | null) => void,
+	setSelectedItemId: (itemId: string | null) => void,
+	getSelectedItemId: () => string | null,
 	reviewPackageRef: { current: BridgeReviewPackage | null },
 	telemetryContextByPackageKey: Map<string, BridgeReviewPackageTelemetryContext>,
 	currentReviewPackageTelemetryContextRef: {
@@ -491,6 +891,13 @@ function applyReviewEnvelope(
 	}
 	const packagePayload = extractReviewPackage(envelope.data);
 	if (packagePayload !== null) {
+		const currentReviewPackage = reviewPackageRef.current;
+		if (
+			currentReviewPackage !== null &&
+			isStaleReviewPackageReplacement(currentReviewPackage, packagePayload)
+		) {
+			return;
+		}
 		const telemetryContext = {
 			slice: envelope.slice,
 			traceContext: envelope.traceContext,
@@ -499,10 +906,11 @@ function applyReviewEnvelope(
 		currentReviewPackageTelemetryContextRef.current = telemetryContext;
 		reviewPackageRef.current = packagePayload;
 		setReviewPackage((): BridgeReviewPackage => packagePayload);
-		setSelectedItemId((current: string | null): string | null =>
-			current === null || !(current in packagePayload.itemsById)
+		const currentSelectedItemId = getSelectedItemId();
+		setSelectedItemId(
+			currentSelectedItemId === null || !(currentSelectedItemId in packagePayload.itemsById)
 				? firstVisibleItemId(packagePayload)
-				: current,
+				: currentSelectedItemId,
 		);
 		return;
 	}
@@ -514,30 +922,47 @@ function applyReviewEnvelope(
 		slice: envelope.slice,
 		traceContext: envelope.traceContext,
 	};
-	setReviewPackage((current: BridgeReviewPackage | null): BridgeReviewPackage | null => {
-		if (current === null) {
-			return null;
-		}
-		const result = applyDeltaToBridgeReviewItemRegistry(
-			createBridgeReviewItemRegistry({ reviewPackage: current, selectedItemId: null }),
-			deltaPayload,
-		);
-		if (!result.accepted) {
-			return current;
-		}
-		telemetryContextByPackageKey.set(
-			makeTelemetryPackageKey(result.registry.reviewPackage),
-			telemetryContext,
-		);
-		currentReviewPackageTelemetryContextRef.current = telemetryContext;
-		reviewPackageRef.current = result.registry.reviewPackage;
-		setSelectedItemId((selectedItemId: string | null): string | null =>
-			selectedItemId === null || !(selectedItemId in result.registry.reviewPackage.itemsById)
-				? firstVisibleItemId(result.registry.reviewPackage)
-				: selectedItemId,
-		);
-		return result.registry.reviewPackage;
-	});
+	const currentReviewPackage = reviewPackageRef.current;
+	if (currentReviewPackage === null) {
+		return;
+	}
+	const result = applyDeltaToBridgeReviewItemRegistry(
+		createBridgeReviewItemRegistry({ reviewPackage: currentReviewPackage, selectedItemId: null }),
+		deltaPayload,
+	);
+	if (!result.accepted) {
+		return;
+	}
+	telemetryContextByPackageKey.set(
+		makeTelemetryPackageKey(result.registry.reviewPackage),
+		telemetryContext,
+	);
+	currentReviewPackageTelemetryContextRef.current = telemetryContext;
+	reviewPackageRef.current = result.registry.reviewPackage;
+	setReviewPackage((): BridgeReviewPackage => result.registry.reviewPackage);
+	const currentSelectedItemId = getSelectedItemId();
+	setSelectedItemId(
+		currentSelectedItemId === null ||
+			!(currentSelectedItemId in result.registry.reviewPackage.itemsById)
+			? firstVisibleItemId(result.registry.reviewPackage)
+			: currentSelectedItemId,
+	);
+}
+
+function isStaleReviewPackageReplacement(
+	currentReviewPackage: BridgeReviewPackage,
+	nextReviewPackage: BridgeReviewPackage,
+): boolean {
+	if (currentReviewPackage.packageId !== nextReviewPackage.packageId) {
+		return false;
+	}
+	if (nextReviewPackage.reviewGeneration < currentReviewPackage.reviewGeneration) {
+		return true;
+	}
+	return (
+		nextReviewPackage.reviewGeneration === currentReviewPackage.reviewGeneration &&
+		nextReviewPackage.revision <= currentReviewPackage.revision
+	);
 }
 
 function extractReviewPackage(data: unknown): BridgeReviewPackage | null {

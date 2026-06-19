@@ -82,8 +82,8 @@ export function makeBridgeReviewProjectionInput(
 				const contentHandles = contentHandlesForItem(item);
 				return {
 					itemId: item.itemId,
-					basePath: item.basePath,
-					headPath: item.headPath,
+					basePath: item.basePath ?? null,
+					headPath: item.headPath ?? null,
 					changeKind: item.changeKind,
 					fileClass: item.fileClass,
 					language: item.language ?? null,
@@ -464,7 +464,9 @@ function displayPathForItem(item: BridgeReviewProjectionInputItem): string {
 
 function candidatePathsForItem(item: BridgeReviewProjectionInputItem): readonly string[] {
 	return uniqueStrings(
-		[item.headPath, item.basePath].filter((path): path is string => path !== null),
+		[item.headPath, item.basePath].filter(
+			(path: string | null | undefined): path is string => path !== null && path !== undefined,
+		),
 	);
 }
 

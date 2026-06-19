@@ -10,8 +10,18 @@ import {
 } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type {
 	BridgeContentHandle,
+	BridgeFileClass,
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
+import {
+	createBridgeMarkdownRenderWorkerClient,
+	type BridgeMarkdownRenderWorkerTransport,
+} from '../review-viewer/workers/markdown/bridge-markdown-render-worker-client.js';
+import { buildBridgeMarkdownRenderWorkerSuccessResponse } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-renderer.js';
+import {
+	type BridgeMarkdownRenderWorkerRequest,
+	type BridgeMarkdownRenderWorkerResponse,
+} from '../review-viewer/workers/markdown/bridge-markdown-render-worker-rpc.js';
 import {
 	createBridgeReviewProjectionWorkerClient,
 	type BridgeReviewProjectionWorkerTransport,
@@ -126,6 +136,63 @@ describe('BridgeApp', () => {
 				__commandId: expect.stringMatching(/^cmd_/),
 			},
 		]);
+	});
+
+	test('renders deleted file packages with omitted Swift optional head path', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeDeletedFileReviewPackageWithOmittedHeadPath();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (): Promise<Response> => new Response('deleted base text')}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+
+		expect(document.querySelector('[data-testid="review-viewer-shell"]')).not.toBeNull();
+		expect(document.body.textContent).toContain('Sources/Removed.swift');
+		expect(bridgeAppRenderedTextContent()).toContain('deleted base text');
+	});
+
+	test('keeps CodeView and right rail scroll offsets independent from the document shell', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeLargeBridgeReviewPackage(80);
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+		await pushReviewPackage(reviewPackage);
+
+		const shell = requireHTMLElement(document.querySelector('[data-testid="review-viewer-shell"]'));
+		const codeScroll = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-review-code-scroll"]'),
+		);
+		const railScroll = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-review-rail-scroll"]'),
+		);
+
+		document.documentElement.scrollTop = 0;
+		document.body.scrollTop = 0;
+		shell.scrollTop = 0;
+		codeScroll.scrollTop = 280;
+		railScroll.scrollTop = 160;
+		codeScroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+		railScroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+
+		expect(codeScroll.scrollTop).toBe(280);
+		expect(railScroll.scrollTop).toBe(160);
+		expect(shell.scrollTop).toBe(0);
+		expect(document.documentElement.scrollTop).toBe(0);
+		expect(document.body.scrollTop).toBe(0);
 	});
 
 	test('telemetry-enabled package apply sends selected item RPC through command bridge', async () => {
@@ -1167,6 +1234,175 @@ describe('BridgeApp', () => {
 		]);
 	});
 
+	test('hydrates selected added source files as full CodeView content', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeAddedFileReviewPackage({
+			itemId: 'item-added-source',
+			path: 'Sources/NewFeature/AddedFile.ts',
+			language: 'typescript',
+			extension: 'ts',
+			fileClass: 'source',
+			mimeType: 'text/typescript',
+		});
+		const requestedUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response("export const addedFile = 'full content';\n");
+					}}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForRequestedUrl(requestedUrls, 'handle-item-added-source-head');
+		await waitForRenderedText("export const addedFile = 'full content';");
+
+		expect(bridgeAppRenderedTextContent()).toContain("export const addedFile = 'full content';");
+	});
+
+	test('renders selected added markdown through the markdown worker preview lane', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeAddedFileReviewPackage({
+			itemId: 'item-added-plan',
+			path: 'docs/plans/bridge-plan.md',
+			language: 'markdown',
+			extension: 'md',
+			fileClass: 'docs',
+			mimeType: 'text/markdown',
+		});
+		const requestedUrls: string[] = [];
+		const capturedRequests: BridgeMarkdownRenderWorkerRequest[] = [];
+		const deferredResponse = createDeferred<BridgeMarkdownRenderWorkerResponse>();
+		const transport: BridgeMarkdownRenderWorkerTransport = {
+			send: (request: BridgeMarkdownRenderWorkerRequest): Promise<unknown> => {
+				capturedRequests.push(request);
+				return deferredResponse.promise;
+			},
+			abort: () => undefined,
+		};
+		const markdownWorkerClient = createBridgeMarkdownRenderWorkerClient({
+			transport,
+			createRequestId: (): string => 'markdown-request-1',
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response('# Bridge Plan\n\n```ts\nconst value = 1;\n```');
+					}}
+					markdownWorkerClient={markdownWorkerClient}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForRequestedUrl(requestedUrls, 'handle-item-added-plan-head');
+		await waitForMarkdownRequest(capturedRequests);
+		const request = capturedRequests[0];
+		if (request === undefined) {
+			throw new Error('expected markdown render request');
+		}
+		expect(request).toMatchObject({
+			method: 'markdown.render',
+			packageId: reviewPackage.packageId,
+			itemId: 'item-added-plan',
+			contentCacheKey: 'item-added-plan:head',
+			markdownText: '# Bridge Plan\n\n```ts\nconst value = 1;\n```',
+			sourcePath: 'docs/plans/bridge-plan.md',
+		});
+
+		deferredResponse.resolve(
+			await buildBridgeMarkdownRenderWorkerSuccessResponse({
+				request,
+				renderMarkdown: async (): Promise<string> =>
+					'<h1>Bridge Plan</h1><script>window.bad = true</script>',
+			}),
+		);
+		await act(async (): Promise<void> => {
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+
+		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).not.toBeNull();
+		expect(document.body.textContent).toContain('Bridge Plan');
+		expect(document.querySelector('script')).toBeNull();
+	});
+
+	test('falls back to CodeView when markdown worker output exceeds the preview budget', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeAddedFileReviewPackage({
+			itemId: 'item-large-plan',
+			path: 'docs/plans/large-plan.md',
+			language: 'markdown',
+			extension: 'md',
+			fileClass: 'docs',
+			mimeType: 'text/markdown',
+		});
+		const requestedUrls: string[] = [];
+		const capturedRequests: BridgeMarkdownRenderWorkerRequest[] = [];
+		const deferredResponse = createDeferred<BridgeMarkdownRenderWorkerResponse>();
+		const transport: BridgeMarkdownRenderWorkerTransport = {
+			send: (request: BridgeMarkdownRenderWorkerRequest): Promise<unknown> => {
+				capturedRequests.push(request);
+				return deferredResponse.promise;
+			},
+			abort: () => undefined,
+		};
+		const markdownWorkerClient = createBridgeMarkdownRenderWorkerClient({
+			transport,
+			createRequestId: (): string => 'markdown-request-large-output',
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response('# Large Bridge Plan\n');
+					}}
+					markdownWorkerClient={markdownWorkerClient}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForRequestedUrl(requestedUrls, 'handle-item-large-plan-head');
+		await waitForMarkdownRequest(capturedRequests);
+		const request = capturedRequests[0];
+		if (request === undefined) {
+			throw new Error('expected markdown render request');
+		}
+
+		deferredResponse.resolve(
+			await buildBridgeMarkdownRenderWorkerSuccessResponse({
+				request,
+				renderMarkdown: async (): Promise<string> => `<p>${'x'.repeat(600 * 1024)}</p>`,
+			}),
+		);
+		await act(async (): Promise<void> => {
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+
+		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+		expect(bridgeAppRenderedTextContent()).toContain('Large Bridge Plan');
+	});
+
 	test('ignores array-shaped review package internals', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const container = document.createElement('div');
@@ -1218,6 +1454,13 @@ function bridgeAppRenderedTextContent(): string {
 		.map((element: Element): string => element.shadowRoot?.textContent ?? '')
 		.join(' ');
 	return `${document.body.textContent ?? ''} ${codeViewShadowText}`;
+}
+
+function requireHTMLElement(element: Element | null): HTMLElement {
+	if (!(element instanceof HTMLElement)) {
+		throw new Error('expected HTML element');
+	}
+	return element;
 }
 
 async function waitForAnimationFrame(): Promise<void> {
@@ -1277,6 +1520,50 @@ async function waitForRenderedText(text: string, remainingAttempts = 20): Promis
 	await waitForRenderedText(text, remainingAttempts - 1);
 }
 
+async function waitForMarkdownRequest(
+	requests: readonly BridgeMarkdownRenderWorkerRequest[],
+	remainingAttempts = 20,
+): Promise<void> {
+	if (requests.length > 0) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error('expected markdown render worker request');
+	}
+	await Promise.resolve();
+	await waitForAnimationFrame();
+	await waitForMarkdownRequest(requests, remainingAttempts - 1);
+}
+
+async function pushReviewPackage(reviewPackage: BridgeReviewPackage): Promise<void> {
+	await act(async (): Promise<void> => {
+		document.dispatchEvent(
+			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+		);
+		document.dispatchEvent(
+			new CustomEvent('__bridge_push', {
+				detail: {
+					__v: 1,
+					__pushId: `push-${reviewPackage.packageId}`,
+					__revision: reviewPackage.revision,
+					__epoch: reviewPackage.reviewGeneration,
+					store: 'diff',
+					op: 'replace',
+					level: 'cold',
+					slice: 'diff_package_metadata',
+					nonce: 'push-nonce',
+					data: { package: reviewPackage },
+				},
+			}),
+		);
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	await act(async (): Promise<void> => {
+		await waitForAnimationFrame();
+	});
+}
+
 function makeLargeBridgeReviewPackage(itemCount: number): BridgeReviewPackage {
 	const basePackage = makeBridgeReviewPackage();
 	const items = Array.from({ length: itemCount }, (_, index) =>
@@ -1295,6 +1582,137 @@ function makeLargeBridgeReviewPackage(itemCount: number): BridgeReviewPackage {
 			additions: items.reduce((total, item): number => total + item.additions, 0),
 			deletions: items.reduce((total, item): number => total + item.deletions, 0),
 			visibleFileCount: items.length,
+			hiddenFileCount: 0,
+		},
+	};
+}
+
+function makeDeletedFileReviewPackageWithOmittedHeadPath(): BridgeReviewPackage {
+	const basePackage = makeBridgeReviewPackage();
+	const sourceItem = basePackage.itemsById['item-source'];
+	if (sourceItem === undefined) {
+		throw new Error('expected source item fixture');
+	}
+	const baseHandle = sourceItem.contentRoles.base;
+	if (baseHandle === undefined || baseHandle === null) {
+		throw new Error('expected source base fixture');
+	}
+	const deletedBaseHandle: BridgeContentHandle = {
+		...baseHandle,
+		handleId: 'handle-deleted-source-base',
+		itemId: 'deleted-source',
+		resourceUrl: 'agentstudio://resource/content/handle-deleted-source-base?generation=1',
+		contentHash: 'sha256:deleted-source:base',
+		cacheKey: 'deleted-source:base',
+		mimeType: 'text/x-swift',
+		language: 'swift',
+		sizeBytes: 256,
+		isBinary: false,
+	};
+	const { headPath: omittedHeadPath, ...deletedItem } = {
+		...sourceItem,
+		itemId: 'deleted-source',
+		basePath: 'Sources/Removed.swift',
+		headPath: null,
+		changeKind: 'deleted' as const,
+		additions: 0,
+		deletions: 4,
+		headContentHash: null,
+		contentRoles: {
+			base: deletedBaseHandle,
+			head: null,
+			diff: null,
+			file: null,
+		},
+		cacheKey: deletedBaseHandle.cacheKey,
+	};
+	void omittedHeadPath;
+
+	return {
+		...basePackage,
+		orderedItemIds: [deletedItem.itemId],
+		itemsById: { [deletedItem.itemId]: deletedItem },
+		query: {
+			...basePackage.query,
+			pathScope: [],
+		},
+		summary: {
+			filesChanged: 1,
+			additions: 0,
+			deletions: deletedItem.deletions,
+			visibleFileCount: 1,
+			hiddenFileCount: 0,
+		},
+	};
+}
+
+interface MakeAddedFileReviewPackageProps {
+	readonly itemId: string;
+	readonly path: string;
+	readonly language: string;
+	readonly extension: string;
+	readonly fileClass: BridgeFileClass;
+	readonly mimeType: string;
+}
+
+function makeAddedFileReviewPackage(props: MakeAddedFileReviewPackageProps): BridgeReviewPackage {
+	const basePackage = makeBridgeReviewPackage();
+	const sourceItem = basePackage.itemsById['item-source'];
+	if (sourceItem === undefined) {
+		throw new Error('expected source item fixture');
+	}
+	const sourceHead = sourceItem.contentRoles.head;
+	if (sourceHead === undefined || sourceHead === null) {
+		throw new Error('expected source head fixture');
+	}
+	const headHandle: BridgeContentHandle = {
+		...sourceHead,
+		handleId: `handle-${props.itemId}-head`,
+		itemId: props.itemId,
+		resourceUrl: `agentstudio://resource/content/handle-${props.itemId}-head?generation=1`,
+		contentHash: `sha256:${props.itemId}:head`,
+		cacheKey: `${props.itemId}:head`,
+		mimeType: props.mimeType,
+		language: props.language,
+		sizeBytes: 256,
+		isBinary: false,
+	};
+	const addedItem = {
+		...sourceItem,
+		itemId: props.itemId,
+		basePath: null,
+		headPath: props.path,
+		changeKind: 'added' as const,
+		fileClass: props.fileClass,
+		language: props.language,
+		extension: props.extension,
+		sizeBytes: headHandle.sizeBytes,
+		baseContentHash: null,
+		headContentHash: headHandle.contentHash,
+		additions: 4,
+		deletions: 0,
+		contentRoles: {
+			base: null,
+			head: headHandle,
+			diff: null,
+			file: null,
+		},
+		cacheKey: headHandle.cacheKey,
+	};
+
+	return {
+		...basePackage,
+		orderedItemIds: [addedItem.itemId],
+		itemsById: { [addedItem.itemId]: addedItem },
+		query: {
+			...basePackage.query,
+			pathScope: [],
+		},
+		summary: {
+			filesChanged: 1,
+			additions: addedItem.additions,
+			deletions: 0,
+			visibleFileCount: 1,
 			hiddenFileCount: 0,
 		},
 	};

@@ -1,28 +1,117 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
 
 @source "../**/*.ts";
 @source "../**/*.tsx";
 
+@custom-variant dark (&:is(.dark *, .dark));
+
 @theme {
 	--font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
 	--font-mono: 'SF Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
 }
 
 :root {
 	color-scheme: dark;
-	--bridge-app-bg: #050505;
+	--radius: 0.625rem;
+	--background: #1e1e2e;
+	--foreground: #cdd6f4;
+	--card: #1e1e2e;
+	--card-foreground: #cdd6f4;
+	--popover: #1e1e2e;
+	--popover-foreground: #cdd6f4;
+	--primary: #89b4fa;
+	--primary-foreground: #1e1e2e;
+	--secondary: #313244;
+	--secondary-foreground: #cdd6f4;
+	--muted: #313244;
+	--muted-foreground: #bac2de;
+	--accent: #313244;
+	--accent-foreground: #cdd6f4;
+	--destructive: #f38ba8;
+	--border: #45475a;
+	--input: #45475a;
+	--ring: #cdd6f4;
+	--sidebar: #181825;
+	--sidebar-foreground: #cdd6f4;
+	--sidebar-accent: #1e1e2e;
+	--sidebar-accent-foreground: #cdd6f4;
+	--sidebar-border: #45475a;
+	--sidebar-ring: #45475a;
+	--bridge-app-bg: #1e1e2e;
 	--bridge-canvas-bg: #000000;
-	--bridge-surface-bg: #171717;
-	--bridge-surface-raised-bg: #202020;
-	--bridge-border-subtle: rgb(255 255 255 / 0.08);
-	--bridge-border-opaque: #303030;
-	--bridge-text-primary: #f0f0f0;
-	--bridge-text-secondary: #a6a6a6;
-	--bridge-text-muted: #6f6f6f;
-	--bridge-accent: #4f9cff;
-	--bridge-accent-soft: rgb(79 156 255 / 0.16);
-	--bridge-added: #66d38f;
-	--bridge-deleted: #ff6b66;
+	--bridge-surface-bg: #181825;
+	--bridge-surface-raised-bg: #1e1e2e;
+	--bridge-menu-bg: #1e1e2e;
+	--bridge-surface-muted-bg: #313244;
+	--bridge-border-subtle: rgb(205 214 244 / 0.08);
+	--bridge-border-opaque: #45475a;
+	--bridge-text-primary: #cdd6f4;
+	--bridge-text-secondary: #bac2de;
+	--bridge-text-muted: #6c7086;
+	--bridge-accent: #89b4fa;
+	--bridge-accent-soft: rgb(137 180 250 / 0.16);
+	--bridge-added: #a6e3a1;
+	--bridge-deleted: #f38ba8;
+	--bridge-warning: #f9e2af;
+	--diffs-foreground: var(--bridge-text-primary);
+	--diffs-background: var(--bridge-canvas-bg);
+	--diffs-ansi-black: #11111b;
+	--diffs-ansi-red: var(--bridge-deleted);
+	--diffs-ansi-green: var(--bridge-added);
+	--diffs-ansi-yellow: var(--bridge-warning);
+	--diffs-ansi-blue: var(--bridge-accent);
+	--diffs-ansi-magenta: #cba6f7;
+	--diffs-ansi-cyan: #89dceb;
+	--diffs-ansi-white: var(--bridge-text-primary);
+	--diffs-ansi-bright-black: var(--bridge-text-muted);
+	--diffs-ansi-bright-red: #eba0ac;
+	--diffs-ansi-bright-green: #a6e3a1;
+	--diffs-ansi-bright-yellow: #f9e2af;
+	--diffs-ansi-bright-blue: #89b4fa;
+	--diffs-ansi-bright-magenta: #cba6f7;
+	--diffs-ansi-bright-cyan: #94e2d5;
+	--diffs-ansi-bright-white: #f5e0dc;
+	--diffs-token-link: #89b4fa;
+	--diffs-token-string: var(--bridge-added);
+	--diffs-token-comment: var(--bridge-text-muted);
+	--diffs-token-constant: #fab387;
+	--diffs-token-keyword: #cba6f7;
+	--diffs-token-parameter: #f9e2af;
+	--diffs-token-function: var(--bridge-accent);
+	--diffs-token-string-expression: #94e2d5;
+	--diffs-token-punctuation: #bac2de;
+	--diffs-token-inserted: var(--bridge-added);
+	--diffs-token-deleted: var(--bridge-deleted);
+	--diffs-token-changed: var(--bridge-warning);
 }
 
 html,
@@ -49,6 +138,16 @@ select {
 
 button {
 	color: inherit;
+}
+
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']) {
+	cursor: pointer;
+}
+
+button:disabled,
+[role='button'][aria-disabled='true'] {
+	cursor: default;
 }
 
 .bridge-code-view-panel :where(.cm-scroller, .cm-editor, pre, code) {

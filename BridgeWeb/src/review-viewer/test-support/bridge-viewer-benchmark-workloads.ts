@@ -16,6 +16,7 @@ export interface BridgeViewerBenchmarkWorkload {
 	readonly treePaths: readonly string[];
 	readonly metadata: BridgeViewerBenchmarkWorkloadMetadata;
 	readonly largeDiff?: BridgeViewerLargeDiffWorkload;
+	readonly largeMarkdown?: BridgeViewerLargeMarkdownWorkload;
 }
 
 export interface BridgeViewerBenchmarkWorkloadMetadata {
@@ -29,6 +30,13 @@ export interface BridgeViewerLargeDiffWorkload {
 	readonly baseText: string;
 	readonly headText: string;
 	readonly contentChecksum: string;
+	readonly lineCount: number;
+}
+
+export interface BridgeViewerLargeMarkdownWorkload {
+	readonly markdownText: string;
+	readonly contentChecksum: string;
+	readonly fencedBlockCount: number;
 	readonly lineCount: number;
 }
 
@@ -121,10 +129,13 @@ function makeLargeDiffScrollWorkload(): BridgeViewerBenchmarkWorkload {
 	);
 	const baseText = largeDiffText('base', lineCount);
 	const headText = largeDiffText('head', lineCount);
+	const largeMarkdown = largeMarkdownText();
 	const contentChecksum = createHash('sha256')
 		.update(baseText)
 		.update('\n')
 		.update(headText)
+		.update('\n')
+		.update(largeMarkdown)
 		.digest('hex');
 
 	return {
@@ -148,6 +159,12 @@ function makeLargeDiffScrollWorkload(): BridgeViewerBenchmarkWorkload {
 			headText,
 			contentChecksum,
 			lineCount,
+		},
+		largeMarkdown: {
+			markdownText: largeMarkdown,
+			contentChecksum: createHash('sha256').update(largeMarkdown).digest('hex'),
+			fencedBlockCount: 64,
+			lineCount: countLines(largeMarkdown),
 		},
 	};
 }
@@ -365,6 +382,29 @@ function largeDiffText(side: 'base' | 'head', lineCount: number): string {
 		const value = side === 'base' ? index % 97 : (index + 3) % 101;
 		return `export const ${side}Value${paddedIndex} = ${value};`;
 	}).join('\n');
+}
+
+function largeMarkdownText(): string {
+	return Array.from({ length: 64 }, (_value: unknown, sectionIndex: number): string => {
+		const paddedSection = sectionIndex.toString().padStart(2, '0');
+		const bodyLines = Array.from(
+			{ length: 32 },
+			(_bodyValue: unknown, lineIndex: number): string => {
+				const paddedLine = lineIndex.toString().padStart(2, '0');
+				return `- Review note ${paddedSection}.${paddedLine}: validate generated package behavior before approving.`;
+			},
+		).join('\n');
+		const codeLines = Array.from(
+			{ length: 48 },
+			(_codeValue: unknown, lineIndex: number): string =>
+				`export const benchmarkPlan${paddedSection}_${lineIndex.toString().padStart(2, '0')} = ${lineIndex + sectionIndex};`,
+		).join('\n');
+		return `## Plan Section ${paddedSection}\n\n${bodyLines}\n\n\`\`\`ts\n${codeLines}\n\`\`\``;
+	}).join('\n\n');
+}
+
+function countLines(text: string): number {
+	return text.length === 0 ? 0 : text.split('\n').length;
 }
 
 function assertNever(value: never): never {

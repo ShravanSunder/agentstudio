@@ -6,22 +6,15 @@ import { promisify } from 'node:util';
 
 import {
 	type AppAssetManifest,
-	type AppAssetRecord,
 	appAssetManifestFileName,
 	parseAppAssetManifest,
 	readDependencyLicenseMetadata,
+	summarizeAppAssetTotals,
+	validatePackagedAppAssetContents,
 	validatePackagedAppOutput,
 	validateWorkerSourceSelfContained,
 	type WorkerSourceSelfContainmentCheck,
 } from './app-asset-contract.ts';
-
-interface AssetTotals {
-	readonly appBytes: number;
-	readonly workerBytes: number;
-	readonly totalBytes: number;
-	readonly appAssetCount: number;
-	readonly workerAssetCount: number;
-}
 
 interface GitIdentity {
 	readonly commit: string;
@@ -36,22 +29,7 @@ const appDirectoryPath = join(repoRootPath, 'Sources/AgentStudio/Resources/Bridg
 const proofDirectoryPath = join(repoRootPath, 'tmp/bridge-web-assets');
 const proofFilePath = join(proofDirectoryPath, 'latest-app-asset-audit.json');
 
-const dependencyNames = [
-	'@pierre/diffs',
-	'@pierre/trees',
-	'@tailwindcss/cli',
-	'@tsdown/css',
-	'@vitejs/plugin-react',
-	'clsx',
-	'react',
-	'react-dom',
-	'tailwind-merge',
-	'tailwindcss',
-	'tsdown',
-	'vite',
-	'zod',
-	'zustand',
-];
+const auditToolDependencyNames = ['@tailwindcss/cli', '@tsdown/css', 'tailwindcss', 'tsdown'];
 
 const manifest = parseAppAssetManifest(
 	JSON.parse(await readFile(join(appDirectoryPath, appAssetManifestFileName), 'utf8')),
@@ -59,12 +37,13 @@ const manifest = parseAppAssetManifest(
 const indexHtml = await readFile(join(appDirectoryPath, 'index.html'), 'utf8');
 
 validatePackagedAppOutput({ indexHtml, manifest });
+await validatePackagedAppAssetContents({ appDirectoryPath, manifest });
 
 const dependencies = await readDependencyLicenseMetadata({
 	packageRootPath,
-	packageNames: dependencyNames,
+	packageNames: await readAuditedDependencyNames(),
 });
-const assetTotals = summarizeAssetTotals(manifest);
+const assetTotals = summarizeAppAssetTotals(manifest);
 const workerSelfContainmentChecks = await readWorkerSelfContainmentChecks(manifest);
 const git = await readGitIdentity();
 const audit = {
@@ -83,32 +62,6 @@ console.log(`[bridge-web-audit] wrote ${proofFilePath}`);
 console.log(`[bridge-web-audit] dependencies=${dependencies.length}`);
 console.log(`[bridge-web-audit] totalBytes=${assetTotals.totalBytes}`);
 
-function summarizeAssetTotals(assetManifest: AppAssetManifest): AssetTotals {
-	const appAssets = [
-		assetManifest.entrypoints.mainScript,
-		...assetManifest.entrypoints.auxiliaryScripts,
-		...assetManifest.entrypoints.styles,
-	];
-	const workerAssets = assetManifest.workers;
-	const appBytes = sumBytes(appAssets);
-	const workerBytes = sumBytes(workerAssets);
-
-	return {
-		appBytes,
-		workerBytes,
-		totalBytes: appBytes + workerBytes,
-		appAssetCount: appAssets.length,
-		workerAssetCount: workerAssets.length,
-	};
-}
-
-function sumBytes(assets: readonly AppAssetRecord[]): number {
-	return assets.reduce(
-		(totalBytes: number, asset: AppAssetRecord): number => totalBytes + asset.bytes,
-		0,
-	);
-}
-
 async function readWorkerSelfContainmentChecks(
 	assetManifest: AppAssetManifest,
 ): Promise<Readonly<Record<string, WorkerSourceSelfContainmentCheck>>> {
@@ -121,6 +74,22 @@ async function readWorkerSelfContainmentChecks(
 		),
 	);
 	return Object.fromEntries(checks);
+}
+
+async function readAuditedDependencyNames(): Promise<readonly string[]> {
+	const packageJson = JSON.parse(await readFile(join(packageRootPath, 'package.json'), 'utf8'));
+	const packageDependencies = packageJson['dependencies'];
+	if (
+		typeof packageDependencies !== 'object' ||
+		packageDependencies === null ||
+		Array.isArray(packageDependencies)
+	) {
+		throw new Error('BridgeWeb package.json dependencies must be an object');
+	}
+
+	return [
+		...new Set([...Object.keys(packageDependencies), ...auditToolDependencyNames]),
+	].toSorted();
 }
 
 async function readGitIdentity(): Promise<GitIdentity> {

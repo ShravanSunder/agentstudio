@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { Dirent } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { basename, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -65,6 +65,10 @@ const builtAssets = await collectBuiltBundleAssets({
 });
 const mainScriptPath = builtAssets.mainScript;
 const stylePaths = builtAssets.styles;
+const markdownWorkerAssetPath = requiredAuxiliaryScriptPath({
+	auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
+	entrypointName: 'bridge-markdown-render-worker',
+});
 const manifest = await buildAppAssetManifest({
 	appDirectoryPath,
 	mainScriptPath,
@@ -75,6 +79,12 @@ const manifest = await buildAppAssetManifest({
 			kind: 'pierre-diffs-shiki',
 			path: portableWorkerAssetPath,
 			workerKind: 'classicWorker',
+			source: 'packagedAppAsset',
+		},
+		{
+			kind: 'bridge-markdown-render',
+			path: markdownWorkerAssetPath,
+			workerKind: 'moduleWorker',
 			source: 'packagedAppAsset',
 		},
 	],
@@ -158,6 +168,32 @@ async function removeGeneratedStyleAssets(directoryPath: string): Promise<void> 
 
 async function resolvePublicPackageAsset(packageExport: string): Promise<URL> {
 	return new URL(import.meta.resolve(packageExport));
+}
+
+function requiredAuxiliaryScriptPath(props: {
+	readonly auxiliaryScriptPaths: readonly string[];
+	readonly entrypointName: string;
+}): string {
+	const exactMatches = props.auxiliaryScriptPaths.filter(
+		(scriptPath: string): boolean => basename(scriptPath) === `${props.entrypointName}.js`,
+	);
+	const matches =
+		exactMatches.length > 0
+			? exactMatches
+			: props.auxiliaryScriptPaths.filter((scriptPath: string): boolean => {
+					const fileName = basename(scriptPath);
+					return fileName.startsWith(`${props.entrypointName}-`);
+				});
+	if (matches.length !== 1) {
+		throw new Error(
+			`Expected exactly one ${props.entrypointName} JavaScript asset, found ${matches.length}`,
+		);
+	}
+	const match = matches[0];
+	if (match === undefined) {
+		throw new Error(`Expected generated ${props.entrypointName} asset`);
+	}
+	return match;
 }
 
 async function normalizePackagedPierreWorker(workerPath: string): Promise<void> {

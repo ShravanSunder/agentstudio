@@ -53,6 +53,7 @@ export interface BridgeReviewProjectionWorkerTask {
 	readonly identity: BridgeReviewProjectionRequestIdentity;
 	readonly request: BridgeReviewProjectionWorkerRequest;
 	readonly completed: Promise<BridgeReviewProjectionWorkerClientCompletion>;
+	readonly abort: () => void;
 }
 
 export interface BridgeReviewProjectionWorkerClient {
@@ -106,10 +107,19 @@ export function createBridgeReviewProjectionWorkerClient(
 				}),
 		);
 
+		const abort = (): void => {
+			if (taskProps.abortKey === undefined) {
+				return;
+			}
+			clearActiveIdentity(activeIdentityByAbortKey, identity);
+			props.transport.abort?.(taskProps.abortKey);
+		};
+
 		return {
 			identity,
 			request,
 			completed,
+			abort,
 		};
 	};
 

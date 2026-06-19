@@ -27,8 +27,8 @@ const benchmarkArtifactSchema = z.object({
 	viewport: z.object({
 		width: z.literal(1_440),
 		height: z.literal(1_000),
-		rowHeight: z.literal(28),
-		overscanRows: z.literal(8),
+		rowHeight: z.literal(24),
+		overscanRows: z.literal(10),
 	}),
 	workload: z.object({
 		expectedDiffRows: z.number().int().nonnegative(),
@@ -59,6 +59,7 @@ interface BridgeViewerBenchmarkExpectation {
 	readonly expectedPathCount: number;
 	readonly expectedDiffRows: number;
 	readonly expectedMaterializedLineSampleCount?: number;
+	readonly expectedMarkdownFencedBlockCount?: number;
 	readonly metricBudgets: Readonly<Record<string, number>>;
 }
 
@@ -74,14 +75,18 @@ const requiredWorkloads: Record<BridgeViewerBenchmarkWorkloadId, BridgeViewerBen
 			expectedDiffRows: 0,
 			metricBudgets: {
 				prepareInputMilliseconds: 50,
-				pathFilterMilliseconds: 50,
+				projectionFilterMilliseconds: 250,
+				projectionInputMilliseconds: 2_000,
 			},
 		},
 		bridge_viewer_large_diff_scroll_v1: {
 			expectedPathCount: 25,
 			expectedDiffRows: 100_000,
 			expectedMaterializedLineSampleCount: 8_000,
+			expectedMarkdownFencedBlockCount: 64,
 			metricBudgets: {
+				markdownRenderMilliseconds: 10_000,
+				markdownRenderWallMilliseconds: 10_000,
 				projectionBuildMilliseconds: 25,
 				materializeDiffMilliseconds: 10_000,
 				scrollTraceMilliseconds: 5,
@@ -132,6 +137,18 @@ function verifyBenchmarkArtifact(artifact: BenchmarkArtifact): void {
 			throw new Error(
 				`${artifact.workloadId}: materializedLineSampleCount expected ${expectations.expectedMaterializedLineSampleCount}, got ${sampleCount}`,
 			);
+		}
+	}
+	if (expectations.expectedMarkdownFencedBlockCount !== undefined) {
+		const fencedBlockCount = artifact.summary.medians['markdownFencedBlockCount'];
+		if (fencedBlockCount !== expectations.expectedMarkdownFencedBlockCount) {
+			throw new Error(
+				`${artifact.workloadId}: markdownFencedBlockCount expected ${expectations.expectedMarkdownFencedBlockCount}, got ${fencedBlockCount}`,
+			);
+		}
+		const renderedOutputBytes = artifact.summary.medians['markdownRenderedOutputBytes'];
+		if (renderedOutputBytes === undefined || renderedOutputBytes <= 0) {
+			throw new Error(`${artifact.workloadId}: missing rendered markdown output bytes`);
 		}
 	}
 	for (const [metricName, budgetMilliseconds] of Object.entries(expectations.metricBudgets)) {

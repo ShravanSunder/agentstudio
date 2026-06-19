@@ -26,6 +26,8 @@ export interface ApplyBridgeCodeViewItemUpdateOptions {
 	readonly scrollBehavior?: CodeViewScrollBehavior;
 }
 
+export type ApplyBridgeCodeViewItemUpdateResult = 'added' | 'updated' | 'unchanged';
+
 export class BridgeCodeViewController {
 	readonly #model: BridgeCodeViewModel;
 
@@ -36,21 +38,27 @@ export class BridgeCodeViewController {
 	applyItemUpdate(
 		item: BridgeCodeViewItem,
 		options: ApplyBridgeCodeViewItemUpdateOptions = {},
-	): void {
+	): ApplyBridgeCodeViewItemUpdateResult {
 		const existingItem = this.#model.getItem(item.id);
+		let result: ApplyBridgeCodeViewItemUpdateResult;
 		if (existingItem === undefined) {
 			this.#model.addItems([item]);
+			result = 'added';
 		} else {
-			this.#model.updateItem(item);
+			result = this.#model.updateItem(item) ? 'updated' : 'unchanged';
 		}
 
 		if (options.scrollIntoView === true) {
 			this.scrollToItem(item.id, options.scrollBehavior ?? 'instant');
 		}
 		this.#model.renderImmediately?.();
+		return result;
 	}
 
 	scrollToItem(itemId: string, behavior: CodeViewScrollBehavior = 'instant'): void {
+		if (this.#model.getItem(itemId) === undefined) {
+			return;
+		}
 		this.#model.scrollTo({
 			type: 'item',
 			id: itemId,

@@ -1,36 +1,30 @@
-import type { ChangeEvent, ReactElement } from 'react';
+import type { ReactElement } from 'react';
 
-import { cn } from '../../app/class-name.js';
-import type {
-	BridgeContentFetch,
-	BridgeContentResource,
-	LoadBridgeContentResourceProps,
-} from '../../foundation/content/content-resource-loader.js';
-import { loadBridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import {
 	createBridgeReviewItemRegistry,
 	reviewItemPathLabel,
 } from '../../foundation/review-package/bridge-review-item-registry.js';
 import type {
-	BridgeContentHandle,
 	BridgeFileChangeKind,
 	BridgeFileClass,
-	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 	BridgeSourceEndpoint,
 	BridgeSourceEndpointKind,
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
+import { BridgeReviewButton, BridgeReviewIcon } from '../chrome/bridge-review-button.js';
+import {
+	BridgeReviewFilterMenu,
+	type BridgeReviewFilterOption,
+} from '../chrome/bridge-review-filter-menu.js';
+import { BridgeReviewSearchControl } from '../chrome/bridge-review-search-control.js';
 import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
 import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
+import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import type {
 	BridgeReviewProjectionMode,
 	BridgeReviewProjectionResult,
-} from '../models/review-projection-models.js';
-import {
-	bridgeFileChangeKindSchema,
-	bridgeFileClassSchema,
 } from '../models/review-projection-models.js';
 import { BridgeReviewTreesPanel } from '../trees/bridge-trees-panel.js';
 
@@ -41,6 +35,11 @@ export interface ReviewViewerShellProps {
 	readonly onSelectItem: (itemId: string) => void;
 	readonly selectedContentText?: string | null;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
+	readonly selectedContentUnavailablePath?: string | null;
+	readonly selectedMarkdownPreviewHtml?: string | null;
+	readonly selectedMarkdownPreviewSourcePath?: string | null;
+	readonly codeViewWorkerPoolEnabled?: boolean;
+	readonly codeViewWorkerFactory?: () => Worker;
 	readonly projectionMode?: BridgeReviewProjectionMode;
 	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
 	readonly treeSearchText?: string;
@@ -51,16 +50,6 @@ export interface ReviewViewerShellProps {
 	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
-}
-
-export interface LoadSelectedReviewItemContentProps {
-	readonly reviewPackage: BridgeReviewPackage;
-	readonly selectedItemId: string | null;
-	readonly fetchContent?: BridgeContentFetch;
-	readonly traceContext?: BridgeTraceContext | null;
-	readonly sendTraceparentHeader?: boolean;
-	readonly signal?: AbortSignal;
-	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 }
 
 export function BridgeReviewEmptyShell(): ReactElement {
@@ -91,6 +80,20 @@ export function BridgeReviewProjectionPendingShell(): ReactElement {
 	);
 }
 
+export function BridgeReviewProjectionFailedShell(): ReactElement {
+	return (
+		<main
+			className="flex h-screen min-h-screen w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
+			data-testid="bridge-review-projection-failed-shell"
+		>
+			<section aria-label="Review projection status" className="text-center">
+				<p className="text-sm text-[var(--bridge-text-primary)]">Review projection unavailable</p>
+				<p className="mt-1 text-xs">The review package could not be projected.</p>
+			</section>
+		</main>
+	);
+}
+
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const registry = createBridgeReviewItemRegistry({
 		reviewPackage: props.reviewPackage,
@@ -113,47 +116,57 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			data-sidebar-position="right"
 			data-testid="review-viewer-shell"
 		>
-			<header className="flex min-h-12 shrink-0 items-center gap-3 border-b border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)] px-3">
-				<section aria-label="Review summary" className="min-w-0 flex-1">
-					<div className="flex min-w-0 items-center gap-3 text-sm">
-						<p className="shrink-0 font-medium text-[var(--bridge-text-primary)]">
+			<header className="flex min-h-10 shrink-0 items-center gap-3 border-b border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)] px-3">
+				<section aria-label="Review summary" className="flex min-w-0 flex-1 items-center gap-3">
+					<div className="flex min-w-0 items-center gap-2 text-sm">
+						<BridgeReviewIcon>
+							<svg aria-hidden="true" className="size-3.5" viewBox="0 0 16 16">
+								<path
+									d="M3 4.5h10M3 8h10M3 11.5h10"
+									fill="none"
+									stroke="currentColor"
+									strokeLinecap="round"
+									strokeWidth="1.5"
+								/>
+							</svg>
+						</BridgeReviewIcon>
+						<span className="shrink-0 font-semibold text-[var(--bridge-text-primary)]">
 							{summary.filesChanged} {summary.filesChanged === 1 ? 'file' : 'files'} changed
-						</p>
-						<p className="shrink-0 text-xs text-[var(--bridge-text-secondary)]">
-							<span className="text-[var(--bridge-added)]">{summary.additions}</span> additions /{' '}
-							<span className="text-[var(--bridge-deleted)]">{summary.deletions}</span> deletions
-						</p>
-						<p className="truncate text-xs text-[var(--bridge-text-secondary)]">
+						</span>
+						<span className="shrink-0 text-xs text-[var(--bridge-added)]">
+							+{summary.additions}
+						</span>
+						<span className="shrink-0 text-xs text-[var(--bridge-deleted)]">
+							-{summary.deletions}
+						</span>
+						<span className="truncate text-xs text-[var(--bridge-text-secondary)]">
 							{props.reviewPackage.baseEndpoint.label} to {props.reviewPackage.headEndpoint.label}
-						</p>
+						</span>
 					</div>
-					<div className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] text-[var(--bridge-text-muted)]">
-						<p className="shrink-0">
-							Generation {props.reviewPackage.reviewGeneration} · {groupingLabel}
-						</p>
-						<p className="truncate">{reviewScopeLabel}</p>
-						<p className="truncate">
-							{filterLabels.length === 0 ? 'All files' : filterLabels.join(' · ')}
-						</p>
+					<div className="hidden min-w-0 items-center gap-2 text-[11px] text-[var(--bridge-text-muted)] md:flex">
+						<span className="shrink-0">Generation {props.reviewPackage.reviewGeneration}</span>
+						<span aria-hidden="true">/</span>
+						<span className="shrink-0">{groupingLabel}</span>
+						<span aria-hidden="true">/</span>
+						<span className="truncate">{reviewScopeLabel}</span>
+						<span className="sr-only">
+							{filterLabels.length === 0 ? 'All files' : filterLabels.join(' ')}
+						</span>
 					</div>
 				</section>
-				<nav aria-label="Review controls" className="flex shrink-0 items-center gap-1.5">
-					<div aria-label="Projection" className="flex items-center gap-1">
+				<nav aria-label="Review controls" className="flex shrink-0 items-center gap-1">
+					<div
+						aria-label="Projection"
+						className="flex items-center gap-0.5 rounded-[7px] bg-[var(--bridge-canvas-bg)] p-0.5"
+					>
 						{projectionButtonSpecs.map((spec) => (
-							<button
+							<BridgeReviewButton
 								aria-pressed={projectionMode.kind === spec.mode.kind}
-								className={cn(
-									'h-7 rounded-[6px] px-2 text-xs text-[var(--bridge-text-secondary)] transition-colors',
-									'hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
-									projectionMode.kind === spec.mode.kind &&
-										'bg-[var(--bridge-accent-soft)] text-[var(--bridge-text-primary)]',
-								)}
 								key={spec.label}
 								onClick={() => props.onProjectionModeChange?.(spec.mode)}
-								type="button"
 							>
 								{spec.label}
-							</button>
+							</BridgeReviewButton>
 						))}
 					</div>
 				</nav>
@@ -161,90 +174,156 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
 				<section
 					aria-label="Selected content"
-					className="min-h-0 min-w-0 overflow-hidden bg-[var(--bridge-canvas-bg)]"
-					data-testid="bridge-review-canvas"
+					className="min-h-0 min-w-0 overflow-auto overscroll-contain bg-[var(--bridge-canvas-bg)]"
+					data-testid="bridge-review-code-scroll"
 				>
-					<BridgeCodeViewPanel
-						projection={projection}
-						reviewPackage={props.reviewPackage}
-						selectedContentResources={props.selectedContentResources ?? null}
-						selectedItemId={props.selectedItemId}
-						telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
-						{...(props.telemetryRecorder === undefined
-							? {}
-							: { telemetryRecorder: props.telemetryRecorder })}
-					/>
+					<section
+						aria-label="Code canvas"
+						className="h-full min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
+						data-testid="bridge-review-canvas"
+					>
+						{props.selectedMarkdownPreviewHtml !== undefined &&
+						props.selectedMarkdownPreviewHtml !== null &&
+						props.selectedMarkdownPreviewSourcePath !== undefined &&
+						props.selectedMarkdownPreviewSourcePath !== null ? (
+							<BridgeMarkdownPreview
+								html={props.selectedMarkdownPreviewHtml}
+								sourcePath={props.selectedMarkdownPreviewSourcePath}
+							/>
+						) : props.selectedContentUnavailablePath !== undefined &&
+						  props.selectedContentUnavailablePath !== null ? (
+							<BridgeReviewContentUnavailableState
+								sourcePath={props.selectedContentUnavailablePath}
+							/>
+						) : (
+							<BridgeCodeViewPanel
+								projection={projection}
+								reviewPackage={props.reviewPackage}
+								selectedContentResources={props.selectedContentResources ?? null}
+								selectedItemId={props.selectedItemId}
+								telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
+								{...(props.codeViewWorkerPoolEnabled === undefined
+									? {}
+									: { workerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+								{...(props.codeViewWorkerFactory === undefined
+									? {}
+									: { workerFactory: props.codeViewWorkerFactory })}
+								{...(props.telemetryRecorder === undefined
+									? {}
+									: { telemetryRecorder: props.telemetryRecorder })}
+							/>
+						)}
+					</section>
 				</section>
 				<aside
 					className="order-last flex min-h-0 min-w-0 flex-col border-l border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)]"
 					data-testid="bridge-review-sidebar"
 				>
-					<div className="shrink-0 border-b border-[var(--bridge-border-subtle)] p-2">
-						<label className="block text-[11px] text-[var(--bridge-text-muted)]">
-							Search files
-							<input
-								aria-label="Search files"
-								className="mt-1 h-8 w-full rounded-[6px] border border-[var(--bridge-border-opaque)] bg-[var(--bridge-canvas-bg)] px-2 text-xs text-[var(--bridge-text-primary)] outline-none focus:border-[var(--bridge-accent)]"
-								onChange={(event: ChangeEvent<HTMLInputElement>): void =>
-									props.onTreeSearchTextChange?.(event.target.value)
-								}
-								type="search"
-								value={treeSearchText}
-							/>
-						</label>
-						<div className="mt-2 grid grid-cols-2 gap-2">
-							<label className="block text-[11px] text-[var(--bridge-text-muted)]">
-								Git status
-								<select
-									aria-label="Git status filter"
-									className="mt-1 h-7 w-full rounded-[6px] border border-[var(--bridge-border-opaque)] bg-[var(--bridge-canvas-bg)] px-1.5 text-xs text-[var(--bridge-text-primary)] outline-none focus:border-[var(--bridge-accent)]"
-									onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
-										props.onGitStatusFilterChange?.(parseGitStatusFilter(event.target.value))
-									}
-									value={gitStatusFilter}
+					<div className="shrink-0 border-b border-[var(--bridge-border-subtle)] px-1.5 py-1.5">
+						<div
+							className="flex items-center justify-between gap-1"
+							data-testid="bridge-review-rail-toolbar"
+						>
+							<div
+								className="flex min-w-0 items-center gap-1"
+								data-testid="bridge-review-rail-toolbar-leading"
+							>
+								<BridgeReviewButton
+									data-testid="bridge-review-rail-files-view"
+									ariaPressed
+									ariaLabel="Show changed files"
+									className="h-8 w-8 rounded-[7px] border-[var(--bridge-border-subtle)] bg-transparent px-0"
+									title="Changed files"
 								>
-									<option value="all">All statuses</option>
-									<option value="added">Added</option>
-									<option value="modified">Modified</option>
-									<option value="renamed">Renamed</option>
-									<option value="deleted">Deleted</option>
-									<option value="copied">Copied</option>
-								</select>
-							</label>
-							<label className="block text-[11px] text-[var(--bridge-text-muted)]">
-								File class
-								<select
-									aria-label="File class filter"
-									className="mt-1 h-7 w-full rounded-[6px] border border-[var(--bridge-border-opaque)] bg-[var(--bridge-canvas-bg)] px-1.5 text-xs text-[var(--bridge-text-primary)] outline-none focus:border-[var(--bridge-accent)]"
-									onChange={(event: ChangeEvent<HTMLSelectElement>): void =>
-										props.onFileClassFilterChange?.(parseFileClassFilter(event.target.value))
-									}
-									value={fileClassFilter}
+									<BridgeReviewIcon>
+										<svg aria-hidden="true" className="size-4" viewBox="0 0 16 16">
+											<path
+												d="M3.25 2.75h3.5l1 1h5v3.5m-9.5-2h10v7h-10z"
+												fill="none"
+												stroke="currentColor"
+												strokeLinejoin="round"
+												strokeWidth="1.4"
+											/>
+										</svg>
+									</BridgeReviewIcon>
+								</BridgeReviewButton>
+								<BridgeReviewButton
+									data-testid="bridge-review-rail-comments-view"
+									ariaLabel="Show review comments"
+									className="h-8 w-8 rounded-[7px] border-[var(--bridge-border-subtle)] bg-transparent px-0"
+									disabled
+									title="Review comments"
 								>
-									<option value="all">All classes</option>
-									{bridgeFileClassOptions.map((fileClass: BridgeFileClass) => (
-										<option key={fileClass} value={fileClass}>
-											{fileClass}
-										</option>
-									))}
-								</select>
-							</label>
+									<BridgeReviewIcon>
+										<svg aria-hidden="true" className="size-4" viewBox="0 0 16 16">
+											<path
+												d="M3.5 4.25h9v5.5h-5l-3 2.25V9.75h-1z"
+												fill="none"
+												stroke="currentColor"
+												strokeLinejoin="round"
+												strokeWidth="1.4"
+											/>
+										</svg>
+									</BridgeReviewIcon>
+								</BridgeReviewButton>
+							</div>
+							<div
+								className="flex min-w-0 items-center justify-end gap-1"
+								data-testid="bridge-review-rail-toolbar-trailing"
+							>
+								<div data-testid="bridge-review-search-toggle">
+									<span className="sr-only">Search files</span>
+									<BridgeReviewSearchControl
+										onChange={(value: string): void => props.onTreeSearchTextChange?.(value)}
+										value={treeSearchText}
+									/>
+								</div>
+								<div className="shrink-0" data-testid="bridge-review-git-status-menu">
+									<span className="sr-only">Git status</span>
+									<BridgeReviewFilterMenu
+										label="Git status filter"
+										onChange={(value): void => props.onGitStatusFilterChange?.(value)}
+										options={gitStatusOptions}
+										testId="bridge-review-git-status-menu-control"
+										value={gitStatusFilter}
+									/>
+								</div>
+								<div className="shrink-0" data-testid="bridge-review-file-class-menu">
+									<span className="sr-only">File class</span>
+									<BridgeReviewFilterMenu
+										label="File class filter"
+										onChange={(value): void => props.onFileClassFilterChange?.(value)}
+										options={fileClassOptions}
+										testId="bridge-review-file-class-menu-control"
+										value={fileClassFilter}
+									/>
+								</div>
+							</div>
 						</div>
 					</div>
-					<nav aria-label="Changed files" className="min-h-0 flex-1 overflow-hidden">
-						<BridgeReviewTreesPanel
-							onSelectItem={props.onSelectItem}
-							projection={projection}
-							reviewPackage={props.reviewPackage}
-							searchText={treeSearchText}
-							selectedItemId={props.selectedItemId}
-						/>
-						{registry.visibleItems.length === 0 ? null : (
-							<div aria-hidden="true" hidden>
-								{registry.visibleItems.map((item) => reviewItemPathLabel(item)).join(' ')}
-							</div>
-						)}
-					</nav>
+					<div
+						className="min-h-0 flex-1 overflow-hidden overscroll-contain"
+						data-testid="bridge-review-rail-scroll"
+					>
+						<nav
+							aria-label="Changed files"
+							className="h-full min-h-0"
+							data-testid="bridge-review-rail-tree-slot"
+						>
+							<BridgeReviewTreesPanel
+								onSelectItem={props.onSelectItem}
+								projection={projection}
+								reviewPackage={props.reviewPackage}
+								searchText={treeSearchText}
+								selectedItemId={props.selectedItemId}
+							/>
+							{registry.visibleItems.length === 0 ? null : (
+								<div aria-hidden="true" hidden>
+									{registry.visibleItems.map((item) => reviewItemPathLabel(item)).join(' ')}
+								</div>
+							)}
+						</nav>
+					</div>
 					<div className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-1 border-t border-[var(--bridge-border-subtle)] p-2 text-[11px] text-[var(--bridge-text-secondary)]">
 						<span>Files</span>
 						<span className="text-right text-[var(--bridge-text-primary)]">
@@ -258,6 +337,21 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 				</aside>
 			</div>
 		</main>
+	);
+}
+
+function BridgeReviewContentUnavailableState(props: { readonly sourcePath: string }): ReactElement {
+	return (
+		<section
+			aria-label="Selected content unavailable"
+			className="flex h-full min-h-[260px] items-center justify-center bg-[var(--bridge-canvas-bg)] px-8 text-center"
+			data-testid="bridge-review-content-unavailable"
+		>
+			<div className="max-w-md">
+				<p className="text-sm font-medium text-[var(--bridge-text-primary)]">Content unavailable</p>
+				<p className="mt-1 truncate text-xs text-[var(--bridge-text-muted)]">{props.sourcePath}</p>
+			</div>
+		</section>
 	);
 }
 
@@ -277,6 +371,15 @@ const projectionButtonSpecs: readonly {
 	{ label: 'Source', mode: { kind: 'source' } },
 ];
 
+const gitStatusOptions: readonly BridgeReviewFilterOption<BridgeFileChangeKind | 'all'>[] = [
+	{ value: 'all', label: 'All statuses', selectedLabel: 'All', icon: '*' },
+	{ value: 'added', label: 'Added', icon: 'A' },
+	{ value: 'modified', label: 'Modified', icon: 'M' },
+	{ value: 'renamed', label: 'Renamed', icon: 'R' },
+	{ value: 'deleted', label: 'Deleted', icon: 'D' },
+	{ value: 'copied', label: 'Copied', icon: 'C' },
+];
+
 const bridgeFileClassOptions: readonly BridgeFileClass[] = [
 	'source',
 	'test',
@@ -290,108 +393,19 @@ const bridgeFileClassOptions: readonly BridgeFileClass[] = [
 	'unknown',
 ];
 
-function parseGitStatusFilter(value: string): BridgeFileChangeKind | 'all' {
-	if (value === 'all') {
-		return 'all';
-	}
-	const parsed = bridgeFileChangeKindSchema.safeParse(value);
-	return parsed.success ? parsed.data : 'all';
-}
+const fileClassOptions: readonly BridgeReviewFilterOption<BridgeFileClass | 'all'>[] = [
+	{ value: 'all', label: 'All classes', selectedLabel: 'All', icon: '*' },
+	...bridgeFileClassOptions.map(
+		(fileClass: BridgeFileClass): BridgeReviewFilterOption<BridgeFileClass | 'all'> => ({
+			value: fileClass,
+			label: sentenceCase(fileClass),
+			icon: fileClass.slice(0, 1).toUpperCase(),
+		}),
+	),
+];
 
-function parseFileClassFilter(value: string): BridgeFileClass | 'all' {
-	if (value === 'all') {
-		return 'all';
-	}
-	const parsed = bridgeFileClassSchema.safeParse(value);
-	return parsed.success ? parsed.data : 'all';
-}
-
-export async function loadSelectedReviewItemContent(
-	props: LoadSelectedReviewItemContentProps,
-): Promise<BridgeContentResource | null> {
-	if (props.selectedItemId === null) {
-		return null;
-	}
-	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
-	if (selectedItem === undefined) {
-		return null;
-	}
-	const contentHandle = preferredContentHandle(selectedItem);
-	if (contentHandle === null) {
-		return null;
-	}
-	return await loadContentHandle({ handle: contentHandle, props });
-}
-
-export async function loadSelectedReviewItemContentResources(
-	props: LoadSelectedReviewItemContentProps,
-): Promise<BridgeCodeViewContentResources | null> {
-	if (props.selectedItemId === null) {
-		return null;
-	}
-	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
-	if (selectedItem === undefined) {
-		return null;
-	}
-
-	const baseHandle = selectedItem.contentRoles.base ?? null;
-	const headHandle = selectedItem.contentRoles.head ?? null;
-	if (selectedItem.itemKind === 'diff' && baseHandle !== null && headHandle !== null) {
-		const [base, head] = await Promise.all([
-			loadContentHandle({ handle: baseHandle, props }),
-			loadContentHandle({ handle: headHandle, props }),
-		]);
-		return { base, head };
-	}
-
-	const diffHandle = selectedItem.contentRoles.diff ?? null;
-	if (selectedItem.itemKind === 'diff' && diffHandle !== null) {
-		return {
-			diff: await loadContentHandle({ handle: diffHandle, props }),
-		};
-	}
-
-	const contentHandle = preferredContentHandle(selectedItem);
-	if (contentHandle === null) {
-		return null;
-	}
-
-	const content = await loadContentHandle({ handle: contentHandle, props });
-	return {
-		[contentHandle.role]: content,
-	};
-}
-
-interface LoadContentHandleProps {
-	readonly handle: BridgeContentHandle;
-	readonly props: LoadSelectedReviewItemContentProps;
-}
-
-async function loadContentHandle(
-	loadContentHandleProps: LoadContentHandleProps,
-): Promise<BridgeContentResource> {
-	const props = loadContentHandleProps.props;
-	const loadProps: LoadBridgeContentResourceProps = {
-		handle: loadContentHandleProps.handle,
-		traceContext: props.traceContext ?? null,
-		sendTraceparentHeader: props.sendTraceparentHeader ?? false,
-		...(props.signal === undefined ? {} : { signal: props.signal }),
-		...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
-		...(props.telemetryRecorder === undefined
-			? {}
-			: { telemetryRecorder: props.telemetryRecorder }),
-	};
-	return await loadBridgeContentResource(loadProps);
-}
-
-function preferredContentHandle(item: BridgeReviewItemDescriptor): BridgeContentHandle | null {
-	return (
-		item.contentRoles.head ??
-		item.contentRoles.file ??
-		item.contentRoles.diff ??
-		item.contentRoles.base ??
-		null
-	);
+function sentenceCase(value: string): string {
+	return value.length === 0 ? value : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
 }
 
 function reviewFilterLabels(reviewPackage: BridgeReviewPackage): readonly string[] {

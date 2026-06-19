@@ -37,8 +37,10 @@
 	"include": [
 		"scripts/**/*.ts",
 		"src/**/*",
+		"tests/**/*.ts",
 		"tsdown.config.ts",
 		"vite.config.ts",
+		"vitest.browser.config.ts",
 		"vitest.config.ts"
 	],
 	"exclude": ["node_modules", "dist"]
