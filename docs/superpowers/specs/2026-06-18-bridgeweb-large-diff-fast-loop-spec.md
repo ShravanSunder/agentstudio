@@ -218,7 +218,21 @@ clicks and cannot be repeated by agents or CI-like harnesses.
     scenario id, metric id, fixture id/class, delivery mode, latency, worker
     modes, correctness assertion, p50, p95, budget, sample count, and raw
     samples.
-18. The dev server must be inspectable by an agent or human with screenshots.
+18. Boundary data contracts must be Zod-first. Every cross-boundary BridgeWeb
+    payload uses a camelCase `xxxSchema` constant as the runtime contract and a
+    PascalCase `Xxx` type derived from that schema. This applies to
+    Swift-to-BridgeWeb package/delta pushes, BridgeWeb-to-worker RPC, worker
+    responses, dev-server fixture/query config, benchmark artifacts, telemetry
+    bootstrap/config, and IPC/debug payloads added by this plan. Use
+    discriminated unions for variant payloads. Prefer `z.record(z.string(),
+    z.unknown())` only for intentionally opaque extension metadata; otherwise
+    model the shape explicitly. Parse once at the ingress/egress boundary, then
+    pass inferred typed data through projection, React, and Zustand internals.
+    Zustand actions must not accept raw `unknown`, perform heavy parse work,
+    call Swift, post worker messages, fetch content, mutate Pierre models, or
+    emit telemetry directly. They update pure state/references and enqueue
+    typed intents from already-validated inputs.
+19. The dev server must be inspectable by an agent or human with screenshots.
     Required visual states are default large fixture, scrolled CodeView,
     scrolled right rail, filter/search open, added-file content, markdown
     preview, and failure/unavailable UI. Filter/search-open screenshots must
@@ -229,10 +243,10 @@ clicks and cannot be repeated by agents or CI-like harnesses.
     attach images: control size, row density, status badge/checkmark alignment,
     tree disclosure affordance, file-click scroll result, and header cursor /
     collapse behavior.
-19. Native AgentStudio debug proof still gates PR readiness. It must prove the
+20. Native AgentStudio debug proof still gates PR readiness. It must prove the
     same repaired behavior in the WKWebView Bridge pane after browser proof is
     green.
-20. Markdown preview remains a security-sensitive rendering path. It must keep
+21. Markdown preview remains a security-sensitive rendering path. It must keep
     sanitized DOM insertion, inert links/media, unsafe scheme stripping, and
     Bridge content-resource URL validation.
     Markdown is also an active native-path blocker until a real AgentStudio
