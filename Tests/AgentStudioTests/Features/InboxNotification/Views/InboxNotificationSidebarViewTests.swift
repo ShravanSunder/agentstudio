@@ -241,7 +241,7 @@ struct InboxNotificationSidebarViewTests {
                         in: hostingView,
                         identifier: "inboxSidebarSortButtonFrame"
                     ),
-                    let deleteMenuBridge = inboxSidebarAccessibleElement(
+                    let deleteMenuAccessibleTarget = inboxSidebarAccessibleElement(
                         in: hostingView,
                         identifier: "inboxSidebarDeleteMenu"
                     )
@@ -260,9 +260,9 @@ struct InboxNotificationSidebarViewTests {
                 #expect(deleteMenuFrame.maxX <= searchRowFrame.maxX)
                 #expect(sortButtonFrame.midX > toolbarRowFrame.midX)
 
-                pressInboxSidebarAccessibleElement(deleteMenuBridge)
+                pressInboxSidebarAccessibleElement(deleteMenuAccessibleTarget)
 
-                #expect(router.handledCommands == [.clearReadInboxNotifications])
+                #expect(router.handledCommands.isEmpty)
             }
         )
     }
@@ -272,53 +272,6 @@ struct InboxNotificationSidebarViewTests {
         #expect(InboxNotificationSidebarView.globalSidebarContentMode(.rollUpAlerts) == .rollUpAlerts)
         #expect(InboxNotificationSidebarView.globalSidebarContentMode(.all) == .all)
         #expect(InboxNotificationSidebarView.globalSidebarContentMode(.activity) == .all)
-    }
-
-    @Test("mark visible scope read only marks currently visible attention rows")
-    func markVisibleScopeReadOnlyMarksCurrentlyVisibleAttentionRows() {
-        let inboxAtom = InboxNotificationAtom()
-        let activity = makeClaimedNotification(
-            kind: .unseenActivity,
-            title: "Activity",
-            lane: .activity,
-            semantic: .unseenActivity
-        )
-        let action = makeClaimedNotification(
-            kind: .approvalRequested,
-            title: "Action",
-            lane: .actionNeeded,
-            semantic: .approvalRequested
-        )
-        let settled = makeClaimedNotification(
-            kind: .agentSettledActivity,
-            title: "Settled",
-            lane: .settledAgent,
-            semantic: .agentSettled
-        )
-        inboxAtom.append(activity)
-        inboxAtom.append(action)
-        inboxAtom.append(settled)
-        let view = InboxNotificationSidebarView(
-            inboxAtom: inboxAtom,
-            prefsAtom: InboxNotificationPrefsAtom(),
-            uiState: WorkspaceSidebarState(),
-            sidebarCache: SidebarCacheState(),
-            inboxSidebarState: InboxSidebarState(),
-            workspacePaneAtom: WorkspacePaneAtom(),
-            workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
-            repoCache: RepoCacheAtom(),
-            dispatcher: .shared,
-            onRefocusActivePane: {}
-        )
-
-        view.markVisibleScopeRead()
-
-        let readByNotificationId = Dictionary(
-            uniqueKeysWithValues: inboxAtom.notifications.map { ($0.id, $0.isRead) }
-        )
-        #expect(readByNotificationId[activity.id] == false)
-        #expect(readByNotificationId[action.id] == true)
-        #expect(readByNotificationId[settled.id] == true)
     }
 
     @Test("active filter label uses full inbox source when visible rows are empty")
@@ -813,31 +766,6 @@ struct InboxNotificationSidebarViewSourceGroupTests {
     }
 }
 
-private func makeClaimedNotification(
-    kind: InboxNotificationKind,
-    title: String,
-    lane: InboxNotificationClaimLane,
-    semantic: InboxNotificationClaimSemantic
-) -> InboxNotification {
-    let paneId = UUID()
-    return InboxNotification(
-        id: UUID(),
-        timestamp: Date(timeIntervalSince1970: 100),
-        kind: kind,
-        title: title,
-        body: nil,
-        source: .pane(.init(paneId: paneId)),
-        claimKey: .init(
-            paneId: paneId,
-            lane: lane,
-            semantic: semantic,
-            sessionId: nil
-        ),
-        isRead: false,
-        isDismissedFromPaneInbox: false
-    )
-}
-
 @MainActor
 private struct InboxSidebarRootHarness: View {
     let activeFilter: InboxFilter?
@@ -869,7 +797,6 @@ private struct InboxSidebarRootHarness: View {
                 onToggleSort: {},
                 onToggleRowStateFilter: {},
                 onCycleContentMode: {},
-                onMarkVisibleScopeRead: {},
                 onClearFilter: {},
                 onClearReadHistory: {},
                 onClearAllHistory: {},

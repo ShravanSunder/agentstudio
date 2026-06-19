@@ -31,7 +31,6 @@ enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case dotCircleViewfinder = "dot.circle.viewfinder"
     case ellipsisCircle = "ellipsis.circle"
     case envelopeBadge = "envelope.badge"
-    case envelopeOpen = "envelope.open"
     case equalSquare = "equal.square"
     case eye = "eye"
     case eyeSlash = "eye.slash"

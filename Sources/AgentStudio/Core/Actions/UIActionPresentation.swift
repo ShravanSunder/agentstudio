@@ -120,7 +120,6 @@ enum LocalActionSpec {
     case addFavorite
     case clearAllHistory
     case toggleInboxRowStateFilter(showingUnreadOnly: Bool)
-    case markVisibleInboxScopeRead
     case toggleInboxAttentionFilter(isAttentionOnly: Bool)
     case groupInboxNotifications
     case deleteInboxNotifications
@@ -257,12 +256,6 @@ enum LocalActionSpec {
                     ? "Showing unread notifications; click to show all inbox notifications"
                     : "Showing all inbox notifications; click to show unread notifications only",
                 icon: .system(.envelopeBadge)
-            )
-        case .markVisibleInboxScopeRead:
-            return ActionSpec(
-                label: "Mark Visible Inbox Read",
-                helpText: "Mark visible inbox notifications read",
-                icon: .system(.envelopeOpen)
             )
         case .toggleInboxAttentionFilter(let isAttentionOnly):
             return ActionSpec(

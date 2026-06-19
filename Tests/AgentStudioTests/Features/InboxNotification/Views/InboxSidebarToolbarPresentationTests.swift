@@ -21,12 +21,18 @@ struct InboxSidebarToolbarPresentationTests {
         #expect(attentionAction.icon == .system(.dotCircleViewfinder))
         #expect(attentionAction.label == "Show Attention Notifications")
         #expect(allNotificationsAction.label == "Show All Notifications")
-        #expect(LocalActionSpec.markVisibleInboxScopeRead.actionSpec.icon == .system(.envelopeOpen))
         #expect(LocalActionSpec.groupInboxNotifications.actionSpec.icon == .system(.squareStack3dUp))
         #expect(LocalActionSpec.deleteInboxNotifications.actionSpec.icon == .system(.deleteLeft))
         #expect(InboxSidebarHeader.groupIconName == "square.stack.3d.up")
         #expect(InboxSidebarHeader.filterIconName == "line.3.horizontal.decrease.circle")
-        #expect(InboxSidebarToolbarTooltipTarget.allCases.count == 6)
+        #expect(
+            InboxSidebarToolbarTooltipTarget.allCases == [
+                .delete,
+                .sort,
+                .rowState,
+                .contentMode,
+                .grouping,
+            ])
         #expect(
             InboxSidebarHeader.toolbarTooltipText(
                 for: .sort,
@@ -40,13 +46,6 @@ struct InboxSidebarToolbarPresentationTests {
                 rowStateFilter: .unreadOnly,
                 contentMode: .rollUpAlerts
             ) == "Show all"
-        )
-        #expect(
-            InboxSidebarHeader.toolbarTooltipText(
-                for: .markVisibleRead,
-                rowStateFilter: .unreadOnly,
-                contentMode: .rollUpAlerts
-            ) == "Mark visible read"
         )
         #expect(
             InboxSidebarHeader.toolbarTooltipText(

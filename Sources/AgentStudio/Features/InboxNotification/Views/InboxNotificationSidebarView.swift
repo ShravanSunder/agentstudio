@@ -129,7 +129,6 @@ struct InboxNotificationSidebarView: View {
                 onToggleSort: toggleSort,
                 onToggleRowStateFilter: toggleRowStateFilter,
                 onCycleContentMode: cycleContentMode,
-                onMarkVisibleScopeRead: markVisibleScopeRead,
                 onClearFilter: clearFilter,
                 onClearReadHistory: clearReadInboxNotifications,
                 onClearAllHistory: clearAllInboxNotifications,
@@ -364,12 +363,6 @@ struct InboxNotificationSidebarView: View {
     private func cycleContentMode() {
         displayOverride = nil
         prefsAtom.setGlobalInboxContentMode(effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts)
-    }
-
-    func markVisibleScopeRead() {
-        for notificationId in listModel.sections.visibleNotificationIds {
-            _ = inboxAtom.markRead(id: notificationId)
-        }
     }
 
     func clearReadInboxNotifications() {

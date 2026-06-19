@@ -5,7 +5,6 @@ struct InboxSidebarActions {
     let onToggleSort: () -> Void
     let onToggleRowStateFilter: () -> Void
     let onCycleContentMode: () -> Void
-    let onMarkVisibleScopeRead: @MainActor @Sendable () -> Void
     let onClearFilter: @MainActor @Sendable () -> Void
     let onClearReadHistory: @MainActor @Sendable () -> Void
     let onClearAllHistory: @MainActor @Sendable () -> Void
@@ -107,7 +106,6 @@ enum InboxSidebarToolbarTooltipTarget: Hashable, CaseIterable {
     case delete
     case sort
     case rowState
-    case markVisibleRead
     case contentMode
     case grouping
 }
@@ -125,7 +123,6 @@ struct InboxSidebarHeader: View {
     let actions: InboxSidebarActions
     static let groupIconName = "square.stack.3d.up"
     static let rowStateIconName = "envelope.badge"
-    static let markReadIconName = "envelope.open"
     static let contentModeIconName = "dot.circle.viewfinder"
     static let filterIconName = "line.3.horizontal.decrease.circle"
     static let tooltipCoordinateSpaceName = "inboxSidebarHeaderTooltips"
@@ -133,15 +130,10 @@ struct InboxSidebarHeader: View {
     @State private var tooltipFrames: [InboxSidebarToolbarTooltipTarget: CGRect] = [:]
     @State private var suppressDeleteTooltipUntilHoverExit = false
     private let toggleSortSpec = AppCommand.toggleInboxNotificationSort.definition
-    private let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
-    private let clearAllInboxSpec = AppCommand.clearAllInboxNotifications.definition
     private var isAttentionOnly: Bool { contentMode == .rollUpAlerts }
     private var isUnreadOnly: Bool { rowStateFilter == .unreadOnly }
     private var rowStateAction: ActionSpec {
         LocalActionSpec.toggleInboxRowStateFilter(showingUnreadOnly: isUnreadOnly).actionSpec
-    }
-    private var markVisibleReadAction: ActionSpec {
-        LocalActionSpec.markVisibleInboxScopeRead.actionSpec
     }
     private var contentModeAction: ActionSpec {
         LocalActionSpec.toggleInboxAttentionFilter(isAttentionOnly: isAttentionOnly).actionSpec
@@ -206,6 +198,7 @@ struct InboxSidebarHeader: View {
                 .menuIndicator(.hidden)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(deleteInboxAction.label)
+                .accessibilityIdentifier("inboxSidebarDeleteMenu")
                 .help(Self.toolbarTooltipText(for: .delete, rowStateFilter: rowStateFilter, contentMode: contentMode))
                 .simultaneousGesture(
                     TapGesture().onEnded {
@@ -218,10 +211,9 @@ struct InboxSidebarHeader: View {
                 .fixedSize()
                 .layoutPriority(1)
                 .background(
-                    AccessibilityPressBridge(
+                    AccessibilityLabelBridge(
                         identifier: "inboxSidebarDeleteMenu",
-                        label: clearReadInboxSpec.label,
-                        action: actions.onClearReadHistory
+                        label: deleteInboxAction.label
                     )
                 )
             }
@@ -264,22 +256,6 @@ struct InboxSidebarHeader: View {
                 .help(Self.toolbarTooltipText(for: .rowState, rowStateFilter: rowStateFilter, contentMode: contentMode))
                 .onHover { updateTooltipTarget(.rowState, isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.rowState, in: Self.tooltipCoordinateSpaceName)
-
-                Button(action: actions.onMarkVisibleScopeRead) {
-                    toolbarIcon(markVisibleReadAction.icon)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(markVisibleReadAction.label)
-                .accessibilityIdentifier("inboxSidebarMarkVisibleReadButton")
-                .help(
-                    Self.toolbarTooltipText(
-                        for: .markVisibleRead, rowStateFilter: rowStateFilter, contentMode: contentMode)
-                )
-                .onHover { updateTooltipTarget(.markVisibleRead, isHovered: $0) }
-                .hoverTooltipAnchor(
-                    InboxSidebarToolbarTooltipTarget.markVisibleRead,
-                    in: Self.tooltipCoordinateSpaceName
-                )
 
                 Button(action: actions.onCycleContentMode) {
                     toolbarIcon(contentModeAction.icon, isActive: isAttentionOnly)
@@ -415,10 +391,6 @@ struct InboxSidebarHeader: View {
             .actionSpec
             return rowStateAction.controlToolTip(
                 textOverride: rowStateFilter == .unreadOnly ? "Show all" : "Unread only"
-            )
-        case .markVisibleRead:
-            return LocalActionSpec.markVisibleInboxScopeRead.actionSpec.controlToolTip(
-                textOverride: "Mark visible read"
             )
         case .contentMode:
             let contentModeAction = LocalActionSpec.toggleInboxAttentionFilter(

@@ -32,7 +32,7 @@ Polish the inbox sidebar header so it is readable at narrow sidebar widths, uses
 - Current branch is clean but behind `origin/main` by 3 commits. The first execution checkpoint must refresh the branch before product edits. Because repo instructions gate merge/rebase operations, use a fast-forward-only update or recreate the branch from current `origin/main` before coding, then re-check status.
 - The visible UI issue is caused by `InboxSidebarHeader.body` putting search and all toolbar buttons in one row.
 - The functional issue is `cycleContentMode()` exposing Activity as a separate mode, while the requested global sidebar control is binary: attention-only when on, all rows when off.
-- Tooltip issue is mixed ownership: sort uses `CommandSpec.controlToolTip`, but row-state, mark-read, content-mode, grouping, and delete menu use hardcoded text. The sort button also has a feature-local `⌥S` key route that is not represented by `CommandSpec.controlToolTip` because no `AppShortcut` exists for `.toggleInboxNotificationSort`.
+- Tooltip issue is mixed ownership: sort uses `CommandSpec.controlToolTip`, but row-state, content-mode, grouping, and delete menu use hardcoded text. The sort button also has a feature-local `⌥S` key route that is not represented by `CommandSpec.controlToolTip` because no `AppShortcut` exists for `.toggleInboxNotificationSort`.
 
 ## Requirements / Proof Matrix
 
@@ -43,7 +43,6 @@ Polish the inbox sidebar header so it is readable at narrow sidebar widths, uses
 | Viewfinder/scope button is binary: on means attention-only (`actionNeeded`, `safety`, `settledAgent`), off means all notifications. | Task 1, Task 4 | parent | `InboxNotificationListModelTests` or view-model helper test proving activity rows are hidden in attention mode and visible in all mode | unit | current `InboxNotificationContentMode` definitions and row-state filter state | yes | yes |
 | Activity remains a blue row dot/lane and is not lost from All mode. | Task 4 | parent | list-model test includes an activity row visible in `.all` and excluded from attention-only | unit | current claim lane model | yes | yes |
 | Sort arrow animation still flips 180 degrees on click/order change. | Task 2 | parent | retain `.rotationEffect` and `.animation` coverage via header contract test or direct code review; manual debug check | unit/manual | current `InboxSidebarHeader` implementation | no new red state required if behavior is preserved | yes |
-| Mark visible scope read still clears dots by marking visible rows read. | Task 4 | parent | existing/added `markVisibleScopeRead` behavior test where feasible; manual debug check | unit/manual | use current visible list model after filter changes | yes if existing coverage is insufficient | yes |
 | Command spec rules are followed: command identities stay in `AppCommand+Catalog`; app-wide UI-only presentation moves to `LocalActionSpec`; feature-local keyboard hint text stays beside `InboxSidebarKeyboardRouter` so local sidebar keys do not masquerade as global `AppShortcut`s. | Task 1, Task 3 | parent + reviewer | code review plus focused tests for constants | review + unit | `docs/architecture/commands_and_shortcuts.md` current at execution time | no | yes |
 | User can manually test the debug build after implementation. | Task 6 | parent + user | `mise run observability:up`; launch debug through `AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1 mise run run-debug-observability -- --detach`; report PID/marker/log | smoke/manual | fresh marker in `tmp/debug-observability/latest-observability.env`, not stale | no | yes |
 | PR-ready state is proven but not merged. | Task 8 | parent | pushed branch, draft/ready PR link, fresh checks/review-thread/mergeability report | PR gate | current GitHub PR state after push | no | yes |
@@ -58,7 +57,7 @@ Polish the inbox sidebar header so it is readable at narrow sidebar widths, uses
 
 ### Task 1: Define Toolbar Presentation Contract
 
-1. Add local action presentation for inbox-only toolbar controls that are not app commands: unread/all row filter, mark visible read, attention/all filter, grouping menu, delete menu if command specs alone are not sufficient.
+1. Add local action presentation for inbox-only toolbar controls that are not app commands: unread/all row filter, attention/all filter, grouping menu, delete menu if command specs alone are not sufficient.
 2. Prefer `CommandSpec.controlToolTip` for command-backed controls and local action specs for UI-only controls.
 3. Add a small `InboxSidebarKeyboardHint`/presentation helper beside `InboxSidebarKeyboardRouter` for feature-local shortcuts (`⌥F`, `⌥G`, `⌥S`, `⌥↑`, `⌥↓`, `⌘↑`, `⌘↓`, Return, Space) when those shortcuts appear in sidebar tooltips or accessibility help.
 4. Add small helper methods/properties on `InboxSidebarHeader` only if they keep the view readable and testable.
@@ -153,7 +152,6 @@ Ask the user to test the actual sidebar toolbar behavior before PR wrapup. Manua
 - Viewfinder/scope button toggles Attention-only vs All, not Activity as a third mode.
 - Blue activity rows remain available in All mode.
 - Sort button still rotates/flips when order changes.
-- Mark visible read clears unread dots.
 
 ### Task 7: Implementation Review
 
