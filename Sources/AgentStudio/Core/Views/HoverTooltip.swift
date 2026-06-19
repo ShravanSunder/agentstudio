@@ -3,6 +3,14 @@ import SwiftUI
 enum HoverTooltipPlacement {
     static let defaultEdgeInset: CGFloat = 6
     static let defaultVerticalOffset: CGFloat = -28
+    static let aboveAnchorVerticalOffset: CGFloat = -34
+    static let belowAnchorVerticalOffset: CGFloat = 6
+
+    enum VerticalAnchor {
+        case containerTop
+        case aboveAnchor
+        case belowAnchor
+    }
 
     static func clampedLeadingX(
         anchorFrame: CGRect,
@@ -13,6 +21,21 @@ enum HoverTooltipPlacement {
         let proposedLeadingX = anchorFrame.midX - (tooltipSize.width / 2)
         let maxLeadingX = max(edgeInset, availableWidth - tooltipSize.width - edgeInset)
         return min(max(edgeInset, proposedLeadingX), maxLeadingX)
+    }
+
+    static func positionedY(
+        anchorFrame: CGRect,
+        verticalAnchor: VerticalAnchor,
+        verticalOffset: CGFloat
+    ) -> CGFloat {
+        switch verticalAnchor {
+        case .containerTop:
+            return verticalOffset
+        case .aboveAnchor:
+            return max(0, anchorFrame.minY + verticalOffset)
+        case .belowAnchor:
+            return anchorFrame.maxY + verticalOffset
+        }
     }
 }
 
@@ -75,6 +98,7 @@ struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
     let anchorFrames: [Target: CGRect]
     let availableWidth: CGFloat
     let tooltipText: (Target) -> String?
+    let verticalAnchor: HoverTooltipPlacement.VerticalAnchor
     let verticalOffset: CGFloat
     let edgeInset: CGFloat
 
@@ -84,6 +108,7 @@ struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
         activeTarget: Target?,
         anchorFrames: [Target: CGRect],
         availableWidth: CGFloat,
+        verticalAnchor: HoverTooltipPlacement.VerticalAnchor = .containerTop,
         verticalOffset: CGFloat = HoverTooltipPlacement.defaultVerticalOffset,
         edgeInset: CGFloat = HoverTooltipPlacement.defaultEdgeInset,
         tooltipText: @escaping (Target) -> String?
@@ -91,6 +116,7 @@ struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
         self.activeTarget = activeTarget
         self.anchorFrames = anchorFrames
         self.availableWidth = availableWidth
+        self.verticalAnchor = verticalAnchor
         self.verticalOffset = verticalOffset
         self.edgeInset = edgeInset
         self.tooltipText = tooltipText
@@ -117,7 +143,11 @@ struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
                         availableWidth: availableWidth,
                         edgeInset: edgeInset
                     ),
-                    y: verticalOffset
+                    y: HoverTooltipPlacement.positionedY(
+                        anchorFrame: anchorFrame,
+                        verticalAnchor: verticalAnchor,
+                        verticalOffset: verticalOffset
+                    )
                 )
                 .onPreferenceChange(HoverTooltipSizePreferenceKey.self) { tooltipSize = $0 }
         }

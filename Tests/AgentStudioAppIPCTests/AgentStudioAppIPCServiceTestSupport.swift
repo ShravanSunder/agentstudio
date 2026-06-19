@@ -237,7 +237,10 @@ struct LiveServerFixture {
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         debugTokenEscrowEnabled: Bool = false
     ) throws {
-        rootURL = URL(fileURLWithPath: "/tmp/asipc-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        rootURL = URL(
+            fileURLWithPath: "/tmp/asipc-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))",
+            isDirectory: true
+        )
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         #if canImport(Darwin)
             _ = chmod(rootURL.path, 0o700)

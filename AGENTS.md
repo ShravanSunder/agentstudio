@@ -36,7 +36,10 @@ the question, then inspect current code/tests before making claims.
    for placement, [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md)
    for command routing, [Observability And Traceability](docs/architecture/observability_and_traceability.md)
    for trace/proof rules, and [AgentStudio IPC Architecture](docs/architecture/agentstudio_ipc_architecture.md)
-   for programmatic-control boundaries.
+   for programmatic-control boundaries. For UI shell, toolbar, tooltip, window,
+   or native macOS affordance changes, also read
+   [Style Guide](docs/guides/style_guide.md) and
+   [App Architecture](docs/architecture/appkit_swiftui_architecture.md).
 3. Testing: climb the proof pyramid. Start with focused Swift tests for the
    changed code, then `mise run lint`; use `mise run test` for broad repo
    health when the scope calls for it. Do not call unit tests, mocks, or fake

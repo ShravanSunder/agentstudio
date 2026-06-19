@@ -6,6 +6,21 @@ struct ActionSpec: Equatable, Sendable {
     let icon: CommandIcon
 }
 
+extension ActionSpec {
+    func controlToolTip(
+        textOverride: String? = nil,
+        shortcutText: String? = nil
+    ) -> String {
+        let baseText = textOverride ?? label
+
+        guard let shortcutText else {
+            return baseText
+        }
+
+        return "\(baseText) (\(shortcutText))"
+    }
+}
+
 extension KeyBinding {
     var displayString: String {
         var keys: [String] = []
@@ -37,23 +52,30 @@ extension AppCommandSpec {
 
     func controlToolTip(
         textOverride: String? = nil,
-        includeShortcut: Bool = true
+        includeShortcut: Bool = true,
+        shortcutTextOverride: String? = nil
     ) -> String {
         let baseText: String
 
         if let textOverride {
             baseText = textOverride
-        } else if keyBinding != nil {
+        } else if commandBarShortcutTrigger != nil {
             baseText = actionSpec.label
         } else {
             baseText = actionSpec.helpText
         }
 
-        guard includeShortcut, let keyBinding else {
+        guard includeShortcut else {
             return baseText
         }
 
-        return "\(baseText) (\(keyBinding.displayString))"
+        let shortcutText = shortcutTextOverride ?? commandBarShortcutTrigger?.displayString
+
+        guard let shortcutText else {
+            return baseText
+        }
+
+        return "\(baseText) (\(shortcutText))"
     }
 }
 
@@ -97,6 +119,10 @@ enum LocalActionSpec {
     case deleteArrangement
     case addFavorite
     case clearAllHistory
+    case toggleInboxRowStateFilter(showingUnreadOnly: Bool)
+    case toggleInboxAttentionFilter(isAttentionOnly: Bool)
+    case groupInboxNotifications
+    case deleteInboxNotifications
     case cancel
     case add
     case rename
@@ -223,6 +249,34 @@ enum LocalActionSpec {
         case .clearAllHistory:
             return ActionSpec(
                 label: "Clear All History", helpText: "Clear all saved browser history", icon: .system(.trash))
+        case .toggleInboxRowStateFilter(let showingUnreadOnly):
+            return ActionSpec(
+                label: showingUnreadOnly ? "Show All Inbox Notifications" : "Show Unread Only",
+                helpText: showingUnreadOnly
+                    ? "Showing unread notifications; click to show all inbox notifications"
+                    : "Showing all inbox notifications; click to show unread notifications only",
+                icon: .system(.envelopeBadge)
+            )
+        case .toggleInboxAttentionFilter(let isAttentionOnly):
+            return ActionSpec(
+                label: isAttentionOnly ? "Show All Notifications" : "Show Attention Notifications",
+                helpText: isAttentionOnly
+                    ? "Showing attention notifications; click to show all notifications"
+                    : "Showing all notifications; click to show attention notifications",
+                icon: .system(.dotCircleViewfinder)
+            )
+        case .groupInboxNotifications:
+            return ActionSpec(
+                label: "Group Inbox Notifications",
+                helpText: "Group inbox notifications",
+                icon: .system(.squareStack3dUp)
+            )
+        case .deleteInboxNotifications:
+            return ActionSpec(
+                label: "Delete Inbox Notifications",
+                helpText: "Open delete actions for inbox notifications",
+                icon: .system(.deleteLeft)
+            )
         case .cancel:
             return ActionSpec(label: "Cancel", helpText: "Cancel this action", icon: .system(.xmarkCircle))
         case .add:

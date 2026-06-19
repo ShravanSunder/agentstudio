@@ -22,6 +22,13 @@ struct UIActionPresentationTests {
     }
 
     @Test
+    func controlToolTip_withDisplayShortcutTrigger_usesLabelAndDisplayShortcut() {
+        let toolTip = AppCommand.focusDrawerPaneUp.definition.controlToolTip
+
+        #expect(toolTip == "Move Drawer Focus (⌥I)")
+    }
+
+    @Test
     func controlToolTip_withoutShortcutAndNoOverride_usesHelpText() {
         let definition = AppCommandSpec(
             command: .renameArrangement,
@@ -64,6 +71,26 @@ struct UIActionPresentationTests {
         )
 
         #expect(toolTip == "Open in Editor")
+    }
+
+    @Test
+    func controlToolTip_withShortcutOverride_usesOverrideShortcut() {
+        let toolTip = AppCommand.toggleInboxNotificationSort.definition.controlToolTip(
+            textOverride: "Sort inbox",
+            shortcutTextOverride: "⌥S"
+        )
+
+        #expect(toolTip == "Sort inbox (⌥S)")
+    }
+
+    @Test
+    func actionSpecControlToolTip_withOverrideAndShortcut_usesCompactText() {
+        let toolTip = LocalActionSpec.groupInboxNotifications.actionSpec.controlToolTip(
+            textOverride: "Group",
+            shortcutText: "⌥G"
+        )
+
+        #expect(toolTip == "Group (⌥G)")
     }
 
     @Test

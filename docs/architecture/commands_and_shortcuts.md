@@ -316,6 +316,31 @@ prefers one (today only `.emptyDrawer` does), otherwise the primary.
 If the context's binding is non-character (an arrow, escape), the
 helper returns `nil` — handle that case explicitly.
 
+## Tooltips, help text, and compact control copy
+
+`ActionSpec.helpText` is descriptive command help. It is appropriate for command
+palette rows, menus, accessibility descriptions, and other places where the
+user is reading an action description.
+
+Icon buttons and dense toolbars need compact control text instead. For
+command-backed controls, use `CommandSpec.controlToolTip(...)` so labels and
+shortcuts stay centralized. For UI-only controls, use
+`ActionSpec.controlToolTip(...)` from the owning `LocalActionSpec.actionSpec`.
+SwiftUI `.help(...)`, AppKit `toolTip`, and custom hover-tooltip presenters
+should all read from the same compact tooltip source for a given control.
+
+Do not build one oversized tooltip by concatenating multiple command or local
+action help strings. If a control opens a menu or summarizes several actions,
+give that control one short tooltip such as "Clear notifications"; keep the
+longer action-specific descriptions on the individual menu items or command
+rows.
+
+Shortcut text still comes from `AppShortcut.displayKeyBinding(in:)` when the
+shortcut is app-wide. Feature-local keyboard shortcuts should use a small helper
+near that feature's keyboard router and pass the display string into
+`controlToolTip(...)`; do not promote a local shortcut into `AppShortcut` only
+to render a tooltip.
+
 ## Where constants live
 
 This decision tree governs WHICH file holds a value. Misplacing a value
@@ -327,7 +352,7 @@ two call sites will fork and diverge.
 | `AppShortcut` | Is a keyboard binding (key + modifiers + contexts) | `cmd-shift-D` for `addDrawerPane`, raw `P` for empty-drawer alt |
 | `AppPolicies.DragAndDrop` (or other AppPolicies subdomain) | Is a runtime behavioral rule that gates filtering, hit testing, ordering, what's accepted vs rejected | `drawerMaxRows = 2`, `paneRowSideZoneFloor = 24`, `paneRowSideZoneFraction = 0.25` |
 | `AppStyles.General.Layout` (or other AppStyles subdomain) | Only changes how something LOOKS (paint width, font size, opacity) | `dropTargetMarkerWidth = 8`, `paneGap = 1` |
-| `LocalActionSpec` (`actionSpec.helpText` etc.) | Is UI text shown in tooltips / buttons / menus | "Add Drawer Pane", "Add a drawer pane to the active pane" |
+| `LocalActionSpec` (`actionSpec.label`, `actionSpec.helpText`, `actionSpec.controlToolTip`) | Is UI text shown in buttons, menus, command rows, or compact tooltips | "Add Drawer Pane", "Add a drawer pane to the active pane", "Clear notifications" |
 
 If a value SOMETIMES gates behavior and SOMETIMES is purely visual
 (rare), prefer `AppPolicies` and have the visual layer read from it.
