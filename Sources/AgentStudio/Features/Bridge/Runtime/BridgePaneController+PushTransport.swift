@@ -257,6 +257,7 @@ extension BridgePaneController: PushTransport {
             .reviewRPC,
             .reviewProjection,
             .treePrepareInput,
+            .markdownPreview,
             .workerTask:
             .warm
         case .diffPackageMetadata, .diffFiles, .contentFetch, .unknown:

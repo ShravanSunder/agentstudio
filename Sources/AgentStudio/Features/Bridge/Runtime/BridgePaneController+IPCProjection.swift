@@ -10,6 +10,7 @@ private struct BridgePageRenderSnapshot: Decodable {
     let sidebarPosition: String?
     let pageErrorCount: Int
     let pageErrorKinds: [String]
+    let pageErrorMessages: [String]
 }
 
 @MainActor
@@ -80,7 +81,8 @@ extension BridgePaneController {
                 diagnostics: IPCBridgeRenderDiagnostics(
                     evaluateSucceeded: true,
                     pageErrorCount: snapshot.pageErrorCount,
-                    pageErrorKinds: snapshot.pageErrorKinds
+                    pageErrorKinds: snapshot.pageErrorKinds,
+                    pageErrorMessages: snapshot.pageErrorMessages
                 )
             )
         } catch {
@@ -180,6 +182,12 @@ extension BridgePaneController {
           const pageErrorKinds = Array.from(new Set(errorProbe.slice(-8).map((entry) => {
             return clip(entry.kind, 80);
           }).filter((kind) => kind.length > 0)));
+          const pageErrorMessages = errorProbe.slice(-4).map((entry) => {
+            const kind = clip(entry.kind, 80);
+            const message = clip(entry.message, 300);
+            const stack = clip(entry.stack, 500);
+            return [kind, message, stack].filter((part) => part.length > 0).join(': ');
+          }).filter((message) => message.length > 0);
           return {
             pageTitle: document.title || null,
             hasAppRoot: document.querySelector('[data-testid="bridge-app-root"]') !== null,
@@ -187,7 +195,8 @@ extension BridgePaneController {
             hasReviewShell: reviewShell !== null,
             sidebarPosition: reviewShell?.getAttribute('data-sidebar-position') || null,
             pageErrorCount: errorProbe.length,
-            pageErrorKinds
+            pageErrorKinds,
+            pageErrorMessages
           };
         })())
         """
@@ -209,7 +218,8 @@ extension BridgePaneController {
             diagnostics: IPCBridgeRenderDiagnostics(
                 evaluateSucceeded: false,
                 pageErrorCount: 1,
-                pageErrorKinds: [reason]
+                pageErrorKinds: [reason],
+                pageErrorMessages: [detail]
             )
         )
     }

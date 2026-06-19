@@ -252,7 +252,8 @@ struct FakeBridgePort: AppIPCBridgePort {
             diagnostics: IPCBridgeRenderDiagnostics(
                 evaluateSucceeded: true,
                 pageErrorCount: 0,
-                pageErrorKinds: []
+                pageErrorKinds: [],
+                pageErrorMessages: []
             )
         )
     }

@@ -64,7 +64,9 @@ struct BridgeTelemetryBatchValidator: Sendable {
 
         return .accepted(batch)
     }
+}
 
+extension BridgeTelemetryBatchValidator {
     private static func attributesAreSafe(_ sample: BridgeTelemetrySample) -> Bool {
         guard requiredStringAttributeKeys.allSatisfy({ sample.stringAttributes[$0] != nil }) else {
             return false
@@ -217,6 +219,12 @@ struct BridgeTelemetryBatchValidator: Sendable {
             return rpcSendContractMatches(contract)
         case "performance.bridge.web.telemetry_drop":
             return telemetryDropContractMatches(contract)
+        case "performance.bridge.markdown.render_queue":
+            return markdownRenderQueueContractMatches(contract)
+        case "performance.bridge.markdown.render":
+            return markdownRenderContractMatches(contract)
+        case "performance.bridge.markdown.fallback":
+            return markdownFallbackContractMatches(contract)
         case "performance.bridge.trees.projection_build":
             return projectionBuildContractMatches(contract)
         case "performance.bridge.trees.prepare_input":
@@ -309,6 +317,59 @@ struct BridgeTelemetryBatchValidator: Sendable {
                     additionalStringKeys: ["agentstudio.bridge.telemetry.drop_reason"],
                     numericKeys: ["agentstudio.bridge.telemetry.dropped_count"]
                 )
+            )
+        )
+    }
+
+    private static func markdownRenderQueueContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.matches(
+            .init(
+                phase: "markdown_queue",
+                plane: .data,
+                priority: .warm,
+                slice: .markdownPreview,
+                transport: "worker",
+                additionalStringKeys: [
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.worker.lane",
+                ]
+            )
+        )
+    }
+
+    private static func markdownRenderContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        let expectedStringKeys = requiredStringAttributeKeys.union([
+            "agentstudio.bridge.content_bytes_bucket",
+            "agentstudio.bridge.result",
+            "agentstudio.bridge.worker.lane",
+        ])
+        return contract.phase == "markdown_render"
+            && contract.plane == .data
+            && contract.priority == .warm
+            && contract.slice == .markdownPreview
+            && contract.transport == "worker"
+            && contract.stringKeys == expectedStringKeys
+            && (contract.numericKeys.isEmpty
+                || contract.numericKeys == [
+                    "agentstudio.bridge.markdown.input_bytes",
+                    "agentstudio.bridge.markdown.output_bytes",
+                ])
+            && contract.booleanKeys.isEmpty
+    }
+
+    private static func markdownFallbackContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.matches(
+            .init(
+                phase: "markdown_decision",
+                plane: .data,
+                priority: .warm,
+                slice: .markdownPreview,
+                transport: "worker",
+                additionalStringKeys: [
+                    "agentstudio.bridge.markdown.fallback_reason",
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.worker.lane",
+                ]
             )
         )
     }
@@ -525,6 +586,7 @@ struct BridgeTelemetryBatchValidator: Sendable {
             .codeViewItem,
             .codeViewScroll,
             .codeViewVirtualRange,
+            .markdownPreview,
             .shikiHighlight,
             .workerTask,
             .telemetryBatch,
@@ -551,6 +613,7 @@ struct BridgeTelemetryBatchValidator: Sendable {
             .codeViewItem,
             .codeViewScroll,
             .codeViewVirtualRange,
+            .markdownPreview,
             .shikiHighlight,
             .workerTask,
             .unknown:
@@ -578,6 +641,7 @@ struct BridgeTelemetryBatchValidator: Sendable {
             .codeViewItem,
             .codeViewScroll,
             .codeViewVirtualRange,
+            .markdownPreview,
             .shikiHighlight,
             .workerTask,
             .unknown:
@@ -603,6 +667,7 @@ struct BridgeTelemetryBatchValidator: Sendable {
             .codeViewItem,
             .codeViewScroll,
             .codeViewVirtualRange,
+            .markdownPreview,
             .shikiHighlight,
             .workerTask,
             .telemetryBatch,
@@ -627,6 +692,9 @@ struct BridgeTelemetryBatchValidator: Sendable {
         "performance.bridge.web.package_apply",
         "performance.bridge.web.rpc_send",
         "performance.bridge.web.telemetry_drop",
+        "performance.bridge.markdown.render_queue",
+        "performance.bridge.markdown.render",
+        "performance.bridge.markdown.fallback",
         "performance.bridge.trees.projection_build",
         "performance.bridge.trees.prepare_input",
         "performance.bridge.trees.mode_switch",
@@ -669,6 +737,7 @@ struct BridgeTelemetryBatchValidator: Sendable {
             "medium",
             "large",
             "huge",
+            "unknown",
         ],
         "agentstudio.bridge.diff_row_count_bucket": [
             "small",
@@ -706,6 +775,9 @@ struct BridgeTelemetryBatchValidator: Sendable {
             "content_cache",
             "highlight",
             "item_update",
+            "markdown_decision",
+            "markdown_queue",
+            "markdown_render",
             "mode_switch",
             "prepare_input",
             "projection_build",
@@ -745,6 +817,19 @@ struct BridgeTelemetryBatchValidator: Sendable {
             "text",
             "typescript",
         ],
+        "agentstudio.bridge.markdown.fallback_reason": [
+            "binaryContent",
+            "contentPending",
+            "contentUnavailable",
+            "diffPatchResource",
+            "invalidResourceUrl",
+            "largeContent",
+            "missingSelectedItem",
+            "noSelectedItem",
+            "notMarkdown",
+            "twoSidedDiff",
+            "workerUnavailable",
+        ],
         "agentstudio.bridge.projection.kind": [
             "all_files",
             "changed_files",
@@ -771,6 +856,10 @@ struct BridgeTelemetryBatchValidator: Sendable {
         "agentstudio.bridge.result": [
             "dropped",
             "error",
+            "failure",
+            "fallback",
+            "queued",
+            "stale",
             "success",
         ],
         "agentstudio.bridge.scroll_target.kind": [
@@ -811,11 +900,13 @@ struct BridgeTelemetryBatchValidator: Sendable {
         ],
         "agentstudio.bridge.worker.lane": [
             "none",
+            "markdown",
             "pierre",
             "projection",
         ],
         "agentstudio.bridge.worker.task_kind": [
             "highlight",
+            "markdown_render",
             "pool_init",
             "projection",
         ],
@@ -825,6 +916,8 @@ struct BridgeTelemetryBatchValidator: Sendable {
         "agentstudio.bridge.batch.sample_count",
         "agentstudio.bridge.content.byte_size_bucket",
         "agentstudio.bridge.content.line_count_bucket",
+        "agentstudio.bridge.markdown.input_bytes",
+        "agentstudio.bridge.markdown.output_bytes",
         "agentstudio.bridge.telemetry.dropped_count",
     ]
 

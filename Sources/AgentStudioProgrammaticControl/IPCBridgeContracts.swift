@@ -126,15 +126,18 @@ public struct IPCBridgeRenderDiagnostics: Codable, Equatable, Sendable {
     public let evaluateSucceeded: Bool
     public let pageErrorCount: Int
     public let pageErrorKinds: [String]
+    public let pageErrorMessages: [String]
 
     public init(
         evaluateSucceeded: Bool,
         pageErrorCount: Int,
-        pageErrorKinds: [String]
+        pageErrorKinds: [String],
+        pageErrorMessages: [String]
     ) {
         self.evaluateSucceeded = evaluateSucceeded
         self.pageErrorCount = pageErrorCount
         self.pageErrorKinds = pageErrorKinds
+        self.pageErrorMessages = pageErrorMessages
     }
 }
 
