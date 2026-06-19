@@ -21,7 +21,7 @@ struct CommandBarSurfaceCommandTests {
             scope: .commands,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: CommandDispatcher.shared
+            dispatcher: AppCommandDispatcher.shared
         )
 
         let sidebarInbox = items.first { $0.command == .showInboxNotifications }

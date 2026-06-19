@@ -10,7 +10,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    private let dispatcher = CommandDispatcher.shared
+    private let dispatcher = AppCommandDispatcher.shared
 
     private func makeStore() -> WorkspaceStore {
         WorkspaceStore()

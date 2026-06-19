@@ -208,7 +208,8 @@ struct CoordinationPlaneArchitectureTests {
             #expect(bootCallRange.lowerBound < windowCreationRange.lowerBound)
             #expect(runtimeBootSource.contains("seedSlotsForRestoredPanes()"))
             if let seedCallRange = runtimeBootSource.range(of: "seedSlotsForRestoredPanes()"),
-                let coordinatorRange = runtimeBootSource.range(of: "paneCoordinator = PaneCoordinator(")
+                let coordinatorRange = runtimeBootSource.range(
+                    of: "workspaceSurfaceCoordinator = WorkspaceSurfaceCoordinator(")
             {
                 #expect(seedCallRange.lowerBound < coordinatorRange.lowerBound)
             } else {
@@ -426,7 +427,7 @@ struct CoordinationPlaneArchitectureTests {
         #expect(agentsSource.contains("Runtime fact"))
         #expect(agentsSource.contains("AppKit/macOS lifecycle ingress"))
         #expect(agentsSource.contains("UI-only local state"))
-        #expect(agentsSource.contains("AppCommand -> AppEventBus -> controller -> PaneActionCommand"))
+        #expect(agentsSource.contains("AppCommand -> AppEventBus -> controller -> WorkspaceActionCommand"))
 
         #expect(readmeSource.contains("Coordination Planes"))
         #expect(readmeSource.contains("ApplicationLifecycleMonitor"))
@@ -434,14 +435,14 @@ struct CoordinationPlaneArchitectureTests {
         #expect(readmeSource.contains("WindowLifecycleAtom"))
         #expect(readmeSource.contains("@Observable"))
         #expect(readmeSource.contains("private(set)"))
-        #expect(readmeSource.contains("AppCommand -> AppEventBus -> controller -> PaneActionCommand"))
+        #expect(readmeSource.contains("AppCommand -> AppEventBus -> controller -> WorkspaceActionCommand"))
         #expect(!readmeSource.contains("App-level UI intent fan-out → AppEventBus"))
         #expect(!readmeSource.contains("AppKit/macOS lifecycle only → NotificationCenter"))
 
         #expect(runtimeArchitectureSource.contains("ApplicationLifecycleMonitor"))
         #expect(runtimeArchitectureSource.contains("AppLifecycleAtom"))
         #expect(runtimeArchitectureSource.contains("WindowLifecycleAtom"))
-        #expect(runtimeArchitectureSource.contains("AppCommand -> AppEventBus -> controller -> PaneActionCommand"))
+        #expect(runtimeArchitectureSource.contains("AppCommand -> AppEventBus -> controller -> WorkspaceActionCommand"))
         #expect(!runtimeArchitectureSource.contains("two `NotificationCenter.post` calls remain in `Ghostty.App`"))
 
         #expect(eventBusDesignSource.contains("AppEventBus` carries app-level notifications"))

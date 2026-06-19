@@ -167,10 +167,10 @@ extension KeyBinding {
     }
 }
 
-// MARK: - CommandSpec
+// MARK: - AppCommandSpec
 
 /// Full command definition tying command identity, shortcut, display info, and context together.
-struct CommandSpec {
+struct AppCommandSpec {
     let command: AppCommand
     let shortcut: AppShortcut?
     let displayShortcutTrigger: ShortcutTrigger?
@@ -272,19 +272,19 @@ extension ShellCommandHandling {
     }
 }
 
-// MARK: - CommandDispatcher
+// MARK: - AppCommandDispatcher
 
 /// Single execution point for all commands in the application.
 /// Routes keyboard shortcuts, menu items, search result actions,
 /// and management layer clicks through the same command system.
 @Observable
 @MainActor
-final class CommandDispatcher {
-    static let shared = CommandDispatcher()
-    private static let logger = Logger(subsystem: "com.agentstudio", category: "CommandDispatcher")
+final class AppCommandDispatcher {
+    static let shared = AppCommandDispatcher()
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "AppCommandDispatcher")
 
     /// Registry of all command definitions
-    private(set) var definitions: [AppCommand: CommandSpec] = [:]
+    private(set) var definitions: [AppCommand: AppCommandSpec] = [:]
 
     /// Active command handler (typically the tab/pane controller)
     weak var handler: WorkspaceCommandHandling?
@@ -376,7 +376,7 @@ final class CommandDispatcher {
     // MARK: - Lookup
 
     /// Get the definition for a command
-    func definition(for command: AppCommand) -> CommandSpec {
+    func definition(for command: AppCommand) -> AppCommandSpec {
         guard let definition = definitions[command] else {
             fatalError("Missing command spec for \(command.rawValue)")
         }
@@ -384,7 +384,7 @@ final class CommandDispatcher {
     }
 
     /// Get commands available for a given item type
-    func commands(for itemType: SearchItemType) -> [CommandSpec] {
+    func commands(for itemType: SearchItemType) -> [AppCommandSpec] {
         definitions.values.filter { $0.appliesTo.contains(itemType) }
     }
 

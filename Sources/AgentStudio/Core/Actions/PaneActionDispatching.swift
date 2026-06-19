@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 protocol PaneActionDispatching: AnyObject {
-    func dispatch(_ action: PaneActionCommand)
+    func dispatch(_ action: WorkspaceActionCommand)
     func shouldHandleSplitDragPayload(_ payload: SplitDropPayload) -> Bool
     func shouldAcceptDrop(
         _ payload: SplitDropPayload,

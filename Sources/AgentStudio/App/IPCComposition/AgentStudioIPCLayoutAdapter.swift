@@ -4,28 +4,28 @@ import Foundation
 
 @MainActor
 protocol AgentStudioIPCLayoutActionExecuting: AnyObject {
-    func execute(_ action: PaneActionCommand) -> Bool
+    func execute(_ action: WorkspaceActionCommand) -> Bool
 }
 
-extension ActionExecutor: AgentStudioIPCLayoutActionExecuting {}
+extension WorkspaceActionExecutor: AgentStudioIPCLayoutActionExecuting {}
 
 @MainActor
 struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
     private let workspaceStore: WorkspaceStore
     private let windowLifecycleReader: any WorkspaceWindowLifecycleReading
     private let paneFocusControl: any PaneFocusAppControlling
-    private let actionExecutor: any AgentStudioIPCLayoutActionExecuting
+    private let workspaceActionExecutor: any AgentStudioIPCLayoutActionExecuting
 
     init(
         workspaceStore: WorkspaceStore,
         windowLifecycleReader: any WorkspaceWindowLifecycleReading,
         paneFocusControl: any PaneFocusAppControlling,
-        actionExecutor: any AgentStudioIPCLayoutActionExecuting
+        workspaceActionExecutor: any AgentStudioIPCLayoutActionExecuting
     ) {
         self.workspaceStore = workspaceStore
         self.windowLifecycleReader = windowLifecycleReader
         self.paneFocusControl = paneFocusControl
-        self.actionExecutor = actionExecutor
+        self.workspaceActionExecutor = workspaceActionExecutor
     }
 
     func focusPane(_ handle: IPCHandle) throws -> IPCPaneFocusResult {
@@ -157,8 +157,8 @@ struct AgentStudioIPCLayoutAdapter: AppIPCLayoutPort, @unchecked Sendable {
         }
     }
 
-    private func executeLayoutAction(_ action: PaneActionCommand) throws {
-        guard actionExecutor.execute(action) else {
+    private func executeLayoutAction(_ action: WorkspaceActionCommand) throws {
+        guard workspaceActionExecutor.execute(action) else {
             throw AppIPCLayoutError(reason: .validationRejected)
         }
     }

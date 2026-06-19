@@ -7,6 +7,6 @@ enum PaneArrangementTraceMessages {
         destTabId: UUID,
         sourceTabClosed: Bool
     ) -> String {
-        "PaneCoordinator.movePaneAcrossTabs pane=\(paneId) sourceTab=\(sourceTabId) destTab=\(destTabId) sourceClosed=\(sourceTabClosed)"
+        "WorkspaceSurfaceCoordinator.movePaneAcrossTabs pane=\(paneId) sourceTab=\(sourceTabId) destTab=\(destTabId) sourceClosed=\(sourceTabClosed)"
     }
 }

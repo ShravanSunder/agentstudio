@@ -69,16 +69,16 @@ struct AgentStudioIPCLayoutAdapterTests {
         let tab = makeTab(paneIds: [activePane.id, requestedPane.id], activePaneId: activePane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        let actionExecutor = RecordingIPCLayoutActionExecutor()
-        let harness = LayoutAdapterHarness(store: store, actionExecutor: actionExecutor)
+        let workspaceActionExecutor = RecordingIPCLayoutActionExecutor()
+        let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
         let result = try harness.adapter.splitPane(
             IPCPaneSplitParams(handle: "pane:2", direction: .right, correlationId: nil)
         )
 
         #expect(result.targetPaneId == requestedPane.id)
-        #expect(actionExecutor.actions.count == 1)
-        guard case .insertPaneRequest(let request) = actionExecutor.actions.first else {
+        #expect(workspaceActionExecutor.actions.count == 1)
+        guard case .insertPaneRequest(let request) = workspaceActionExecutor.actions.first else {
             Issue.record("pane split did not delegate an insertPaneRequest")
             return
         }
@@ -96,13 +96,13 @@ struct AgentStudioIPCLayoutAdapterTests {
         let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        let actionExecutor = RecordingIPCLayoutActionExecutor()
-        let harness = LayoutAdapterHarness(store: store, actionExecutor: actionExecutor)
+        let workspaceActionExecutor = RecordingIPCLayoutActionExecutor()
+        let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
         let result = try harness.adapter.closePane(IPCPaneCloseParams(handle: "pane:2", correlationId: nil))
 
         #expect(result.paneId == secondPane.id)
-        #expect(actionExecutor.actions == [.closePane(tabId: tab.id, paneId: secondPane.id)])
+        #expect(workspaceActionExecutor.actions == [.closePane(tabId: tab.id, paneId: secondPane.id)])
     }
 
     @Test("drawer methods delegate through layout action seam")
@@ -112,8 +112,8 @@ struct AgentStudioIPCLayoutAdapterTests {
         let tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        let actionExecutor = RecordingIPCLayoutActionExecutor()
-        let harness = LayoutAdapterHarness(store: store, actionExecutor: actionExecutor)
+        let workspaceActionExecutor = RecordingIPCLayoutActionExecutor()
+        let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
         let addResult = try harness.adapter.addDrawerPane(
             IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil)
@@ -125,7 +125,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         #expect(addResult.parentPaneId == parentPane.id)
         #expect(toggleResult.parentPaneId == parentPane.id)
         #expect(
-            actionExecutor.actions == [
+            workspaceActionExecutor.actions == [
                 .addDrawerPane(parentPaneId: parentPane.id),
                 .toggleDrawer(paneId: parentPane.id),
             ])
@@ -139,8 +139,8 @@ struct AgentStudioIPCLayoutAdapterTests {
         let tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        let actionExecutor = RecordingIPCLayoutActionExecutor()
-        let harness = LayoutAdapterHarness(store: store, actionExecutor: actionExecutor)
+        let workspaceActionExecutor = RecordingIPCLayoutActionExecutor()
+        let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
         do {
             _ = try harness.adapter.addDrawerPane(
@@ -161,7 +161,7 @@ struct AgentStudioIPCLayoutAdapterTests {
         }
 
         #expect(drawerPane?.isDrawerChild == true)
-        #expect(actionExecutor.actions.isEmpty)
+        #expect(workspaceActionExecutor.actions.isEmpty)
     }
 
     @Test("layout methods report validation rejection from action owner")
@@ -171,8 +171,8 @@ struct AgentStudioIPCLayoutAdapterTests {
         let tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        let actionExecutor = RecordingIPCLayoutActionExecutor(accepted: false)
-        let harness = LayoutAdapterHarness(store: store, actionExecutor: actionExecutor)
+        let workspaceActionExecutor = RecordingIPCLayoutActionExecutor(accepted: false)
+        let harness = LayoutAdapterHarness(store: store, workspaceActionExecutor: workspaceActionExecutor)
 
         do {
             _ = try harness.adapter.splitPane(
@@ -219,7 +219,7 @@ struct AgentStudioIPCLayoutAdapterTests {
                 workspaceStore: harness.store,
                 windowLifecycleReader: FakeLayoutWorkspaceWindowLifecycleReader(snapshot: .singleActiveWindow(UUID())),
                 paneFocusControl: RecordingPaneFocusAppControl(),
-                actionExecutor: harness.executor
+                workspaceActionExecutor: harness.executor
             )
 
             let panesBeforeSplit = Set(harness.store.paneAtom.panes.keys)
@@ -252,13 +252,13 @@ private struct LayoutAdapterHarness {
         store: WorkspaceStore = makeIPCLayoutWorkspaceStore(),
         windowSnapshot: WorkspaceWindowLifecycleSnapshot = .singleActiveWindow(UUID()),
         focusControl: any PaneFocusAppControlling = RecordingPaneFocusAppControl(),
-        actionExecutor: any AgentStudioIPCLayoutActionExecuting = RecordingIPCLayoutActionExecutor()
+        workspaceActionExecutor: any AgentStudioIPCLayoutActionExecuting = RecordingIPCLayoutActionExecutor()
     ) {
         adapter = AgentStudioIPCLayoutAdapter(
             workspaceStore: store,
             windowLifecycleReader: FakeLayoutWorkspaceWindowLifecycleReader(snapshot: windowSnapshot),
             paneFocusControl: focusControl,
-            actionExecutor: actionExecutor
+            workspaceActionExecutor: workspaceActionExecutor
         )
     }
 }
@@ -279,13 +279,13 @@ private final class RecordingPaneFocusAppControl: PaneFocusAppControlling, @unch
 @MainActor
 private final class RecordingIPCLayoutActionExecutor: AgentStudioIPCLayoutActionExecuting, @unchecked Sendable {
     private let accepted: Bool
-    private(set) var actions: [PaneActionCommand] = []
+    private(set) var actions: [WorkspaceActionCommand] = []
 
     init(accepted: Bool = true) {
         self.accepted = accepted
     }
 
-    func execute(_ action: PaneActionCommand) -> Bool {
+    func execute(_ action: WorkspaceActionCommand) -> Bool {
         actions.append(action)
         return accepted
     }

@@ -116,7 +116,7 @@ final class WorkspaceCommandResolverTests {
         // Assert
         #expect(
             result
-                == PaneActionCommand.insertPane(
+                == WorkspaceActionCommand.insertPane(
                     source: PaneSource.newTerminal,
                     targetTabId: targetTabId,
                     targetPaneId: targetPaneId,
@@ -402,7 +402,7 @@ final class WorkspaceCommandResolverTests {
     }
 
     @Test
-    func test_resolve_scrollToBottom_returnsActionWithActivePane() {
+    func test_resolve_scrollToBottom_returnsNilBecauseTerminalRuntimeOwnsIt() {
         // Arrange
         let tabId = UUID()
         let paneId = UUIDv7.generate()
@@ -416,7 +416,7 @@ final class WorkspaceCommandResolverTests {
         )
 
         // Assert
-        #expect(result == .scrollToBottom(tabId: tabId, paneId: paneId))
+        #expect(result == nil)
     }
 
     // MARK: - resolve(command:) — Pane Focus
@@ -436,7 +436,7 @@ final class WorkspaceCommandResolverTests {
             command: .focusPaneLeft, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        // Assert — pane focus now routes through the Pane Focus System, not WorkspaceActionCommand.
         #expect(result == nil)
     }
 
@@ -473,7 +473,7 @@ final class WorkspaceCommandResolverTests {
             command: .focusNextPane, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        // Assert — pane focus now routes through the Pane Focus System, not WorkspaceActionCommand.
         #expect(result == nil)
     }
 
@@ -492,7 +492,7 @@ final class WorkspaceCommandResolverTests {
             command: .focusPrevPane, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        // Assert — pane focus now routes through the Pane Focus System, not WorkspaceActionCommand.
         #expect(result == nil)
     }
 
@@ -681,7 +681,7 @@ final class WorkspaceCommandResolverTests {
             // Assert
             #expect(
                 result
-                    == PaneActionCommand.insertPane(
+                    == WorkspaceActionCommand.insertPane(
                         source: PaneSource.newTerminal,
                         targetTabId: tabId,
                         targetPaneId: paneId,

@@ -35,7 +35,7 @@ Sources/AgentStudio/
 │   └── Windows/                      # Main window / split-window controllers and settings
 │
 ├── Core/                             # Shared domain — pane system, models, state, runtime contracts
-│   ├── Actions/                      # PaneActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator, command/action metadata
+│   ├── Actions/                      # WorkspaceActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator, command/action metadata
 │   ├── Models/                       # Pane, Layout, Tab, Repo, Worktree, arrangement, FlatTabStripMetrics,
 │   │                                 #   composition-cutting enums (SidebarSurface, KeyboardOwner)
 │   ├── RuntimeEventSystem/           # Shared pane-runtime contracts, buses, projectors
@@ -143,7 +143,7 @@ Sources/AgentStudioPaneAgent/
   Depends only on the client core.
 
 Sources/AgentStudio/App/IPCComposition/
-  Concrete adapters from AgentStudioAppIPC protocol ports into PaneCoordinator,
+  Concrete adapters from AgentStudioAppIPC protocol ports into WorkspaceSurfaceCoordinator,
   RuntimeRegistry, PaneRuntime, and app-owned state.
 
 Sources/AgentStudio/App/PaneAgents/
@@ -316,13 +316,13 @@ To keep ownership decisions consistent, use these terms:
 - **Core slice**
   - Reusable, feature-agnostic domain and infrastructure.
   - Usually belongs in `Core/` or `Infrastructure/`.
-  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `WorkspaceCommandResolver`, `WorkspaceCommandValidator`, `WorkspaceFocus`, `CommandSpec`, `ActionSpec`.
+  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `WorkspaceCommandResolver`, `WorkspaceCommandValidator`, `WorkspaceFocus`, `AppCommandSpec`, `ActionSpec`.
 
 - **Vertical slice**
   - A user-facing slice that traverses multiple layers and orchestrates behavior for a flow.
   - Usually belongs in `App/` (composition root) or a specific `Features/X/` directory.
   - Includes controller/stateful orchestration, platform event wiring, and cross-service flow.
-  - Examples: `MainSplitViewController`, `PaneTabViewController`, `PaneCoordinator`.
+  - Examples: `MainSplitViewController`, `PaneTabViewController`, `WorkspaceSurfaceCoordinator`.
 
 - **Component slice**
   - Reusable UI building blocks that are not themselves a product feature and do not own host placement.
@@ -446,9 +446,9 @@ Parallel test for atoms specifically:
 
 These are the resolved placements for components that could reasonably go multiple places:
 
-### PaneCoordinator → `App/Coordination/`
+### WorkspaceSurfaceCoordinator → `App/Coordination/`
 
-Today's cross-feature coordinator is `PaneCoordinator`. It sequences operations across `SurfaceManager` (Terminal feature), `WorkspaceStore` (Core), `SessionRuntime` (Core), and `BridgePaneController` (Bridge feature).
+Today's cross-feature coordinator is `WorkspaceSurfaceCoordinator`. It sequences operations across `SurfaceManager` (Terminal feature), `WorkspaceStore` (Core), `SessionRuntime` (Core), and `BridgePaneController` (Bridge feature).
 
 **Import test:** imports from multiple features → can't be `Core/`. Lives under `App/Coordination/` in the composition root — this is where Ghostty puts its coordination too (`AppDelegate` delegates to feature controllers).
 

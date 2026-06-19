@@ -132,16 +132,16 @@ extension Ghostty.SurfaceView {
                 sourcePaneId: sourcePaneId,
                 canDispatch: { command, targetPaneId in
                     if let targetPaneId {
-                        return CommandDispatcher.shared.canDispatch(command, target: targetPaneId, targetType: .pane)
+                        return AppCommandDispatcher.shared.canDispatch(command, target: targetPaneId, targetType: .pane)
                     }
-                    return CommandDispatcher.shared.canDispatch(command)
+                    return AppCommandDispatcher.shared.canDispatch(command)
                 },
                 dispatch: { command, targetPaneId in
                     if let targetPaneId {
-                        CommandDispatcher.shared.dispatch(command, target: targetPaneId, targetType: .pane)
+                        AppCommandDispatcher.shared.dispatch(command, target: targetPaneId, targetType: .pane)
                         return
                     }
-                    CommandDispatcher.shared.dispatch(command)
+                    AppCommandDispatcher.shared.dispatch(command)
                 }
             ) {
             case .notHandled:

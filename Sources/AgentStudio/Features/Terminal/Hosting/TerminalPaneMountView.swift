@@ -14,7 +14,7 @@ private actor TerminationDeliveryObservation {
 }
 
 /// Host-side terminal pane container for Ghostty surfaces, overlays, and lifecycle UI.
-/// PaneCoordinator creates surfaces and passes them here via displaySurface().
+/// WorkspaceSurfaceCoordinator creates surfaces and passes them here via displaySurface().
 final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDelegate {
     private static let terminationHandlingRetryTurns = 20
 
@@ -56,7 +56,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     // MARK: - Initialization
 
-    /// Primary initializer — used by PaneCoordinator for worktree-bound panes.
+    /// Primary initializer — used by WorkspaceSurfaceCoordinator for worktree-bound panes.
     /// Does NOT create a surface; caller must attach one via displaySurface().
     init(
         worktree: Worktree,

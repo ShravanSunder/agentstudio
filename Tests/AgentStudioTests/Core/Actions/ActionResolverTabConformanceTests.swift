@@ -236,7 +236,7 @@ final class WorkspaceCommandResolverTabConformanceTests {
             command: .focusNextPane, tabs: [tab], activeTabId: tab.id
         )
 
-        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        // Assert — pane focus now routes through the Pane Focus System, not WorkspaceActionCommand.
         #expect(result == nil)
     }
 
@@ -252,7 +252,7 @@ final class WorkspaceCommandResolverTabConformanceTests {
             command: .focusPrevPane, tabs: [tab], activeTabId: tab.id
         )
 
-        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        // Assert — pane focus now routes through the Pane Focus System, not WorkspaceActionCommand.
         #expect(result == nil)
     }
 
@@ -268,7 +268,7 @@ final class WorkspaceCommandResolverTabConformanceTests {
             command: .focusPaneRight, tabs: [tab], activeTabId: tab.id
         )
 
-        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        // Assert — pane focus now routes through the Pane Focus System, not WorkspaceActionCommand.
         #expect(result == nil)
     }
 

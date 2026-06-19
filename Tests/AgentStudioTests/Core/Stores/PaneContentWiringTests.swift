@@ -10,6 +10,7 @@ final class PaneContentWiringTests {
     private var store: WorkspaceStore!
 
     init() {
+        installTestAtomRegistryIfNeeded()
         store = WorkspaceStore(
             persistor: WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)))

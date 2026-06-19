@@ -95,8 +95,8 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    @Test("bell unread badge tracks global unread count")
-    func bellUnreadBadgeTracksUnreadCount() async {
+    @Test("bell unread badge tracks global roll-up alert count")
+    func bellUnreadBadgeTracksRollUpAlertCount() async {
         let inboxAtom = InboxNotificationAtom()
         await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
             let badge = findDescendant(
@@ -112,7 +112,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
             #expect(oldDot == nil)
             #expect(badge?.isHidden == true)
 
-            inboxAtom.append(makeUnreadNotification())
+            inboxAtom.append(makeRollUpAlertNotification())
 
             await eventually("inbox bell badge should become visible") {
                 badge?.isHidden == false
@@ -171,7 +171,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
                 )
             )
 
-            inboxAtom.append(makeUnreadNotification())
+            inboxAtom.append(makeRollUpAlertNotification())
 
             await eventually("inbox bell badge should become visible") {
                 badge.isHidden == false
@@ -189,12 +189,12 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    private func makeUnreadNotification() -> InboxNotification {
+    private func makeRollUpAlertNotification() -> InboxNotification {
         InboxNotification(
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 100),
-            kind: .agentRpc,
-            title: "Agent finished",
+            kind: .approvalRequested,
+            title: "Approval requested",
             body: nil,
             source: .global,
             isRead: false,
@@ -207,7 +207,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
 private struct MainWindowControllerHarness {
     let atoms: AtomRegistry
     let store: WorkspaceStore
-    let coordinator: PaneCoordinator
+    let coordinator: WorkspaceSurfaceCoordinator
     let controller: MainWindowController
     let window: NSWindow
     let tempDir: URL
@@ -237,7 +237,7 @@ private func withMainWindowControllerHarness<T>(
 
     let viewRegistry = ViewRegistry()
     let runtime = SessionRuntime(atom: atoms.sessionRuntime, store: store)
-    let coordinator = PaneCoordinator(
+    let coordinator = WorkspaceSurfaceCoordinator(
         store: store,
         viewRegistry: viewRegistry,
         runtime: runtime,
@@ -245,7 +245,7 @@ private func withMainWindowControllerHarness<T>(
         runtimeRegistry: RuntimeRegistry(),
         windowLifecycleStore: atoms.windowLifecycle
     )
-    let actionExecutor = ActionExecutor(coordinator: coordinator, store: store)
+    let workspaceActionExecutor = WorkspaceActionExecutor(coordinator: coordinator, store: store)
     let appLifecycleStore = AppLifecycleAtom()
     let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
         appLifecycleStore: appLifecycleStore,
@@ -257,7 +257,8 @@ private func withMainWindowControllerHarness<T>(
     let result = try await AtomScope.$override.withValue(atoms) {
         let windowController = MainWindowController(
             store: store,
-            actionExecutor: actionExecutor,
+            workspaceActionExecutor: workspaceActionExecutor,
+            runtimeCommandDispatcher: coordinator,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
@@ -312,7 +313,7 @@ private func findDescendant(in view: NSView, identifier: String) -> NSView? {
     return nil
 }
 
-private final class InboxToolbarTestSurfaceManager: PaneCoordinatorSurfaceManaging {
+private final class InboxToolbarTestSurfaceManager: WorkspaceSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     init() {

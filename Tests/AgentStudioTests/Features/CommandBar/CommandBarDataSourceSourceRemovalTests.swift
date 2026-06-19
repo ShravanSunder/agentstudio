@@ -29,7 +29,7 @@ struct CommandBarDataSourceSourceRemovalTests {
             scope: .everything,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: CommandDispatcher.shared
+            dispatcher: AppCommandDispatcher.shared
         )
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 

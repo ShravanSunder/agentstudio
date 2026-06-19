@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio is a macOS terminal application that embeds Ghostty terminal surfaces within a project/worktree management shell. The app uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. Canonical mutable state is distributed across independent `@MainActor @Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). Persistence wrappers such as `WorkspaceStore`, `RepoCacheStore`, and `UIStateStore` wrap atoms instead of owning broad domains directly. `PaneCoordinator` sequences cross-store and cross-feature operations from the App composition root. Panes are the primary identity — they exist independently of layout, view, or surface. Actions flow through a validated pipeline, and persistence is debounced.
+Agent Studio is a macOS terminal application that embeds Ghostty terminal surfaces within a project/worktree management shell. The app uses an **AppKit-main** architecture hosting SwiftUI views for declarative UI. Canonical mutable state is distributed across independent `@MainActor @Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). Persistence wrappers such as `WorkspaceStore`, `RepoCacheStore`, and `UIStateStore` wrap atoms instead of owning broad domains directly. `WorkspaceSurfaceCoordinator` sequences cross-store and cross-feature operations from the App composition root. Panes are the primary identity — they exist independently of layout, view, or surface. Actions flow through a validated pipeline, and persistence is debounced.
 
 ## How To Read This Index
 
@@ -60,7 +60,7 @@ and Peekaboo only for the native UI layer that genuinely needs visual evidence.
 │  │(backends)     │  │(surfaces)     │                                  │
 │  └───────┬───────┘  └────────┬──────┘                                  │
 │  ┌───────┴───────────────────┴──────────────────────────────────┐      │
-│  │              PaneCoordinator                                  │      │
+│  │              WorkspaceSurfaceCoordinator                                  │      │
 │  │     (sequences cross-store ops, owns no domain state)         │      │
 │  └───────────────────────────────────────────────────────────────┘      │
 └────────────────────────────────────────────────────────────────────────┘
@@ -92,14 +92,14 @@ Use the smallest boundary that still matches the kind of work being done.
 
 | Change shape | Boundary | Notes |
 |--------------|----------|-------|
-| Workspace mutation | `PaneActionCommand` | Validator-gated, then sequenced into stores by `PaneCoordinator`. |
-| Runtime command | `RuntimeCommand` | Direct command routing to a single runtime via `RuntimeRegistry`. |
+| Workspace mutation | `WorkspaceActionCommand` | Validator-gated, then sequenced into stores by `WorkspaceSurfaceCoordinator`. |
+| Runtime command | `PaneRuntimeCommand` | Direct command routing to a single runtime via `RuntimeRegistry`. |
 | Runtime fact | `PaneRuntimeEventBus` | Fan-out for runtime/system facts only. Never route commands through it. |
 | App-level notification that is not a command | `AppEventBus` | Notification fan-out only. |
 | AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit callbacks and writes lifecycle stores. |
 | UI-only local state | Local `@Observable` view/controller state | Keep it local; do not bounce it through a bus or `NotificationCenter`. |
 
-The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain is retired. Workspace work now enters through validated `PaneActionCommand` routing directly, and AppKit lifecycle state lives in the lifecycle stores.
+The old `AppCommand -> AppEventBus -> controller -> WorkspaceActionCommand` chain is retired. Workspace work now enters through validated `WorkspaceActionCommand` routing directly, and AppKit lifecycle state lives in the lifecycle stores.
 
 ## Data Model at a Glance
 
@@ -147,22 +147,22 @@ WorkspaceSidebarState
 ## Mutation Flow (Summary)
 
 ```
-User Action → PaneActionCommand
+User Action → WorkspaceActionCommand
   → WorkspaceCommandResolver.snapshot() builds ActionStateSnapshot
   → WorkspaceCommandValidator.validate(action, snapshot) → ValidatedAction
-  → PaneCoordinator → Store.mutate()
+  → WorkspaceSurfaceCoordinator → Store.mutate()
     → @Observable tracks → SwiftUI re-renders
     → markDirty() → debounced save (500ms)
 
 Command Bar
-  → CommandSpec visibility + metadata
-  → CommandDispatcher.dispatch()
+  → AppCommandSpec visibility + metadata
+  → AppCommandDispatcher.dispatch()
   → WorkspaceCommandHandling (PaneTabViewController)
-  → WorkspaceCommandResolver.resolve() → PaneActionCommand
+  → WorkspaceCommandResolver.resolve() → WorkspaceActionCommand
   → WorkspaceCommandResolver.snapshot() → ActionStateSnapshot
-  → WorkspaceCommandValidator.validate() → PaneCoordinator
+  → WorkspaceCommandValidator.validate() → WorkspaceSurfaceCoordinator
 
-Runtime command → PaneCoordinator.dispatchRuntimeCommand()
+Runtime command → WorkspaceSurfaceCoordinator.dispatchRuntimeCommand()
   → RuntimeRegistry.runtime(for:) → runtime.handleCommand(envelope)
 
 Runtime fact → PaneRuntimeEventBus.post(envelope)
@@ -181,14 +181,14 @@ Each document owns a specific concern. No two documents are authoritative for th
 | [Component Architecture](component_architecture.md) | Structural overview — how components compose | Data model (pane, tab, layout, session), service layer, command bar, persistence format, store boundaries, coordinator role, invariants |
 | [Workspace Data Architecture](workspace_data_architecture.md) | Workspace-level data — repos, worktrees, enrichment | Three-tier persistence (canonical/cache/UI), canonical vs enrichment models, enrichment pipeline (FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → CacheCoordinator), topology/discovery lifecycle, sidebar data flow, ordering/replay contracts |
 | [Atom Persistence Boundaries](atom_persistence_boundaries.md) | Atom-to-SQLite boundary model | Write-owner atom rules, lifecycle lanes, derived read models, legacy import DTOs, row projections, runtime-only surfaces, and Step 0 boundary map |
-| [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane-level runtime contracts | Pane runtime contracts (C1-C16), event envelope (RuntimeEnvelope), per-pane event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching, attach readiness (5a), restart reconcile (5b), visibility-tier scheduling (12a), Ghostty action coverage (7a), RuntimeCommand dispatch (10), source/sink/projection vocabulary, agent harness model, directory placement, migration path |
+| [Pane Runtime Architecture](pane_runtime_architecture.md) | Pane-level runtime contracts | Pane runtime contracts (C1-C16), event envelope (RuntimeEnvelope), per-pane event taxonomy, priority system, adapter/runtime/coordinator layers, filesystem batching, attach readiness (5a), restart reconcile (5b), visibility-tier scheduling (12a), Ghostty action coverage (7a), PaneRuntimeCommand dispatch (10), source/sink/projection vocabulary, agent harness model, directory placement, migration path |
 | [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | EventBus threading and coordination | Actor fan-out, boundary actors (FilesystemActor, ForgeActor, ContainerActor) plus plugin context mediation, `@concurrent nonisolated` for per-pane work, multiplexed `@Observable` + event stream, connection patterns (AsyncStream vs direct call vs @Observable), data flow per contract, Swift 6.2 threading model |
 | [Window System Design](window_system_design.md) | Window/tab/pane structural model | Window/tab/pane/drawer data model, dynamic views, arrangements, orphaned pane pool, ownership invariants |
 | [Session Lifecycle](session_lifecycle.md) | Pane identity and session backend lifecycle | Pane identity contract, creation, close, undo, restore, runtime status, zmx backend |
 | [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Zmx-specific attach and sizing | Deferred attach sequencing, geometry readiness, restart reconcile policy, zmx restore/sizing test coverage |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface management | Surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell | AppKit hosting model, controllers, command bar panel, event handling |
-| [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Four-file model (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
+| [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Four-file model (AppCommand / AppShortcut / AppCommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic control | SwiftPM target split, socket/JSON-RPC foundation, auth, permission grants, protocol ports, CLI/smoke client, and the boundary between app IPC and internal zmx IPC |
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Remote zmx daemons and fork strategy | SSH tunnel architecture (Option C), security model, connection lifecycle, case for forking zmx |
 | [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |

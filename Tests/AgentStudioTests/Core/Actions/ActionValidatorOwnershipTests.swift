@@ -100,7 +100,7 @@ struct WorkspaceCommandValidatorOwnershipTests {
                 ),
             ]
         )
-        let action = PaneActionCommand.movePaneAcrossTabs(
+        let action = WorkspaceActionCommand.movePaneAcrossTabs(
             CrossTabPaneMoveRequest(
                 paneId: hiddenSourcePaneId,
                 sourceTabId: sourceTabId,

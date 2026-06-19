@@ -200,7 +200,7 @@ auto-renders when PTY output arrives on a visible surface.
 ## What we don't change in Agent Studio
 
 The zmx fixes are entirely in `vendor/zmx/src/`. Zero changes to Agent Studio's
-Ghostty hosting code (GhosttySurfaceView, SurfaceManager, PaneCoordinator).
+Ghostty hosting code (GhosttySurfaceView, SurfaceManager, WorkspaceSurfaceCoordinator).
 
 The hosting code was investigated extensively (19 debugging epochs) and confirmed
 correct — the bug reproduced in Ghostty's own app, proving it was a zmx issue.

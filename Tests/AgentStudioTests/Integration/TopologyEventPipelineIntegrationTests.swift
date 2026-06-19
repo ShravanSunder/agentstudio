@@ -82,6 +82,7 @@ struct TopologyEventPipelineIntegrationTests {
             await assertEventuallyMain("initial family should exist") {
                 harness.workspaceStore.repos.first?.worktrees.count == 3
             }
+            await harness.workspaceSurfaceCoordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
             guard let repo = harness.workspaceStore.repos.first,
                 let removedWorktree = repo.worktrees.first(where: { $0.path == removePath })
@@ -137,13 +138,12 @@ struct TopologyEventPipelineIntegrationTests {
                 return updatedPane.residency == .orphaned(reason: .worktreeNotFound(path: removePath.path))
             }
 
-            await assertEventuallyAsync("filesystem sync should unregister the removed worktree") {
-                let snapshot = await harness.filesystemSnapshot()
-                let currentPaths = Set(snapshot.registeredRoots.values)
-                return currentPaths == Set([clonePath, keepPath])
-                    && snapshot.unregisterLog.contains(removedWorktree.id)
-                    && snapshot.registerLog.count >= baselineSnapshot.registerLog.count
-            }
+            await harness.workspaceSurfaceCoordinator.waitForFilesystemRootsAndActivitySyncIdle()
+            let syncedSnapshot = await harness.filesystemSnapshot()
+            let syncedPaths = Set(syncedSnapshot.registeredRoots.values)
+            #expect(syncedPaths == Set([clonePath, keepPath]))
+            #expect(syncedSnapshot.unregisterLog.contains(removedWorktree.id))
+            #expect(syncedSnapshot.registerLog.count >= baselineSnapshot.registerLog.count)
         }
     }
 
@@ -170,7 +170,7 @@ struct TopologyEventPipelineIntegrationTests {
                 ]
             )
 
-            harness.paneCoordinator.topologyDidChange(
+            harness.workspaceSurfaceCoordinator.topologyDidChange(
                 WorktreeTopologyDelta(
                     repoId: repo.id,
                     addedWorktreeIds: harness.workspaceStore.repos[0].worktrees.map(\.id),

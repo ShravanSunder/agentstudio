@@ -446,7 +446,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
                 return false
             }
 
-            CommandDispatcher.shared.dispatchExtractPaneToTab(
+            AppCommandDispatcher.shared.dispatchExtractPaneToTab(
                 tabId: payload.tabId,
                 paneId: payload.paneId,
                 targetTabIndex: targetTabIndex

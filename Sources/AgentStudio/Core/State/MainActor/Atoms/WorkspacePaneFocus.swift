@@ -124,7 +124,7 @@ struct WorkspacePaneFocus: Equatable, Sendable {
     }
 }
 
-extension CommandSpec {
+extension AppCommandSpec {
     func isVisible(in focus: WorkspacePaneFocus) -> Bool {
         visibleWhen.isSubset(of: focus.satisfiedRequirements)
     }

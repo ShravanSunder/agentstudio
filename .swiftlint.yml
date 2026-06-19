@@ -197,7 +197,7 @@ function_parameter_count:
   error: 8
 
 # Accommodates large switch-statement functions:
-#   ActionValidator.validate: 52, ActionExecutor.execute: 45, ActionResolver.resolve: 41
+#   ActionValidator.validate: 52, WorkspaceActionExecutor.execute: 45, ActionResolver.resolve: 41
 # These use file-level swiftlint:disable. Tighten as functions are decomposed.
 cyclomatic_complexity:
   warning: 25

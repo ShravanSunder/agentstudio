@@ -150,6 +150,17 @@ final class InboxNotificationRouter {
         pinnedToBottomByPaneId.removeAll()
     }
 
+    func flushTraceRecords() async {
+        do {
+            try await traceQueue?.flush()
+        } catch {
+            let diagnostics = await traceRuntime?.diagnostics() ?? .empty
+            inboxNotificationRouterLogger.warning(
+                "Inbox notification trace flush failed: \(error.localizedDescription); failedFlushCount=\(diagnostics.failedFlushCount); lastFlushError=\(diagnostics.lastFlushErrorDescription ?? "none")"
+            )
+        }
+    }
+
     func start() async {
         guard busTask == nil, focusTask == nil else { return }
         isStarted = true
