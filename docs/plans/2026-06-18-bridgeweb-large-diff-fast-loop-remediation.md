@@ -79,6 +79,27 @@ Manual visual review blocker, 2026-06-19:
 
 Visual checkpoint, 2026-06-19:
 
+- Current hard gate is now DiffsHub PR 180 parity, not merely nonblank local
+  rendering. Reference URL:
+  `https://diffshub.com/ShravanSunder/agentstudio/pull/180`.
+  Browser capture must force dark mode with `theme = dark` and
+  `diffshub-dark-theme = pierre-dark`; otherwise DiffsHub falls back to light
+  in headless Chromium and the comparison is invalid. Current valid reference
+  screenshot:
+  `BridgeWeb/tmp/bridge-viewer-visual-proof/compare-pr180-2026-06-19T18-56-50-515Z/diffshub-dark.png`.
+- Current local worktree screenshot:
+  `tmp/bridge-viewer-visual-proof/2026-06-19T18-59-29-384Z-dev-server/large-scrolled-view.png`.
+  It proves the dev server renders and selects `.github/workflows/ci.yml`, but
+  does not prove parity. Known open deltas: the outer shell is still too purple
+  compared with DiffsHub's `rgb(16, 16, 16)` dark chrome, the top projection
+  control remains a Bridge-only row rather than DiffsHub-class chrome, the right
+  rail controls still need compact hover-only shadcn/Base UI behavior, and file
+  header/scroll interactions still need strict browser assertions.
+- The dev visual proof script must be fixture-aware. It previously hardcoded
+  `Sources/BridgeViewer/NewPanel.ts`, which fails against the real worktree
+  fixture. The accepted harness resolves a preferred target path from the
+  actual `file-tree-container` shadow DOM, then records `targetDisplayPath`,
+  `selectedDisplayPath`, theme colors, screenshots, and worker state.
 - Browser visual QA confirmed the apparent "three icons before the file name"
   came from CodeView header slot composition: Bridge rendered a collapse button
   and status badge in `slot[name="header-prefix"]`, while Pierre rendered its

@@ -6,8 +6,13 @@ import { z } from 'zod';
 
 const defaultDevServerUrl =
 	'http://127.0.0.1:5173/?fixture=large-diffshub&workers=on&scenario=scroll';
-const targetAddedPath = 'Sources/BridgeViewer/NewPanel.ts';
-const targetSearchText = 'NewPanel';
+const preferredTargetPaths = [
+	process.env['BRIDGE_VIEWER_VISUAL_TARGET_PATH'],
+	'Sources/BridgeViewer/NewPanel.ts',
+	'.github/workflows/ci.yml',
+	'BridgeWeb/package.json',
+	'BridgeWeb/scripts/capture-bridge-viewer-dev-visual-proof.ts',
+].filter((path): path is string => path !== undefined && path.length > 0);
 
 const bridgeViewerVisualProofSchema = z.object({
 	artifactDirectory: z.string(),
@@ -21,12 +26,17 @@ const bridgeViewerVisualProofSchema = z.object({
 		rowHeights: z.array(z.number().nonnegative()),
 		width: z.number().nonnegative(),
 	}),
+	pageTheme: z.object({
+		bodyBackgroundColor: z.string(),
+		documentClassName: z.string(),
+	}),
 	screenshots: z.object({
 		gitStatusFilterOpen: z.string(),
 		gitStatusFilterPopoverCrop: z.string(),
 		largeScrolledView: z.string(),
 	}),
 	selectedDisplayPath: z.string().nullable(),
+	targetDisplayPath: z.string(),
 	workerPoolState: z.string().nullable(),
 });
 
@@ -53,22 +63,22 @@ try {
 	try {
 		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
 		await page.waitForTimeout(1_200);
-		await searchForFile(page);
-		await clickFileTreePath(page, targetAddedPath);
+		const targetDisplayPath = await resolveVisualProofTargetPath(page);
+		await searchForFile(page, targetDisplayPath);
+		await clickFileTreePath(page, targetDisplayPath);
 		await page.waitForFunction(
 			(path: string): boolean =>
 				document
 					.querySelector('[data-selected-display-path]')
 					?.getAttribute('data-selected-display-path') === path,
-			targetAddedPath,
+			targetDisplayPath,
 			{ timeout: 10_000 },
 		);
 		await page.waitForTimeout(800);
-
+		await clearRailSearch(page);
+		await page.waitForTimeout(300);
 		const largeScrolledViewPath = resolve(artifactDirectory, 'large-scrolled-view.png');
 		await page.screenshot({ fullPage: false, path: largeScrolledViewPath });
-
-		await clearRailSearch(page);
 		const gitStatusFilterMenu = await openGitStatusFilterMenu(page);
 		await waitForFilterPopoverSettled(page);
 		const gitStatusFilterOpenPath = resolve(artifactDirectory, 'git-status-filter-open.png');
@@ -86,12 +96,14 @@ try {
 			artifactDirectory,
 			devServerUrl,
 			gitStatusFilterMenu,
+			pageTheme: await readPageTheme(page),
 			screenshots: {
 				gitStatusFilterOpen: gitStatusFilterOpenPath,
 				gitStatusFilterPopoverCrop: gitStatusFilterPopoverCropPath,
 				largeScrolledView: largeScrolledViewPath,
 			},
 			selectedDisplayPath: selectedState.selectedDisplayPath,
+			targetDisplayPath,
 			workerPoolState: selectedState.workerPoolState,
 		});
 		await writeFile(
@@ -109,6 +121,7 @@ try {
 
 async function makeProofPage(): Promise<Page> {
 	return await browser.newPage({
+		colorScheme: 'dark',
 		deviceScaleFactor: 1,
 		viewport: {
 			width: 1728,
@@ -117,11 +130,45 @@ async function makeProofPage(): Promise<Page> {
 	});
 }
 
-async function searchForFile(page: Page): Promise<void> {
+async function resolveVisualProofTargetPath(page: Page): Promise<string> {
+	await page.waitForFunction(
+		(): boolean => {
+			const treeRoot = document.querySelector('file-tree-container')?.shadowRoot;
+			return (
+				treeRoot !== undefined &&
+				treeRoot !== null &&
+				treeRoot.querySelector('[data-item-path]') instanceof HTMLElement
+			);
+		},
+		{ timeout: 10_000 },
+	);
+	return await page.evaluate((candidatePaths: readonly string[]): string => {
+		const treeRoot = document.querySelector('file-tree-container')?.shadowRoot;
+		if (treeRoot === undefined || treeRoot === null) {
+			throw new Error('Expected Bridge file tree shadow root');
+		}
+		for (const candidatePath of candidatePaths) {
+			const candidateRow = treeRoot.querySelector(
+				`[data-item-path="${CSS.escape(candidatePath)}"]`,
+			);
+			if (candidateRow instanceof HTMLElement) {
+				return candidatePath;
+			}
+		}
+		const firstPath = treeRoot.querySelector('[data-item-path]')?.getAttribute('data-item-path');
+		if (firstPath === null || firstPath === undefined || firstPath.length === 0) {
+			throw new Error('Expected at least one Bridge file tree item path');
+		}
+		return firstPath;
+	}, preferredTargetPaths);
+}
+
+async function searchForFile(page: Page, targetDisplayPath: string): Promise<void> {
+	const searchText = targetDisplayPath.split('/').at(-1) ?? targetDisplayPath;
 	await page.locator('button[data-testid="bridge-review-search-toggle"]').click();
 	await page
 		.locator('[data-testid="bridge-review-search-control"] input[role="searchbox"]')
-		.fill(targetSearchText);
+		.fill(searchText);
 	await page.waitForFunction(
 		(path: string): boolean => {
 			const row = document
@@ -129,7 +176,7 @@ async function searchForFile(page: Page): Promise<void> {
 				?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(path)}"]`);
 			return row instanceof HTMLElement;
 		},
-		targetAddedPath,
+		targetDisplayPath,
 		{ timeout: 10_000 },
 	);
 }
@@ -235,4 +282,11 @@ async function readSelectedState(page: Page): Promise<{
 					?.getAttribute('data-bridge-pierre-worker-pool-state') ?? null,
 		}),
 	);
+}
+
+async function readPageTheme(page: Page): Promise<BridgeViewerVisualProof['pageTheme']> {
+	return await page.evaluate((): BridgeViewerVisualProof['pageTheme'] => ({
+		bodyBackgroundColor: window.getComputedStyle(document.body).backgroundColor,
+		documentClassName: document.documentElement.className,
+	}));
 }

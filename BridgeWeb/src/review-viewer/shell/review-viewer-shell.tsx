@@ -150,7 +150,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 				<nav aria-label="Review controls" className="flex shrink-0 items-center gap-1">
 					<div
 						aria-label="Projection"
-						className="inline-flex h-7 items-center gap-0.5 rounded-md bg-transparent p-0.5"
+						className="inline-flex h-7 items-center gap-0.5 rounded-md bg-transparent p-0"
 						data-bridge-segmented-control="true"
 						data-testid="bridge-review-projection-scope"
 						role="group"
@@ -217,7 +217,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 					className="order-last flex min-h-0 min-w-0 flex-col border-l border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)]"
 					data-testid="bridge-review-sidebar"
 				>
-					<div className="shrink-0 border-b border-[var(--bridge-border-subtle)] px-1.5 py-1.5">
+					<div className="shrink-0 border-b border-[var(--bridge-border-subtle)] px-2 py-1.5">
 						<div
 							className="flex items-center justify-between gap-1"
 							data-testid="bridge-review-rail-toolbar"

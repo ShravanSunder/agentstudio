@@ -58,6 +58,11 @@ clicks and cannot be repeated by agents or CI-like harnesses.
 9. Header/chrome must follow the DiffsHub/Pierre review grammar while fitting
    AgentStudio dark styling: compact, icon-first controls, black canvas,
    custom menus, no native selects, and right-side file rail.
+   The current visual gate is explicit: compare against
+   `https://diffshub.com/ShravanSunder/agentstudio/pull/180` in dark mode with
+   DiffsHub's `pierre-dark` theme. Headless proof must set DiffsHub local
+   storage before navigation (`theme = dark`, `diffshub-dark-theme =
+   pierre-dark`) or the capture is not valid.
    The foundation is a shadcn/Base UI component layer, not one-off local rail
    widgets. BridgeWeb must initialize/adopt shadcn via the CLI for this package,
    generate the primitive components it needs, and then tune compact variants
@@ -102,6 +107,10 @@ clicks and cannot be repeated by agents or CI-like harnesses.
    Browser and native visual proof must include a top-header crop and reject
    controls whose background, height, radius, typography, or spacing visibly
    diverge from the surrounding AgentStudio dark chrome.
+   Browser proof must be fixture-aware: the visual proof runner resolves a
+   selectable file from the active `file-tree-container` rather than relying on
+   a stale hardcoded path. The proof JSON records selected path, target path,
+   dark-mode background color, worker state, and screenshot artifact paths.
    Shadcn/Base UI adoption is measured at the rendered Bridge controls, not by
    the mere presence of generated files. The generated primitives must own
    control semantics for buttons, menus, popovers, inputs, disabled states,
