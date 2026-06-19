@@ -284,6 +284,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 										label="Git status filter"
 										onChange={(value): void => props.onGitStatusFilterChange?.(value)}
 										options={gitStatusOptions}
+										showDefaultOptionInMenu={false}
 										testId="bridge-review-git-status-menu-control"
 										value={gitStatusFilter}
 									/>

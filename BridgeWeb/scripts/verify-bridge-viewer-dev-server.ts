@@ -13,6 +13,7 @@ interface DevServerVerificationResult {
 	readonly codeViewScrollHeight: number;
 	readonly codeViewScrollTop: number;
 	readonly codeViewVisibleText: string;
+	readonly gitStatusFilterMenuState: GitStatusFilterMenuState | null;
 	readonly selectedHeaderCollapseButtonState: HeaderCollapseButtonState | null;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
@@ -24,6 +25,16 @@ interface HeaderCollapseButtonState {
 	readonly ariaLabel: string | null;
 	readonly height: number;
 	readonly text: string;
+	readonly width: number;
+}
+
+interface GitStatusFilterMenuState {
+	readonly ariaExpanded: string | null;
+	readonly checkboxItemCount: number;
+	readonly hasAllStatusesMenuItem: boolean;
+	readonly height: number;
+	readonly optionLabels: readonly string[];
+	readonly rowHeights: readonly number[];
 	readonly width: number;
 }
 
@@ -43,6 +54,7 @@ try {
 				devServerUrl,
 				codeViewScrollHeight: result.codeViewScrollHeight,
 				codeViewScrollTop: result.codeViewScrollTop,
+				gitStatusFilterMenu: result.gitStatusFilterMenuState,
 				markdownDevServerUrl,
 				markdownDisplayPath: markdownResult.displayPath,
 				selectedDisplayPath: result.selectedDisplayPath,
@@ -62,11 +74,16 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
 		await page.waitForTimeout(1_200);
 		const initialResult = await readVerificationResult(page);
+		const gitStatusFilterMenuState = await inspectGitStatusFilterMenu(page);
+		assertGitStatusFilterMenu(gitStatusFilterMenuState);
 		await searchForAddedFile(page);
 		await clickFileTreePath(page, targetAddedPath);
 		await page.waitForTimeout(1_500);
 
-		const result = await readVerificationResult(page);
+		const result = {
+			...(await readVerificationResult(page)),
+			gitStatusFilterMenuState,
+		};
 		assertSelectedHeaderCollapseButton(result);
 		if (result.selectedDisplayPath !== targetAddedPath) {
 			throw new Error(
@@ -204,6 +221,37 @@ function assertCodeViewScrolledToSelectedItem(props: {
 	}
 }
 
+function assertGitStatusFilterMenu(menuState: GitStatusFilterMenuState): void {
+	if (menuState.ariaExpanded !== 'true') {
+		throw new Error(
+			`Expected Git-status filter trigger aria-expanded=true while menu is open, got ${
+				menuState.ariaExpanded ?? 'null'
+			}`,
+		);
+	}
+	if (menuState.hasAllStatusesMenuItem) {
+		throw new Error(
+			'Expected Git-status filter menu to use Clear filter instead of All statuses row',
+		);
+	}
+	if (menuState.checkboxItemCount < 4 || menuState.checkboxItemCount > 5) {
+		throw new Error(
+			`Expected Git-status filter menu to show 4-5 status checkbox rows, got ${menuState.checkboxItemCount}`,
+		);
+	}
+	if (menuState.width < 220 || menuState.width > 272) {
+		throw new Error(`Expected compact Git-status filter menu width, got ${menuState.width}`);
+	}
+	if (menuState.height < 220 || menuState.height > 300) {
+		throw new Error(`Expected compact Git-status filter menu height, got ${menuState.height}`);
+	}
+	for (const rowHeight of menuState.rowHeights) {
+		if (rowHeight < 28 || rowHeight > 36) {
+			throw new Error(`Expected Git-status filter menu row height near 32px, got ${rowHeight}`);
+		}
+	}
+}
+
 async function assertSelectedHeaderCollapseRoundTrip(page: Page): Promise<void> {
 	const didCollapse = await clickSelectedHeaderCollapseButton(page);
 	if (!didCollapse) {
@@ -337,6 +385,42 @@ async function searchForAddedFile(page: Page): Promise<void> {
 	);
 }
 
+async function inspectGitStatusFilterMenu(page: Page): Promise<GitStatusFilterMenuState> {
+	await page.locator('[data-testid="bridge-review-git-status-menu-control"]').click();
+	await page.waitForSelector('[data-testid="bridge-review-filter-popover"]', {
+		state: 'visible',
+		timeout: 10_000,
+	});
+	const menuState = await page.evaluate((): GitStatusFilterMenuState => {
+		const trigger = document.querySelector('[data-testid="bridge-review-git-status-menu-control"]');
+		const popover = document.querySelector('[data-testid="bridge-review-filter-popover"]');
+		const bounds = popover instanceof HTMLElement ? popover.getBoundingClientRect() : null;
+		const checkboxItems = Array.from(document.querySelectorAll('[role="menuitemcheckbox"]'));
+		const optionLabels = checkboxItems.map((item: Element): string =>
+			(item.textContent ?? '').replace(/\s+/g, ' ').trim(),
+		);
+		return {
+			ariaExpanded: trigger?.getAttribute('aria-expanded') ?? null,
+			checkboxItemCount: checkboxItems.length,
+			hasAllStatusesMenuItem: optionLabels.some((label: string): boolean =>
+				label.includes('All statuses'),
+			),
+			height: bounds?.height ?? 0,
+			optionLabels,
+			rowHeights: checkboxItems.map((item: Element): number =>
+				item instanceof HTMLElement ? item.getBoundingClientRect().height : 0,
+			),
+			width: bounds?.width ?? 0,
+		};
+	});
+	await page.keyboard.press('Escape');
+	await page.waitForSelector('[data-testid="bridge-review-filter-popover"]', {
+		state: 'detached',
+		timeout: 10_000,
+	});
+	return menuState;
+}
+
 async function clickFileTreePath(page: Page, path: string): Promise<void> {
 	const didClick = await page.evaluate((targetPath: string): boolean => {
 		const row = document
@@ -405,6 +489,7 @@ async function readVerificationResult(page: Page): Promise<DevServerVerification
 				.join(' ')
 				.replace(/\s+/g, ' ')
 				.trim(),
+			gitStatusFilterMenuState: null,
 			selectedHeaderCollapseButtonState:
 				selectedHeaderCollapseButton === null || selectedHeaderCollapseButtonBounds === null
 					? null

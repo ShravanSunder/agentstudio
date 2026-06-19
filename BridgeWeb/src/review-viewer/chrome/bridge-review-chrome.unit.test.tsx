@@ -212,6 +212,47 @@ describe('Bridge review chrome controls', () => {
 		expect(clearButton.getAttribute('data-disabled')).toBeNull();
 	});
 
+	test('git status filter can use clear action instead of an all-status menu row', () => {
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(
+				<BridgeReviewFilterMenu
+					label="Git status filter"
+					onChange={() => undefined}
+					options={[
+						{ value: 'all', label: 'All statuses', selectedLabel: 'All', icon: '*' },
+						{ value: 'added', label: 'Added', icon: 'A' },
+						{ value: 'modified', label: 'Modified', icon: 'M' },
+					]}
+					showDefaultOptionInMenu={false}
+					testId="test-filter"
+					value="all"
+				/>,
+			);
+		});
+
+		const triggerButton = requireElement(
+			container.querySelector<HTMLButtonElement>('[aria-label="Filter by Git status"]'),
+		);
+		act((): void => {
+			triggerButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		});
+
+		const checkboxItems = Array.from(document.querySelectorAll('[role="menuitemcheckbox"]'));
+		const clearButton = requireElement(
+			document.querySelector<HTMLElement>('[data-testid="bridge-review-filter-clear"]'),
+		);
+
+		expect(checkboxItems.map((item: Element): string => item.textContent ?? '')).toEqual([
+			'AAdded',
+			'MModified',
+		]);
+		expect(clearButton.getAttribute('data-disabled')).not.toBeNull();
+	});
+
 	test('filtered trigger keeps the filter glyph and uses only a tiny active indicator', () => {
 		const container = document.createElement('div');
 		document.body.append(container);

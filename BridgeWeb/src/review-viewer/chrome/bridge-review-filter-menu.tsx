@@ -22,6 +22,7 @@ export interface BridgeReviewFilterMenuProps<TValue extends string> {
 	readonly label: string;
 	readonly value: TValue;
 	readonly options: readonly BridgeReviewFilterOption<TValue>[];
+	readonly showDefaultOptionInMenu?: boolean;
 	readonly testId: string;
 	readonly onChange: (value: TValue) => void;
 }
@@ -37,6 +38,8 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 	const clearOption = props.options[0];
 	const canClear = clearOption !== undefined && props.value !== clearOption.value;
 	const isDefaultSelection = clearOption !== undefined && props.value === clearOption.value;
+	const menuOptions =
+		props.showDefaultOptionInMenu === false ? props.options.slice(1) : props.options;
 
 	return (
 		<DropdownMenu>
@@ -105,7 +108,7 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 					</p>
 				</header>
 				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
-				{props.options.map(
+				{menuOptions.map(
 					(option: BridgeReviewFilterOption<TValue>): ReactElement => (
 						<DropdownMenuCheckboxItem
 							checked={option.value === props.value}
