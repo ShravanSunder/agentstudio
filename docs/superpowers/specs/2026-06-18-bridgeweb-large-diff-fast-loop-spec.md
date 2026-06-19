@@ -46,8 +46,16 @@ BridgeWeb must mirror DiffsHub's use of uncontrolled Pierre CodeView plus
 imperative item updates, `renderHeaderPrefix` for collapse only,
 CodeView-backed file scrolling, preserved-input-order FileTree updates,
 `themeToTreeStyles(...)` for the tree, and a chrome-token mapping layer for
-shadcn/Tailwind controls. DiffsHub's Radix shadcn wrappers are prior art;
-BridgeWeb's component implementation remains shadcn/Base UI.
+shadcn/Tailwind controls. DiffsHub's Radix/new-york shadcn wrappers are prior
+art; BridgeWeb's component implementation remains shadcn/Base UI with
+`style = "base-mira"`.
+
+2026-06-19 current-state correction: any text below that appears to require a
+detached top projection strip is superseded. Projection and summary controls
+may exist only as compact integrated chrome, preferably in the right rail or a
+same-plane app header. A standalone pure-black
+`All / Changed / Guided / Change set / Docs/plans / Tests / Source` strip is a
+known failed state, not a target.
 
 ## Requirements
 
@@ -116,21 +124,21 @@ BridgeWeb's component implementation remains shadcn/Base UI.
    Component-level overrides happen downstream of this theme layer and only for
    Bridge density/layout/domain states. They must not introduce a parallel
    one-off color, radius, typography, or focus system.
-   The top review summary and projection-mode strip is part of this chrome
-   contract. It must not render as a high-contrast black island pasted over the
-   Mocha surface. The stats, endpoint label, generation/grouping text, and
-   `All / Changed / Guided / Change set / Docs/plans / Tests / Source` controls
-   must sit on the same compact AgentStudio/Pierre header plane, using Mocha
-   surface, border, hover, pressed, and muted-text tokens. The active scope
-   affordance should be quiet and segmented, not a detached pure-black pill row.
-   Each projection button must have a stable semantic test id, compact 11px
+   Projection and summary controls are part of this chrome contract only when
+   they are integrated into the same compact AgentStudio/Pierre surface. The
+   preferred target is right-rail or same-plane app chrome composition, not a
+   full-width top strip. Stats, endpoint label, generation/grouping text, and
+   `All / Changed / Guided / Change set / Docs/plans / Tests / Source`
+   controls must never render as a detached high-contrast black island pasted
+   over the Mocha surface. The active scope affordance should be quiet and
+   segmented when present, with stable semantic test ids, compact 11px
    typography, exactly one active pressed state, and no wrapper background that
    reads as a separate black strip. Browser proof must measure the rendered
-   header state because screenshots have caught regressions that prop-level
+   chrome state because screenshots have caught regressions that prop-level
    tests missed.
-   Browser and native visual proof must include a top-header crop and reject
-   controls whose background, height, radius, typography, or spacing visibly
-   diverge from the surrounding AgentStudio dark chrome.
+   Browser and native visual proof must include header/right-rail crops and
+   reject controls whose background, height, radius, typography, or spacing
+   visibly diverge from the surrounding AgentStudio dark chrome.
    Browser proof must be fixture-aware: the visual proof runner resolves a
    selectable file from the active `file-tree-container` rather than relying on
    a stale hardcoded path. The proof JSON records selected path, target path,
@@ -141,9 +149,10 @@ BridgeWeb's component implementation remains shadcn/Base UI.
    focus rings, and pressed/open states. Bridge-specific wrappers may tune
    density and tokens, but the shell must not build a parallel control language
    with bespoke inline SVG buttons, native-looking selects, or detached bars.
-   The top projection mode control must be a compact shadcn-style
-   toggle/segmented control that belongs to the header plane, not a floating
-   black strip. An unexplained hamburger/list icon in the review header is not
+   If projection controls are visible outside the right rail, they must be a
+   compact shadcn-style toggle/segmented control that belongs to the same
+   surface plane, not a floating black strip. An unexplained hamburger/list icon
+   in the review header is not
    acceptable unless it maps to an intentional app action and matches the same
    compact icon-button component. CodeView file headers must also stay visually
    sparse: Bridge may add the collapse/expand affordance through Pierre's

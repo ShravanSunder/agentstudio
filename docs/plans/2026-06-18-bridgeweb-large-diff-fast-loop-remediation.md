@@ -18,9 +18,33 @@ Current source-of-truth, 2026-06-19:
   `apps/diffshub/app/_components/CodeViewWrapper.tsx`,
   `CodeViewFileTree.tsx`, `ReviewUI.tsx`,
   `_theming/js/treeThemeProps.ts`, and `_theming/js/diffshubChromeMapping.ts`.
+- DiffsHub uses Radix/new-york shadcn wrappers; BridgeWeb does not copy that
+  component implementation. BridgeWeb uses package-local shadcn with
+  `style = "base-mira"` and Base UI-backed primitives. Borrow DiffsHub's review
+  grammar, Pierre API usage, theme flow, density, and behavior tests, not its
+  Radix dependency choice.
+- The user-visible design target is DiffsHub on Catppuccin Mocha with
+  AgentStudio's right-side rail as the intentional product difference. Do not
+  approximate that target with hand-authored Tailwind controls, fake theme
+  dumps, or broad FileTree shadow-DOM CSS surgery.
 - Product-code edits already present on this branch are candidate partial
   fixes. They must be validated or reshaped against this plan before they count
   as accepted implementation proof.
+- Current product-code edits classify as follows:
+  - keep and finish: selected-content extraction, shell prop plumbing,
+    CodeView collapse-anchor intent, browser tests for added-file hydration and
+    collapse anchoring.
+  - reshape: `bridge-app.tsx` hydration policy,
+    `bridge-code-view-panel.tsx` rendered-item/materialization access,
+    dev-server visual scripts, broad tree/color overrides, and markdown theme
+    selection.
+  - discard or replace: detached top-scope compatibility paths and
+    branch-specific target-file heuristics in proof scripts.
+- Current local source counts before the next implementation pass:
+  `bridge-app.css` 195 lines, `bridge-trees-panel.tsx` 182 lines,
+  `bridge-code-view-panel.tsx` 765 lines, `bridge-app.tsx` 1330 lines, and
+  `bridge-pierre-worker-pool.tsx` 1069 lines. Any task that assumes the older
+  small scaffold must re-read the file before editing.
 
 Execution order amendment, 2026-06-19:
 
@@ -32,9 +56,11 @@ Execution order amendment, 2026-06-19:
   markdown rendering, added-file content, collapsible headers, file click to
   CodeView scroll, and browser-controlled visual comparison against DiffsHub
   example PRs.
-- The top review summary and projection-scope strip is part of that interaction
-  loop, not later polish. Do not resume new Swift IPC surface work while the
-  browser or native screenshot still shows a detached pure-black
+- Projection and summary controls are part of the interaction loop only when
+  they are integrated into the same compact AgentStudio/Pierre surface,
+  preferably the right rail or same-plane app chrome. Do not resume new Swift
+  IPC surface work while the browser or native screenshot still shows a
+  detached pure-black
   `All / Changed / Guided / Change set / Docs/plans / Tests / Source` strip,
   mismatched header typography, or controls that do not sit on the Mocha
   AgentStudio/Pierre header plane.
@@ -264,7 +290,7 @@ or an explicitly approved split/replan says why a row moved out of scope.
 | shadcn/Base UI design foundation | Generated files, typecheck, component tests, and screenshot | BridgeWeb has package-local shadcn CLI configuration, generated Base UI primitives where supported, compact variants, and AgentStudio-owned dark tokens before rail chrome is considered complete. |
 | Design system composition | Component tests, source review, and screenshot | BridgeWeb composes generated shadcn/Base UI primitives with `cn`, compact variants, and Catppuccin Mocha tokens; Tailwind classes are transport/layout, not a bespoke feature-local control system. |
 | Visual parity with DiffsHub grammar | Side-by-side or comparable screenshots | Headers, separators, rail density, icon-first controls, and dark palette are close enough to the DiffsHub Node PR reference while matching AgentStudio styling. |
-| Top review scope/header chrome | Browser screenshot crop, native screenshot crop, and bbox/color checks | The summary row and `All / Changed / Guided / Change set / Docs/plans / Tests / Source` controls sit on the Mocha/AgentStudio header plane; no detached pure-black pill strip, no oversized tab bar, no mismatched typography, and no header controls that look visually unrelated to the surrounding app chrome. |
+| Projection/header chrome | Browser screenshot crop, native screenshot crop, and bbox/color checks | `All / Changed / Guided / Change set / Docs/plans / Tests / Source` controls render only as compact integrated chrome, preferably in the right rail or same-plane app header. A detached pure-black pill strip, oversized tab bar, mismatched typography, unrelated hamburger/list icon, or controls that look pasted over the Mocha surface fail this row. |
 | DiffsHub-class filter popovers | Browser screenshot with filter menu open, semantic assertions, and bbox measurements | Filter/search controls are compact icon-first buttons; open filter popover uses a dark raised surface, clear separators, about 32px rows, colored status badges, trailing selected checkmarks, disabled/clear affordance, `menuitemcheckbox` semantics, and no native/select-looking black pills. |
 | Rail row/icon alignment | Browser screenshot, DOM checks, and bbox measurements | Tree rows use compact 24px-ish stable height, `button[role="treeitem"][data-item-path]`, consistent file/folder/status icons, right-aligned status letters, readable selected-row contrast, and disclosure chevrons sized like DiffsHub/AgentStudio controls rather than oversized row text. |
 | Native packaged proof | AgentStudio debug app evidence | Packaged BridgeWeb renders the same repaired behavior through Bridge package push and `agentstudio://resource/content/...`, not a Vite/mock-only path. |
@@ -1196,7 +1222,8 @@ Observed historical proof values:
 
 - Large fixture: `codeViewScrollHeight = 1153975`,
   `codeViewScrollTop = 1000143`, worker pool ready, markdown fixture reachable,
-  selected file `Sources/BridgeViewer/NewPanel.ts`.
+  selected file `Sources/BridgeViewer/NewPanel.ts` in the synthetic
+  `large-diffshub` fixture only.
 - Real worktree fixture: selected `.github/workflows/ci.yml`, loaded `19721`
   characters and `557` lines, worker pool ready, package handle text remains
   scrubbed.
@@ -1205,8 +1232,10 @@ Observed historical proof values:
 
 Still not accepted by the DiffsHub-class visual gate:
 
-- The top review scope strip must become quieter and more integrated with the
-  AgentStudio/Pierre Mocha header chrome.
+- Any top review scope strip remains failed evidence unless it is removed or
+  rebuilt as compact integrated shadcn/Base UI chrome on the same
+  AgentStudio/Pierre Mocha surface. The preferred placement for projection
+  controls is the right rail or same-plane app chrome, not a detached strip.
 - Main CodeView file sections need clearer DiffsHub-like boundaries, sticky
   behavior, and collapse/expand affordances.
 - CodeView file headers must not stack redundant icons. The accepted header
@@ -1217,9 +1246,10 @@ Still not accepted by the DiffsHub-class visual gate:
 - Large fixture tree-click behavior must be consistent for all visible file
   rows. Clicking a file row must resolve to a review item, update selected
   content state, and scroll the corresponding CodeView header into the viewport.
-- Fixture-specific path checks must target paths that exist in that fixture;
-  `Sources/BridgeViewer/NewPanel.ts` belongs to the large DiffsHub fixture, not
-  the real-worktree fixture.
+- Fixture-specific path checks must resolve a target from the active fixture or
+  real worktree DOM. `Sources/BridgeViewer/NewPanel.ts` belongs to the
+  synthetic large DiffsHub fixture, not the real-worktree fixture, and must not
+  appear in real-worktree proof as a hardcoded expectation.
 - The browser proof must continue to check added-file full content, markdown
   rendering, right-rail compact controls, and filter/search behavior before new
   Swift IPC expansion becomes the critical path.

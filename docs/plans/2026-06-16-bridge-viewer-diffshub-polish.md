@@ -80,6 +80,15 @@ Swift IPC/native proof:
   `themeToTreeStyles(...)` plus foreground reconciliation for the tree.
 - `apps/diffshub/app/_components/_theming/js/diffshubChromeMapping.ts`:
   editor-theme-derived chrome tokens mapped into shadcn/Tailwind variables.
+- `apps/diffshub/components/ui/button.tsx`,
+  `apps/diffshub/components/ui/button-group.tsx`, and
+  `apps/diffshub/components/ui/dropdown-menu.tsx`: compact shadcn control
+  grammar. These are Radix/new-york wrappers in DiffsHub; BridgeWeb must express
+  the same control grammar with package-local `base-mira`/Base UI wrappers.
+- `packages/theming/src/collections/shiki.ts`: `catppuccin-mocha` exists as a
+  Pierre/Shiki dark theme source. Do not fake-register a different theme under
+  the same name without proving why the supported Pierre path cannot work in
+  packaged WKWebView.
 
 Current known drift to correct before more feature work:
 
@@ -164,13 +173,23 @@ Current known drift to correct before more feature work:
 Read before planning:
 
 - `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` owns the right sidebar, search/filter chrome, canvas/sidebar grid, and summary stats. The review viewer must not render a detached visible top metadata strip above CodeView; compact header-plane chrome is allowed only when it matches the shadcn/Catppuccin app surface.
-- `BridgeWeb/src/app/bridge-app.css` is 56 lines and owns the current dark tokens.
-- `BridgeWeb/src/review-viewer/trees/bridge-trees-panel.tsx` is 101 lines and wraps Pierre `FileTree`.
-- `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` is 232 lines and wraps Pierre `CodeView`.
+- `BridgeWeb/src/app/bridge-app.css` is 195 lines and owns current app,
+  shadcn, Bridge, and Pierre tokens.
+- `BridgeWeb/src/review-viewer/trees/bridge-trees-panel.tsx` is 182 lines and
+  wraps Pierre `FileTree`.
+- `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` is 765
+  lines and wraps Pierre `CodeView`. This file is no longer a small wrapper;
+  split helper responsibilities during implementation rather than adding more
+  control, scroll, materialization, and DOM-inspection behavior in one file.
 - `BridgeWeb/src/review-viewer/code-view/bridge-code-view-materialization.ts` is 243 lines and converts Bridge content resources into Pierre `file` or `diff` items.
-- `BridgeWeb/src/app/bridge-app.tsx` is 588 lines and currently owns selected item, projection mode, search, git-status filter, file-class filter, RPC, content fetch, and telemetry wiring.
+- `BridgeWeb/src/app/bridge-app.tsx` is 1330 lines and currently owns selected
+  item, projection mode, search, git-status filter, file-class filter, RPC,
+  content fetch, dev/bootstrap flows, and telemetry wiring. Treat it as a split
+  candidate before expanding behavior.
 - `BridgeWeb/src/review-viewer/state/review-viewer-store.ts` is 215 lines and owns the current Zustand store.
-- `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-pool.tsx` is 256 lines and owns the Pierre Shiki worker pool.
+- `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-pool.tsx`
+  is 1069 lines and owns the Pierre Shiki worker pool. Re-read before changing;
+  this is not the earlier small worker provider.
 - `BridgeWeb/tsdown.config.ts`, `BridgeWeb/scripts/build-app-assets.ts`, and `BridgeWeb/scripts/audit-dependencies-and-assets.ts` own BridgeWeb bundling, generated assets, worker assets, and asset proof.
 
 Observed current problems:
@@ -1648,7 +1667,7 @@ for Vitest Browser Mode, Playwright geometry, and DiffsHub comparison proof.
 | --- | --- | --- | --- | --- | --- | --- |
 | Dark DiffsHub-style shell with black canvas | 1, 2 | executor + visual reviewer | browser DiffsHub comparison, Playwright color/geometry probe, then native screenshot confirmation | visual/browser + smoke/native | current dev-server and debug-app captures after rebuild | red baseline screenshot, green final screenshot |
 | Right-side compact file rail | 2, 4 | executor | browser shell structural tests, Playwright rail geometry, then native confirmation | integration/browser + smoke/native | assert `data-sidebar-position="right"` in current code and rendered DOM | green required |
-| No detached top metadata strip | 2, 8 | executor | browser shell structural tests, rendered header geometry, visual proof script, then native confirmation | visual/browser + smoke/native | reject detached `bridge-review-top-header`/metadata strips; allow only integrated compact shadcn/Catppuccin header-plane chrome | red/green required |
+| Projection/header chrome is integrated | 2, 8 | executor | browser shell structural tests, rendered header/right-rail geometry, visual proof script, then native confirmation | visual/browser + smoke/native | reject detached `bridge-review-top-header`/metadata strips, pure-black scope strips, mismatched hamburger/list icons, and unrelated tab bars; allow only integrated compact shadcn/Catppuccin header-plane or right-rail chrome | red/green required |
 | No native select controls | 1, 2 | executor | shell tests query absence of `select` | unit | inspect built shell, not only component source | red current tests/text, green absence |
 | Custom filter/menu controls | 1, 2 | executor | component tests, browser menu-open geometry screenshot, then native confirmation | unit + visual/browser + smoke/native | menu proof captured in dev server and debug app | green required |
 | CodeView scroll works | 3 | executor + visual reviewer | Vitest Browser Mode scroll test, Playwright large-fixture capture, then native confirmation | integration/browser + smoke/native | body/root must not be the scroll owner; selected visible code must change | red current behavior, green final |
