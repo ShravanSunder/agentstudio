@@ -87,6 +87,10 @@ filters, compare target, and file selection are Review Pane concerns.
    Opening Review from a worktree should compare against the configured/default
    branch when available, not only unstaged workspace changes. Unstaged/staged
    review remains a selectable compare source, not the default product behavior.
+   Compare targets must be modeled explicitly, not collapsed into a raw string:
+   local default branch, origin default branch, named branch, arbitrary Git
+   ref/SHA/tag, staged index, and unstaged working tree are distinct product
+   choices.
 
 4. Review Pane actions are semantic and typed.
 
@@ -217,6 +221,27 @@ silently show no matches.
 
 Regex should initially target file paths, not file contents. Content search is a
 separate workload with different performance and privacy characteristics.
+
+## Compare Target Semantics
+
+Review compare target state is a product input, not a BridgeWeb rendering detail.
+The Swift Review source model and the future typed IPC payload must preserve the
+selected target kind:
+
+```text
+local default branch       -> local branch name, usually main or master
+origin default branch      -> remote + branch, usually origin/main
+named branch               -> branch name selected by the user or automation
+arbitrary ref/SHA/tag      -> Git ref string selected by the user or automation
+staged index               -> index delta against HEAD
+unstaged working tree      -> working-tree delta against index/HEAD
+```
+
+The initial native opener may choose the best known default synchronously from
+repo enrichment, with `origin/main` as a safe fallback. The richer selector and
+IPC path own validation and user-visible errors for missing branches, tags, and
+SHAs. They must fail closed with typed errors instead of silently returning an
+empty package.
 
 ## Review Modes And Filter Facets
 

@@ -49,6 +49,83 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
+        @Test("workspace review compare targets select git ref baseline against working tree")
+        func workspaceReviewCompareTargetsSelectGitRefBaselineAgainstWorkingTree() async throws {
+            struct Case {
+                let baseline: WorkspaceBaseline
+                let expectedEndpointId: String
+                let expectedLabel: String
+                let expectedProviderIdentity: String
+            }
+
+            let cases = [
+                Case(
+                    baseline: .localDefaultBranch(branchName: "main"),
+                    expectedEndpointId: "baseline-local-default",
+                    expectedLabel: "main",
+                    expectedProviderIdentity: "main"
+                ),
+                Case(
+                    baseline: .originDefaultBranch(remoteName: "origin", branchName: "main"),
+                    expectedEndpointId: "baseline-origin-default",
+                    expectedLabel: "origin/main",
+                    expectedProviderIdentity: "origin/main"
+                ),
+                Case(
+                    baseline: .branch(name: "release/next"),
+                    expectedEndpointId: "baseline-branch-release-next",
+                    expectedLabel: "release/next",
+                    expectedProviderIdentity: "release/next"
+                ),
+                Case(
+                    baseline: .ref(name: "v1.2.3"),
+                    expectedEndpointId: "baseline-ref-v1-2-3",
+                    expectedLabel: "v1.2.3",
+                    expectedProviderIdentity: "v1.2.3"
+                ),
+            ]
+
+            for testCase in cases {
+                let worktreeId = UUIDv7.generate()
+                let provider = BridgeReviewSourceProviderFake(
+                    comparison: BridgeEndpointComparison(
+                        baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                        headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                        changedFiles: [
+                            makeBridgeEndpointChangedFile(
+                                fileId: "source",
+                                path: "Sources/App/View.swift",
+                                sizeBytes: 100
+                            )
+                        ]
+                    ),
+                    contentByHandleId: [:]
+                )
+                let controller = makeController(
+                    source: .workspace(rootPath: "/tmp/worktree", baseline: testCase.baseline),
+                    worktreeId: worktreeId,
+                    provider: provider
+                )
+                defer { controller.teardown() }
+
+                let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+
+                guard case .success = result else {
+                    Issue.record("Expected initial Bridge review package load to succeed")
+                    return
+                }
+                let requests = await provider.recordedComparisonRequests()
+                let request = try #require(requests.first)
+                #expect(request.baseEndpoint.endpointId == testCase.expectedEndpointId)
+                #expect(request.baseEndpoint.kind == .gitRef)
+                #expect(request.baseEndpoint.label == testCase.expectedLabel)
+                #expect(request.baseEndpoint.providerIdentity == testCase.expectedProviderIdentity)
+                #expect(request.headEndpoint.kind == .workingTree)
+                #expect(request.headEndpoint.label == "Working tree")
+                #expect(request.query.comparisonSemantics == .workingTreeDelta)
+            }
+        }
+
         @Test("generic controller skips initial review package load")
         func genericControllerSkipsInitialReviewPackageLoad() async {
             let provider = BridgeReviewSourceProviderFake(

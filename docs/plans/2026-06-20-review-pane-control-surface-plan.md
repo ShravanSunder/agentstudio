@@ -73,6 +73,7 @@ Do not rebase or merge the old `control-tooltip-source-contract` branch. PR
 | Requirement | Task | Proof owner | Proof gate | Layer | Stale-proof guard | Red/green |
 | --- | --- | --- | --- | --- | --- | --- |
 | Native Review opens useful branch diff by default | 1 | Swift owner | focused `OpenBridgeReview` source tests + IPC/native smoke | unit + smoke | clean worktree with branch changes against default branch must not return 0-file unstaged package | yes |
+| Review compare targets preserve product intent | 1, 3 | Swift + IPC owner | state Codable tests + endpoint projection tests + IPC contract tests | unit + integration | local default, origin default, branch, ref/SHA/tag, staged, and unstaged remain distinct variants | yes |
 | Review commands use PR #188 display/tooltip model | 2 | Swift UI owner | command spec tests + tooltip architecture lint | unit + lint | no raw `.help` / AppKit `toolTip` in dense Review controls | yes |
 | Command list exposes Review discovery without abusing display DTOs | 2 | IPC owner | IPC command-list contract tests | integration | `IPCCommandListEntry` remains projection only | yes |
 | Pane-local actions use typed IPC/page-control, not command-bar automation | 3 | IPC owner | Bridge IPC service tests | integration | non-Review target fails typed unsupported-target | yes |
@@ -129,23 +130,32 @@ Write surfaces:
 
 Implementation shape:
 
-1. Introduce a Review compare-source resolver.
-2. Resolve default branch comparison in this order:
-   - configured repo default branch if available
-   - `origin/main`
-   - `main`
-   - `origin/master`
-   - `master`
-   - fallback to workspace unstaged only when no branch base exists
-3. Keep staged/unstaged as explicit selectable compare targets.
-4. Ensure IPC `openReview` can accept compare target parameters once Task 3 adds
+1. Introduce explicit Review compare target variants:
+   - local default branch with branch name
+   - origin default branch with remote and branch name
+   - named branch
+   - arbitrary ref/SHA/tag
+   - staged index
+   - unstaged working tree
+2. Update the native Review opener to choose the best known default compare
+   target from repo enrichment. The current synchronous opener should prefer the
+   enriched upstream remote branch when present and fall back to `origin/main`.
+3. Leave full branch/ref existence validation to the Review compare selector and
+   typed IPC surface, where missing targets can produce user-visible typed
+   errors instead of silently opening an empty package.
+4. Keep staged/unstaged as explicit selectable compare targets.
+5. Ensure IPC `openReview` can accept compare target parameters once Task 3 adds
    the contract.
 
 Proof:
 
-- Unit test clean branch with changes against default branch creates non-empty
+- Unit test compare target Codable round trips for local default, origin
+  default, branch, ref/SHA/tag, staged, and unstaged.
+- Unit test legacy baseline values still decode for existing pane state.
+- Unit test Review endpoint projection maps local default, origin default,
+  branch, and ref/SHA/tag to Git-ref endpoints against the working tree.
+- Unit test clean branch with changes against default branch creates a
   branch/default compare source.
-- Unit test fallback still supports unstaged workspace diff.
 - Native IPC smoke after Task 3 proves `open -> getPackage` returns changed
   files on this branch.
 
@@ -211,6 +221,8 @@ Implementation shape:
    - set search query
    - select/reveal file
    - refresh
+   Compare target params must use discriminated variants matching Task 1:
+   local default, origin default, branch, ref/SHA/tag, staged, and unstaged.
 3. Preserve pane-handle authorization and unsupported-target errors.
 4. Do not expose raw WebKit, raw JS, raw paths beyond existing approved handles,
    or generic event-bus command routing.

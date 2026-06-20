@@ -107,6 +107,10 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         comparisonRequests.count
     }
 
+    func recordedComparisonRequests() -> [BridgeEndpointComparisonRequest] {
+        comparisonRequests
+    }
+
     func setComparison(_ comparison: BridgeEndpointComparison) {
         self.comparison = comparison
     }
