@@ -45,7 +45,7 @@ export function recordBridgeProjectionBuildTelemetrySample(
 				'agentstudio.bridge.projection.kind': props.projectionKind,
 				'agentstudio.bridge.result': 'success',
 				'agentstudio.bridge.slice': 'review_projection',
-				'agentstudio.bridge.transport': props.executionLane,
+				'agentstudio.bridge.transport': 'worker',
 				'agentstudio.bridge.tree_path_count_bucket': props.treePathCountBucket,
 				'agentstudio.bridge.worker.lane': props.executionLane === 'worker' ? 'projection' : 'none',
 			},
@@ -141,7 +141,7 @@ export function recordBridgeCodeViewHydrationTelemetrySamples(
 			numericAttributes: {},
 			booleanAttributes: {},
 		});
-		props.telemetryRecorder.flush();
+		props.telemetryRecorder.flush({ force: true });
 	});
 }
 

@@ -9,6 +9,11 @@ import {
 } from './bridge-code-view-theme.js';
 
 describe('Bridge CodeView theme', () => {
+	test('registers Catppuccin Mocha with the default Pierre theme resolver', async () => {
+		await expect(ensureBridgeCodeViewThemeResolved()).resolves.toBeUndefined();
+		await expect(ensureBridgeCodeViewThemeResolved()).resolves.toBeUndefined();
+	});
+
 	test('resolves the bundled Pierre/Shiki Catppuccin Mocha theme', async () => {
 		const calls = createThemeResolverCalls();
 		const resolver = createThemeResolver({

@@ -25,7 +25,7 @@ describe('Bridge review projection coordinator', () => {
 	test('uses the sync lane for small interactive packages and flushes telemetry after apply', async () => {
 		const store = createBridgeReviewViewerStore();
 		const telemetryRecorder = makeTelemetryRecorder();
-		let flushCount = 0;
+		const flushForces: Array<boolean | undefined> = [];
 
 		startBridgeReviewProjectionCoordinatorRequest({
 			store,
@@ -40,8 +40,8 @@ describe('Bridge review projection coordinator', () => {
 			}),
 			telemetryRecorder,
 			telemetryParentTraceContext: null,
-			flushTelemetry: (): void => {
-				flushCount += 1;
+			flushTelemetry: (flushProps): void => {
+				flushForces.push(flushProps?.force);
 			},
 		});
 
@@ -55,18 +55,19 @@ describe('Bridge review projection coordinator', () => {
 			expect.objectContaining({
 				name: 'performance.bridge.trees.projection_build',
 				stringAttributes: expect.objectContaining({
-					'agentstudio.bridge.transport': 'sync',
+					'agentstudio.bridge.transport': 'worker',
+					'agentstudio.bridge.worker.lane': 'none',
 				}),
 			}),
 		]);
-		expect(flushCount).toBe(1);
+		expect(flushForces).toEqual([true]);
 	});
 
 	test('uses the worker lane for large packages when a worker client is available', async () => {
 		const store = createBridgeReviewViewerStore();
 		const telemetryRecorder = makeTelemetryRecorder();
 		const deferredWorker = makeDeferredProjectionWorkerClient('worker-large-request');
-		let flushCount = 0;
+		const flushForces: Array<boolean | undefined> = [];
 
 		startBridgeReviewProjectionCoordinatorRequest({
 			store,
@@ -79,8 +80,8 @@ describe('Bridge review projection coordinator', () => {
 			syncProjectionClient: createBridgeReviewProjectionSyncClient(),
 			telemetryRecorder,
 			telemetryParentTraceContext: null,
-			flushTelemetry: (): void => {
-				flushCount += 1;
+			flushTelemetry: (flushProps): void => {
+				flushForces.push(flushProps?.force);
 			},
 		});
 
@@ -95,9 +96,10 @@ describe('Bridge review projection coordinator', () => {
 		expect(telemetryRecorder.samples[0]?.stringAttributes).toEqual(
 			expect.objectContaining({
 				'agentstudio.bridge.transport': 'worker',
+				'agentstudio.bridge.worker.lane': 'projection',
 			}),
 		);
-		expect(flushCount).toBe(1);
+		expect(flushForces).toEqual([true]);
 	});
 
 	test('aborts and ignores a completion after the coordinator request is cleaned up', async () => {
@@ -165,7 +167,8 @@ describe('Bridge review projection coordinator', () => {
 		);
 		expect(telemetryRecorder.samples[0]?.stringAttributes).toEqual(
 			expect.objectContaining({
-				'agentstudio.bridge.transport': 'sync',
+				'agentstudio.bridge.transport': 'worker',
+				'agentstudio.bridge.worker.lane': 'none',
 			}),
 		);
 		expect(flushCount).toBe(1);

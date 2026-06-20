@@ -66,7 +66,7 @@ export async function loadBridgeContentResource(
 				'agentstudio.bridge.header_supported': props.sendTraceparentHeader === true,
 			},
 		});
-		props.telemetryRecorder?.flush();
+		props.telemetryRecorder?.flush({ force: true });
 	}
 }
 

@@ -5,7 +5,10 @@ import type {
 	BridgeFileClass,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
-import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
+import type {
+	BridgeTelemetryFlushProps,
+	BridgeTelemetryRecorder,
+} from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import type {
 	BridgeReviewProjectionMode,
@@ -29,7 +32,7 @@ export interface UseBridgeReviewProjectionCoordinatorProps {
 	readonly projectionWorkerClient: BridgeReviewProjectionWorkerClient | null;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext: BridgeTraceContext | null;
-	readonly flushTelemetry: () => void;
+	readonly flushTelemetry: (props?: BridgeTelemetryFlushProps) => void;
 }
 
 export interface StartBridgeReviewProjectionCoordinatorRequestProps {
@@ -42,7 +45,7 @@ export interface StartBridgeReviewProjectionCoordinatorRequestProps {
 	readonly syncProjectionClient: BridgeReviewProjectionWorkerClient;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext: BridgeTraceContext | null;
-	readonly flushTelemetry: () => void;
+	readonly flushTelemetry: (props?: BridgeTelemetryFlushProps) => void;
 }
 
 const projectionAbortKey = 'bridge-review-projection';
@@ -161,7 +164,7 @@ export function startBridgeReviewProjectionCoordinatorRequest(
 				executionLane,
 				treePathCount: completion.response.metrics.treePathCount,
 			});
-			props.flushTelemetry();
+			props.flushTelemetry({ force: true });
 		})
 		.catch((): void => {
 			if (isCurrentRequest) {

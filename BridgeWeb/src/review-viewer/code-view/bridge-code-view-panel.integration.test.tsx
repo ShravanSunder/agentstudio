@@ -5,6 +5,13 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
+import type {
+	BridgeTelemetryFlushProps,
+	BridgeTelemetryMeasureProps,
+	BridgeTelemetryRecorder,
+} from '../../foundation/telemetry/bridge-telemetry-recorder.js';
+import type { BridgeTelemetryScope } from '../../foundation/telemetry/bridge-telemetry-scope.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import { createBridgePierreWorkerHighlighterOptions } from '../workers/pierre/bridge-pierre-worker-pool.js';
@@ -93,7 +100,76 @@ describe('BridgeCodeViewPanel', () => {
 		expect(renderedCodeViewText).toContain('Bridge plan');
 		expect(renderedCodeViewText).toContain('Inspect this as source.');
 	});
+
+	test('forces telemetry flush after selected item hydration is recorded', async () => {
+		installDomObservers();
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { base: { kind: 'docsAndPlans' }, refinements: [] },
+		});
+		const selectedItem = reviewPackage.itemsById['docs-plan'];
+		const headHandle = selectedItem?.contentRoles.head;
+		if (selectedItem === undefined || headHandle === undefined || headHandle === null) {
+			throw new Error('expected docs-plan head handle');
+		}
+		const telemetryRecorder = makeTelemetryRecorder();
+		const selectedContentResource: BridgeContentResource = {
+			handle: headHandle,
+			text: '# Bridge plan\n\nInspect this as source.',
+		};
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={{ head: selectedContentResource }}
+					selectedItemId="docs-plan"
+					telemetryRecorder={telemetryRecorder}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(
+			telemetryRecorder.samples.map((sample: BridgeTelemetrySample): string => sample.name),
+		).toContain('performance.bridge.pierre.item_update');
+		expect(telemetryRecorder.flushForces).toContain(true);
+		expect(telemetryRecorder.flushForces.at(-1)).toBe(true);
+	});
 });
+
+interface TestTelemetryRecorder extends BridgeTelemetryRecorder {
+	readonly flushForces: boolean[];
+	readonly samples: BridgeTelemetrySample[];
+}
+
+function makeTelemetryRecorder(): TestTelemetryRecorder {
+	const samples: BridgeTelemetrySample[] = [];
+	const flushForces: boolean[] = [];
+	return {
+		flushForces,
+		samples,
+		isEnabled: (scope: BridgeTelemetryScope): boolean => scope === 'web',
+		record: (sample: BridgeTelemetrySample): void => {
+			samples.push(sample);
+		},
+		measure<TResult>(props: BridgeTelemetryMeasureProps<TResult>): TResult {
+			return props.operation();
+		},
+		flush: (props?: BridgeTelemetryFlushProps): boolean => {
+			flushForces.push(props?.force === true);
+			return true;
+		},
+	};
+}
 
 function renderedCodeViewTextContent(): string {
 	const shadowText = [...document.querySelectorAll('diffs-container')]

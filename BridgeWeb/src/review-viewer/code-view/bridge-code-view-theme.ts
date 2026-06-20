@@ -1,5 +1,6 @@
 import type { DiffsThemeNames } from '@pierre/diffs';
-import { hasResolvedThemes, resolveThemes } from '@pierre/diffs';
+import { hasResolvedThemes, registerCustomTheme, resolveThemes } from '@pierre/diffs';
+import catppuccinMochaTheme from '@shikijs/themes/catppuccin-mocha';
 
 export const bridgePierreDarkThemeName = 'catppuccin-mocha' satisfies DiffsThemeNames;
 
@@ -18,6 +19,7 @@ const defaultBridgeCodeViewThemeResolver: BridgeCodeViewThemeResolver = {
 };
 
 let defaultThemeResolutionPromise: Promise<void> | null = null;
+let didRegisterBridgeCodeViewThemes = false;
 
 export async function ensureBridgeCodeViewThemeResolved(
 	props: EnsureBridgeCodeViewThemeResolvedProps = {},
@@ -44,6 +46,15 @@ export async function ensureBridgeCodeViewThemeResolved(
 	await defaultThemeResolutionPromise;
 }
 
+export function registerBridgeCodeViewThemes(): void {
+	if (didRegisterBridgeCodeViewThemes) {
+		return;
+	}
+	didRegisterBridgeCodeViewThemes = true;
+	registerCustomTheme(bridgePierreDarkThemeName, () => Promise.resolve(catppuccinMochaTheme));
+}
+
 function makeBridgeCodeViewThemeNames(): DiffsThemeNames[] {
+	registerBridgeCodeViewThemes();
 	return [bridgePierreDarkThemeName];
 }

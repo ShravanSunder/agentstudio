@@ -311,7 +311,7 @@ describe('BridgeApp', () => {
 				stringAttributes: expect.objectContaining({
 					'agentstudio.bridge.phase': 'projection_build',
 					'agentstudio.bridge.slice': 'review_projection',
-					'agentstudio.bridge.transport': 'sync',
+					'agentstudio.bridge.transport': 'worker',
 				}),
 			}),
 		);
