@@ -101,6 +101,7 @@ export interface BridgeReviewTreesPanelProps {
 	readonly searchOpen: boolean;
 	readonly searchText: string;
 	readonly onSelectItem: (itemId: string) => void;
+	readonly onSearchTextChange?: (searchText: string) => void;
 }
 
 export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): ReactElement {
@@ -117,6 +118,10 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	const initialSourceRef = useRef(source);
 	const onSelectItemRef = useRef(props.onSelectItem);
 	onSelectItemRef.current = props.onSelectItem;
+	const onSearchTextChangeRef = useRef(props.onSearchTextChange);
+	onSearchTextChangeRef.current = props.onSearchTextChange;
+	const searchTextRef = useRef(props.searchText);
+	searchTextRef.current = props.searchText;
 	const onSelectionChange = useCallback((selectedPaths: readonly string[]): void => {
 		if (selectedPaths.length !== 1) {
 			return;
@@ -130,6 +135,13 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			onSelectItemRef.current(itemId);
 		}
 	}, []);
+	const onSearchChange = useCallback((value: string | null): void => {
+		const nextSearchText = value ?? '';
+		if (searchTextRef.current === nextSearchText) {
+			return;
+		}
+		onSearchTextChangeRef.current?.(nextSearchText);
+	}, []);
 	const { model } = useFileTree({
 		paths: initialSourceRef.current.orderedPaths,
 		preparedInput: initialSourceRef.current.preparedInput,
@@ -140,6 +152,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		fileTreeSearchMode: 'expand-matches',
 		flattenEmptyDirectories: true,
 		density: 'compact',
+		onSearchChange,
 		initialVisibleRowCount: bridgeReviewTreeInitialVisibleRowCount,
 		overscan: bridgeReviewTreeOverscan,
 		onSelectionChange,

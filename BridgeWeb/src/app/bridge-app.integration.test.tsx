@@ -1433,6 +1433,126 @@ describe('BridgeApp', () => {
 		});
 	});
 
+	test('page control only accepts diff collapse when the mounted CodeView owns the item', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeBridgeReviewPackage();
+		const requestedUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response(url.includes('-base') ? 'base text' : 'head text');
+					}}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForRequestedUrl(requestedUrls, 'handle-item-source-head');
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.diff.collapseFile',
+			itemId: 'item-source',
+		});
+		expect(window.bridgeReviewControlProbe).toMatchObject({
+			method: 'bridge.diff.collapseFile',
+			status: 'accepted',
+			itemId: 'item-source',
+			reason: null,
+		});
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.diff.collapseFile',
+			itemId: 'item-not-rendered',
+		});
+		expect(window.bridgeReviewControlProbe).toMatchObject({
+			method: 'bridge.diff.collapseFile',
+			status: 'rejected',
+			itemId: 'item-not-rendered',
+			reason: 'item_not_found',
+		});
+	});
+
+	test('page control rejects package items that are filtered out of the mounted CodeView', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeBridgeReviewPackage();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileTree.setFilter',
+			gitStatusFilter: 'all',
+			fileClassFilter: 'docs',
+		});
+		await pushReviewPackage(reviewPackage);
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.diff.collapseFile',
+			itemId: 'item-source',
+		});
+		expect(window.bridgeReviewControlProbe).toMatchObject({
+			method: 'bridge.diff.collapseFile',
+			status: 'rejected',
+			itemId: 'item-source',
+			reason: 'code_view_unavailable',
+		});
+	});
+
+	test('direct tree search interactions update page control probe state', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeBridgeReviewPackage();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+		await pushReviewPackage(reviewPackage);
+
+		await act(async (): Promise<void> => {
+			const searchButton = document.querySelector(
+				'[data-testid="bridge-review-search-control"] button',
+			);
+			if (!(searchButton instanceof HTMLButtonElement)) {
+				throw new Error('expected Bridge review search button');
+			}
+			searchButton.click();
+			await Promise.resolve();
+		});
+
+		const searchInput = findReviewTreeSearchInput();
+		if (searchInput === null) {
+			throw new Error('expected Bridge review tree search input');
+		}
+		await act(async (): Promise<void> => {
+			searchInput.value = 'View';
+			searchInput.dispatchEvent(new InputEvent('input', { bubbles: true, data: 'View' }));
+			searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+			await Promise.resolve();
+		});
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileTree.revealPath',
+			path: 'Sources/App/View.swift',
+		});
+		expect(window.bridgeReviewControlProbe).toMatchObject({
+			method: 'bridge.fileTree.revealPath',
+			status: 'accepted',
+			treeSearchText: 'view',
+		});
+	});
+
 	test('page control overwrites stale probes and rejects non-markdown preview requests', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeAddedFileReviewPackage({
@@ -1955,6 +2075,16 @@ function findReviewTreeItemButton(path: string): HTMLButtonElement | null {
 				button instanceof HTMLButtonElement && button.dataset['itemPath'] === path,
 		) ?? null
 	);
+}
+
+function findReviewTreeSearchInput(): HTMLInputElement | null {
+	const fileTreeContainer = document.querySelector('file-tree-container');
+	const shadowRoot = fileTreeContainer?.shadowRoot;
+	if (shadowRoot === undefined || shadowRoot === null) {
+		return null;
+	}
+	const input = shadowRoot.querySelector('input[type="search"], input');
+	return input instanceof HTMLInputElement ? input : null;
 }
 
 function findMenuItemByText(text: string): HTMLElement | null {

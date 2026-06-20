@@ -41,6 +41,7 @@ import {
 	type BridgeTraceContext,
 } from '../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
+import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import {
 	bridgeMarkdownPreviewMaxBytes,
 	resolveBridgeMarkdownPreviewDecision,
@@ -154,6 +155,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const lastFirstRenderPackageRef = useRef<string | null>(null);
 	const codeViewContentResourceKeysByItemIdRef = useRef<Map<string, string>>(new Map());
 	const codeViewContentInFlightKeysRef = useRef<Set<string>>(new Set());
+	const codeViewControlHandleRef = useRef<BridgeCodeViewControlHandle | null>(null);
 	const reviewPackageRef = useRef<BridgeReviewPackage | null>(null);
 	reviewPackageRef.current = reviewPackage;
 	const projectionRef = useRef(projection);
@@ -329,6 +331,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				selectReviewItem,
 				selectedContentResources,
 				setTreeSearchOpen: setIsTreeSearchOpen,
+				codeViewControlHandle: codeViewControlHandleRef.current,
 				viewerActions,
 			});
 			publishBridgeAppControlProbe({
@@ -725,6 +728,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					codeViewContentResourcesByItemId={codeViewContentResourcesByItemId}
 					fileClassFilter={rootSnapshot.fileClassFilter}
 					gitStatusFilter={rootSnapshot.gitStatusFilter}
+					onCodeViewControlHandleChange={(handle): void => {
+						codeViewControlHandleRef.current = handle;
+					}}
 					onFileClassFilterChange={viewerActions.setFileClassFilter}
 					onGitStatusFilterChange={viewerActions.setGitStatusFilter}
 					onProjectionModeChange={viewerActions.setProjectionMode}
@@ -780,6 +786,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 
 interface ApplyBridgeAppControlCommandProps {
 	readonly command: BridgeAppControlCommand;
+	readonly codeViewControlHandle: BridgeCodeViewControlHandle | null;
 	readonly markdownWorkerClient: BridgeMarkdownRenderWorkerClient | null;
 	readonly projection: BridgeReviewProjectionResult | null;
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
@@ -808,6 +815,7 @@ function applyBridgeAppControlCommand(
 ): ApplyBridgeAppControlCommandResult {
 	const {
 		command,
+		codeViewControlHandle,
 		markdownWorkerClient,
 		projection,
 		reviewPackage,
@@ -822,9 +830,18 @@ function applyBridgeAppControlCommand(
 				: { status: 'rejected', reason: 'item_not_found' };
 		case 'bridge.diff.expandFile':
 		case 'bridge.diff.collapseFile':
-			return reviewPackage !== null && command.itemId in reviewPackage.itemsById
+			if (reviewPackage === null || !(command.itemId in reviewPackage.itemsById)) {
+				return { status: 'rejected', reason: 'item_not_found' };
+			}
+			if (codeViewControlHandle === null) {
+				return { status: 'rejected', reason: 'code_view_unavailable' };
+			}
+			return codeViewControlHandle.setItemCollapsed(
+				command.itemId,
+				command.method === 'bridge.diff.collapseFile',
+			)
 				? { status: 'accepted', reason: null }
-				: { status: 'rejected', reason: 'item_not_found' };
+				: { status: 'rejected', reason: 'item_not_rendered' };
 		case 'bridge.fileTree.search':
 			props.setTreeSearchOpen(true);
 			viewerActions.setTreeSearchText(command.searchText);

@@ -39,6 +39,11 @@ export interface BridgeCodeViewPanelProps {
 	readonly workerFactory?: () => Worker;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
+	readonly onControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
+}
+
+export interface BridgeCodeViewControlHandle {
+	readonly setItemCollapsed: (itemId: string, collapsed: boolean) => boolean;
 }
 
 interface BridgeCodeViewControllerEntry {
@@ -167,6 +172,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		() => new Set<string>(),
 	);
 	const onRenderedItemIdsChange = props.onRenderedItemIdsChange;
+	const onControlHandleChange = props.onControlHandleChange;
 	const [materializationDiagnostic, setMaterializationDiagnostic] =
 		useState<BridgeCodeViewMaterializationDiagnostic>(() => emptyMaterializationDiagnostic());
 	const setCodeViewHandle = useCallback(
@@ -231,30 +237,16 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		},
 		[setItemCollapsed],
 	);
-	useEffect((): (() => void) => {
-		const handleBridgeReviewControl = (event: Event): void => {
-			const detail = 'detail' in event ? event.detail : null;
-			if (
-				typeof detail !== 'object' ||
-				detail === null ||
-				!('method' in detail) ||
-				!('itemId' in detail) ||
-				typeof detail.itemId !== 'string'
-			) {
-				return;
-			}
-			if (detail.method === 'bridge.diff.expandFile') {
-				setItemCollapsed(detail.itemId, false);
-			}
-			if (detail.method === 'bridge.diff.collapseFile') {
-				setItemCollapsed(detail.itemId, true);
-			}
-		};
-		window.addEventListener('__bridge_review_control', handleBridgeReviewControl);
+	useEffect((): (() => void) | undefined => {
+		if (onControlHandleChange === undefined) {
+			return undefined;
+		}
+		const handle: BridgeCodeViewControlHandle = { setItemCollapsed };
+		onControlHandleChange(handle);
 		return (): void => {
-			window.removeEventListener('__bridge_review_control', handleBridgeReviewControl);
+			onControlHandleChange(null);
 		};
-	}, [setItemCollapsed]);
+	}, [onControlHandleChange, setItemCollapsed]);
 	const headerRenderers = useMemo(
 		() =>
 			createBridgeCodeViewHeaderRenderers({

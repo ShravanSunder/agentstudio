@@ -27,7 +27,10 @@ import {
 } from '../chrome/bridge-review-filter-menu.js';
 import { BridgeReviewSearchControl } from '../chrome/bridge-review-search-control.js';
 import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
-import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
+import {
+	BridgeCodeViewPanel,
+	type BridgeCodeViewControlHandle,
+} from '../code-view/bridge-code-view-panel.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import type {
 	BridgeReviewProjectionMode,
@@ -59,6 +62,7 @@ export interface ReviewViewerShellProps {
 	readonly fileClassFilter?: BridgeFileClass | 'all';
 	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
 	readonly onRenderedCodeViewItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 }
@@ -165,6 +169,11 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									: {
 											onRenderedItemIdsChange: props.onRenderedCodeViewItemIdsChange,
 										})}
+								{...(props.onCodeViewControlHandleChange === undefined
+									? {}
+									: {
+											onControlHandleChange: props.onCodeViewControlHandleChange,
+										})}
 								{...(props.codeViewWorkerPoolEnabled === undefined
 									? {}
 									: { workerPoolEnabled: props.codeViewWorkerPoolEnabled })}
@@ -265,6 +274,9 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 						>
 							<BridgeReviewTreesPanel
 								onSelectItem={props.onSelectItem}
+								{...(props.onTreeSearchTextChange === undefined
+									? {}
+									: { onSearchTextChange: props.onTreeSearchTextChange })}
 								projection={projection}
 								reviewPackage={props.reviewPackage}
 								searchOpen={treeSearchOpen}
