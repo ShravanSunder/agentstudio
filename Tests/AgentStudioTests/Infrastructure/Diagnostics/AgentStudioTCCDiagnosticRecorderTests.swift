@@ -128,6 +128,24 @@ struct AgentStudioTCCDiagnosticRecorderTests {
     }
 
     @Test
+    func shellChildProbeUsesPinnedBinaryInsteadOfShellStartup() throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-tcc-shell-shadow-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        let zshEnv = fixtureRoot.appending(path: ".zshenv")
+        try "ls() { return 0; }\n".write(to: zshEnv, atomically: true, encoding: .utf8)
+        setenv("ZDOTDIR", fixtureRoot.path, 1)
+        defer { unsetenv("ZDOTDIR") }
+
+        let missingURL = fixtureRoot.appending(path: "missing-directory")
+        let outcome = AgentStudioTCCDiagnosticRecorder.shellChildDirectoryProbe(missingURL)
+
+        #expect(outcome.result == .pathMissing)
+        #expect(outcome.commandExitClass == .unavailable)
+    }
+
+    @Test
     func messagesDataTargetDocumentsFullDiskProbeVocabulary() {
         #expect(AgentStudioTCCAccessTarget.documents.rawValue == "documents")
         #expect(AgentStudioTCCAccessTarget.messagesData.rawValue == "messages_data")

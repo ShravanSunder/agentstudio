@@ -27,6 +27,20 @@ struct FullDiskAccessHealthCheckTests {
     }
 
     @Test
+    func documentsDenialWithProtectedDataGrantDoesNotAppendWarning() {
+        let appDelegate = makeAppDelegate()
+        let result = FullDiskAccessHealthCheckResult(
+            documents: Self.outcome(.deniedEACCES),
+            protectedData: Self.outcome(.granted)
+        )
+
+        appDelegate.applyFullDiskAccessHealthCheckResult(result)
+
+        #expect(appDelegate.atomStore.inboxNotification.notifications.isEmpty)
+        #expect(result.isHealthy == true)
+    }
+
+    @Test
     func healthyResultDismissesExistingWarning() throws {
         let appDelegate = makeAppDelegate()
         appDelegate.atomStore.inboxNotification.append(
@@ -84,8 +98,25 @@ struct FullDiskAccessHealthCheckTests {
     ) -> AgentStudioTCCAccessProbeOutcome {
         AgentStudioTCCAccessProbeOutcome(
             result: result,
-            commandExitClass: result == .granted ? .ok : .permissionDenied,
+            commandExitClass: Self.commandExitClass(for: result),
             rawPath: "/Users/example/Library/Messages"
         )
+    }
+
+    private nonisolated static func commandExitClass(
+        for result: AgentStudioTCCAccessProbeResult
+    ) -> AgentStudioTCCCommandExitClass {
+        switch result {
+        case .granted:
+            .ok
+        case .deniedEACCES, .deniedEPERM:
+            .permissionDenied
+        case .pathMissing:
+            .unavailable
+        case .timedOut:
+            .timedOut
+        case .unknownError:
+            .unknownError
+        }
     }
 }

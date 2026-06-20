@@ -5,7 +5,7 @@ struct FullDiskAccessHealthCheckResult: Equatable, Sendable {
     let protectedData: AgentStudioTCCAccessProbeOutcome
 
     var isHealthy: Bool {
-        documents.result == .granted && protectedData.result == .granted
+        protectedData.result == .granted
     }
 }
 

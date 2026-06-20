@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 
 enum AgentStudioTCCDiagnosticPhase: String, Sendable {
@@ -36,6 +37,7 @@ enum AgentStudioTCCAccessProbeResult: String, Sendable {
     case deniedEACCES = "denied_eacces"
     case deniedEPERM = "denied_eperm"
     case pathMissing = "path_missing"
+    case timedOut = "timed_out"
     case unknownError = "unknown_error"
 
     static func fromPOSIXErrno(_ errnoValue: Int32) -> Self {
@@ -63,6 +65,7 @@ enum AgentStudioTCCResponsibleKind: String, Sendable {
 enum AgentStudioTCCCommandExitClass: String, Sendable {
     case ok
     case permissionDenied = "permission_denied"
+    case timedOut = "timed_out"
     case unavailable
     case unknownError = "unknown_error"
 }
@@ -299,21 +302,37 @@ final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
     static func shellChildDirectoryProbe(_ url: URL) -> AgentStudioTCCAccessProbeOutcome {
         let process = Process()
         let standardError = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        var environment = ProcessInfo.processInfo.environment
-        environment["AGENTSTUDIO_TCC_PROBE_PATH"] = url.path
-        process.environment = environment
-        process.arguments = ["-lc", "ls \"$AGENTSTUDIO_TCC_PROBE_PATH\" >/dev/null"]
+        process.executableURL = URL(fileURLWithPath: "/bin/ls")
+        process.environment = [
+            "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+            "LANG": "C",
+            "LC_ALL": "C",
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        ]
+        process.arguments = ["-d", url.path]
         process.standardOutput = Pipe()
         process.standardError = standardError
+        let completion = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            completion.signal()
+        }
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return AgentStudioTCCAccessProbeOutcome(
                 result: .unknownError,
                 commandExitClass: .unknownError,
+                rawPath: url.path
+            )
+        }
+        let timeoutResult = completion.wait(timeout: .now() + 2)
+        if timeoutResult == .timedOut {
+            process.terminate()
+            process.waitUntilExit()
+            return AgentStudioTCCAccessProbeOutcome(
+                result: .timedOut,
+                commandExitClass: .timedOut,
                 rawPath: url.path
             )
         }
@@ -406,6 +425,8 @@ final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
             .ok
         case .deniedEACCES, .deniedEPERM:
             .permissionDenied
+        case .timedOut:
+            .timedOut
         case .pathMissing:
             .unavailable
         case .unknownError:
