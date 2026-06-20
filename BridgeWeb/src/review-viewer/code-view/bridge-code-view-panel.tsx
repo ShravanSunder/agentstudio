@@ -2,6 +2,7 @@ import type {
 	CodeView as PierreCodeViewInstance,
 	CodeViewItem,
 	CodeViewOptions,
+	CodeViewScrollBehavior,
 } from '@pierre/diffs';
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
@@ -43,8 +44,13 @@ export interface BridgeCodeViewPanelProps {
 }
 
 export interface BridgeCodeViewControlHandle {
-	readonly scrollToItem: (itemId: string) => boolean;
+	readonly scrollToItem: (itemId: string, options?: BridgeCodeViewScrollToItemOptions) => boolean;
 	readonly setItemCollapsed: (itemId: string, collapsed: boolean) => boolean;
+}
+
+export interface BridgeCodeViewScrollToItemOptions {
+	readonly behavior?: CodeViewScrollBehavior;
+	readonly expandIfCollapsed?: boolean;
 }
 
 interface BridgeCodeViewControllerEntry {
@@ -227,22 +233,39 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		});
 		return true;
 	}, []);
-	const scrollToItem = useCallback((itemId: string): boolean => {
-		const codeViewHandle = codeViewHandleRef.current;
-		if (codeViewHandle === null) {
-			return false;
-		}
-		const currentItem = codeViewHandle.getItem(itemId);
-		if (currentItem === undefined || !isBridgeCodeViewItem(currentItem)) {
-			return false;
-		}
-		const controller = controllerForHandle({
-			handle: codeViewHandle,
-			controllerEntryRef,
-		});
-		controller.scrollToItem(itemId);
-		return true;
-	}, []);
+	const scrollToItem = useCallback(
+		(itemId: string, options: BridgeCodeViewScrollToItemOptions = {}): boolean => {
+			const codeViewHandle = codeViewHandleRef.current;
+			if (codeViewHandle === null) {
+				return false;
+			}
+			const currentItem = codeViewHandle.getItem(itemId);
+			if (currentItem === undefined || !isBridgeCodeViewItem(currentItem)) {
+				return false;
+			}
+			const controller = controllerForHandle({
+				handle: codeViewHandle,
+				controllerEntryRef,
+			});
+			if ((options.expandIfCollapsed ?? true) && currentItem.collapsed === true) {
+				const nextItem: BridgeCodeViewItem = {
+					...currentItem,
+					collapsed: false,
+					version: (currentItem.version ?? 0) + 1,
+				};
+				controller.applyItemUpdate(nextItem);
+				setCollapsedItemIds((currentIds: ReadonlySet<string>): ReadonlySet<string> => {
+					const nextIds = new Set(currentIds);
+					nextIds.delete(itemId);
+					return nextIds;
+				});
+			}
+			controller.scrollToItem(itemId, options.behavior ?? 'instant');
+			lastSelectionScrollKeyRef.current = `${viewerKey}:${codeViewMountVersion}:${itemId}`;
+			return true;
+		},
+		[codeViewMountVersion, viewerKey],
+	);
 	const toggleItemCollapse = useCallback(
 		(itemId: string): void => {
 			const codeViewHandle = codeViewHandleRef.current;

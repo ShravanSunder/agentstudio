@@ -41,7 +41,10 @@ import {
 	type BridgeTraceContext,
 } from '../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
-import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
+import type {
+	BridgeCodeViewControlHandle,
+	BridgeCodeViewScrollToItemOptions,
+} from '../review-viewer/code-view/bridge-code-view-panel.js';
 import {
 	bridgeMarkdownPreviewMaxBytes,
 	resolveBridgeMarkdownPreviewDecision,
@@ -113,6 +116,11 @@ interface SelectedMarkdownPreviewState {
 	readonly sourcePath: string;
 	readonly status: 'rendering' | 'ready' | 'failed';
 	readonly html: string | null;
+}
+
+interface SelectBridgeReviewItemOptions {
+	readonly reveal?: boolean;
+	readonly revealBehavior?: BridgeCodeViewScrollToItemOptions['behavior'];
 }
 
 const bridgeMarkdownPreviewAbortKey = 'bridge-review-markdown-preview';
@@ -209,10 +217,15 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		telemetryRecorderRef.current.flush();
 	}, []);
 	const selectReviewItem = useCallback(
-		(itemId: string): boolean => {
+		(itemId: string, options: SelectBridgeReviewItemOptions = {}): boolean => {
 			const currentReviewPackage = reviewPackageRef.current;
 			if (currentReviewPackage === null || !(itemId in currentReviewPackage.itemsById)) {
 				return false;
+			}
+			if (options.reveal !== false) {
+				codeViewControlHandleRef.current?.scrollToItem(itemId, {
+					behavior: options.revealBehavior ?? 'smooth',
+				});
 			}
 			viewerActions.setSelectedItemId(itemId);
 			viewerActions.setRenderMode({ kind: 'codeView' });
@@ -788,7 +801,7 @@ interface ApplyBridgeAppControlCommandProps {
 	readonly projection: BridgeReviewProjectionResult | null;
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
 	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly selectReviewItem: (itemId: string) => boolean;
+	readonly selectReviewItem: (itemId: string, options?: SelectBridgeReviewItemOptions) => boolean;
 	readonly selectedContentResources: BridgeCodeViewContentResources | null;
 	readonly setTreeSearchOpen: (isOpen: boolean) => void;
 	readonly viewerActions: BridgeReviewViewerStoreActions;
@@ -841,10 +854,10 @@ function applyBridgeAppControlCommand(
 			if (codeViewControlHandle === null) {
 				return { status: 'rejected', reason: 'code_view_unavailable' };
 			}
-			if (!codeViewControlHandle.scrollToItem(command.itemId)) {
+			if (!codeViewControlHandle.scrollToItem(command.itemId, { behavior: 'instant' })) {
 				return { status: 'rejected', reason: 'item_not_rendered' };
 			}
-			return selectReviewItem(command.itemId)
+			return selectReviewItem(command.itemId, { reveal: false })
 				? { status: 'accepted', reason: null }
 				: { status: 'rejected', reason: 'item_not_found' };
 		case 'bridge.diff.expandFile':

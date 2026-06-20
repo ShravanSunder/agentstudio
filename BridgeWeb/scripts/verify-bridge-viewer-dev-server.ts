@@ -121,6 +121,7 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 		await clickFileTreePath(page, targetAddedPath);
 		await waitForSelectedPath(page, targetAddedPath);
 		await waitForCodeViewText(page, targetAddedText);
+		await waitForSelectedHeaderAligned(page);
 
 		const result = {
 			...(await readVerificationResult(page)),
@@ -618,6 +619,43 @@ async function waitForCodeViewText(page: Page, expectedText: string): Promise<vo
 		},
 		expectedText,
 		{ timeout: 20_000 },
+	);
+}
+
+async function waitForSelectedHeaderAligned(page: Page): Promise<void> {
+	await page.waitForFunction(
+		(): boolean => {
+			function findCodeViewHeaderCollapseButton(path: string): HTMLButtonElement | null {
+				for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
+					if (container.shadowRoot?.textContent?.includes(path) !== true) {
+						continue;
+					}
+					const button = container.querySelector(
+						'[data-testid="bridge-code-view-header-collapse-button"]',
+					);
+					if (button instanceof HTMLButtonElement) {
+						return button;
+					}
+				}
+				return null;
+			}
+			const selectedDisplayPath =
+				document
+					.querySelector('[data-selected-display-path]')
+					?.getAttribute('data-selected-display-path') ?? null;
+			const codeScrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+			if (selectedDisplayPath === null || !(codeScrollOwner instanceof HTMLElement)) {
+				return false;
+			}
+			const button = findCodeViewHeaderCollapseButton(selectedDisplayPath);
+			if (!(button instanceof HTMLButtonElement)) {
+				return false;
+			}
+			const offset =
+				button.getBoundingClientRect().top - codeScrollOwner.getBoundingClientRect().top;
+			return offset >= -2 && offset <= 40;
+		},
+		{ timeout: 10_000 },
 	);
 }
 

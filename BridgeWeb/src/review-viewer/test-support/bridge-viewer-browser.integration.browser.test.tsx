@@ -587,9 +587,19 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			addedButton.click();
 			await waitForBridgeViewerText(fixture.expected.addedText);
 			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+			const selectedItemId = bridgeReviewFixtureItemIdForPath(fixture, fixture.expected.addedPath);
+			const selectedHeaderButton =
+				await waitForBridgeCodeHeaderCollapseButtonForItem(selectedItemId);
+			const selectedHeaderOffset = await waitForBridgeCodeHeaderOffsetFromScrollOwner({
+				collapseButton: selectedHeaderButton,
+				maxOffset: 8,
+				scrollOwner: codeScroll,
+			});
 
 			expect(bridgeViewerRenderedTextContent()).toContain(fixture.expected.addedText);
 			expect(bridgeViewerVisibleCodeTextContent(codeScroll)).toContain(fixture.expected.addedText);
+			expect(selectedHeaderOffset).toBeGreaterThanOrEqual(0);
+			expect(selectedHeaderOffset).toBeLessThanOrEqual(8);
 			expect(
 				backend.requestedUrls.some((url: string): boolean =>
 					url.includes(fixture.expected.addedHeadHandleId),
@@ -1091,4 +1101,58 @@ function bridgeCodeHeaderOffsetFromScrollOwner(props: {
 	return (
 		props.collapseButton.getBoundingClientRect().top - props.scrollOwner.getBoundingClientRect().top
 	);
+}
+
+function bridgeReviewFixtureItemIdForPath(
+	fixture: ReturnType<typeof makeBridgeViewerBrowserFixture>,
+	path: string,
+): string {
+	for (const item of Object.values(fixture.reviewPackage.itemsById)) {
+		if ((item.headPath ?? item.basePath) === path) {
+			return item.itemId;
+		}
+	}
+	throw new Error(`expected fixture item for path ${path}`);
+}
+
+async function waitForBridgeCodeHeaderCollapseButtonForItem(
+	itemId: string,
+	remainingAttempts = 180,
+): Promise<HTMLButtonElement> {
+	for (const collapseButton of bridgeCodeHeaderCollapseButtons()) {
+		if (collapseButton.dataset['bridgeCodeViewItemId'] === itemId) {
+			return collapseButton;
+		}
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(`expected Bridge CodeView header collapse button for ${itemId}`);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	return await waitForBridgeCodeHeaderCollapseButtonForItem(itemId, remainingAttempts - 1);
+}
+
+async function waitForBridgeCodeHeaderOffsetFromScrollOwner(props: {
+	readonly collapseButton: HTMLButtonElement;
+	readonly maxOffset: number;
+	readonly scrollOwner: HTMLElement;
+	readonly remainingAttempts?: number;
+}): Promise<number> {
+	const offset = bridgeCodeHeaderOffsetFromScrollOwner({
+		collapseButton: props.collapseButton,
+		scrollOwner: props.scrollOwner,
+	});
+	if (offset >= 0 && offset <= props.maxOffset) {
+		return offset;
+	}
+	const remainingAttempts = props.remainingAttempts ?? 180;
+	if (remainingAttempts <= 0) {
+		throw new Error(`expected Bridge CodeView header near scroll top, got offset ${offset}`);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	return await waitForBridgeCodeHeaderOffsetFromScrollOwner({
+		...props,
+		remainingAttempts: remainingAttempts - 1,
+	});
 }
