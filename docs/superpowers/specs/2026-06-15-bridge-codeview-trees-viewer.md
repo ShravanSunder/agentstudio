@@ -4,6 +4,7 @@
 > Created: 2026-06-15
 > Foundation: [Bridge Review Foundation Spec](2026-06-10-bridge-review-foundation.md)
 > Architecture companion: [Swift-React Bridge Architecture](../../architecture/swift_react_bridge_design.md)
+> Data-plane amendment: [Bridge Resource Data Plane Spec](2026-06-20-bridge-resource-data-plane.md)
 > Linear: `LUNA-338` Pierre/Shiki/Trees review viewer
 
 This spec defines the next Bridge viewer milestone after `LUNA-337`. It covers
@@ -51,11 +52,11 @@ subsystem. IPC must not expose generic methods such as
 Bridge IPC methods should be semantic and typed in
 `AgentStudioProgrammaticControl`. Preferred initial methods are:
 
-- `bridge.diff.load`
-- `bridge.diff.refresh`
-- `bridge.diff.getPackage`
-- `bridge.diff.selectFile`
-- `bridge.fileView.getContent`
+- `bridge.review.load`
+- `bridge.review.refresh`
+- `bridge.review.getPackage`
+- `bridge.review.selectFile`
+- `bridge.review.prepareWindow`
 - `bridge.telemetry.snapshot`
 - `bridge.telemetry.flush`
 
@@ -84,10 +85,11 @@ explicitly and test it. A terminal, webview, or missing pane target must fail
 with a typed unsupported-target outcome instead of fallback behavior.
 
 Content access should prefer Bridge content handles over raw paths. A package
-read may return item metadata and handles. `bridge.fileView.getContent`
-validates the handle, package id, review generation, role, and bounds before
-returning content. Raw filesystem paths, arbitrary refs, hashes, prompt text, or
-source paths must not become IPC payload shortcuts.
+read may return item metadata and handles. IPC may select, reveal, or prepare a
+bounded review window, but hot file/diff bodies are fetched through the
+`agentstudio://resource/*` data plane described in the data-plane amendment.
+Raw filesystem paths, arbitrary refs, hashes, prompt text, or source paths must
+not become IPC payload shortcuts.
 
 Bridge IPC events are notification-only facts:
 
@@ -265,14 +267,21 @@ Expected enforcement layers:
 
 Boundary rules to enforce:
 
+- BridgeWeb is organized by feature slices and reason-to-change folders. Avoid
+  generic `runtime/`, `managers/`, or `utils/` buckets for review-viewer code.
+  A folder name must describe ownership: `content`, `projections`, `commands`,
+  `code-view`, `file-tree`/`trees`, `markdown`, `chrome`, `telemetry`, `app`, or
+  `workers/<lane>`.
 - `review-viewer/state` may define Zustand slices, selectors, and pure actions.
   It must not call Swift, fetch content, post worker messages, mutate Pierre
   models, or emit telemetry directly.
 - `review-viewer/content` owns content hydration effects and may call
   `foundation/content`.
-- `review-viewer/workers/rpc` owns `Worker` creation, `postMessage`, response
-  parsing, cancellation, and Bridge-owned worker measurement context. It does
-  not emit telemetry directly.
+- `review-viewer/workers/shared-rpc` owns generic `Worker` creation,
+  `postMessage`, response parsing, cancellation, and Bridge-owned worker
+  measurement context only when at least two review-viewer worker lanes share
+  the same transport shape. Product methods live in lane folders such as
+  `workers/projection` and `workers/markdown`.
 - `review-viewer/workers/pierre` owns Pierre Shiki worker-pool creation and
   worker stats sampling.
 - `review-viewer/trees` is the only BridgeWeb folder that imports
@@ -341,9 +350,10 @@ AgentStudio Bridge
 
 The important difference is that AgentStudio's sidebar is a review-control
 surface, not only a patch file list. Search and Git-status filters are local
-filters inside the current projection. Projection buttons can reorder or reduce
-the entire package: all files, changed files, guided review, current change set,
-docs/plans, tests, source, folder, extension, and file class.
+facets inside the current review mode. The visible top-level control is a small
+review-mode segmented control: normal review, guided review, and plans/specs.
+Changed files, current change set, docs/tests/source, folder, extension, and
+file class are facets or scopes, not additional top-level mode buttons.
 
 View model comparison:
 
@@ -384,8 +394,9 @@ The first implementation slice is package-backed review navigation:
 - Build Trees input from package item paths and package visibility.
 - Render files, diffs, and plan/docs files only after obtaining Swift-issued
   content handles.
-- Keep rich markdown preview out of the first slice. Markdown renders as
-  source text in CodeView unless a later plan adds a sanitizer and proof gate.
+- Render docs/plans markdown through the sanitized read-only markdown preview
+  path in the first slice. Source text is a typed fallback/unavailable state
+  only, not an acceptance substitute for functional review mode.
 - Keep arbitrary endpoint tree browsing out of the first slice. Existing
   top-level `browseTree` or `openFile` queries may replace the active package,
   but the viewer does not add a general `readTree(...)` browse UI in this
@@ -468,19 +479,19 @@ review-viewer/state
          -> CodeView item version bump
 ```
 
-Projection and filtering flow:
+Review mode and facet flow:
 
 ```text
-Top-level projection buttons
-  all | changed | guided | change set | docs/plans | tests | source
+Review mode segmented control
+  normal review | guided review | plans/specs
           |
           v
 Bridge projection result
   orderedItemIds + orderedPaths + facetCounts + display maps
           |
           v
-Local tree controls inside that projection
-  search text | Git status menu | folder | extension | file class
+Local facets inside that mode
+  search/regex | Git status | file kind | folder | extension | visibility
           |
           v
 Trees visible rows
@@ -542,10 +553,13 @@ Effect ownership stays outside the Zustand store:
 - `review-viewer/content` owns content effects: visible/selected/hover/neighbor
   hydration queues, `foundation/content` calls, stale result drops, and loaded
   body cache writes.
-- `review-viewer/workers/rpc` owns Bridge worker effects: request creation,
-  Zod parsing on send and receive, cancellation, queue timing, stale result
-  discard, and low-cardinality measurement context. It reports that context to
-  `foundation/telemetry`; it does not call telemetry emitters directly.
+- `review-viewer/workers/projection` owns projection/search/facet worker
+  effects: request creation, Zod parsing on send and receive, cancellation,
+  queue timing, stale result discard, and low-cardinality measurement context.
+  Shared transport code can live in `review-viewer/workers/shared-rpc` only
+  when another lane, such as markdown, uses the same generic shape. Worker
+  lanes report measurement context to `foundation/telemetry`; they do not call
+  telemetry emitters directly.
 - `review-viewer/trees` owns Tree effects: prepared input creation, model
   reset/batch operations, focus, selection, expansion, and row decoration.
 - `review-viewer/code-view` owns CodeView effects: item materialization,
@@ -568,14 +582,18 @@ BridgeWeb/src/
     review-query/
     telemetry/
   review-viewer/
+    app/
+    chrome/
     state/
-    navigation/
+    projections/
     content/
     code-view/
     trees/
     workers/
       pierre/
-      rpc/
+      projection/
+      markdown/
+      shared-rpc/
     markdown/
     shell/
 ```
@@ -588,7 +606,7 @@ Responsibilities:
 - `review-viewer/state`: owns the Zustand store, typed actions, and selectors
   for viewer-local package, projection, selection, hydration, CodeView, worker,
   and telemetry state. It must not fetch bytes or call Swift directly.
-- `review-viewer/navigation`: builds file-tree projections, facets, filtered
+- `review-viewer/projections`: builds file-tree projections, facets, filtered
   views, and path-to-item maps from the review package registry's
   `visibleItems`. It must not reimplement `filterState` visibility.
 - `review-viewer/trees`: owns `@pierre/trees` model creation, prepared input,
@@ -599,13 +617,25 @@ Responsibilities:
   Pierre `CodeViewItem` records and owns CodeView item updates.
 - `review-viewer/workers/pierre`: owns Pierre worker-pool creation, render
   options, worker stats sampling, and failure fallback.
-- `review-viewer/workers/rpc`: owns Bridge-owned worker request/result schemas,
-  typed client helpers, cancellation, and worker measurement context. It does
-  not own Pierre Shiki worker messages and does not emit telemetry directly.
+- `review-viewer/workers/projection`: owns Bridge-owned projection/search/facet
+  worker request/result schemas, typed client helpers, cancellation, and worker
+  measurement context.
+- `review-viewer/workers/markdown`: owns markdown/Shiki markdown render worker
+  request/result schemas and rich markdown rendering work.
+- `review-viewer/workers/shared-rpc`: owns generic typed worker transport
+  helpers only when at least two review-viewer worker lanes use the same
+  transport shape. It must not own product methods.
 - `review-viewer/markdown`: owns read-only markdown file rendering decisions.
   It must not live in `foundation/content`.
-- `review-viewer/shell`: composes navigation, toolbar mode controls, Trees,
+- `review-viewer/app` or `review-viewer/shell`: composes projection controls,
+  toolbar mode controls, Trees,
   CodeView, and markdown/file panels.
+
+`BridgeWeb/src/app/bridge-app.tsx` is a composition boundary, not a feature
+implementation bucket. The implementation plan must split review-viewer
+behavior out of that file before adding more data-plane logic. Files over 600
+lines require an explicit reason to remain whole; files over 900 lines require a
+refactor plan or a documented exception.
 
 ## BridgeWeb State Model
 
@@ -664,31 +694,30 @@ State rules:
 
 ## Navigation Modes And Projections
 
-The user needs fast buttons for different review views:
+The user needs fast controls for review tasks plus separate facets.
 
-- all files
-- changed files
-- guided review order
-- current change set
-- docs and plans
-- tests only
-- source only
-- folder/path scoped
-- extension/language scoped
-- file class scoped
+Review modes answer "what review task is the user doing?":
 
-These are viewer projections over one package, not separate package types.
-They are also broader than DiffsHub's Git-status menu. DiffsHub filters one
-patch tree by status. AgentStudio switches between review tasks and then applies
-local filters inside the chosen task.
+- `normalReview`: regular review of the active package, initially all visible
+  package items in package order
+- `guidedReview`: future AI-guided review order, initially deterministic local
+  ordering from descriptor metadata until backend scoring exists
+- `plansAndSpecs`: docs/plans/spec-focused review for planning artifacts
+
+Facets answer "how is that task narrowed?": Git status, file kind/class,
+folder/path, extension/language/MIME, change-set scope, visibility,
+search/regex, and future annotation/comment state. `changed`, `tests`,
+`source`, and `current change set` are facets or scopes, not top-level mode
+buttons. DiffsHub filters one patch tree by status. AgentStudio switches
+between review tasks and then applies local facets inside the chosen task.
 
 Add a BridgeWeb-local projection model. This is not a Swift wire contract and
 must not be serialized into `BridgeReviewPackage` unless a later plan proves a
 backend-owned field is necessary.
 
-Use discriminated unions for projection state. Split base projections from
-composable refinements. A base projection answers "what review task is the user
-doing?" Refinements answer "how is that task narrowed in the local tree?"
+Use discriminated unions for projection state. Split base review modes from
+composable facets. A mode answers "what review task is the user doing?" Facets
+answer "how is that task narrowed in the local tree?"
 Do not model this as one broad interface with optional parameters; that hides
 invalid states and cannot express combinations such as changed files narrowed to
 tests under one folder.
@@ -732,9 +761,10 @@ export type BridgeReviewFacetCounts = z.infer<
   typeof bridgeReviewFacetCountsSchema
 >;
 
-export const bridgeReviewProjectionRefinementSchema = z.discriminatedUnion(
+export const bridgeReviewProjectionFacetSchema = z.discriminatedUnion(
   'kind',
   [
+    z.object({ kind: z.literal('changeScope'), scope: bridgeCurrentChangeSetScopeSchema }),
     z.object({ kind: z.literal('folder'), folderPath: z.string().min(1) }),
     z.object({ kind: z.literal('extension'), extensions: z.array(z.string().min(1)) }),
     z.object({ kind: z.literal('language'), languages: z.array(z.string().min(1)) }),
@@ -753,8 +783,8 @@ export const bridgeReviewProjectionRefinementSchema = z.discriminatedUnion(
   ],
 );
 
-export type BridgeReviewProjectionRefinement = z.infer<
-  typeof bridgeReviewProjectionRefinementSchema
+export type BridgeReviewProjectionFacet = z.infer<
+  typeof bridgeReviewProjectionFacetSchema
 >;
 
 export const bridgeReviewProjectionResultSchema = z.object({
@@ -775,22 +805,14 @@ export const bridgeReviewProjectionResultSchema = z.object({
 });
 
 export const bridgeReviewProjectionModeSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('allFiles') }),
-  z.object({ kind: z.literal('changedFiles') }),
+  z.object({ kind: z.literal('normalReview') }),
   z.object({ kind: z.literal('guidedReview') }),
-  z.object({
-    kind: z.literal('currentChangeSet'),
-    scope: bridgeCurrentChangeSetScopeSchema,
-  }),
-  z.object({ kind: z.literal('docsAndPlans') }),
-  z.object({ kind: z.literal('tests') }),
-  z.object({ kind: z.literal('source') }),
-  z.object({ kind: z.literal('custom'), customProjectionId: z.string().min(1) }),
+  z.object({ kind: z.literal('plansAndSpecs') }),
 ]);
 
 export const bridgeReviewProjectionRequestSchema = z.object({
-  base: bridgeReviewProjectionModeSchema,
-  refinements: z.array(bridgeReviewProjectionRefinementSchema).readonly(),
+  mode: bridgeReviewProjectionModeSchema,
+  facets: z.array(bridgeReviewProjectionFacetSchema).readonly(),
 });
 
 export const bridgeReviewProjectionSchema = bridgeReviewProjectionRequestSchema
@@ -808,28 +830,23 @@ If Swift already provided final order, BridgeWeb should call
 `preparePresortedFileTreeInput(orderedPaths)` outside render and pass the
 prepared input to the Trees model.
 
-Projection semantics for the first slice:
+Review-mode semantics for the first slice:
 
-- `allFiles`: all registry `visibleItems` in package order.
-- `changedFiles`: visible items whose `changeKind` is `added`, `modified`,
-  `deleted`, `renamed`, or `copied`.
+- `normalReview`: all registry `visibleItems` in package order, narrowed by
+  facets.
 - `guidedReview`: visible items in the deterministic order below, derived only
   from existing descriptor fields: `reviewState`, `reviewPriority`,
   `fileClass`, `changeKind`, `extension`, path, and `isHiddenByDefault`.
-- `currentChangeSet`: the active package query scope. For compare packages this
-  is equivalent to `changedFiles`. For checkpoint, prompt, session, or
-  time-window packages it narrows only when the package already carries the
-  relevant `provenance` identifiers. It must not call Swift for a new package
-  or invent a backend session model.
-- `docsAndPlans`: visible items with `fileClass === 'docs'` or markdown-like
+- `plansAndSpecs`: visible items with `fileClass === 'docs'` or markdown-like
   paths under `docs/`, `docs/plans/`, `docs/superpowers/specs/`, or
   `docs/superpowers/plans/`. A markdown-like path has extension `.md` or
   `.mdx`, or a basename containing `plan`, `spec`, `design`, or `handoff`.
-- `tests` and `source`: visible items with `fileClass === 'test'` or
-  `fileClass === 'source'`.
-- folder, extension/language/MIME, file-class, Git-status, and visibility
-  filters are refinements over the selected base projection. They do not mutate
-  the package filter and can be combined.
+- `changeScope`: narrows the active package query scope only when the package
+  already carries the relevant provenance identifiers. It must not call Swift
+  for a new package or invent a backend session model.
+- `gitStatus`, `fileClass`, folder, extension/language/MIME, visibility,
+  search, regex, tests, and source filters are facets over the selected mode.
+  They do not mutate the package filter and can be combined.
 
 The projection layer must tolerate many-to-one and one-to-many path
 relationships. A display path can map to multiple review items, and a single
@@ -880,21 +897,21 @@ to compute guided order.
 
 The first viewer shell should expose these control groups:
 
-- projection segmented control: all, changed, guided, change set, docs/plans,
-  tests, source
+- review-mode segmented control: normal review, guided review, plans/specs
 - tree search button/input backed by `useFileTreeSearch(model)`
 - Git-status filter menu: added, modified, renamed, deleted, copied if
   represented in Bridge metadata, and clear filter
-- secondary facet menu: folder, extension/language, file class, hidden/large
-  visibility
+- single facet menu: Git status, docs/plans, tests, source, folder,
+  extension/language, file class, current-scope/change-set, hidden/large
+  visibility, and regex/search help
 - compare selector display: current package query label, such as against main,
   against checkpoint, against worktree, or single file
 
 Control semantics:
 
-- Projection buttons can reorder and reduce the package. They rebuild projection
+- Review-mode buttons can reorder and reduce the package. They rebuild projection
   maps and usually call `resetPaths(...)` with fresh prepared input.
-- Search and Git-status filters are local to the current projection. They do not
+- Search and facets are local to the current review mode. They do not
   request a new package and should not fetch content.
 - The Git-status menu uses Trees built-in `gitStatus` only for Git-like states.
   Product-specific signals such as generated, hidden, large, docs/plans,
@@ -1353,7 +1370,7 @@ configured through `poolOptions` and `highlighterOptions`.
 Rules:
 
 - Create the worker through an explicit factory module owned by
-  `review-viewer/workers`.
+  `review-viewer/workers/pierre`.
 - Slice 1 uses Pierre's bundled portable worker entry:
   `@pierre/diffs/worker/worker-portable.js`.
 - The mergeable packaged build emits the Pierre portable worker as a static
@@ -1538,14 +1555,18 @@ their contents read-only.
 
 Initial policy:
 
-- Slice 1 renders markdown as source text through Pierre `File`/CodeView.
-- Rich markdown preview is a follow-up unless the implementation plan names a
-  sanitizer/renderer, URL policy, and negative security proof before coding.
-- A future rich renderer must be read-only, strip raw HTML, block scripts,
-  disable inline images unless allowlisted, and treat `http`/`https` links as
-  external click-outs only.
+- Slice 1 renders markdown files through a sanitized read-only markdown preview
+  path owned by `review-viewer/markdown` and `review-viewer/workers/markdown`.
+- Source text is a typed fallback/unavailable state for worker failure,
+  sanitizer failure, or unsupported content; it is not a passing acceptance
+  substitute for functional review mode.
+- The renderer must be read-only, strip raw HTML, block scripts, disable inline
+  images unless allowlisted, and treat `http`/`https` links as external
+  click-outs only.
 - Rich rendering must reject `file:`, `data:`, `blob:`, `javascript:`, and
   custom-scheme subresources from markdown content.
+- The markdown worker follows the same packaged-asset and vetted-blob
+  provenance rule as the Pierre worker lane.
 - Markdown rendering belongs in `review-viewer/markdown`, not in content
   loading or source-provider contracts.
 - Plan/docs-focused projections should be available even before annotations
@@ -1617,7 +1638,8 @@ Metrics must carry scale attributes, never raw identifiers:
 - `tree_path_count_bucket`
 - `diff_row_count_bucket`
 - `content_bytes_bucket`
-- `projection_kind`
+- `review_mode`
+- `facet_kind`
 - `worker_lane`: `pierre_shiki` or `bridge_projection`
 - `result`: `success`, `cancelled`, `stale`, `failure`
 
@@ -1627,7 +1649,7 @@ Required measured values include:
 - first viewer render duration
 - projection build duration
 - tree prepared-input duration
-- projection mode switch duration
+- review-mode switch duration
 - search/filter duration
 - content queue wait duration
 - content fetch duration
@@ -1876,8 +1898,9 @@ microbenchmarks where possible:
 
 Implementation planning must include at least these gates:
 
-- Unit: projection builders produce all/changed/guided/docs/tests/source views
-  from the same package.
+- Unit: projection builders produce normal-review, guided-review, and
+  plans/specs modes with changed/current-scope/docs/tests/source facets from
+  the same package.
 - Unit: projection builders create display-path, candidate-path, item-id, and
   available-role maps, including rename and duplicate-display-path cases.
 - Unit: Trees adapter uses prepared or presorted input outside React render.
@@ -1898,6 +1921,10 @@ Implementation planning must include at least these gates:
 - Unit: architecture boundary checks reject `@pierre/trees` runtime imports
   outside `review-viewer/trees` and CodeView runtime imports outside
   `review-viewer/code-view` or `review-viewer/workers/pierre`.
+- Unit: architecture boundary checks reject feature-owned workers outside
+  `review-viewer/workers/*` and reject vague review-viewer `runtime/` folders
+  when a responsibility folder such as `content`, `projections`, `commands`,
+  `app`, or `workers/<lane>` applies.
 - Unit: Zustand selectors stay narrow enough that worker-stat, content-cache,
   and hydration-queue updates do not rerender the root shell.
 - Unit: tree controls apply projection/search/Git-status/facet state without
@@ -1915,9 +1942,8 @@ Implementation planning must include at least these gates:
 - Unit: out-of-scope handle-resolution, `openFile`, and `readTree` requests
   are rejected when they name stale generations, unknown endpoints, arbitrary
   refs, or paths outside the active package descriptor.
-- Unit: markdown rich-preview sanitizer policy rejects raw HTML and blocked URL
-  schemes, if rich preview is included. If slice 1 keeps source-text markdown,
-  this proof is explicitly deferred with the feature.
+- Unit: markdown preview sanitizer policy rejects raw HTML and blocked URL
+  schemes, and the markdown worker rejects malformed/stale/failure envelopes.
 - Integration: BridgeWeb package push renders tree mode controls and a
   selectable file tree without content bytes in the push payload.
 - Integration: selecting a file fetches content through
@@ -1969,6 +1995,11 @@ Required command-level gates for the implementation plan:
   implementation plan owning whether this is custom Oxlint, a local AST checker,
   or a combination
 - `mise run bridge-web-test`
+- `mise run bridge-web-browser-test`
+- `mise run bridge-web-browser-benchmark`
+- `pnpm --dir BridgeWeb run test:dev-server`
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+- `pnpm --dir BridgeWeb run proof:visual:dev-server`
 - `mise run bridge-web-build`
 - `mise run test -- --filter Bridge`
 - a named Bridge viewer benchmark command added by the implementation plan,
@@ -1977,8 +2008,16 @@ Required command-level gates for the implementation plan:
 - `mise run test-webkit`
 - `mise run lint`
 - `mise run observability:up`
-- `mise run run-debug-observability -- --detach`
-- `mise run verify-bridge-observability`
+- native smoke:
+  `AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-review-observability-smoke mise run run-debug-observability -- --detach`
+- native smoke verifier:
+  `AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-review-observability-smoke mise run verify-bridge-observability`
+- a named real-worktree native proof command added by the implementation plan;
+  it must load `/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start`,
+  drive semantic Bridge review/file-tree/file-view commands, and verify
+  Victoria timings for package push, tree render/search/reveal, file select,
+  CodeView hydration/render, markdown render, scroll responsiveness, content
+  cache, and worker lanes
 
 The Bridge observability verifier must be extended in the same slice to require
 viewer-specific debug signals. A passing viewer proof includes at least:
@@ -2002,7 +2041,7 @@ queue priority. Benchmark artifacts record whether these targets were met.
   after the package is in memory.
 - Select and fetch one visible text file from the content resource stream in
   under 200ms on the local debug fixture.
-- Keep projection mode switches and search/filter for a 500-item prepared tree
+- Keep review-mode switches and search/filter for a 500-item prepared tree
   under 100ms after the package is in memory.
 - Large-tree and large-diff benchmark targets must be reported as measured
   baselines in the first implementation PR. Do not invent hard pass/fail numbers
@@ -2020,8 +2059,8 @@ queue priority. Benchmark artifacts record whether these targets were met.
   in BridgeWeb lockfiles. The local Pierre repo is reference-only.
 - CodeView ownership: production uses uncontrolled/imperative CodeView from
   the first slice. Controlled mode is test-only.
-- Markdown: source-text rendering only in slice 1. Rich preview is a follow-up
-  unless separately approved with sanitizer and security proof.
+- Markdown: sanitized read-only markdown preview is required in slice 1. Source
+  text is a typed unavailable/fallback state only.
 - Tree browse: package-backed Trees only in slice 1. General endpoint tree
   browse through `BridgeReviewSourceProvider.readTree(...)` is a follow-up UI
   surface.

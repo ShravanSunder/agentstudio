@@ -7,6 +7,7 @@ Status: implementation-ready spec amendment
 Related:
 
 - `docs/superpowers/specs/2026-06-18-bridgeweb-dev-visual-proof-harness.md`
+- `docs/superpowers/specs/2026-06-20-bridge-resource-data-plane.md`
 - `docs/plans/2026-06-18-bridgeweb-large-diff-fast-loop-remediation.md`
 - `docs/plans/2026-06-16-bridge-viewer-diffshub-polish.md`
 
@@ -69,20 +70,25 @@ known failed state, not a target.
    `large-diffshub` after the fixture meets this spec's minimum usefulness
    gate. The older `delivery=full-load|streaming-append` selector remains part
    of the dev harness.
-4. Fixtures must exercise real BridgeWeb boundaries: package push, projection
+4. Query-selected worktree scenarios are allowlisted by stable scenario name,
+   not by arbitrary raw path. The required real-worktree scenario points at
+   `/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start`,
+   but the dev harness must reject raw absolute paths, path traversal, unknown
+   scenario names, remote URLs, and non-loopback access.
+5. Fixtures must exercise real BridgeWeb boundaries: package push, projection
    worker request, content-handle fetch, command/RPC capture, and optional
    latency/failure.
-5. Large fixtures must not be dominated by added-only placeholder rows. They
+6. Large fixtures must not be dominated by added-only placeholder rows. They
    need modified diffs, added files with full fetched content, deleted files,
    renamed files, docs/plans markdown, tests, source, and nested paths.
-6. Added files must show full fetched content after selection. Placeholder rows
+7. Added files must show full fetched content after selection. Placeholder rows
    may exist only while content is pending.
-7. CodeView and the right file rail must scroll independently. The body,
+8. CodeView and the right file rail must scroll independently. The body,
    document, and shell root must not become review-content scroll owners.
-8. Clicking file rows must be responsive and deterministic: visible selected
-   content changes, `review.markFileViewed` is captured, and selection does not
-   snap back.
-9. Header/chrome must follow the DiffsHub/Pierre review grammar while fitting
+9. Clicking file rows must be responsive and deterministic: visible selected
+   content changes, the semantic selection/reveal action is captured, and
+   selection does not snap back.
+10. Header/chrome must follow the DiffsHub/Pierre review grammar while fitting
    AgentStudio dark styling: compact, icon-first controls, black canvas,
    custom menus, no native selects, and right-side file rail.
    The current visual gate is explicit: compare against
@@ -124,18 +130,18 @@ known failed state, not a target.
    Component-level overrides happen downstream of this theme layer and only for
    Bridge density/layout/domain states. They must not introduce a parallel
    one-off color, radius, typography, or focus system.
-   Projection and summary controls are part of this chrome contract only when
+   Review-mode and summary controls are part of this chrome contract only when
    they are integrated into the same compact AgentStudio/Pierre surface. The
    preferred target is right-rail or same-plane app chrome composition, not a
    full-width top strip. Stats, endpoint label, generation/grouping text, and
-   `All / Changed / Guided / Change set / Docs/plans / Tests / Source`
-   controls must never render as a detached high-contrast black island pasted
-   over the Mocha surface. The active scope affordance should be quiet and
-   segmented when present, with stable semantic test ids, compact 11px
-   typography, exactly one active pressed state, and no wrapper background that
-   reads as a separate black strip. Browser proof must measure the rendered
-   chrome state because screenshots have caught regressions that prop-level
-   tests missed.
+   review-mode controls must never render as a detached high-contrast black
+   island pasted over the Mocha surface. The top-level mode affordance is
+   normal review / guided review / plans-specs; changed/current-scope/docs/tests
+   /source are facets. The active scope affordance should be quiet and segmented
+   when present, with stable semantic test ids, compact 11px typography, exactly
+   one active pressed state, and no wrapper background that reads as a separate
+   black strip. Browser proof must measure the rendered chrome state because
+   screenshots have caught regressions that prop-level tests missed.
    Browser and native visual proof must include header/right-rail crops and
    reject controls whose background, height, radius, typography, or spacing
    visibly diverge from the surrounding AgentStudio dark chrome.
@@ -160,7 +166,7 @@ known failed state, not a target.
    Bridge file-kind icon before Pierre's own file icon/path. Status belongs in
    the file rail/tree and metadata, not as a third leading token in every
    CodeView header.
-10. The rail filter/search controls must feel like a designed DiffsHub-class
+11. The rail filter/search controls must feel like a designed DiffsHub-class
     inspector, not generic web form controls. The open filter popover must use a
     dark raised surface, clear separators, 24-32px menu rows, colored status
     badges, trailing selected checkmarks, disabled/clear affordances, and icon
@@ -377,18 +383,21 @@ known failed state, not a target.
     prerequisite for the dev-server/DiffsHub UX slice and may run as a separate
     delegated lane after browser click/scroll/filter/content behavior is stable.
     Required command groups before native repeatable proof are:
-    - `bridge.diff.load`
-    - `bridge.diff.refresh`
-    - `bridge.diff.getPackage`
-    - `bridge.diff.selectFile`
-    - `bridge.diff.scrollToFile`
-    - `bridge.diff.expandFile`
-    - `bridge.diff.collapseFile`
+    - `bridge.review.load`
+    - `bridge.review.refresh`
+    - `bridge.review.getPackage`
+    - `bridge.review.setMode`
+    - `bridge.review.setFacets`
+    - `bridge.review.selectFile`
+    - `bridge.review.revealFile`
+    - `bridge.review.scrollToFile`
+    - `bridge.review.prepareWindow`
+    - `bridge.review.expandFile`
+    - `bridge.review.collapseFile`
     - `bridge.fileTree.search`
-    - `bridge.fileTree.setFilter`
+    - `bridge.fileTree.setFacets`
     - `bridge.fileTree.revealPath`
-    - `bridge.fileView.getContent`
-    - `bridge.fileView.showMarkdownPreview`
+    - `bridge.fileView.setRenderMode`
     - `bridge.telemetry.snapshot`
     - `bridge.telemetry.flush`
     Exact names may be refined during implementation, but the namespace must
@@ -562,9 +571,9 @@ AgentStudio IPC router
         v
 Bridge capability target
         |
-        +--> bridge.diff.*       load/select/scroll/collapse package items
-        +--> bridge.fileTree.*   search/filter/reveal tree rows
-        +--> bridge.fileView.*   fetch content / show markdown preview
+        +--> bridge.review.*     load/select/scroll/collapse package items
+        +--> bridge.fileTree.*   search/facet/reveal tree rows
+        +--> bridge.fileView.*   switch source/markdown render mode
         +--> bridge.telemetry.*  snapshot / flush debug metrics
         |
         v
@@ -623,10 +632,12 @@ PR readiness
 - `pnpm --dir BridgeWeb run build` proves packaged workers/assets still pass
   audit.
 - Before native repeatable proof, semantic Bridge IPC commands can load/refresh
-  a package, select/reveal a file, drive tree search/filter, fetch content,
-  request markdown preview, and capture telemetry state without opening command
-  palette UI or exposing raw WebKit evaluation. This gate follows the browser UX
-  gate and must not substitute for visual/browser proof.
+  a package, select/reveal a file, drive tree search/facets, prepare a resource
+  window, switch file render mode, and capture telemetry state without opening
+  command palette UI or exposing raw WebKit evaluation. Hot file/diff/markdown
+  bodies are fetched through `agentstudio://resource/*`, not returned through
+  IPC. This gate follows the browser UX gate and must not substitute for
+  visual/browser proof.
 - The AgentStudio debug Bridge pane proves the same large-worktree behavior
   without blank page, scroll lock, selection stalls, or markdown render gaps.
 - Native proof includes the current `agent-studio.bridge-start` worktree on

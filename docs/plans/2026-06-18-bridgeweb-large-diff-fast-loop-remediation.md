@@ -56,14 +56,16 @@ Execution order amendment, 2026-06-19:
   markdown rendering, added-file content, collapsible headers, file click to
   CodeView scroll, and browser-controlled visual comparison against DiffsHub
   example PRs.
-- Projection and summary controls are part of the interaction loop only when
+- Review-mode and summary controls are part of the interaction loop only when
   they are integrated into the same compact AgentStudio/Pierre surface,
   preferably the right rail or same-plane app chrome. Do not resume new Swift
   IPC surface work while the browser or native screenshot still shows a
   detached pure-black
   `All / Changed / Guided / Change set / Docs/plans / Tests / Source` strip,
   mismatched header typography, or controls that do not sit on the Mocha
-  AgentStudio/Pierre header plane.
+  AgentStudio/Pierre header plane. The target control is a compact
+  normal/guided/plans-specs review-mode segmented control plus separate facet
+  controls for Git status, file kind, path, extension, scope, and search.
 - Add semantic Bridge IPC control before large native performance proof. The
   real branch cannot be measured repeatably if agents cannot drive file
   selection, tree search/filter/reveal, content fetch, markdown preview, and
@@ -88,9 +90,10 @@ Manual visual review blocker, 2026-06-19:
   no always-visible heavy outlines, no native/select-looking black pills, and
   only hover/focus/pressed states drawing the border or raised surface.
 - Remove or replace the detached top `All / Changed / Guided / Change set /
-  Docs/plans / Tests / Source` bar. The projection mode affordance must become a
-  compact shadcn-style toggle/segmented control that belongs to the header
-  plane, or be moved out of that row. A black floating strip is a failed proof
+  Docs/plans / Tests / Source` bar. The review-mode affordance must become a
+  compact shadcn-style toggle/segmented control for normal review, guided
+  review, and plans/specs. Changed/current-scope/docs/tests/source must move to
+  facet controls where appropriate. A black floating strip is a failed proof
   state. The unexplained hamburger/list icon in the top-left header is also a
   failed proof state unless it owns a clear app action and matches the icon
   system.
@@ -143,6 +146,14 @@ Visual checkpoint, 2026-06-19:
   fixture. The accepted harness resolves a preferred target path from the
   actual `file-tree-container` shadow DOM, then records `targetDisplayPath`,
   `selectedDisplayPath`, theme colors, screenshots, and worker state.
+- Dev-server verifier JSON must include a typed `hydrationDiagnostics` object
+  for the current hydration bug: CodeView item count, rendered `diffs-container`
+  item id count/ids when exposed, selected item id/path, selected content
+  state, selected cache/role/character/line counts, selected materialization
+  type/version/update-result and materialized line counts, empty expanded
+  header count, and an explicit `visibleHydratedCacheCountAvailable` flag. As
+  of this slice, visible hydrated cache count is reported unavailable because
+  no app-side diagnostic attribute exposes it.
 - Browser visual QA confirmed the apparent "three icons before the file name"
   came from CodeView header slot composition: Bridge rendered a collapse button
   and status badge in `slot[name="header-prefix"]`, while Pierre rendered its
@@ -155,11 +166,12 @@ Visual checkpoint, 2026-06-19:
   `slot[name="header-metadata"].assignedElements()` for count metadata. A
   selector that looks only inside `diffs-container.shadowRoot` can miss the
   Bridge-owned prefix and produce false confidence.
-- Top projection proof must inspect the actual browser-rendered header, not
-  just React props. The accepted state is seven explicit
-  `bridge-review-projection-*` buttons, one active `aria-pressed` button, 11px
-  compact typography, transparent/same-plane background, and no detached pure
-  black scope strip. The dev-server verifier owns this check.
+- Review-mode proof must inspect the actual browser-rendered header, not just
+  React props. The accepted state is compact normal/guided/plans-specs mode
+  controls, one active `aria-pressed` or equivalent selected state, compact
+  typography, transparent/same-plane background, and no detached pure black
+  scope strip. Facets live in the filter/search controls, not as extra
+  top-level mode buttons. The dev-server verifier owns this check.
 - The right rail toolbar must not duplicate test ids between wrappers and
   buttons. `bridge-review-search-toggle` belongs to the button only; wrapper
   slots use their own ids. Icon controls in the rail must remain hoverable and
@@ -290,7 +302,7 @@ or an explicitly approved split/replan says why a row moved out of scope.
 | shadcn/Base UI design foundation | Generated files, typecheck, component tests, and screenshot | BridgeWeb has package-local shadcn CLI configuration, generated Base UI primitives where supported, compact variants, and AgentStudio-owned dark tokens before rail chrome is considered complete. |
 | Design system composition | Component tests, source review, and screenshot | BridgeWeb composes generated shadcn/Base UI primitives with `cn`, compact variants, and Catppuccin Mocha tokens; Tailwind classes are transport/layout, not a bespoke feature-local control system. |
 | Visual parity with DiffsHub grammar | Side-by-side or comparable screenshots | Headers, separators, rail density, icon-first controls, and dark palette are close enough to the DiffsHub Node PR reference while matching AgentStudio styling. |
-| Projection/header chrome | Browser screenshot crop, native screenshot crop, and bbox/color checks | `All / Changed / Guided / Change set / Docs/plans / Tests / Source` controls render only as compact integrated chrome, preferably in the right rail or same-plane app header. A detached pure-black pill strip, oversized tab bar, mismatched typography, unrelated hamburger/list icon, or controls that look pasted over the Mocha surface fail this row. |
+| Review-mode/header chrome | Browser screenshot crop, native screenshot crop, and bbox/color checks | The top-level control is normal review / guided review / plans-specs, rendered as compact integrated chrome, preferably in the right rail or same-plane app header. Changed/current-scope/docs/tests/source are facets, not extra top-level mode buttons. A detached pure-black pill strip, oversized tab bar, mismatched typography, unrelated hamburger/list icon, or controls that look pasted over the Mocha surface fail this row. |
 | DiffsHub-class filter popovers | Browser screenshot with filter menu open, semantic assertions, and bbox measurements | Filter/search controls are compact icon-first buttons; open filter popover uses a dark raised surface, clear separators, about 32px rows, colored status badges, trailing selected checkmarks, disabled/clear affordance, `menuitemcheckbox` semantics, and no native/select-looking black pills. |
 | Rail row/icon alignment | Browser screenshot, DOM checks, and bbox measurements | Tree rows use compact 24px-ish stable height, `button[role="treeitem"][data-item-path]`, consistent file/folder/status icons, right-aligned status letters, readable selected-row contrast, and disclosure chevrons sized like DiffsHub/AgentStudio controls rather than oversized row text. |
 | Native packaged proof | AgentStudio debug app evidence | Packaged BridgeWeb renders the same repaired behavior through Bridge package push and `agentstudio://resource/content/...`, not a Vite/mock-only path. |
@@ -428,13 +440,14 @@ Important current-state facts:
 | Large fixture represents real review work | 2 | executor | fixture metadata unit tests and visual screenshot | unit + visual | modified/deleted/renamed/docs/tests/source counts recorded | red/green required |
 | Large fixture is large enough to reproduce DiffsHub-class UX issues | 2, 7 | executor | fixture metadata and browser perf rows | unit + performance/browser | `large-diffshub` meets minimum item/diff-line/package-size targets and optional stress fixture is recorded separately | red/green required |
 | Added files show full fetched content | 2, 5 | executor | Browser click test and materialization unit test | unit + browser | content must arrive through handle fetch ledger | red/green required |
-| Large-fixture file clicks are responsive and stable | 3 | executor | large browser performance scenario and interaction test | browser + performance | row uses `fixtureClass: large-diffshub`, visible selected text changes, mark-viewed command captured, no snapback | red/green required |
+| Large-fixture file clicks are responsive and stable | 3 | executor | large browser performance scenario and interaction test | browser + performance | row uses `fixtureClass: large-diffshub`, visible selected text changes, mark-viewed command captured, selected header scrolls quickly to the top/sticky threshold, and no snapback/jump-around occurs | red/green required |
 | Large search/reveal/select is stage-proven | 3 | executor | targeted Browser Mode or Playwright stage artifact | browser + performance | stages record search settle, row click, selected row state, selected item/store state, CodeView header/path, content hydration, and scroll movement | red/green required |
 | Large projection/search/filter stays off main thread | 3, 4, 7, 8 | executor | browser artifacts and native Victoria telemetry | browser/performance + native/observability | large search, reveal, select, projection-chip, and filter scenarios record `projectionExecutionLane=worker` or equivalent; product-runtime sync fallback is allowed only for tiny fixtures or unit-test-only seams and cannot satisfy PR readiness | red/green required |
 | Selected deep paths reveal collapsed ancestors | 3, 4 | executor | FileTree controller unit test and large browser proof | unit + browser | selected path expands ancestor directories before `scrollToPath`; no hidden-path no-op | red/green required |
 | Large-fixture CodeView scroll works | 4 | executor | large browser scroll test plus screenshot | browser + visual | row uses `fixtureClass: large-diffshub`; body/document/shell root scroll remain stable | red/green required |
 | Large-fixture right rail scroll works independently | 4 | executor | large Browser rail scroll test plus screenshot | browser + visual | tree visible row window changes without CodeView drift | red/green required |
 | File click and collapse preserve header geometry | 3, 4, 5, 8 | executor | Playwright top-offset assertions plus native stage proof | visual/browser + native | rail click aligns the target file header to the top/sticky threshold; mid-viewport collapse/expand preserves the header top within a small tolerance while content below moves; pinned-header collapse remains pinned | red/green required |
+| Content hydration stays request-scoped | 3, 5, 7, 8 | executor | unit/integration/browser fetch-ledger tests and benchmark artifact | unit + browser + performance | package push remains metadata-first; cold mount hydrates the selected/revealed item only, not every rendered placeholder row; large fixtures must not hide bridge bandwidth regressions behind broad visible prefetch | red/green required |
 | Header/chrome matches target grammar | 5 | executor + reviewer | structural tests and screenshot | unit + visual | no native selects; compact custom controls visible | red/green required |
 | Filter popover matches DiffsHub/AgentStudio grammar | 5 | executor + visual reviewer | screenshot with menu open plus component/browser assertions and bbox probe | unit + visual/browser | open popover shows raised surface, separators, status badges, selected checkmarks, clear affordance, no tiny native-looking dropdown pills, `aria-haspopup="menu"`, toggled `aria-expanded`, `menuitemcheckbox` or equivalent checked state, and measured width/row/badge/checkmark geometry close to DiffsHub | red/green required |
 | Rail rows match DiffsHub density and icon discipline | 5 | executor + visual reviewer | screenshot crop plus browser row assertions | visual/browser | compact 24px-ish rows, 13px-ish text, pointer/no text-selection behavior, consistent icons, right-aligned status, selected row contrast, proportionate disclosure controls, and real Pierre tree disclosure/search/selection state | red/green required |
@@ -448,7 +461,7 @@ Important current-state facts:
 | Streaming append and stale-drop remain proven | 1, 7 | executor | benchmark rows and hold/release browser tests | browser + performance | current `medium-streaming-append-delta` and `stale-generation-drop` scenario contract is preserved | red/green required |
 | Browser performance rows are durable and verified | 7 | executor | `test:benchmark:browser` artifact verifier | performance | current runner `requiredScenarioIds` is the floor; recompute p50/p95 from raw samples | red/green required |
 | Large select and scroll rows are mandatory floor scenarios | 3, 4, 7, 8 | executor | benchmark runner contract and verifier | performance/browser + native/performance | required scenario floor includes large-fixture semantic select, large CodeView scroll ownership, and large rail scroll ownership rows with `fixtureClass: large-diffshub`; native proof records comparable real-worktree stages | red/green required |
-| Semantic Bridge IPC drives native proof | 8 | executor | IPC integration tests and debug IPC transcript | integration/native | Bridge-scoped `bridge.diff.*`, `bridge.fileTree.*`, `bridge.fileView.*`, and `bridge.telemetry.*` commands drive product ports, not command palette UI or raw WebKit evaluation | red/green required |
+| Semantic Bridge IPC drives native proof | 8 | executor | IPC integration tests and debug IPC transcript | integration/native | Bridge-scoped `bridge.review.*`, `bridge.fileTree.*`, `bridge.fileView.*`, and `bridge.telemetry.*` commands drive product ports, not command palette UI or raw WebKit evaluation. Hot file/diff/markdown bodies load through `agentstudio://resource/*`, not IPC results. | red/green required |
 | Victoria Stack is performance source of truth | 8 | executor | Victoria metrics/traces/log query artifact | native/performance/observability | native proof correlates IPC actions and screenshots with debug-scoped Bridge/Pierre telemetry for package push, tree render/search/reveal, file select, content fetch, CodeView hydration/render, markdown render, worker readiness, and scroll responsiveness | green required |
 | Current real worktree performance is stage-proven | 8 | executor | real AgentStudio debug pane stage artifact | native/performance | uses `/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start` on `luna-338-pierreshikitrees-review-viewer`; records package push, tree render/search/reveal, file select, CodeView hydration/render, markdown render, and scroll responsiveness timings | green required |
 | Real AgentStudio pane proves same behavior | 8 | executor | debug app IPC/visual proof | smoke/native | real large worktree/package path after packaged build; debug-only mock cannot be sole proof | green required |
@@ -575,7 +588,8 @@ Implementation:
   - resolve target paths from fixture metadata or the active
     `file-tree-container` DOM
   - record `targetDisplayPath`, `selectedDisplayPath`, fixture id/class,
-    worker state, and screenshot paths in the proof artifact
+    worker state, hydration diagnostics, and screenshot paths in the proof
+    artifact
   - the same verifier shape must work for at least two large-fixture variants
     whose selected added-file paths differ, and for the real-worktree fixture
     whose paths are discovered at runtime
@@ -647,6 +661,11 @@ Implementation:
   selected large-file line counts, and full-content targets.
 - Ensure every fixture has at least one multi-line added file whose visible
   content requires the content-handle fetch path.
+- Keep synthetic filler rows classified as volume/virtualization stress data.
+  One-line filler content is valid for scale, but it must not be the sole
+  visual-parity proof. Visual proof must include representative modified diffs,
+  added full-content files, markdown/docs, and real worktree rows so
+  empty-looking placeholder bodies are not mistaken for useful UX.
 
 Proof:
 
@@ -677,8 +696,8 @@ Write surfaces:
 
 - `BridgeWeb/src/app/bridge-app.tsx`
 - `BridgeWeb/src/review-viewer/state/review-viewer-store.ts`
-- `BridgeWeb/src/review-viewer/runtime/use-review-projection-coordinator.ts`
-- `BridgeWeb/src/review-viewer/runtime/review-content-loader.ts`
+- `BridgeWeb/src/review-viewer/projections/use-review-projection-coordinator.ts`
+- `BridgeWeb/src/review-viewer/content/review-content-loader.ts`
 - `BridgeWeb/src/review-viewer/trees/bridge-trees-panel.tsx`
 - relevant tests under `BridgeWeb/src/review-viewer/**`
 
@@ -686,8 +705,8 @@ Implementation:
 
 - Add a Browser Mode test that clicks a visible file row in the large fixture
   and asserts selected content changes within the scenario budget.
-- Assert the mocked backend captured `review.markFileViewed` and the selected
-  content URL.
+- Assert the mocked backend captured the semantic select/reveal action and the
+  selected resource URL used for content hydration.
 - Add a stage-based large-path reveal/select test for
   `large/browser/huge-diff.ts`. The test must record and assert each stage
   separately:
@@ -699,6 +718,8 @@ Implementation:
   - CodeView header/path reflects the huge item
   - content hydration fetches the huge content handle
   - CodeView visible content or scroll position changes
+  - the selected CodeView header aligns to the top/sticky threshold quickly,
+    matching DiffsHub file-click navigation instead of jumping around
 - Do not rely on full-text tree search as the only way to reveal a known item
   id/path. Use Pierre public FileTree item handles to expand ancestors before
   `focusPath` and `scrollToPath` for semantic selection paths.
@@ -711,6 +732,16 @@ Implementation:
   side effects live in `BridgeApp` and runtime seams. Keep them there unless
   the implementation intentionally redesigns ownership and updates the
   architecture checks/tests.
+- Backlog before continuing broad hydration work: split `BridgeApp` hydration
+  orchestration into vertical slices with explicit responsibilities. The app
+  shell should compose hooks/adapters only; pure candidate selection, cache-key
+  construction, stale-result guards, hydration queue policy, and resource-cache
+  projection belong in separate typed modules under the owning
+  `review-viewer/content`, `review-viewer/projections`, or
+  `review-viewer/code-view` slice. Do not keep adding
+  large inline helpers/effects to `BridgeWeb/src/app/bridge-app.tsx`; files
+  should have one reason to change and pure functions should be unit-testable
+  outside React.
 - Fix whichever measured lane is slow: avoid avoidable full projection rebuild,
   narrow Zustand subscriptions, keep heavy work in workers, and prevent stale
   content from snapping selection back.
@@ -820,7 +851,7 @@ Implementation:
     initialization does not rely on a cold dynamic theme import. Do not confuse
     syntax theme selection with shadcn UI chrome tokens.
 - Replace text/native controls with compact shadcn-derived controls.
-- Projection/view mode controls must compose the local segmented
+- Review-mode controls must compose the local segmented
   ButtonGroup/ToggleGroup wrapper. Do not rebuild them as a standalone
   floating text strip or as unrelated raw buttons.
 - Keep file rail on the right.
@@ -930,6 +961,10 @@ Implementation:
 - Added files must be represented as visible CodeView file content after
   content-handle hydration. Empty added-file placeholders are allowed only while
   content is explicitly pending.
+- CodeView content hydration stays metadata-first: selected files hydrate on the
+  hot path, and a bounded visible-window lane hydrates only the currently
+  rendered CodeView items. Do not regress to either eager full-package content
+  loading or selected-only hydration that leaves visible added files blank.
 - Configure worker-backed CodeView highlighting through the Pierre React worker
   pool path. Worker-disabled fallback proof cannot satisfy the DiffsHub-class
   product row.
@@ -1101,21 +1136,23 @@ Implementation:
 - Build packaged assets.
 - Add or finish semantic IPC control before native large-performance proof. The
   required product namespaces are:
-  - `bridge.diff.*` for load/refresh/package/select/scroll/collapse review
+  - `bridge.review.*` for load/refresh/package/mode/facet/select/reveal/scroll/collapse review
     item actions
-  - `bridge.fileTree.*` for search, filter, reveal, and tree state
-  - `bridge.fileView.*` for content fetch and markdown-preview requests
+  - `bridge.fileTree.*` for search, facets, reveal, and tree state
+  - `bridge.fileView.*` for source/markdown render-mode requests
   - `bridge.telemetry.*` for debug snapshot/flush of Bridge/Pierre telemetry
 - Required command groups before native repeatable proof are at least:
-  `bridge.diff.load`, `bridge.diff.refresh`, `bridge.diff.getPackage`,
-  `bridge.diff.selectFile`, `bridge.diff.scrollToFile`,
-  `bridge.diff.expandFile`, `bridge.diff.collapseFile`,
-  `bridge.fileTree.search`, `bridge.fileTree.setFilter`,
-  `bridge.fileTree.revealPath`, `bridge.fileView.getContent`,
-  `bridge.fileView.showMarkdownPreview`, `bridge.telemetry.snapshot`, and
-  `bridge.telemetry.flush`. Exact names may be refined during implementation,
-  but the native proof must still cover these semantic capabilities without
-  command palette UI, raw WebKit evaluation, or event-bus command routing.
+  `bridge.review.load`, `bridge.review.refresh`, `bridge.review.getPackage`,
+  `bridge.review.setMode`, `bridge.review.setFacets`,
+  `bridge.review.selectFile`, `bridge.review.revealFile`,
+  `bridge.review.scrollToFile`, `bridge.review.prepareWindow`,
+  `bridge.review.expandFile`, `bridge.review.collapseFile`,
+  `bridge.fileTree.search`, `bridge.fileTree.setFacets`,
+  `bridge.fileTree.revealPath`, `bridge.fileView.setRenderMode`,
+  `bridge.telemetry.snapshot`, and `bridge.telemetry.flush`. Exact names may be
+  refined only by updating the specs and tests first. Native proof must cover
+  these semantic capabilities without command palette UI, raw WebKit
+  evaluation, event-bus command routing, or IPC-returned hot bodies.
 - IPC must route through AgentStudio IPC target resolution to a Bridge pane or
   Bridge capability port. It must not open command palette UI, publish
   command-events on the event bus, expose raw WebKit evaluation, or bypass
@@ -1267,15 +1304,17 @@ Still not accepted by the DiffsHub-class visual gate:
 
 - Any top review scope strip remains failed evidence unless it is removed or
   rebuilt as compact integrated shadcn/Base UI chrome on the same
-  AgentStudio/Pierre Mocha surface. The preferred placement for projection
+  AgentStudio/Pierre Mocha surface. The preferred placement for review-mode
   controls is the right rail or same-plane app chrome, not a detached strip.
 - Main CodeView file sections need clearer DiffsHub-like boundaries, sticky
   behavior, and collapse/expand affordances.
 - CodeView file headers must not stack redundant icons. The accepted header
   grammar is collapse affordance plus Pierre-owned file icon/path; do not add a
   Bridge status badge or extra Bridge file-kind icon before the path.
-- File-click selection must keep aligning the target file header to the top of
-  the scroll viewport without jumpiness.
+- File-click selection must quickly align the target file header to the top or
+  sticky threshold of the scroll viewport, like DiffsHub. It must not smooth
+  scroll for long enough to race hydration, snap back, drift, or jump when the
+  selected file is collapsed or expanded.
 - Large fixture tree-click behavior must be consistent for all visible file
   rows. Clicking a file row must resolve to a review item, update selected
   content state, and scroll the corresponding CodeView header into the viewport.
@@ -1292,7 +1331,7 @@ Parallel IPC checkpoint:
 - Existing-handle Bridge IPC methods now have focused proof for Bridge-pane
   target canonicalization and typed `unsupported target` errors for non-Bridge
   panes.
-- `bridge.diff.load` remains app/layout-scoped because it opens/loads Bridge
+- `bridge.review.load` remains app/layout-scoped because it opens/loads Bridge
   review state without an existing pane handle.
 - Focused IPC proof currently green:
 
