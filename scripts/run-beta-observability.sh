@@ -332,6 +332,9 @@ trace_flush="${AGENTSTUDIO_TRACE_FLUSH:-immediate}"
 trace_name="${AGENTSTUDIO_TRACE_NAME:-beta-observability-$(date +%s)-$$}"
 trace_proof_token="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 trace_dir="${AGENTSTUDIO_TRACE_DIR:-$BETA_ARTIFACT_ROOT/traces}"
+startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}"
+tcc_probe_repeat_count="${AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT:-}"
+tcc_probe_interval_seconds="${AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS:-}"
 
 if [ ! -x "$STACK_HELPER" ]; then
   mkdir -p "$(dirname "$state_file")"
@@ -369,6 +372,9 @@ query_start="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   fi
   write_state_value AGENTSTUDIO_OBSERVABILITY_QUERY_START "$query_start"
   write_state_value AGENTSTUDIO_OBSERVABILITY_APP "$app_path"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "${startup_diagnostic_action:-}"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_REPEAT_COUNT "${tcc_probe_repeat_count:-}"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_INTERVAL_SECONDS "${tcc_probe_interval_seconds:-}"
 } >"$state_file"
 
 clean_open_env=(
@@ -392,6 +398,15 @@ open_env_args=(
     --env "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint" \
     --env "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
 )
+if [ -n "$startup_diagnostic_action" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action")
+fi
+if [ -n "$tcc_probe_repeat_count" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT=$tcc_probe_repeat_count")
+fi
+if [ -n "$tcc_probe_interval_seconds" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS=$tcc_probe_interval_seconds")
+fi
 
 if [ "$detach" = true ]; then
   if ! open_app "$app_path" "$launch_log" "" "${open_env_args[@]}"; then

@@ -72,6 +72,17 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(action.commandName == "bridgeReviewObservabilitySmoke")
     }
 
+    @Test("startup diagnostic action parses TCC upgrade probe command")
+    func parsesTCCUpgradeProbeCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: " tcc-upgrade-probe "
+            ]))
+
+        #expect(action.kind == .tccUpgradeProbe)
+        #expect(action.commandName == "tccUpgradeProbe")
+    }
+
     @Test("startup diagnostic action parses add watch folder command and path")
     func parsesAddWatchFolderCommandAndPath() throws {
         let action = try #require(

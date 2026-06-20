@@ -69,6 +69,8 @@ extension AppDelegate {
                 AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)
                 await Task.yield()
                 self.commandBarController.state.rawInput = "# repo"
+            case .tccUpgradeProbe:
+                await self.runTCCUpgradeProbeDiagnostic(action: action)
             #if DEBUG
                 case .crossTabMoveGeometrySmoke:
                     await self.runCrossTabMoveGeometrySmokeDiagnostic(action: action)
@@ -89,6 +91,103 @@ extension AppDelegate {
                     return
                 }
                 await self.handleWatchFolderRequested(startingAt: folderURL)
+            }
+        }
+    }
+
+    private func runTCCUpgradeProbeDiagnostic(
+        action: AgentStudioStartupDiagnosticAction
+    ) async {
+        let monitorConfiguration = AgentStudioTCCUpgradeProbeMonitorConfiguration.from()
+        let recorder = AgentStudioTCCDiagnosticRecorder(traceRuntime: traceRuntime)
+        let bundleKind = AgentStudioTCCDiagnosticRecorder.bundleKind()
+        let baselineBundleSnapshot = AgentStudioTCCBundleDiskSnapshot.current()
+        recorder.recordAppIdentitySnapshot(
+            phase: .startupDiagnostic,
+            bundleKind: bundleKind,
+            codeIdentityKind: baselineBundleSnapshot.codeIdentityKind(comparedTo: baselineBundleSnapshot),
+            bundleChanged: false,
+            bundleExecutableReachable: baselineBundleSnapshot.isReachable,
+            startupDiagnosticAction: action.kind.rawValue,
+            probeSequence: 0,
+            rawBundlePath: baselineBundleSnapshot.rawBundlePath,
+            rawExecutablePath: baselineBundleSnapshot.rawExecutablePath
+        )
+
+        let probe = AgentStudioTCCDiagnosticRecorder.shellChildDocumentsDirectoryProbe()
+        recorder.recordAccessProbe(
+            AgentStudioTCCAccessProbeRecord(
+                phase: .startupDiagnostic,
+                subject: .shellChild,
+                target: .documents,
+                result: probe.result,
+                responsibleKind: AgentStudioTCCDiagnosticRecorder.responsibleKind(for: bundleKind),
+                commandExitClass: probe.commandExitClass,
+                startupDiagnosticAction: action.kind.rawValue,
+                probeSequence: 0,
+                rawProbePath: probe.rawPath
+            ))
+        try? await recorder.drain()
+
+        let outcome = probe.result == .granted ? "succeeded" : "blocked"
+        startupTraceRecorder.recordAppStartup(
+            "app.startup_diagnostic_action.command_exercised",
+            phase: "startup_diagnostic_action",
+            outcome: outcome,
+            attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(probe.result == .granted)
+            ]) { _, newValue in newValue }
+        )
+        startupTraceRecorder.recordAppStartup(
+            probe.result == .granted
+                ? "app.startup_diagnostic_action.completed"
+                : "app.startup_diagnostic_action.blocked",
+            phase: "startup_diagnostic_action",
+            outcome: outcome,
+            attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(probe.result == .granted)
+            ]) { _, newValue in newValue }
+        )
+        guard monitorConfiguration.repeatCount > 0 else { return }
+
+        let actionRawValue = action.kind.rawValue
+        let traceRuntime = traceRuntime
+        let baselineBundleSnapshotForMonitor = baselineBundleSnapshot
+        // TCC monitoring runs blocking shell probes; keep the diagnostic off the MainActor.
+        // swiftlint:disable:next no_task_detached
+        Task.detached(priority: .background) {
+            let bundleKind = AgentStudioTCCDiagnosticRecorder.bundleKind()
+            for probeSequence in 1...monitorConfiguration.repeatCount {
+                try? await Task.sleep(nanoseconds: monitorConfiguration.intervalNanoseconds)
+                let bundleSnapshot = AgentStudioTCCBundleDiskSnapshot.current()
+                let probe = AgentStudioTCCDiagnosticRecorder.shellChildDocumentsDirectoryProbe()
+                let recorder = AgentStudioTCCDiagnosticRecorder(traceRuntime: traceRuntime)
+                let codeIdentityKind = bundleSnapshot.codeIdentityKind(
+                    comparedTo: baselineBundleSnapshotForMonitor)
+                recorder.recordAppIdentitySnapshot(
+                    phase: .startupDiagnostic,
+                    bundleKind: bundleKind,
+                    codeIdentityKind: codeIdentityKind,
+                    bundleChanged: codeIdentityKind == .differentDiskIdentity,
+                    bundleExecutableReachable: bundleSnapshot.isReachable,
+                    startupDiagnosticAction: actionRawValue,
+                    probeSequence: probeSequence,
+                    rawBundlePath: bundleSnapshot.rawBundlePath,
+                    rawExecutablePath: bundleSnapshot.rawExecutablePath
+                )
+                recorder.recordAccessProbe(
+                    AgentStudioTCCAccessProbeRecord(
+                        phase: .startupDiagnostic,
+                        subject: .shellChild,
+                        target: .documents,
+                        result: probe.result,
+                        responsibleKind: AgentStudioTCCDiagnosticRecorder.responsibleKind(for: bundleKind),
+                        commandExitClass: probe.commandExitClass,
+                        startupDiagnosticAction: actionRawValue,
+                        probeSequence: probeSequence,
+                        rawProbePath: probe.rawPath
+                    ))
+                try? await recorder.drain()
             }
         }
     }
