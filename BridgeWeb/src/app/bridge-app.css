@@ -54,7 +54,7 @@
 :root {
 	color-scheme: dark;
 	--radius: 0.45rem;
-	--background: #1e1e2e;
+	--background: #101010;
 	--foreground: #cdd6f4;
 	--card: #1e1e2e;
 	--card-foreground: #cdd6f4;
@@ -85,7 +85,7 @@
 	--sidebar-accent-foreground: #cdd6f4;
 	--sidebar-border: #45475a;
 	--sidebar-ring: #89b4fa;
-	--bridge-app-bg: #1e1e2e;
+	--bridge-app-bg: #101010;
 	--bridge-canvas-bg: #1e1e2e;
 	--bridge-header-bg: #1e1e2e;
 	--bridge-header-control-bg: #181825;

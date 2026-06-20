@@ -43,6 +43,11 @@ describe('Bridge CodeView theme', () => {
 		const css = await readFile(new URL('../../app/bridge-app.css', import.meta.url), 'utf8');
 		const lowerCaseCss = css.toLowerCase();
 
+		expect(lowerCaseCss).toContain('--background: #101010;');
+		expect(lowerCaseCss).toContain('--bridge-app-bg: #101010;');
+		expect(lowerCaseCss).toContain('--bridge-canvas-bg: #1e1e2e;');
+		expect(lowerCaseCss).toContain('--bridge-surface-bg: #1e1e2e;');
+
 		for (const expectedHexValue of expectedCatppuccinMochaChromeHexValues) {
 			expect(lowerCaseCss).toContain(expectedHexValue);
 		}
