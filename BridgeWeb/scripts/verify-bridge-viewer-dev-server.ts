@@ -4,10 +4,26 @@ import { chromium, type Page } from 'playwright';
 
 const defaultDevServerUrl =
 	'http://127.0.0.1:5173/?fixture=large-diffshub&workers=on&scenario=scroll';
-const targetAddedPath = 'Sources/BridgeViewer/NewPanel.ts';
-const targetAddedText = "return 'full added file content';";
-const targetMarkdownPath = 'docs/plans/bridge-viewer-browser.md';
-const targetMarkdownHeading = 'Browser fixture';
+const devServerUrl = process.env['BRIDGE_VIEWER_DEV_SERVER_URL'] ?? defaultDevServerUrl;
+const fixtureClass = fixtureClassFromDevServerUrl(devServerUrl);
+const fixtureTargets = fixtureTargetsForFixtureClass(fixtureClass);
+const targetAddedPath = fixtureTargets.addedPath;
+const targetAddedText = fixtureTargets.addedText;
+const targetMarkdownPath = fixtureTargets.docsPath;
+const targetMarkdownHeading = fixtureTargets.docsMarkdownHeading;
+const targetModifiedPath = fixtureTargets.initialPath;
+const targetModifiedText = fixtureTargets.initialText;
+
+type BridgeViewerBrowserFixtureClass = 'small-mixed' | 'medium-agentstudio' | 'large-diffshub';
+
+interface FixtureTargets {
+	readonly addedPath: string;
+	readonly addedText: string;
+	readonly docsPath: string;
+	readonly docsMarkdownHeading: string;
+	readonly initialPath: string;
+	readonly initialText: string;
+}
 
 interface DevServerVerificationResult {
 	readonly codeViewScrollHeight: number;
@@ -54,7 +70,6 @@ interface TopScopeState {
 	readonly role: string | null;
 }
 
-const devServerUrl = process.env['BRIDGE_VIEWER_DEV_SERVER_URL'] ?? defaultDevServerUrl;
 const markdownDevServerUrl = devServerUrlWithScenario(devServerUrl, 'markdown');
 
 const browser = await chromium.launch({ headless: true });
@@ -70,6 +85,7 @@ try {
 				devServerUrl,
 				codeViewScrollHeight: result.codeViewScrollHeight,
 				codeViewScrollTop: result.codeViewScrollTop,
+				fixtureClass,
 				gitStatusFilterMenu: result.gitStatusFilterMenuState,
 				selectedHeaderCollapseButton: result.selectedHeaderCollapseButtonState,
 				markdownDevServerUrl,
@@ -90,14 +106,21 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 	const page = await makeVerificationPage();
 	try {
 		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
-		await page.waitForTimeout(1_200);
+		await waitForReviewViewerReady(page);
 		const initialResult = await readVerificationResult(page);
 		assertTopScopeStateRemoved(initialResult.topScopeState);
 		const gitStatusFilterMenuState = await inspectGitStatusFilterMenu(page);
 		assertGitStatusFilterMenu(gitStatusFilterMenuState);
+		await selectFileAndWaitForContent({
+			page,
+			path: targetModifiedPath,
+			searchText: searchTextForPath(targetModifiedPath),
+			text: targetModifiedText,
+		});
 		await searchForAddedFile(page);
 		await clickFileTreePath(page, targetAddedPath);
-		await page.waitForTimeout(1_500);
+		await waitForSelectedPath(page, targetAddedPath);
+		await waitForCodeViewText(page, targetAddedText);
 
 		const result = {
 			...(await readVerificationResult(page)),
@@ -183,10 +206,63 @@ async function makeVerificationPage(): Promise<Page> {
 	});
 }
 
+function fixtureClassFromDevServerUrl(url: string): BridgeViewerBrowserFixtureClass {
+	const parsedUrl = new URL(url);
+	const fixtureParameter = parsedUrl.searchParams.get('fixture') ?? 'large-diffshub';
+	switch (fixtureParameter) {
+		case 'small-mixed':
+		case 'medium-agentstudio':
+		case 'large-diffshub':
+			return fixtureParameter;
+		case 'off':
+			throw new Error('Bridge viewer dev-server verifier requires a mocked fixture, got off');
+		default:
+			throw new Error(`Unsupported Bridge viewer fixture: ${fixtureParameter}`);
+	}
+}
+
+function fixtureTargetsForFixtureClass(
+	fixtureClassValue: BridgeViewerBrowserFixtureClass,
+): FixtureTargets {
+	switch (fixtureClassValue) {
+		case 'small-mixed':
+		case 'medium-agentstudio':
+		case 'large-diffshub':
+			return {
+				addedPath: 'Sources/BridgeViewer/NewPanel.ts',
+				addedText: "return 'full added file content';",
+				docsMarkdownHeading: 'Browser fixture',
+				docsPath: 'docs/plans/bridge-viewer-browser.md',
+				initialPath: 'Sources/BridgeViewer/Alpha.ts',
+				initialText: "export const selectedFile = 'alpha head visible';",
+			};
+	}
+	const exhaustiveFixtureClass: never = fixtureClassValue;
+	void exhaustiveFixtureClass;
+	throw new Error('Unhandled Bridge viewer fixture class');
+}
+
 function devServerUrlWithScenario(url: string, scenario: string): string {
 	const parsedUrl = new URL(url);
 	parsedUrl.searchParams.set('scenario', scenario);
 	return parsedUrl.toString();
+}
+
+async function waitForReviewViewerReady(page: Page): Promise<void> {
+	await page.waitForFunction(
+		(): boolean =>
+			document.querySelector('[data-testid="review-viewer-shell"]') !== null &&
+			document.querySelector('file-tree-container')?.shadowRoot !== null &&
+			document.querySelector('[data-testid="bridge-code-view-panel"]') !== null,
+		{ timeout: 20_000 },
+	);
+	await page.waitForFunction(
+		(): boolean =>
+			document
+				.querySelector('[data-bridge-pierre-worker-pool-state]')
+				?.getAttribute('data-bridge-pierre-worker-pool-state') === 'ready',
+		{ timeout: 20_000 },
+	);
 }
 
 function assertSelectedHeaderCollapseButton(result: DevServerVerificationResult): void {
@@ -469,21 +545,92 @@ function assertSelectedHeaderAnchoredAfterToggle(props: {
 }
 
 async function searchForAddedFile(page: Page): Promise<void> {
-	await fillBridgeViewerFileTreeSearch(page, 'NewPanel');
+	await fillBridgeViewerFileTreeSearch(page, searchTextForPath(targetAddedPath));
+	await waitForFileTreePath(page, targetAddedPath);
+}
+
+async function selectFileAndWaitForContent(props: {
+	readonly page: Page;
+	readonly path: string;
+	readonly searchText: string;
+	readonly text: string;
+}): Promise<void> {
+	await fillBridgeViewerFileTreeSearch(props.page, props.searchText);
+	await waitForFileTreePath(props.page, props.path);
+	await clickFileTreePath(props.page, props.path);
+	await waitForSelectedPath(props.page, props.path);
+	await waitForCodeViewText(props.page, props.text);
+}
+
+function searchTextForPath(path: string): string {
+	const basename = path.split('/').at(-1) ?? path;
+	return basename.replace(/\.[^.]+$/u, '');
+}
+
+async function waitForFileTreePath(page: Page, path: string): Promise<void> {
 	await page.waitForFunction(
-		(path: string): boolean => {
+		(targetPath: string): boolean => {
 			const row = document
 				.querySelector('file-tree-container')
-				?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(path)}"]`);
+				?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(targetPath)}"]`);
 			return row instanceof HTMLElement;
 		},
-		targetAddedPath,
+		path,
 		{ timeout: 10_000 },
 	);
 }
 
+async function waitForSelectedPath(page: Page, path: string): Promise<void> {
+	await page.waitForFunction(
+		(targetPath: string): boolean =>
+			document
+				.querySelector('[data-selected-display-path]')
+				?.getAttribute('data-selected-display-path') === targetPath,
+		path,
+		{ timeout: 10_000 },
+	);
+	await page.waitForFunction(
+		(): boolean =>
+			document
+				.querySelector('[data-selected-content-state]')
+				?.getAttribute('data-selected-content-state') === 'ready',
+		{ timeout: 20_000 },
+	);
+}
+
+async function waitForCodeViewText(page: Page, expectedText: string): Promise<void> {
+	await page.waitForFunction(
+		(text: string): boolean => {
+			const shadowText = Array.from(document.querySelectorAll('diffs-container'))
+				.flatMap((container: Element): readonly string[] => {
+					const shadowRoot = container.shadowRoot;
+					if (shadowRoot === null) {
+						return [];
+					}
+					return Array.from(shadowRoot.querySelectorAll('[data-line], [data-content], pre')).map(
+						(element: Element): string => element.textContent ?? '',
+					);
+				})
+				.join(' ');
+			const scrollOwnerText =
+				document.querySelector('.bridge-code-view-scroll-owner')?.textContent ?? '';
+			return `${scrollOwnerText} ${shadowText}`.includes(text);
+		},
+		expectedText,
+		{ timeout: 20_000 },
+	);
+}
+
 async function fillBridgeViewerFileTreeSearch(page: Page, searchText: string): Promise<void> {
-	await page.locator('button[data-testid="bridge-review-search-toggle"]').click();
+	const isSearchOpen = await page.evaluate((): boolean => {
+		const searchInput = document
+			.querySelector('file-tree-container')
+			?.shadowRoot?.querySelector('input[role="searchbox"], input[type="search"], input');
+		return searchInput instanceof HTMLInputElement;
+	});
+	if (!isSearchOpen) {
+		await page.locator('button[data-testid="bridge-review-search-toggle"]').click();
+	}
 	await page.waitForFunction((): boolean => {
 		const searchInput = document
 			.querySelector('file-tree-container')
