@@ -170,6 +170,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         RestoreTrace.log("appDidFinishLaunching: end")
+        scheduleFullDiskAccessHealthCheck()
         runStartupDiagnosticActionIfRequested()
     }
 

@@ -331,6 +331,8 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
             return "Approval requested"
         case .securityEvent:
             return "Security event"
+        case .fullDiskAccessDenied:
+            return "Full Disk Access"
         }
     }
 }

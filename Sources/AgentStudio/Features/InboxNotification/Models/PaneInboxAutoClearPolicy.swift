@@ -29,7 +29,7 @@ struct PaneInboxAutoClearPolicy: Sendable {
             .agentSettledActivity:
             return true
         case .terminalSecureInputRequested, .terminalProgressError, .terminalRendererUnhealthy,
-            .persistenceRecovery, .approvalRequested, .securityEvent:
+            .persistenceRecovery, .approvalRequested, .securityEvent, .fullDiskAccessDenied:
             return false
         }
     }

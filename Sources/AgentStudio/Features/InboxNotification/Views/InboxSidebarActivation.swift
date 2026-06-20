@@ -3,6 +3,7 @@ import Foundation
 enum InboxSidebarActivationOutcome: Equatable {
     case focusPane(UUID)
     case flashRow(UUID)
+    case openFullDiskAccessSettings
 }
 
 enum InboxSidebarActivationResolver {
@@ -11,6 +12,9 @@ enum InboxSidebarActivationResolver {
         notification: InboxNotification,
         workspacePaneAtom: WorkspacePaneAtom
     ) -> InboxSidebarActivationOutcome {
+        if notification.kind == .fullDiskAccessDenied {
+            return .openFullDiskAccessSettings
+        }
         guard
             let paneId = notification.paneId,
             workspacePaneAtom.pane(paneId) != nil

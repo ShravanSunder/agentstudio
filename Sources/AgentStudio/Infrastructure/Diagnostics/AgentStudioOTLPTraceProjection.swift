@@ -251,6 +251,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.has_git_internal_changes",
         "agentstudio.ghostty.surface.initial_frame_present",
         "agentstudio.ghostty.surface.startup_command_present",
+        "agentstudio.full_disk_access.health.healthy",
         "agentstudio.performance.management_layer.did_exit",
         "agentstudio.performance.management_layer.is_active",
         "agentstudio.performance.pane_view_restore.force_when_bounds_exist",
