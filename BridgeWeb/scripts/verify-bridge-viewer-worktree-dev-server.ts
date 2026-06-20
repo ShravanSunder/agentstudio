@@ -8,6 +8,9 @@ const worktreeDevServerUrl =
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
 
 interface WorktreeDevServerVerificationResult {
+	readonly markdownCharacterCount: number;
+	readonly markdownDisplayPath: string;
+	readonly markdownPreviewTextLength: number;
 	readonly packageContentHandleId: string;
 	readonly packageForbiddenTextAbsent: boolean;
 	readonly selectedCharacterCount: number;
@@ -73,9 +76,14 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		throw new Error('Expected worktree target item with display path and content handle');
 	}
 	const content = await fetchWorktreeContent(headHandle.handleId);
+	const markdownTarget = await resolveWorktreeMarkdownTarget(reviewPackage);
+	const markdownContent = await fetchWorktreeContent(markdownTarget.handleId);
 	const packageText = JSON.stringify(reviewPackage);
 	if (content.length === 0) {
 		throw new Error(`Expected non-empty content for ${headHandle.handleId}`);
+	}
+	if (markdownContent.length === 0) {
+		throw new Error(`Expected non-empty markdown content for ${markdownTarget.handleId}`);
 	}
 	if (packageText.includes(content.slice(0, Math.min(80, content.length)))) {
 		throw new Error('Expected worktree review package to omit file body content');
@@ -111,9 +119,13 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			{ timeout: 20_000 },
 		);
 		const result = await page.evaluate(
-			(): Omit<
+			(): Pick<
 				WorktreeDevServerVerificationResult,
-				'packageContentHandleId' | 'packageForbiddenTextAbsent' | 'targetPath'
+				| 'selectedCharacterCount'
+				| 'selectedContentState'
+				| 'selectedDisplayPath'
+				| 'selectedLineCount'
+				| 'workerPoolState'
 			> => {
 				const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
 				return {
@@ -149,8 +161,15 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		if (result.workerPoolState !== 'ready') {
 			throw new Error(`Expected worker pool ready, got ${result.workerPoolState ?? 'null'}`);
 		}
+		const markdownPreviewTextLength = await verifyWorktreeMarkdownPreview({
+			markdownTarget,
+			page,
+		});
 		return {
 			...result,
+			markdownCharacterCount: markdownContent.length,
+			markdownDisplayPath: markdownTarget.displayPath,
+			markdownPreviewTextLength,
 			packageContentHandleId: headHandle.handleId,
 			packageForbiddenTextAbsent: true,
 			targetPath,
@@ -158,6 +177,63 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 	} finally {
 		await page.close();
 	}
+}
+
+interface WorktreeMarkdownTarget {
+	readonly displayPath: string;
+	readonly handleId: string;
+}
+
+async function resolveWorktreeMarkdownTarget(
+	reviewPackage: ReturnType<typeof bridgeReviewPackageSchema.parse>,
+): Promise<WorktreeMarkdownTarget> {
+	const markdownItem = Object.values(reviewPackage.itemsById).find(isPreviewableMarkdownItem);
+	if (markdownItem === undefined) {
+		throw new Error(
+			'Expected at least one previewable markdown item in the worktree review package',
+		);
+	}
+	const displayPath = markdownItem.headPath ?? markdownItem.basePath;
+	const handle =
+		markdownItem.contentRoles.head ??
+		markdownItem.contentRoles.file ??
+		markdownItem.contentRoles.base;
+	if (
+		displayPath === null ||
+		displayPath === undefined ||
+		handle === null ||
+		handle === undefined
+	) {
+		throw new Error('Expected markdown item with display path and content handle');
+	}
+	return {
+		displayPath,
+		handleId: handle.handleId,
+	};
+}
+
+function isPreviewableMarkdownItem(
+	item: ReturnType<typeof bridgeReviewPackageSchema.parse>['itemsById'][string],
+): boolean {
+	const displayPath = item.headPath ?? item.basePath;
+	if (displayPath === null || displayPath === undefined || !isMarkdownPath(displayPath)) {
+		return false;
+	}
+	if (item.contentRoles.base !== null && item.contentRoles.head !== null) {
+		return false;
+	}
+	if (
+		item.contentRoles.head === null &&
+		item.contentRoles.file === null &&
+		item.contentRoles.base === null
+	) {
+		return false;
+	}
+	return item.itemKind === 'file' || item.changeKind === 'added' || item.changeKind === 'deleted';
+}
+
+function isMarkdownPath(path: string): boolean {
+	return path.endsWith('.md') || path.endsWith('.mdx');
 }
 
 async function fetchWorktreeReviewPackage(): Promise<
@@ -215,7 +291,15 @@ async function revealFileTreePath(page: Page, path: string): Promise<void> {
 }
 
 async function fillBridgeViewerFileTreeSearch(page: Page, searchText: string): Promise<void> {
-	await page.locator('button[data-testid="bridge-review-search-toggle"]').click();
+	const isSearchOpen = await page.evaluate((): boolean => {
+		const searchInput = document
+			.querySelector('file-tree-container')
+			?.shadowRoot?.querySelector('input[role="searchbox"], input[type="search"], input');
+		return searchInput instanceof HTMLInputElement;
+	});
+	if (!isSearchOpen) {
+		await page.locator('button[data-testid="bridge-review-search-toggle"]').click();
+	}
 	await page.waitForFunction((): boolean => {
 		const searchInput = document
 			.querySelector('file-tree-container')
@@ -235,6 +319,39 @@ async function fillBridgeViewerFileTreeSearch(page: Page, searchText: string): P
 		searchInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
 		searchInput.focus();
 	}, searchText);
+}
+
+async function verifyWorktreeMarkdownPreview(props: {
+	readonly markdownTarget: WorktreeMarkdownTarget;
+	readonly page: Page;
+}): Promise<number> {
+	await revealFileTreePath(props.page, props.markdownTarget.displayPath);
+	await props.page.waitForFunction(
+		(path: string): boolean =>
+			document
+				.querySelector('file-tree-container')
+				?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(path)}"]`) instanceof
+			HTMLElement,
+		props.markdownTarget.displayPath,
+		{ timeout: 30_000 },
+	);
+	await clickFileTreePath(props.page, props.markdownTarget.displayPath);
+	await props.page.waitForFunction(
+		(path: string): boolean =>
+			document
+				.querySelector('[data-markdown-preview-source-path]')
+				?.getAttribute('data-markdown-preview-source-path') === path,
+		props.markdownTarget.displayPath,
+		{ timeout: 20_000 },
+	);
+	const previewTextLength = await props.page.evaluate((): number => {
+		const preview = document.querySelector('[data-testid="bridge-markdown-preview"]');
+		return preview?.textContent?.trim().length ?? 0;
+	});
+	if (previewTextLength <= 0) {
+		throw new Error(`Expected non-empty markdown preview for ${props.markdownTarget.displayPath}`);
+	}
+	return previewTextLength;
 }
 
 async function assertSelectedHeaderCollapseRoundTrip(page: Page, path: string): Promise<void> {
