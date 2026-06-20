@@ -13,7 +13,8 @@ and tests.
 | Question | Start here | Then verify in code |
 | --- | --- | --- |
 | Where should a file live? | [Directory Structure](directory_structure.md) | Owning slice under `Sources/AgentStudio/` |
-| Which command path should I use? | [Commands and Shortcuts](commands_and_shortcuts.md) | `Core/Actions/`, `App/Coordination/`, command specs |
+| Which command path, shortcut display, or dense-control tooltip source should I use? | [Commands and Shortcuts](commands_and_shortcuts.md) | `App/Commands/`, `Core/Actions/`, command specs, local action presentation |
+| Which shared UI primitive or dense-control visual pattern should I use? | [Style Guide](../guides/style_guide.md) | `SharedComponents/`, `AppStyles`, `AppPolicies` |
 | Is this app state, runtime state, or persisted state? | [Atom Persistence Boundaries](atom_persistence_boundaries.md) | `Core/State/MainActor/Atoms/`, persistence wrappers |
 | How do pane/runtime commands and facts move? | [Pane Runtime Architecture](pane_runtime_architecture.md) and [Pane Runtime EventBus Design](pane_runtime_eventbus_design.md) | `Core/RuntimeEventSystem/`, `App/Coordination/` |
 | How do I prove telemetry or performance? | [Observability And Traceability](observability_and_traceability.md) | trace tags, proof scripts, Victoria verifier output |
@@ -188,7 +189,7 @@ Each document owns a specific concern. No two documents are authoritative for th
 | [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Zmx-specific attach and sizing | Deferred attach sequencing, geometry readiness, restart reconcile policy, zmx restore/sizing test coverage |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface management | Surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell | AppKit hosting model, controllers, command bar panel, event handling |
-| [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Four-file model (AppCommand / AppShortcut / AppCommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
+| [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Four-file model (AppCommand / AppShortcut / AppCommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, dense-control tooltip source contract, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic control | SwiftPM target split, socket/JSON-RPC foundation, auth, permission grants, protocol ports, CLI/smoke client, and the boundary between app IPC and internal zmx IPC |
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Remote zmx daemons and fork strategy | SSH tunnel architecture (Option C), security model, connection lifecycle, case for forking zmx |
 | [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |

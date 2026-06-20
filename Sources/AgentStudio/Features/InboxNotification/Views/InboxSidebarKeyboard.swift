@@ -30,23 +30,112 @@ enum InboxSidebarRowKeyAction: Equatable {
     case ignored
 }
 
+struct InboxSidebarShortcutDescriptor {
+    enum Input {
+        case characters(String)
+        case key(KeyEquivalent)
+    }
+
+    let action: InboxSidebarRootKeyAction
+    let input: Input
+    let modifiers: EventModifiers
+    let displayText: ShortcutDisplayText
+
+    func matches(
+        characters: String,
+        key: KeyEquivalent,
+        modifiers candidateModifiers: EventModifiers
+    ) -> Bool {
+        guard modifiers == candidateModifiers else { return false }
+
+        switch input {
+        case .characters(let expectedCharacters):
+            return characters == expectedCharacters
+        case .key(let expectedKey):
+            return key == expectedKey
+        }
+    }
+}
+
+enum InboxSidebarShortcutCatalog {
+    static let focusSearch = InboxSidebarShortcutDescriptor(
+        action: .focusSearch,
+        input: .characters("f"),
+        modifiers: .option,
+        displayText: character("f", modifiers: [.option])
+    )
+
+    static let toggleGroupingMenu = InboxSidebarShortcutDescriptor(
+        action: .toggleGroupingMenu,
+        input: .characters("g"),
+        modifiers: .option,
+        displayText: character("g", modifiers: [.option])
+    )
+
+    static let toggleSort = InboxSidebarShortcutDescriptor(
+        action: .toggleSort,
+        input: .characters("s"),
+        modifiers: .option,
+        displayText: character("s", modifiers: [.option])
+    )
+
+    static let moveNextGroup = InboxSidebarShortcutDescriptor(
+        action: .moveGroupBoundary(.next),
+        input: .key(.downArrow),
+        modifiers: .option,
+        displayText: ShortcutDisplayText(value: "⌥↓")
+    )
+
+    static let movePreviousGroup = InboxSidebarShortcutDescriptor(
+        action: .moveGroupBoundary(.previous),
+        input: .key(.upArrow),
+        modifiers: .option,
+        displayText: ShortcutDisplayText(value: "⌥↑")
+    )
+
+    static let moveLast = InboxSidebarShortcutDescriptor(
+        action: .moveEnd(.last),
+        input: .key(.downArrow),
+        modifiers: .command,
+        displayText: ShortcutDisplayText(value: "⌘↓")
+    )
+
+    static let moveFirst = InboxSidebarShortcutDescriptor(
+        action: .moveEnd(.first),
+        input: .key(.upArrow),
+        modifiers: .command,
+        displayText: ShortcutDisplayText(value: "⌘↑")
+    )
+
+    static let descriptors = [
+        focusSearch,
+        toggleGroupingMenu,
+        toggleSort,
+        moveNextGroup,
+        movePreviousGroup,
+        moveLast,
+        moveFirst,
+    ]
+
+    static func descriptor(for action: InboxSidebarRootKeyAction) -> InboxSidebarShortcutDescriptor? {
+        descriptors.first { $0.action == action }
+    }
+
+    private static func character(_ key: String, modifiers: Set<KeyBinding.Modifier>) -> ShortcutDisplayText {
+        ShortcutDisplayText(value: KeyBinding(key: key, modifiers: modifiers).displayString)
+    }
+}
+
 enum InboxSidebarKeyboardRouter {
     static func rootAction(
         characters: String,
         key: KeyEquivalent,
         modifiers: EventModifiers
     ) -> InboxSidebarRootKeyAction {
-        if modifiers == .option {
-            if characters == "f" { return .focusSearch }
-            if characters == "g" { return .toggleGroupingMenu }
-            if characters == "s" { return .toggleSort }
-            if key == .downArrow { return .moveGroupBoundary(.next) }
-            if key == .upArrow { return .moveGroupBoundary(.previous) }
-        }
-
-        if modifiers == .command {
-            if key == .downArrow { return .moveEnd(.last) }
-            if key == .upArrow { return .moveEnd(.first) }
+        for descriptor in InboxSidebarShortcutCatalog.descriptors {
+            if descriptor.matches(characters: characters, key: key, modifiers: modifiers) {
+                return descriptor.action
+            }
         }
 
         return .ignored
@@ -60,17 +149,13 @@ enum InboxSidebarKeyboardRouter {
 }
 
 enum InboxSidebarKeyboardHint {
-    static let focusSearch = character("f", modifiers: [.option])
-    static let toggleGroupingMenu = character("g", modifiers: [.option])
-    static let toggleSort = character("s", modifiers: [.option])
-    static let moveNextGroup = "⌥↓"
-    static let movePreviousGroup = "⌥↑"
-    static let moveLast = "⌘↓"
-    static let moveFirst = "⌘↑"
+    static let focusSearch = InboxSidebarShortcutCatalog.focusSearch.displayText.value
+    static let toggleGroupingMenu = InboxSidebarShortcutCatalog.toggleGroupingMenu.displayText.value
+    static let toggleSort = InboxSidebarShortcutCatalog.toggleSort.displayText.value
+    static let moveNextGroup = InboxSidebarShortcutCatalog.moveNextGroup.displayText.value
+    static let movePreviousGroup = InboxSidebarShortcutCatalog.movePreviousGroup.displayText.value
+    static let moveLast = InboxSidebarShortcutCatalog.moveLast.displayText.value
+    static let moveFirst = InboxSidebarShortcutCatalog.moveFirst.displayText.value
     static let activateRow = "↵"
     static let toggleRead = "Space"
-
-    private static func character(_ key: String, modifiers: Set<KeyBinding.Modifier>) -> String {
-        KeyBinding(key: key, modifiers: modifiers).displayString
-    }
 }

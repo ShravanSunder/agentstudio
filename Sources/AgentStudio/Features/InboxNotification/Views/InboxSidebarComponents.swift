@@ -159,7 +159,7 @@ struct InboxSidebarHeader: View {
                         availableWidth: geometryProxy.size.width,
                         verticalAnchor: .aboveAnchor,
                         verticalOffset: HoverTooltipPlacement.aboveAnchorVerticalOffset,
-                        tooltipText: tooltipText(for:)
+                        tooltipValue: tooltipValue(for:)
                     )
                     .allowsHitTesting(false)
                 }
@@ -184,7 +184,7 @@ struct InboxSidebarHeader: View {
                         return .handled
                     }
                 )
-                .help("Search inbox notifications (\(InboxSidebarKeyboardHint.focusSearch))")
+                .controlHelp(Self.searchTooltipValue)
                 .layoutPriority(0)
 
                 Menu {
@@ -199,7 +199,13 @@ struct InboxSidebarHeader: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(deleteInboxAction.label)
                 .accessibilityIdentifier("inboxSidebarDeleteMenu")
-                .help(Self.toolbarTooltipText(for: .delete, rowStateFilter: rowStateFilter, contentMode: contentMode))
+                .controlHelp(
+                    Self.toolbarTooltipValue(
+                        for: .delete,
+                        rowStateFilter: rowStateFilter,
+                        contentMode: contentMode
+                    )
+                )
                 .simultaneousGesture(
                     TapGesture().onEnded {
                         suppressDeleteTooltipUntilHoverExit = true
@@ -236,7 +242,13 @@ struct InboxSidebarHeader: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(toggleSortSpec.label)
                 .accessibilityIdentifier("inboxSidebarSortButton")
-                .help(Self.toolbarTooltipText(for: .sort, rowStateFilter: rowStateFilter, contentMode: contentMode))
+                .controlHelp(
+                    Self.toolbarTooltipValue(
+                        for: .sort,
+                        rowStateFilter: rowStateFilter,
+                        contentMode: contentMode
+                    )
+                )
                 .onHover { updateTooltipTarget(.sort, isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.sort, in: Self.tooltipCoordinateSpaceName)
                 .background(
@@ -253,7 +265,13 @@ struct InboxSidebarHeader: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(rowStateAction.label)
                 .accessibilityIdentifier("inboxSidebarRowStateFilterButton")
-                .help(Self.toolbarTooltipText(for: .rowState, rowStateFilter: rowStateFilter, contentMode: contentMode))
+                .controlHelp(
+                    Self.toolbarTooltipValue(
+                        for: .rowState,
+                        rowStateFilter: rowStateFilter,
+                        contentMode: contentMode
+                    )
+                )
                 .onHover { updateTooltipTarget(.rowState, isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.rowState, in: Self.tooltipCoordinateSpaceName)
 
@@ -263,8 +281,12 @@ struct InboxSidebarHeader: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(contentModeAction.label)
                 .accessibilityIdentifier("inboxSidebarContentModeButton")
-                .help(
-                    Self.toolbarTooltipText(for: .contentMode, rowStateFilter: rowStateFilter, contentMode: contentMode)
+                .controlHelp(
+                    Self.toolbarTooltipValue(
+                        for: .contentMode,
+                        rowStateFilter: rowStateFilter,
+                        contentMode: contentMode
+                    )
                 )
                 .onHover { updateTooltipTarget(.contentMode, isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.contentMode, in: Self.tooltipCoordinateSpaceName)
@@ -277,7 +299,13 @@ struct InboxSidebarHeader: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(groupingAction.label)
                 .accessibilityIdentifier("inboxSidebarGroupingButton")
-                .help(Self.toolbarTooltipText(for: .grouping, rowStateFilter: rowStateFilter, contentMode: contentMode))
+                .controlHelp(
+                    Self.toolbarTooltipValue(
+                        for: .grouping,
+                        rowStateFilter: rowStateFilter,
+                        contentMode: contentMode
+                    )
+                )
                 .onHover { updateTooltipTarget(.grouping, isHovered: $0) }
                 .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.grouping, in: Self.tooltipCoordinateSpaceName)
                 .popover(isPresented: $groupingMenuOpen) {
@@ -364,8 +392,8 @@ struct InboxSidebarHeader: View {
         }
     }
 
-    private func tooltipText(for target: InboxSidebarToolbarTooltipTarget) -> String? {
-        Self.toolbarTooltipText(for: target, rowStateFilter: rowStateFilter, contentMode: contentMode)
+    private func tooltipValue(for target: InboxSidebarToolbarTooltipTarget) -> ControlTooltipRenderValue? {
+        Self.toolbarTooltipValue(for: target, rowStateFilter: rowStateFilter, contentMode: contentMode)
     }
 
     static func toolbarTooltipText(
@@ -373,23 +401,41 @@ struct InboxSidebarHeader: View {
         rowStateFilter: InboxNotificationRowStateFilter,
         contentMode: InboxNotificationContentMode
     ) -> String {
+        toolbarTooltipValue(for: target, rowStateFilter: rowStateFilter, contentMode: contentMode).text
+    }
+
+    static var searchTooltipValue: ControlTooltipRenderValue {
+        let shortcutDisplayText = InboxSidebarShortcutCatalog.focusSearch.displayText
+        return ControlTooltipRenderValue(
+            text: "Search inbox notifications (\(shortcutDisplayText.value))",
+            shortcutDisplayText: shortcutDisplayText
+        )
+    }
+
+    static func toolbarTooltipValue(
+        for target: InboxSidebarToolbarTooltipTarget,
+        rowStateFilter: InboxNotificationRowStateFilter,
+        contentMode: InboxNotificationContentMode
+    ) -> ControlTooltipRenderValue {
         switch target {
         case .delete:
-            return LocalActionSpec.deleteInboxNotifications.actionSpec.controlToolTip(
+            return LocalActionSpec.deleteInboxNotifications.actionSpec.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: "deleteInboxNotifications"),
                 textOverride: "Clear notifications"
             )
         case .sort:
             let sortSpec = AppCommand.toggleInboxNotificationSort.definition
-            return sortSpec.controlToolTip(
+            return sortSpec.controlTooltipRenderValue(
                 textOverride: "Sort inbox",
-                shortcutTextOverride: InboxSidebarKeyboardHint.toggleSort
+                shortcutTextOverride: InboxSidebarShortcutCatalog.toggleSort.displayText.value
             )
         case .rowState:
             let rowStateAction = LocalActionSpec.toggleInboxRowStateFilter(
                 showingUnreadOnly: rowStateFilter == .unreadOnly
             )
             .actionSpec
-            return rowStateAction.controlToolTip(
+            return rowStateAction.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: "toggleInboxRowStateFilter"),
                 textOverride: rowStateFilter == .unreadOnly ? "Show all" : "Unread only"
             )
         case .contentMode:
@@ -397,14 +443,16 @@ struct InboxSidebarHeader: View {
                 isAttentionOnly: contentMode == .rollUpAlerts
             )
             .actionSpec
-            return contentModeAction.controlToolTip(
+            return contentModeAction.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: "toggleInboxAttentionFilter"),
                 textOverride: contentMode == .rollUpAlerts ? "Show all notifications" : "Attention only"
             )
         case .grouping:
             let groupingAction = LocalActionSpec.groupInboxNotifications.actionSpec
-            return groupingAction.controlToolTip(
+            return groupingAction.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: "groupInboxNotifications"),
                 textOverride: "Group",
-                shortcutText: InboxSidebarKeyboardHint.toggleGroupingMenu
+                shortcutText: InboxSidebarShortcutCatalog.toggleGroupingMenu.displayText.value
             )
         }
     }

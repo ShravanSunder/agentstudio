@@ -47,30 +47,30 @@ struct DrawerIconBar: View {
 
     private static let tooltipCoordinateSpaceName = "drawerTooltipBar"
 
-    private var toggleToolTip: String {
-        AppCommand.toggleDrawer.definition.controlToolTip(
+    private var toggleToolTip: ControlTooltipRenderValue {
+        AppCommand.toggleDrawer.definition.controlTooltipRenderValue(
             textOverride: isExpanded ? "Collapse Drawer" : "Expand Drawer"
         )
     }
 
-    private var addToolTip: String {
-        AppCommand.addDrawerPane.definition.controlToolTip
+    private var addToolTip: ControlTooltipRenderValue {
+        AppCommand.addDrawerPane.definition.controlTooltipRenderValue()
     }
 
-    private var finderToolTip: String {
-        AppCommand.openPaneLocationInFinder.definition.controlToolTip(
+    private var finderToolTip: ControlTooltipRenderValue {
+        AppCommand.openPaneLocationInFinder.definition.controlTooltipRenderValue(
             textOverride: "Open in Finder"
         )
     }
 
-    private var chooserToolTip: String {
-        AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(
+    private var chooserToolTip: ControlTooltipRenderValue {
+        AppCommand.openPaneLocationInEditorMenu.definition.controlTooltipRenderValue(
             textOverride: "Open in Editor"
         )
     }
 
-    private var inboxToolTip: String {
-        AppCommand.showPaneInboxNotifications.definition.controlToolTip(
+    private var inboxToolTip: ControlTooltipRenderValue {
+        AppCommand.showPaneInboxNotifications.definition.controlTooltipRenderValue(
             textOverride: "Open pane inbox"
         )
     }
@@ -110,7 +110,7 @@ struct DrawerIconBar: View {
                             }
                         }
                         .hoverTooltipAnchor(DrawerTooltipTarget.toggle, in: Self.tooltipCoordinateSpaceName)
-                        .help(toggleToolTip)
+                        .controlHelp(toggleToolTip)
 
                         drawerToolbarDivider
 
@@ -133,7 +133,7 @@ struct DrawerIconBar: View {
                             }
                         }
                         .hoverTooltipAnchor(DrawerTooltipTarget.add, in: Self.tooltipCoordinateSpaceName)
-                        .help(addToolTip)
+                        .controlHelp(addToolTip)
 
                         Spacer()
 
@@ -180,7 +180,7 @@ struct DrawerIconBar: View {
                                     trailingActions.editorMenuContent
                                 }
                                 .disabled(!trailingActions.canOpenTarget)
-                                .help(chooserToolTip)
+                                .controlHelp(chooserToolTip)
                                 .onHover { hovering in
                                     withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
                                         isChooserHovered = hovering
@@ -190,7 +190,7 @@ struct DrawerIconBar: View {
 
                                 trailingActionButton(
                                     icon: trailingActionIcon(for: finderPresentation.icon),
-                                    helpText: finderToolTip,
+                                    helpValue: finderToolTip,
                                     isHovered: isFinderHovered,
                                     action: trailingActions.onOpenFinder
                                 )
@@ -207,7 +207,7 @@ struct DrawerIconBar: View {
 
                                     trailingActionButton(
                                         icon: .system(name: "bell.fill"),
-                                        helpText: inboxToolTip,
+                                        helpValue: inboxToolTip,
                                         isHovered: isInboxHovered,
                                         action: onOpenInbox
                                     )
@@ -242,7 +242,7 @@ struct DrawerIconBar: View {
                         activeTarget: activeTooltipTarget,
                         anchorFrames: tooltipFrames,
                         availableWidth: geo.size.width,
-                        tooltipText: tooltipText(for:)
+                        tooltipValue: tooltipValue(for:)
                     )
                 }
                 .coordinateSpace(name: Self.tooltipCoordinateSpaceName)
@@ -280,7 +280,7 @@ struct DrawerIconBar: View {
         return nil
     }
 
-    private func tooltipText(for target: DrawerTooltipTarget) -> String? {
+    private func tooltipValue(for target: DrawerTooltipTarget) -> ControlTooltipRenderValue? {
         switch target {
         case .toggle:
             return toggleToolTip
@@ -308,7 +308,7 @@ struct DrawerIconBar: View {
 
     private func trailingActionButton(
         icon: TrailingActionIcon,
-        helpText: String,
+        helpValue: ControlTooltipRenderValue,
         isHovered: Bool,
         action: @escaping () -> Void
     ) -> some View {
@@ -331,7 +331,7 @@ struct DrawerIconBar: View {
             RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
                 .fill(isHovered ? Color.white.opacity(AppStyles.General.Fill.hover) : Color.clear)
         )
-        .help(helpText)
+        .controlHelp(helpValue)
     }
 }
 
@@ -347,8 +347,14 @@ struct EmptyDrawerBar: View {
 
     private static let tooltipCoordinateSpaceName = "emptyDrawerTooltipBar"
 
-    private var addToolTip: String {
-        AppCommand.addDrawerPane.definition.controlToolTip
+    private var addToolTip: ControlTooltipRenderValue {
+        Self.addTooltipValue()
+    }
+
+    static func addTooltipValue() -> ControlTooltipRenderValue {
+        AppCommand.addDrawerPane.definition.controlTooltipRenderValue(
+            shortcutTextOverride: AppShortcut.addDrawerPane.displayKeyBinding(in: .emptyDrawer)?.displayString
+        )
     }
 
     var body: some View {
@@ -377,7 +383,7 @@ struct EmptyDrawerBar: View {
                         }
                     }
                     .hoverTooltipAnchor(DrawerTooltipTarget.emptyAdd, in: Self.tooltipCoordinateSpaceName)
-                    .help(addToolTip)
+                    .controlHelp(addToolTip)
                     .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
 
                     FloatingHoverTooltipPresenter(

@@ -33,6 +33,7 @@ SwiftLint through `mise run lint` and CI.
 | Sentinel fixture proves the local architecture rule registry is active. | `agentstudio_no_forbidden_architecture_marker` | error | `Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/Bad/Sources/AgentStudio/App/BadForbiddenArchitectureMarker.swift` |
 | Production async delays avoid generic clock sleep overloads. | `agentstudio_no_generic_clock_sleep` | error | `docs/superpowers/specs/2026-06-18-agentstudio-swiftsyntax-async-sleep-rule-spec.md` |
 | Tests avoid direct wall-clock `Task.sleep(...)` calls and wait for events, state, or injected fake clocks. | `agentstudio_no_task_sleep_in_tests` | error | `AGENTS.md#no-wall-clock-tests` |
+| Dense action controls use typed tooltip sources instead of raw `.help("...")`, AppKit `toolTip = "..."`, or custom hover strings. Shared components consume resolved render values only. | `agentstudio_toolbar_tooltip_source` | error | `docs/superpowers/specs/2026-06-19-typed-tooltip-source-contract.md` |
 
 ## Former Shell And Custom SwiftLint Coverage
 

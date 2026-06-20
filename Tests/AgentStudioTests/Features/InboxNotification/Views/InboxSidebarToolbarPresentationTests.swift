@@ -68,6 +68,13 @@ struct InboxSidebarToolbarPresentationTests {
                 contentMode: .rollUpAlerts
             ) == "Clear notifications"
         )
+        let sortTooltipValue = InboxSidebarHeader.toolbarTooltipValue(
+            for: .sort,
+            rowStateFilter: .unreadOnly,
+            contentMode: .rollUpAlerts
+        )
+        #expect(sortTooltipValue.text == "Sort inbox (\(InboxSidebarKeyboardHint.toggleSort))")
+        #expect(sortTooltipValue.shortcutDisplayText == ShortcutDisplayText(value: InboxSidebarKeyboardHint.toggleSort))
         #expect(sortIcon != .system(.rectangle3GroupFill))
         #expect(InboxSidebarHeader.groupIconName != InboxSidebarHeader.filterIconName)
         #expect(InboxSidebarRootContainer.surfaceBackground == .windowBackgroundColor)

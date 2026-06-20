@@ -15,15 +15,7 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
     func listCommands() throws -> IPCCommandListResult {
         let commands = AppCommand.allCases
             .map(\.definition)
-            .map { definition in
-                IPCCommandListEntry(
-                    id: IPCCommandIdentifier(rawValue: definition.command.rawValue),
-                    title: definition.label,
-                    executionModes: definition.ipcExposure.executionModes,
-                    targetKinds: definition.ipcExposure.targetKinds,
-                    requiredPrivileges: definition.ipcExposure.requiredPrivileges
-                )
-            }
+            .map(\.ipcCommandListEntry)
             .sorted { left, right in
                 left.id.rawValue < right.id.rawValue
             }

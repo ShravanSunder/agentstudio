@@ -146,6 +146,15 @@ struct PaneInboxNotificationPopover: View {
 
     private var header: some View {
         let clearPaneInboxSpec = AppCommand.clearPaneInboxNotifications.definition
+        let markPaneReadTooltip = ControlTooltipResolver.resolve(
+            .dynamicData(.stateReadout, text: "Mark pane notifications read")
+        )
+        let contentModeTooltip = ControlTooltipResolver.resolve(
+            .dynamicData(.stateReadout, text: contentModeHelpText)
+        )
+        let filterModeTooltip = ControlTooltipResolver.resolve(
+            .dynamicData(.stateReadout, text: filterMode.helpText)
+        )
         return HStack(spacing: AppStyles.Components.PaneInbox.headerControlSpacing) {
             Text("Pane inbox")
                 .font(.headline)
@@ -157,7 +166,7 @@ struct PaneInboxNotificationPopover: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Mark Pane Read")
             .accessibilityIdentifier("paneInboxMarkReadButton")
-            .help("Mark pane notifications read")
+            .controlHelp(markPaneReadTooltip)
 
             Button(action: clearPaneInbox) {
                 clearPaneInboxSpec.icon.swiftUIImage()
@@ -167,7 +176,7 @@ struct PaneInboxNotificationPopover: View {
             .accessibilityLabel(clearPaneInboxSpec.label)
             .accessibilityIdentifier("paneInboxClearButton")
             .accessibilityHidden(true)
-            .help(clearPaneInboxSpec.controlToolTip)
+            .controlHelp(clearPaneInboxSpec.controlTooltipRenderValue())
             .background(
                 AccessibilityPressBridge(
                     identifier: "paneInboxClearButton",
@@ -195,14 +204,14 @@ struct PaneInboxNotificationPopover: View {
                 )
             }
             .buttonStyle(.borderless)
-            .help(filterMode.helpText)
+            .controlHelp(filterModeTooltip)
 
             Button(action: cycleContentMode) {
                 Image(systemName: "dot.circle.viewfinder")
             }
             .buttonStyle(.borderless)
             .foregroundStyle(contentMode == .rollUpAlerts ? Color.accentColor : Color.secondary)
-            .help(contentModeHelpText)
+            .controlHelp(contentModeTooltip)
 
             Divider()
                 .frame(height: AppStyles.Components.PaneInbox.headerSeparatorHeight)

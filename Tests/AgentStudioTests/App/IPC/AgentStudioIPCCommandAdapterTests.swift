@@ -37,6 +37,58 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(copyCurrentPanePath.requiredPrivileges == [.workspaceRead])
     }
 
+    @Test("command list entries are full-catalog IPC projections")
+    func commandListEntriesAreFullCatalogIPCProjections() throws {
+        let harness = CommandAdapterHarness()
+
+        let result = try harness.adapter.listCommands()
+        let commandsById = Dictionary(uniqueKeysWithValues: result.commands.map { ($0.id, $0) })
+
+        for command in AppCommand.allCases {
+            let definition = command.definition
+            let entry = try #require(commandsById[IPCCommandIdentifier(rawValue: command.rawValue)])
+
+            #expect(entry == definition.ipcCommandListEntry)
+            #expect(entry.title == definition.label)
+        }
+    }
+
+    @Test("public IPC command contracts do not expose tooltip vocabulary")
+    func publicIPCCommandContractsDoNotExposeTooltipVocabulary() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudioProgrammaticControl/IPCCommandContracts.swift"),
+            encoding: .utf8
+        )
+
+        #expect(!source.contains("ControlTooltip"))
+        #expect(!source.contains("tooltip"))
+        #expect(!source.contains("toolTip"))
+    }
+
+    @Test("encoded command list entries expose only IPC contract keys")
+    func encodedCommandListEntriesExposeOnlyIPCContractKeys() throws {
+        let harness = CommandAdapterHarness()
+        let result = try harness.adapter.listCommands()
+        let encodedData = try JSONEncoder().encode(result)
+        let decodedObject = try #require(
+            JSONSerialization.jsonObject(with: encodedData) as? [String: Any]
+        )
+        let encodedCommands = try #require(decodedObject["commands"] as? [[String: Any]])
+        let expectedEntryKeys = Set([
+            "id",
+            "title",
+            "executionModes",
+            "targetKinds",
+            "requiredPrivileges",
+        ])
+
+        #expect(!encodedCommands.isEmpty)
+        for encodedCommand in encodedCommands {
+            #expect(Set(encodedCommand.keys) == expectedEntryKeys)
+        }
+    }
+
     @Test("rejects ui-presentation command specs before workspace window checks")
     func rejectsUIPresentationCommandSpecsBeforeWorkspaceWindowChecks() throws {
         let harness = CommandAdapterHarness(windowSnapshot: .empty)

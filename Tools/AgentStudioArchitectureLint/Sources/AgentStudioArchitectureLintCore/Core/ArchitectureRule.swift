@@ -44,5 +44,6 @@ enum ArchitectureRuleRegistry {
         ForbiddenArchitectureMarkerRule(),
         GenericClockSleepRule(),
         TestTaskSleepRule(),
+        TooltipSourceRule(),
     ]
 }

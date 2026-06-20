@@ -129,6 +129,182 @@ struct RuleParityTests {
         #expect(externalSourceUnderTestsParentDiagnostics.isEmpty)
     }
 
+    @Test("tooltip source rule scopes raw help to migrated dense controls")
+    func tooltipSourceRuleScopesRawHelpToMigratedDenseControls() {
+        let migratedDiagnostics = TooltipSourceRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/Core/Views/Drawer/DrawerIconBar.swift",
+                source: """
+                    import SwiftUI
+
+                    struct DrawerIconBar: View {
+                        var body: some View {
+                            Button("Add") {}
+                                .help("Add drawer pane")
+                        }
+                    }
+                    """
+            )
+        )
+        let sharedSearchDiagnostics = TooltipSourceRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/SharedComponents/SidebarSearchField.swift",
+                source: """
+                    import SwiftUI
+
+                    struct SidebarSearchField: View {
+                        let clearHelp: String?
+                        var body: some View {
+                            Button("Clear") {}
+                                .help(clearHelp ?? "")
+                        }
+                    }
+                    """
+            )
+        )
+
+        #expect(migratedDiagnostics.map(\.ruleID) == ["agentstudio_toolbar_tooltip_source"])
+        #expect(sharedSearchDiagnostics.isEmpty)
+    }
+
+    @Test("tooltip source rule allows non-dense help in migrated files")
+    func tooltipSourceRuleAllowsNonDenseHelpInMigratedFiles() {
+        let diagnostics = TooltipSourceRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/Core/Views/Drawer/DrawerIconBar.swift",
+                source: """
+                    import SwiftUI
+
+                    struct DrawerIconBar: View {
+                        var body: some View {
+                            Text("Status")
+                                .help("This is explanatory status help")
+                        }
+                    }
+                    """
+            )
+        )
+
+        #expect(diagnostics.isEmpty)
+    }
+
+    @Test("tooltip source rule blocks hover presenter tooltipText label")
+    func tooltipSourceRuleBlocksHoverPresenterTooltipTextLabel() {
+        let diagnostics = TooltipSourceRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/Core/Views/Drawer/DrawerIconBar.swift",
+                source: """
+                    struct DrawerIconBar {
+                        func presenter() {
+                            FloatingHoverTooltipPresenter(
+                                activeTarget: "add",
+                                anchorFrames: [:],
+                                availableWidth: 100,
+                                tooltipText: { _ in "Add drawer pane" }
+                            )
+                        }
+                    }
+                    """
+            )
+        )
+
+        #expect(diagnostics.map(\.ruleID) == ["agentstudio_toolbar_tooltip_source"])
+    }
+
+    @Test("tooltip source rule blocks AppKit tooltip assignment but allows reads")
+    func tooltipSourceRuleBlocksAppKitTooltipAssignmentButAllowsReads() {
+        let assignmentDiagnostics = TooltipSourceRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/App/Windows/MainWindowController.swift",
+                source: """
+                    import AppKit
+
+                    final class MainWindowController {
+                        func configure(button: NSButton) {
+                            button.toolTip = "Watch folder"
+                        }
+                    }
+                    """
+            )
+        )
+        let readDiagnostics = TooltipSourceRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/App/Windows/MainWindowController.swift",
+                source: """
+                    import AppKit
+
+                    final class MainWindowController {
+                        func read(button: NSButton) -> String? {
+                            button.toolTip
+                        }
+                    }
+                    """
+            )
+        )
+
+        #expect(assignmentDiagnostics.map(\.ruleID) == ["agentstudio_toolbar_tooltip_source"])
+        #expect(readDiagnostics.isEmpty)
+    }
+
+    @Test("tooltip source rule blocks command semantics from render boundaries")
+    func tooltipSourceRuleBlocksCommandSemanticsFromRenderBoundaries() {
+        let coreDiagnostics = TooltipSourceRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift",
+                source: """
+                    struct BadControlTooltipSource {
+                        let commandSpec: AppCommandSpec
+                        let privilegeClass: IPCPrivilegeClass
+                        let executeParams: IPCCommandExecuteParams
+                    }
+                    """
+            )
+        )
+        let infrastructureDiagnostics = TooltipSourceRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift",
+                source: """
+                    struct BadControlTooltipRenderValue {
+                        let commandIdentifier: IPCCommandIdentifier
+                        let commandListResult: IPCCommandListResult
+                    }
+                    """
+            )
+        )
+        let sharedComponentDiagnostics = TooltipSourceRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/SharedComponents/BadTooltipComponent.swift",
+                source: """
+                    import SwiftUI
+
+                    struct BadTooltipComponent: View {
+                        let source: ControlTooltipSource
+                        let commandIdentifier: IPCCommandIdentifier
+
+                        var body: some View { Text("") }
+                    }
+                    """
+            )
+        )
+
+        #expect(
+            coreDiagnostics.map(\.ruleID) == [
+                "agentstudio_toolbar_tooltip_source",
+                "agentstudio_toolbar_tooltip_source",
+                "agentstudio_toolbar_tooltip_source",
+            ])
+        #expect(
+            infrastructureDiagnostics.map(\.ruleID) == [
+                "agentstudio_toolbar_tooltip_source",
+                "agentstudio_toolbar_tooltip_source",
+            ])
+        #expect(
+            sharedComponentDiagnostics.map(\.ruleID) == [
+                "agentstudio_toolbar_tooltip_source",
+                "agentstudio_toolbar_tooltip_source",
+            ])
+    }
+
     private func lintFixtureCorpus(_ corpus: String) throws -> [ArchitectureDiagnostic] {
         let files = try SourceFileDiscovery(fileManager: .default)
             .swiftFiles(under: [fixtureRoot().appendingPathComponent(corpus).path])
