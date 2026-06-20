@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 const defaultDevServerUrl =
 	'http://127.0.0.1:5173/?fixture=large-diffshub&workers=on&scenario=scroll';
+const defaultDiffshubReferenceUrl = 'https://diffshub.com/ShravanSunder/agentstudio/pull/180';
 const preferredTargetPaths = [
 	process.env['BRIDGE_VIEWER_VISUAL_TARGET_PATH'],
 	'Sources/BridgeViewer/NewPanel.ts',
@@ -19,6 +20,18 @@ const preferredTargetPaths = [
 const bridgeViewerVisualProofSchema = z.object({
 	artifactDirectory: z.string(),
 	devServerUrl: z.string(),
+	diffshubReference: z.object({
+		bodyBackgroundColor: z.string(),
+		documentClassName: z.string(),
+		hasCodeView: z.boolean(),
+		hasFileTree: z.boolean(),
+		screenshot: z.string(),
+		themeStorage: z.object({
+			darkTheme: z.string().nullable(),
+			mode: z.string().nullable(),
+		}),
+		url: z.string(),
+	}),
 	gitStatusFilterMenu: z.object({
 		ariaExpanded: z.string().nullable(),
 		checkboxItemCount: z.number().int().nonnegative(),
@@ -31,6 +44,11 @@ const bridgeViewerVisualProofSchema = z.object({
 	pageTheme: z.object({
 		bodyBackgroundColor: z.string(),
 		documentClassName: z.string(),
+	}),
+	referenceComparison: z.object({
+		bodyBackgroundColorChannelDelta: z.number().nonnegative(),
+		diffshubBodyBackgroundColor: z.string(),
+		localBodyBackgroundColor: z.string(),
 	}),
 	shellChrome: z.object({
 		hasTopHeader: z.boolean(),
@@ -52,6 +70,8 @@ const bridgeViewerVisualProofSchema = z.object({
 type BridgeViewerVisualProof = z.infer<typeof bridgeViewerVisualProofSchema>;
 
 const devServerUrl = process.env['BRIDGE_VIEWER_DEV_SERVER_URL'] ?? defaultDevServerUrl;
+const diffshubReferenceUrl =
+	process.env['BRIDGE_VIEWER_DIFFSHUB_REFERENCE_URL'] ?? defaultDiffshubReferenceUrl;
 const repoRoot =
 	basename(process.cwd()) === 'BridgeWeb' ? resolve(process.cwd(), '..') : process.cwd();
 const artifactDirectory =
@@ -68,6 +88,7 @@ await mkdir(artifactDirectory, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 
 try {
+	const diffshubReference = await captureDiffshubReference();
 	const page = await makeProofPage();
 	try {
 		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
@@ -100,12 +121,18 @@ try {
 			.locator('[data-testid="bridge-review-filter-popover"]')
 			.screenshot({ path: gitStatusFilterPopoverCropPath });
 
+		const pageTheme = await readPageTheme(page);
 		const selectedState = await readSelectedState(page);
 		const proof = bridgeViewerVisualProofSchema.parse({
 			artifactDirectory,
 			devServerUrl,
+			diffshubReference,
 			gitStatusFilterMenu,
-			pageTheme: await readPageTheme(page),
+			pageTheme,
+			referenceComparison: buildReferenceComparison({
+				diffshubBodyBackgroundColor: diffshubReference.bodyBackgroundColor,
+				localBodyBackgroundColor: pageTheme.bodyBackgroundColor,
+			}),
 			shellChrome: await readShellChrome(page),
 			screenshots: {
 				gitStatusFilterOpen: gitStatusFilterOpenPath,
@@ -127,6 +154,84 @@ try {
 	}
 } finally {
 	await browser.close();
+}
+
+async function captureDiffshubReference(): Promise<BridgeViewerVisualProof['diffshubReference']> {
+	const page = await makeProofPage();
+	try {
+		await page.addInitScript((): void => {
+			window.localStorage.setItem('theme', 'dark');
+			window.localStorage.setItem('diffshub-dark-theme', 'catppuccin-mocha');
+		});
+		await page.goto(diffshubReferenceUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+		await page.waitForFunction(
+			(): boolean =>
+				document.querySelector('file-tree-container') !== null ||
+				document.querySelector('diffs-container') !== null,
+			{ timeout: 60_000 },
+		);
+		await page.waitForFunction((): boolean => document.documentElement.classList.contains('dark'), {
+			timeout: 10_000,
+		});
+		const screenshot = resolve(artifactDirectory, 'diffshub-reference-pr180-catppuccin-mocha.png');
+		await page.screenshot({ fullPage: false, path: screenshot });
+		return await page.evaluate(
+			(props: { readonly screenshot: string; readonly url: string }) => ({
+				bodyBackgroundColor: window.getComputedStyle(document.body).backgroundColor,
+				documentClassName: document.documentElement.className,
+				hasCodeView: document.querySelector('diffs-container') !== null,
+				hasFileTree: document.querySelector('file-tree-container') !== null,
+				screenshot: props.screenshot,
+				themeStorage: {
+					darkTheme: window.localStorage.getItem('diffshub-dark-theme'),
+					mode: window.localStorage.getItem('theme'),
+				},
+				url: props.url,
+			}),
+			{ screenshot, url: diffshubReferenceUrl },
+		);
+	} finally {
+		await page.close();
+	}
+}
+
+interface BuildReferenceComparisonProps {
+	readonly diffshubBodyBackgroundColor: string;
+	readonly localBodyBackgroundColor: string;
+}
+
+function buildReferenceComparison(
+	props: BuildReferenceComparisonProps,
+): BridgeViewerVisualProof['referenceComparison'] {
+	return {
+		bodyBackgroundColorChannelDelta: calculateRgbChannelDelta(
+			props.localBodyBackgroundColor,
+			props.diffshubBodyBackgroundColor,
+		),
+		diffshubBodyBackgroundColor: props.diffshubBodyBackgroundColor,
+		localBodyBackgroundColor: props.localBodyBackgroundColor,
+	};
+}
+
+function calculateRgbChannelDelta(leftColor: string, rightColor: string): number {
+	const leftRgb = parseRgbColor(leftColor);
+	const rightRgb = parseRgbColor(rightColor);
+	if (leftRgb === null || rightRgb === null) {
+		return 0;
+	}
+	return (
+		Math.abs(leftRgb[0] - rightRgb[0]) +
+		Math.abs(leftRgb[1] - rightRgb[1]) +
+		Math.abs(leftRgb[2] - rightRgb[2])
+	);
+}
+
+function parseRgbColor(color: string): readonly [number, number, number] | null {
+	const match = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/u.exec(color);
+	if (match === null) {
+		return null;
+	}
+	return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
 async function makeProofPage(): Promise<Page> {
