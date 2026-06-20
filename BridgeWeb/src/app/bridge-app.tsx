@@ -44,6 +44,10 @@ import type {
 } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import { loadSelectedReviewItemContentResources } from '../review-viewer/content/review-content-loader.js';
 import {
+	createBridgeReviewContentRegistry,
+	type BridgeReviewContentRegistry,
+} from '../review-viewer/content/review-content-registry.js';
+import {
 	bridgeMarkdownPreviewMaxBytes,
 	resolveBridgeMarkdownPreviewDecision,
 	type BridgeMarkdownPreviewFallbackReason,
@@ -131,9 +135,18 @@ function useBridgeReviewViewerStore(): BridgeReviewViewerStore {
 	return storeRef.current;
 }
 
+function useBridgeReviewContentRegistry(): BridgeReviewContentRegistry {
+	const registryRef = useRef<BridgeReviewContentRegistry | null>(null);
+	if (registryRef.current === null) {
+		registryRef.current = createBridgeReviewContentRegistry();
+	}
+	return registryRef.current;
+}
+
 export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const target = props.target ?? document;
 	const viewerStore = useBridgeReviewViewerStore();
+	const contentRegistry = useBridgeReviewContentRegistry();
 	const projection = useStore(viewerStore, (state) => state.projection);
 	const rootSnapshot = useStore(viewerStore, selectBridgeReviewViewerRootSnapshot);
 	const viewerActions = useStore(viewerStore, (state) => state.actions);
@@ -238,6 +251,18 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
 		flushTelemetry,
 	});
+
+	useEffect((): void => {
+		contentRegistry.setActiveIdentity(
+			reviewPackage === null
+				? null
+				: {
+						packageId: reviewPackage.packageId,
+						reviewGeneration: reviewPackage.reviewGeneration,
+						revision: reviewPackage.revision,
+					},
+		);
+	}, [contentRegistry, reviewPackage]);
 
 	useEffect((): (() => void) => {
 		let handshakeSession: BridgePageHandshakeSession | null = null;
@@ -405,6 +430,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						traceContext: telemetryRecorderRef.current.isEnabled('web')
 							? createChildTraceContext(parentTraceContext)
 							: null,
+						contentRegistry,
 						signal: contentAbortController.signal,
 						telemetryRecorder: telemetryRecorderRef.current,
 					}
@@ -415,6 +441,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						traceContext: telemetryRecorderRef.current.isEnabled('web')
 							? createChildTraceContext(parentTraceContext)
 							: null,
+						contentRegistry,
 						signal: contentAbortController.signal,
 						telemetryRecorder: telemetryRecorderRef.current,
 					};
@@ -443,7 +470,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			didCancel = true;
 			contentAbortController.abort();
 		};
-	}, [props.fetchContent, reviewPackage, rootSnapshot.selectedItemId]);
+	}, [contentRegistry, props.fetchContent, reviewPackage, rootSnapshot.selectedItemId]);
 
 	useEffect((): (() => void) => {
 		let didCancel = false;

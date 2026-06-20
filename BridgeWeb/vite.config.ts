@@ -96,8 +96,8 @@ async function handleBridgeWorktreeContentRequest(props: {
 	}
 	const requestUrl = props.request.url ?? null;
 	const contentUrl = new URL(requestUrl ?? '/', 'http://127.0.0.1');
-	const handleId = decodeURIComponent(contentUrl.pathname.replace(/^\//u, ''));
-	if (handleId.length === 0 || handleId.includes('/')) {
+	const handleId = decodeBridgeWorktreeContentHandle(contentUrl.pathname);
+	if (handleId === null) {
 		props.response.statusCode = 400;
 		props.response.end('Invalid Bridge worktree content handle');
 		return;
@@ -119,13 +119,13 @@ async function handleBridgeWorktreeContentRequest(props: {
 	}
 }
 
-function parseBridgeWorktreeContentRequest(props: {
+export function parseBridgeWorktreeContentRequest(props: {
 	readonly contentUrl: URL;
 	readonly handleId: string;
 }): BridgeWorktreeDevProviderContentRequest | null {
-	const reviewGeneration = Number(props.contentUrl.searchParams.get('generation'));
-	const revision = Number(props.contentUrl.searchParams.get('revision'));
-	if (!Number.isInteger(reviewGeneration) || !Number.isInteger(revision)) {
+	const reviewGeneration = parseNonnegativeIntegerSearchParam(props.contentUrl, 'generation');
+	const revision = parseNonnegativeIntegerSearchParam(props.contentUrl, 'revision');
+	if (reviewGeneration === null || revision === null) {
 		return null;
 	}
 	return {
@@ -133,4 +133,22 @@ function parseBridgeWorktreeContentRequest(props: {
 		reviewGeneration,
 		revision,
 	};
+}
+
+export function decodeBridgeWorktreeContentHandle(pathname: string): string | null {
+	try {
+		const handleId = decodeURIComponent(pathname.replace(/^\//u, ''));
+		return handleId.length === 0 || handleId.includes('/') ? null : handleId;
+	} catch {
+		return null;
+	}
+}
+
+function parseNonnegativeIntegerSearchParam(url: URL, name: string): number | null {
+	const value = url.searchParams.get(name);
+	if (value === null || !/^(?:0|[1-9]\d*)$/u.test(value)) {
+		return null;
+	}
+	const parsedValue = Number(value);
+	return Number.isSafeInteger(parsedValue) ? parsedValue : null;
 }

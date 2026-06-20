@@ -137,4 +137,10 @@ describe('bridge resource URL', () => {
 
 		expect(parsed).toBeNull();
 	});
+
+	test('rejects malformed percent encoded resource paths without throwing', () => {
+		const parsed = parseBridgeResourceUrl('agentstudio://resource/content/%E0%A4%A?generation=7');
+
+		expect(parsed).toBeNull();
+	});
 });

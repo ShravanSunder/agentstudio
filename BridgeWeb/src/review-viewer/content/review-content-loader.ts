@@ -13,6 +13,7 @@ import type {
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
+import type { BridgeReviewContentRegistry } from './review-content-registry.js';
 
 export interface LoadSelectedReviewItemContentProps {
 	readonly reviewPackage: BridgeReviewPackage;
@@ -22,6 +23,7 @@ export interface LoadSelectedReviewItemContentProps {
 	readonly sendTraceparentHeader?: boolean;
 	readonly signal?: AbortSignal;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
+	readonly contentRegistry?: BridgeReviewContentRegistry;
 }
 
 export interface LoadReviewItemContentResourcesProps extends Omit<
@@ -140,7 +142,7 @@ async function loadContentHandle(
 			? {}
 			: { telemetryRecorder: props.telemetryRecorder }),
 	};
-	return await loadBridgeContentResource(loadProps);
+	return await (props.contentRegistry?.load(loadProps) ?? loadBridgeContentResource(loadProps));
 }
 
 interface PreferredContentHandle {

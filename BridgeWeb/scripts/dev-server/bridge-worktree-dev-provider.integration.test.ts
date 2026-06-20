@@ -197,6 +197,38 @@ describe('Bridge worktree dev provider', () => {
 			await rm(repoRoot, { force: true, recursive: true });
 		}
 	});
+
+	test('increments revision when the worktree snapshot changes and rejects old content URLs', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		try {
+			const provider = await createBridgeWorktreeDevProvider({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRoot: repoRoot,
+			});
+			const firstPackage = await provider.loadReviewPackage();
+			const firstDocsItem = findItemByPath(provider, firstPackage, 'docs/bridge-plan.md');
+			const firstHandle = firstDocsItem.contentRoles.head;
+			const firstRequest = contentRequestForHandle(firstHandle);
+
+			await writeFile(join(repoRoot, 'docs/bridge-plan.md'), '# Plan\n\nupdated docs body\n');
+
+			const secondPackage = await provider.loadReviewPackage();
+			const secondDocsItem = findItemByPath(provider, secondPackage, 'docs/bridge-plan.md');
+			const secondHandle = secondDocsItem.contentRoles.head;
+
+			expect(secondPackage.revision).toBe(firstPackage.revision + 1);
+			expect(secondHandle?.resourceUrl).toContain(`revision=${secondPackage.revision}`);
+			await expect(provider.loadContent(firstRequest)).rejects.toThrow(
+				/stale Bridge worktree content revision/,
+			);
+			await expect(provider.loadContent(contentRequestForHandle(secondHandle))).resolves.toContain(
+				'updated docs body',
+			);
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
 });
 
 async function makeGitFixtureWorktree(): Promise<string> {

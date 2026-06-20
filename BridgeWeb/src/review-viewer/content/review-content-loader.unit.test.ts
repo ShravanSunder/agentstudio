@@ -13,6 +13,7 @@ import {
 	loadSelectedReviewItemContent,
 	loadSelectedReviewItemContentResources,
 } from './review-content-loader.js';
+import { createBridgeReviewContentRegistry } from './review-content-registry.js';
 
 describe('review content loader', () => {
 	test('loads the selected item through the preferred content handle URL', async () => {
@@ -48,6 +49,39 @@ describe('review content loader', () => {
 
 		expect(resources?.base?.text).toBe('base text');
 		expect(resources?.head?.text).toBe('head text');
+		expect(requestedUrls).toEqual([
+			'agentstudio://resource/content/handle-item-source-base?generation=1',
+			'agentstudio://resource/content/handle-item-source-head?generation=1',
+		]);
+	});
+
+	test('reuses registry content across repeated selected item hydration', async () => {
+		const requestedUrls: string[] = [];
+		const contentRegistry = createBridgeReviewContentRegistry();
+
+		const first = await loadSelectedReviewItemContentResources({
+			reviewPackage: makeBridgeReviewPackage(),
+			selectedItemId: 'item-source',
+			contentRegistry,
+			fetchContent: async (url: string): Promise<Response> => {
+				requestedUrls.push(url);
+				return new Response(url.includes('-base') ? 'base cached' : 'head cached');
+			},
+		});
+		const second = await loadSelectedReviewItemContentResources({
+			reviewPackage: makeBridgeReviewPackage(),
+			selectedItemId: 'item-source',
+			contentRegistry,
+			fetchContent: async (url: string): Promise<Response> => {
+				requestedUrls.push(url);
+				return new Response(url.includes('-base') ? 'base duplicate' : 'head duplicate');
+			},
+		});
+
+		expect(first?.base?.text).toBe('base cached');
+		expect(first?.head?.text).toBe('head cached');
+		expect(second?.base?.text).toBe('base cached');
+		expect(second?.head?.text).toBe('head cached');
 		expect(requestedUrls).toEqual([
 			'agentstudio://resource/content/handle-item-source-base?generation=1',
 			'agentstudio://resource/content/handle-item-source-head?generation=1',

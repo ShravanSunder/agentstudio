@@ -20,7 +20,6 @@ import type {
 
 const execFileAsync = promisify(execFile);
 const reviewGeneration = 1;
-const reviewRevision = 1;
 const schemaVersion = 1;
 
 export const bridgeWorktreeDevScenarioNameSchema = z.enum(['current-worktree']);
@@ -64,7 +63,13 @@ interface WorktreeChangedFile {
 
 interface ProviderState {
 	readonly contentByHandleId: ReadonlyMap<string, string>;
+	readonly fingerprint: string;
 	readonly reviewPackage: BridgeReviewPackage;
+}
+
+interface ProviderSnapshot {
+	readonly changedFiles: readonly WorktreeChangedFile[];
+	readonly fingerprint: string;
 }
 
 interface GitNameStatusRecord {
@@ -106,11 +111,27 @@ export async function createBridgeWorktreeDevProvider(
 	const worktreeRoot = await resolveAllowedWorktreeRoot(parsedConfig.worktreeRoot);
 	let state: ProviderState | null = null;
 
+	const loadCurrentState = async (): Promise<ProviderState> => {
+		const snapshot = await loadSnapshot({ baseRef: parsedConfig.baseRef, worktreeRoot });
+		const revision =
+			state === null
+				? 1
+				: state.fingerprint === snapshot.fingerprint
+					? state.reviewPackage.revision
+					: state.reviewPackage.revision + 1;
+		const currentState = makeProviderState({
+			baseRef: parsedConfig.baseRef,
+			revision,
+			snapshot,
+			worktreeRoot,
+		});
+		state = currentState;
+		return currentState;
+	};
+
 	return {
 		loadContent: async (request: BridgeWorktreeDevProviderContentRequest): Promise<string> => {
-			const currentState =
-				state ?? (await loadState({ baseRef: parsedConfig.baseRef, worktreeRoot }));
-			state = currentState;
+			const currentState = state ?? (await loadCurrentState());
 			if (request.reviewGeneration !== currentState.reviewPackage.reviewGeneration) {
 				throw new Error(
 					`Rejected stale Bridge worktree content generation: ${request.reviewGeneration}`,
@@ -126,21 +147,37 @@ export async function createBridgeWorktreeDevProvider(
 			return content;
 		},
 		loadReviewPackage: async (): Promise<BridgeReviewPackage> => {
-			const currentState = await loadState({ baseRef: parsedConfig.baseRef, worktreeRoot });
-			state = currentState;
+			const currentState = await loadCurrentState();
 			return currentState.reviewPackage;
 		},
 	};
 }
 
-async function loadState(props: {
+async function loadSnapshot(props: {
 	readonly baseRef: string;
 	readonly worktreeRoot: string;
-}): Promise<ProviderState> {
+}): Promise<ProviderSnapshot> {
 	const changedFiles = await readChangedFiles(props);
+	return {
+		changedFiles,
+		fingerprint: fingerprintChangedFiles(changedFiles),
+	};
+}
+
+function makeProviderState(props: {
+	readonly baseRef: string;
+	readonly revision: number;
+	readonly snapshot: ProviderSnapshot;
+	readonly worktreeRoot: string;
+}): ProviderState {
 	const contentByHandleId = new Map<string, string>();
-	const items = changedFiles.map((changedFile) =>
-		makeReviewItem({ changedFile, contentByHandleId, worktreeRoot: props.worktreeRoot }),
+	const items = props.snapshot.changedFiles.map((changedFile) =>
+		makeReviewItem({
+			changedFile,
+			contentByHandleId,
+			revision: props.revision,
+			worktreeRoot: props.worktreeRoot,
+		}),
 	);
 	const itemsById = Object.fromEntries(items.map((item) => [item.itemId, item]));
 	const summary = summarizeItems(items);
@@ -148,7 +185,7 @@ async function loadState(props: {
 		packageId: 'dev-worktree',
 		schemaVersion,
 		reviewGeneration,
-		revision: reviewRevision,
+		revision: props.revision,
 		query: {
 			queryId: 'dev-worktree-query',
 			queryKind: 'compare',
@@ -190,7 +227,7 @@ async function loadState(props: {
 		filterState: defaultViewFilter(),
 		generatedAtUnixMilliseconds: Date.now(),
 	};
-	return { contentByHandleId, reviewPackage };
+	return { contentByHandleId, fingerprint: props.snapshot.fingerprint, reviewPackage };
 }
 
 async function readChangedFiles(props: {
@@ -220,6 +257,23 @@ async function readChangedFiles(props: {
 		}),
 	);
 	return changedFiles;
+}
+
+function fingerprintChangedFiles(changedFiles: readonly WorktreeChangedFile[]): string {
+	return hashText(
+		JSON.stringify(
+			changedFiles.map((changedFile) => ({
+				additions: changedFile.additions,
+				baseContentHash:
+					changedFile.baseContent === null ? null : hashText(changedFile.baseContent),
+				changeKind: changedFile.changeKind,
+				deletions: changedFile.deletions,
+				headContentHash:
+					changedFile.headContent === null ? null : hashText(changedFile.headContent),
+				path: changedFile.path,
+			})),
+		),
+	);
 }
 
 async function gitNameStatusRecords(props: {
@@ -289,6 +343,7 @@ function changeKindForGitStatus(status: string): BridgeFileChangeKind {
 function makeReviewItem(props: {
 	readonly changedFile: WorktreeChangedFile;
 	readonly contentByHandleId: Map<string, string>;
+	readonly revision: number;
 	readonly worktreeRoot: string;
 }): BridgeReviewItemDescriptor {
 	const itemId = `dev-${hashText(props.changedFile.path).slice(0, 16)}`;
@@ -303,6 +358,7 @@ function makeReviewItem(props: {
 		itemId,
 		language,
 		path: props.changedFile.path,
+		revision: props.revision,
 		role: 'base',
 	});
 	const headHandle = makeHandleForContent({
@@ -313,6 +369,7 @@ function makeReviewItem(props: {
 		itemId,
 		language,
 		path: props.changedFile.path,
+		revision: props.revision,
 		role: 'head',
 	});
 	return {
@@ -357,6 +414,7 @@ function makeHandleForContent(props: {
 	readonly itemId: string;
 	readonly language: string;
 	readonly path: string;
+	readonly revision: number;
 	readonly role: BridgeContentRole;
 }): BridgeContentHandle | null {
 	if (props.content === null) {
@@ -371,7 +429,7 @@ function makeHandleForContent(props: {
 		role: props.role,
 		endpointId: props.endpointId,
 		reviewGeneration,
-		resourceUrl: `agentstudio://resource/content/${handleId}?generation=${reviewGeneration}&revision=${reviewRevision}`,
+		resourceUrl: `agentstudio://resource/content/${handleId}?generation=${reviewGeneration}&revision=${props.revision}`,
 		contentHash,
 		contentHashAlgorithm: 'sha256',
 		cacheKey: `${props.itemId}:${props.role}:${contentHash}`,

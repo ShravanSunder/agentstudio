@@ -152,14 +152,32 @@ function parseUrl(resourceUrl: string): URL | null {
 }
 
 function resourcePathSegments(parsedUrl: URL): readonly string[] | null {
-	const decodedPath = decodeURIComponent(parsedUrl.pathname);
+	const decodedPath = decodePathComponentOrNull(parsedUrl.pathname);
+	if (decodedPath === null) {
+		return null;
+	}
 	if (traversalPattern.test(decodedPath)) {
 		return null;
 	}
-	return parsedUrl.pathname
+	const decodedSegments: string[] = [];
+	for (const segment of parsedUrl.pathname
 		.split('/')
-		.filter((segment: string): boolean => segment.length > 0)
-		.map((segment: string): string => decodeURIComponent(segment));
+		.filter((pathSegment: string): boolean => pathSegment.length > 0)) {
+		const decodedSegment = decodePathComponentOrNull(segment);
+		if (decodedSegment === null) {
+			return null;
+		}
+		decodedSegments.push(decodedSegment);
+	}
+	return decodedSegments;
+}
+
+function decodePathComponentOrNull(value: string): string | null {
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return null;
+	}
 }
 
 function queryEntriesFor(parsedUrl: URL): QueryEntries {
