@@ -18,6 +18,24 @@ describe('bridge app control schema', () => {
 		});
 		expect(
 			bridgeAppControlCommandSchema.parse({
+				method: 'bridge.diff.expandFile',
+				itemId: 'item-source',
+			}),
+		).toEqual({
+			method: 'bridge.diff.expandFile',
+			itemId: 'item-source',
+		});
+		expect(
+			bridgeAppControlCommandSchema.parse({
+				method: 'bridge.diff.collapseFile',
+				itemId: 'item-source',
+			}),
+		).toEqual({
+			method: 'bridge.diff.collapseFile',
+			itemId: 'item-source',
+		});
+		expect(
+			bridgeAppControlCommandSchema.parse({
 				method: 'bridge.fileTree.setFilter',
 				gitStatusFilter: 'modified',
 				fileClassFilter: 'source',

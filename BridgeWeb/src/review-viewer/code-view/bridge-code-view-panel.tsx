@@ -179,23 +179,25 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		},
 		[viewerKey],
 	);
-	const toggleItemCollapse = useCallback((itemId: string): void => {
+	const setItemCollapsed = useCallback((itemId: string, collapsed: boolean): boolean => {
 		const codeViewHandle = codeViewHandleRef.current;
 		if (codeViewHandle === null) {
-			return;
+			return false;
 		}
 		const currentItem = codeViewHandle.getItem(itemId);
 		if (currentItem === undefined || !isBridgeCodeViewItem(currentItem)) {
-			return;
+			return false;
+		}
+		if (currentItem.collapsed === collapsed) {
+			return true;
 		}
 		const headerAnchor = captureCodeViewHeaderAnchor({
 			handle: codeViewHandle,
 			itemId,
 		});
-		const nextCollapsed = currentItem.collapsed !== true;
 		const nextItem: BridgeCodeViewItem = {
 			...currentItem,
-			collapsed: nextCollapsed,
+			collapsed,
 			version: (currentItem.version ?? 0) + 1,
 		};
 		const controller = controllerForHandle({
@@ -209,14 +211,50 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		});
 		setCollapsedItemIds((currentIds: ReadonlySet<string>): ReadonlySet<string> => {
 			const nextIds = new Set(currentIds);
-			if (nextCollapsed) {
+			if (collapsed) {
 				nextIds.add(itemId);
 			} else {
 				nextIds.delete(itemId);
 			}
 			return nextIds;
 		});
+		return true;
 	}, []);
+	const toggleItemCollapse = useCallback(
+		(itemId: string): void => {
+			const codeViewHandle = codeViewHandleRef.current;
+			const currentItem = codeViewHandle?.getItem(itemId);
+			if (currentItem === undefined || !isBridgeCodeViewItem(currentItem)) {
+				return;
+			}
+			setItemCollapsed(itemId, currentItem.collapsed !== true);
+		},
+		[setItemCollapsed],
+	);
+	useEffect((): (() => void) => {
+		const handleBridgeReviewControl = (event: Event): void => {
+			const detail = 'detail' in event ? event.detail : null;
+			if (
+				typeof detail !== 'object' ||
+				detail === null ||
+				!('method' in detail) ||
+				!('itemId' in detail) ||
+				typeof detail.itemId !== 'string'
+			) {
+				return;
+			}
+			if (detail.method === 'bridge.diff.expandFile') {
+				setItemCollapsed(detail.itemId, false);
+			}
+			if (detail.method === 'bridge.diff.collapseFile') {
+				setItemCollapsed(detail.itemId, true);
+			}
+		};
+		window.addEventListener('__bridge_review_control', handleBridgeReviewControl);
+		return (): void => {
+			window.removeEventListener('__bridge_review_control', handleBridgeReviewControl);
+		};
+	}, [setItemCollapsed]);
 	const headerRenderers = useMemo(
 		() =>
 			createBridgeCodeViewHeaderRenderers({

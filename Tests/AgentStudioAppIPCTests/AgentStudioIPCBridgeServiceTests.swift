@@ -256,6 +256,51 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(scrollResult.itemId == "item-source")
     }
 
+    @Test("debug unsafe no-auth serves Bridge diff expand and collapse methods")
+    func debugUnsafeNoAuthServesBridgeDiffExpandAndCollapseMethods() throws {
+        let paneId = UUID()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)]
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let collapseResponse = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(79),
+                method: "bridge.diff.collapseFile",
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "itemId": .string("item-source"),
+                ])
+            )
+        )
+        let collapseResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: collapseResponse)
+        #expect(collapseResult.method == "bridge.diff.collapseFile")
+        #expect(collapseResult.itemId == "item-source")
+
+        let expandResponse = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(80),
+                method: "bridge.diff.expandFile",
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "itemId": .string("item-source"),
+                ])
+            )
+        )
+        let expandResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: expandResponse)
+        #expect(expandResult.method == "bridge.diff.expandFile")
+        #expect(expandResult.itemId == "item-source")
+        #expect(expandResult.paneId == paneId)
+    }
+
     @Test("Bridge methods reject valid non-Bridge pane targets as unsupported")
     func bridgeMethodsRejectValidNonBridgePaneTargetsAsUnsupported() throws {
         let paneId = UUID()
@@ -342,6 +387,44 @@ struct AgentStudioIPCBridgeServiceTests {
                     id: .number(bridgeRequest.id),
                     method: bridgeRequest.method,
                     params: bridgeRequest.params
+                )
+            )
+
+            #expect(response.id == .number(bridgeRequest.id))
+            #expect(response.error?.code == -32_003)
+            #expect(response.error?.message == "unsupported target")
+            #expect(response.result == nil)
+        }
+    }
+
+    @Test("Bridge expand and collapse methods reject valid non-Bridge pane targets as unsupported")
+    func bridgeExpandAndCollapseMethodsRejectValidNonBridgePaneTargetsAsUnsupported() throws {
+        let paneId = UUID()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .terminal)]
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let bridgeRequests: [(id: Int, method: String)] = [
+            (91, "bridge.diff.expandFile"),
+            (92, "bridge.diff.collapseFile"),
+        ]
+
+        for bridgeRequest in bridgeRequests {
+            let response = try sendRequest(
+                socketPath: fixture.paths.socketURL.path,
+                request: JSONRPCClientRequest(
+                    id: .number(bridgeRequest.id),
+                    method: bridgeRequest.method,
+                    params: .object([
+                        "handle": .string("pane:1"),
+                        "itemId": .string("item-source"),
+                    ])
                 )
             )
 

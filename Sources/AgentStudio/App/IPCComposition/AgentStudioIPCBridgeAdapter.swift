@@ -65,6 +65,22 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
         )
     }
 
+    func expandFile(_ params: IPCBridgeDiffExpandFileParams) async throws -> IPCBridgePageControlResult {
+        let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
+        return try await controller.applyPageControlForIPC(
+            .expandFile(itemId: params.itemId),
+            correlationId: params.correlationId
+        )
+    }
+
+    func collapseFile(_ params: IPCBridgeDiffCollapseFileParams) async throws -> IPCBridgePageControlResult {
+        let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
+        return try await controller.applyPageControlForIPC(
+            .collapseFile(itemId: params.itemId),
+            correlationId: params.correlationId
+        )
+    }
+
     func searchFileTree(_ params: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
         return try await controller.applyPageControlForIPC(

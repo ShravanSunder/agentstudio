@@ -225,6 +225,31 @@ struct AgentStudioIPCClientCoreTests {
         #expect(telemetryFlushInvocation.command == .bridgeTelemetryFlush(handle: "pane:2"))
     }
 
+    @Test("parses bridge diff expand and collapse commands")
+    func parsesBridgeDiffExpandAndCollapseCommands() throws {
+        let expandInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-diff-expand-file", "pane:2", "item-source"],
+            environment: [:]
+        )
+        let collapseInvocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "bridge-diff-collapse-file", "pane:2", "item-source"],
+            environment: [:]
+        )
+
+        #expect(
+            expandInvocation.command
+                == .bridgeDiffExpandFile(
+                    IPCBridgeDiffExpandFileParams(handle: "pane:2", itemId: "item-source")
+                )
+        )
+        #expect(
+            collapseInvocation.command
+                == .bridgeDiffCollapseFile(
+                    IPCBridgeDiffCollapseFileParams(handle: "pane:2", itemId: "item-source")
+                )
+        )
+    }
+
     @Test("builds semantic bridge control request frames")
     func buildsSemanticBridgeControlRequestFrames() throws {
         let client = AgentStudioIPCClient(

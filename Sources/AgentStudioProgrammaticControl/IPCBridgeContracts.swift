@@ -391,6 +391,30 @@ public struct IPCBridgeDiffScrollToFileParams: Codable, Equatable, Sendable {
     }
 }
 
+public struct IPCBridgeDiffExpandFileParams: Codable, Equatable, Sendable {
+    public let handle: String
+    public let itemId: String
+    public let correlationId: UUID?
+
+    public init(handle: String, itemId: String, correlationId: UUID? = nil) {
+        self.handle = handle
+        self.itemId = itemId
+        self.correlationId = correlationId
+    }
+}
+
+public struct IPCBridgeDiffCollapseFileParams: Codable, Equatable, Sendable {
+    public let handle: String
+    public let itemId: String
+    public let correlationId: UUID?
+
+    public init(handle: String, itemId: String, correlationId: UUID? = nil) {
+        self.handle = handle
+        self.itemId = itemId
+        self.correlationId = correlationId
+    }
+}
+
 public struct IPCBridgeFileTreeSearchParams: Codable, Equatable, Sendable {
     public let handle: String
     public let searchText: String
@@ -448,6 +472,8 @@ public struct IPCBridgeFileViewShowMarkdownPreviewParams: Codable, Equatable, Se
 
 public enum IPCBridgePageControlCommand: Equatable, Sendable {
     case scrollToFile(itemId: String)
+    case expandFile(itemId: String)
+    case collapseFile(itemId: String)
     case fileTreeSearch(searchText: String)
     case fileTreeSetFilter(gitStatusFilter: String, fileClassFilter: String)
     case fileTreeRevealPath(path: String)
@@ -457,6 +483,10 @@ public enum IPCBridgePageControlCommand: Equatable, Sendable {
         switch self {
         case .scrollToFile:
             "bridge.diff.scrollToFile"
+        case .expandFile:
+            "bridge.diff.expandFile"
+        case .collapseFile:
+            "bridge.diff.collapseFile"
         case .fileTreeSearch:
             "bridge.fileTree.search"
         case .fileTreeSetFilter:
@@ -485,6 +515,10 @@ extension IPCBridgePageControlCommand: Codable {
         switch method {
         case "bridge.diff.scrollToFile":
             self = .scrollToFile(itemId: try container.decode(String.self, forKey: .itemId))
+        case "bridge.diff.expandFile":
+            self = .expandFile(itemId: try container.decode(String.self, forKey: .itemId))
+        case "bridge.diff.collapseFile":
+            self = .collapseFile(itemId: try container.decode(String.self, forKey: .itemId))
         case "bridge.fileTree.search":
             self = .fileTreeSearch(searchText: try container.decode(String.self, forKey: .searchText))
         case "bridge.fileTree.setFilter":
@@ -512,6 +546,10 @@ extension IPCBridgePageControlCommand: Codable {
         try container.encode(method, forKey: .method)
         switch self {
         case .scrollToFile(let itemId):
+            try container.encode(itemId, forKey: .itemId)
+        case .expandFile(let itemId):
+            try container.encode(itemId, forKey: .itemId)
+        case .collapseFile(let itemId):
             try container.encode(itemId, forKey: .itemId)
         case .fileTreeSearch(let searchText):
             try container.encode(searchText, forKey: .searchText)

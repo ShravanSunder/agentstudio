@@ -26,6 +26,16 @@ extension AgentStudioAppIPCServer {
             return try await authorizedBridgeContext(for: request, rawHandle: params.handle) {
                 IPCBridgeDiffScrollToFileParams(handle: $0, itemId: params.itemId, correlationId: params.correlationId)
             }
+        case "bridge.diff.expandFile":
+            let params = try decodeParams(IPCBridgeDiffExpandFileParams.self, from: request.params)
+            return try await authorizedBridgeContext(for: request, rawHandle: params.handle) {
+                IPCBridgeDiffExpandFileParams(handle: $0, itemId: params.itemId, correlationId: params.correlationId)
+            }
+        case "bridge.diff.collapseFile":
+            let params = try decodeParams(IPCBridgeDiffCollapseFileParams.self, from: request.params)
+            return try await authorizedBridgeContext(for: request, rawHandle: params.handle) {
+                IPCBridgeDiffCollapseFileParams(handle: $0, itemId: params.itemId, correlationId: params.correlationId)
+            }
         case "bridge.fileTree.search":
             let params = try decodeParams(IPCBridgeFileTreeSearchParams.self, from: request.params)
             return try await authorizedBridgeContext(for: request, rawHandle: params.handle) {

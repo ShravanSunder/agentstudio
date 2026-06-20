@@ -17,9 +17,10 @@ extension AgentStudioAppIPCServer {
         case "terminal.status", "terminal.snapshot", "terminal.send", "terminal.wait":
             return try await processRuntimeRequest(request)
         case "bridge.diff.load", "bridge.diff.refresh", "bridge.diff.getPackage", "bridge.diff.renderState",
-            "bridge.diff.selectFile", "bridge.diff.scrollToFile", "bridge.fileTree.search",
-            "bridge.fileTree.setFilter", "bridge.fileTree.revealPath", "bridge.fileView.getContent",
-            "bridge.fileView.showMarkdownPreview", "bridge.telemetry.snapshot", "bridge.telemetry.flush":
+            "bridge.diff.selectFile", "bridge.diff.scrollToFile", "bridge.diff.expandFile",
+            "bridge.diff.collapseFile", "bridge.fileTree.search", "bridge.fileTree.setFilter",
+            "bridge.fileTree.revealPath", "bridge.fileView.getContent", "bridge.fileView.showMarkdownPreview",
+            "bridge.telemetry.snapshot", "bridge.telemetry.flush":
             return try await processBridgeRequest(request)
         case "command.list", "command.execute", "ui.commandBar.open":
             return try await processCommandOrUIRequest(request)
@@ -199,6 +200,12 @@ extension AgentStudioAppIPCServer {
             let result = try await service.ports.bridgePort.scrollToFile(params)
             await publishBridgePageControlSelectionIfAccepted(result)
             return try encodeResult(result)
+        case "bridge.diff.expandFile":
+            let params = try decodeParams(IPCBridgeDiffExpandFileParams.self, from: request.params)
+            return try await encodeResult(service.ports.bridgePort.expandFile(params))
+        case "bridge.diff.collapseFile":
+            let params = try decodeParams(IPCBridgeDiffCollapseFileParams.self, from: request.params)
+            return try await encodeResult(service.ports.bridgePort.collapseFile(params))
         case "bridge.fileTree.search":
             let params = try decodeParams(IPCBridgeFileTreeSearchParams.self, from: request.params)
             return try await encodeResult(service.ports.bridgePort.searchFileTree(params))

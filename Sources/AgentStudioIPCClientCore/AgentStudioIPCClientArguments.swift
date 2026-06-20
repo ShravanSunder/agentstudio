@@ -232,6 +232,16 @@ public enum AgentStudioIPCClientArguments {
             return .bridgeDiffScrollToFile(
                 IPCBridgeDiffScrollToFileParams(handle: values[0], itemId: values[1])
             )
+        case "bridge-diff-expand-file":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeDiffExpandFile(
+                IPCBridgeDiffExpandFileParams(handle: values[0], itemId: values[1])
+            )
+        case "bridge-diff-collapse-file":
+            let values = try requireCount(remainingArguments, 2)
+            return .bridgeDiffCollapseFile(
+                IPCBridgeDiffCollapseFileParams(handle: values[0], itemId: values[1])
+            )
         case "bridge-file-tree-search":
             let values = try requireCount(remainingArguments, 2)
             return .bridgeFileTreeSearch(

@@ -820,6 +820,11 @@ function applyBridgeAppControlCommand(
 			return selectReviewItem(command.itemId)
 				? { status: 'accepted', reason: null }
 				: { status: 'rejected', reason: 'item_not_found' };
+		case 'bridge.diff.expandFile':
+		case 'bridge.diff.collapseFile':
+			return reviewPackage !== null && command.itemId in reviewPackage.itemsById
+				? { status: 'accepted', reason: null }
+				: { status: 'rejected', reason: 'item_not_found' };
 		case 'bridge.fileTree.search':
 			props.setTreeSearchOpen(true);
 			viewerActions.setTreeSearchText(command.searchText);
@@ -875,6 +880,8 @@ function makeBridgeAppControlProbe(props: MakeBridgeAppControlProbeProps): Bridg
 	const path = props.command.method === 'bridge.fileTree.revealPath' ? props.command.path : null;
 	const itemId =
 		props.command.method === 'bridge.diff.scrollToFile' ||
+		props.command.method === 'bridge.diff.expandFile' ||
+		props.command.method === 'bridge.diff.collapseFile' ||
 		props.command.method === 'bridge.fileView.showMarkdownPreview'
 			? (props.command.itemId ?? props.rootSnapshot.selectedItemId)
 			: props.rootSnapshot.selectedItemId;

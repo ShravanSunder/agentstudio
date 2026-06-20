@@ -282,6 +282,24 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
+    func expandFile(_ params: IPCBridgeDiffExpandFileParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.diff.expandFile",
+            itemId: params.itemId,
+            path: nil,
+            correlationId: params.correlationId
+        )
+    }
+
+    func collapseFile(_ params: IPCBridgeDiffCollapseFileParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.diff.collapseFile",
+            itemId: params.itemId,
+            path: nil,
+            correlationId: params.correlationId
+        )
+    }
+
     func searchFileTree(_ params: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult {
         bridgePageControlResult(
             method: "bridge.fileTree.search",

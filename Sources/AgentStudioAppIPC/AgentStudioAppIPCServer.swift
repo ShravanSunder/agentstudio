@@ -343,9 +343,10 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 target: targetScope(fromCanonicalHandle: canonicalHandle)
             )
         case "bridge.diff.getPackage", "bridge.diff.renderState", "bridge.diff.refresh",
-            "bridge.diff.selectFile", "bridge.diff.scrollToFile", "bridge.fileTree.search",
-            "bridge.fileTree.setFilter", "bridge.fileTree.revealPath", "bridge.fileView.getContent",
-            "bridge.fileView.showMarkdownPreview", "bridge.telemetry.snapshot", "bridge.telemetry.flush":
+            "bridge.diff.selectFile", "bridge.diff.scrollToFile", "bridge.diff.expandFile",
+            "bridge.diff.collapseFile", "bridge.fileTree.search", "bridge.fileTree.setFilter",
+            "bridge.fileTree.revealPath", "bridge.fileView.getContent", "bridge.fileView.showMarkdownPreview",
+            "bridge.telemetry.snapshot", "bridge.telemetry.flush":
             return try await bridgeAuthorizationContext(for: request)
         case "pane.split":
             let params = try decodeParams(IPCPaneSplitParams.self, from: request.params)

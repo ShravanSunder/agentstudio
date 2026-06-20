@@ -8,6 +8,8 @@ import {
 
 export const bridgeAppControlMethodSchema = z.enum([
 	'bridge.diff.scrollToFile',
+	'bridge.diff.expandFile',
+	'bridge.diff.collapseFile',
 	'bridge.fileTree.search',
 	'bridge.fileTree.setFilter',
 	'bridge.fileTree.revealPath',
@@ -17,6 +19,14 @@ export const bridgeAppControlMethodSchema = z.enum([
 export const bridgeAppControlCommandSchema = z.discriminatedUnion('method', [
 	z.object({
 		method: z.literal('bridge.diff.scrollToFile'),
+		itemId: z.string().min(1),
+	}),
+	z.object({
+		method: z.literal('bridge.diff.expandFile'),
+		itemId: z.string().min(1),
+	}),
+	z.object({
+		method: z.literal('bridge.diff.collapseFile'),
 		itemId: z.string().min(1),
 	}),
 	z.object({
