@@ -19,9 +19,9 @@ import { makeBridgeReviewProjectionRequest } from '../navigation/review-projecti
 import { makeBridgeReviewProjectionInput } from '../navigation/review-projection.js';
 import type { BridgeReviewViewerStore } from '../state/review-viewer-store.js';
 import { recordBridgeProjectionBuildTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
-import { createBridgeReviewProjectionSyncClient } from '../workers/rpc/review-projection-sync-client.js';
-import type { BridgeReviewProjectionWorkerClient } from '../workers/rpc/review-projection-worker-client.js';
-import { selectBridgeReviewProjectionExecutionLane } from '../workers/rpc/review-projection-worker-planner.js';
+import { createBridgeReviewProjectionSyncClient } from '../workers/projection/review-projection-sync-client.js';
+import type { BridgeReviewProjectionWorkerClient } from '../workers/projection/review-projection-worker-client.js';
+import { selectBridgeReviewProjectionExecutionLane } from '../workers/projection/review-projection-worker-planner.js';
 
 export interface UseBridgeReviewProjectionCoordinatorProps {
 	readonly store: BridgeReviewViewerStore;

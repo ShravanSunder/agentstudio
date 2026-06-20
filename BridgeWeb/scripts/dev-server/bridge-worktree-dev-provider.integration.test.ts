@@ -11,6 +11,7 @@ import {
 	createBridgeWorktreeDevProvider,
 	resolveBridgeWorktreeDevProviderConfig,
 	type BridgeWorktreeDevProvider,
+	type BridgeWorktreeDevProviderContentRequest,
 } from './bridge-worktree-dev-provider.js';
 
 const execFileAsync = promisify(execFile);
@@ -21,6 +22,7 @@ describe('Bridge worktree dev provider', () => {
 		try {
 			const provider = await createBridgeWorktreeDevProvider({
 				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
 				worktreeRoot: repoRoot,
 			});
 
@@ -45,8 +47,8 @@ describe('Bridge worktree dev provider', () => {
 			expect(sourceHeadHandle?.resourceUrl).toContain('agentstudio://resource/content/');
 			expect(docsHeadHandle?.sizeBytes).toBeGreaterThan(0);
 
-			const docsContent = await provider.loadContent(requiredHandleId(docsHeadHandle));
-			const sourceContent = await provider.loadContent(requiredHandleId(sourceHeadHandle));
+			const docsContent = await provider.loadContent(contentRequestForHandle(docsHeadHandle));
+			const sourceContent = await provider.loadContent(contentRequestForHandle(sourceHeadHandle));
 			expect(docsContent).toContain('new docs body');
 			expect(sourceContent).toContain('export const value = 2');
 		} finally {
@@ -85,17 +87,112 @@ describe('Bridge worktree dev provider', () => {
 		const repoRoot = await makeGitFixtureWorktree();
 		try {
 			const config = await resolveBridgeWorktreeDevProviderConfig({
-				env: {},
+				env: { BRIDGE_WEB_DEV_BASE: 'HEAD', BRIDGE_WEB_DEV_WORKTREE: repoRoot },
 				packageRoot: join(repoRoot, 'BridgeWeb'),
-				requestUrl: `/__bridge-worktree/package?worktree=${encodeURIComponent(
-					repoRoot,
-				)}&base=${encodeURIComponent('HEAD')}`,
+				requestUrl: '/__bridge-worktree/package?scenario=current-worktree',
 			});
 
 			expect(config).toEqual({
 				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
 				worktreeRoot: await realpath(repoRoot),
 			});
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
+	test('rejects unknown worktree dev scenarios instead of resolving arbitrary sources', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		try {
+			await expect(
+				resolveBridgeWorktreeDevProviderConfig({
+					env: { BRIDGE_WEB_DEV_BASE: 'HEAD', BRIDGE_WEB_DEV_WORKTREE: repoRoot },
+					packageRoot: join(repoRoot, 'BridgeWeb'),
+					requestUrl: '/__bridge-worktree/package?scenario=/tmp/raw-path',
+				}),
+			).rejects.toThrow(/Invalid Bridge worktree dev provider config/);
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
+	test('rejects non-loopback absolute request URLs before reading scenario input', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		try {
+			await expect(
+				resolveBridgeWorktreeDevProviderConfig({
+					env: { BRIDGE_WEB_DEV_BASE: 'HEAD', BRIDGE_WEB_DEV_WORKTREE: repoRoot },
+					packageRoot: join(repoRoot, 'BridgeWeb'),
+					requestUrl: 'https://example.test/__bridge-worktree/package?scenario=current-worktree',
+				}),
+			).rejects.toThrow(/loopback/);
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
+	test('rejects raw worktree repo and base query usage on shareable routes', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		try {
+			const rawQueryAssertions = [
+				`worktree=${encodeURIComponent(repoRoot)}`,
+				`repo=${encodeURIComponent(repoRoot)}`,
+				'base=HEAD',
+			].map(async (query: string): Promise<void> => {
+				await expect(
+					resolveBridgeWorktreeDevProviderConfig({
+						env: { BRIDGE_WEB_DEV_BASE: 'HEAD', BRIDGE_WEB_DEV_WORKTREE: repoRoot },
+						packageRoot: join(repoRoot, 'BridgeWeb'),
+						requestUrl: `/__bridge-worktree/package?scenario=current-worktree&${query}`,
+					}),
+				).rejects.toThrow(/raw worktree, repo, or base query parameters/);
+			});
+			await Promise.all(rawQueryAssertions);
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
+	test('rejects non-git-root worktree roots supplied through local diagnostics', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		try {
+			await expect(
+				resolveBridgeWorktreeDevProviderConfig({
+					env: { BRIDGE_WEB_DEV_BASE: 'HEAD', BRIDGE_WEB_DEV_WORKTREE: join(repoRoot, 'src') },
+					packageRoot: join(repoRoot, 'BridgeWeb'),
+					requestUrl: '/__bridge-worktree/package?scenario=current-worktree',
+				}),
+			).rejects.toThrow(/must be the git root/);
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
+	test('rejects stale generation and revision content resource requests', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		try {
+			const provider = await createBridgeWorktreeDevProvider({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRoot: repoRoot,
+			});
+			const reviewPackage = await provider.loadReviewPackage();
+			const addedDocsItem = findItemByPath(provider, reviewPackage, 'docs/bridge-plan.md');
+			const docsHeadHandle = addedDocsItem.contentRoles.head;
+			const validContentRequest: BridgeWorktreeDevProviderContentRequest = {
+				handleId: requiredHandleId(docsHeadHandle),
+				reviewGeneration: reviewPackage.reviewGeneration,
+				revision: reviewPackage.revision,
+			};
+
+			await expect(provider.loadContent(validContentRequest)).resolves.toContain('new docs body');
+			await expect(
+				provider.loadContent({ ...validContentRequest, reviewGeneration: 0 }),
+			).rejects.toThrow(/stale Bridge worktree content generation/);
+			await expect(provider.loadContent({ ...validContentRequest, revision: 0 })).rejects.toThrow(
+				/stale Bridge worktree content revision/,
+			);
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
 		}
@@ -136,9 +233,35 @@ function findItemByPath(
 	return item;
 }
 
+function contentRequestForHandle(
+	handle:
+		| {
+				readonly handleId: string;
+				readonly reviewGeneration?: number;
+				readonly resourceUrl?: string;
+		  }
+		| null
+		| undefined,
+): BridgeWorktreeDevProviderContentRequest {
+	const handleId = requiredHandleId(handle);
+	const parsedUrl = new URL(requiredResourceUrl(handle));
+	return {
+		handleId,
+		reviewGeneration: Number(parsedUrl.searchParams.get('generation')),
+		revision: Number(parsedUrl.searchParams.get('revision')),
+	};
+}
+
 function requiredHandleId(handle: { readonly handleId: string } | null | undefined): string {
 	if (handle === null || handle === undefined) {
 		throw new Error('Expected Bridge content handle');
 	}
 	return handle.handleId;
+}
+
+function requiredResourceUrl(handle: { readonly resourceUrl?: string } | null | undefined): string {
+	if (handle === null || handle === undefined || handle.resourceUrl === undefined) {
+		throw new Error('Expected Bridge content resource URL');
+	}
+	return handle.resourceUrl;
 }

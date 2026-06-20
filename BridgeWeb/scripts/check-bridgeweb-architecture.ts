@@ -11,6 +11,7 @@ type RuleId =
 	| 'pierre-trees-import-boundary'
 	| 'pierre-worker-import-boundary'
 	| 'markdown-render-worker-boundary'
+	| 'review-viewer-folder-boundary'
 	| 'review-viewer-state-has-effects'
 	| 'review-viewer-shell-has-content-effects'
 	| 'telemetry-boundary'
@@ -145,6 +146,7 @@ async function checkSourceFile(
 		violations: [],
 	};
 
+	checkReviewViewerFolderBoundary(context);
 	walkSourceFile(sourceFile, (node: ts.Node): void => {
 		checkStringLiteral(context, node);
 		checkImportSource(context, node);
@@ -273,7 +275,7 @@ function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
 			ruleId: 'worker-boundary',
 			node,
 			message:
-				'Worker construction belongs under review-viewer/workers/rpc, workers/pierre, or workers/markdown',
+				'Worker construction belongs under review-viewer/workers/projection, workers/pierre, workers/markdown, or workers/shared-rpc',
 		});
 	}
 
@@ -286,7 +288,30 @@ function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
 			ruleId: 'worker-boundary',
 			node,
 			message:
-				'postMessage usage belongs under review-viewer/workers/rpc, workers/pierre, or workers/markdown',
+				'postMessage usage belongs under review-viewer/workers/projection, workers/pierre, workers/markdown, or workers/shared-rpc',
+		});
+	}
+}
+
+function checkReviewViewerFolderBoundary(context: SourceContext): void {
+	if (isTestPath(context.relativePath)) {
+		return;
+	}
+
+	if (isPathInside(context.relativePath, 'src/review-viewer/runtime/')) {
+		addViolation(context, {
+			ruleId: 'review-viewer-folder-boundary',
+			message:
+				'review-viewer/runtime is too vague; move files to a feature-owned folder such as content or projections',
+		});
+		return;
+	}
+
+	if (isPathInside(context.relativePath, 'src/review-viewer/workers/rpc/')) {
+		addViolation(context, {
+			ruleId: 'review-viewer-folder-boundary',
+			message:
+				'review-viewer/workers/rpc is too vague; use workers/projection for projection workers or workers/shared-rpc for generic transport helpers',
 		});
 	}
 }
@@ -445,9 +470,10 @@ function isAllowedPierreWorkerImportPath(relativePath: string): boolean {
 
 function isAllowedWorkerPath(relativePath: string): boolean {
 	return (
-		isPathInside(relativePath, 'src/review-viewer/workers/rpc/') ||
+		isPathInside(relativePath, 'src/review-viewer/workers/projection/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/pierre/') ||
-		isPathInside(relativePath, 'src/review-viewer/workers/markdown/')
+		isPathInside(relativePath, 'src/review-viewer/workers/markdown/') ||
+		isPathInside(relativePath, 'src/review-viewer/workers/shared-rpc/')
 	);
 }
 

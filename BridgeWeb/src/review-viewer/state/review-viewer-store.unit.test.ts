@@ -5,7 +5,7 @@ import {
 	makeBridgeReviewProjectionInput,
 } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
-import { fingerprintBridgeReviewProjectionRequest } from '../workers/rpc/review-projection-worker-rpc.js';
+import { fingerprintBridgeReviewProjectionRequest } from '../workers/projection/review-projection-worker-rpc.js';
 import {
 	createBridgeReviewViewerStore,
 	selectBridgeReviewViewerRootSnapshot,

@@ -54,7 +54,7 @@ export default defineConfig([
 		name: 'review-projection-worker',
 		entry: {
 			'review-projection-worker':
-				'./src/review-viewer/workers/rpc/review-projection-worker-entry.ts',
+				'./src/review-viewer/workers/projection/review-projection-worker-entry.ts',
 		},
 		outputOptions: {
 			codeSplitting: false,

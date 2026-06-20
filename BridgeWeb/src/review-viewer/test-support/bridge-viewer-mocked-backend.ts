@@ -15,13 +15,13 @@ import type {
 import {
 	createBridgeReviewProjectionWorkerClient,
 	type BridgeReviewProjectionWorkerClient,
-} from '../workers/rpc/review-projection-worker-client.js';
+} from '../workers/projection/review-projection-worker-client.js';
 import {
 	buildBridgeReviewProjectionWorkerSuccessResponse,
 	identityFromWorkerRequest,
 	type BridgeReviewProjectionWorkerRequest,
 	type BridgeReviewProjectionWorkerResponse,
-} from '../workers/rpc/review-projection-worker-rpc.js';
+} from '../workers/projection/review-projection-worker-rpc.js';
 
 export type BridgeViewerMockedBackendLatencyProfile = 'zero' | 'small' | 'slowBounded';
 export type BridgeViewerBrowserFixtureClass =

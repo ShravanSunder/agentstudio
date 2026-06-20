@@ -9,6 +9,7 @@ import {
 	createBridgeWorktreeDevProvider,
 	resolveBridgeWorktreeDevProviderConfig,
 	type BridgeWorktreeDevProvider,
+	type BridgeWorktreeDevProviderContentRequest,
 } from './scripts/dev-server/bridge-worktree-dev-provider.js';
 
 type BridgeWorktreeDevProviderPromise = Promise<BridgeWorktreeDevProvider>;
@@ -34,7 +35,7 @@ export default defineConfig({
 						packageRoot: bridgeWebPackageRoot,
 						requestUrl,
 					});
-					const configKey = `${config.worktreeRoot}\u0000${config.baseRef}`;
+					const configKey = `${config.scenarioName}\u0000${config.worktreeRoot}\u0000${config.baseRef}`;
 					const existingProviderPromise = providerPromisesByConfig.get(configKey);
 					if (existingProviderPromise !== undefined) {
 						return existingProviderPromise;
@@ -101,13 +102,35 @@ async function handleBridgeWorktreeContentRequest(props: {
 		props.response.end('Invalid Bridge worktree content handle');
 		return;
 	}
+	const contentRequest = parseBridgeWorktreeContentRequest({ contentUrl, handleId });
+	if (contentRequest === null) {
+		props.response.statusCode = 400;
+		props.response.end('Invalid Bridge worktree content generation or revision');
+		return;
+	}
 	try {
 		const provider = await props.getProvider(requestUrl);
-		const content = await provider.loadContent(handleId);
+		const content = await provider.loadContent(contentRequest);
 		props.response.setHeader('Content-Type', 'text/plain; charset=utf-8');
 		props.response.end(content);
 	} catch (error: unknown) {
 		props.response.statusCode = 404;
 		props.response.end(error instanceof Error ? error.message : 'Bridge worktree content missing');
 	}
+}
+
+function parseBridgeWorktreeContentRequest(props: {
+	readonly contentUrl: URL;
+	readonly handleId: string;
+}): BridgeWorktreeDevProviderContentRequest | null {
+	const reviewGeneration = Number(props.contentUrl.searchParams.get('generation'));
+	const revision = Number(props.contentUrl.searchParams.get('revision'));
+	if (!Number.isInteger(reviewGeneration) || !Number.isInteger(revision)) {
+		return null;
+	}
+	return {
+		handleId: props.handleId,
+		reviewGeneration,
+		revision,
+	};
 }

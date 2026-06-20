@@ -1,6 +1,10 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
 import { chromium, type Page } from 'playwright';
 
 import { bridgeReviewPackageSchema } from '../src/foundation/review-package/bridge-review-package-schema.ts';
+import type { BridgeContentHandle } from '../src/foundation/review-package/bridge-review-package.ts';
 import {
 	collectBridgeViewerHydrationDiagnosticsFromRoot,
 	parseBridgeViewerHydrationDiagnostics,
@@ -11,19 +15,31 @@ const defaultWorktreeDevServerUrl = 'http://127.0.0.1:5173/?fixture=worktree&wor
 const worktreeDevServerUrl =
 	process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] ?? defaultWorktreeDevServerUrl;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
+const execFileAsync = promisify(execFile);
 
 interface WorktreeDevServerVerificationResult {
 	readonly hydrationDiagnostics: BridgeViewerHydrationDiagnostics;
 	readonly markdownCharacterCount: number;
 	readonly markdownDisplayPath: string;
 	readonly markdownPreviewTextLength: number;
+	readonly packageId: string;
 	readonly packageContentHandleId: string;
 	readonly packageForbiddenTextAbsent: boolean;
+	readonly pinnedTargetPaths: {
+		readonly markdownPath: string;
+		readonly selectedPath: string;
+	};
+	readonly providerBaseIdentity: string;
+	readonly providerHeadIdentity: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
+	readonly scenarioName: string;
 	readonly selectedCharacterCount: number;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
 	readonly selectedLineCount: number;
 	readonly targetPath: string;
+	readonly worktreeHead: string | null;
 	readonly workerPoolState: string | null;
 }
 
@@ -49,22 +65,12 @@ try {
 async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationResult> {
 	const reviewPackage = await fetchWorktreeReviewPackage();
 	const targetItem =
-		Object.values(reviewPackage.itemsById).find((item) =>
+		orderedReviewItems(reviewPackage).find((item) =>
 			targetPathOverride === null
-				? item.changeKind === 'added' &&
-					item.headPath === 'BridgeWeb/scripts/app-asset-contract.ts' &&
-					item.contentRoles.head !== null &&
-					item.contentRoles.head !== undefined
+				? item.contentRoles.head !== null && item.contentRoles.head !== undefined
 				: item.headPath === targetPathOverride || item.basePath === targetPathOverride,
 		) ??
-		Object.values(reviewPackage.itemsById).find((item) =>
-			targetPathOverride === null
-				? item.changeKind === 'added' &&
-					item.contentRoles.head !== null &&
-					item.contentRoles.head !== undefined
-				: item.headPath === targetPathOverride || item.basePath === targetPathOverride,
-		) ??
-		Object.values(reviewPackage.itemsById).find((item) =>
+		orderedReviewItems(reviewPackage).find((item) =>
 			targetPathOverride === null
 				? item.contentRoles.head !== null && item.contentRoles.head !== undefined
 				: item.headPath === targetPathOverride || item.basePath === targetPathOverride,
@@ -81,15 +87,15 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 	if (targetPath === null || targetPath === undefined || headHandle === null) {
 		throw new Error('Expected worktree target item with display path and content handle');
 	}
-	const content = await fetchWorktreeContent(headHandle.handleId);
+	const content = await fetchWorktreeContent(headHandle);
 	const markdownTarget = await resolveWorktreeMarkdownTarget(reviewPackage);
-	const markdownContent = await fetchWorktreeContent(markdownTarget.handleId);
+	const markdownContent = await fetchWorktreeContent(markdownTarget.handle);
 	const packageText = JSON.stringify(reviewPackage);
 	if (content.length === 0) {
 		throw new Error(`Expected non-empty content for ${headHandle.handleId}`);
 	}
 	if (markdownContent.length === 0) {
-		throw new Error(`Expected non-empty markdown content for ${markdownTarget.handleId}`);
+		throw new Error(`Expected non-empty markdown content for ${markdownTarget.handle.handleId}`);
 	}
 	if (packageText.includes(content.slice(0, Math.min(80, content.length)))) {
 		throw new Error('Expected worktree review package to omit file body content');
@@ -180,18 +186,40 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			markdownCharacterCount: markdownContent.length,
 			markdownDisplayPath: markdownTarget.displayPath,
 			markdownPreviewTextLength,
+			packageId: reviewPackage.packageId,
 			packageContentHandleId: headHandle.handleId,
 			packageForbiddenTextAbsent: true,
+			pinnedTargetPaths: {
+				markdownPath: markdownTarget.displayPath,
+				selectedPath: targetPath,
+			},
+			providerBaseIdentity: reviewPackage.baseEndpoint.providerIdentity,
+			providerHeadIdentity: reviewPackage.headEndpoint.providerIdentity,
+			reviewGeneration: reviewPackage.reviewGeneration,
+			revision: reviewPackage.revision,
+			scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
 			targetPath,
+			worktreeHead: await gitHeadOrNull(reviewPackage.headEndpoint.providerIdentity),
 		};
 	} finally {
 		await page.close();
 	}
 }
 
+function orderedReviewItems(
+	reviewPackage: ReturnType<typeof bridgeReviewPackageSchema.parse>,
+): Array<ReturnType<typeof bridgeReviewPackageSchema.parse>['itemsById'][string]> {
+	return reviewPackage.orderedItemIds
+		.map((itemId) => reviewPackage.itemsById[itemId])
+		.filter(
+			(item): item is ReturnType<typeof bridgeReviewPackageSchema.parse>['itemsById'][string] =>
+				item !== undefined,
+		);
+}
+
 interface WorktreeMarkdownTarget {
 	readonly displayPath: string;
-	readonly handleId: string;
+	readonly handle: BridgeContentHandle;
 }
 
 async function resolveWorktreeMarkdownTarget(
@@ -218,7 +246,7 @@ async function resolveWorktreeMarkdownTarget(
 	}
 	return {
 		displayPath,
-		handleId: handle.handleId,
+		handle,
 	};
 }
 
@@ -257,16 +285,36 @@ async function fetchWorktreeReviewPackage(): Promise<
 	return bridgeReviewPackageSchema.parse(await response.json());
 }
 
-async function fetchWorktreeContent(handleId: string): Promise<string> {
+async function fetchWorktreeContent(handle: BridgeContentHandle): Promise<string> {
 	const contentUrl = new URL(
-		`/__bridge-worktree/content/${encodeURIComponent(handleId)}`,
+		`/__bridge-worktree/content/${encodeURIComponent(handle.handleId)}`,
 		worktreeDevServerUrl,
 	);
+	const resourceUrl = new URL(handle.resourceUrl);
+	contentUrl.searchParams.set('generation', String(handle.reviewGeneration));
+	const revision = resourceUrl.searchParams.get('revision');
+	if (revision !== null) {
+		contentUrl.searchParams.set('revision', revision);
+	}
 	const response = await fetch(contentUrl);
 	if (!response.ok) {
 		throw new Error(`Worktree content request failed: ${response.status}`);
 	}
 	return await response.text();
+}
+
+function scenarioNameFromDevServerUrl(url: string): string {
+	const parsedUrl = new URL(url);
+	return parsedUrl.searchParams.get('scenario') ?? 'current-worktree';
+}
+
+async function gitHeadOrNull(worktreeRoot: string): Promise<string | null> {
+	try {
+		const result = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: worktreeRoot });
+		return result.stdout.trim();
+	} catch {
+		return null;
+	}
 }
 
 async function makeVerificationPage(): Promise<Page> {

@@ -25,12 +25,12 @@ import {
 import {
 	createBridgeReviewProjectionWorkerClient,
 	type BridgeReviewProjectionWorkerTransport,
-} from '../review-viewer/workers/rpc/review-projection-worker-client.js';
+} from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import {
 	buildBridgeReviewProjectionWorkerSuccessResponse,
 	type BridgeReviewProjectionWorkerRequest,
 	type BridgeReviewProjectionWorkerResponse,
-} from '../review-viewer/workers/rpc/review-projection-worker-rpc.js';
+} from '../review-viewer/workers/projection/review-projection-worker-rpc.js';
 import type { BridgeAppControlCommand } from './bridge-app-control.js';
 import { BridgeApp } from './bridge-app.js';
 

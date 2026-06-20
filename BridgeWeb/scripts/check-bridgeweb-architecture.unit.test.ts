@@ -94,9 +94,14 @@ describe('BridgeWeb architecture checker', () => {
 			{
 				'src/review-viewer/state/review-viewer-store.ts': `
 					import { createBridgeRpcClient } from '../../bridge/bridge-rpc-client.js';
+					import { WorkerPoolManager } from '@pierre/diffs/worker';
 					const loadedFileBody = 'raw file text';
-					export const state = { createBridgeRpcClient, loadedFileBody };
+					const worker = new Worker(new URL('./worker.js', import.meta.url));
+					const telemetry = { record: () => undefined };
+					export const state = { createBridgeRpcClient, loadedFileBody, WorkerPoolManager };
 					fetch('agentstudio://resource/content/handle?generation=1');
+					worker.postMessage({ ok: true });
+					telemetry.record('store-action');
 				`,
 			},
 			async (packageRootPath: string): Promise<void> => {
@@ -107,8 +112,50 @@ describe('BridgeWeb architecture checker', () => {
 					expect.arrayContaining([
 						'review-viewer-state-has-effects',
 						'no-raw-file-bodies-in-state',
+						'worker-boundary',
+						'telemetry-boundary',
 					]),
 				);
+			},
+		);
+	});
+
+	test('reports vague review-viewer runtime and workers/rpc folders', async () => {
+		await withFixtureTree(
+			{
+				'src/review-viewer/runtime/review-content-loader.ts': `
+					export const value = 'content';
+				`,
+				'src/review-viewer/workers/rpc/review-projection-worker-client.ts': `
+					export const value = 'projection';
+				`,
+				'src/review-viewer/content/review-content-loader.ts': `
+					export const content = 'content';
+				`,
+				'src/review-viewer/projections/use-review-projection-coordinator.ts': `
+					export const projection = 'projection';
+				`,
+				'src/review-viewer/workers/projection/review-projection-worker-client.ts': `
+					export const projectionWorker = 'projection-worker';
+				`,
+				'src/review-viewer/workers/shared-rpc/shared-worker-rpc.ts': `
+					export const sharedRpc = 'shared-rpc';
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+
+				expect(report.ok).toBe(false);
+				expect(report.violations).toEqual([
+					expect.objectContaining({
+						ruleId: 'review-viewer-folder-boundary',
+						relativePath: 'src/review-viewer/runtime/review-content-loader.ts',
+					}),
+					expect.objectContaining({
+						ruleId: 'review-viewer-folder-boundary',
+						relativePath: 'src/review-viewer/workers/rpc/review-projection-worker-client.ts',
+					}),
+				]);
 			},
 		);
 	});
@@ -120,7 +167,7 @@ describe('BridgeWeb architecture checker', () => {
 					const worker = new Worker(new URL('./worker.js', import.meta.url));
 					worker.postMessage({ ok: true });
 				`,
-				'src/review-viewer/workers/rpc/projection-worker-client.ts': `
+				'src/review-viewer/workers/projection/projection-worker-client.ts': `
 					const worker = new Worker(new URL('./projection-worker.js', import.meta.url));
 					worker.postMessage({ ok: true });
 				`,
@@ -150,7 +197,7 @@ describe('BridgeWeb architecture checker', () => {
 					import { loadBridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 					export const value = loadBridgeContentResource;
 				`,
-				'src/review-viewer/runtime/review-content-loader.ts': `
+				'src/review-viewer/content/review-content-loader.ts': `
 					import { loadBridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 					export const value = loadBridgeContentResource;
 				`,

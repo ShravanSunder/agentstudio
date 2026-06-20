@@ -43,6 +43,20 @@ describe('bridge app dev fixture options', () => {
 		).toThrow(/Invalid BridgeWeb dev fixture query/);
 	});
 
+	test('allows named worktree scenarios without treating them as mocked fixture scenarios', () => {
+		const options = parseBridgeAppDevFixtureOptions(
+			new URLSearchParams('fixture=worktree&scenario=current-worktree&workers=on'),
+		);
+
+		expect(options).toEqual({
+			deliveryMode: 'full-load',
+			fixtureClass: 'worktree',
+			latencyProfile: 'zero',
+			scenario: 'default',
+			workersEnabled: true,
+		});
+	});
+
 	test('keeps the zod schema available as the canonical model', () => {
 		expect(() =>
 			bridgeAppDevFixtureOptionsSchema.parse({

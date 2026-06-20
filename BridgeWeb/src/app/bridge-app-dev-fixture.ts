@@ -59,11 +59,12 @@ export type BridgeAppDevFixtureOptions = z.infer<typeof bridgeAppDevFixtureOptio
 export function parseBridgeAppDevFixtureOptions(
 	searchParams: URLSearchParams,
 ): BridgeAppDevFixtureOptions {
+	const fixtureClass = searchParams.get('fixture') ?? 'large-diffshub';
 	const parsed = bridgeAppDevFixtureOptionsSchema.safeParse({
-		fixtureClass: searchParams.get('fixture') ?? 'large-diffshub',
+		fixtureClass,
 		deliveryMode: searchParams.get('delivery') ?? 'full-load',
 		latencyProfile: searchParams.get('latency') ?? 'zero',
-		scenario: searchParams.get('scenario') ?? 'default',
+		scenario: fixtureClass === 'worktree' ? 'default' : (searchParams.get('scenario') ?? 'default'),
 		workersEnabled: parseWorkersEnabled(searchParams.get('workers') ?? 'on'),
 	});
 

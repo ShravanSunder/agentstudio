@@ -42,14 +42,14 @@ import type {
 	BridgeCodeViewControlHandle,
 	BridgeCodeViewScrollToItemOptions,
 } from '../review-viewer/code-view/bridge-code-view-panel.js';
+import { loadSelectedReviewItemContentResources } from '../review-viewer/content/review-content-loader.js';
 import {
 	bridgeMarkdownPreviewMaxBytes,
 	resolveBridgeMarkdownPreviewDecision,
 	type BridgeMarkdownPreviewFallbackReason,
 } from '../review-viewer/markdown/bridge-markdown-render-mode.js';
 import type { BridgeReviewProjectionResult } from '../review-viewer/models/review-projection-models.js';
-import { loadSelectedReviewItemContentResources } from '../review-viewer/runtime/review-content-loader.js';
-import { useBridgeReviewProjectionCoordinator } from '../review-viewer/runtime/use-review-projection-coordinator.js';
+import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
 import {
 	BridgeReviewEmptyShell,
 	BridgeReviewProjectionFailedShell,
@@ -69,8 +69,8 @@ import type {
 	BridgeMarkdownRenderWorkerClientCompletion,
 } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-client.js';
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
-import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/rpc/review-projection-worker-client.js';
-import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/rpc/review-projection-worker-transport.js';
+import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
+import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
 import {
 	bridgeAppControlCommandSchema,
 	type BridgeAppControlCommand,

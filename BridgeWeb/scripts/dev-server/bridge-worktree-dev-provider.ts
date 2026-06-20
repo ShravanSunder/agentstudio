@@ -20,11 +20,16 @@ import type {
 
 const execFileAsync = promisify(execFile);
 const reviewGeneration = 1;
+const reviewRevision = 1;
 const schemaVersion = 1;
+
+export const bridgeWorktreeDevScenarioNameSchema = z.enum(['current-worktree']);
+export type BridgeWorktreeDevScenarioName = z.infer<typeof bridgeWorktreeDevScenarioNameSchema>;
 
 export const bridgeWorktreeDevProviderConfigSchema = z
 	.object({
 		baseRef: z.string().min(1),
+		scenarioName: bridgeWorktreeDevScenarioNameSchema,
 		worktreeRoot: z.string().min(1),
 	})
 	.strict();
@@ -37,8 +42,14 @@ export interface ResolveBridgeWorktreeDevProviderConfigProps {
 	readonly requestUrl: string | null;
 }
 
+export interface BridgeWorktreeDevProviderContentRequest {
+	readonly handleId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
+}
+
 export interface BridgeWorktreeDevProvider {
-	readonly loadContent: (handleId: string) => Promise<string>;
+	readonly loadContent: (request: BridgeWorktreeDevProviderContentRequest) => Promise<string>;
 	readonly loadReviewPackage: () => Promise<BridgeReviewPackage>;
 }
 
@@ -65,10 +76,16 @@ export async function resolveBridgeWorktreeDevProviderConfig(
 	props: ResolveBridgeWorktreeDevProviderConfigProps,
 ): Promise<BridgeWorktreeDevProviderConfig> {
 	const requestSearchParams = searchParamsForRequestUrl(props.requestUrl);
+	rejectRawPathOverrides(requestSearchParams);
+	const scenarioName = parseBridgeWorktreeDevScenarioName(
+		firstNonEmptyStringOrNull([
+			requestSearchParams.get('scenario'),
+			props.env['BRIDGE_WEB_DEV_SCENARIO'],
+			'current-worktree',
+		]) ?? 'current-worktree',
+	);
 	const worktreeRoot = await resolveAllowedWorktreeRoot(
 		firstNonEmptyStringOrNull([
-			requestSearchParams.get('worktree'),
-			requestSearchParams.get('repo'),
 			props.env['BRIDGE_WEB_DEV_WORKTREE'],
 			resolve(props.packageRoot, '..'),
 		]) ?? resolve(props.packageRoot, '..'),
@@ -79,7 +96,7 @@ export async function resolveBridgeWorktreeDevProviderConfig(
 			props.env['BRIDGE_WEB_DEV_BASE'],
 			null,
 		]) ?? (await resolveDefaultBaseRef(worktreeRoot));
-	return bridgeWorktreeDevProviderConfigSchema.parse({ baseRef, worktreeRoot });
+	return bridgeWorktreeDevProviderConfigSchema.parse({ baseRef, scenarioName, worktreeRoot });
 }
 
 export async function createBridgeWorktreeDevProvider(
@@ -90,13 +107,21 @@ export async function createBridgeWorktreeDevProvider(
 	let state: ProviderState | null = null;
 
 	return {
-		loadContent: async (handleId: string): Promise<string> => {
+		loadContent: async (request: BridgeWorktreeDevProviderContentRequest): Promise<string> => {
 			const currentState =
 				state ?? (await loadState({ baseRef: parsedConfig.baseRef, worktreeRoot }));
 			state = currentState;
-			const content = currentState.contentByHandleId.get(handleId);
+			if (request.reviewGeneration !== currentState.reviewPackage.reviewGeneration) {
+				throw new Error(
+					`Rejected stale Bridge worktree content generation: ${request.reviewGeneration}`,
+				);
+			}
+			if (request.revision !== currentState.reviewPackage.revision) {
+				throw new Error(`Rejected stale Bridge worktree content revision: ${request.revision}`);
+			}
+			const content = currentState.contentByHandleId.get(request.handleId);
 			if (content === undefined) {
-				throw new Error(`Unknown Bridge worktree content handle: ${handleId}`);
+				throw new Error(`Unknown Bridge worktree content handle: ${request.handleId}`);
 			}
 			return content;
 		},
@@ -123,7 +148,7 @@ async function loadState(props: {
 		packageId: 'dev-worktree',
 		schemaVersion,
 		reviewGeneration,
-		revision: 1,
+		revision: reviewRevision,
 		query: {
 			queryId: 'dev-worktree-query',
 			queryKind: 'compare',
@@ -346,7 +371,7 @@ function makeHandleForContent(props: {
 		role: props.role,
 		endpointId: props.endpointId,
 		reviewGeneration,
-		resourceUrl: `agentstudio://resource/content/${handleId}?generation=${reviewGeneration}`,
+		resourceUrl: `agentstudio://resource/content/${handleId}?generation=${reviewGeneration}&revision=${reviewRevision}`,
 		contentHash,
 		contentHashAlgorithm: 'sha256',
 		cacheKey: `${props.itemId}:${props.role}:${contentHash}`,
@@ -437,7 +462,37 @@ function searchParamsForRequestUrl(requestUrl: string | null): URLSearchParams {
 	if (requestUrl === null) {
 		return new URLSearchParams();
 	}
-	return new URL(requestUrl, 'http://127.0.0.1').searchParams;
+	const parsedUrl = new URL(requestUrl, 'http://127.0.0.1');
+	if (requestUrl.includes('://') && !isLoopbackHostname(parsedUrl.hostname)) {
+		throw new Error('Bridge worktree dev provider request URL must use a loopback host');
+	}
+	return parsedUrl.searchParams;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+	return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]';
+}
+
+function rejectRawPathOverrides(searchParams: URLSearchParams): void {
+	for (const rawPathOverrideName of ['worktree', 'repo', 'base']) {
+		if (searchParams.has(rawPathOverrideName)) {
+			throw new Error(
+				'Bridge worktree dev provider rejects raw worktree, repo, or base query parameters; use scenario instead',
+			);
+		}
+	}
+}
+
+function parseBridgeWorktreeDevScenarioName(
+	rawScenarioName: string,
+): BridgeWorktreeDevScenarioName {
+	const parsedScenarioName = bridgeWorktreeDevScenarioNameSchema.safeParse(rawScenarioName);
+	if (!parsedScenarioName.success) {
+		throw new Error(
+			`Invalid Bridge worktree dev provider config: unknown scenario ${rawScenarioName}`,
+		);
+	}
+	return parsedScenarioName.data;
 }
 
 function firstNonEmptyStringOrNull(values: readonly (string | null | undefined)[]): string | null {

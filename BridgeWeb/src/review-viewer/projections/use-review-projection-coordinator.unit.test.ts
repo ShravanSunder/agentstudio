@@ -8,17 +8,17 @@ import type {
 import type { BridgeTelemetryScope } from '../../foundation/telemetry/bridge-telemetry-scope.js';
 import { createBridgeReviewViewerStore } from '../state/review-viewer-store.js';
 import { makeBridgeViewerBrowserFixture } from '../test-support/bridge-viewer-mocked-backend.js';
-import { createBridgeReviewProjectionSyncClient } from '../workers/rpc/review-projection-sync-client.js';
+import { createBridgeReviewProjectionSyncClient } from '../workers/projection/review-projection-sync-client.js';
 import {
 	createBridgeReviewProjectionWorkerClient,
 	type BridgeReviewProjectionWorkerClient,
 	type BridgeReviewProjectionWorkerTransport,
-} from '../workers/rpc/review-projection-worker-client.js';
+} from '../workers/projection/review-projection-worker-client.js';
 import {
 	buildBridgeReviewProjectionWorkerSuccessResponse,
 	type BridgeReviewProjectionWorkerRequest,
 	type BridgeReviewProjectionWorkerResponse,
-} from '../workers/rpc/review-projection-worker-rpc.js';
+} from '../workers/projection/review-projection-worker-rpc.js';
 import { startBridgeReviewProjectionCoordinatorRequest } from './use-review-projection-coordinator.js';
 
 describe('Bridge review projection coordinator', () => {

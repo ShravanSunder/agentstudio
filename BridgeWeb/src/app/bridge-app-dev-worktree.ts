@@ -13,7 +13,7 @@ export interface BridgeAppDevWorktreeBackend {
 const bridgeWorktreePushNonce = 'dev-worktree-push-nonce';
 const worktreePackageEndpoint = '/__bridge-worktree/package';
 const worktreeContentEndpointPrefix = '/__bridge-worktree/content/';
-const worktreeForwardedSearchParamNames = ['worktree', 'repo', 'base'] as const;
+const worktreeForwardedSearchParamNames = ['scenario'] as const;
 
 export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBackend {
 	let didReceiveHandshakeRequest = false;
@@ -43,7 +43,10 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 			return await fetch(
 				bridgeWorktreeEndpoint(
 					`${worktreeContentEndpointPrefix}${encodeURIComponent(resourceUrl.handleId)}`,
-					forwardedSearchParams,
+					bridgeWorktreeContentSearchParams({
+						forwardedSearchParams,
+						resourceUrl: url,
+					}),
 				),
 				init,
 			);
@@ -79,7 +82,7 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 	};
 }
 
-function bridgeWorktreeForwardedSearchParams(search: string): URLSearchParams {
+export function bridgeWorktreeForwardedSearchParams(search: string): URLSearchParams {
 	const sourceSearchParams = new URLSearchParams(search);
 	const forwardedSearchParams = new URLSearchParams();
 	for (const searchParamName of worktreeForwardedSearchParamNames) {
@@ -89,6 +92,23 @@ function bridgeWorktreeForwardedSearchParams(search: string): URLSearchParams {
 		}
 	}
 	return forwardedSearchParams;
+}
+
+function bridgeWorktreeContentSearchParams(props: {
+	readonly forwardedSearchParams: URLSearchParams;
+	readonly resourceUrl: string;
+}): URLSearchParams {
+	const contentSearchParams = new URLSearchParams(props.forwardedSearchParams);
+	const parsedResourceUrl = new URL(props.resourceUrl);
+	const generation = parsedResourceUrl.searchParams.get('generation');
+	const revision = parsedResourceUrl.searchParams.get('revision');
+	if (generation !== null) {
+		contentSearchParams.set('generation', generation);
+	}
+	if (revision !== null) {
+		contentSearchParams.set('revision', revision);
+	}
+	return contentSearchParams;
 }
 
 function bridgeWorktreeEndpoint(path: string, searchParams: URLSearchParams): string {
