@@ -125,8 +125,13 @@ dir = "BridgeWeb"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-corepack enable
-corepack prepare pnpm@10.33.0 --activate
+if command -v corepack >/dev/null 2>&1; then
+  corepack enable
+  corepack prepare pnpm@10.33.0 --activate
+elif ! command -v pnpm >/dev/null 2>&1; then
+  echo "BridgeWeb install requires corepack or pnpm on PATH" >&2
+  exit 127
+fi
 pnpm install --frozen-lockfile
 """
 
