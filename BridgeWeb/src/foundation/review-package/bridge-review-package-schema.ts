@@ -20,7 +20,7 @@ export const bridgeSourceEndpointSchema = z
 		worktreeId: z.string(),
 		label: z.string(),
 		createdAtUnixMilliseconds: z.number().int().nonnegative(),
-		contentSetHash: z.string().nullable(),
+		contentSetHash: z.string().nullable().optional(),
 		providerIdentity: z.string(),
 	})
 	.strict();
@@ -114,13 +114,13 @@ export const bridgeReviewItemDescriptorSchema = z
 		language: z.string().nullable().optional(),
 		extension: z.string().nullable().optional(),
 		sizeBytes: z.number().int().nonnegative(),
-		baseContentHash: z.string().nullable(),
-		headContentHash: z.string().nullable(),
+		baseContentHash: z.string().nullable().optional(),
+		headContentHash: z.string().nullable().optional(),
 		contentHashAlgorithm: z.string(),
 		additions: z.number().int().nonnegative(),
 		deletions: z.number().int().nonnegative(),
 		isHiddenByDefault: z.boolean(),
-		hiddenReason: z.string().nullable(),
+		hiddenReason: z.string().nullable().optional(),
 		reviewPriority: bridgeReviewPrioritySchema,
 		contentRoles: bridgeReviewContentRolesSchema,
 		cacheKey: z.string(),
@@ -164,7 +164,7 @@ export const bridgeChangeGroupingKindSchema = z.enum([
 export const bridgeChangeGroupingSchema = z
 	.object({
 		kind: bridgeChangeGroupingKindSchema,
-		label: z.string().nullable(),
+		label: z.string().nullable().optional(),
 	})
 	.strict();
 
@@ -174,8 +174,8 @@ export const bridgeProvenanceFilterSchema = z
 		agentSessionIds: z.array(z.string()),
 		promptIds: z.array(z.string()),
 		operationIds: z.array(z.string()),
-		createdAfterUnixMilliseconds: z.number().int().nonnegative().nullable(),
-		createdBeforeUnixMilliseconds: z.number().int().nonnegative().nullable(),
+		createdAfterUnixMilliseconds: z.number().int().nonnegative().nullable().optional(),
+		createdBeforeUnixMilliseconds: z.number().int().nonnegative().nullable().optional(),
 		sourceKinds: z.array(z.string()),
 	})
 	.strict();
@@ -186,8 +186,8 @@ export const bridgeReviewQuerySchema = z
 		queryKind: z.enum(['compare', 'openFile', 'browseTree', 'filterPackage', 'groupPackage']),
 		repoId: z.string(),
 		worktreeId: z.string(),
-		baseEndpointId: z.string().nullable(),
-		headEndpointId: z.string().nullable(),
+		baseEndpointId: z.string().nullable().optional(),
+		headEndpointId: z.string().nullable().optional(),
 		comparisonSemantics: z.enum([
 			'twoDot',
 			'threeDot',
@@ -197,7 +197,7 @@ export const bridgeReviewQuerySchema = z
 			'notApplicable',
 		]),
 		pathScope: z.array(z.string()),
-		fileTarget: z.string().nullable(),
+		fileTarget: z.string().nullable().optional(),
 		viewFilter: bridgeViewFilterSchema,
 		grouping: bridgeChangeGroupingSchema,
 		provenanceFilter: bridgeProvenanceFilterSchema,

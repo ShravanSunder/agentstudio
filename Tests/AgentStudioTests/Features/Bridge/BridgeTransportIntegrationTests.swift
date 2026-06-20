@@ -338,7 +338,7 @@ extension WebKitSerializedTests {
                 )
 
                 let didRenderReviewShell = await waitUntil(timeout: .seconds(5)) {
-                    await self.pageContainsReviewFixture(page)
+                    (try? await controller.renderStateForIPC().summary.hasReviewShell) == true
                 }
                 let pageState = await describeBridgePageState(page)
                 #expect(
@@ -346,10 +346,65 @@ extension WebKitSerializedTests {
                     "Pushed package metadata should render the review viewer shell: \(pageState)")
                 let renderState = try await controller.renderStateForIPC()
                 #expect(renderState.summary.hasReviewShell)
+                #expect(!(renderState.summary.hasEmptyShell))
                 #expect(renderState.summary.sidebarPosition == "right")
                 #expect(renderState.diagnostics.evaluateSucceeded)
                 #expect(renderState.diagnostics.pageErrorCount == 0)
                 #expect(renderState.diagnostics.pageErrorKinds.isEmpty)
+            }
+        }
+
+        @Test
+        func test_handleDiffCommandWithSmokeProvider_rendersReviewViewerShell() async throws {
+            let paneId = UUIDv7.generate()
+            let state = BridgePaneState(panelKind: .diffViewer, source: nil)
+            let controller = BridgePaneController(
+                paneId: paneId,
+                state: state,
+                reviewSourceProvider: BridgeObservabilitySmokeReviewSourceProvider()
+            )
+            defer { controller.teardown() }
+
+            try await WebPageTestHarness.withManagedPage(controller.page) { page in
+                controller.loadApp()
+                try await waitForPageLoad(page)
+                let didCompleteBridgeReadyHandshake = await waitUntil {
+                    controller.isBridgeReady
+                }
+                #expect(
+                    didCompleteBridgeReadyHandshake,
+                    "Bridge app JavaScript should send bridge.ready before command-driven package load")
+                try await installPageDiagnosticsProbe(page)
+
+                let commandResult = await controller.handleDiffCommand(
+                    .loadDiff(
+                        DiffArtifact(
+                            diffId: BridgeObservabilitySmokeReviewSourceProvider.diffId,
+                            worktreeId: BridgeObservabilitySmokeReviewSourceProvider.worktreeId,
+                            patchData: Data()
+                        )
+                    ),
+                    commandId: UUIDv7.generate(),
+                    correlationId: nil
+                )
+
+                guard case .success = commandResult else {
+                    Issue.record("Expected smoke provider diff command to succeed")
+                    return
+                }
+
+                let didRenderReviewShell = await waitUntil(timeout: .seconds(5)) {
+                    (try? await controller.renderStateForIPC().summary.hasReviewShell) == true
+                }
+                let renderState = try await controller.renderStateForIPC()
+                let pageState = await describeBridgePageState(page)
+                #expect(
+                    didRenderReviewShell,
+                    "Command-driven smoke package should render review shell: \(pageState)")
+                #expect(renderState.summary.hasReviewShell)
+                #expect(!(renderState.summary.hasEmptyShell))
+                #expect(renderState.diagnostics.evaluateSucceeded)
+                #expect(renderState.diagnostics.pageErrorCount == 0)
             }
         }
 
@@ -629,20 +684,6 @@ extension WebKitSerializedTests {
                 contentSetHash: nil,
                 providerIdentity: "transport-test"
             )
-        }
-
-        private func pageContainsReviewFixture(_ page: WebPage) async -> Bool {
-            do {
-                let result = try await page.callJavaScript(
-                    """
-                    return document.querySelector('[data-testid="review-viewer-shell"]') !== null &&
-                      document.body.innerText.includes('Generation 42')
-                    """
-                )
-                return (result as? Bool) == true
-            } catch {
-                return false
-            }
         }
 
         private func pageContainsEmptyReviewShell(_ page: WebPage) async -> Bool {

@@ -13,6 +13,57 @@ describe('Bridge review package schema', () => {
 		expect(parsedReviewPackage.orderedItemIds).toEqual(reviewPackage.orderedItemIds);
 	});
 
+	test('accepts omitted keys for Swift nil optional fields', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		if (item === undefined) {
+			throw new Error('Expected item-source fixture item');
+		}
+		const packageWithOmittedNilOptionals = {
+			...reviewPackage,
+			query: {
+				...reviewPackage.query,
+				baseEndpointId: undefined,
+				headEndpointId: undefined,
+				fileTarget: undefined,
+				grouping: {
+					...reviewPackage.query.grouping,
+					label: undefined,
+				},
+				provenanceFilter: {
+					...reviewPackage.query.provenanceFilter,
+					createdAfterUnixMilliseconds: undefined,
+					createdBeforeUnixMilliseconds: undefined,
+				},
+			},
+			baseEndpoint: {
+				...reviewPackage.baseEndpoint,
+				contentSetHash: undefined,
+			},
+			headEndpoint: {
+				...reviewPackage.headEndpoint,
+				contentSetHash: undefined,
+			},
+			itemsById: {
+				'item-source': {
+					...item,
+					baseContentHash: undefined,
+					headContentHash: undefined,
+					hiddenReason: undefined,
+					contentRoles: {
+						base: item.contentRoles.base,
+						head: item.contentRoles.head,
+					},
+				},
+			},
+		};
+
+		const parsedReviewPackage = bridgeReviewPackageSchema.parse(packageWithOmittedNilOptionals);
+
+		expect(parsedReviewPackage.query.fileTarget).toBeUndefined();
+		expect(parsedReviewPackage.itemsById['item-source']?.hiddenReason).toBeUndefined();
+	});
+
 	test('rejects invalid package payloads at boundary parse time', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 
