@@ -80,6 +80,12 @@ Use `scripts/report-tcc-upgrade-probe-observability.sh` after a marker-scoped
 debug or beta launch to summarize the identity/access rows. The report helper
 is read-only and can require identity discontinuity or access denial, which is
 the proof gate for a Homebrew-style replacement reproduction.
+For the generated-debug reproduction only, use
+`scripts/replace-running-debug-app-for-tcc-probe.sh` to dry-run and, with
+explicit acknowledgement, replace the executable inside the generated
+per-worktree debug app while the monitor is active. The helper refuses beta,
+stable, `/Applications`, and non-generated debug paths; it is not a release or
+Homebrew updater.
 
 Atom instrumentation is controlled by the `atoms` tag. It emits reduced,
 aggregate-safe events such as `performance.atom.read`,
