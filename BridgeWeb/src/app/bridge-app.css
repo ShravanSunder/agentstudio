@@ -175,12 +175,12 @@ button:disabled,
 
 .bridge-scrollbar {
 	scrollbar-width: thin;
-	scrollbar-color: rgb(205 214 244 / 0.32) transparent;
+	scrollbar-color: rgb(205 214 244 / 0.24) transparent;
 }
 
 .bridge-scrollbar::-webkit-scrollbar {
-	width: 6px;
-	height: 6px;
+	width: 4px;
+	height: 4px;
 }
 
 .bridge-scrollbar::-webkit-scrollbar-track {
@@ -190,7 +190,7 @@ button:disabled,
 .bridge-scrollbar::-webkit-scrollbar-thumb {
 	border: 1px solid transparent;
 	border-radius: 999px;
-	background: rgb(205 214 244 / 0.28);
+	background: rgb(205 214 244 / 0.22);
 	background-clip: content-box;
 }
 

@@ -119,7 +119,9 @@ describe('BridgeReviewTreesPanel', () => {
 		expect(options?.preparedInput).toBeDefined();
 		expect(options?.unsafeCSS).toContain('data-file-tree-virtualized-scroll');
 		expect(options?.unsafeCSS).toContain('scrollbar-width: thin');
-		expect(options?.unsafeCSS).toContain('::-webkit-scrollbar');
+		expect(options?.unsafeCSS).toContain('scrollbar-color: rgb(205 214 244 / 0.24) transparent');
+		expect(options?.unsafeCSS).toContain('width: 4px');
+		expect(options?.unsafeCSS).toContain('height: 4px');
 		expect(options?.unsafeCSS).toContain('data-file-tree-sticky-overlay-content');
 		expect(options?.unsafeCSS).not.toContain(
 			"[data-item-contains-git-change='true'] > [data-item-section='git']",

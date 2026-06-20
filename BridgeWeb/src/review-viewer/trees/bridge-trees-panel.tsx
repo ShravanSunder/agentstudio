@@ -55,12 +55,12 @@ const bridgeReviewTreeUnsafeCSS = `
     padding-inline-end: 2px;
     margin-inline-end: 2px;
     scrollbar-width: thin;
-    scrollbar-color: rgb(205 214 244 / 0.32) transparent;
+    scrollbar-color: rgb(205 214 244 / 0.24) transparent;
   }
 
   [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 4px;
+    height: 4px;
   }
 
   [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar-track {
@@ -69,7 +69,7 @@ const bridgeReviewTreeUnsafeCSS = `
 
   [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar-thumb {
     border-radius: 999px;
-    background: rgb(205 214 244 / 0.28);
+    background: rgb(205 214 244 / 0.22);
   }
 
   [data-file-tree-search-container][data-open='false'] {

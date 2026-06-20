@@ -527,7 +527,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const codeScrollStyle = getComputedStyle(codeScroll);
 
 		expect(codeScrollStyle.scrollbarWidth).toBe('thin');
-		expect(codeScrollStyle.scrollbarColor).toContain('rgba(205, 214, 244, 0.32)');
+		expect(codeScrollStyle.scrollbarColor).toContain('rgba(205, 214, 244, 0.24)');
 
 		backend.dispose();
 	});

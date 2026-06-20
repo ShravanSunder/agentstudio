@@ -223,13 +223,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 										? {}
 										: { onProjectionModeChange: props.onProjectionModeChange })}
 								/>
-								<div data-testid="bridge-review-search-control-slot">
-									<span className="sr-only">Search files</span>
-									<BridgeReviewSearchControl
-										isActive={treeSearchOpen}
-										onOpenSearch={(): void => props.onTreeSearchOpen?.()}
-									/>
-								</div>
 								<div className="shrink-0" data-testid="bridge-review-git-status-menu">
 									<span className="sr-only">Git status</span>
 									<BridgeReviewFilterMenu
@@ -249,6 +242,13 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 										options={fileClassOptions}
 										testId="bridge-review-file-class-menu-control"
 										value={fileClassFilter}
+									/>
+								</div>
+								<div data-testid="bridge-review-search-control-slot">
+									<span className="sr-only">Search files</span>
+									<BridgeReviewSearchControl
+										isActive={treeSearchOpen}
+										onOpenSearch={(): void => props.onTreeSearchOpen?.()}
 									/>
 								</div>
 							</div>

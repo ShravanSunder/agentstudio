@@ -132,11 +132,18 @@ describe('review viewer shell', () => {
 		const trailingGroup = findElementByTestId(element, 'bridge-review-rail-toolbar-trailing');
 		const fileTreeButton = findElementByTestId(element, 'bridge-review-rail-files-view');
 		const commentsButton = findElementByTestId(element, 'bridge-review-rail-comments-view');
+		const trailingControlOrder = directChildControlNames(trailingGroup);
 
 		expect(toolbar?.type).toBe('div');
 		expect(classNameForElement(toolbar)).toContain('justify-between');
 		expect(classNameForElement(leadingGroup)).toContain('gap-1');
 		expect(classNameForElement(trailingGroup)).toContain('gap-1');
+		expect(trailingControlOrder).toEqual([
+			'BridgeReviewProjectionMenu',
+			'bridge-review-git-status-menu',
+			'bridge-review-file-class-menu',
+			'bridge-review-search-control-slot',
+		]);
 		expect(fileTreeButton?.type).toBe(BridgeReviewButton);
 		expect(commentsButton?.type).toBe(BridgeReviewButton);
 		expect(commentsButton?.props.disabled).toBeUndefined();
@@ -405,6 +412,25 @@ function findElementsByComponent(
 
 function classNameForElement(element: ReactElement<TestElementProps> | null): string {
 	return element?.props.className ?? '';
+}
+
+function directChildControlNames(
+	element: ReactElement<TestElementProps> | null,
+): readonly (string | undefined)[] {
+	if (element === null) {
+		return [];
+	}
+	const children = Array.isArray(element.props.children)
+		? element.props.children
+		: [element.props.children];
+	return children
+		.filter(isReactElement)
+		.map((child: ReactElement<TestElementProps>): string | undefined => {
+			if (child.type === BridgeReviewProjectionMenu) {
+				return 'BridgeReviewProjectionMenu';
+			}
+			return child.props['data-testid'];
+		});
 }
 
 function projectionForPackage(
