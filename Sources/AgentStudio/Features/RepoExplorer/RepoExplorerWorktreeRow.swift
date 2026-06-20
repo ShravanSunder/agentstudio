@@ -9,6 +9,7 @@ enum RepoExplorerCheckoutIconKind {
 struct RepoExplorerWorktreeRowContent: View {
     let checkoutTitle: String
     let branchName: String
+    var placementText = ""
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
@@ -88,6 +89,24 @@ struct RepoExplorerWorktreeRowContent: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            if !placementText.isEmpty {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
+                    Image(systemName: "rectangle.split.2x1")
+                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
+
+                    Text(placementText)
+                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
                 SidebarDiffChip(
                     linesAdded: lineDiffCounts.added,
@@ -143,6 +162,7 @@ struct RepoExplorerWorktreeRow: View {
     let worktree: Worktree
     let checkoutTitle: String
     let branchName: String
+    var placementText = ""
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
@@ -161,6 +181,7 @@ struct RepoExplorerWorktreeRow: View {
             RepoExplorerWorktreeRowContent(
                 checkoutTitle: checkoutTitle,
                 branchName: branchName,
+                placementText: placementText,
                 checkoutIconKind: checkoutIconKind,
                 iconColor: iconColor,
                 branchStatus: branchStatus,

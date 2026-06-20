@@ -147,6 +147,10 @@ enum AppStyles {
                 static let clearTransitionDuration: Double = 0.10
             }
 
+            enum Header {
+                static let contentPadding: CGFloat = 8
+            }
+
             static let groupChildRowLeadingInset: CGFloat =
                 listRowLeadingInset
                 + AppStyles.General.Typography.textBase

@@ -76,6 +76,8 @@ extension AppDelegate {
                     await self.runIPCTerminalSmokeDiagnostic(action: action)
                 case .bridgeReviewObservabilitySmoke:
                     await self.runBridgeReviewObservabilitySmokeDiagnostic(action: action)
+                case .sidebarPerformanceProof:
+                    await self.runSidebarPerformanceProofDiagnostic(action: action)
             #endif
             case .addWatchFolder:
                 guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {
@@ -257,6 +259,142 @@ extension AppDelegate {
                 "agentstudio.startup_diagnostic.expected_visible_pane.count": .int(1),
                 "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(succeeded),
             ]
+        }
+
+        private func runSidebarPerformanceProofDiagnostic(
+            action: AgentStudioStartupDiagnosticAction
+        ) async {
+            let sidebarSurface = atom(\.workspaceSidebarState).sidebarSurface
+            let repoCount = store.repositoryTopologyAtom.repos.count
+            let worktreeCount = store.repositoryTopologyAtom.repos.reduce(0) { count, repo in
+                count + repo.worktrees.count
+            }
+            let inboxCount = atom(\.inboxNotification).notifications.count
+            let attributes = startupDiagnosticTraceAttributes(for: action).merging(
+                [
+                    "agentstudio.startup_diagnostic.fixture.repo.count": .int(repoCount),
+                    "agentstudio.startup_diagnostic.fixture.worktree.count": .int(worktreeCount),
+                    "agentstudio.startup_diagnostic.fixture.inbox_notification.count": .int(inboxCount),
+                    "agentstudio.startup_diagnostic.fixture.sidebar_surface.count": .int(1),
+                    "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(true),
+                    "agentstudio.performance.sidebar.surface": .string(sidebarSurface == .inbox ? "inbox" : "repo"),
+                    "agentstudio.performance.sidebar.phase": .string("startup_diagnostic"),
+                    "agentstudio.performance.sidebar.query_state": .string("empty"),
+                    "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                    "agentstudio.performance.sidebar.input.count": .int(repoCount + worktreeCount + inboxCount),
+                ]
+            ) { _, newValue in newValue }
+
+            let inboxProjectionResult = await runInboxSidebarProjectionProof()
+            let projectionWorkerDuration = inboxProjectionResult.workerDuration
+            performanceTraceRecorder?.recordDuration(
+                .sidebarProjection,
+                duration: projectionWorkerDuration,
+                attributes: sidebarPerformanceProofAttributes(
+                    phase: "projection_worker",
+                    inputCount: inboxCount,
+                    sectionCount: inboxProjectionResult.model.sections.count,
+                    extra: [
+                        "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
+                            AgentStudioPerformanceTraceRecorder.milliseconds(from: projectionWorkerDuration))
+                    ]
+                )
+            )
+            let applyClock = ContinuousClock()
+            let applyStart = applyClock.now
+            let projectedSectionCount = inboxProjectionResult.model.sections.count
+            let applyDuration = applyStart.duration(to: applyClock.now)
+            performanceTraceRecorder?.recordDuration(
+                .sidebarProjection,
+                duration: applyDuration,
+                attributes: sidebarPerformanceProofAttributes(
+                    phase: "mainactor_apply",
+                    inputCount: inboxCount,
+                    sectionCount: projectedSectionCount,
+                    extra: [
+                        "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(
+                            AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration))
+                    ]
+                )
+            )
+
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.command_exercised",
+                phase: "startup_diagnostic_action",
+                outcome: "succeeded",
+                attributes: attributes
+            )
+            performanceTraceRecorder?.record(
+                .sidebarProjection,
+                attributes: attributes
+            )
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.completed",
+                phase: "startup_diagnostic_action",
+                outcome: "succeeded",
+                attributes: attributes
+            )
+        }
+
+        private func runInboxSidebarProjectionProof() async -> InboxNotificationListProjectionResult {
+            let repos = store.repositoryTopologyAtom.repos
+            let repoEnrichmentByRepoId = Dictionary(
+                uniqueKeysWithValues: repos.compactMap { repo in
+                    repoCache.repoEnrichment(for: repo.id).map { (repo.id, $0) }
+                }
+            )
+            let repoPresentationByRepoId = InboxNotificationSidebarView.repoPresentationByRepoId(
+                repos: repos,
+                repoEnrichmentByRepoId: repoEnrichmentByRepoId,
+                checkoutColors: atom(\.sidebarCache).checkoutColors
+            )
+            let key = InboxNotificationListProjectionKey(
+                notifications: atom(\.inboxNotification).notifications,
+                grouping: atom(\.inboxNotificationPrefs).grouping,
+                sort: atom(\.inboxNotificationPrefs).sort,
+                searchText: "",
+                filter: nil,
+                contentMode: InboxNotificationSidebarView.globalSidebarContentMode(
+                    atom(\.inboxNotificationPrefs).globalInboxContentMode
+                ),
+                rowStateFilter: atom(\.inboxNotificationPrefs).globalInboxRowStateFilter,
+                collapsedGroups: atom(\.inboxSidebarState).collapsedGroups,
+                repoPresentationFingerprint: InboxNotificationSidebarView.repoPresentationFingerprint(
+                    repoPresentationByRepoId
+                )
+            )
+            let request = InboxNotificationListProjectionRequest(
+                generation: 1,
+                key: key,
+                repoPresentationByRepoId: repoPresentationByRepoId
+            )
+            do {
+                return try await InboxNotificationListProjectionWorker().project(request)
+            } catch {
+                return InboxNotificationListProjectionResult(
+                    generation: request.generation,
+                    key: key,
+                    model: .empty,
+                    workerDuration: .zero
+                )
+            }
+        }
+
+        private func sidebarPerformanceProofAttributes(
+            phase: String,
+            inputCount: Int,
+            sectionCount: Int,
+            extra: [String: AgentStudioTraceValue] = [:]
+        ) -> [String: AgentStudioTraceValue] {
+            [
+                "agentstudio.performance.sidebar.surface": .string("inbox"),
+                "agentstudio.performance.sidebar.phase": .string(phase),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                "agentstudio.performance.sidebar.input.count": .int(inputCount),
+                "agentstudio.performance.sidebar.section.count": .int(sectionCount),
+                "agentstudio.performance.sidebar.query_character.count": .int(0),
+            ].merging(extra) { _, newValue in newValue }
         }
     #endif
 

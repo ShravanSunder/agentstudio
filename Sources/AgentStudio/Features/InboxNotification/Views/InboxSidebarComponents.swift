@@ -126,6 +126,7 @@ struct InboxSidebarHeader: View {
     static let contentModeIconName = "dot.circle.viewfinder"
     static let filterIconName = "line.3.horizontal.decrease.circle"
     static let tooltipCoordinateSpaceName = "inboxSidebarHeaderTooltips"
+    static let headerLayoutPolicy = SidebarHeaderLayout<EmptyView, EmptyView, EmptyView, EmptyView>.policy
     @State private var hoveredTooltipTarget: InboxSidebarToolbarTooltipTarget?
     @State private var tooltipFrames: [InboxSidebarToolbarTooltipTarget: CGRect] = [:]
     @State private var suppressDeleteTooltipUntilHoverExit = false
@@ -167,70 +168,59 @@ struct InboxSidebarHeader: View {
     }
 
     private var headerContent: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: AppStyles.General.Spacing.standard) {
-                SidebarSearchField(
-                    placeholder: "Search inbox...",
-                    text: $searchText,
-                    focusedField: focusedField,
-                    focusValue: .search,
-                    clearHelp: "Clear inbox search",
-                    onSubmit: {
-                        focusedField.wrappedValue = .list
-                    },
-                    onExit: actions.onEscape,
-                    onDownArrow: {
-                        focusedField.wrappedValue = .list
-                        return .handled
-                    }
-                )
-                .controlHelp(Self.searchTooltipValue)
-                .layoutPriority(0)
-
-                Menu {
-                    Button("Delete Read", action: actions.onClearReadHistory)
-                    Divider()
-                    Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
-                } label: {
-                    toolbarIcon(deleteInboxAction.icon)
+        SidebarHeaderLayout {
+            SidebarSearchField(
+                placeholder: "Search inbox...",
+                text: $searchText,
+                focusedField: focusedField,
+                focusValue: .search,
+                clearHelp: "Clear inbox search",
+                onSubmit: {
+                    focusedField.wrappedValue = .list
+                },
+                onExit: actions.onEscape,
+                onDownArrow: {
+                    focusedField.wrappedValue = .list
+                    return .handled
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(deleteInboxAction.label)
-                .accessibilityIdentifier("inboxSidebarDeleteMenu")
-                .controlHelp(
-                    Self.toolbarTooltipValue(
-                        for: .delete,
-                        rowStateFilter: rowStateFilter,
-                        contentMode: contentMode
-                    )
-                )
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        suppressDeleteTooltipUntilHoverExit = true
-                        hoveredTooltipTarget = nil
-                    }
-                )
-                .onHover { updateDeleteTooltipTarget(isHovered: $0) }
-                .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.delete, in: Self.tooltipCoordinateSpaceName)
-                .fixedSize()
-                .layoutPriority(1)
-                .background(
-                    AccessibilityLabelBridge(
-                        identifier: "inboxSidebarDeleteMenu",
-                        label: deleteInboxAction.label
-                    )
-                )
+            )
+            .controlHelp(Self.searchTooltipValue)
+        } primaryAction: {
+            Menu {
+                Button("Delete Read", action: actions.onClearReadHistory)
+                Divider()
+                Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
+            } label: {
+                toolbarIcon(deleteInboxAction.icon)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .background(
-                AccessibilityLabelBridge(
-                    identifier: "inboxSidebarSearchRow",
-                    label: "Inbox search row"
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(deleteInboxAction.label)
+            .accessibilityIdentifier("inboxSidebarDeleteMenu")
+            .controlHelp(
+                Self.toolbarTooltipValue(
+                    for: .delete,
+                    rowStateFilter: rowStateFilter,
+                    contentMode: contentMode
                 )
             )
-
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    suppressDeleteTooltipUntilHoverExit = true
+                    hoveredTooltipTarget = nil
+                }
+            )
+            .onHover { updateDeleteTooltipTarget(isHovered: $0) }
+            .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.delete, in: Self.tooltipCoordinateSpaceName)
+            .fixedSize()
+            .background(
+                AccessibilityLabelBridge(
+                    identifier: "inboxSidebarDeleteMenu",
+                    label: deleteInboxAction.label
+                )
+            )
+        } toolbarRow: {
             HStack(spacing: AppStyles.General.Spacing.standard) {
                 Spacer(minLength: 0)
 
@@ -327,14 +317,13 @@ struct InboxSidebarHeader: View {
                     .padding(8)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(
                 AccessibilityLabelBridge(
                     identifier: "inboxSidebarToolbarRow",
                     label: "Inbox toolbar row"
                 )
             )
-
+        } statusRow: {
             if let activeFilter {
                 let filterLabel = activeFilterLabel ?? fallbackFilterLabel(activeFilter)
                 HStack(spacing: 6) {
@@ -367,7 +356,12 @@ struct InboxSidebarHeader: View {
                 )
             }
         }
-        .padding(8)
+        .background(
+            AccessibilityLabelBridge(
+                identifier: "inboxSidebarSearchRow",
+                label: "Inbox search row"
+            )
+        )
     }
 
     private var activeTooltipTarget: InboxSidebarToolbarTooltipTarget? {

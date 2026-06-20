@@ -88,6 +88,10 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.status_unavailable.reason",
         "agentstudio.performance.management_layer.command",
         "agentstudio.performance.pane_action.name",
+        "agentstudio.performance.sidebar.group_mode",
+        "agentstudio.performance.sidebar.phase",
+        "agentstudio.performance.sidebar.query_state",
+        "agentstudio.performance.sidebar.surface",
         "agentstudio.performance.sidebar.toggle.intent",
         "agentstudio.performance.terminal.geometry.reason",
         "agentstudio.performance.terminal.surface.source",
@@ -182,9 +186,14 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.pane_view_restore.visible_pane.count",
         "agentstudio.performance.sidebar.expanded_group.count",
         "agentstudio.performance.sidebar.group.count",
+        "agentstudio.performance.sidebar.input.count",
         "agentstudio.performance.sidebar.loading_repo.count",
+        "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms",
         "agentstudio.performance.sidebar.query_character.count",
         "agentstudio.performance.sidebar.repo.count",
+        "agentstudio.performance.sidebar.stale_discard.count",
+        "agentstudio.performance.sidebar.cancellation.count",
+        "agentstudio.performance.sidebar.total_worker_elapsed_ms",
         "agentstudio.performance.sidebar.split_width",
         "agentstudio.performance.sidebar.width",
         "agentstudio.performance.tabbar.pane.count",
@@ -206,6 +215,10 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.fixture.surface_reference.count",
         "agentstudio.startup_diagnostic.fixture.terminal_view.count",
         "agentstudio.startup_diagnostic.fixture.valid_geometry.count",
+        "agentstudio.startup_diagnostic.fixture.inbox_notification.count",
+        "agentstudio.startup_diagnostic.fixture.repo.count",
+        "agentstudio.startup_diagnostic.fixture.sidebar_surface.count",
+        "agentstudio.startup_diagnostic.fixture.worktree.count",
         "agentstudio.terminal.startup.failure.creation_retry.count",
         "agentstudio.workspace.snapshot.pane_count",
         "agentstudio.zmx.startup.hydrated_anchor_count",
@@ -394,6 +407,14 @@ enum AgentStudioOTLPTraceProjection {
             BridgeTelemetrySlice(rawValue: value) != nil
         case "agentstudio.bridge.telemetry.drop_reason":
             BridgeTelemetryDropReason(rawValue: value) != nil
+        case "agentstudio.performance.sidebar.surface":
+            ["inbox", "repo"].contains(value)
+        case "agentstudio.performance.sidebar.phase":
+            ["projection_worker", "mainactor_apply", "row_index", "startup_diagnostic"].contains(value)
+        case "agentstudio.performance.sidebar.query_state":
+            ["empty", "non_empty"].contains(value)
+        case "agentstudio.performance.sidebar.group_mode":
+            ["repo", "pane", "tab", "not_applicable"].contains(value)
         default:
             true
         }

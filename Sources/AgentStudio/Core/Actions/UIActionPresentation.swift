@@ -111,6 +111,8 @@ enum LocalActionSpec {
     case toggleInboxAttentionFilter(isAttentionOnly: Bool)
     case groupInboxNotifications
     case deleteInboxNotifications
+    case repoSidebarCurrentOrder
+    case groupRepoExplorerWorktrees
     case cancel
     case add
     case rename
@@ -264,6 +266,18 @@ enum LocalActionSpec {
                 label: "Delete Inbox Notifications",
                 helpText: "Open delete actions for inbox notifications",
                 icon: .system(.deleteLeft)
+            )
+        case .repoSidebarCurrentOrder:
+            return ActionSpec(
+                label: "Current Repo Order",
+                helpText: "Show the current repo sidebar ordering",
+                icon: .system(.arrowUpArrowDown)
+            )
+        case .groupRepoExplorerWorktrees:
+            return ActionSpec(
+                label: "Group Repo Worktrees",
+                helpText: "Group repo worktrees by repo, pane, or tab",
+                icon: .system(.squareStack3dUp)
             )
         case .cancel:
             return ActionSpec(label: "Cancel", helpText: "Cancel this action", icon: .system(.xmarkCircle))

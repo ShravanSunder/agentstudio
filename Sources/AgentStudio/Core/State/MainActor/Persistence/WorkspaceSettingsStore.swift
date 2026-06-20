@@ -11,6 +11,7 @@ private let workspaceSettingsStoreLogger = Logger(
 final class WorkspaceSettingsStore {
     private let editorPreferenceAtom: EditorPreferenceAtom
     private let sidebarCheckoutColorAtom: SidebarCheckoutColorAtom
+    private let repoExplorerSidebarPrefsAtom: RepoExplorerSidebarPrefsAtom
     private let inboxNotificationPrefsAtom: InboxNotificationPrefsAtom
     private let workspacesDir: URL
     private let legacyPersistor: WorkspacePersistor
@@ -31,6 +32,7 @@ final class WorkspaceSettingsStore {
     init(
         editorPreferenceAtom: EditorPreferenceAtom,
         sidebarCheckoutColorAtom: SidebarCheckoutColorAtom,
+        repoExplorerSidebarPrefsAtom: RepoExplorerSidebarPrefsAtom,
         inboxNotificationPrefsAtom: InboxNotificationPrefsAtom,
         workspacesDir: URL = AppDataPaths.workspacesDirectory(),
         legacyPersistor: WorkspacePersistor? = nil,
@@ -41,6 +43,7 @@ final class WorkspaceSettingsStore {
     ) {
         self.editorPreferenceAtom = editorPreferenceAtom
         self.sidebarCheckoutColorAtom = sidebarCheckoutColorAtom
+        self.repoExplorerSidebarPrefsAtom = repoExplorerSidebarPrefsAtom
         self.inboxNotificationPrefsAtom = inboxNotificationPrefsAtom
         self.workspacesDir = workspacesDir
         self.legacyPersistor = legacyPersistor ?? WorkspacePersistor(workspacesDir: workspacesDir)
@@ -110,6 +113,7 @@ final class WorkspaceSettingsStore {
         withObservationTracking {
             _ = editorPreferenceAtom.bookmarkedEditorId
             _ = sidebarCheckoutColorAtom.checkoutColors
+            _ = repoExplorerSidebarPrefsAtom.groupingMode
             _ = inboxNotificationPrefsAtom.grouping
             _ = inboxNotificationPrefsAtom.sort
             _ = inboxNotificationPrefsAtom.bellEnabled
@@ -161,6 +165,7 @@ final class WorkspaceSettingsStore {
         .init(
             workspaceId: workspaceId,
             editorChooser: .init(bookmarkedEditorId: editorPreferenceAtom.bookmarkedEditorId),
+            repoExplorer: .init(groupingMode: repoExplorerSidebarPrefsAtom.groupingMode),
             sidebar: .init(checkoutColors: sidebarCheckoutColorAtom.checkoutColors),
             notifications: .init(
                 grouping: inboxNotificationPrefsAtom.grouping,
@@ -176,6 +181,7 @@ final class WorkspaceSettingsStore {
 
     private func hydrate(from payload: WorkspaceSettingsPayload) {
         editorPreferenceAtom.hydrate(bookmarkedEditorId: payload.editorChooser.bookmarkedEditorId)
+        repoExplorerSidebarPrefsAtom.hydrate(groupingMode: payload.repoExplorer.groupingMode)
         sidebarCheckoutColorAtom.hydrate(checkoutColors: payload.sidebar.checkoutColors)
         inboxNotificationPrefsAtom.setGrouping(payload.notifications.grouping)
         inboxNotificationPrefsAtom.setSort(payload.notifications.sort)
@@ -188,6 +194,7 @@ final class WorkspaceSettingsStore {
 
     private func hydrateDefaults() {
         editorPreferenceAtom.clear()
+        repoExplorerSidebarPrefsAtom.reset()
         sidebarCheckoutColorAtom.clear()
         inboxNotificationPrefsAtom.setGrouping(.byTab)
         inboxNotificationPrefsAtom.setSort(.newestFirst)
@@ -442,18 +449,21 @@ private struct WorkspaceSettingsPayload: Codable {
     var schemaVersion: Int
     var workspaceId: UUID
     var editorChooser: EditorChooser
+    var repoExplorer: RepoExplorer
     var sidebar: Sidebar
     var notifications: Notifications
 
     init(
         workspaceId: UUID,
         editorChooser: EditorChooser = .init(),
+        repoExplorer: RepoExplorer = .init(),
         sidebar: Sidebar = .init(),
         notifications: Notifications = .init()
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         self.workspaceId = workspaceId
         self.editorChooser = editorChooser
+        self.repoExplorer = repoExplorer
         self.sidebar = sidebar
         self.notifications = notifications
     }
@@ -462,6 +472,7 @@ private struct WorkspaceSettingsPayload: Codable {
         case schemaVersion
         case workspaceId
         case editorChooser
+        case repoExplorer
         case sidebar
         case notifications
     }
@@ -479,12 +490,32 @@ private struct WorkspaceSettingsPayload: Codable {
         self.schemaVersion = decodedSchemaVersion
         self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
         self.editorChooser = try container.decodeIfPresent(EditorChooser.self, forKey: .editorChooser) ?? .init()
+        self.repoExplorer = try container.decodeIfPresent(RepoExplorer.self, forKey: .repoExplorer) ?? .init()
         self.sidebar = try container.decodeIfPresent(Sidebar.self, forKey: .sidebar) ?? .init()
         self.notifications = try container.decodeIfPresent(Notifications.self, forKey: .notifications) ?? .init()
     }
 
     struct EditorChooser: Codable {
         var bookmarkedEditorId: EditorTargetId?
+    }
+
+    struct RepoExplorer: Codable {
+        var groupingMode: RepoExplorerGroupingMode
+
+        init(groupingMode: RepoExplorerGroupingMode = .repo) {
+            self.groupingMode = groupingMode
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case groupingMode
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.groupingMode =
+                (try? container.decodeIfPresent(RepoExplorerGroupingMode.self, forKey: .groupingMode))
+                ?? .repo
+        }
     }
 
     struct Sidebar: Codable {

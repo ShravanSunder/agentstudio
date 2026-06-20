@@ -228,6 +228,51 @@ struct AgentStudioOTLPTraceProjectionTests {
     }
 
     @Test
+    func sidebarPerformanceProjectionKeepsControlledTaxonomyAndDropsPayloadText() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 175,
+            severityText: .info,
+            body: "performance.sidebar.projection",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(2.75),
+                "agentstudio.performance.sidebar.surface": .string("inbox"),
+                "agentstudio.performance.sidebar.phase": .string("mainactor_apply"),
+                "agentstudio.performance.sidebar.query_state": .string("non_empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                "agentstudio.performance.sidebar.input.count": .int(10),
+                "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(2.75),
+                "agentstudio.performance.sidebar.notification_text": .string("secret user prompt"),
+                "agentstudio.performance.sidebar.query_text": .string("billing secret"),
+                "agentstudio.performance.sidebar.repo.id": .string(UUID().uuidString),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.body == "performance.sidebar.projection")
+        #expect(projection.attributes["agentstudio.performance.sidebar.surface"] == .string("inbox"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("mainactor_apply"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.query_state"] == .string("non_empty"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.group_mode"] == .string("not_applicable"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.input.count"] == .int(10))
+        #expect(projection.attributes["agentstudio.performance.sidebar.mainactor_apply_elapsed_ms"] == .double(2.75))
+        #expect(projection.attributes["agentstudio.performance.sidebar.notification_text"] == nil)
+        #expect(projection.attributes["agentstudio.performance.sidebar.query_text"] == nil)
+        #expect(projection.attributes["agentstudio.performance.sidebar.repo.id"] == nil)
+        #expect(!renderedProjection.contains("secret user prompt"))
+        #expect(!renderedProjection.contains("billing secret"))
+    }
+
+    @Test
     func persistenceProjectionDropsPathsWorkspaceIDsAndRawErrors() {
         let workspaceID = UUID(uuidString: "F6ADCB1B-E191-4890-963E-37F4A694B065")!
         let record = AgentStudioTraceRecord(

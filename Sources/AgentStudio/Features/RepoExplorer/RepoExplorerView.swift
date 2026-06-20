@@ -80,6 +80,7 @@ struct RepoExplorerView: View {
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
     static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
+    static let headerLayoutPolicy = SidebarHeaderLayout<EmptyView, EmptyView, EmptyView, EmptyView>.policy
 
     private var repoCache: RepoCacheAtom {
         atom(\.repoCache)
@@ -93,8 +94,14 @@ struct RepoExplorerView: View {
         atom(\.sidebarCache)
     }
 
+    private var repoExplorerPrefs: RepoExplorerSidebarPrefsAtom {
+        atom(\.repoExplorerSidebarPrefs)
+    }
+
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
+    @State private var sortMenuOpen = false
+    @State private var groupingMenuOpen = false
     @FocusState private var focusedField: RepoExplorerFocus?
 
     @State private var debounceTask: Task<Void, Never>?
@@ -109,7 +116,15 @@ struct RepoExplorerView: View {
         RepoExplorerSnapshot(
             repos: sidebarRepos,
             repoEnrichmentByRepoId: sidebarRepoEnrichmentByRepoId,
-            query: debouncedQuery
+            groupingMode: repoExplorerPrefs.groupingMode,
+            query: debouncedQuery,
+            paneLocationsByWorktreeId: atom(\.workspaceLookup).paneLocationsByWorktreeId(
+                workspacePane: store.paneAtom,
+                workspaceTab: WorkspaceTabLayoutDerived(
+                    shellAtom: store.tabShellAtom,
+                    arrangementAtom: store.tabArrangementAtom
+                )
+            )
         )
     }
 
@@ -126,6 +141,10 @@ struct RepoExplorerView: View {
         return performanceTraceRecorder?.measure(
             .sidebarProjection,
             attributes: [
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("projection_worker"),
+                "agentstudio.performance.sidebar.query_state": .string(snapshot.query.isEmpty ? "empty" : "non_empty"),
+                "agentstudio.performance.sidebar.group_mode": .string(snapshot.groupingMode.rawValue),
                 "agentstudio.performance.sidebar.repo.count": .int(snapshot.repos.count),
                 "agentstudio.performance.sidebar.query_character.count": .int(snapshot.query.count),
             ]
@@ -140,6 +159,10 @@ struct RepoExplorerView: View {
         return performanceTraceRecorder?.measure(
             .sidebarRowIndex,
             attributes: [
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("row_index"),
+                "agentstudio.performance.sidebar.query_state": .string(isFiltering ? "non_empty" : "empty"),
+                "agentstudio.performance.sidebar.group_mode": .string(sidebarSnapshot.groupingMode.rawValue),
                 "agentstudio.performance.sidebar.group.count": .int(projection.resolvedGroups.count),
                 "agentstudio.performance.sidebar.loading_repo.count": .int(projection.loadingRepos.count),
                 "agentstudio.performance.sidebar.expanded_group.count": .int(expandedGroupIds.count),
@@ -261,21 +284,112 @@ struct RepoExplorerView: View {
     }
 
     private var filterBar: some View {
-        SidebarSearchField(
-            placeholder: "Filter...",
-            text: $filterText,
-            focusedField: $focusedField,
-            focusValue: .filter,
-            clearHelp: LocalActionSpec.clearFilter.actionSpec.helpText,
-            onExit: hideFilter,
-            onDownArrow: {
-                focusedField = nil
-                return .handled
-            }
-        )
-        .padding(.horizontal, AppStyles.Shell.Sidebar.SearchField.outerHorizontalPadding)
-        .padding(.vertical, AppStyles.Shell.Sidebar.SearchField.outerVerticalPadding)
+        SidebarHeaderLayout {
+            SidebarSearchField(
+                placeholder: "Filter...",
+                text: $filterText,
+                focusedField: $focusedField,
+                focusValue: .filter,
+                clearHelp: LocalActionSpec.clearFilter.actionSpec.helpText,
+                onExit: hideFilter,
+                onDownArrow: {
+                    focusedField = nil
+                    return .handled
+                }
+            )
+        } toolbarRow: {
+            repoToolbarRow
+        } statusRow: {
+            EmptyView()
+        }
         .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private var repoToolbarRow: some View {
+        let sortAction = LocalActionSpec.repoSidebarCurrentOrder.actionSpec
+        let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
+        return HStack(spacing: AppStyles.General.Spacing.standard) {
+            Spacer(minLength: 0)
+
+            Button {
+                sortMenuOpen.toggle()
+            } label: {
+                toolbarIcon(sortAction.icon)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(sortAction.label)
+            .accessibilityIdentifier("repoSidebarSortButton")
+            .controlHelp(
+                sortAction.controlTooltipRenderValue(
+                    provenance: .localAction(rawValue: "repoSidebarCurrentOrder"),
+                    textOverride: "Sort"
+                )
+            )
+            .popover(isPresented: $sortMenuOpen) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Button {
+                        sortMenuOpen = false
+                    } label: {
+                        HStack {
+                            Image(systemName: "checkmark")
+                                .frame(width: 12)
+                            Text(sortAction.label)
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(8)
+            }
+
+            Button {
+                groupingMenuOpen.toggle()
+            } label: {
+                toolbarIcon(groupingAction.icon)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(groupingAction.label)
+            .accessibilityIdentifier("repoSidebarGroupingButton")
+            .controlHelp(
+                groupingAction.controlTooltipRenderValue(
+                    provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
+                    textOverride: "Group"
+                )
+            )
+            .popover(isPresented: $groupingMenuOpen) {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(RepoExplorerGroupingMode.allCases, id: \.self) { candidate in
+                        Button {
+                            repoExplorerPrefs.setGroupingMode(candidate)
+                            groupingMenuOpen = false
+                        } label: {
+                            HStack {
+                                Image(systemName: repoExplorerPrefs.groupingMode == candidate ? "checkmark" : "")
+                                    .frame(width: 12)
+                                Text(candidate.title)
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                .padding(8)
+            }
+        }
+        .background(
+            AccessibilityLabelBridge(
+                identifier: "repoSidebarToolbarRow",
+                label: "Repo toolbar row"
+            )
+        )
+    }
+
+    private func toolbarIcon(_ icon: CommandIcon) -> some View {
+        icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+            .frame(
+                width: AppStyles.General.Button.compact,
+                height: AppStyles.General.Button.compact
+            )
+            .foregroundStyle(Color.secondary)
+            .contentShape(Rectangle())
     }
 
     private var noResultsView: some View {
@@ -328,11 +442,12 @@ struct RepoExplorerView: View {
                         }
                     }
 
-                case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId):
+                case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId, let rowId):
                     if let resolvedWorktreeContext = rowIndex.resolve(
                         groupId: groupId,
                         repoId: repoId,
-                        worktreeId: worktreeId
+                        worktreeId: worktreeId,
+                        rowId: rowId
                     ) {
                         RepoExplorerWorktreeRow(
                             worktree: resolvedWorktreeContext.worktree,
@@ -341,6 +456,7 @@ struct RepoExplorerView: View {
                                 in: resolvedWorktreeContext.repo
                             ),
                             branchName: branchName(for: resolvedWorktreeContext.worktree),
+                            placementText: resolvedWorktreeContext.placementContext?.displayText ?? "",
                             checkoutIconKind: checkoutIconKind(
                                 for: resolvedWorktreeContext.worktree,
                                 in: resolvedWorktreeContext.repo
@@ -615,12 +731,14 @@ extension RepoExplorerView {
     static func projectSidebar(
         repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
+        groupingMode: RepoExplorerGroupingMode = .repo,
         query: String
     ) -> SidebarProjection {
         RepoExplorerProjection.project(
             RepoExplorerSnapshot(
                 repos: repos,
                 repoEnrichmentByRepoId: repoEnrichmentByRepoId,
+                groupingMode: groupingMode,
                 query: query
             )
         )

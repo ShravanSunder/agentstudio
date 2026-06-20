@@ -18,7 +18,7 @@ SwiftLint through `mise run lint` and CI.
 | Contract | Rule ID | Severity | Source |
 | --- | --- | --- | --- |
 | Source layers follow the documented import direction. | `agentstudio_import_direction` | error | `docs/architecture/directory_structure.md` |
-| `SharedComponents/` stays stateless and does not subscribe to atoms or observable owners. | `agentstudio_shared_components_are_stateless` | error | `docs/architecture/directory_structure.md` |
+| `SharedComponents/` render from explicit inputs and do not access atoms or global stores. | `agentstudio_shared_components_are_stateless` | error | `docs/architecture/directory_structure.md` |
 | `Infrastructure/AtomLib` stays generic and does not reference product atoms or feature state. | `agentstudio_atomlib_is_generic` | error | `docs/architecture/atom_persistence_boundaries.md` |
 | `DerivedValue` compute closures use declared inputs and do not hide atom reads through direct or same-file helper/wrapper calls. | `agentstudio_derived_value_declared_inputs` | error | `docs/architecture/atom_persistence_boundaries.md` |
 | Hot production reads use keyed repo-cache readers instead of raw observable dictionaries. | `agentstudio_repo_cache_keyed_reads` | error | `docs/architecture/atom_persistence_boundaries.md` |
@@ -43,7 +43,7 @@ SwiftLint through `mise run lint` and CI.
 | Fail Core importing App. | Blocking | `agentstudio_import_direction` |
 | Fail Features importing sibling Features. | Blocking | `agentstudio_import_direction` |
 | Fail SharedComponents importing Core, Features, or App. | Blocking | `agentstudio_import_direction` |
-| Fail SharedComponents owning state or reading atoms. | Blocking | `agentstudio_shared_components_are_stateless` |
+| Fail SharedComponents reading atoms, resolving global stores, or owning atom/store objects. | Blocking | `agentstudio_shared_components_are_stateless` |
 | Fail AtomLib importing product layers or referencing product atoms. | Blocking | `agentstudio_atomlib_is_generic` |
 | Fail `DerivedValue` direct `atom(...)`, `AtomScope`, `AtomReader`, or test-registry reads. | Blocking | `agentstudio_derived_value_declared_inputs` |
 | Fail same-file helper/wrapper calls from `DerivedValue` compute closures when the helper hides an atom read. | Blocking | `agentstudio_derived_value_declared_inputs` |

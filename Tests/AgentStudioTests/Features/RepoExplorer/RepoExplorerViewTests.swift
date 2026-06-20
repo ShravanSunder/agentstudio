@@ -41,7 +41,7 @@ struct RepoExplorerViewTests {
         #expect(entries.count == 2)
         guard
             case .resolvedGroupHeader(let headerGroup) = entries[0],
-            case .resolvedWorktreeRow(let childGroupId, let childRepoId, let childWorktreeId) = entries[1]
+            case .resolvedWorktreeRow(let childGroupId, let childRepoId, let childWorktreeId, _) = entries[1]
         else {
             Issue.record("Expected flat resolved header followed by child row")
             return

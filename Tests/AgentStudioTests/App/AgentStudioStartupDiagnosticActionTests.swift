@@ -72,6 +72,17 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(action.commandName == "bridgeReviewObservabilitySmoke")
     }
 
+    @Test("startup diagnostic action parses sidebar performance proof command")
+    func parsesSidebarPerformanceProofCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: " sidebar-performance-proof "
+            ]))
+
+        #expect(action.kind == .sidebarPerformanceProof)
+        #expect(action.commandName == "sidebarPerformanceProof")
+    }
+
     @Test("startup diagnostic action parses add watch folder command and path")
     func parsesAddWatchFolderCommandAndPath() throws {
         let action = try #require(

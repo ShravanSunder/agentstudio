@@ -312,7 +312,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 
 ### Shared UI, Styles, And Policies
 
-When two app surfaces need the same visual control, extract a stateless primitive into `SharedComponents/` instead of copying styling between features. Shared components render from value parameters, `@Binding`, and closures; they do not subscribe to atoms and they do not import `Core/`, `Features/`, or `App/`.
+When two app surfaces need the same visual control, extract a shared primitive into `SharedComponents/` instead of copying styling between features. Shared components render from direct values, `@Binding`, callbacks, or explicitly passed observable view models; they do not read atoms, reach into global stores, or import `Core/`, `Features/`, or `App/`.
 
 Before creating a feature-local UI primitive, check for an existing shared component with the same interaction semantics. Reuse or extract keyboard, focus, selection, and command-toggle behavior even when row content differs. Styling parity alone is not enough.
 
@@ -640,11 +640,11 @@ agent-studio/
 │   │   │                             #   App/, not a feature)
 │   │   └── <NewFeature>/             # Features/<Feature>/{Components,Models,Routing,
 │   │                                 #   State/MainActor/{Atoms,Persistence},Views}/
-│   ├── SharedComponents/             # Stateless UI primitives (design system). Currently
+│   ├── SharedComponents/             # Shared UI primitives (design system). Currently
 │   │                                 #   hosts EditorChooser/; more primitives land here
 │   │                                 #   over time. Imports only Infrastructure. No atom
-│   │                                 #   subscriptions. State flows via @Binding / value
-│   │                                 #   parameters.
+│   │                                 #   or global-store access. State flows via @Binding,
+│   │                                 #   values, callbacks, or explicit observable view models.
 │   └── Infrastructure/               # Domain-agnostic utilities
 ├── docs/architecture/                # Authoritative design docs (see table above)
 ├── docs/plans/                       # Date-prefixed implementation plans

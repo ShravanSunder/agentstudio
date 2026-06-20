@@ -57,6 +57,7 @@ struct SidebarSurfaceHost: View {
                 workspaceRepositoryTopologyAtom: store.repositoryTopologyAtom,
                 repoCache: repoCache,
                 dispatcher: .shared,
+                performanceTraceRecorder: performanceTraceRecorder,
                 onRefocusActivePane: onDismissInbox
             )
         }

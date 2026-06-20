@@ -47,6 +47,8 @@ state_reason=""
 state_pid=""
 state_debug_code=""
 state_launch_method=""
+state_activation_mode=""
+state_ipc_auth_mode=""
 state_app=""
 state_executable=""
 state_startup_diagnostic_action=""
@@ -85,6 +87,12 @@ PY
         ;;
       AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD)
         state_launch_method="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE)
+        state_activation_mode="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE)
+        state_ipc_auth_mode="$decoded_value"
         ;;
       AGENTSTUDIO_OBSERVABILITY_APP)
         state_app="$decoded_value"
@@ -311,9 +319,20 @@ if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_UNAVAILABLE_ZMX_STARTUP:-0}" != "1" ] &&
 fi
 
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-$state_startup_diagnostic_action}"
+if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
+  if [ "$state_activation_mode" != "background" ]; then
+    echo "sidebar-performance-proof requires background LaunchServices activation mode: ${state_activation_mode:-<missing>}" >&2
+    exit 1
+  fi
+  if [ "$state_ipc_auth_mode" != "authenticated" ]; then
+    echo "sidebar-performance-proof requires authenticated IPC auth mode: ${state_ipc_auth_mode:-<missing>}" >&2
+    exit 1
+  fi
+fi
 if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ] ||
-  [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
+  [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
   startup_diagnostic_action_filter="$(
     logsql_exact_filter agentstudio.startup_diagnostic.action "$startup_diagnostic_action"
   )"
@@ -327,6 +346,9 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   fi
   if [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
     diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.render_proof.succeeded"
+  fi
+  if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.fixture.repo.count,agentstudio.startup_diagnostic.fixture.worktree.count,agentstudio.startup_diagnostic.fixture.inbox_notification.count,agentstudio.startup_diagnostic.fixture.sidebar_surface.count,agentstudio.startup_diagnostic.render_proof.succeeded"
   fi
   diagnostic_command_response="$(query_logs "$diagnostic_query _msg:app.startup_diagnostic_action.command_exercised | fields $diagnostic_fields | limit 5")"
   if [ -z "$diagnostic_command_response" ]; then
@@ -403,4 +425,5 @@ for field in "${sensitive_fields[@]}"; do
 done
 
 echo "debug observability ok:"
+echo "launch_method=$state_launch_method activation_mode=${state_activation_mode:-unknown} ipc_auth_mode=${state_ipc_auth_mode:-authenticated}"
 sed -n '1,5p' <<<"$startup_response"

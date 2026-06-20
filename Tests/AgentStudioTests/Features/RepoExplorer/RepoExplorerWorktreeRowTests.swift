@@ -11,6 +11,7 @@ struct RepoExplorerWorktreeRowTests {
         let view = RepoExplorerWorktreeRowContent(
             checkoutTitle: "agent-studio",
             branchName: "main",
+            placementText: "Pane 2 active",
             checkoutIconKind: .mainCheckout,
             iconColor: .accentColor,
             branchStatus: .unknown,
