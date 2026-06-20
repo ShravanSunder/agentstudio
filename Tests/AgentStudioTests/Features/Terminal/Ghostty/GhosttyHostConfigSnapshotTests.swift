@@ -10,7 +10,7 @@ import Testing
 struct GhosttyHostConfigSnapshotTests {
     @Test("ghostty app handle override keeps scrollbar actions enabled")
     func ghosttyAppHandleOverrideKeepsScrollbarActionsEnabled() {
-        let overrideContents = Ghostty.AppHandle.scrollBehaviorOverrideContents
+        let overrideContents = Ghostty.AppHandle.overrideContents()
 
         #expect(overrideContents.contains("scroll-to-bottom = no-keystroke, no-output"))
         #expect(overrideContents.contains("scrollbar = never") == false)

@@ -410,6 +410,7 @@ extension WorkspaceSurfaceCoordinator {
                 let environmentVariables: [String: String] = [
                     "ZMX_DIR": sessionConfig.zmxDir,
                     "ZMX_SESSION": "",
+                    "ZMX_SESSION_PREFIX": "",
                 ]
                 if case .floating(let launchDirectory) = context {
                     RestoreTrace.log(
@@ -814,7 +815,7 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         RestoreTrace.log("restoreAllViews restoring pane=\(paneId) content=\(String(describing: pane.content))")
-        if viewRegistry.view(for: paneId) != nil
+        if registeredViewDoesNotNeedRestore(for: paneId)
             || createViewForContent(
                 pane: pane,
                 initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
@@ -856,7 +857,7 @@ extension WorkspaceSurfaceCoordinator {
                 continue
             }
             RestoreTrace.log("restoreAllViews restoring drawer pane=\(drawerPaneId) parent=\(parentPane.id)")
-            if viewRegistry.view(for: drawerPaneId) != nil
+            if registeredViewDoesNotNeedRestore(for: drawerPaneId)
                 || createViewForContent(
                     pane: drawerPane,
                     initialFrame: initialFrame(
@@ -871,6 +872,14 @@ extension WorkspaceSurfaceCoordinator {
                 progress.failedDrawerPaneIds.append(drawerPaneId)
             }
         }
+    }
+
+    private func registeredViewDoesNotNeedRestore(for paneId: UUID) -> Bool {
+        guard viewRegistry.view(for: paneId) != nil else { return false }
+        if let placeholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) {
+            return !placeholder.shouldRetryCreationWhenBoundsChange
+        }
+        return true
     }
 
     func resolveInitialFramesByTabId(in terminalContainerBounds: CGRect?) -> [UUID: [UUID: CGRect]] {

@@ -6,6 +6,8 @@ private let configLogger = Logger(subsystem: "com.agentstudio", category: "Sessi
 /// Configuration for the session restore feature.
 /// Reads from environment variables with sensible defaults.
 struct SessionConfiguration: Sendable {
+    static let zmxPathEnvironmentKey = "AGENTSTUDIO_ZMX_PATH"
+
     /// Whether session restore is enabled. Defaults to true.
     let isEnabled: Bool
 
@@ -32,7 +34,7 @@ struct SessionConfiguration: Sendable {
             .map { $0.lowercased() == "true" || $0 == "1" }
             ?? true
 
-        let zmxPath = findZmx()
+        let zmxPath = findZmx(environment: env)
         let zmxDir = AppDataPaths.zmxDirectory(environment: env).path
         let healthInterval =
             env["AGENTSTUDIO_HEALTH_INTERVAL"]
@@ -178,10 +180,21 @@ struct SessionConfiguration: Sendable {
     ///
     /// Candidates are validated with a lightweight `--version` probe because
     /// some environments may report a path as executable while launch still fails.
-    private static func findZmx() -> String? {
+    private static func findZmx(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         // Avoid blocking startup on main thread. Launch-time detection should stay
         // lightweight; deeper usability probes can run off-main.
         let allowBlockingProbe = !Thread.isMainThread
+
+        if let override = environment[zmxPathEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !override.isEmpty
+        {
+            let expandedOverride = NSString(string: override).expandingTildeInPath
+            if isUsableZmxBinary(expandedOverride, allowBlockingProbe: allowBlockingProbe) {
+                return expandedOverride
+            }
+            RestoreTrace.log("findZmx skip unusable override candidate=\(expandedOverride)")
+        }
 
         // 1. Bundled binary: same directory as the app executable (Contents/MacOS/zmx or .build/debug/zmx)
         if let bundled = Bundle.main.executableURL?

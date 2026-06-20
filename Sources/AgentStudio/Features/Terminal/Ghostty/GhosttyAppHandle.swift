@@ -7,7 +7,9 @@ extension Ghostty {
     final class AppHandle {
         private let appHandle: ghostty_app_t
         private let configHandle: ghostty_config_t
-        static let scrollBehaviorOverrideContents = """
+        static let disableDefaultConfigEnvironmentKey = "AGENTSTUDIO_GHOSTTY_DISABLE_DEFAULT_CONFIG"
+        static let disableVsyncEnvironmentKey = "AGENTSTUDIO_GHOSTTY_DISABLE_VSYNC"
+        static let baseOverrideContents = """
             scroll-to-bottom = no-keystroke, no-output
             keybind = cmd+k=unbind
             """
@@ -16,10 +18,20 @@ extension Ghostty {
             appHandle
         }
 
-        private static func writeGhosttyOverrideFile() throws -> URL {
+        static func overrideContents(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+            var contents = baseOverrideContents
+            if environment[disableVsyncEnvironmentKey] == "1" {
+                contents += "\nwindow-vsync = false\n"
+            }
+            return contents
+        }
+
+        private static func writeGhosttyOverrideFile(
+            environment: [String: String] = ProcessInfo.processInfo.environment
+        ) throws -> URL {
             let overrideURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("agent-studio-ghostty-overrides-\(UUID().uuidString).conf")
-            try scrollBehaviorOverrideContents.write(
+            try overrideContents(environment: environment).write(
                 to: overrideURL,
                 atomically: true,
                 encoding: .utf8
@@ -33,7 +45,11 @@ extension Ghostty {
                 return nil
             }
 
-            ghostty_config_load_default_files(config)
+            if ProcessInfo.processInfo.environment[Self.disableDefaultConfigEnvironmentKey] == "1" {
+                RestoreTrace.log("Ghostty default config loading disabled by environment")
+            } else {
+                ghostty_config_load_default_files(config)
+            }
             do {
                 let overrideURL = try Self.writeGhosttyOverrideFile()
                 overrideURL.path.withCString { path in

@@ -98,6 +98,8 @@ extension AppDelegate {
             action: AgentStudioStartupDiagnosticAction
         ) async {
             NSApp.activate(ignoringOtherApps: true)
+            mainWindowController?.window?.makeKeyAndOrderFront(nil)
+            await waitForStartupDiagnosticAppActivation()
 
             guard let terminalContainerBounds = await startupDiagnosticLaunchRestoreBounds() else {
                 startupTraceRecorder.recordAppStartup(
@@ -347,6 +349,16 @@ extension AppDelegate {
                 ].merging(renderProof.attributes) { _, newValue in newValue }
             ) { _, newValue in newValue }
         )
+    }
+
+    private func waitForStartupDiagnosticAppActivation() async {
+        let clock = ContinuousClock()
+        let start = clock.now
+        while !NSApp.isActive
+            && start.duration(to: clock.now) < AppPolicies.StartupDiagnostic.appActivationTimeout
+        {
+            try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+        }
     }
 
     private func startupDiagnosticLaunchRestoreBounds() async -> CGRect? {
