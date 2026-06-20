@@ -1308,6 +1308,22 @@ describe('BridgeApp', () => {
 		);
 	});
 
+	test('auto-hydrates rendered modified-file candidates with content handles', () => {
+		const reviewPackage = makeTwoItemReviewPackage();
+		const candidates = selectBridgeRenderedContentHydrationCandidates({
+			renderedItemIds: reviewPackage.orderedItemIds,
+			reviewPackage,
+			contentResourceKeysByItemId: new Map<string, string>(),
+			inFlightContentKeys: new Set<string>(),
+			limit: 16,
+		});
+
+		expect(candidates.map((candidate): string => candidate.itemId)).toEqual([
+			'item-source',
+			'item-second',
+		]);
+	});
+
 	test('renders selected added markdown through the markdown worker preview lane', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeAddedFileReviewPackage({

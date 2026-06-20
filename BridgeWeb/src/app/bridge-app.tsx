@@ -992,11 +992,10 @@ function makeSelectedContentResourcesKey(
 
 function reviewItemShouldAutoHydrateWhenRendered(item: BridgeReviewItemDescriptor): boolean {
 	return (
-		item.changeKind === 'added' &&
-		(item.contentRoles.base !== null ||
-			item.contentRoles.head !== null ||
-			item.contentRoles.diff !== null ||
-			item.contentRoles.file !== null)
+		item.contentRoles.base !== null ||
+		item.contentRoles.head !== null ||
+		item.contentRoles.diff !== null ||
+		item.contentRoles.file !== null
 	);
 }
 
