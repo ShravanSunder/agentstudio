@@ -32,6 +32,13 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
+    @Test("main window does not install a product NSToolbar")
+    func mainWindowDoesNotInstallProductToolbar() async {
+        await withMainWindowControllerHarness { harness in
+            #expect(harness.window.toolbar == nil)
+        }
+    }
+
     @Test("titlebar sidebar controls omit search and leave traffic-light padding")
     func sidebarControlsOmitSearchAndPadFromTrafficLights() async {
         await withMainWindowControllerHarness { harness in
@@ -71,6 +78,184 @@ struct MainWindowControllerInboxToolbarButtonTests {
                 bellButton?.toolTip
                     == AppCommand.showInboxNotifications.definition.controlTooltipRenderValue().text
             )
+            #expect(worktreeButton?.accessibilityLabel() == "Toggle Worktrees")
+            #expect(bellButton?.accessibilityLabel() == "Toggle Inbox")
+        }
+    }
+
+    @Test("right titlebar actions are icon only and accessible")
+    func rightTitlebarActionsAreIconOnlyAndAccessible() async throws {
+        try await withMainWindowControllerHarness { harness in
+            let actionAccessory = try #require(
+                findDescendant(
+                    in: harness.window,
+                    identifier: "titlebarActionAccessory"
+                ) as? NSStackView
+            )
+            let managementButton = try #require(
+                findDescendant(
+                    in: harness.window,
+                    identifier: "managementLayerTitlebarButton"
+                ) as? NSButton
+            )
+            let watchFolderButton = try #require(
+                findDescendant(
+                    in: harness.window,
+                    identifier: "watchFolderTitlebarButton"
+                ) as? NSButton
+            )
+
+            #expect(
+                actionAccessory.arrangedSubviews.compactMap { $0.identifier?.rawValue } == [
+                    "managementLayerTitlebarButton",
+                    "watchFolderTitlebarButton",
+                ])
+            #expect(managementButton.title.isEmpty)
+            #expect(watchFolderButton.title.isEmpty)
+            #expect(
+                managementButton.toolTip
+                    == AppCommand.toggleManagementLayer.definition.controlTooltipRenderValue().text
+            )
+            #expect(
+                watchFolderButton.toolTip
+                    == AppCommand.watchFolder.definition.controlTooltipRenderValue().text
+            )
+            #expect(managementButton.accessibilityLabel() == "Manage Workspace")
+            #expect(watchFolderButton.accessibilityLabel() == "Watch Folder")
+            #expect(managementButton.image?.accessibilityDescription == "Manage Workspace")
+            #expect(watchFolderButton.image?.accessibilityDescription == "Watch Folder")
+        }
+    }
+
+    @Test("clicking Watch Folder titlebar action dispatches command")
+    func clickingWatchFolderTitlebarActionDispatchesCommand() async throws {
+        let appRouter = TitlebarActionAppRouterProbe(appCommands: [.watchFolder])
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = nil
+                AppCommandDispatcher.shared.appCommandRouter = appRouter
+            },
+            body: {
+                try await withMainWindowControllerHarness { harness in
+                    let watchFolderButton = try #require(
+                        findDescendant(
+                            in: harness.window,
+                            identifier: "watchFolderTitlebarButton"
+                        ) as? NSButton
+                    )
+
+                    watchFolderButton.performClick(nil)
+
+                    #expect(appRouter.handledCommands == [.watchFolder])
+                }
+            }
+        )
+    }
+
+    @Test("clicking management titlebar action dispatches command")
+    func clickingManagementTitlebarActionDispatchesCommand() async throws {
+        let handler = TitlebarActionCommandHandlerProbe()
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = nil
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                try await withMainWindowControllerHarness { harness in
+                    AppCommandDispatcher.shared.handler = handler
+                    let managementButton = try #require(
+                        findDescendant(
+                            in: harness.window,
+                            identifier: "managementLayerTitlebarButton"
+                        ) as? NSButton
+                    )
+
+                    managementButton.performClick(nil)
+
+                    #expect(handler.executedCommands == [.toggleManagementLayer])
+                }
+            }
+        )
+    }
+
+    @Test("management titlebar icon tracks non-click management state changes")
+    func managementTitlebarIconTracksExternalManagementStateChanges() async throws {
+        try await withMainWindowControllerHarness { harness in
+            let managementButton = try #require(
+                findDescendant(
+                    in: harness.window,
+                    identifier: "managementLayerTitlebarButton"
+                ) as? TitlebarActionButton
+            )
+
+            #expect(managementButton.currentSymbolName == "rectangle.split.2x2")
+
+            harness.atoms.managementLayer.activate()
+
+            await eventually("management titlebar icon should become active") {
+                managementButton.currentSymbolName == "rectangle.split.2x2.fill"
+            }
+
+            harness.atoms.managementLayer.deactivate()
+
+            await eventually("management titlebar icon should become inactive") {
+                managementButton.currentSymbolName == "rectangle.split.2x2"
+            }
+        }
+    }
+
+    @Test("management titlebar observation releases after window teardown")
+    func managementTitlebarObservationReleasesAfterWindowTeardown() async {
+        weak var weakController: MainWindowController?
+        var atomsAfterClose: AtomRegistry?
+
+        await withMainWindowControllerHarness { harness in
+            weakController = harness.controller
+            atomsAfterClose = harness.atoms
+        }
+
+        atomsAfterClose?.managementLayer.activate()
+        await Task.yield()
+
+        #expect(weakController == nil)
+    }
+
+    @Test("titlebar action strip fits at minimum window width")
+    func titlebarActionStripFitsAtMinimumWindowWidth() async throws {
+        try await withMainWindowControllerHarness { harness in
+            harness.window.setFrame(
+                NSRect(x: 0, y: 0, width: 720, height: 600),
+                display: true
+            )
+            harness.window.contentView?.layoutSubtreeIfNeeded()
+
+            let sidebarAccessory = try #require(
+                findDescendant(
+                    in: harness.window,
+                    identifier: "sidebarToolbarAccessory"
+                ) as? NSStackView
+            )
+            let actionAccessory = try #require(
+                findDescendant(
+                    in: harness.window,
+                    identifier: "titlebarActionAccessory"
+                ) as? NSStackView
+            )
+            let actionButtons = actionAccessory.arrangedSubviews.compactMap { $0 as? NSButton }
+
+            actionAccessory.layoutSubtreeIfNeeded()
+            sidebarAccessory.layoutSubtreeIfNeeded()
+
+            let sidebarFrame = sidebarAccessory.convert(sidebarAccessory.bounds, to: nil)
+            let actionFrame = actionAccessory.convert(actionAccessory.bounds, to: nil)
+
+            #expect(sidebarFrame.maxX < actionFrame.minX)
+            #expect(actionFrame.maxX <= harness.window.frame.width)
+            #expect(actionButtons.count == 2)
+            #expect(
+                actionButtons.allSatisfy { button in
+                    actionAccessory.bounds.contains(button.convert(button.bounds, to: actionAccessory))
+                })
         }
     }
 
@@ -370,4 +555,63 @@ private final class InboxToolbarTestSurfaceManager: WorkspaceSurfaceManaging {
     func requeueUndo(_ surfaceId: UUID) {}
 
     func destroy(_ surfaceId: UUID) {}
+}
+
+@MainActor
+private final class TitlebarActionCommandHandlerProbe: WorkspaceCommandHandling {
+    var executedCommands: [AppCommand] = []
+
+    func execute(_ command: AppCommand) {
+        executedCommands.append(command)
+    }
+
+    func execute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) {
+        executedCommands.append(command)
+    }
+
+    func canExecute(_: AppCommand) -> Bool {
+        true
+    }
+
+    func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        true
+    }
+
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}
+
+    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
+}
+
+@MainActor
+private final class TitlebarActionAppRouterProbe: ShellCommandHandling {
+    let appCommands: Set<AppCommand>
+    var handledCommands: [AppCommand] = []
+
+    init(appCommands: Set<AppCommand>) {
+        self.appCommands = appCommands
+    }
+
+    func canExecute(_ command: AppCommand) -> Bool {
+        appCommands.contains(command)
+    }
+
+    func canExecute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        canExecute(command)
+    }
+
+    func execute(_ command: AppCommand) -> Bool {
+        guard appCommands.contains(command) else { return false }
+        handledCommands.append(command)
+        return true
+    }
+
+    func execute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        execute(command)
+    }
+
+    func showRepoCommandBar() {}
+
+    func refreshWorktrees() {}
+
+    func refocusActivePane() {}
 }
