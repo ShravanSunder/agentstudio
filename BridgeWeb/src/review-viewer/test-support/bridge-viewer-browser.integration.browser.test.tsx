@@ -182,7 +182,8 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await waitForBridgeViewerAnimationFrame();
 
 		expect(bridgeViewerCodeTextContent()).toContain(fixture.expected.addedText);
-		expect(bridgeViewerCodeTextContent()).not.toContain(fixture.expected.secondText);
+		expect(selectedBridgeViewerDisplayPath()).toBe(fixture.expected.addedPath);
+		expect(selectedBridgeViewerContentState()).toBe('ready');
 		expect(backend.pendingContentResponses[0]?.handleId).toBe(fixture.expected.secondHeadHandleId);
 		expect(
 			backend.requestedUrls.some((url: string): boolean =>
@@ -221,7 +222,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
-	test('visible added files hydrate without requiring file selection', async () => {
+	test('visible added files stay metadata-only until selected or revealed', async () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const backend = installBridgeViewerMockedBackend(fixture);
 
@@ -235,7 +236,18 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		);
 		await backend.pushPackage();
 		await waitForBridgeViewerText(fixture.expected.initialText);
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
 
+		expect(bridgeViewerRenderedTextContent()).not.toContain(fixture.expected.addedText);
+		expect(
+			backend.requestedUrls.some((url: string): boolean =>
+				url.includes(fixture.expected.addedHeadHandleId),
+			),
+		).toBe(false);
+
+		const addedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.addedPath);
+		addedButton.click();
 		await waitForBridgeViewerText(fixture.expected.addedText);
 
 		expect(
@@ -319,10 +331,9 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		);
 		await backend.pushPackage();
 		await waitForBridgeViewerText(fixture.expected.initialText);
-		await waitForBridgeViewerText(fixture.expected.addedText);
 
 		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
-		scrollOwner.scrollTop = Math.min(2_000, scrollOwner.scrollHeight - scrollOwner.clientHeight);
+		scrollOwner.scrollTop = 0;
 		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
 
@@ -580,7 +591,9 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 					scenario: 'scroll',
 				}),
 			);
-			await waitForBridgeViewerText(fixture.expected.largeText);
+			await waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
+			await waitForSelectedBridgeViewerContentState('ready');
+			await waitForBridgeViewerTextWithDiagnostics(fixture.expected.largeText);
 
 			setBridgeViewerSearchText('NewPanel');
 			const addedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.addedPath);
@@ -605,6 +618,66 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 					url.includes(fixture.expected.addedHeadHandleId),
 				),
 			).toBe(true);
+		} finally {
+			workerFactory.revoke();
+			backend.dispose();
+		}
+	});
+
+	test('large fixture file selection keeps the target header pinned after content hydration', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture, {
+			deferContentHandleIds: [fixture.expected.addedHeadHandleId],
+		});
+		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
+
+		try {
+			render(
+				<BridgeApp
+					codeViewWorkerPoolEnabled={true}
+					codeViewWorkerFactory={workerFactory.workerFactory}
+					fetchContent={backend.fetchContent}
+					markdownWorkerClient={null}
+					projectionWorkerClient={backend.projectionWorkerClient}
+				/>,
+			);
+			await backend.pushPackage(
+				reviewPackageForBridgeAppDevFixtureScenario({
+					fixture,
+					scenario: 'scroll',
+				}),
+			);
+			await waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
+			await waitForSelectedBridgeViewerContentState('ready');
+			await waitForBridgeViewerTextWithDiagnostics(fixture.expected.largeText);
+
+			setBridgeViewerSearchText('NewPanel');
+			const addedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.addedPath);
+			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+			const selectedItemId = bridgeReviewFixtureItemIdForPath(fixture, fixture.expected.addedPath);
+
+			addedButton.click();
+			await waitForSelectedBridgeViewerDisplayPath(fixture.expected.addedPath);
+			await waitForPendingContentResponseCount(backend, 1);
+			const selectedHeaderButton =
+				await waitForBridgeCodeHeaderCollapseButtonForItem(selectedItemId);
+			const offsetBeforeHydration = await waitForBridgeCodeHeaderOffsetFromScrollOwner({
+				collapseButton: selectedHeaderButton,
+				maxOffset: 8,
+				scrollOwner: codeScroll,
+			});
+
+			backend.pendingContentResponses[0]?.resolve();
+			await waitForSelectedBridgeViewerContentState('ready');
+			await waitForBridgeViewerTextWithDiagnostics(fixture.expected.addedText);
+			const stableOffsetAfterHydration = await waitForStableBridgeCodeHeaderOffsetFromScrollOwner({
+				collapseButton: selectedHeaderButton,
+				maxOffset: 8,
+				scrollOwner: codeScroll,
+			});
+
+			expect(stableOffsetAfterHydration).toBeGreaterThanOrEqual(0);
+			expect(Math.abs(stableOffsetAfterHydration - offsetBeforeHydration)).toBeLessThanOrEqual(4);
 		} finally {
 			workerFactory.revoke();
 			backend.dispose();
@@ -971,7 +1044,7 @@ async function waitForBridgeViewerRenderedCodeGeometry(remainingAttempts = 180):
 	const geometry = bridgeViewerCodeGeometry();
 	if (
 		geometry.containerCount > 0 &&
-		geometry.lineCount > 0 &&
+		(geometry.lineCount > 0 || bridgeViewerCodeTextContent().trim().length > 0) &&
 		geometry.firstContainerWidth > 0 &&
 		geometry.firstContainerHeight > 0
 	) {
@@ -983,6 +1056,90 @@ async function waitForBridgeViewerRenderedCodeGeometry(remainingAttempts = 180):
 	await Promise.resolve();
 	await waitForBridgeViewerAnimationFrame();
 	await waitForBridgeViewerRenderedCodeGeometry(remainingAttempts - 1);
+}
+
+function selectedBridgeViewerDisplayPath(): string | null {
+	return (
+		document
+			.querySelector('[data-selected-display-path]')
+			?.getAttribute('data-selected-display-path') ?? null
+	);
+}
+
+function selectedBridgeViewerContentState(): string | null {
+	return (
+		document
+			.querySelector('[data-selected-content-state]')
+			?.getAttribute('data-selected-content-state') ?? null
+	);
+}
+
+async function waitForSelectedBridgeViewerDisplayPath(
+	displayPath: string,
+	remainingAttempts = 180,
+): Promise<void> {
+	if (selectedBridgeViewerDisplayPath() === displayPath) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`expected selected Bridge viewer display path ${displayPath}, got ${selectedBridgeViewerDisplayPath() ?? 'null'}`,
+		);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	await waitForSelectedBridgeViewerDisplayPath(displayPath, remainingAttempts - 1);
+}
+
+async function waitForSelectedBridgeViewerContentState(
+	contentState: string,
+	remainingAttempts = 180,
+): Promise<void> {
+	if (selectedBridgeViewerContentState() === contentState) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`expected selected Bridge viewer content state ${contentState}, got ${selectedBridgeViewerContentState() ?? 'null'}`,
+		);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	await waitForSelectedBridgeViewerContentState(contentState, remainingAttempts - 1);
+}
+
+async function waitForBridgeViewerTextWithDiagnostics(
+	text: string,
+	remainingAttempts = 180,
+): Promise<void> {
+	if (bridgeViewerRenderedTextContent().includes(text)) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			[
+				`expected rendered Bridge viewer text to contain ${text}`,
+				`selectedDisplayPath=${selectedBridgeViewerDisplayPath() ?? 'null'}`,
+				`selectedContentState=${selectedBridgeViewerContentState() ?? 'null'}`,
+				`materializedUpdate=${selectedBridgeViewerPanelAttribute('data-selected-materialized-update-result') ?? 'null'}`,
+				`materializedType=${selectedBridgeViewerPanelAttribute('data-selected-materialized-item-type') ?? 'null'}`,
+				`materializedAdditions=${selectedBridgeViewerPanelAttribute('data-selected-materialized-addition-line-count') ?? 'null'}`,
+				`materializedDeletions=${selectedBridgeViewerPanelAttribute('data-selected-materialized-deletion-line-count') ?? 'null'}`,
+				`materializedFileLines=${selectedBridgeViewerPanelAttribute('data-selected-materialized-file-line-count') ?? 'null'}`,
+				`rendered=${bridgeViewerRenderedTextContent().slice(0, 800)}`,
+			].join('; '),
+		);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgeViewerTextWithDiagnostics(text, remainingAttempts - 1);
+}
+
+function selectedBridgeViewerPanelAttribute(attributeName: string): string | null {
+	return (
+		document.querySelector('[data-testid="bridge-code-view-panel"]')?.getAttribute(attributeName) ??
+		null
+	);
 }
 
 async function waitForProjectionAbortCount(
@@ -1155,4 +1312,17 @@ async function waitForBridgeCodeHeaderOffsetFromScrollOwner(props: {
 		...props,
 		remainingAttempts: remainingAttempts - 1,
 	});
+}
+
+async function waitForStableBridgeCodeHeaderOffsetFromScrollOwner(props: {
+	readonly collapseButton: HTMLButtonElement;
+	readonly maxOffset: number;
+	readonly scrollOwner: HTMLElement;
+}): Promise<number> {
+	let stableOffset = await waitForBridgeCodeHeaderOffsetFromScrollOwner(props);
+	for (let frameIndex = 0; frameIndex < 8; frameIndex += 1) {
+		await waitForBridgeViewerAnimationFrame();
+		stableOffset = await waitForBridgeCodeHeaderOffsetFromScrollOwner(props);
+	}
+	return stableOffset;
 }

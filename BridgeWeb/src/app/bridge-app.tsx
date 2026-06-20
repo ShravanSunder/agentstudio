@@ -23,10 +23,7 @@ import {
 	bridgeReviewDeltaSchema,
 	bridgeReviewPackageSchema,
 } from '../foundation/review-package/bridge-review-package-schema.js';
-import type {
-	BridgeReviewItemDescriptor,
-	BridgeReviewPackage,
-} from '../foundation/review-package/bridge-review-package.js';
+import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import {
 	createBridgeTelemetryRecorder,
 	type BridgeTelemetryRecorder,
@@ -51,10 +48,7 @@ import {
 	type BridgeMarkdownPreviewFallbackReason,
 } from '../review-viewer/markdown/bridge-markdown-render-mode.js';
 import type { BridgeReviewProjectionResult } from '../review-viewer/models/review-projection-models.js';
-import {
-	loadReviewItemContentResources,
-	loadSelectedReviewItemContentResources,
-} from '../review-viewer/runtime/review-content-loader.js';
+import { loadSelectedReviewItemContentResources } from '../review-viewer/runtime/review-content-loader.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/runtime/use-review-projection-coordinator.js';
 import {
 	BridgeReviewEmptyShell,
@@ -148,12 +142,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		useState<SelectedContentResourcesState | null>(null);
 	const [selectedMarkdownPreviewState, setSelectedMarkdownPreviewState] =
 		useState<SelectedMarkdownPreviewState | null>(null);
-	const [codeViewRenderedItemIds, setCodeViewRenderedItemIds] = useState<readonly string[]>([]);
-	const [codeViewHydrationSchedulerTick, setCodeViewHydrationSchedulerTick] = useState(0);
 	const [isTreeSearchOpen, setIsTreeSearchOpen] = useState(false);
-	const [codeViewContentResourcesByItemId, setCodeViewContentResourcesByItemId] = useState<
-		ReadonlyMap<string, BridgeCodeViewContentResources>
-	>(() => new Map<string, BridgeCodeViewContentResources>());
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
 	const currentReviewPackageTelemetryContextRef =
 		useRef<BridgeReviewPackageTelemetryContext | null>(null);
@@ -162,8 +151,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	);
 	const lastTelemetryMarkedItemRef = useRef<string | null>(null);
 	const lastFirstRenderPackageRef = useRef<string | null>(null);
-	const codeViewContentResourceKeysByItemIdRef = useRef<Map<string, string>>(new Map());
-	const codeViewContentInFlightKeysRef = useRef<Set<string>>(new Set());
 	const codeViewControlHandleRef = useRef<BridgeCodeViewControlHandle | null>(null);
 	const reviewPackageRef = useRef<BridgeReviewPackage | null>(null);
 	reviewPackageRef.current = reviewPackage;
@@ -224,7 +211,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			}
 			if (options.reveal !== false) {
 				codeViewControlHandleRef.current?.scrollToItem(itemId, {
-					behavior: options.revealBehavior ?? 'smooth',
+					behavior: options.revealBehavior ?? 'instant',
 				});
 			}
 			viewerActions.setSelectedItemId(itemId);
@@ -239,12 +226,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		},
 		[rpcClient, viewerActions],
 	);
-	const handleRenderedCodeViewItemIdsChange = useCallback((itemIds: readonly string[]): void => {
-		setCodeViewRenderedItemIds((currentItemIds: readonly string[]): readonly string[] =>
-			areStringArraysEqual(currentItemIds, itemIds) ? currentItemIds : itemIds,
-		);
-	}, []);
-
 	useBridgeReviewProjectionCoordinator({
 		store: viewerStore,
 		reviewPackage,
@@ -440,19 +421,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		void loadSelectedReviewItemContentResources(loadProps)
 			.then((contentResources): void => {
 				if (!didCancel) {
-					setCodeViewContentResourcesByItemId(
-						(
-							currentResourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources>,
-						): ReadonlyMap<string, BridgeCodeViewContentResources> => {
-							const nextResourcesByItemId = new Map(currentResourcesByItemId);
-							nextResourcesByItemId.set(selectedItemId, contentResources ?? {});
-							codeViewContentResourceKeysByItemIdRef.current.set(
-								selectedItemId,
-								selectedContentKey,
-							);
-							return nextResourcesByItemId;
-						},
-					);
 					setSelectedContentResourcesState({
 						itemId: selectedItemId,
 						contentKey: selectedContentKey,
@@ -476,78 +444,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			contentAbortController.abort();
 		};
 	}, [props.fetchContent, reviewPackage, rootSnapshot.selectedItemId]);
-
-	useEffect((): void => {
-		codeViewContentResourceKeysByItemIdRef.current.clear();
-		codeViewContentInFlightKeysRef.current.clear();
-		setCodeViewRenderedItemIds([]);
-		setCodeViewContentResourcesByItemId(new Map<string, BridgeCodeViewContentResources>());
-	}, [reviewPackage?.packageId, reviewPackage?.reviewGeneration, reviewPackage?.revision]);
-
-	useEffect((): void => {
-		if (reviewPackage === null || codeViewRenderedItemIds.length === 0) {
-			return;
-		}
-		const parentTraceContext =
-			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
-		const packageKey = makeVisibleContentPackageKey(reviewPackage);
-		const pendingCandidates = selectBridgeRenderedContentHydrationCandidates({
-			renderedItemIds: codeViewRenderedItemIds,
-			reviewPackage,
-			contentResourceKeysByItemId: codeViewContentResourceKeysByItemIdRef.current,
-			inFlightContentKeys: codeViewContentInFlightKeysRef.current,
-			limit: 16,
-		});
-		for (const candidate of pendingCandidates) {
-			const { itemId, contentKey } = candidate;
-			codeViewContentInFlightKeysRef.current.add(contentKey);
-			const loadProps =
-				props.fetchContent === undefined
-					? {
-							reviewPackage,
-							itemId,
-							traceContext: telemetryRecorderRef.current.isEnabled('web')
-								? createChildTraceContext(parentTraceContext)
-								: null,
-							telemetryRecorder: telemetryRecorderRef.current,
-						}
-					: {
-							reviewPackage,
-							itemId,
-							fetchContent: props.fetchContent,
-							traceContext: telemetryRecorderRef.current.isEnabled('web')
-								? createChildTraceContext(parentTraceContext)
-								: null,
-							telemetryRecorder: telemetryRecorderRef.current,
-						};
-			void loadReviewItemContentResources(loadProps)
-				.then((contentResources): void => {
-					codeViewContentInFlightKeysRef.current.delete(contentKey);
-					if (
-						contentResources === null ||
-						reviewPackageRef.current === null ||
-						makeVisibleContentPackageKey(reviewPackageRef.current) !== packageKey
-					) {
-						return;
-					}
-					codeViewContentResourceKeysByItemIdRef.current.set(itemId, contentKey);
-					setCodeViewContentResourcesByItemId(
-						(
-							currentResourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources>,
-						): ReadonlyMap<string, BridgeCodeViewContentResources> => {
-							const nextResourcesByItemId = new Map(currentResourcesByItemId);
-							nextResourcesByItemId.set(itemId, contentResources);
-							return nextResourcesByItemId;
-						},
-					);
-					setCodeViewHydrationSchedulerTick((currentTick: number): number => currentTick + 1);
-				})
-				.catch((): void => {
-					codeViewContentInFlightKeysRef.current.delete(contentKey);
-					setCodeViewHydrationSchedulerTick((currentTick: number): number => currentTick + 1);
-				});
-		}
-	}, [codeViewHydrationSchedulerTick, codeViewRenderedItemIds, props.fetchContent, reviewPackage]);
 
 	useEffect((): (() => void) => {
 		let didCancel = false;
@@ -735,7 +631,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				<BridgeReviewProjectionPendingShell />
 			) : (
 				<ReviewViewerShell
-					codeViewContentResourcesByItemId={codeViewContentResourcesByItemId}
 					fileClassFilter={rootSnapshot.fileClassFilter}
 					gitStatusFilter={rootSnapshot.gitStatusFilter}
 					onCodeViewControlHandleChange={(handle): void => {
@@ -744,7 +639,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					onFileClassFilterChange={viewerActions.setFileClassFilter}
 					onGitStatusFilterChange={viewerActions.setGitStatusFilter}
 					onProjectionModeChange={viewerActions.setProjectionMode}
-					onRenderedCodeViewItemIdsChange={handleRenderedCodeViewItemIdsChange}
 					onSelectItem={selectReviewItem}
 					onTreeSearchOpen={(): void => setIsTreeSearchOpen(true)}
 					onTreeSearchTextChange={viewerActions.setTreeSearchText}
@@ -818,19 +712,6 @@ interface MakeBridgeAppControlProbeProps {
 	readonly reason: string | null;
 	readonly sequence: number;
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
-}
-
-export interface BridgeRenderedContentHydrationCandidate {
-	readonly itemId: string;
-	readonly contentKey: string;
-}
-
-export interface SelectBridgeRenderedContentHydrationCandidatesProps {
-	readonly renderedItemIds: readonly string[];
-	readonly reviewPackage: BridgeReviewPackage;
-	readonly contentResourceKeysByItemId: ReadonlyMap<string, string>;
-	readonly inFlightContentKeys: ReadonlySet<string>;
-	readonly limit: number;
 }
 
 function applyBridgeAppControlCommand(
@@ -972,10 +853,6 @@ function makeTelemetryPackageKey(reviewPackage: BridgeReviewPackage): string {
 	return `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}`;
 }
 
-function makeVisibleContentPackageKey(reviewPackage: BridgeReviewPackage): string {
-	return `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}:${reviewPackage.revision}`;
-}
-
 function makeSelectedContentResourcesKey(
 	reviewPackage: BridgeReviewPackage,
 	selectedItemId: string,
@@ -1001,47 +878,6 @@ function makeSelectedContentResourcesKey(
 		selectedItem.cacheKey,
 		roleKeys,
 	].join(':');
-}
-
-function reviewItemShouldAutoHydrateWhenRendered(item: BridgeReviewItemDescriptor): boolean {
-	return (
-		item.contentRoles.base !== null ||
-		item.contentRoles.head !== null ||
-		item.contentRoles.diff !== null ||
-		item.contentRoles.file !== null
-	);
-}
-
-export function selectBridgeRenderedContentHydrationCandidates(
-	props: SelectBridgeRenderedContentHydrationCandidatesProps,
-): readonly BridgeRenderedContentHydrationCandidate[] {
-	return uniqueStrings(props.renderedItemIds)
-		.flatMap((itemId: string): readonly BridgeRenderedContentHydrationCandidate[] => {
-			const item = props.reviewPackage.itemsById[itemId];
-			if (item === undefined || !reviewItemShouldAutoHydrateWhenRendered(item)) {
-				return [];
-			}
-			const contentKey = makeSelectedContentResourcesKey(props.reviewPackage, itemId);
-			if (
-				props.contentResourceKeysByItemId.get(itemId) === contentKey ||
-				props.inFlightContentKeys.has(contentKey)
-			) {
-				return [];
-			}
-			return [{ itemId, contentKey }];
-		})
-		.slice(0, props.limit);
-}
-
-function uniqueStrings(values: readonly string[]): readonly string[] {
-	return [...new Set(values)];
-}
-
-function areStringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
-	if (left.length !== right.length) {
-		return false;
-	}
-	return left.every((value: string, index: number): boolean => value === right[index]);
 }
 
 interface SelectedContentResourcesForCurrentSelectionProps {

@@ -296,6 +296,14 @@ async function waitForBridgeViewerTreeItemButtonForPathCandidates(
 }
 
 export function findBridgeViewerCodeScrollOwner(): HTMLElement | null {
+	const codeViewScrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+	if (
+		codeViewScrollOwner instanceof HTMLElement &&
+		codeViewScrollOwner.clientHeight > 0 &&
+		codeViewScrollOwner.scrollHeight > codeViewScrollOwner.clientHeight + 32
+	) {
+		return codeViewScrollOwner;
+	}
 	const outerScrollOwner = document.querySelector('[data-testid="bridge-review-code-scroll"]');
 	if (
 		outerScrollOwner instanceof HTMLElement &&

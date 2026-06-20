@@ -1,9 +1,4 @@
-import type {
-	CodeView as PierreCodeViewInstance,
-	CodeViewItem,
-	CodeViewOptions,
-	CodeViewScrollBehavior,
-} from '@pierre/diffs';
+import type { CodeViewItem, CodeViewOptions, CodeViewScrollBehavior } from '@pierre/diffs';
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
@@ -33,8 +28,6 @@ export interface BridgeCodeViewPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly projection: BridgeReviewProjectionResult;
 	readonly selectedItemId: string | null;
-	readonly contentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
-	readonly onRenderedItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
 	readonly workerPoolEnabled?: boolean;
 	readonly workerFactory?: () => Worker;
@@ -68,7 +61,8 @@ interface BridgeCodeViewMaterializationDiagnostic {
 }
 
 interface BridgeCodeViewHeaderAnchor {
-	readonly anchorElement: HTMLElement;
+	readonly containerElement: HTMLElement;
+	readonly itemId: string;
 	readonly offsetFromScrollOwnerTop: number;
 	readonly scrollOwner: HTMLElement;
 }
@@ -172,13 +166,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const lastSelectionScrollKeyRef = useRef<string | null>(null);
 	const mountedHandleViewerKeyRef = useRef<string | null>(null);
 	const pendingRecoveryRenderFrameRef = useRef<number | null>(null);
-	const pendingRenderedItemsReportFrameRef = useRef<number | null>(null);
-	const lastRenderedItemIdsKeyRef = useRef<string>('');
+	const scrollToTopTargetItemIdRef = useRef<string | null>(null);
 	const [codeViewMountVersion, setCodeViewMountVersion] = useState(0);
 	const [collapsedItemIds, setCollapsedItemIds] = useState<ReadonlySet<string>>(
 		() => new Set<string>(),
 	);
-	const onRenderedItemIdsChange = props.onRenderedItemIdsChange;
 	const onControlHandleChange = props.onControlHandleChange;
 	const [materializationDiagnostic, setMaterializationDiagnostic] =
 		useState<BridgeCodeViewMaterializationDiagnostic>(() => emptyMaterializationDiagnostic());
@@ -261,6 +253,14 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				});
 			}
 			controller.scrollToItem(itemId, options.behavior ?? 'instant');
+			scrollToTopTargetItemIdRef.current = itemId;
+			scrollCodeViewHeaderToScrollTopAcrossLayout({
+				handle: codeViewHandle,
+				itemId,
+				isCurrent: (): boolean =>
+					codeViewHandleRef.current === codeViewHandle &&
+					scrollToTopTargetItemIdRef.current === itemId,
+			});
 			lastSelectionScrollKeyRef.current = `${viewerKey}:${codeViewMountVersion}:${itemId}`;
 			return true;
 		},
@@ -308,53 +308,15 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		string,
 		BridgeCodeViewContentResources,
 	])[] => {
-		const entries = new Map<string, BridgeCodeViewContentResources>(
-			props.contentResourcesByItemId ?? [],
-		);
 		if (
-			props.selectedItemId !== null &&
-			props.selectedContentResources !== null &&
-			props.selectedContentResources !== undefined
+			props.selectedItemId === null ||
+			props.selectedContentResources === null ||
+			props.selectedContentResources === undefined
 		) {
-			entries.set(props.selectedItemId, props.selectedContentResources);
+			return [];
 		}
-		return [...entries.entries()];
-	}, [props.contentResourcesByItemId, props.selectedContentResources, props.selectedItemId]);
-
-	const reportRenderedItemIds = useCallback(
-		(instance: PierreCodeViewInstance | undefined): void => {
-			const renderedItems =
-				typeof instance?.getRenderedItems === 'function' ? instance.getRenderedItems() : [];
-			const renderedItemIds = renderedItems.map((item): string => item.id);
-			const renderedItemIdsKey = renderedItemIds.join('\u001f');
-			if (lastRenderedItemIdsKeyRef.current === renderedItemIdsKey) {
-				return;
-			}
-			lastRenderedItemIdsKeyRef.current = renderedItemIdsKey;
-			onRenderedItemIdsChange?.(renderedItemIds);
-		},
-		[onRenderedItemIdsChange],
-	);
-
-	const scheduleRenderedItemIdsReport = useCallback(
-		(instance: PierreCodeViewInstance | undefined): void => {
-			if (pendingRenderedItemsReportFrameRef.current !== null) {
-				cancelAnimationFrame(pendingRenderedItemsReportFrameRef.current);
-			}
-			pendingRenderedItemsReportFrameRef.current = requestAnimationFrame((): void => {
-				pendingRenderedItemsReportFrameRef.current = null;
-				reportRenderedItemIds(instance ?? codeViewHandleRef.current?.getInstance());
-			});
-		},
-		[reportRenderedItemIds],
-	);
-
-	const handleCodeViewScroll = useCallback(
-		(_scrollTop: number, instance: PierreCodeViewInstance): void => {
-			scheduleRenderedItemIdsReport(instance);
-		},
-		[scheduleRenderedItemIdsReport],
-	);
+		return [[props.selectedItemId, props.selectedContentResources]];
+	}, [props.selectedContentResources, props.selectedItemId]);
 
 	const scheduleCodeViewRecoveryRender = useCallback((): void => {
 		if (pendingRecoveryRenderFrameRef.current !== null) {
@@ -378,17 +340,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				cancelAnimationFrame(pendingRecoveryRenderFrameRef.current);
 				pendingRecoveryRenderFrameRef.current = null;
 			}
-			if (pendingRenderedItemsReportFrameRef.current !== null) {
-				cancelAnimationFrame(pendingRenderedItemsReportFrameRef.current);
-				pendingRenderedItemsReportFrameRef.current = null;
-			}
 		},
 		[],
 	);
-
-	useEffect((): void => {
-		scheduleRenderedItemIdsReport(codeViewHandleRef.current?.getInstance());
-	}, [codeViewMountVersion, scheduleRenderedItemIdsReport, viewerKey]);
 
 	useEffect((): void => {
 		if (props.selectedItemId === null) {
@@ -412,6 +366,14 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			controllerEntryRef,
 		});
 		controller.scrollToItem(props.selectedItemId);
+		scrollToTopTargetItemIdRef.current = props.selectedItemId;
+		scrollCodeViewHeaderToScrollTopAcrossLayout({
+			handle: codeViewHandle,
+			itemId: props.selectedItemId,
+			isCurrent: (): boolean =>
+				codeViewHandleRef.current === codeViewHandle &&
+				scrollToTopTargetItemIdRef.current === props.selectedItemId,
+		});
 	}, [codeViewMountVersion, props.reviewPackage, props.selectedItemId, viewerKey]);
 
 	useEffect((): void => {
@@ -459,6 +421,15 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			const updateResult = controller.applyItemUpdate(nextMaterializedItem);
 			didUpdateRenderedItems = true;
 			if (itemId === props.selectedItemId) {
+				controller.scrollToItem(itemId, 'instant');
+				scrollToTopTargetItemIdRef.current = itemId;
+				scrollCodeViewHeaderToScrollTopAcrossLayout({
+					handle: codeViewHandle,
+					itemId,
+					isCurrent: (): boolean =>
+						codeViewHandleRef.current === codeViewHandle &&
+						scrollToTopTargetItemIdRef.current === itemId,
+				});
 				setMaterializationDiagnostic(
 					materializationDiagnosticForCodeViewItem({
 						item: nextMaterializedItem,
@@ -481,7 +452,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			return;
 		}
 		scheduleCodeViewRecoveryRender();
-		scheduleRenderedItemIdsReport(codeViewHandle.getInstance());
 	}, [
 		collapsedItemIds,
 		codeViewMountVersion,
@@ -493,7 +463,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		props.telemetryRecorder,
 		props.workerPoolEnabled,
 		scheduleCodeViewRecoveryRender,
-		scheduleRenderedItemIdsReport,
 		viewerKey,
 	]);
 
@@ -502,6 +471,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			aria-label="Review content"
 			className="bridge-code-view-panel h-full min-h-0 bg-[var(--bridge-canvas-bg)]"
 			data-code-view-item-count={initialItems.length}
+			data-code-view-rendered-content-resource-count={materializationResourceEntries.length}
 			data-selected-content-cache-key-count={selectedContentSummary.cacheKeyCount}
 			data-selected-content-character-count={selectedContentSummary.characterCount}
 			data-selected-content-line-count={selectedContentSummary.lineCount}
@@ -532,7 +502,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					key={viewerKey}
 					ref={setCodeViewHandle}
 					initialItems={initialItems}
-					onScroll={handleCodeViewScroll}
 					options={bridgeCodeViewOptions}
 					renderHeaderMetadata={headerRenderers.renderHeaderMetadata}
 					renderHeaderPrefix={headerRenderers.renderHeaderPrefix}
@@ -558,14 +527,15 @@ function captureCodeViewHeaderAnchor(props: {
 		return null;
 	}
 	const anchorElement = findCodeViewHeaderAnchorElement({
-		containerElement,
+		containerElement: scrollOwner,
 		itemId: props.itemId,
 	});
 	if (anchorElement === null) {
 		return null;
 	}
 	return {
-		anchorElement,
+		containerElement,
+		itemId: props.itemId,
 		offsetFromScrollOwnerTop:
 			anchorElement.getBoundingClientRect().top - scrollOwner.getBoundingClientRect().top,
 		scrollOwner,
@@ -573,17 +543,81 @@ function captureCodeViewHeaderAnchor(props: {
 }
 
 function restoreCodeViewHeaderAnchor(anchor: BridgeCodeViewHeaderAnchor | null): void {
-	if (anchor === null || !anchor.scrollOwner.isConnected || !anchor.anchorElement.isConnected) {
+	if (anchor === null || !anchor.scrollOwner.isConnected || !anchor.containerElement.isConnected) {
+		return;
+	}
+	const anchorElement = findCodeViewHeaderAnchorElement({
+		containerElement: anchor.scrollOwner,
+		itemId: anchor.itemId,
+	});
+	if (anchorElement === null) {
 		return;
 	}
 	const currentOffset =
-		anchor.anchorElement.getBoundingClientRect().top -
-		anchor.scrollOwner.getBoundingClientRect().top;
+		anchorElement.getBoundingClientRect().top - anchor.scrollOwner.getBoundingClientRect().top;
 	const offsetDelta = currentOffset - anchor.offsetFromScrollOwnerTop;
 	if (Math.abs(offsetDelta) < 1) {
 		return;
 	}
 	anchor.scrollOwner.scrollTop += offsetDelta;
+}
+
+interface ScrollCodeViewHeaderToScrollTopAcrossLayoutProps {
+	readonly frameBudget?: number;
+	readonly handle: CodeViewHandle<undefined>;
+	readonly isCurrent: () => boolean;
+	readonly itemId: string;
+}
+
+function scrollCodeViewHeaderToScrollTopAcrossLayout(
+	props: ScrollCodeViewHeaderToScrollTopAcrossLayoutProps,
+): void {
+	if (!props.isCurrent()) {
+		return;
+	}
+	scrollCodeViewHeaderToScrollTop({
+		handle: props.handle,
+		itemId: props.itemId,
+	});
+	const frameBudget = props.frameBudget ?? 5;
+	if (frameBudget <= 0) {
+		return;
+	}
+	requestAnimationFrame((): void => {
+		scrollCodeViewHeaderToScrollTopAcrossLayout({
+			...props,
+			frameBudget: frameBudget - 1,
+		});
+	});
+}
+
+function scrollCodeViewHeaderToScrollTop(props: {
+	readonly handle: CodeViewHandle<undefined>;
+	readonly itemId: string;
+}): void {
+	const instance = props.handle.getInstance();
+	const containerElement =
+		typeof instance?.getContainerElement === 'function' ? instance.getContainerElement() : null;
+	if (!(containerElement instanceof HTMLElement)) {
+		return;
+	}
+	const scrollOwner = containerElement.closest('.bridge-code-view-scroll-owner');
+	if (!(scrollOwner instanceof HTMLElement)) {
+		return;
+	}
+	const anchorElement = findCodeViewHeaderAnchorElement({
+		containerElement: scrollOwner,
+		itemId: props.itemId,
+	});
+	if (anchorElement === null) {
+		return;
+	}
+	const offsetFromScrollOwnerTop =
+		anchorElement.getBoundingClientRect().top - scrollOwner.getBoundingClientRect().top;
+	if (Math.abs(offsetFromScrollOwnerTop) < 1) {
+		return;
+	}
+	scrollOwner.scrollTop += offsetFromScrollOwnerTop;
 }
 
 interface RestoreCodeViewHeaderAnchorAcrossLayoutProps {
@@ -616,11 +650,47 @@ function findCodeViewHeaderAnchorElement(props: {
 	readonly containerElement: HTMLElement;
 	readonly itemId: string;
 }): HTMLElement | null {
-	for (const candidate of props.containerElement.querySelectorAll<HTMLElement>(
-		'[data-bridge-code-view-item-id]',
+	const searchRoots: ParentNode[] = [props.containerElement];
+	if (props.containerElement.shadowRoot !== null) {
+		searchRoots.push(props.containerElement.shadowRoot);
+	}
+	for (const diffsContainer of props.containerElement.querySelectorAll<HTMLElement>(
+		'diffs-container',
 	)) {
-		if (candidate.dataset['bridgeCodeViewItemId'] === props.itemId) {
-			return candidate.closest<HTMLElement>('[data-diffs-header]') ?? candidate;
+		if (diffsContainer.shadowRoot !== null) {
+			searchRoots.push(diffsContainer.shadowRoot);
+		}
+	}
+	const localAnchor = findCodeViewHeaderAnchorElementInRoots({
+		itemId: props.itemId,
+		searchRoots,
+	});
+	if (localAnchor !== null) {
+		return localAnchor;
+	}
+	const globalSearchRoots: ParentNode[] = [document];
+	for (const diffsContainer of document.querySelectorAll<HTMLElement>('diffs-container')) {
+		if (diffsContainer.shadowRoot !== null) {
+			globalSearchRoots.push(diffsContainer.shadowRoot);
+		}
+	}
+	return findCodeViewHeaderAnchorElementInRoots({
+		itemId: props.itemId,
+		searchRoots: globalSearchRoots,
+	});
+}
+
+function findCodeViewHeaderAnchorElementInRoots(props: {
+	readonly itemId: string;
+	readonly searchRoots: readonly ParentNode[];
+}): HTMLElement | null {
+	for (const searchRoot of props.searchRoots) {
+		for (const candidate of searchRoot.querySelectorAll<HTMLElement>(
+			'[data-bridge-code-view-item-id]',
+		)) {
+			if (candidate.dataset['bridgeCodeViewItemId'] === props.itemId) {
+				return candidate.closest<HTMLElement>('[data-diffs-header]') ?? candidate;
+			}
 		}
 	}
 	return null;

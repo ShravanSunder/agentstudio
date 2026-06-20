@@ -44,7 +44,6 @@ export interface ReviewViewerShellProps {
 	readonly selectedItemId: string | null;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly selectedContentText?: string | null;
-	readonly codeViewContentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
 	readonly selectedContentUnavailablePath?: string | null;
 	readonly selectedMarkdownPreviewHtml?: string | null;
@@ -61,7 +60,6 @@ export interface ReviewViewerShellProps {
 	readonly onGitStatusFilterChange?: (status: BridgeFileChangeKind | 'all') => void;
 	readonly fileClassFilter?: BridgeFileClass | 'all';
 	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
-	readonly onRenderedCodeViewItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
@@ -159,16 +157,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								selectedContentResources={props.selectedContentResources ?? null}
 								selectedItemId={props.selectedItemId}
 								telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
-								{...(props.codeViewContentResourcesByItemId === undefined
-									? {}
-									: {
-											contentResourcesByItemId: props.codeViewContentResourcesByItemId,
-										})}
-								{...(props.onRenderedCodeViewItemIdsChange === undefined
-									? {}
-									: {
-											onRenderedItemIdsChange: props.onRenderedCodeViewItemIdsChange,
-										})}
 								{...(props.onCodeViewControlHandleChange === undefined
 									? {}
 									: {
