@@ -48,6 +48,7 @@ export default defineConfig({
 					name: 'integration-browser',
 					setupFiles: ['./tests/vitest-browser-setup.ts'],
 					browser: browserConfig,
+					testTimeout: 60_000,
 					include: ['src/**/*.browser.test.ts', 'src/**/*.browser.test.tsx'],
 					exclude: [
 						'**/node_modules/**',

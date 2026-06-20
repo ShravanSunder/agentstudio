@@ -1,6 +1,11 @@
 import { chromium, type Page } from 'playwright';
 
 import { bridgeReviewPackageSchema } from '../src/foundation/review-package/bridge-review-package-schema.ts';
+import {
+	collectBridgeViewerHydrationDiagnosticsFromRoot,
+	parseBridgeViewerHydrationDiagnostics,
+	type BridgeViewerHydrationDiagnostics,
+} from './bridge-viewer-hydration-diagnostics.ts';
 
 const defaultWorktreeDevServerUrl = 'http://127.0.0.1:5173/?fixture=worktree&workers=on';
 const worktreeDevServerUrl =
@@ -8,6 +13,7 @@ const worktreeDevServerUrl =
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
 
 interface WorktreeDevServerVerificationResult {
+	readonly hydrationDiagnostics: BridgeViewerHydrationDiagnostics;
 	readonly markdownCharacterCount: number;
 	readonly markdownDisplayPath: string;
 	readonly markdownPreviewTextLength: number;
@@ -148,6 +154,9 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 				};
 			},
 		);
+		const hydrationDiagnostics = parseBridgeViewerHydrationDiagnostics(
+			await page.evaluate(collectBridgeViewerHydrationDiagnosticsFromRoot, undefined),
+		);
 		if (result.selectedDisplayPath !== targetPath) {
 			throw new Error(`Expected selected display path ${targetPath}`);
 		}
@@ -167,6 +176,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		});
 		return {
 			...result,
+			hydrationDiagnostics,
 			markdownCharacterCount: markdownContent.length,
 			markdownDisplayPath: markdownTarget.displayPath,
 			markdownPreviewTextLength,
@@ -356,6 +366,7 @@ async function verifyWorktreeMarkdownPreview(props: {
 
 async function assertSelectedHeaderCollapseRoundTrip(page: Page, path: string): Promise<void> {
 	await waitForSelectedHeaderExpansion(page, path, 'true');
+	await waitForSelectedHeaderAnchored(page, path, 'selected');
 	await clickSelectedHeaderCollapseButton(page, path);
 	await waitForSelectedHeaderExpansion(page, path, 'false');
 	await assertSelectedHeaderAnchored(page, path, 'collapsed');
@@ -409,32 +420,51 @@ async function waitForSelectedHeaderExpansion(
 	);
 }
 
+async function waitForSelectedHeaderAnchored(
+	page: Page,
+	path: string,
+	phase: 'selected',
+): Promise<void> {
+	await page
+		.waitForFunction(
+			(targetPath: string): boolean => {
+				const scrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+				const scrollOwnerBounds =
+					scrollOwner instanceof HTMLElement ? scrollOwner.getBoundingClientRect() : null;
+				if (scrollOwnerBounds === null) {
+					return false;
+				}
+				let topOffset: number | null = null;
+				for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
+					if (container.shadowRoot?.textContent?.includes(targetPath) !== true) {
+						continue;
+					}
+					const button = container.querySelector(
+						'[data-testid="bridge-code-view-header-collapse-button"]',
+					);
+					if (button instanceof HTMLElement) {
+						topOffset = button.getBoundingClientRect().top - scrollOwnerBounds.top;
+					}
+					break;
+				}
+				return topOffset !== null && topOffset >= -2 && topOffset <= 40;
+			},
+			path,
+			{ timeout: 10_000 },
+		)
+		.catch((error: unknown): never => {
+			throw new Error(
+				`Expected worktree selected header to stay anchored after ${phase}: ${String(error)}`,
+			);
+		});
+}
+
 async function assertSelectedHeaderAnchored(
 	page: Page,
 	path: string,
 	phase: 'collapsed' | 'expanded',
 ): Promise<void> {
-	const topOffset = await page.evaluate((targetPath: string): number | null => {
-		const scrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
-		const scrollOwnerBounds =
-			scrollOwner instanceof HTMLElement ? scrollOwner.getBoundingClientRect() : null;
-		if (scrollOwnerBounds === null) {
-			return null;
-		}
-		for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
-			if (container.shadowRoot?.textContent?.includes(targetPath) !== true) {
-				continue;
-			}
-			const button = container.querySelector(
-				'[data-testid="bridge-code-view-header-collapse-button"]',
-			);
-			if (!(button instanceof HTMLElement)) {
-				return null;
-			}
-			return button.getBoundingClientRect().top - scrollOwnerBounds.top;
-		}
-		return null;
-	}, path);
+	const topOffset = await page.evaluate(selectedHeaderTopOffsetFromScrollOwner, path);
 	if (topOffset === null || topOffset < -2 || topOffset > 40) {
 		throw new Error(
 			`Expected worktree selected header to stay anchored after ${phase}, got ${
@@ -442,4 +472,26 @@ async function assertSelectedHeaderAnchored(
 			}`,
 		);
 	}
+}
+
+function selectedHeaderTopOffsetFromScrollOwner(targetPath: string): number | null {
+	const scrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+	const scrollOwnerBounds =
+		scrollOwner instanceof HTMLElement ? scrollOwner.getBoundingClientRect() : null;
+	if (scrollOwnerBounds === null) {
+		return null;
+	}
+	for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
+		if (container.shadowRoot?.textContent?.includes(targetPath) !== true) {
+			continue;
+		}
+		const button = container.querySelector(
+			'[data-testid="bridge-code-view-header-collapse-button"]',
+		);
+		if (!(button instanceof HTMLElement)) {
+			return null;
+		}
+		return button.getBoundingClientRect().top - scrollOwnerBounds.top;
+	}
+	return null;
 }
