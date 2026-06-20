@@ -33,12 +33,12 @@ struct AgentStudioTCCDiagnosticRecorderTests {
             AgentStudioTCCAccessProbeRecord(
                 phase: .startupDiagnostic,
                 subject: .shellChild,
-                target: .documents,
+                target: .messagesData,
                 result: .deniedEACCES,
                 responsibleKind: .agentStudioBeta,
                 commandExitClass: .permissionDenied,
                 probeSequence: 3,
-                rawProbePath: "/Users/shravansunder/Documents"
+                rawProbePath: "/Users/shravansunder/Library/Messages"
             ))
         try await recorder.drain()
 
@@ -52,7 +52,7 @@ struct AgentStudioTCCDiagnosticRecorderTests {
         #expect(contents.contains("\"agentstudio.tcc.bundle.changed\":false"))
         #expect(contents.contains("\"agentstudio.tcc.bundle.executable.reachable\":true"))
         #expect(contents.contains("\"agentstudio.tcc.subject\":\"shell_child\""))
-        #expect(contents.contains("\"agentstudio.tcc.access.target\":\"documents\""))
+        #expect(contents.contains("\"agentstudio.tcc.access.target\":\"messages_data\""))
         #expect(contents.contains("\"agentstudio.tcc.access.result\":\"denied_eacces\""))
         #expect(contents.contains("\"agentstudio.tcc.responsible.kind\":\"agentstudio_beta\""))
         #expect(contents.contains("\"agentstudio.tcc.command.exit_class\":\"permission_denied\""))
@@ -62,7 +62,7 @@ struct AgentStudioTCCDiagnosticRecorderTests {
             contents.contains(
                 "\"agentstudio.tcc.raw.executable_path\":\"/Applications/AgentStudio Beta.app/Contents/MacOS/AgentStudio\""
             ))
-        #expect(contents.contains("\"agentstudio.tcc.raw.probe_path\":\"/Users/shravansunder/Documents\""))
+        #expect(contents.contains("\"agentstudio.tcc.raw.probe_path\":\"/Users/shravansunder/Library/Messages\""))
     }
 
     @Test
@@ -125,6 +125,12 @@ struct AgentStudioTCCDiagnosticRecorderTests {
                 stderrText: "ls: /Users/example/Documents: No such file or directory"
             ) == .pathMissing
         )
+    }
+
+    @Test
+    func messagesDataTargetDocumentsFullDiskProbeVocabulary() {
+        #expect(AgentStudioTCCAccessTarget.documents.rawValue == "documents")
+        #expect(AgentStudioTCCAccessTarget.messagesData.rawValue == "messages_data")
     }
 
     @Test

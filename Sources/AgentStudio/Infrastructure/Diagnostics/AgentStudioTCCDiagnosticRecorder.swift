@@ -27,6 +27,7 @@ enum AgentStudioTCCSubject: String, Sendable {
 
 enum AgentStudioTCCAccessTarget: String, Sendable {
     case documents
+    case messagesData = "messages_data"
     case selectedWorkspace = "selected_workspace"
 }
 
@@ -285,10 +286,24 @@ final class AgentStudioTCCDiagnosticRecorder: @unchecked Sendable {
             "Documents",
             isDirectory: true
         )
+        return shellChildDirectoryProbe(url)
+    }
+
+    static func shellChildMessagesDataDirectoryProbe() -> AgentStudioTCCAccessProbeOutcome {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Messages", isDirectory: true)
+        return shellChildDirectoryProbe(url)
+    }
+
+    static func shellChildDirectoryProbe(_ url: URL) -> AgentStudioTCCAccessProbeOutcome {
         let process = Process()
         let standardError = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", "ls \"$HOME/Documents\" >/dev/null"]
+        var environment = ProcessInfo.processInfo.environment
+        environment["AGENTSTUDIO_TCC_PROBE_PATH"] = url.path
+        process.environment = environment
+        process.arguments = ["-lc", "ls \"$AGENTSTUDIO_TCC_PROBE_PATH\" >/dev/null"]
         process.standardOutput = Pipe()
         process.standardError = standardError
 

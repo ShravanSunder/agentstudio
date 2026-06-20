@@ -102,50 +102,34 @@ extension AppDelegate {
         let recorder = AgentStudioTCCDiagnosticRecorder(traceRuntime: traceRuntime)
         let bundleKind = AgentStudioTCCDiagnosticRecorder.bundleKind()
         let baselineBundleSnapshot = AgentStudioTCCBundleDiskSnapshot.current()
-        recorder.recordAppIdentitySnapshot(
-            phase: .startupDiagnostic,
+        let probePair = Self.recordTCCUpgradeProbeSequence(
+            recorder: recorder,
             bundleKind: bundleKind,
-            codeIdentityKind: baselineBundleSnapshot.codeIdentityKind(comparedTo: baselineBundleSnapshot),
-            bundleChanged: false,
-            bundleExecutableReachable: baselineBundleSnapshot.isReachable,
-            startupDiagnosticAction: action.kind.rawValue,
-            probeSequence: 0,
-            rawBundlePath: baselineBundleSnapshot.rawBundlePath,
-            rawExecutablePath: baselineBundleSnapshot.rawExecutablePath
+            baselineBundleSnapshot: baselineBundleSnapshot,
+            currentBundleSnapshot: baselineBundleSnapshot,
+            actionRawValue: action.kind.rawValue,
+            probeSequence: 0
         )
-
-        let probe = AgentStudioTCCDiagnosticRecorder.shellChildDocumentsDirectoryProbe()
-        recorder.recordAccessProbe(
-            AgentStudioTCCAccessProbeRecord(
-                phase: .startupDiagnostic,
-                subject: .shellChild,
-                target: .documents,
-                result: probe.result,
-                responsibleKind: AgentStudioTCCDiagnosticRecorder.responsibleKind(for: bundleKind),
-                commandExitClass: probe.commandExitClass,
-                startupDiagnosticAction: action.kind.rawValue,
-                probeSequence: 0,
-                rawProbePath: probe.rawPath
-            ))
         try? await recorder.drain()
 
-        let outcome = probe.result == .granted ? "succeeded" : "blocked"
+        let probesGranted = probePair.documents.result == .granted && probePair.messagesData.result == .granted
+        let outcome = probesGranted ? "succeeded" : "blocked"
         startupTraceRecorder.recordAppStartup(
             "app.startup_diagnostic_action.command_exercised",
             phase: "startup_diagnostic_action",
             outcome: outcome,
             attributes: startupDiagnosticTraceAttributes(for: action).merging([
-                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(probe.result == .granted)
+                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(probesGranted)
             ]) { _, newValue in newValue }
         )
         startupTraceRecorder.recordAppStartup(
-            probe.result == .granted
+            probesGranted
                 ? "app.startup_diagnostic_action.completed"
                 : "app.startup_diagnostic_action.blocked",
             phase: "startup_diagnostic_action",
             outcome: outcome,
             attributes: startupDiagnosticTraceAttributes(for: action).merging([
-                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(probe.result == .granted)
+                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(probesGranted)
             ]) { _, newValue in newValue }
         )
         guard monitorConfiguration.repeatCount > 0 else { return }
@@ -160,36 +144,94 @@ extension AppDelegate {
             for probeSequence in 1...monitorConfiguration.repeatCount {
                 try? await Task.sleep(nanoseconds: monitorConfiguration.intervalNanoseconds)
                 let bundleSnapshot = AgentStudioTCCBundleDiskSnapshot.current()
-                let probe = AgentStudioTCCDiagnosticRecorder.shellChildDocumentsDirectoryProbe()
                 let recorder = AgentStudioTCCDiagnosticRecorder(traceRuntime: traceRuntime)
-                let codeIdentityKind = bundleSnapshot.codeIdentityKind(
-                    comparedTo: baselineBundleSnapshotForMonitor)
-                recorder.recordAppIdentitySnapshot(
-                    phase: .startupDiagnostic,
+                Self.recordTCCUpgradeProbeSequence(
+                    recorder: recorder,
                     bundleKind: bundleKind,
-                    codeIdentityKind: codeIdentityKind,
-                    bundleChanged: codeIdentityKind == .differentDiskIdentity,
-                    bundleExecutableReachable: bundleSnapshot.isReachable,
-                    startupDiagnosticAction: actionRawValue,
-                    probeSequence: probeSequence,
-                    rawBundlePath: bundleSnapshot.rawBundlePath,
-                    rawExecutablePath: bundleSnapshot.rawExecutablePath
+                    baselineBundleSnapshot: baselineBundleSnapshotForMonitor,
+                    currentBundleSnapshot: bundleSnapshot,
+                    actionRawValue: actionRawValue,
+                    probeSequence: probeSequence
                 )
-                recorder.recordAccessProbe(
-                    AgentStudioTCCAccessProbeRecord(
-                        phase: .startupDiagnostic,
-                        subject: .shellChild,
-                        target: .documents,
-                        result: probe.result,
-                        responsibleKind: AgentStudioTCCDiagnosticRecorder.responsibleKind(for: bundleKind),
-                        commandExitClass: probe.commandExitClass,
-                        startupDiagnosticAction: actionRawValue,
-                        probeSequence: probeSequence,
-                        rawProbePath: probe.rawPath
-                    ))
                 try? await recorder.drain()
             }
         }
+    }
+
+    @discardableResult
+    nonisolated private static func recordTCCUpgradeProbeSequence(
+        recorder: AgentStudioTCCDiagnosticRecorder,
+        bundleKind: AgentStudioTCCBundleKind,
+        baselineBundleSnapshot: AgentStudioTCCBundleDiskSnapshot,
+        currentBundleSnapshot: AgentStudioTCCBundleDiskSnapshot,
+        actionRawValue: String,
+        probeSequence: Int
+    ) -> TCCUpgradeProbePair {
+        let codeIdentityKind = currentBundleSnapshot.codeIdentityKind(comparedTo: baselineBundleSnapshot)
+        recorder.recordAppIdentitySnapshot(
+            phase: .startupDiagnostic,
+            bundleKind: bundleKind,
+            codeIdentityKind: codeIdentityKind,
+            bundleChanged: codeIdentityKind == .differentDiskIdentity,
+            bundleExecutableReachable: currentBundleSnapshot.isReachable,
+            startupDiagnosticAction: actionRawValue,
+            probeSequence: probeSequence,
+            rawBundlePath: currentBundleSnapshot.rawBundlePath,
+            rawExecutablePath: currentBundleSnapshot.rawExecutablePath
+        )
+
+        let probePair = runTCCUpgradeAccessProbePair()
+        Self.recordTCCUpgradeAccessProbe(
+            recorder: recorder,
+            bundleKind: bundleKind,
+            target: .documents,
+            outcome: probePair.documents,
+            actionRawValue: actionRawValue,
+            probeSequence: probeSequence
+        )
+        Self.recordTCCUpgradeAccessProbe(
+            recorder: recorder,
+            bundleKind: bundleKind,
+            target: .messagesData,
+            outcome: probePair.messagesData,
+            actionRawValue: actionRawValue,
+            probeSequence: probeSequence
+        )
+        return probePair
+    }
+
+    nonisolated private static func runTCCUpgradeAccessProbePair() -> TCCUpgradeProbePair {
+        TCCUpgradeProbePair(
+            documents: AgentStudioTCCDiagnosticRecorder.shellChildDocumentsDirectoryProbe(),
+            messagesData: AgentStudioTCCDiagnosticRecorder.shellChildMessagesDataDirectoryProbe()
+        )
+    }
+
+    nonisolated private static func recordTCCUpgradeAccessProbe(
+        recorder: AgentStudioTCCDiagnosticRecorder,
+        bundleKind: AgentStudioTCCBundleKind,
+        target: AgentStudioTCCAccessTarget,
+        outcome: AgentStudioTCCAccessProbeOutcome,
+        actionRawValue: String,
+        probeSequence: Int
+    ) {
+        recorder.recordAccessProbe(
+            AgentStudioTCCAccessProbeRecord(
+                phase: .startupDiagnostic,
+                subject: .shellChild,
+                target: target,
+                result: outcome.result,
+                responsibleKind: AgentStudioTCCDiagnosticRecorder.responsibleKind(for: bundleKind),
+                commandExitClass: outcome.commandExitClass,
+                startupDiagnosticAction: actionRawValue,
+                probeSequence: probeSequence,
+                rawProbePath: outcome.rawPath
+            ))
+    }
+
+    private struct TCCUpgradeProbePair {
+        let documents: AgentStudioTCCAccessProbeOutcome
+        let messagesData: AgentStudioTCCAccessProbeOutcome
     }
 
     #if DEBUG
