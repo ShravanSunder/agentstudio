@@ -355,9 +355,14 @@ extension AppDelegate {
         let clock = ContinuousClock()
         let start = clock.now
         while !NSApp.isActive
+            && !Task.isCancelled
             && start.duration(to: clock.now) < AppPolicies.StartupDiagnostic.appActivationTimeout
         {
-            try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+            do {
+                try await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+            } catch {
+                return
+            }
         }
     }
 
@@ -437,9 +442,14 @@ extension AppDelegate {
         let start = clock.now
         var proof = ipcTerminalSmokeRenderProof(for: paneId)
         while !proof.succeeded
+            && !Task.isCancelled
             && start.duration(to: clock.now) < AppPolicies.StartupDiagnostic.ipcTerminalSmokeReadinessTimeout
         {
-            try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+            do {
+                try await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+            } catch {
+                return proof
+            }
             mainWindowController?.syncVisibleTerminalGeometry(reason: "ipcTerminalSmokeReadiness")
             proof = ipcTerminalSmokeRenderProof(for: paneId)
         }

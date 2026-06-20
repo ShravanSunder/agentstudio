@@ -227,6 +227,20 @@ struct RuleParityTests {
                     """
             )
         )
+        let noSpaceAssignmentDiagnostics = TooltipSourceRule().validate(
+            context: context(
+                path: "Sources/AgentStudio/App/Windows/MainWindowController.swift",
+                source: """
+                    import AppKit
+
+                    final class MainWindowController {
+                        func configure(button: NSButton) {
+                            button.toolTip="Watch folder"
+                        }
+                    }
+                    """
+            )
+        )
         let readDiagnostics = TooltipSourceRule().validate(
             context: context(
                 path: "Sources/AgentStudio/App/Windows/MainWindowController.swift",
@@ -243,6 +257,7 @@ struct RuleParityTests {
         )
 
         #expect(assignmentDiagnostics.map(\.ruleID) == ["agentstudio_toolbar_tooltip_source"])
+        #expect(noSpaceAssignmentDiagnostics.map(\.ruleID) == ["agentstudio_toolbar_tooltip_source"])
         #expect(readDiagnostics.isEmpty)
     }
 

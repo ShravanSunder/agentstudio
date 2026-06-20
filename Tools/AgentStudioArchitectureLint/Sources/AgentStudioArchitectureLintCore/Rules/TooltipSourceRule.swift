@@ -228,13 +228,25 @@ private final class DenseTooltipRenderAdapterVisitor: SyntaxVisitor {
     private func isAssignmentTarget(_ node: MemberAccessExprSyntax) -> Bool {
         var ancestor = node.parent
         while let currentAncestor = ancestor {
-            if let sequence = currentAncestor.as(SequenceExprSyntax.self),
-                sequence.trimmedDescription.contains("\(node.trimmedDescription) =")
-            {
-                return true
+            if let sequence = currentAncestor.as(SequenceExprSyntax.self) {
+                let elements = Array(sequence.elements)
+                if let index = elements.firstIndex(where: { isSameExpression($0, as: node) }),
+                    index + 1 < elements.count
+                {
+                    return isAssignmentOperator(elements[index + 1])
+                }
             }
             ancestor = currentAncestor.parent
         }
         return false
+    }
+
+    private func isSameExpression(_ expression: ExprSyntax, as node: MemberAccessExprSyntax) -> Bool {
+        expression.id == node.id
+            || expression.positionAfterSkippingLeadingTrivia == node.positionAfterSkippingLeadingTrivia
+    }
+
+    private func isAssignmentOperator(_ expression: ExprSyntax) -> Bool {
+        expression.is(AssignmentExprSyntax.self) || expression.trimmedDescription == "="
     }
 }
