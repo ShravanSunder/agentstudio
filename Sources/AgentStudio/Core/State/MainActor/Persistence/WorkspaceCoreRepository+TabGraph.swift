@@ -5,6 +5,13 @@ extension WorkspaceCoreRepository {
     struct TabShellRecord: Equatable, Sendable {
         let id: UUID
         var name: String
+        var colorHex: String?
+
+        init(id: UUID, name: String, colorHex: String? = nil) {
+            self.id = id
+            self.name = name
+            self.colorHex = colorHex
+        }
     }
 
     struct TabGraphRecord: Equatable, Sendable {
@@ -61,7 +68,7 @@ extension WorkspaceCoreRepository {
             let rows = try Row.fetchAll(
                 database,
                 sql: """
-                    SELECT id, name
+                    SELECT id, name, color_hex
                     FROM tab_shell
                     WHERE workspace_id = ?
                     ORDER BY sort_index ASC
@@ -107,7 +114,8 @@ extension WorkspaceCoreRepository {
 private func decodeTabShellRecord(_ row: Row) throws -> WorkspaceCoreRepository.TabShellRecord {
     let id = try decodeTabId(row["id"])
     let name: String = row["name"]
-    return .init(id: id, name: name)
+    let colorHex: String? = row["color_hex"]
+    return .init(id: id, name: name, colorHex: colorHex)
 }
 
 private func decodeTabGraphState(

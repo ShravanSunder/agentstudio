@@ -33,6 +33,8 @@ extension WorkspaceCoreRepository {
         var repoPath: URL
         let stableKey: String
         var createdAt: Date
+        var isFavorite: Bool
+        var note: String?
         var worktrees: [WorktreeRecord]
 
         init(
@@ -41,6 +43,8 @@ extension WorkspaceCoreRepository {
             repoPath: URL,
             stableKey: String? = nil,
             createdAt: Date,
+            isFavorite: Bool = false,
+            note: String? = nil,
             worktrees: [WorktreeRecord]
         ) {
             self.id = id
@@ -48,6 +52,8 @@ extension WorkspaceCoreRepository {
             self.repoPath = repoPath.standardizedFileURL
             self.stableKey = stableKey ?? StableKey.fromPath(repoPath.standardizedFileURL)
             self.createdAt = createdAt
+            self.isFavorite = isFavorite
+            self.note = note
             self.worktrees = worktrees
         }
     }
@@ -59,6 +65,7 @@ extension WorkspaceCoreRepository {
         var path: URL
         let stableKey: String
         var isMainWorktree: Bool
+        var note: String?
 
         init(
             id: UUID,
@@ -66,7 +73,8 @@ extension WorkspaceCoreRepository {
             name: String,
             path: URL,
             stableKey: String? = nil,
-            isMainWorktree: Bool
+            isMainWorktree: Bool,
+            note: String? = nil
         ) {
             self.id = id
             self.repoId = repoId
@@ -74,6 +82,7 @@ extension WorkspaceCoreRepository {
             self.path = path.standardizedFileURL
             self.stableKey = stableKey ?? StableKey.fromPath(path.standardizedFileURL)
             self.isMainWorktree = isMainWorktree
+            self.note = note
         }
     }
 
@@ -223,7 +232,7 @@ private func fetchRepoRecords(
     let rows = try Row.fetchAll(
         database,
         sql: """
-            SELECT id, name, repo_path, stable_key, created_at
+            SELECT id, name, repo_path, stable_key, created_at, is_favorite, note
             FROM repo
             WHERE workspace_id = ?
             ORDER BY created_at ASC, id ASC
@@ -239,6 +248,8 @@ private func fetchRepoRecords(
             repoPath: repo.repoPath,
             stableKey: repo.stableKey,
             createdAt: repo.createdAt,
+            isFavorite: repo.isFavorite,
+            note: repo.note,
             worktrees: worktrees
         )
     }
@@ -252,7 +263,7 @@ private func fetchWorktreeRecords(
     let rows = try Row.fetchAll(
         database,
         sql: """
-            SELECT id, repo_id, name, path, stable_key, is_main_worktree
+            SELECT id, repo_id, name, path, stable_key, is_main_worktree, note
             FROM worktree
             WHERE workspace_id = ?
             AND repo_id = ?
@@ -314,12 +325,16 @@ private func decodeRepoRecord(
     let repoPath: String = row["repo_path"]
     let stableKey: String = row["stable_key"]
     let createdAt: Double = row["created_at"]
+    let isFavorite: Int = row["is_favorite"]
+    let note: String? = row["note"]
     return .init(
         id: id,
         name: name,
         repoPath: URL(fileURLWithPath: repoPath),
         stableKey: stableKey,
         createdAt: Date(timeIntervalSince1970: createdAt),
+        isFavorite: isFavorite != 0,
+        note: note,
         worktrees: worktrees
     )
 }
@@ -337,13 +352,15 @@ private func decodeWorktreeRecord(_ row: Row) throws -> WorkspaceCoreRepository.
     let path: String = row["path"]
     let stableKey: String = row["stable_key"]
     let isMainWorktree: Int = row["is_main_worktree"]
+    let note: String? = row["note"]
     return .init(
         id: id,
         repoId: repoId,
         name: name,
         path: URL(fileURLWithPath: path),
         stableKey: stableKey,
-        isMainWorktree: isMainWorktree != 0
+        isMainWorktree: isMainWorktree != 0,
+        note: note
     )
 }
 

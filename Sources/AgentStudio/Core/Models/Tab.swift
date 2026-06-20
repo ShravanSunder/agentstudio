@@ -19,6 +19,8 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
     var activeArrangementId: UUID
     /// Display-only zoom state — NOT persisted. When set, the zoomed pane fills the tab.
     var zoomedPaneId: UUID?
+    /// SQLite-only shell color metadata. Legacy JSON coding omits this field.
+    var colorHex: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -44,6 +46,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
         self.arrangements = [defaultArrangement]
         self.activeArrangementId = defaultArrangement.id
         self.zoomedPaneId = nil
+        self.colorHex = nil
     }
 
     /// Create a tab with an existing layout and arrangements.
@@ -54,7 +57,8 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
         allPaneIds: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
-        zoomedPaneId: UUID? = nil
+        zoomedPaneId: UUID? = nil,
+        colorHex: String? = nil
     ) {
         precondition(!arrangements.isEmpty, "Tab must have at least one arrangement")
         precondition(arrangements.filter(\.isDefault).count == 1, "Tab must have exactly one default arrangement")
@@ -64,6 +68,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
         self.arrangements = arrangements
         self.activeArrangementId = activeArrangementId
         self.zoomedPaneId = zoomedPaneId
+        self.colorHex = colorHex
     }
 
     init(
@@ -72,7 +77,8 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
         panes: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
-        zoomedPaneId: UUID? = nil
+        zoomedPaneId: UUID? = nil,
+        colorHex: String? = nil
     ) {
         self.init(
             id: id,
@@ -80,7 +86,8 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
             allPaneIds: panes,
             arrangements: arrangements,
             activeArrangementId: activeArrangementId,
-            zoomedPaneId: zoomedPaneId
+            zoomedPaneId: zoomedPaneId,
+            colorHex: colorHex
         )
     }
 

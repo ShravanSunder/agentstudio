@@ -44,6 +44,83 @@ struct RepoExplorerReadModelTests {
         #expect(projection.resolvedGroups.map(\.repoTitle) == ["agent-browser", "actual-server"])
     }
 
+    @Test("favorites sort before non favorites in repo pane and tab modes")
+    func favoritesSortBeforeNonFavoritesInRepoPaneAndTabModes() {
+        let normalRepoId = UUID()
+        let favoriteRepoId = UUID()
+        let normalWorktree = worktree(repoId: normalRepoId, name: "z-normal")
+        let favoriteWorktree = worktree(repoId: favoriteRepoId, name: "a-favorite")
+        let normalRepo = repo(id: normalRepoId, name: "alpha-normal", worktrees: [normalWorktree])
+        let favoriteRepo = repo(
+            id: favoriteRepoId,
+            name: "zeta-favorite",
+            isFavorite: true,
+            worktrees: [favoriteWorktree]
+        )
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        let tabId = UUID()
+
+        let enrichmentByRepoId = [
+            normalRepoId: resolvedRemote(repoId: normalRepoId, displayName: "alpha-normal"),
+            favoriteRepoId: resolvedRemote(repoId: favoriteRepoId, displayName: "zeta-favorite"),
+        ]
+        let locationsByWorktreeId = [
+            normalWorktree.id: [
+                WorkspacePaneLocation(
+                    paneId: firstPaneId,
+                    tabId: tabId,
+                    tabIndex: 0,
+                    paneIndexInTab: 0,
+                    isActiveInTab: true
+                )
+            ],
+            favoriteWorktree.id: [
+                WorkspacePaneLocation(
+                    paneId: secondPaneId,
+                    tabId: tabId,
+                    tabIndex: 0,
+                    paneIndexInTab: 1,
+                    isActiveInTab: false
+                )
+            ],
+        ]
+
+        let repoProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [normalRepo, favoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .repo,
+                sortOrder: .ascending,
+                query: ""
+            )
+        )
+        let paneProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [normalRepo, favoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .pane,
+                sortOrder: .ascending,
+                query: ""
+            )
+        )
+        let tabProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [normalRepo, favoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .tab,
+                sortOrder: .ascending,
+                query: "",
+                paneLocationsByWorktreeId: locationsByWorktreeId
+            )
+        )
+
+        #expect(repoProjection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite", "alpha-normal"])
+        #expect(paneProjection.resolvedGroups.first?.id == "pane:inactive")
+        #expect(paneProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId, normalRepoId])
+        #expect(tabProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId, normalRepoId])
+    }
+
     @Test("projection separates resolved and loading repos while preserving filter semantics")
     func projectionSeparatesResolvedAndLoadingRepos() {
         let resolvedRepoId = UUID()
@@ -242,12 +319,18 @@ struct RepoExplorerReadModelTests {
         #expect(placementTexts == ["Pane 1", "Pane 2 active"])
     }
 
-    private func repo(id: UUID, name: String, worktrees: [Worktree]) -> RepoPresentationItem {
+    private func repo(
+        id: UUID,
+        name: String,
+        isFavorite: Bool = false,
+        worktrees: [Worktree]
+    ) -> RepoPresentationItem {
         RepoPresentationItem(
             id: id,
             name: name,
             repoPath: URL(fileURLWithPath: "/tmp/\(name)"),
             stableKey: name,
+            isFavorite: isFavorite,
             worktrees: worktrees
         )
     }

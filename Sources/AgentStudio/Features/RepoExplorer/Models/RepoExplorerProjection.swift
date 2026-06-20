@@ -161,6 +161,9 @@ enum RepoExplorerProjection {
             )
         }
         .sorted { lhs, rhs in
+            if lhs.repos.first?.isFavorite != rhs.repos.first?.isFavorite {
+                return lhs.repos.first?.isFavorite == true
+            }
             let leftTitle = lhs.organizationName.map { "\(lhs.repoTitle)\($0)" } ?? lhs.repoTitle
             let rightTitle = rhs.organizationName.map { "\(rhs.repoTitle)\($0)" } ?? rhs.repoTitle
             return compare(leftTitle, rightTitle, sortOrder: sortOrder)
@@ -338,7 +341,10 @@ enum RepoExplorerProjection {
         sortOrder: RepoExplorerSortOrder
     ) -> [RepoPresentationItem] {
         repos.sorted { lhs, rhs in
-            compare(lhs.name, rhs.name, sortOrder: sortOrder)
+            if lhs.isFavorite != rhs.isFavorite {
+                return lhs.isFavorite
+            }
+            return compare(lhs.name, rhs.name, sortOrder: sortOrder)
         }
     }
 

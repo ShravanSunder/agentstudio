@@ -17,6 +17,8 @@ struct RepoPresentationItem: Identifiable, Hashable, Sendable {
     let name: String
     let repoPath: URL
     let stableKey: String
+    let isFavorite: Bool
+    let note: String?
     var worktrees: [Worktree]
 
     init(
@@ -24,12 +26,16 @@ struct RepoPresentationItem: Identifiable, Hashable, Sendable {
         name: String,
         repoPath: URL,
         stableKey: String,
+        isFavorite: Bool = false,
+        note: String? = nil,
         worktrees: [Worktree]
     ) {
         self.id = id
         self.name = name
         self.repoPath = repoPath
         self.stableKey = stableKey
+        self.isFavorite = isFavorite
+        self.note = note
         self.worktrees = worktrees
     }
 
@@ -39,6 +45,8 @@ struct RepoPresentationItem: Identifiable, Hashable, Sendable {
             name: repo.name,
             repoPath: repo.repoPath,
             stableKey: repo.stableKey,
+            isFavorite: repo.isFavorite,
+            note: repo.note,
             worktrees: repo.worktrees
         )
     }

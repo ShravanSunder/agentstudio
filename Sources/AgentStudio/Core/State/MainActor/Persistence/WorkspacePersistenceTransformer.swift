@@ -383,7 +383,9 @@ enum WorkspacePersistenceTransformer {
                 id: repo.id,
                 name: repo.name,
                 repoPath: repo.repoPath,
-                createdAt: repo.createdAt
+                createdAt: repo.createdAt,
+                isFavorite: repo.isFavorite,
+                note: repo.note
             )
         }
     }
@@ -406,7 +408,8 @@ enum WorkspacePersistenceTransformer {
                     repoId: repo.id,
                     name: worktree.name,
                     path: worktree.path,
-                    isMainWorktree: worktree.isMainWorktree
+                    isMainWorktree: worktree.isMainWorktree,
+                    note: worktree.note
                 )
             }
         }
@@ -424,7 +427,8 @@ enum WorkspacePersistenceTransformer {
                     repoId: canonicalRepo.id,
                     name: canonicalWorktree.name,
                     path: canonicalWorktree.path,
-                    isMainWorktree: canonicalWorktree.isMainWorktree
+                    isMainWorktree: canonicalWorktree.isMainWorktree,
+                    note: canonicalWorktree.note
                 )
             }
             return Repo(
@@ -432,7 +436,9 @@ enum WorkspacePersistenceTransformer {
                 name: canonicalRepo.name,
                 repoPath: canonicalRepo.repoPath,
                 worktrees: worktrees,
-                createdAt: canonicalRepo.createdAt
+                createdAt: canonicalRepo.createdAt,
+                isFavorite: canonicalRepo.isFavorite,
+                note: canonicalRepo.note
             )
         }
     }
