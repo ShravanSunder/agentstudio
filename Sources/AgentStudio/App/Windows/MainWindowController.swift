@@ -6,6 +6,10 @@ final class SidebarToolbarButton: NSButton {
     var currentSymbolName = ""
 }
 
+final class TitlebarActionButton: NSButton {
+    var currentSymbolName = ""
+}
+
 enum InboxToolbarUnreadBadgeText {
     static func text(for unreadCount: Int) -> String {
         unreadCount > 99 ? "99+" : "\(unreadCount)"
@@ -16,13 +20,17 @@ enum InboxToolbarUnreadBadgeText {
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
+    private var titlebarActionAccessory: NSTitlebarAccessoryViewController?
     private var inboxAtom: InboxNotificationAtom?
     private var uiState: WorkspaceSidebarState?
     private weak var worktreeToolbarButton: SidebarToolbarButton?
     private weak var inboxToolbarButton: SidebarToolbarButton?
+    private weak var managementLayerTitlebarButton: TitlebarActionButton?
+    private weak var watchFolderTitlebarButton: TitlebarActionButton?
     private var inboxToolbarBadgeHostingView: NSHostingView<UnreadCountBadge>?
     private var isObservingInboxUnread = false
     private var isObservingSidebarSurface = false
+    private var isObservingManagementLayer = false
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
@@ -94,9 +102,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         self.splitViewController = splitVC
         window.contentViewController = splitVC
 
-        // Set up titlebar and toolbar
+        // Set up titlebar controls
         setupTitlebarAccessory()
-        setupToolbar()
     }
 
     // MARK: - NSWindowDelegate (frame persistence)
@@ -207,6 +214,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         self.sidebarAccessory = accessoryVC
         updateSidebarToolbarIcons()
         observeSidebarSurface()
+        setupTitlebarActionAccessory()
     }
 
     private func makeSidebarToolbarButton(
@@ -222,10 +230,70 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         button.target = self
         button.action = action
         button.applyControlTooltip(toolTip)
+        button.setAccessibilityLabel(accessibilityLabel)
         button.image = sidebarToolbarImage(
             symbolName: "circle",
             accessibilityDescription: accessibilityLabel
         )
+        return button
+    }
+
+    private func setupTitlebarActionAccessory() {
+        let managementButton = makeTitlebarActionButton(
+            command: .toggleManagementLayer,
+            identifier: "managementLayerTitlebarButton",
+            action: #selector(toggleManagementLayerAction)
+        )
+        self.managementLayerTitlebarButton = managementButton
+
+        let watchFolderButton = makeTitlebarActionButton(
+            command: .watchFolder,
+            identifier: "watchFolderTitlebarButton",
+            action: #selector(watchFolderAction)
+        )
+        self.watchFolderTitlebarButton = watchFolderButton
+
+        let stack = NSStackView(views: [managementButton, watchFolderButton])
+        stack.identifier = NSUserInterfaceItemIdentifier("titlebarActionAccessory")
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 14)
+        stack.frame = NSRect(x: 0, y: 0, width: 80, height: 28)
+
+        let accessoryVC = NSTitlebarAccessoryViewController()
+        accessoryVC.view = stack
+        accessoryVC.layoutAttribute = .right
+
+        window?.addTitlebarAccessoryViewController(accessoryVC)
+        self.titlebarActionAccessory = accessoryVC
+        updateManagementLayerTitlebarIcon()
+        observeManagementLayer()
+    }
+
+    private func makeTitlebarActionButton(
+        command: AppCommand,
+        identifier: String,
+        action: Selector
+    ) -> TitlebarActionButton {
+        let definition = command.definition
+        let button = TitlebarActionButton(frame: NSRect(x: 0, y: 0, width: 34, height: 28))
+        button.bezelStyle = .accessoryBarAction
+        button.controlSize = .small
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.title = ""
+        button.identifier = NSUserInterfaceItemIdentifier(identifier)
+        button.target = self
+        button.action = action
+        button.applyControlTooltip(definition.controlTooltipRenderValue())
+        button.setAccessibilityLabel(definition.actionSpec.label)
+        button.image = definition.actionSpec.icon.nsImage(
+            accessibilityDescription: definition.actionSpec.label
+        )
+        if case .system(let systemSymbol) = definition.actionSpec.icon {
+            button.currentSymbolName = systemSymbol.rawValue
+        }
         return button
     }
 
@@ -352,15 +420,33 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    // MARK: - Toolbar
+    private func observeManagementLayer() {
+        guard !isObservingManagementLayer else { return }
+        isObservingManagementLayer = true
+        withObservationTracking {
+            _ = atom(\.managementLayer).isActive
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isObservingManagementLayer = false
+                self.updateManagementLayerTitlebarIcon()
+                self.observeManagementLayer()
+            }
+        }
+    }
 
-    private func setupToolbar() {
-        let toolbar = NSToolbar(identifier: "MainToolbar")
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        window?.toolbar = toolbar
-        window?.toolbarStyle = .unified
+    private func updateManagementLayerTitlebarIcon() {
+        let command = AppCommand.toggleManagementLayer
+        let definition = command.definition
+        let symbolName =
+            atom(\.managementLayer).isActive
+            ? SystemSymbol.rectangleSplit2x2Fill.rawValue
+            : SystemSymbol.rectangleSplit2x2.rawValue
+        managementLayerTitlebarButton?.currentSymbolName = symbolName
+        managementLayerTitlebarButton?.image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: definition.actionSpec.label
+        )
     }
 
     // MARK: - Actions
@@ -447,84 +533,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         updateSidebarToolbarIcons()
     }
 
+    @objc private func toggleManagementLayerAction() {
+        AppCommandDispatcher.shared.dispatch(.toggleManagementLayer)
+        updateManagementLayerTitlebarIcon()
+    }
+
     @objc private func watchFolderAction() {
         AppCommandDispatcher.shared.dispatch(.watchFolder)
     }
-
-    private func commandToolbarButtonItem(
-        for command: AppCommand,
-        action: Selector
-    ) -> NSToolbarItem {
-        let definition = AppCommandDispatcher.shared.definition(for: command)
-        let item = NSToolbarItem(itemIdentifier: .watchFolder)
-        item.label = definition.actionSpec.label
-        item.paletteLabel = definition.actionSpec.label
-        item.applyControlTooltip(definition.controlTooltipRenderValue())
-
-        let button = NSButton(
-            title: definition.actionSpec.label,
-            target: self,
-            action: action
-        )
-        button.bezelStyle = .rounded
-        button.bezelColor = .systemTeal
-        button.controlSize = .regular
-
-        if case .system(let systemName) = definition.actionSpec.icon {
-            button.image = NSImage(
-                systemSymbolName: systemName.rawValue,
-                accessibilityDescription: definition.actionSpec.label
-            )
-        }
-
-        button.imagePosition = .imageLeading
-        button.attributedTitle = NSAttributedString(
-            string: "  " + definition.actionSpec.label,
-            attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
-        )
-        item.view = button
-        return item
-    }
 }
-
-// MARK: - NSToolbarDelegate
-
-extension MainWindowController: NSToolbarDelegate {
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [
-            .flexibleSpace,
-            .managementLayer,
-            .space,
-            .watchFolder,
-        ]
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
-    }
-
-    func toolbar(
-        _ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-        willBeInsertedIntoToolbar flag: Bool
-    ) -> NSToolbarItem? {
-        switch itemIdentifier {
-        case .managementLayer:
-            let presentation = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer).actionSpec
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = presentation.label
-            item.paletteLabel = presentation.label
-            // SwiftUI hosting for reactive toggle state
-            let hostingView = NSHostingView(rootView: ManagementLayerToolbarButton())
-            hostingView.sizingOptions = .intrinsicContentSize
-            item.view = hostingView
-            return item
-        case .watchFolder:
-            return commandToolbarButtonItem(for: .watchFolder, action: #selector(watchFolderAction))
-
-        default:
-            return nil
-        }
-    }
-}
-
-// MARK: - Toolbar Item Identifiers

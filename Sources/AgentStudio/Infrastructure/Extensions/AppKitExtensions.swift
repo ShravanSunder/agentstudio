@@ -14,8 +14,3 @@ extension NSPasteboard.PasteboardType {
     // For new-tab drag from tab bar (matches UTType.agentStudioNewTab)
     static let agentStudioNewTabDrop = NSPasteboard.PasteboardType(UTType.agentStudioNewTab.identifier)
 }
-
-extension NSToolbarItem.Identifier {
-    static let managementLayer = NSToolbarItem.Identifier("managementLayer")
-    static let watchFolder = NSToolbarItem.Identifier("watchFolder")
-}

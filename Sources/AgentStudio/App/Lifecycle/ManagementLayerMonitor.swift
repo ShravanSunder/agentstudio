@@ -13,7 +13,7 @@ import Observation
 ///
 /// ## Toggling
 ///
-/// Toggled via Cmd+R (command pipeline) or the toolbar/tab bar button.
+/// Toggled via Cmd+R (command pipeline) or the titlebar/tab bar button.
 @MainActor
 @Observable
 final class ManagementLayerMonitor {
