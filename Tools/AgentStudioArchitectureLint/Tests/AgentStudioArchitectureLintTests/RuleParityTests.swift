@@ -278,8 +278,10 @@ struct RuleParityTests {
                     import SwiftUI
 
                     struct BadTooltipComponent: View {
+                        let actionSpec: ActionSpec
                         let source: ControlTooltipSource
                         let commandIdentifier: IPCCommandIdentifier
+                        let localAction: LocalActionSpec
 
                         var body: some View { Text("") }
                     }
@@ -300,6 +302,8 @@ struct RuleParityTests {
             ])
         #expect(
             sharedComponentDiagnostics.map(\.ruleID) == [
+                "agentstudio_toolbar_tooltip_source",
+                "agentstudio_toolbar_tooltip_source",
                 "agentstudio_toolbar_tooltip_source",
                 "agentstudio_toolbar_tooltip_source",
             ])

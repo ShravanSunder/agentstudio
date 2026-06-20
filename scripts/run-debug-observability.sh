@@ -643,10 +643,14 @@ otlp_protocol=http/protobuf
 launch_log="${AGENTSTUDIO_OBSERVABILITY_LAUNCH_LOG:-$debug_root/logs/$trace_name.log}"
 mkdir -p "$(dirname "$launch_log")" "$(dirname "$state_file")" "$trace_dir" "$debug_root" "$launch_data_root" "$launch_zmx_dir" "$launch_ipc_socket_dir" "$launch_zmx_bin_dir"
 chmod 700 "$debug_root" "$launch_data_root" "$launch_zmx_dir" "$launch_ipc_socket_dir" "$launch_zmx_bin_dir"
-if [ -x "$app_path/Contents/MacOS/zmx" ]; then
-  "$DITTO_BIN" "$app_path/Contents/MacOS/zmx" "$launch_zmx_path"
-  chmod 700 "$launch_zmx_path"
+if [ ! -x "$app_path/Contents/MacOS/zmx" ]; then
+  write_launch_failed_state missing_debug_zmx_binary
+  echo "debug app bundle missing executable zmx: $app_path/Contents/MacOS/zmx" >&2
+  echo "observability state: $state_file" >&2
+  exit 1
 fi
+"$DITTO_BIN" "$app_path/Contents/MacOS/zmx" "$launch_zmx_path"
+chmod 700 "$launch_zmx_path"
 : >"$launch_log"
 query_start="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 

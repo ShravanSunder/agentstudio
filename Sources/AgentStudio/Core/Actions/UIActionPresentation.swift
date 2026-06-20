@@ -10,7 +10,7 @@ extension ActionSpec {
     func controlTooltipSource(
         provenance: CommandDisplayProvenance,
         textOverride: String? = nil,
-        shortcutText: String? = nil
+        shortcutText: ShortcutDisplayText? = nil
     ) -> ControlTooltipSource {
         .display(
             CommandDisplayDescriptor(
@@ -18,14 +18,14 @@ extension ActionSpec {
                 label: label,
                 helpText: helpText,
                 compactTooltipText: textOverride,
-                shortcutDisplayText: shortcutText.map(ShortcutDisplayText.init(value:))
+                shortcutDisplayText: shortcutText
             ))
     }
 
     func controlTooltipRenderValue(
         provenance: CommandDisplayProvenance,
         textOverride: String? = nil,
-        shortcutText: String? = nil
+        shortcutText: ShortcutDisplayText? = nil
     ) -> ControlTooltipRenderValue {
         ControlTooltipResolver.resolve(
             controlTooltipSource(
@@ -37,7 +37,7 @@ extension ActionSpec {
 
     func controlToolTip(
         textOverride: String? = nil,
-        shortcutText: String? = nil
+        shortcutText: ShortcutDisplayText? = nil
     ) -> String {
         controlTooltipRenderValue(
             provenance: .localAction(rawValue: label),
@@ -48,6 +48,10 @@ extension ActionSpec {
 }
 
 extension KeyBinding {
+    var displayText: ShortcutDisplayText {
+        ShortcutDisplayText(value: displayString)
+    }
+
     var displayString: String {
         var keys: [String] = []
         if modifiers.contains(.command) { keys.append("⌘") }

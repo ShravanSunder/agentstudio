@@ -353,7 +353,7 @@ struct EmptyDrawerBar: View {
 
     static func addTooltipValue() -> ControlTooltipRenderValue {
         AppCommand.addDrawerPane.definition.controlTooltipRenderValue(
-            shortcutTextOverride: AppShortcut.addDrawerPane.displayKeyBinding(in: .emptyDrawer)?.displayString
+            shortcutTextOverride: AppShortcut.addDrawerPane.displayKeyBinding(in: .emptyDrawer)?.displayText
         )
     }
 

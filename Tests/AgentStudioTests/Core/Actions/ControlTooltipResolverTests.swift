@@ -93,7 +93,7 @@ struct ControlTooltipResolverTests {
         let source = action.controlTooltipSource(
             provenance: .localAction(rawValue: "groupInboxNotifications"),
             textOverride: "Group",
-            shortcutText: "⌥G"
+            shortcutText: ShortcutDisplayText(value: "⌥G")
         )
         let renderValue = ControlTooltipResolver.resolve(source)
 
@@ -102,8 +102,10 @@ struct ControlTooltipResolverTests {
                 == action.controlTooltipRenderValue(
                     provenance: .localAction(rawValue: "groupInboxNotifications"),
                     textOverride: "Group",
-                    shortcutText: "⌥G"
+                    shortcutText: ShortcutDisplayText(value: "⌥G")
                 ))
-        #expect(action.controlToolTip(textOverride: "Group", shortcutText: "⌥G") == renderValue.text)
+        #expect(
+            action.controlToolTip(textOverride: "Group", shortcutText: ShortcutDisplayText(value: "⌥G"))
+                == renderValue.text)
     }
 }

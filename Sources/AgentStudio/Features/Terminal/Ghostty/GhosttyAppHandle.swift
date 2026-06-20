@@ -18,20 +18,29 @@ extension Ghostty {
             appHandle
         }
 
-        static func overrideContents(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        static func overrideContents(
+            environment: [String: String] = ProcessInfo.processInfo.environment,
+            isDebugBuild: Bool = AppDataPaths.isDebugBuild
+        ) -> String {
             var contents = baseOverrideContents
-            if environment[disableVsyncEnvironmentKey] == "1" {
+            if AppDataPaths.allowsDebugHarnessEnvironmentOverrides(
+                environment: environment,
+                isDebugBuild: isDebugBuild
+            ),
+                environment[disableVsyncEnvironmentKey] == "1"
+            {
                 contents += "\nwindow-vsync = false\n"
             }
             return contents
         }
 
         private static func writeGhosttyOverrideFile(
-            environment: [String: String] = ProcessInfo.processInfo.environment
+            environment: [String: String] = ProcessInfo.processInfo.environment,
+            isDebugBuild: Bool = AppDataPaths.isDebugBuild
         ) throws -> URL {
             let overrideURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("agent-studio-ghostty-overrides-\(UUID().uuidString).conf")
-            try overrideContents(environment: environment).write(
+            try overrideContents(environment: environment, isDebugBuild: isDebugBuild).write(
                 to: overrideURL,
                 atomically: true,
                 encoding: .utf8
@@ -45,13 +54,16 @@ extension Ghostty {
                 return nil
             }
 
-            if ProcessInfo.processInfo.environment[Self.disableDefaultConfigEnvironmentKey] == "1" {
+            let environment = ProcessInfo.processInfo.environment
+            if AppDataPaths.allowsDebugHarnessEnvironmentOverrides(environment: environment),
+                environment[Self.disableDefaultConfigEnvironmentKey] == "1"
+            {
                 RestoreTrace.log("Ghostty default config loading disabled by environment")
             } else {
                 ghostty_config_load_default_files(config)
             }
             do {
-                let overrideURL = try Self.writeGhosttyOverrideFile()
+                let overrideURL = try Self.writeGhosttyOverrideFile(environment: environment)
                 overrideURL.path.withCString { path in
                     ghostty_config_load_file(config, path)
                 }

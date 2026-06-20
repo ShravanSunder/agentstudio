@@ -22,10 +22,35 @@ struct GhosttyAppHandleTests {
     @Test("ghostty config override disables vsync when requested")
     func configOverrideDisablesVsyncWhenRequested() {
         let overrideContents = Ghostty.AppHandle.overrideContents(
-            environment: [Ghostty.AppHandle.disableVsyncEnvironmentKey: "1"]
+            environment: [
+                Ghostty.AppHandle.disableVsyncEnvironmentKey: "1",
+                AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
+            ]
         )
 
         #expect(overrideContents.contains("window-vsync = false"))
+    }
+
+    @Test("ghostty config override ignores vsync env without debug proof token")
+    func configOverrideIgnoresVsyncWithoutDebugProofToken() {
+        let overrideContents = Ghostty.AppHandle.overrideContents(
+            environment: [Ghostty.AppHandle.disableVsyncEnvironmentKey: "1"]
+        )
+
+        #expect(!overrideContents.contains("window-vsync = false"))
+    }
+
+    @Test("ghostty config override ignores vsync env for release builds")
+    func configOverrideIgnoresVsyncForReleaseBuilds() {
+        let overrideContents = Ghostty.AppHandle.overrideContents(
+            environment: [
+                Ghostty.AppHandle.disableVsyncEnvironmentKey: "1",
+                AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
+            ],
+            isDebugBuild: false
+        )
+
+        #expect(!overrideContents.contains("window-vsync = false"))
     }
 
 }

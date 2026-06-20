@@ -26,7 +26,10 @@ struct SessionConfiguration: Sendable {
     // MARK: - Factory
 
     /// Detect configuration from the current environment.
-    static func detect(environment: [String: String] = ProcessInfo.processInfo.environment) -> Self {
+    static func detect(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isDebugBuild: Bool = AppDataPaths.isDebugBuild
+    ) -> Self {
         let env = environment
 
         let isEnabled =
@@ -34,8 +37,8 @@ struct SessionConfiguration: Sendable {
             .map { $0.lowercased() == "true" || $0 == "1" }
             ?? true
 
-        let zmxPath = findZmx(environment: env)
-        let zmxDir = AppDataPaths.zmxDirectory(environment: env).path
+        let zmxPath = findZmx(environment: env, isDebugBuild: isDebugBuild)
+        let zmxDir = AppDataPaths.zmxDirectory(environment: env, isDebugBuild: isDebugBuild).path
         let healthInterval =
             env["AGENTSTUDIO_HEALTH_INTERVAL"]
             .flatMap { Double($0) }
@@ -180,13 +183,20 @@ struct SessionConfiguration: Sendable {
     ///
     /// Candidates are validated with a lightweight `--version` probe because
     /// some environments may report a path as executable while launch still fails.
-    private static func findZmx(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+    private static func findZmx(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isDebugBuild: Bool = AppDataPaths.isDebugBuild
+    ) -> String? {
         // Avoid blocking startup on main thread. Launch-time detection should stay
         // lightweight; deeper usability probes can run off-main.
         let allowBlockingProbe = !Thread.isMainThread
 
-        if let override = environment[zmxPathEnvironmentKey]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
+        if AppDataPaths.allowsDebugHarnessEnvironmentOverrides(
+            environment: environment,
+            isDebugBuild: isDebugBuild
+        ),
+            let override = environment[zmxPathEnvironmentKey]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
             !override.isEmpty
         {
             let expandedOverride = NSString(string: override).expandingTildeInPath

@@ -18,6 +18,7 @@ struct TooltipSourceRule: ArchitectureRule {
     ])
 
     private let sharedComponentsDeniedReferences = Set([
+        "ActionSpec",
         "AppCommand",
         "AppCommandSpec",
         "CommandDisplayDescriptor",
@@ -28,6 +29,7 @@ struct TooltipSourceRule: ArchitectureRule {
         "IPCCommandListEntry",
         "IPCCommandListResult",
         "IPCPrivilegeClass",
+        "LocalActionSpec",
     ])
 
     private let migratedDenseTooltipSuffixes = [

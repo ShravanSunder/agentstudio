@@ -77,7 +77,7 @@ struct UIActionPresentationTests {
     func controlToolTip_withShortcutOverride_usesOverrideShortcut() {
         let toolTip = AppCommand.toggleInboxNotificationSort.definition.controlToolTip(
             textOverride: "Sort inbox",
-            shortcutTextOverride: "⌥S"
+            shortcutTextOverride: ShortcutDisplayText(value: "⌥S")
         )
 
         #expect(toolTip == "Sort inbox (⌥S)")
@@ -87,7 +87,7 @@ struct UIActionPresentationTests {
     func actionSpecControlToolTip_withOverrideAndShortcut_usesCompactText() {
         let toolTip = LocalActionSpec.groupInboxNotifications.actionSpec.controlToolTip(
             textOverride: "Group",
-            shortcutText: "⌥G"
+            shortcutText: ShortcutDisplayText(value: "⌥G")
         )
 
         #expect(toolTip == "Group (⌥G)")

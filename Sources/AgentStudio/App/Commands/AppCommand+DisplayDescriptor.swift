@@ -11,12 +11,11 @@ extension AppCommandSpec {
 
     func commandDisplayDescriptor(
         compactTooltipText: String? = nil,
-        shortcutTextOverride: String? = nil
+        shortcutTextOverride: ShortcutDisplayText? = nil
     ) -> CommandDisplayDescriptor {
         commandDisplayDescriptor(
             compactTooltipText: compactTooltipText,
-            shortcutDisplayText: (shortcutTextOverride ?? commandBarShortcutTrigger?.displayString)
-                .map(ShortcutDisplayText.init(value:))
+            shortcutDisplayText: shortcutTextOverride ?? commandBarShortcutTrigger?.displayText
         )
     }
 
@@ -40,11 +39,11 @@ extension AppCommandSpec {
     func controlTooltipSource(
         textOverride: String? = nil,
         includeShortcut: Bool = true,
-        shortcutTextOverride: String? = nil
+        shortcutTextOverride: ShortcutDisplayText? = nil
     ) -> ControlTooltipSource {
         let shortcutDisplayText =
             if includeShortcut {
-                (shortcutTextOverride ?? commandBarShortcutTrigger?.displayString).map(ShortcutDisplayText.init(value:))
+                shortcutTextOverride ?? commandBarShortcutTrigger?.displayText
             } else {
                 Optional<ShortcutDisplayText>.none
             }
@@ -64,7 +63,7 @@ extension AppCommandSpec {
     func controlTooltipRenderValue(
         textOverride: String? = nil,
         includeShortcut: Bool = true,
-        shortcutTextOverride: String? = nil
+        shortcutTextOverride: ShortcutDisplayText? = nil
     ) -> ControlTooltipRenderValue {
         ControlTooltipResolver.resolve(
             controlTooltipSource(
@@ -77,7 +76,7 @@ extension AppCommandSpec {
     func controlToolTip(
         textOverride: String? = nil,
         includeShortcut: Bool = true,
-        shortcutTextOverride: String? = nil
+        shortcutTextOverride: ShortcutDisplayText? = nil
     ) -> String {
         controlTooltipRenderValue(
             textOverride: textOverride,

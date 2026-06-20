@@ -427,7 +427,7 @@ struct InboxSidebarHeader: View {
             let sortSpec = AppCommand.toggleInboxNotificationSort.definition
             return sortSpec.controlTooltipRenderValue(
                 textOverride: "Sort inbox",
-                shortcutTextOverride: InboxSidebarShortcutCatalog.toggleSort.displayText.value
+                shortcutTextOverride: InboxSidebarShortcutCatalog.toggleSort.displayText
             )
         case .rowState:
             let rowStateAction = LocalActionSpec.toggleInboxRowStateFilter(
@@ -452,7 +452,7 @@ struct InboxSidebarHeader: View {
             return groupingAction.controlTooltipRenderValue(
                 provenance: .localAction(rawValue: "groupInboxNotifications"),
                 textOverride: "Group",
-                shortcutText: InboxSidebarShortcutCatalog.toggleGroupingMenu.displayText.value
+                shortcutText: InboxSidebarShortcutCatalog.toggleGroupingMenu.displayText
             )
         }
     }
