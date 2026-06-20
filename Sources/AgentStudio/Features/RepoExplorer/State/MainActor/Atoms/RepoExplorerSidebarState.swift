@@ -4,16 +4,27 @@ import Observation
 @Observable
 final class RepoExplorerSidebarPrefsAtom {
     private(set) var groupingMode: RepoExplorerGroupingMode = .repo
+    private(set) var sortOrder: RepoExplorerSortOrder = .default
 
     func setGroupingMode(_ groupingMode: RepoExplorerGroupingMode) {
         self.groupingMode = groupingMode
     }
 
-    func hydrate(groupingMode: RepoExplorerGroupingMode) {
+    func toggleSortOrder() {
+        sortOrder = sortOrder.toggled
+    }
+
+    func setSortOrder(_ sortOrder: RepoExplorerSortOrder) {
+        self.sortOrder = sortOrder
+    }
+
+    func hydrate(groupingMode: RepoExplorerGroupingMode, sortOrder: RepoExplorerSortOrder) {
         self.groupingMode = groupingMode
+        self.sortOrder = sortOrder
     }
 
     func reset() {
         groupingMode = .repo
+        sortOrder = .default
     }
 }

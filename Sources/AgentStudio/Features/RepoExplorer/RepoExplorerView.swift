@@ -100,11 +100,15 @@ struct RepoExplorerView: View {
 
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
-    @State private var sortMenuOpen = false
     @State private var groupingMenuOpen = false
     @FocusState private var focusedField: RepoExplorerFocus?
 
     @State private var debounceTask: Task<Void, Never>?
+    @State private var projectionWorker = RepoExplorerProjectionWorker()
+    @State private var projectionTask: Task<Void, Never>?
+    @State private var projectionGeneration = 0
+    @State private var cachedProjectionResult = RepoExplorerProjectionResult.empty
+    @State private var cachedProjectionRequest: RepoExplorerProjectionRequest?
 
     private static let filterDebounceMilliseconds = 25
 
@@ -117,6 +121,7 @@ struct RepoExplorerView: View {
             repos: sidebarRepos,
             repoEnrichmentByRepoId: sidebarRepoEnrichmentByRepoId,
             groupingMode: repoExplorerPrefs.groupingMode,
+            sortOrder: repoExplorerPrefs.sortOrder,
             query: debouncedQuery,
             paneLocationsByWorktreeId: atom(\.workspaceLookup).paneLocationsByWorktreeId(
                 workspacePane: store.paneAtom,
@@ -136,61 +141,24 @@ struct RepoExplorerView: View {
         )
     }
 
-    private var sidebarProjection: SidebarProjection {
-        let snapshot = sidebarSnapshot
-        return performanceTraceRecorder?.measure(
-            .sidebarProjection,
-            attributes: [
-                "agentstudio.performance.sidebar.surface": .string("repo"),
-                "agentstudio.performance.sidebar.phase": .string("projection_worker"),
-                "agentstudio.performance.sidebar.query_state": .string(snapshot.query.isEmpty ? "empty" : "non_empty"),
-                "agentstudio.performance.sidebar.group_mode": .string(snapshot.groupingMode.rawValue),
-                "agentstudio.performance.sidebar.repo.count": .int(snapshot.repos.count),
-                "agentstudio.performance.sidebar.query_character.count": .int(snapshot.query.count),
-            ]
-        ) {
-            RepoExplorerProjection.project(snapshot)
-        } ?? RepoExplorerProjection.project(snapshot)
-    }
-
-    private var sidebarRowIndex: RepoExplorerRowIndex {
-        let projection = sidebarProjection
-        let expandedGroupIds = Set(sidebarCache.expandedGroups.map(\.rawValue))
-        return performanceTraceRecorder?.measure(
-            .sidebarRowIndex,
-            attributes: [
-                "agentstudio.performance.sidebar.surface": .string("repo"),
-                "agentstudio.performance.sidebar.phase": .string("row_index"),
-                "agentstudio.performance.sidebar.query_state": .string(isFiltering ? "non_empty" : "empty"),
-                "agentstudio.performance.sidebar.group_mode": .string(sidebarSnapshot.groupingMode.rawValue),
-                "agentstudio.performance.sidebar.group.count": .int(projection.resolvedGroups.count),
-                "agentstudio.performance.sidebar.loading_repo.count": .int(projection.loadingRepos.count),
-                "agentstudio.performance.sidebar.expanded_group.count": .int(expandedGroupIds.count),
-                "agentstudio.performance.sidebar.is_filtering": .bool(isFiltering),
-            ]
-        ) {
-            RepoExplorerRowIndex(
-                projection: projection,
-                expandedGroupIds: expandedGroupIds,
-                isFiltering: isFiltering
-            )
-        }
-            ?? RepoExplorerRowIndex(
-                projection: projection,
-                expandedGroupIds: expandedGroupIds,
-                isFiltering: isFiltering
-            )
-    }
-
     private var isFiltering: Bool {
         !debouncedQuery.isEmpty
     }
 
-    private var checkoutColorOverrides: [String: String] {
-        Dictionary(
-            uniqueKeysWithValues: sidebarCache.checkoutColors.map { key, value in
-                (key.rawValue, value)
-            }
+    private var currentProjection: SidebarProjection {
+        cachedProjectionResult.projection
+    }
+
+    private var currentRowIndex: RepoExplorerRowIndex {
+        cachedProjectionResult.rowIndex
+    }
+
+    private var projectionRequest: RepoExplorerProjectionRequest {
+        RepoExplorerProjectionRequest(
+            generation: projectionGeneration + 1,
+            snapshot: sidebarSnapshot,
+            expandedGroupIds: Set(sidebarCache.expandedGroups.map(\.rawValue)),
+            isFiltering: isFiltering
         )
     }
 
@@ -216,7 +184,7 @@ struct RepoExplorerView: View {
 
             filterBar
 
-            if sidebarProjection.showsNoResults {
+            if currentProjection.showsNoResults {
                 noResultsView
             } else {
                 groupList
@@ -226,9 +194,12 @@ struct RepoExplorerView: View {
         .task {
             filterText = uiState.filterText
             debouncedQuery = uiState.filterText
+            refreshProjection(force: true)
         }
         .onDisappear {
             debounceTask?.cancel()
+            projectionTask?.cancel()
+            projectionTask = nil
             RepoExplorerFocusPublisher.publish(
                 focusedField: nil,
                 into: uiState
@@ -281,6 +252,9 @@ struct RepoExplorerView: View {
                 into: uiState
             )
         }
+        .onChange(of: projectionRequestKey) { _, _ in
+            refreshProjection()
+        }
     }
 
     private var filterBar: some View {
@@ -312,9 +286,11 @@ struct RepoExplorerView: View {
             Spacer(minLength: 0)
 
             Button {
-                sortMenuOpen.toggle()
+                repoExplorerPrefs.toggleSortOrder()
             } label: {
                 toolbarIcon(sortAction.icon)
+                    .rotationEffect(.degrees(repoExplorerPrefs.sortOrder == .ascending ? 0 : 180))
+                    .animation(.easeInOut(duration: 0.18), value: repoExplorerPrefs.sortOrder)
             }
             .buttonStyle(.borderless)
             .accessibilityLabel(sortAction.label)
@@ -322,29 +298,14 @@ struct RepoExplorerView: View {
             .controlHelp(
                 sortAction.controlTooltipRenderValue(
                     provenance: .localAction(rawValue: "repoSidebarCurrentOrder"),
-                    textOverride: "Sort"
+                    textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
                 )
             )
-            .popover(isPresented: $sortMenuOpen) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Button {
-                        sortMenuOpen = false
-                    } label: {
-                        HStack {
-                            Image(systemName: "checkmark")
-                                .frame(width: 12)
-                            Text(sortAction.label)
-                        }
-                    }
-                    .buttonStyle(.borderless)
-                }
-                .padding(8)
-            }
 
             Button {
                 groupingMenuOpen.toggle()
             } label: {
-                toolbarIcon(groupingAction.icon)
+                toolbarIcon(repoExplorerPrefs.groupingMode.icon)
             }
             .buttonStyle(.borderless)
             .accessibilityLabel(groupingAction.label)
@@ -365,6 +326,8 @@ struct RepoExplorerView: View {
                             HStack {
                                 Image(systemName: repoExplorerPrefs.groupingMode == candidate ? "checkmark" : "")
                                     .frame(width: 12)
+                                candidate.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                                    .frame(width: AppStyles.General.Icon.compact)
                                 Text(candidate.title)
                             }
                         }
@@ -408,7 +371,7 @@ struct RepoExplorerView: View {
     }
 
     private var groupList: some View {
-        let rowIndex = sidebarRowIndex
+        let rowIndex = currentRowIndex
         return List {
             ForEach(rowIndex.entries) { entry in
                 switch entry {
@@ -490,10 +453,6 @@ struct RepoExplorerView: View {
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
-                            },
-                            onSetIconColor: { colorHex in
-                                let key = resolvedWorktreeContext.repo.id.uuidString
-                                sidebarCache.setCheckoutColor(colorHex, for: SidebarCheckoutColorKey(key))
                             }
                         )
                         .listRowInsets(
@@ -536,16 +495,13 @@ struct RepoExplorerView: View {
 
     private func colorForCheckout(repo: RepoPresentationItem, in group: RepoPresentationGroup) -> Color {
         let colorHex = RepoPresentationColoring.checkoutColorHex(
-            for: repo, in: group, checkoutColorOverrides: checkoutColorOverrides
+            for: repo, in: group
         )
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
     }
 
     private func iconForGroup(_ group: RepoPresentationGroup) -> AppEntityIcon {
-        Self.sourceGroupIcon(
-            for: group,
-            checkoutColorOverrides: checkoutColorOverrides
-        )
+        Self.sourceGroupIcon(for: group)
     }
 
     private func isGroupExpanded(_ groupId: String) -> Bool {
@@ -609,6 +565,182 @@ struct RepoExplorerView: View {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
     }
 
+    private struct ProjectionRequestKey: Equatable {
+        let snapshot: RepoExplorerSnapshot
+        let expandedGroupIds: Set<String>
+        let isFiltering: Bool
+    }
+
+    private var projectionRequestKey: ProjectionRequestKey {
+        let request = projectionRequest
+        return ProjectionRequestKey(
+            snapshot: request.snapshot,
+            expandedGroupIds: request.expandedGroupIds,
+            isFiltering: request.isFiltering
+        )
+    }
+
+    private func refreshProjection(force: Bool = false) {
+        let request = projectionRequest
+        let requestKey = ProjectionRequestKey(
+            snapshot: request.snapshot,
+            expandedGroupIds: request.expandedGroupIds,
+            isFiltering: request.isFiltering
+        )
+        if !force,
+            let cachedProjectionRequest,
+            ProjectionRequestKey(
+                snapshot: cachedProjectionRequest.snapshot,
+                expandedGroupIds: cachedProjectionRequest.expandedGroupIds,
+                isFiltering: cachedProjectionRequest.isFiltering
+            ) == requestKey
+        {
+            return
+        }
+
+        if projectionTask != nil {
+            performanceTraceRecorder?.record(
+                .sidebarProjection,
+                attributes: sidebarProjectionTraceAttributes(
+                    for: request,
+                    phase: "projection_worker",
+                    extra: ["agentstudio.performance.sidebar.cancellation.count": .int(1)]
+                )
+            )
+        }
+
+        projectionGeneration += 1
+        let generatedRequest = RepoExplorerProjectionRequest(
+            generation: projectionGeneration,
+            snapshot: request.snapshot,
+            expandedGroupIds: request.expandedGroupIds,
+            isFiltering: request.isFiltering
+        )
+        cachedProjectionRequest = generatedRequest
+        projectionTask?.cancel()
+        let worker = projectionWorker
+        projectionTask = Task { @MainActor in
+            guard !Task.isCancelled else { return }
+            do {
+                let result = try await worker.project(generatedRequest)
+                guard !Task.isCancelled else { return }
+                applyProjectionResult(result)
+            } catch is CancellationError {
+                clearProjectionTaskIfCurrent(generation: generatedRequest.generation)
+            } catch {
+                clearProjectionTaskIfCurrent(generation: generatedRequest.generation)
+            }
+        }
+    }
+
+    private func clearProjectionTaskIfCurrent(generation: Int) {
+        guard generation == projectionGeneration else { return }
+        projectionTask = nil
+    }
+
+    private func applyProjectionResult(_ result: RepoExplorerProjectionResult) {
+        guard
+            result.generation == projectionGeneration,
+            result.snapshot == cachedProjectionRequest?.snapshot,
+            result.expandedGroupIds == cachedProjectionRequest?.expandedGroupIds,
+            result.isFiltering == cachedProjectionRequest?.isFiltering
+        else {
+            performanceTraceRecorder?.record(
+                .sidebarProjection,
+                attributes: sidebarProjectionTraceAttributes(
+                    for: RepoExplorerProjectionRequest(
+                        generation: result.generation,
+                        snapshot: result.snapshot,
+                        expandedGroupIds: result.expandedGroupIds,
+                        isFiltering: result.isFiltering
+                    ),
+                    phase: "mainactor_apply",
+                    extra: ["agentstudio.performance.sidebar.stale_discard.count": .int(1)]
+                )
+            )
+            return
+        }
+
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: result.projectionDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: RepoExplorerProjectionRequest(
+                    generation: result.generation,
+                    snapshot: result.snapshot,
+                    expandedGroupIds: result.expandedGroupIds,
+                    isFiltering: result.isFiltering
+                ),
+                phase: "projection_worker",
+                extra: [
+                    "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: result.workerDuration))
+                ]
+            )
+        )
+        performanceTraceRecorder?.recordDuration(
+            .sidebarRowIndex,
+            duration: result.rowIndexDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: RepoExplorerProjectionRequest(
+                    generation: result.generation,
+                    snapshot: result.snapshot,
+                    expandedGroupIds: result.expandedGroupIds,
+                    isFiltering: result.isFiltering
+                ),
+                phase: "row_index_worker",
+                extra: [
+                    "agentstudio.performance.sidebar.row_index_worker_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: result.rowIndexDuration))
+                ]
+            )
+        )
+
+        let clock = ContinuousClock()
+        let applyStart = clock.now
+        cachedProjectionResult = result
+        projectionTask = nil
+        let applyDuration = applyStart.duration(to: clock.now)
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: applyDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: RepoExplorerProjectionRequest(
+                    generation: result.generation,
+                    snapshot: result.snapshot,
+                    expandedGroupIds: result.expandedGroupIds,
+                    isFiltering: result.isFiltering
+                ),
+                phase: "mainactor_apply",
+                extra: [
+                    "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration))
+                ]
+            )
+        )
+    }
+
+    private func sidebarProjectionTraceAttributes(
+        for request: RepoExplorerProjectionRequest,
+        phase: String,
+        extra: [String: AgentStudioTraceValue] = [:]
+    ) -> [String: AgentStudioTraceValue] {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.sidebar.surface": .string("repo"),
+            "agentstudio.performance.sidebar.phase": .string(phase),
+            "agentstudio.performance.sidebar.query_state": .string(
+                request.snapshot.query.isEmpty ? "empty" : "non_empty"),
+            "agentstudio.performance.sidebar.group_mode": .string(request.snapshot.groupingMode.rawValue),
+            "agentstudio.performance.sidebar.sort_order": .string(request.snapshot.sortOrder.rawValue),
+            "agentstudio.performance.sidebar.repo.count": .int(request.snapshot.repos.count),
+            "agentstudio.performance.sidebar.query_character.count": .int(request.snapshot.query.count),
+            "agentstudio.performance.sidebar.expanded_group.count": .int(request.expandedGroupIds.count),
+            "agentstudio.performance.sidebar.is_filtering": .bool(request.isFiltering),
+        ]
+        attributes.merge(extra) { _, newValue in newValue }
+        return attributes
+    }
+
 }
 
 private struct RepoExplorerLoadingSectionHeaderRow: View {
@@ -661,24 +793,20 @@ private struct RepoExplorerLoadingRepoRow: View {
 extension RepoExplorerView {
     static func checkoutColorHex(
         for repo: RepoPresentationItem,
-        in group: RepoPresentationGroup,
-        checkoutColorOverrides: [String: String] = [:]
+        in group: RepoPresentationGroup
     ) -> String {
         RepoPresentationColoring.checkoutColorHex(
             for: repo,
-            in: group,
-            checkoutColorOverrides: checkoutColorOverrides
+            in: group
         )
     }
 
     static func sourceGroupIcon(
-        for group: RepoPresentationGroup,
-        checkoutColorOverrides: [String: String] = [:]
+        for group: RepoPresentationGroup
     ) -> AppEntityIcon {
         guard
             let colorHex = RepoPresentationColoring.sourceGroupColorHex(
-                for: group,
-                checkoutColorOverrides: checkoutColorOverrides
+                for: group
             )
         else {
             return .repo

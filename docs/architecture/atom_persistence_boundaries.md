@@ -137,7 +137,7 @@ facts, snapshots, deltas, or intents.
 | `WorkspaceTabArrangementAtom` | `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom` | `WorkspaceTabLayoutDerived` |
 | `RepoCacheAtom` | `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom` | repo/sidebar read models |
 | `UIStateAtom` source before Step 0 split | `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom` | `WorkspaceSidebarState` |
-| `SidebarCacheState` (`SidebarCacheAtom` source before Step 0 split) | `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom` | sidebar shell read model |
+| `SidebarCacheState` (`SidebarCacheAtom` source before Step 0 split) | `SidebarExpandedGroupAtom`, legacy `SidebarCheckoutColorAtom` | sidebar shell read model |
 | `EditorChooserState` (`EditorChooserAtom` source before Step 0 split) | `EditorPreferenceAtom`, `EditorChooserRuntimeAtom` | editor chooser read model |
 | `InboxSidebarState` (`InboxSidebarStateAtom` source before Step 0 split) | `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom` | inbox sidebar read model |
 

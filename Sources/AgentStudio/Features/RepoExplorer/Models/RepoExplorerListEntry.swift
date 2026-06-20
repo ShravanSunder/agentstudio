@@ -1,6 +1,6 @@
 import Foundation
 
-enum RepoExplorerListEntry: Identifiable, Equatable {
+enum RepoExplorerListEntry: Identifiable, Equatable, Sendable {
     case resolvedGroupHeader(RepoPresentationGroup)
     case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID, rowId: String)
 

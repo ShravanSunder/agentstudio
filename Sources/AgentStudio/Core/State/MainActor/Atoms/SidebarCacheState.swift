@@ -32,7 +32,10 @@ final class SidebarExpandedGroupAtom {
     }
 }
 
-/// User-selected checkout color memory kept separate from expanded group state.
+/// Legacy checkout color memory kept separate from expanded group state.
+///
+/// New sidebar presentation uses automatic colors and must not persist checkout
+/// colors through workspace settings.
 @MainActor
 @Observable
 final class SidebarCheckoutColorAtom {

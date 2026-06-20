@@ -27,6 +27,7 @@ struct WorkspaceCoreMigrationTests {
         #expect(tableNames.contains("workspace"))
         #expect(tableNames.contains("app_workspace_selection"))
         #expect(tableNames.contains("repo"))
+        #expect(tableNames.contains("repo_tag"))
         #expect(tableNames.contains("worktree"))
         #expect(tableNames.contains("pane"))
         #expect(tableNames.contains("pane_content_terminal"))
@@ -80,6 +81,7 @@ struct WorkspaceCoreMigrationTests {
                 "008_add_zmx_session_id",
                 "009_drop_pane_source_binding",
                 "010_drop_pane_tag",
+                "011_add_repo_sidebar_metadata",
             ]
         )
     }
@@ -845,4 +847,5 @@ struct WorkspaceCoreMigrationTests {
             arguments: [tableName]
         ) != nil
     }
+
 }

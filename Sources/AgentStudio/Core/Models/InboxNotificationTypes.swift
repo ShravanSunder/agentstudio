@@ -6,6 +6,19 @@ enum InboxNotificationGrouping: String, Sendable, Codable, Equatable, CaseIterab
     case byRepo
     case byPane
     case none
+
+    var icon: CommandIcon {
+        switch self {
+        case .none:
+            return .system(.line3Horizontal)
+        case .byRepo:
+            return .system(.folder)
+        case .byPane:
+            return .system(.rectangleSplit2x1)
+        case .byTab:
+            return .system(.rectangleStack)
+        }
+    }
 }
 // swiftlint:enable discouraged_none_name
 

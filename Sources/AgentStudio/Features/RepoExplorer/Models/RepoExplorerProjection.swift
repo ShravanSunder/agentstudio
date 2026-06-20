@@ -1,6 +1,6 @@
 import Foundation
 
-struct RepoExplorerSidebarProjection {
+struct RepoExplorerSidebarProjection: Equatable, Sendable {
     let resolvedGroups: [RepoPresentationGroup]
     let worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]
     let loadingRepos: [RepoPresentationItem]
@@ -32,7 +32,7 @@ struct RepoExplorerPlacementContext: Equatable, Sendable {
     }
 }
 
-struct RepoExplorerProjectedWorktreeRow: Equatable {
+struct RepoExplorerProjectedWorktreeRow: Equatable, Sendable {
     let groupId: String
     let repo: RepoPresentationItem
     let worktree: Worktree
@@ -51,7 +51,11 @@ enum RepoExplorerProjection {
         let resolvedRepos = resolvedRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
         let loadingRepos = loadingRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
         let filteredResolvedRepos = RepoExplorerFilter.filter(repos: resolvedRepos, query: snapshot.query)
-        let filteredLoadingRepos = filterLoadingRepos(loadingRepos, query: snapshot.query)
+        let filteredLoadingRepos = filterLoadingRepos(
+            loadingRepos,
+            query: snapshot.query,
+            sortOrder: snapshot.sortOrder
+        )
         let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
             repos: filteredResolvedRepos,
             repoEnrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId
@@ -60,13 +64,18 @@ enum RepoExplorerProjection {
         let projectedRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]
         switch snapshot.groupingMode {
         case .repo:
-            resolvedGroups = repoIdentityGroups(repos: filteredResolvedRepos, metadataByRepoId: repoMetadataById)
+            resolvedGroups = repoIdentityGroups(
+                repos: filteredResolvedRepos,
+                metadataByRepoId: repoMetadataById,
+                sortOrder: snapshot.sortOrder
+            )
             projectedRowsByGroupId = worktreeRowsByGroupId(from: resolvedGroups)
         case .pane:
             let placementProjection = placementGroups(
                 repos: filteredResolvedRepos,
                 locationsByWorktreeId: snapshot.paneLocationsByWorktreeId,
-                mode: .pane
+                mode: .pane,
+                sortOrder: snapshot.sortOrder
             )
             resolvedGroups = placementProjection.groups
             projectedRowsByGroupId = placementProjection.worktreeRowsByGroupId
@@ -74,7 +83,8 @@ enum RepoExplorerProjection {
             let placementProjection = placementGroups(
                 repos: filteredResolvedRepos,
                 locationsByWorktreeId: snapshot.paneLocationsByWorktreeId,
-                mode: .tab
+                mode: .tab,
+                sortOrder: snapshot.sortOrder
             )
             resolvedGroups = placementProjection.groups
             projectedRowsByGroupId = placementProjection.worktreeRowsByGroupId
@@ -118,7 +128,8 @@ enum RepoExplorerProjection {
 
     private static func filterLoadingRepos(
         _ repos: [RepoPresentationItem],
-        query: String
+        query: String,
+        sortOrder: RepoExplorerSortOrder
     ) -> [RepoPresentationItem] {
         let filteredRepos: [RepoPresentationItem]
         if query.isEmpty {
@@ -129,20 +140,19 @@ enum RepoExplorerProjection {
             }
         }
 
-        return filteredRepos.sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
+        return sortedRepos(filteredRepos, sortOrder: sortOrder)
     }
 
     private static func repoIdentityGroups(
         repos: [RepoPresentationItem],
-        metadataByRepoId: [UUID: RepoIdentityMetadata]
+        metadataByRepoId: [UUID: RepoIdentityMetadata],
+        sortOrder: RepoExplorerSortOrder
     ) -> [RepoPresentationGroup] {
         repos.compactMap { repo in
             guard !repo.worktrees.isEmpty else { return nil }
             let metadata = metadataByRepoId[repo.id]
             var projectedRepo = repo
-            projectedRepo.worktrees = sortedWorktrees(repo.worktrees)
+            projectedRepo.worktrees = sortedWorktrees(repo.worktrees, sortOrder: sortOrder)
             return RepoPresentationGroup(
                 id: "repo:\(repo.id.uuidString)",
                 repoTitle: metadata?.repoName ?? repo.name,
@@ -153,14 +163,15 @@ enum RepoExplorerProjection {
         .sorted { lhs, rhs in
             let leftTitle = lhs.organizationName.map { "\(lhs.repoTitle)\($0)" } ?? lhs.repoTitle
             let rightTitle = rhs.organizationName.map { "\(rhs.repoTitle)\($0)" } ?? rhs.repoTitle
-            return leftTitle.localizedCaseInsensitiveCompare(rightTitle) == .orderedAscending
+            return compare(leftTitle, rightTitle, sortOrder: sortOrder)
         }
     }
 
     private static func placementGroups(
         repos: [RepoPresentationItem],
         locationsByWorktreeId: [UUID: [WorkspacePaneLocation]],
-        mode: RepoExplorerGroupingMode
+        mode: RepoExplorerGroupingMode,
+        sortOrder: RepoExplorerSortOrder
     ) -> (groups: [RepoPresentationGroup], worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]) {
         let locations = sortedUniqueLocations(locationsByWorktreeId.values.flatMap { $0 })
         let paneOrdinalById = Dictionary(
@@ -184,8 +195,8 @@ enum RepoExplorerProjection {
             groupOrder.append(groupId)
         }
 
-        for repo in repos {
-            for worktree in sortedWorktrees(repo.worktrees) {
+        for repo in sortedRepos(repos, sortOrder: sortOrder) {
+            for worktree in sortedWorktrees(repo.worktrees, sortOrder: sortOrder) {
                 let worktreeLocations = sortedUniqueLocations(locationsByWorktreeId[worktree.id] ?? [])
                 guard !worktreeLocations.isEmpty else {
                     appendGroupIfNeeded(inactiveGroupId, title: "Inactive")
@@ -265,7 +276,7 @@ enum RepoExplorerProjection {
         Dictionary(
             uniqueKeysWithValues: groups.map { group in
                 let rows = group.repos.flatMap { repo in
-                    sortedWorktrees(repo.worktrees).map { worktree in
+                    repo.worktrees.map { worktree in
                         RepoExplorerProjectedWorktreeRow(
                             groupId: group.id,
                             repo: repo,
@@ -322,12 +333,38 @@ enum RepoExplorerProjection {
         return "worktree:\(groupId):\(repoId.uuidString):\(worktreeId.uuidString):\(placementToken)"
     }
 
-    private static func sortedWorktrees(_ worktrees: [Worktree]) -> [Worktree] {
+    private static func sortedRepos(
+        _ repos: [RepoPresentationItem],
+        sortOrder: RepoExplorerSortOrder
+    ) -> [RepoPresentationItem] {
+        repos.sorted { lhs, rhs in
+            compare(lhs.name, rhs.name, sortOrder: sortOrder)
+        }
+    }
+
+    private static func sortedWorktrees(
+        _ worktrees: [Worktree],
+        sortOrder: RepoExplorerSortOrder
+    ) -> [Worktree] {
         worktrees.sorted { lhs, rhs in
             if lhs.isMainWorktree != rhs.isMainWorktree {
                 return lhs.isMainWorktree
             }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            return compare(lhs.name, rhs.name, sortOrder: sortOrder)
+        }
+    }
+
+    private static func compare(
+        _ lhs: String,
+        _ rhs: String,
+        sortOrder: RepoExplorerSortOrder
+    ) -> Bool {
+        let comparison = lhs.localizedCaseInsensitiveCompare(rhs)
+        switch sortOrder {
+        case .ascending:
+            return comparison == .orderedAscending
+        case .descending:
+            return comparison == .orderedDescending
         }
     }
 

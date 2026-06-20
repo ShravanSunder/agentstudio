@@ -87,5 +87,8 @@ struct InboxSidebarToolbarPresentationTests {
         #expect(InboxSidebarContent.showsUnreadCount(for: .byPane) == false)
         #expect(InboxSidebarContent.showsUnreadCount(for: .byRepo))
         #expect(InboxSidebarContent.showsUnreadCount(for: .byTab))
+        #expect(InboxNotificationGrouping.byRepo.icon == RepoExplorerGroupingMode.repo.icon)
+        #expect(InboxNotificationGrouping.byPane.icon == RepoExplorerGroupingMode.pane.icon)
+        #expect(InboxNotificationGrouping.byTab.icon == RepoExplorerGroupingMode.tab.icon)
     }
 }

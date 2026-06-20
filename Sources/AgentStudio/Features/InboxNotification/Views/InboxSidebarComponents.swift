@@ -284,7 +284,7 @@ struct InboxSidebarHeader: View {
                 Button {
                     groupingMenuOpen.toggle()
                 } label: {
-                    toolbarIcon(groupingAction.icon)
+                    toolbarIcon(grouping.icon)
                 }
                 .buttonStyle(.borderless)
                 .accessibilityLabel(groupingAction.label)
@@ -308,6 +308,8 @@ struct InboxSidebarHeader: View {
                                 HStack {
                                     Image(systemName: grouping == candidate ? "checkmark" : "")
                                         .frame(width: 12)
+                                    candidate.icon.swiftUIImage(size: AppStyles.General.Icon.compact)
+                                        .frame(width: AppStyles.General.Icon.compact)
                                     Text(groupingLabel(candidate))
                                 }
                             }

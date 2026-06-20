@@ -112,8 +112,8 @@ final class WorkspaceSettingsStore {
         isObservingSettings = true
         withObservationTracking {
             _ = editorPreferenceAtom.bookmarkedEditorId
-            _ = sidebarCheckoutColorAtom.checkoutColors
             _ = repoExplorerSidebarPrefsAtom.groupingMode
+            _ = repoExplorerSidebarPrefsAtom.sortOrder
             _ = inboxNotificationPrefsAtom.grouping
             _ = inboxNotificationPrefsAtom.sort
             _ = inboxNotificationPrefsAtom.bellEnabled
@@ -165,8 +165,11 @@ final class WorkspaceSettingsStore {
         .init(
             workspaceId: workspaceId,
             editorChooser: .init(bookmarkedEditorId: editorPreferenceAtom.bookmarkedEditorId),
-            repoExplorer: .init(groupingMode: repoExplorerSidebarPrefsAtom.groupingMode),
-            sidebar: .init(checkoutColors: sidebarCheckoutColorAtom.checkoutColors),
+            repoExplorer: .init(
+                groupingMode: repoExplorerSidebarPrefsAtom.groupingMode,
+                sortOrder: repoExplorerSidebarPrefsAtom.sortOrder
+            ),
+            sidebar: .init(),
             notifications: .init(
                 grouping: inboxNotificationPrefsAtom.grouping,
                 sort: inboxNotificationPrefsAtom.sort,
@@ -181,8 +184,11 @@ final class WorkspaceSettingsStore {
 
     private func hydrate(from payload: WorkspaceSettingsPayload) {
         editorPreferenceAtom.hydrate(bookmarkedEditorId: payload.editorChooser.bookmarkedEditorId)
-        repoExplorerSidebarPrefsAtom.hydrate(groupingMode: payload.repoExplorer.groupingMode)
-        sidebarCheckoutColorAtom.hydrate(checkoutColors: payload.sidebar.checkoutColors)
+        repoExplorerSidebarPrefsAtom.hydrate(
+            groupingMode: payload.repoExplorer.groupingMode,
+            sortOrder: payload.repoExplorer.sortOrder
+        )
+        sidebarCheckoutColorAtom.clear()
         inboxNotificationPrefsAtom.setGrouping(payload.notifications.grouping)
         inboxNotificationPrefsAtom.setSort(payload.notifications.sort)
         inboxNotificationPrefsAtom.setBellEnabled(payload.notifications.bellEnabled)
@@ -281,7 +287,6 @@ final class WorkspaceSettingsStore {
         if case .loaded(let sidebarCache) = legacyPersistor.loadSidebarCache(for: workspaceId),
             sidebarCache.workspaceId == workspaceId
         {
-            payload.sidebar.checkoutColors = sidebarCache.checkoutColors
             importedAnySlice = true
         }
         if let legacyNotificationPrefs = loadLegacyNotificationPrefs(for: workspaceId) {
@@ -501,13 +506,19 @@ private struct WorkspaceSettingsPayload: Codable {
 
     struct RepoExplorer: Codable {
         var groupingMode: RepoExplorerGroupingMode
+        var sortOrder: RepoExplorerSortOrder
 
-        init(groupingMode: RepoExplorerGroupingMode = .repo) {
+        init(
+            groupingMode: RepoExplorerGroupingMode = .repo,
+            sortOrder: RepoExplorerSortOrder = .default
+        ) {
             self.groupingMode = groupingMode
+            self.sortOrder = sortOrder
         }
 
         private enum CodingKeys: String, CodingKey {
             case groupingMode
+            case sortOrder
         }
 
         init(from decoder: Decoder) throws {
@@ -515,38 +526,13 @@ private struct WorkspaceSettingsPayload: Codable {
             self.groupingMode =
                 (try? container.decodeIfPresent(RepoExplorerGroupingMode.self, forKey: .groupingMode))
                 ?? .repo
+            self.sortOrder =
+                (try? container.decodeIfPresent(RepoExplorerSortOrder.self, forKey: .sortOrder))
+                ?? .default
         }
     }
 
-    struct Sidebar: Codable {
-        var checkoutColors: [SidebarCheckoutColorKey: String]
-
-        init(checkoutColors: [SidebarCheckoutColorKey: String] = [:]) {
-            self.checkoutColors = checkoutColors
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case checkoutColors
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            let rawCheckoutColors = try container.decodeIfPresent([String: String].self, forKey: .checkoutColors) ?? [:]
-            self.checkoutColors = Dictionary(
-                uniqueKeysWithValues: rawCheckoutColors.map { key, value in
-                    (SidebarCheckoutColorKey(key), value)
-                }
-            )
-        }
-
-        func encode(to encoder: Encoder) throws {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(
-                Dictionary(uniqueKeysWithValues: checkoutColors.map { key, value in (key.rawValue, value) }),
-                forKey: .checkoutColors
-            )
-        }
-    }
+    struct Sidebar: Codable {}
 
     struct Notifications: Codable {
         var grouping: InboxNotificationGrouping

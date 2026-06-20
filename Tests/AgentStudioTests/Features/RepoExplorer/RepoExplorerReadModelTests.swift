@@ -9,6 +9,39 @@ struct RepoExplorerReadModelTests {
     func groupingModesAreExactlyRepoPaneAndTab() {
         #expect(RepoExplorerGroupingMode.allCases == [.repo, .pane, .tab])
         #expect(RepoExplorerGroupingMode.allCases.map(\.title) == ["Repo", "Pane", "Tab"])
+        #expect(
+            RepoExplorerGroupingMode.allCases.map(\.icon) == [
+                .system(.folder),
+                .system(.rectangleSplit2x1),
+                .system(.rectangleStack),
+            ])
+    }
+
+    @Test("sort order defaults ascending and can reverse repo groups")
+    func sortOrderDefaultsAscendingAndCanReverseRepoGroups() {
+        #expect(RepoExplorerSortOrder.default == .ascending)
+        #expect(RepoExplorerSortOrder.ascending.toggled == .descending)
+        #expect(RepoExplorerSortOrder.descending.toggled == .ascending)
+
+        let firstRepoId = UUID()
+        let secondRepoId = UUID()
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [
+                    repo(id: firstRepoId, name: "actual-server", worktrees: [worktree(repoId: firstRepoId)]),
+                    repo(id: secondRepoId, name: "agent-browser", worktrees: [worktree(repoId: secondRepoId)]),
+                ],
+                repoEnrichmentByRepoId: [
+                    firstRepoId: resolvedRemote(repoId: firstRepoId, displayName: "actual-server"),
+                    secondRepoId: resolvedRemote(repoId: secondRepoId, displayName: "agent-browser"),
+                ],
+                groupingMode: .repo,
+                sortOrder: .descending,
+                query: ""
+            )
+        )
+
+        #expect(projection.resolvedGroups.map(\.repoTitle) == ["agent-browser", "actual-server"])
     }
 
     @Test("projection separates resolved and loading repos while preserving filter semantics")

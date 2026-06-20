@@ -15,12 +15,49 @@ enum RepoExplorerGroupingMode: String, CaseIterable, Codable, Hashable, Sendable
             return "Tab"
         }
     }
+
+    var icon: CommandIcon {
+        switch self {
+        case .repo:
+            return .system(.folder)
+        case .pane:
+            return .system(.rectangleSplit2x1)
+        case .tab:
+            return .system(.rectangleStack)
+        }
+    }
 }
 
-struct RepoExplorerSnapshot {
+enum RepoExplorerSortOrder: String, CaseIterable, Codable, Hashable, Sendable {
+    case ascending
+    case descending
+
+    static let `default`: Self = .ascending
+
+    var toggled: Self {
+        switch self {
+        case .ascending:
+            return .descending
+        case .descending:
+            return .ascending
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .ascending:
+            return "Ascending"
+        case .descending:
+            return "Descending"
+        }
+    }
+}
+
+struct RepoExplorerSnapshot: Equatable, Sendable {
     let repos: [RepoPresentationItem]
     let repoEnrichmentSnapshotByRepoId: [UUID: RepoEnrichment]
     let groupingMode: RepoExplorerGroupingMode
+    let sortOrder: RepoExplorerSortOrder
     let query: String
     let paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
 
@@ -28,12 +65,14 @@ struct RepoExplorerSnapshot {
         repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
         groupingMode: RepoExplorerGroupingMode = .repo,
+        sortOrder: RepoExplorerSortOrder = .default,
         query: String,
         paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:]
     ) {
         self.repos = repos
         self.repoEnrichmentSnapshotByRepoId = repoEnrichmentByRepoId
         self.groupingMode = groupingMode
+        self.sortOrder = sortOrder
         self.query = query
         self.paneLocationsByWorktreeId = paneLocationsByWorktreeId
     }

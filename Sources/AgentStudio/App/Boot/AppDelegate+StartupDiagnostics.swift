@@ -345,8 +345,7 @@ extension AppDelegate {
             )
             let repoPresentationByRepoId = InboxNotificationSidebarView.repoPresentationByRepoId(
                 repos: repos,
-                repoEnrichmentByRepoId: repoEnrichmentByRepoId,
-                checkoutColors: atom(\.sidebarCache).checkoutColors
+                repoEnrichmentByRepoId: repoEnrichmentByRepoId
             )
             let key = InboxNotificationListProjectionKey(
                 notifications: atom(\.inboxNotification).notifications,

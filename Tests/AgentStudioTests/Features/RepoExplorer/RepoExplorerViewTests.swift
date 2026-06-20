@@ -171,15 +171,11 @@ struct RepoExplorerViewTests {
             repos: [repo]
         )
 
-        let icon = RepoExplorerView.sourceGroupIcon(
-            for: group,
-            checkoutColorOverrides: [repoId.uuidString: "#EAC54F"]
-        )
+        let icon = RepoExplorerView.sourceGroupIcon(for: group)
 
         let expectedColorHex = RepoPresentationColoring.checkoutColorHex(
             for: repo,
-            in: group,
-            checkoutColorOverrides: [repoId.uuidString: "#EAC54F"]
+            in: group
         )
 
         if case .coloredRepo(let colorHex) = icon {

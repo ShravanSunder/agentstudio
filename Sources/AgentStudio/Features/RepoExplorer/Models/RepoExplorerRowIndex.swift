@@ -1,6 +1,6 @@
 import Foundation
 
-struct RepoExplorerResolvedWorktreeContext {
+struct RepoExplorerResolvedWorktreeContext: Sendable {
     let rowId: String
     let group: RepoPresentationGroup
     let repo: RepoPresentationItem
@@ -8,7 +8,7 @@ struct RepoExplorerResolvedWorktreeContext {
     let placementContext: RepoExplorerPlacementContext?
 }
 
-struct RepoExplorerRowIndex {
+struct RepoExplorerRowIndex: Equatable, Sendable {
     let projection: RepoExplorerSidebarProjection
     let entries: [RepoExplorerListEntry]
 

@@ -16,6 +16,7 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(modelFiles.map(\.lastPathComponent).contains("RepoExplorerSnapshot.swift"))
         #expect(modelFiles.map(\.lastPathComponent).contains("RepoExplorerProjection.swift"))
         #expect(modelFiles.map(\.lastPathComponent).contains("RepoExplorerRowIndex.swift"))
+        #expect(modelFiles.map(\.lastPathComponent).contains("RepoExplorerProjectionWorker.swift"))
 
         for file in modelFiles {
             let source = try String(contentsOf: file, encoding: .utf8)
@@ -32,6 +33,9 @@ struct RepoExplorerHotPathArchitectureTests {
         )
 
         #expect(source.contains("RepoExplorerRowIndex"))
+        #expect(source.contains("RepoExplorerProjectionWorker()"))
+        #expect(!source.contains("private var sidebarProjection: SidebarProjection"))
+        #expect(!source.contains("private var sidebarRowIndex: RepoExplorerRowIndex"))
         #expect(!source.contains("private func resolvedWorktreeContext("))
         #expect(!source.contains(".id(sidebarProjectionFingerprint)"))
     }
