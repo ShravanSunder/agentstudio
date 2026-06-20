@@ -51,26 +51,23 @@ struct PaneGraphFacets: Hashable, Sendable {
     var repoId: UUID?
     var worktreeId: UUID?
     var cwd: URL?
-    var tags: [String]
 
-    init(repoId: UUID? = nil, worktreeId: UUID? = nil, cwd: URL? = nil, tags: [String] = []) {
+    init(repoId: UUID? = nil, worktreeId: UUID? = nil, cwd: URL? = nil) {
         self.repoId = repoId
         self.worktreeId = worktreeId
         self.cwd = cwd
-        self.tags = tags
     }
 
     init(contextFacets: PaneContextFacets) {
         self.init(
             repoId: contextFacets.repoId,
             worktreeId: contextFacets.worktreeId,
-            cwd: contextFacets.cwd,
-            tags: contextFacets.tags
+            cwd: contextFacets.cwd
         )
     }
 
     var paneContextFacets: PaneContextFacets {
-        PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: cwd, tags: tags)
+        PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: cwd)
     }
 }
 

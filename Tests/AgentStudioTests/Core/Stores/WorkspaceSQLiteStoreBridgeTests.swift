@@ -46,8 +46,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
                 repoName: "Derived Repo Name",
                 worktreeId: worktree.id,
                 worktreeName: "Derived Worktree Name",
-                cwd: worktree.path.appending(path: "Sources"),
-                tags: ["swift", "sqlite"]
+                cwd: worktree.path.appending(path: "Sources")
             )
         )
         var tab = Tab(paneId: pane.id, name: "SQLite Tab")
@@ -75,7 +74,6 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let paneRecord = try #require(paneGraph.panes.single)
         #expect(paneRecord.id == pane.id)
         #expect(paneRecord.metadata.title == "SQLite Pane")
-        #expect(paneRecord.metadata.durableFacets.tags == ["sqlite", "swift"])
 
         let shells = try fixture.coreRepository.fetchTabShells(workspaceId: workspaceId)
         #expect(shells == [.init(id: tab.id, name: "SQLite Tab")])
@@ -333,8 +331,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
                 facets: PaneContextFacets(
                     repoId: repoId,
                     worktreeId: worktreeId,
-                    cwd: repoPath.appending(path: "Sources"),
-                    tags: ["restore"]
+                    cwd: repoPath.appending(path: "Sources")
                 )
             )
         )

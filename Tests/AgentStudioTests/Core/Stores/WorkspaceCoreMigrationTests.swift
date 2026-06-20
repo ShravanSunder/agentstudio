@@ -30,6 +30,7 @@ struct WorkspaceCoreMigrationTests {
         #expect(tableNames.contains("worktree"))
         #expect(tableNames.contains("pane"))
         #expect(tableNames.contains("pane_content_terminal"))
+        #expect(!tableNames.contains("pane_tag"))
         #expect(tableNames.contains("drawer"))
         #expect(tableNames.contains("drawer_pane"))
         #expect(tableNames.contains("tab_shell"))
@@ -78,6 +79,7 @@ struct WorkspaceCoreMigrationTests {
                 "007_stage_workspace_sqlite_snapshot_status",
                 "008_add_zmx_session_id",
                 "009_drop_pane_source_binding",
+                "010_drop_pane_tag",
             ]
         )
     }
@@ -138,6 +140,35 @@ struct WorkspaceCoreMigrationTests {
         #expect(row?["facet_worktree_id"] as String? == worktreeId)
         #expect(row?["launch_directory"] as String? == "/tmp")
         #expect(row?["cwd"] as String? == "/tmp")
+    }
+
+    @Test("migration 010 drops pane tag table")
+    func migration010DropsPaneTagTable() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+
+        try WorkspaceCoreMigrations.migrator.migrate(databaseQueue, upTo: "009_drop_pane_source_binding")
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    CREATE TABLE IF NOT EXISTS pane_tag (
+                        pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
+                        tag TEXT NOT NULL,
+                        PRIMARY KEY(pane_id, tag)
+                    )
+                    """
+            )
+        }
+        let tableExistsBeforeMigration = try databaseQueue.read { database in
+            try tableExists(database, tableName: "pane_tag")
+        }
+
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+
+        let tableExistsAfterMigration = try databaseQueue.read { database in
+            try tableExists(database, tableName: "pane_tag")
+        }
+        #expect(tableExistsBeforeMigration)
+        #expect(!tableExistsAfterMigration)
     }
 
     @Test("snapshot staging migration preserves existing completion token")
@@ -800,5 +831,18 @@ struct WorkspaceCoreMigrationTests {
                 """,
             arguments: [drawerId, paneId, sortIndex]
         )
+    }
+
+    private func tableExists(_ database: Database, tableName: String) throws -> Bool {
+        try String.fetchOne(
+            database,
+            sql: """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                AND name = ?
+                """,
+            arguments: [tableName]
+        ) != nil
     }
 }

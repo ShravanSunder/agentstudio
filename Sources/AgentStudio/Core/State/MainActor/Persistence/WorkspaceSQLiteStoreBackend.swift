@@ -704,8 +704,7 @@ enum WorkspaceSQLiteStateBridge {
             durableFacets: .init(
                 repoId: metadata.facets.repoId,
                 worktreeId: metadata.facets.worktreeId,
-                cwd: metadata.facets.cwd,
-                tags: metadata.facets.tags
+                cwd: metadata.facets.cwd
             )
         )
     }
@@ -821,8 +820,7 @@ enum WorkspaceSQLiteStateBridge {
             facets: .init(
                 repoId: record.durableFacets.repoId,
                 worktreeId: record.durableFacets.worktreeId,
-                cwd: record.durableFacets.cwd,
-                tags: record.durableFacets.tags
+                cwd: record.durableFacets.cwd
             ),
             checkoutRef: record.checkoutRef,
             note: record.note

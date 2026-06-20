@@ -24,8 +24,7 @@ struct WorkspacePaneBoundaryTests {
                     parentFolder: "stale parent",
                     organizationName: "stale org",
                     origin: "stale origin",
-                    upstream: "stale upstream",
-                    tags: ["swift"]
+                    upstream: "stale upstream"
                 ),
                 note: "ship it"
             ),
@@ -39,7 +38,6 @@ struct WorkspacePaneBoundaryTests {
         #expect(state.metadata.facets.repoId == repoId)
         #expect(state.metadata.facets.worktreeId == worktreeId)
         #expect(state.metadata.facets.cwd == URL(filePath: "/tmp/agent-studio/Sources"))
-        #expect(state.metadata.facets.tags == ["swift"])
         #expect(state.metadata.facets.paneContextFacets.repoName == nil)
         #expect(state.metadata.facets.paneContextFacets.worktreeName == nil)
         #expect(state.metadata.facets.paneContextFacets.parentFolder == nil)

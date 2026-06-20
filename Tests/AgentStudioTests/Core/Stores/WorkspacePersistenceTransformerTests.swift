@@ -216,8 +216,7 @@ struct WorkspacePersistenceTransformerTests {
                 parentFolder: "stale parent",
                 organizationName: "stale org",
                 origin: "stale origin",
-                upstream: "stale upstream",
-                tags: ["swift"]
+                upstream: "stale upstream"
             )
         )
         paneAtom.toggleDrawer(for: pane.id)
@@ -237,7 +236,6 @@ struct WorkspacePersistenceTransformerTests {
         #expect(persistedPane.metadata.facets.repoId == repoId)
         #expect(persistedPane.metadata.facets.worktreeId == worktreeId)
         #expect(persistedPane.metadata.facets.cwd == worktreePath)
-        #expect(persistedPane.metadata.facets.tags == ["swift"])
         #expect(persistedPane.metadata.facets.repoName == nil)
         #expect(persistedPane.metadata.facets.worktreeName == nil)
         #expect(persistedPane.metadata.facets.parentFolder == nil)

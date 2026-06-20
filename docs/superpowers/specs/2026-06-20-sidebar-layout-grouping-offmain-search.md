@@ -16,6 +16,15 @@ Pane and Tab modes must include an Inactive group for worktrees that are not att
 
 Separately, inbox search/list projection must stop doing expensive list work on the MainActor. This is not just a visual cleanup. Search, grouping, row visibility, collapsed-section rollups, and keyboard navigation are one projection pipeline today, and that pipeline must become Swift-concurrency safe without reintroducing the crash class the repo has been removing from generic timers and nonisolated misuse.
 
+Repo metadata is a separate schema-backed requirement for the same sidebar
+family. Users need a favorite button that marks repos as favorites and persists
+that state across app restarts. Repo notes, worktree notes, repo tags, and color
+metadata for tab shells must live in SQLite rather than
+workspace settings JSON. Existing `sidebar.checkoutColors` is not part of this
+schema migration and must not be modeled as `repo.color_hex` or
+`worktree.color_hex` in this slice. Repo/worktree color UX should be removed;
+repo rows may keep only the existing automatic generated colors.
+
 ## Current Evidence
 
 - The sidebar host already composes repo and inbox as sibling surfaces in `Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift`.
@@ -31,6 +40,13 @@ Separately, inbox search/list projection must stop doing expensive list work on 
 - Swift 6.2 repo guidance requires explicit off-main escape with `@concurrent nonisolated` or an actor boundary. A plain `nonisolated async` helper is not enough when called from MainActor.
 - Production delay code must avoid the generic clock sleep path. Current approved production delay seam is `AsyncDelay.taskSleep` / `Task.sleep(nanoseconds:)`, and tests must avoid direct wall-clock sleeps.
 - Current debug observability can be run detached, but GUI launch still foregrounds the app today. "No screen interruption" is therefore a requirement to satisfy, not a property already provided by the current runner.
+- Current checkout color storage is in `<workspace-id>.settings.json` at
+  `sidebar.checkoutColors`, keyed by raw strings that are currently repo ids.
+  That storage has no SQLite foreign-key cleanup and is consumed by repo
+  explorer, inbox, launcher, and pane display surfaces. This spec does not
+  promote that behavior into repo/worktree schema. Manual repo/checkout color
+  overrides should stop being a repo UX surface in this slice; automatic color
+  derivation may continue.
 
 ## Design Goals
 
@@ -41,6 +57,13 @@ Separately, inbox search/list projection must stop doing expensive list work on 
 5. Keep repo grouping/search logic model-owned and testable.
 6. Add before/after performance evidence through the existing OTLP/Victoria proof path.
 7. Keep IPC/debug proof local, authenticated where possible, and non-disruptive to the user's desktop.
+8. Add a repo favorite contract that is persisted on `repo`, testable, and
+   usable from all repo grouping modes without adding a fourth grouping mode.
+9. Add SQLite-only metadata fields/tables for future repo/worktree notes, repo
+   tags, and tab shell colors without adding worktree/pane tags or
+   repo/worktree/pane color columns.
+10. Remove repo/worktree manual color UX and keep only automatic generated repo
+    colors for current repo row presentation.
 
 ## Non-Goals
 
@@ -48,6 +71,18 @@ Separately, inbox search/list projection must stop doing expensive list work on 
 - Do not merge repo and inbox feature state.
 - Do not make command-bar search share sidebar search semantics.
 - Do not add a Flat or Source grouping mode for the repo sidebar.
+- Do not treat Favorite as a repo grouping mode in this slice.
+- Do not add global/user-wide repo tags.
+- Do not add worktree or pane tags.
+- Do not add UX for repo tags in this slice; this is a SQLite migration
+  contract only.
+- Do not add UX for tab shell colors in this slice; that color field is
+  SQLite-only reserved metadata for now.
+- Do not add pane color metadata.
+- Do not keep user-editable repo or worktree color controls.
+- Do not add `repo.color_hex`, `worktree.color_hex`, or `pane.color_hex` in
+  this slice.
+- Do not migrate `sidebar.checkoutColors` in this slice.
 - Do not solve the remaining sidebar issues called out for later work.
 - Do not use visual screenshots as the primary proof for search/projection performance.
 - Do not use unsafe no-auth IPC as the default verification path.
@@ -188,6 +223,103 @@ tab:inactive
 
 The Pane-mode Inactive group and Tab-mode Inactive group must not share the same persisted collapse key.
 
+## Repo Metadata SQLite Contract
+
+Repo favorite is active local repo metadata. Repo/worktree notes, repo tags,
+and tab shell colors are SQLite schema-backed metadata in this slice, even when
+no UX consumes them yet.
+
+Terminology for this slice:
+
+```text
+source repo / source group
+  normalized remote/local identity used for grouping; not a table today
+
+repo table row
+  local checkout family/root; can own multiple worktree rows
+
+worktree table row
+  concrete checkout path under a repo row, including git worktrees
+```
+
+Required behavior:
+
+- A repo can be toggled favorite/unfavorite from the repo sidebar.
+- Favorite state is keyed by stable repo id, not repo name, path, branch, group
+  label, pane id, or tab id.
+- Favorite state persists across app restart and workspace reload.
+- Favorite state follows the repo wherever it appears in the sidebar. In Repo
+  mode the primary affordance belongs on the repo group/header row. In Pane and
+  Tab modes, rows that identify a repo must carry enough favorite presentation
+  state to show and toggle the same repo tag without creating per-attachment
+  favorite state.
+- Favorite must not create a fourth grouping mode. The grouping modes remain
+  exactly Repo, Pane, and Tab.
+- Favorite ordering is mode-local: favorited repos sort before non-favorites
+  inside each group, then the selected repo sort order applies within each
+  favorite partition. This makes the tag navigationally useful without changing
+  group identity.
+- Empty/loading repos may show disabled favorite affordances until they have a
+  stable repo id.
+- Existing manual repo icon/checkout color UX must be removed or disabled in
+  this slice. Current automatic repo color derivation may remain.
+- Do not add repo or worktree color columns as part of this plan.
+- Tab shell color is migration-only in this slice and must not change current
+  UI behavior.
+- Pane color metadata is not part of this schema.
+- Repo tags are migration-only in this slice and must not add tag UI, grouping,
+  or filtering.
+- Worktree and pane tags are not part of this schema.
+
+Required persistence shape:
+
+```text
+repo
+  add is_favorite INTEGER NOT NULL DEFAULT 0
+  add note TEXT
+
+worktree
+  add note TEXT
+
+tab_shell
+  add color_hex TEXT
+
+repo_tag
+  repo_id TEXT NOT NULL REFERENCES repo(id) ON DELETE CASCADE
+  tag     TEXT NOT NULL
+  PRIMARY KEY(repo_id, tag)
+```
+
+These changes belong in core SQLite because they are metadata on durable repo,
+worktree, and tab identities. They must not be added to workspace-local SQLite
+or the workspace settings JSON lane.
+
+The word "checkout" in the current `checkoutColors` code means the local
+checkout family represented by a `repo` table row. It does not mean the
+normalized remote/source group, and it does not mean each individual
+`worktree` row. The existing color key is repo id, not worktree id, but this
+spec does not turn that historical storage into `repo.color_hex`. The repo
+sidebar should stop exposing user-editable checkout/repo colors and should use
+only the existing automatic generated colors.
+
+Required state boundary:
+
+```text
+MainActor repo/topology state
+  owns repo favorite, note, and tag render inputs
+
+repo projection snapshot
+  receives repo metadata values from the MainActor snapshot
+
+off-main projection
+  partitions/sorts by favorite without reading atoms or stores
+```
+
+SharedComponents may render a passed favorite value and invoke a callback, but
+must not read favorite atoms or storage directly. SharedComponents may also
+render a passed tab shell color value, note affordance state, or tag count in
+later UI slices, but must not read SQLite, atoms, or global stores directly.
+
 ## Search and Projection Concurrency
 
 The MainActor owns UI state, atom reads, focus state, and application of results. It must not own expensive search/list projection work.
@@ -254,6 +386,8 @@ Required metric dimensions:
 - phase: projection, row index, or list model
 - query state bucket: empty or nonempty
 - group mode: repo, pane, tab, or inbox grouping mode where applicable
+- favorite state bucket where applicable: favorite, not_favorite, or
+  not_applicable
 - input counts: notifications, repos, worktrees, sections, rows
 - stale result count
 - MainActor apply duration
@@ -341,6 +475,8 @@ The implementation plan must include:
 - architecture or lint proof that the inbox worker entrypoint is not MainActor-isolated, uses an allowed actor or `@concurrent nonisolated` seam, and crosses the boundary with Sendable snapshots/results only
 - architecture lint coverage for forbidden sleep/timer patterns if new async delay code is added
 - focused UI/presentation tests for shared header layout composition
+- core SQLite metadata migration, repo favorite toggle persistence, and
+  favorite-first ordering inside Repo, Pane, and Tab groups
 - metrics tests or verifier updates proving sidebar performance events are emitted and scrubbed
 - baseline vs post-change Victoria-backed measurement for inbox search/list projection with pass/fail comparator rules
 - semantic proof that exercises changed sidebar behavior, or an explicit blocked proof lane if no background-safe sidebar driver exists
@@ -355,3 +491,8 @@ The implementation plan must include:
 5. Repo grouping mode should persist per workspace and must use mode-scoped collapse keys.
 6. Inbox search may remain transient while repo search remains persisted for this slice.
 7. Visual or GUI proof should use a non-activating debug proof path. If that path does not exist yet, foreground GUI proof is blocked pending user approval.
+8. Repo favorites are core SQLite repo metadata keyed by repo id, persisted on
+   `repo.is_favorite`, and rendered/toggled through feature-owned callbacks.
+9. Repo/worktree manual color UX is removed from this slice; keep only existing
+   automatic generated repo colors and do not add `repo.color_hex`,
+   `worktree.color_hex`, or `pane.color_hex`.

@@ -15,14 +15,19 @@ Deliver the repo/inbox sidebar cleanup to a PR-ready state without merging:
 - repo grouping modes are exactly `Repo`, `Pane`, and `Tab`
 - Pane/Tab modes include a mode-scoped `Inactive` group
 - Pane/Tab duplicate attachment rows are identifiable
+- repos can be marked favorite through `repo.is_favorite`
+- repo/worktree notes, repo tags, and tab shell color
+  metadata are added in SQLite without new UX in this slice
+- repo/worktree manual color UX is removed; existing automatic generated repo
+  colors may remain
 - inbox search/list projection moves expensive work off MainActor
 - metrics, docs, lint, and proof paths reflect the new architecture
 - GUI proof does not interrupt the user's desktop, or is explicitly blocked pending approval
 
 ## Source Coverage
 
-- Spec read: `docs/superpowers/specs/2026-06-20-sidebar-layout-grouping-offmain-search.md`, 357 lines.
-- Prior requirements plan read: this file before replacement, 92 lines.
+- Spec read: `docs/superpowers/specs/2026-06-20-sidebar-layout-grouping-offmain-search.md`, 498 lines after this reconciliation.
+- Plan read: this file, 651 lines after this reconciliation.
 - Goal details read: `tmp/workflow-state/2026-06-20-sidebar-cleanup-ready-pr/details.md`, 169 lines.
 - Transition log read: `tmp/workflow-state/2026-06-20-sidebar-cleanup-ready-pr/events.jsonl`, 2 lines.
 - Repo evidence inspected:
@@ -47,7 +52,17 @@ Deliver the repo/inbox sidebar cleanup to a PR-ready state without merging:
 - Do not unify command-bar search with sidebar search.
 - Do not use unsafe no-auth IPC as a sidebar proof path.
 - Do not run foreground GUI proof without explicit user approval.
-- Do not introduce selectable repo sort modes in this slice; the sort control is an affordance for the existing current-order contract only.
+- Do not add arbitrary/custom sort axes beyond the explicit repo title
+  ascending/descending order and favorite partitioning planned here.
+- Do not treat Favorite as a fourth repo grouping mode.
+- Do not add UX for repo tags in this slice.
+- Do not add worktree or pane tags.
+- Do not add UX for tab shell colors in this slice.
+- Do not add pane color metadata.
+- Do not keep user-editable repo or worktree color controls.
+- Do not add `repo.color_hex`, `worktree.color_hex`, or `pane.color_hex` in
+  this slice.
+- Do not migrate `sidebar.checkoutColors` in this slice.
 
 ## Requirements / Proof Matrix
 
@@ -63,6 +78,10 @@ Deliver the repo/inbox sidebar cleanup to a PR-ready state without merging:
 | Pane/Tab Inactive means no active-residency tab-owned pane anywhere in tab ownership graph | T3 | implementation + parent | model tests including non-current arrangement coverage | unit | fixtures include backgrounded, tabless, non-current arrangement panes | Required |
 | Pane/Tab group headers use stable ids and ordinalized display labels | T3 | implementation + parent | group key/label tests across duplicate titles and renames | unit | pane/tab id fixtures | Required |
 | Mode-scoped collapse memory prevents `pane:inactive` and `tab:inactive` collisions | T3 | implementation + parent | state/model tests and persistence tests if storage changes | unit/integration | persisted key round trip | Required |
+| Repo favorites persist on `repo.is_favorite` keyed by repo id | T2A | implementation + parent | core SQLite migration/repository tests and restore tests | integration | migrated core DB fixture | Required |
+| Repo/worktree notes, repo tags, and tab shell colors exist as SQLite metadata | T2A | implementation + parent | core migration/schema tests | integration | migrated core DB fixture | Required |
+| Favorite toggle is available without adding a Favorite grouping mode | T2A, T4 | implementation + parent | toolbar/row presentation tests and grouping enum tests | unit/UI | current view diff | Required |
+| Favorite repos sort ahead of non-favorites inside Repo/Pane/Tab groups | T2A, T3 | implementation + parent | RepoExplorer projection tests across all grouping modes | unit | fixtures with mixed favorite ids | Required |
 | Inbox search/list projection runs off MainActor with allowed Swift 6.2 boundary | T6 | implementation + parent | async projection tests and architecture/lint checks | unit + architecture | current worker entrypoint inspected | Required |
 | Inbox search/list projection preserves search, grouping, collapsed counts, visible ids, and navigation | T6 | implementation + parent | InboxNotificationListModel projection tests, cancellation tests, atomic-apply tests | unit | existing fixtures plus async generation fixture | Required |
 | Sidebar metrics are controlled vocabulary and scrubbed | T7 | implementation + parent | metrics unit tests/verifier updates | unit + integration | OTLP allowlist and verifier current diff | Required |
@@ -185,6 +204,80 @@ Proof gates:
 - Sidebar convergence architecture tests.
 - `mise run lint`.
 
+### T2A. Core SQLite Repo/Worktree/Tab/Pane Metadata Migration
+
+Purpose: add the schema-backed metadata contract before row rendering or
+grouping consumes it. Repo/worktree manual color UX is removed; current
+automatic generated repo colors may remain.
+
+Likely write surfaces:
+
+- `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreMigrations.swift`
+- `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository+Topology.swift`
+- `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository+TopologyMutation.swift`
+- `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository+PaneGraph.swift`
+- `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository+PaneGraphMutation.swift`
+- `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository+TabGraph.swift`
+- `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository+TabGraphMutation.swift`
+- `Sources/AgentStudio/Core/Models/Repo.swift`
+- worktree and tab model/read-model files as needed for stored metadata
+- `Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift`
+- `Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerSnapshot.swift`
+- `Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerProjection.swift`
+- `Sources/AgentStudio/Core/Models/RepoPresentation.swift`
+- `Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift`
+- core SQLite migration tests and RepoExplorer projection tests
+
+Steps:
+
+1. Add a core SQLite migration that extends `repo` with:
+   - `is_favorite INTEGER NOT NULL DEFAULT 0`
+   - `note TEXT`
+2. Extend `worktree` with:
+   - `note TEXT`
+3. Extend `tab_shell` with:
+   - `color_hex TEXT`
+4. Add core SQLite tag table:
+   - `repo_tag(repo_id TEXT NOT NULL REFERENCES repo(id) ON DELETE CASCADE, tag TEXT NOT NULL, PRIMARY KEY(repo_id, tag))`
+5. Keep the repo tag table schema-only in this slice. Do not add tag UI,
+   grouping, filtering, metrics, or command surfaces.
+6. Do not add worktree or pane tag tables.
+7. Keep `tab_shell.color_hex` schema-only in this slice. Do not change current
+   UI behavior based on that field.
+8. Do not add `repo.color_hex`, `worktree.color_hex`, or `pane.color_hex`.
+9. Do not migrate `sidebar.checkoutColors`; manual repo/worktree color
+   overrides should not remain a repo UX surface in this slice.
+10. Preserve the repo/worktree distinction: one repo can have multiple
+    worktrees/checkouts. This slice adds favorite, notes, and repo tags only.
+11. Add favorite toggle/read APIs through the repo topology/core SQLite path.
+12. Add repo metadata values to the Sendable repo projection snapshot.
+13. Partition resolved repo/worktree ordering by `repo.is_favorite` first, then
+    apply the selected title sort order inside each partition.
+14. Keep grouping modes exactly Repo, Pane, and Tab. Favorite is a repo field
+    and sort partition, not a grouping mode.
+15. Add scrubbed metric/test vocabulary if favorite state is emitted in sidebar
+    telemetry: `favorite`, `not_favorite`, or `not_applicable` only.
+
+Proof gates:
+
+- Core SQLite migration test for the new columns and repo tag table.
+- Core repository/store round-trip tests for favorite, unfavorite, repo note,
+  worktree note, tab color, and repo tags.
+- RepoExplorer state tests for favorite toggle/hydrate/reset if a feature state
+  facade remains necessary after moving favorite onto repo metadata.
+- Projection tests proving favorites sort first in Repo, Pane, and Tab modes.
+- Tests proving favorite state is repo-scoped and does not create per-pane,
+  per-tab, or per-attachment favorite rows.
+- Architecture proof that `SharedComponents` only receives favorite values and
+  callbacks and does not access atoms/stores directly.
+
+Split/replan trigger:
+
+- If core metadata migration touches more persistence layers than expected,
+  split this into a standalone migration/store PR before UI wiring.
+- If checkout color storage becomes necessary for this branch, stop and return
+  to design. Do not silently add repo/worktree color columns.
+
 ### T3. Repo Sidebar Grouping Read Models
 
 Purpose: define Repo/Pane/Tab grouping as model-owned projection, not row-view logic.
@@ -210,6 +303,8 @@ Steps:
    - repos and worktrees
    - repo enrichment needed for loading/resolved decisions
    - current grouping mode
+   - selected title sort order
+   - repo metadata values from T2A, including `isFavorite`
    - debounced query
    - mode-scoped expanded group ids
    - worktree occupancy from `WorkspaceLookupDerived.paneLocationsByWorktreeId`
@@ -229,7 +324,10 @@ Steps:
    - `tab:inactive` last and hidden only when empty
 7. Scope persisted expansion/collapse keys by mode through the existing `SidebarCacheState`/`SidebarCacheStore` owner, including `pane:inactive` and `tab:inactive`.
 8. Move row-entry and lookup identity expansion into the read model so same-group duplicate attachment rows can coexist.
-9. Keep loading repo behavior explicit in all modes.
+9. Partition rows by repo favorite status before title sorting in every grouping
+   mode, while keeping group identity unchanged.
+10. Do not introduce repo/worktree color metadata into the projection path.
+11. Keep loading repo behavior explicit in all modes.
 
 Proof gates:
 
@@ -238,6 +336,8 @@ Proof gates:
 - Tests for backgrounded, tabless, non-current-arrangement, and active-residency tab-owned panes.
 - Tests proving duplicate pane/tab titles do not collide and group keys remain stable across title changes.
 - Tests proving two rows with the same `worktreeId` can coexist inside one tab group with distinct stable ids.
+- Tests proving favorite-first ordering applies inside Repo, Pane, and Tab
+  groups without adding a Favorite group.
 - Tests for mode-scoped collapse key persistence.
 - Architecture proof that grouping-mode state and persistence live under `Features/RepoExplorer/...`; collapse-memory changes remain limited to `SidebarCacheState`/`SidebarCacheStore`.
 
@@ -260,21 +360,25 @@ Steps:
 
 1. Add a repo toolbar row under the search row using the shared layout container.
 2. Add a group control exposing Repo, Pane, and Tab.
-3. Add a sort control matching the inbox-style toolbar affordance, scoped to the existing current-order contract in this goal.
-4. If the control opens a menu, expose one checked item for the current order. Do not add selectable sort modes or persistence in this slice.
+3. Add a sort control matching the inbox-style toolbar affordance. It toggles
+   the selected repo title sort order between ascending and descending.
+4. Persist selected repo sort order with the RepoExplorer sidebar preference
+   state so relaunch restores the user's choice.
 5. Use typed tooltip render values for dense icon controls.
 6. Ensure toolbar controls do not import or reuse inbox feature types.
 
 Proof gates:
 
-- Mounted repo toolbar presentation tests for the group control, selected group mode, sort affordance, and typed tooltip values.
-- Tests proving current repo/worktree ordering is unchanged by the affordance-only sort control.
+- Mounted repo toolbar presentation tests for the group control, selected group mode, sort affordance, favorite affordance, and typed tooltip values.
+- Tests proving ascending/descending sort order and favorite-first partitioning
+  are applied by the projection model, not row-view code.
 - Tooltip/source architecture lint.
 - Focus/keyboard smoke tests where existing harness supports them.
 
 Split/replan trigger:
 
-- If selectable sort modes are required after review, stop and write a new sort semantics spec before adding sort state.
+- If additional sort modes are required after review, stop and write a new sort
+  semantics spec before adding more sort state.
 
 ### T5. Repo Row Rendering and Placement Context
 
@@ -289,15 +393,20 @@ Likely write surfaces:
 Steps:
 
 1. Consume row entries whose identity already includes group id and attachment id when needed.
-2. Add secondary placement text for Pane/Tab attachment rows.
-3. Follow the inbox pattern: primary worktree/repo text plus secondary source/placement context.
-4. Preserve branch status, PR count, checkout color, and existing row affordances.
-5. Keep row rendering fed by the prepared row index rather than walking groups in the view body.
+2. Render favorite state from the prepared row/header model and route toggles
+   through feature-owned callbacks.
+3. Add secondary placement text for Pane/Tab attachment rows.
+4. Follow the inbox pattern: primary worktree/repo text plus secondary source/placement context.
+5. Preserve branch status, PR count, and existing row affordances except manual
+   repo/worktree color controls. Do not add repo/worktree color metadata in
+   this slice.
+6. Keep row rendering fed by the prepared row index rather than walking groups in the view body.
 
 Proof gates:
 
 - Row-index tests for stable ids from T3.
 - Row presentation tests for duplicate attachments.
+- Row/header presentation tests for favorite state and toggle callback wiring.
 - Existing RepoExplorer row tests.
 
 ### T6. Inbox Off-Main Projection
@@ -358,7 +467,9 @@ Likely write surfaces:
 Steps:
 
 1. Build on the T0 sidebar verifier and metrics taxonomy; do not add a second proof path.
-2. Track surface, phase, query state bucket, group mode, input counts, stale discard count, cancellation count, MainActor apply duration, and total worker duration.
+2. Track surface, phase, query state bucket, group mode, favorite state bucket
+   where applicable, input counts, stale discard count, cancellation count,
+   MainActor apply duration, and total worker duration.
 3. Do not export query strings, repo/worktree/branch names, pane/tab labels, group labels, notification text/search text, raw paths, tokens, prompts, terminal buffers, or tool output.
 4. Add allowlist/verifier coverage for new fields.
 5. Define baseline vs post-change comparator rules in `scripts/verify-sidebar-performance-workload.sh`.
@@ -505,18 +616,30 @@ PR:
 ## Risks and Recovery
 
 - SharedComponents lint may not distinguish allowed explicit observable inputs from global observation. Recovery: split lint into concrete forbidden patterns first and add component-specific architecture tests.
-- Repo grouping persistence may require local UX schema migration. Recovery: split persistence migration into a separately proven slice.
+- Core metadata migration may require a standalone persistence slice. Recovery:
+  split migration/import/store work into a separately proven PR before UI
+  wiring.
 - Inbox projection may reveal non-Sendable model types. Recovery: split Sendable snapshot/result cleanup before off-main worker.
 - Non-activating GUI proof may be blocked by AppKit/LaunchServices behavior. Recovery: use headless semantic proof and mark visual proof blocked pending user approval.
 - Performance proof may lack a current sidebar semantic driver. Recovery: add a startup diagnostic first; add sidebar-safe IPC only through `App/IPCComposition` with scrubbed DTOs; or mark the proof lane blocked before implementation claims.
 
 ## Plan Review Decisions
 
-1. Repo sort is affordance-only in this slice. It exposes the existing current-order contract and does not add selectable sort modes or persisted sort state.
+1. Repo sort is real in this slice: the toolbar toggles persisted title
+   ascending/descending order. Favorite is a schema-backed `repo.is_favorite`
+   field and favorite-first partition, not a fourth grouping mode or arbitrary
+   sort axis.
 2. Repo grouping mode is RepoExplorer feature-owned. Do not add repo-only properties to `WorkspaceSidebarState` or `UIStateStore`.
 3. Mode-scoped collapse memory stays with the existing `SidebarCacheState`/`SidebarCacheStore` owner unless implementation proves a separate migration is necessary.
 4. The SharedComponents lint rule may hard-cut to a new rule id or keep the old id with updated messaging, but the enforced contract is no atoms/global stores plus explicit shared/infrastructure observable contracts only.
 5. Sidebar semantic proof uses startup diagnostics first. Sidebar IPC is allowed only if diagnostics are insufficient, and then only through `App/IPCComposition` plus the existing authenticated IPC proof model.
+6. Existing `sidebar.checkoutColors` is historical manual checkout-color
+   storage. Do not migrate it in this slice, and remove/disable manual
+   repo/worktree color UX.
+7. `tab_shell.color_hex` is SQLite-only reserved metadata in this slice. It
+   must not change current UI behavior until a later UX spec opts into it.
+8. Do not add `repo.color_hex`, `worktree.color_hex`, or `pane.color_hex`.
+9. Existing automatic generated repo colors may remain for visual distinction.
 
 ## Next Workflow
 
