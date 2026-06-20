@@ -142,11 +142,17 @@ describe('BridgeReviewTreesPanel', () => {
 				'--trees-bg-muted-override': 'var(--bridge-surface-raised-bg)',
 				'--trees-fg-override': 'var(--bridge-text-primary)',
 				'--trees-fg-muted-override': 'var(--bridge-text-muted)',
-				'--trees-search-bg-override': 'var(--bridge-canvas-bg)',
+				'--trees-search-bg-override': 'var(--bridge-header-control-bg)',
 				'--trees-selected-bg-override':
 					'color-mix(in oklch, var(--bridge-accent) 18%, transparent)',
 				'--trees-padding-inline-override': 8,
 				'--trees-git-renamed-color-override': 'var(--bridge-accent)',
+				'--trees-theme-git-added-fg': '#A6E3A1',
+				'--trees-theme-git-deleted-fg': '#F38BA8',
+				'--trees-theme-git-modified-fg': '#89B4FA',
+				'--trees-theme-list-active-selection-bg': '#45475A',
+				'--trees-theme-sidebar-bg': '#181825',
+				'--trees-theme-sidebar-fg': '#CDD6F4',
 			}),
 		);
 		expect(style).not.toHaveProperty('--trees-density-override');

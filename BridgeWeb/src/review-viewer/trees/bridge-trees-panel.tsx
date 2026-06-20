@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
+import { bridgeCatppuccinMochaTreeStyles } from './bridge-tree-theme.js';
 import { BridgeTreesController, createBridgeTreesSource } from './bridge-trees-controller.js';
 
 const preserveInputOrderSort: FileTreeSortComparator = () => 0;
@@ -30,6 +31,7 @@ type BridgeReviewTreeStyle = CSSProperties &
 	>;
 
 const bridgeReviewTreeStyle: BridgeReviewTreeStyle = {
+	...bridgeCatppuccinMochaTreeStyles,
 	colorScheme: 'dark',
 	display: 'block',
 	height: '100%',
@@ -38,7 +40,7 @@ const bridgeReviewTreeStyle: BridgeReviewTreeStyle = {
 	'--trees-fg-muted-override': 'var(--bridge-text-muted)',
 	'--trees-bg-muted-override': 'var(--bridge-surface-raised-bg)',
 	'--trees-search-fg-override': 'var(--bridge-text-primary)',
-	'--trees-search-bg-override': 'var(--bridge-canvas-bg)',
+	'--trees-search-bg-override': 'var(--bridge-header-control-bg)',
 	'--trees-border-color-override': 'var(--bridge-border-subtle)',
 	'--trees-selected-fg-override': 'var(--bridge-text-primary)',
 	'--trees-selected-bg-override': 'color-mix(in oklch, var(--bridge-accent) 18%, transparent)',
