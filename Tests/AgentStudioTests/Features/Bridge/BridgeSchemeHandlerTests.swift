@@ -27,6 +27,8 @@ final class BridgeSchemeHandlerTests {
         func samples() -> [BridgeTelemetrySample] {
             recordedSamples
         }
+
+        func drain() async throws {}
     }
 
     // MARK: - MIME type resolution

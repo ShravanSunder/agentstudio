@@ -233,10 +233,8 @@ extension BridgePaneController {
         return ipcResult
     }
 
-    func flushTelemetryForIPC() async -> IPCBridgeTelemetryFlushResult {
-        if let recorder = telemetryRecorder as? BridgePerformanceTraceRecorder {
-            try? await recorder.drain()
-        }
+    func flushTelemetryForIPC() async throws -> IPCBridgeTelemetryFlushResult {
+        try await telemetryRecorder?.drain()
         return IPCBridgeTelemetryFlushResult(paneId: paneId, flushed: telemetryRecorder != nil)
     }
 

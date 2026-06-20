@@ -3,6 +3,7 @@ import Foundation
 protocol BridgePerformanceTraceRecording: Sendable {
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async
     func recordDrop(reason: BridgeTelemetryDropReason, droppedCount: Int, receivedAtUnixNano: UInt64) async
+    func drain() async throws
 }
 
 struct BridgePerformanceTraceRecord: Sendable {

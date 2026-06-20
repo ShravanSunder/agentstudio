@@ -117,4 +117,6 @@ private actor RecordingBridgePerformanceTraceRecorder: BridgePerformanceTraceRec
     func recordDrop(reason: BridgeTelemetryDropReason, droppedCount: Int, receivedAtUnixNano: UInt64) async {
         dropReasons.append(reason)
     }
+
+    func drain() async throws {}
 }
