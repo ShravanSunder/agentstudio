@@ -141,6 +141,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const [selectedMarkdownPreviewState, setSelectedMarkdownPreviewState] =
 		useState<SelectedMarkdownPreviewState | null>(null);
 	const [codeViewRenderedItemIds, setCodeViewRenderedItemIds] = useState<readonly string[]>([]);
+	const [codeViewHydrationSchedulerTick, setCodeViewHydrationSchedulerTick] = useState(0);
 	const [isTreeSearchOpen, setIsTreeSearchOpen] = useState(false);
 	const [codeViewContentResourcesByItemId, setCodeViewContentResourcesByItemId] = useState<
 		ReadonlyMap<string, BridgeCodeViewContentResources>
@@ -477,21 +478,15 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		const parentTraceContext =
 			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
 		const packageKey = makeVisibleContentPackageKey(reviewPackage);
-		const pendingItemIds = uniqueStrings(codeViewRenderedItemIds)
-			.filter((itemId: string): boolean => {
-				const item = reviewPackage.itemsById[itemId];
-				if (item === undefined || !reviewItemShouldAutoHydrateWhenRendered(item)) {
-					return false;
-				}
-				const contentKey = makeSelectedContentResourcesKey(reviewPackage, itemId);
-				return (
-					codeViewContentResourceKeysByItemIdRef.current.get(itemId) !== contentKey &&
-					!codeViewContentInFlightKeysRef.current.has(contentKey)
-				);
-			})
-			.slice(0, 16);
-		for (const itemId of pendingItemIds) {
-			const contentKey = makeSelectedContentResourcesKey(reviewPackage, itemId);
+		const pendingCandidates = selectBridgeRenderedContentHydrationCandidates({
+			renderedItemIds: codeViewRenderedItemIds,
+			reviewPackage,
+			contentResourceKeysByItemId: codeViewContentResourceKeysByItemIdRef.current,
+			inFlightContentKeys: codeViewContentInFlightKeysRef.current,
+			limit: 16,
+		});
+		for (const candidate of pendingCandidates) {
+			const { itemId, contentKey } = candidate;
 			codeViewContentInFlightKeysRef.current.add(contentKey);
 			const loadProps =
 				props.fetchContent === undefined
@@ -532,12 +527,14 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 							return nextResourcesByItemId;
 						},
 					);
+					setCodeViewHydrationSchedulerTick((currentTick: number): number => currentTick + 1);
 				})
 				.catch((): void => {
 					codeViewContentInFlightKeysRef.current.delete(contentKey);
+					setCodeViewHydrationSchedulerTick((currentTick: number): number => currentTick + 1);
 				});
 		}
-	}, [codeViewRenderedItemIds, props.fetchContent, reviewPackage]);
+	}, [codeViewHydrationSchedulerTick, codeViewRenderedItemIds, props.fetchContent, reviewPackage]);
 
 	useEffect((): (() => void) => {
 		let didCancel = false;
@@ -810,6 +807,19 @@ interface MakeBridgeAppControlProbeProps {
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
 }
 
+export interface BridgeRenderedContentHydrationCandidate {
+	readonly itemId: string;
+	readonly contentKey: string;
+}
+
+export interface SelectBridgeRenderedContentHydrationCandidatesProps {
+	readonly renderedItemIds: readonly string[];
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly contentResourceKeysByItemId: ReadonlyMap<string, string>;
+	readonly inFlightContentKeys: ReadonlySet<string>;
+	readonly limit: number;
+}
+
 function applyBridgeAppControlCommand(
 	props: ApplyBridgeAppControlCommandProps,
 ): ApplyBridgeAppControlCommandResult {
@@ -825,6 +835,15 @@ function applyBridgeAppControlCommand(
 	} = props;
 	switch (command.method) {
 		case 'bridge.diff.scrollToFile':
+			if (reviewPackage === null || !(command.itemId in reviewPackage.itemsById)) {
+				return { status: 'rejected', reason: 'item_not_found' };
+			}
+			if (codeViewControlHandle === null) {
+				return { status: 'rejected', reason: 'code_view_unavailable' };
+			}
+			if (!codeViewControlHandle.scrollToItem(command.itemId)) {
+				return { status: 'rejected', reason: 'item_not_rendered' };
+			}
 			return selectReviewItem(command.itemId)
 				? { status: 'accepted', reason: null }
 				: { status: 'rejected', reason: 'item_not_found' };
@@ -979,6 +998,27 @@ function reviewItemShouldAutoHydrateWhenRendered(item: BridgeReviewItemDescripto
 			item.contentRoles.diff !== null ||
 			item.contentRoles.file !== null)
 	);
+}
+
+export function selectBridgeRenderedContentHydrationCandidates(
+	props: SelectBridgeRenderedContentHydrationCandidatesProps,
+): readonly BridgeRenderedContentHydrationCandidate[] {
+	return uniqueStrings(props.renderedItemIds)
+		.flatMap((itemId: string): readonly BridgeRenderedContentHydrationCandidate[] => {
+			const item = props.reviewPackage.itemsById[itemId];
+			if (item === undefined || !reviewItemShouldAutoHydrateWhenRendered(item)) {
+				return [];
+			}
+			const contentKey = makeSelectedContentResourcesKey(props.reviewPackage, itemId);
+			if (
+				props.contentResourceKeysByItemId.get(itemId) === contentKey ||
+				props.inFlightContentKeys.has(contentKey)
+			) {
+				return [];
+			}
+			return [{ itemId, contentKey }];
+		})
+		.slice(0, props.limit);
 }
 
 function uniqueStrings(values: readonly string[]): readonly string[] {

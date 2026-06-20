@@ -32,7 +32,7 @@ import {
 	type BridgeReviewProjectionWorkerResponse,
 } from '../review-viewer/workers/rpc/review-projection-worker-rpc.js';
 import type { BridgeAppControlCommand } from './bridge-app-control.js';
-import { BridgeApp } from './bridge-app.js';
+import { BridgeApp, selectBridgeRenderedContentHydrationCandidates } from './bridge-app.js';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -1276,6 +1276,38 @@ describe('BridgeApp', () => {
 		expect(bridgeAppRenderedTextContent()).toContain("export const addedFile = 'full content';");
 	});
 
+	test('continues rendered added-file auto-hydration candidates after the first prefetch batch completes', () => {
+		const reviewPackage = makeAddedFilesReviewPackage(20);
+		const renderedItemIds = reviewPackage.orderedItemIds;
+		const firstBatch = selectBridgeRenderedContentHydrationCandidates({
+			renderedItemIds,
+			reviewPackage,
+			contentResourceKeysByItemId: new Map<string, string>(),
+			inFlightContentKeys: new Set<string>(),
+			limit: 16,
+		});
+		const hydratedFirstBatchKeys = new Map(
+			firstBatch.map((candidate): readonly [string, string] => [
+				candidate.itemId,
+				candidate.contentKey,
+			]),
+		);
+		const secondBatch = selectBridgeRenderedContentHydrationCandidates({
+			renderedItemIds,
+			reviewPackage,
+			contentResourceKeysByItemId: hydratedFirstBatchKeys,
+			inFlightContentKeys: new Set<string>(),
+			limit: 16,
+		});
+
+		expect(firstBatch.map((candidate): string => candidate.itemId)).toEqual(
+			reviewPackage.orderedItemIds.slice(0, 16),
+		);
+		expect(secondBatch.map((candidate): string => candidate.itemId)).toEqual(
+			reviewPackage.orderedItemIds.slice(16),
+		);
+	});
+
 	test('renders selected added markdown through the markdown worker preview lane', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeAddedFileReviewPackage({
@@ -1502,6 +1534,36 @@ describe('BridgeApp', () => {
 		});
 		expect(window.bridgeReviewControlProbe).toMatchObject({
 			method: 'bridge.diff.collapseFile',
+			status: 'rejected',
+			itemId: 'item-source',
+			reason: 'code_view_unavailable',
+		});
+	});
+
+	test('page control rejects scrollToFile for package items filtered out of the mounted CodeView', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeBridgeReviewPackage();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileTree.setFilter',
+			gitStatusFilter: 'all',
+			fileClassFilter: 'docs',
+		});
+		await pushReviewPackage(reviewPackage);
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.diff.scrollToFile',
+			itemId: 'item-source',
+		});
+		expect(window.bridgeReviewControlProbe).toMatchObject({
+			method: 'bridge.diff.scrollToFile',
 			status: 'rejected',
 			itemId: 'item-source',
 			reason: 'code_view_unavailable',
@@ -1989,6 +2051,43 @@ function makeAddedFileReviewPackage(props: MakeAddedFileReviewPackageProps): Bri
 			additions: addedItem.additions,
 			deletions: 0,
 			visibleFileCount: 1,
+			hiddenFileCount: 0,
+		},
+	};
+}
+
+function makeAddedFilesReviewPackage(itemCount: number): BridgeReviewPackage {
+	const basePackage = makeBridgeReviewPackage();
+	const items = Array.from({ length: itemCount }, (_, index) =>
+		makeAddedFileReviewPackage({
+			itemId: `item-added-${String(index).padStart(3, '0')}`,
+			path: `Sources/Added/File${String(index).padStart(3, '0')}.ts`,
+			language: 'typescript',
+			extension: 'ts',
+			fileClass: 'source',
+			mimeType: 'text/typescript',
+		}),
+	).map((reviewPackage): BridgeReviewPackage['itemsById'][string] => {
+		const item = reviewPackage.itemsById[reviewPackage.orderedItemIds[0] ?? ''];
+		if (item === undefined) {
+			throw new Error('expected generated added item');
+		}
+		return item;
+	});
+
+	return {
+		...basePackage,
+		orderedItemIds: items.map((item): string => item.itemId),
+		itemsById: Object.fromEntries(items.map((item) => [item.itemId, item])),
+		query: {
+			...basePackage.query,
+			pathScope: [],
+		},
+		summary: {
+			filesChanged: items.length,
+			additions: items.reduce((total, item): number => total + item.additions, 0),
+			deletions: 0,
+			visibleFileCount: items.length,
 			hiddenFileCount: 0,
 		},
 	};

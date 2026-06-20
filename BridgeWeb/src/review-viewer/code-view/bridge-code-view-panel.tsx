@@ -43,6 +43,7 @@ export interface BridgeCodeViewPanelProps {
 }
 
 export interface BridgeCodeViewControlHandle {
+	readonly scrollToItem: (itemId: string) => boolean;
 	readonly setItemCollapsed: (itemId: string, collapsed: boolean) => boolean;
 }
 
@@ -226,6 +227,22 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		});
 		return true;
 	}, []);
+	const scrollToItem = useCallback((itemId: string): boolean => {
+		const codeViewHandle = codeViewHandleRef.current;
+		if (codeViewHandle === null) {
+			return false;
+		}
+		const currentItem = codeViewHandle.getItem(itemId);
+		if (currentItem === undefined || !isBridgeCodeViewItem(currentItem)) {
+			return false;
+		}
+		const controller = controllerForHandle({
+			handle: codeViewHandle,
+			controllerEntryRef,
+		});
+		controller.scrollToItem(itemId);
+		return true;
+	}, []);
 	const toggleItemCollapse = useCallback(
 		(itemId: string): void => {
 			const codeViewHandle = codeViewHandleRef.current;
@@ -241,12 +258,12 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		if (onControlHandleChange === undefined) {
 			return undefined;
 		}
-		const handle: BridgeCodeViewControlHandle = { setItemCollapsed };
+		const handle: BridgeCodeViewControlHandle = { scrollToItem, setItemCollapsed };
 		onControlHandleChange(handle);
 		return (): void => {
 			onControlHandleChange(null);
 		};
-	}, [onControlHandleChange, setItemCollapsed]);
+	}, [onControlHandleChange, scrollToItem, setItemCollapsed]);
 	const headerRenderers = useMemo(
 		() =>
 			createBridgeCodeViewHeaderRenderers({
