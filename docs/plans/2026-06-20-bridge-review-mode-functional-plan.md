@@ -1,6 +1,6 @@
 # Bridge Review Mode Functional Plan
 
-Status: draft for plan-review-swarm
+Status: reviewed plan for implementation-execute-plan
 Goal id: 2026-06-20-bridge-review-mode
 Created: 2026-06-20
 
@@ -911,13 +911,13 @@ Pause implementation and reconverge if:
 - A validation failure is outside the agreed code path and fixing it would edit
   test infrastructure, runner infrastructure, or unrelated features.
 
-## Open Questions For Plan Review
+## Open Questions Before Implementation
 
 1. Should task 0 merge `origin/main` immediately under the user's prior approval,
    or ask for one final explicit merge confirmation after this plan review?
 
 ## Next Workflow
 
-Run `shravan-dev-workflow:plan-review-swarm` against this plan. Accepted
-findings route back to `plan-creation-swarm`; otherwise route to
-`shravan-dev-workflow:implementation-execute-plan`.
+Run `shravan-dev-workflow:implementation-execute-plan` against this reviewed
+plan. If implementation reveals a stale contract or proof gate that cannot pass
+inside scope, route back to `plan-creation-swarm` before continuing.
