@@ -430,6 +430,10 @@ struct RepoExplorerView: View {
                             ),
                             branchStatus: worktreeStatusById[resolvedWorktreeContext.worktree.id] ?? .unknown,
                             unreadCount: unreadCount(resolvedWorktreeContext.worktree),
+                            isFavorite: resolvedWorktreeContext.repo.isFavorite,
+                            onToggleFavorite: {
+                                toggleFavorite(repoId: resolvedWorktreeContext.repo.id)
+                            },
                             onUnreadPillTap: {
                                 onShowNotificationsForWorktree(resolvedWorktreeContext.worktree)
                             },
@@ -513,6 +517,11 @@ struct RepoExplorerView: View {
 
         let key = SidebarGroupKey(groupId)
         sidebarCache.setGroupExpanded(key, isExpanded: !sidebarCache.expandedGroups.contains(key))
+    }
+
+    private func toggleFavorite(repoId: UUID) {
+        guard let repo = store.repositoryTopologyAtom.repo(repoId) else { return }
+        store.repositoryTopologyAtom.setRepoFavorite(repoId, isFavorite: !repo.isFavorite)
     }
 
     private func checkoutTitle(for worktree: Worktree, in repo: RepoPresentationItem) -> String {

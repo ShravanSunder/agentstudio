@@ -14,6 +14,8 @@ struct RepoExplorerWorktreeRowContent: View {
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let unreadCount: Int
+    var isFavorite = false
+    var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
 
     private var syncCounts: (ahead: String, behind: String) {
@@ -54,6 +56,14 @@ struct RepoExplorerWorktreeRowContent: View {
         unreadCount > 0
     }
 
+    static func favoriteAccessibilityLabel(isFavorite: Bool) -> String {
+        isFavorite ? "Remove Favorite" : "Add Favorite"
+    }
+
+    static func favoriteHelpText(isFavorite: Bool) -> String {
+        isFavorite ? "Remove favorite" : "Add favorite"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.General.Spacing.tight) {
@@ -71,6 +81,20 @@ struct RepoExplorerWorktreeRowContent: View {
                     .layoutPriority(1)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button(action: onToggleFavorite) {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
+                        .foregroundStyle(isFavorite ? iconColor : .secondary)
+                        .frame(
+                            width: AppStyles.General.Button.compact,
+                            height: AppStyles.General.Button.compact
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Self.favoriteAccessibilityLabel(isFavorite: isFavorite))
+                .help(Self.favoriteHelpText(isFavorite: isFavorite))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -167,6 +191,8 @@ struct RepoExplorerWorktreeRow: View {
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let unreadCount: Int
+    var isFavorite = false
+    var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
     let onOpen: () -> Void
     let onOpenNew: () -> Void
@@ -185,6 +211,8 @@ struct RepoExplorerWorktreeRow: View {
                 iconColor: iconColor,
                 branchStatus: branchStatus,
                 unreadCount: unreadCount,
+                isFavorite: isFavorite,
+                onToggleFavorite: onToggleFavorite,
                 onUnreadPillTap: onUnreadPillTap
             )
         }
@@ -211,6 +239,15 @@ struct RepoExplorerWorktreeRow: View {
                 onOpen()
             } label: {
                 menuLabel(actionSpec: LocalActionSpec.goToTerminal.actionSpec)
+            }
+
+            Button {
+                onToggleFavorite()
+            } label: {
+                Label(
+                    RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: isFavorite),
+                    systemImage: isFavorite ? "star.slash" : "star"
+                )
             }
 
             Menu(LocalActionSpec.openInMenu.actionSpec.label) {

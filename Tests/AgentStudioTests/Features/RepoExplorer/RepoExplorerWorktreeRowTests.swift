@@ -27,6 +27,14 @@ struct RepoExplorerWorktreeRowTests {
         #expect(RepoExplorerWorktreeRowContent.shouldShowUnreadPill(unreadCount: 4) == true)
     }
 
+    @Test("favorite state exposes explicit add and remove labels")
+    func favoriteStateExposesExplicitLabels() {
+        #expect(RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: false) == "Add Favorite")
+        #expect(RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: true) == "Remove Favorite")
+        #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: false) == "Add favorite")
+        #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: true) == "Remove favorite")
+    }
+
     @Test("repo explorer remains inbox-feature agnostic")
     func repoExplorerDoesNotReferenceInboxFeatureTypes() throws {
         let source = try String(
