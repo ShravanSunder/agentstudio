@@ -1,4 +1,3 @@
-import AgentStudioAppIPC
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -13,7 +12,7 @@ struct BridgeIPCResponseBudget: Sendable {
 
     private static func validate(byteCount: Int) throws {
         guard byteCount <= AppPolicies.Bridge.ipcMaxResponsePayloadBytes else {
-            throw AppIPCBridgeError(reason: .payloadTooLarge)
+            throw BridgeIPCProjectionError(reason: .payloadTooLarge)
         }
     }
 

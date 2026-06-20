@@ -84,7 +84,7 @@ struct InboxNotificationSidebarView: View {
             sort: prefsAtom.sort,
             searchText: "",
             filter: nil,
-            contentMode: prefsAtom.globalInboxContentMode,
+            contentMode: Self.globalSidebarContentMode(prefsAtom.globalInboxContentMode),
             rowStateFilter: prefsAtom.globalInboxRowStateFilter,
             collapsedGroups: inboxSidebarState.collapsedGroups,
             repoPresentationFingerprint: Self.repoPresentationFingerprint(
@@ -98,7 +98,7 @@ struct InboxNotificationSidebarView: View {
                 grouping: prefsAtom.grouping,
                 sort: prefsAtom.sort,
                 searchText: "",
-                contentMode: prefsAtom.globalInboxContentMode,
+                contentMode: Self.globalSidebarContentMode(prefsAtom.globalInboxContentMode),
                 rowStateFilter: prefsAtom.globalInboxRowStateFilter,
                 filter: nil,
                 collapsedGroups: inboxSidebarState.collapsedGroups,
@@ -129,7 +129,6 @@ struct InboxNotificationSidebarView: View {
                 onToggleSort: toggleSort,
                 onToggleRowStateFilter: toggleRowStateFilter,
                 onCycleContentMode: cycleContentMode,
-                onMarkVisibleScopeRead: markVisibleScopeRead,
                 onClearFilter: clearFilter,
                 onClearReadHistory: clearReadInboxNotifications,
                 onClearAllHistory: clearAllInboxNotifications,
@@ -171,7 +170,7 @@ struct InboxNotificationSidebarView: View {
     }
 
     private var effectiveContentMode: InboxNotificationContentMode {
-        displayOverride?.contentMode ?? prefsAtom.globalInboxContentMode
+        Self.globalSidebarContentMode(displayOverride?.contentMode ?? prefsAtom.globalInboxContentMode)
     }
 
     private var effectiveRowStateFilter: InboxNotificationRowStateFilter {
@@ -208,6 +207,10 @@ struct InboxNotificationSidebarView: View {
                 InboxNotificationSourceDisplay(notification: notification).filterLabel(for: activeFilter)
             }
             .first ?? fallbackFilterLabel(for: activeFilter)
+    }
+
+    static func globalSidebarContentMode(_ contentMode: InboxNotificationContentMode) -> InboxNotificationContentMode {
+        contentMode == .rollUpAlerts ? .rollUpAlerts : .all
     }
 
     private static func fallbackFilterLabel(for filter: InboxFilter) -> String {
@@ -359,20 +362,7 @@ struct InboxNotificationSidebarView: View {
 
     private func cycleContentMode() {
         displayOverride = nil
-        switch effectiveContentMode {
-        case .rollUpAlerts:
-            prefsAtom.setGlobalInboxContentMode(.activity)
-        case .activity:
-            prefsAtom.setGlobalInboxContentMode(.all)
-        case .all:
-            prefsAtom.setGlobalInboxContentMode(.rollUpAlerts)
-        }
-    }
-
-    func markVisibleScopeRead() {
-        for notificationId in listModel.sections.visibleNotificationIds {
-            _ = inboxAtom.markRead(id: notificationId)
-        }
+        prefsAtom.setGlobalInboxContentMode(effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts)
     }
 
     func clearReadInboxNotifications() {

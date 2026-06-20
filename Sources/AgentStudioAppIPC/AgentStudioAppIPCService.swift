@@ -226,6 +226,7 @@ public struct AgentStudioAppIPCService: Sendable {
     public let configuration: AgentStudioAppIPCConfiguration
     public let ports: AgentStudioAppIPCPorts
     public let eventBroker: IPCEventBroker
+    package let methodRegistry: AppIPCMethodRegistry
 
     public init(
         configuration: AgentStudioAppIPCConfiguration,
@@ -235,5 +236,27 @@ public struct AgentStudioAppIPCService: Sendable {
         self.configuration = configuration
         self.ports = ports
         self.eventBroker = eventBroker
+        self.methodRegistry = AppIPCMethodRegistry(definitions: configuration.methodDefinitions)
+    }
+
+    package init(
+        configuration: AgentStudioAppIPCConfiguration,
+        ports: AgentStudioAppIPCPorts,
+        eventBroker: IPCEventBroker = IPCEventBroker(),
+        methodContributions: [AppIPCMethodContribution]
+    ) throws {
+        let methodRegistry = try AppIPCMethodRegistry(
+            baseDefinitions: configuration.methodDefinitions,
+            contributions: methodContributions
+        )
+        self.configuration = AgentStudioAppIPCConfiguration(
+            runtimeId: configuration.runtimeId,
+            accessMode: configuration.accessMode,
+            methodDefinitions: methodRegistry.definitions,
+            debugTokenEscrowEnabled: configuration.debugTokenEscrowEnabled
+        )
+        self.ports = ports
+        self.eventBroker = eventBroker
+        self.methodRegistry = methodRegistry
     }
 }

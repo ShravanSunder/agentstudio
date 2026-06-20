@@ -184,7 +184,7 @@ struct AgentStudioIPCQueryAdapter: AppIPCQueryPort, @unchecked Sendable {
         return IPCTabSummary(
             id: tab.id,
             ordinal: ordinal,
-            name: tab.name,
+            name: "",
             paneIds: tab.paneIds,
             activePaneId: tab.activePaneId,
             isActive: tab.isActive

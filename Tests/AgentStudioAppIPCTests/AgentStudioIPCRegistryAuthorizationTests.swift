@@ -1,4 +1,5 @@
 import AgentStudioAppIPC
+import AgentStudioIPCTransport
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -10,7 +11,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "orchestration."]
 
-        #expect(registry.definitions.count == 47)
+        #expect(registry.definitions.count == 46)
+        #expect(registry.definition(named: "pane.snapshot") == nil)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
             #expect(!definition.resultSchema.name.isEmpty)
@@ -192,6 +194,143 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             requestedTarget: target,
             activePaneId: nil
         )
+    }
+
+    @Test("contributed methods merge with base definitions before capability export")
+    func contributedMethodsMergeWithBaseDefinitionsBeforeCapabilityExport() throws {
+        let baseDefinitions = try AppIPCMethodRegistry.phaseOne().definitions
+            .filter { $0.name != "pane.snapshot" }
+        let contribution = try makeTestContribution(methodName: "pane.snapshot")
+
+        let registry = try AppIPCMethodRegistry(baseDefinitions: baseDefinitions, contributions: [contribution])
+
+        #expect(registry.definitions.count == baseDefinitions.count + 1)
+        #expect(registry.definition(named: "pane.snapshot")?.name == "pane.snapshot")
+        #expect(registry.contribution(named: "pane.snapshot")?.definition.name == "pane.snapshot")
+        #expect(registry.definitions.map(\.name).sorted() == registry.definitions.map(\.name))
+    }
+
+    @Test("registry rejects duplicate base and contributed method names")
+    func registryRejectsDuplicateBaseAndContributedMethodNames() throws {
+        let method = try makeTestMethodDefinition(name: "pane.snapshot")
+        let contribution = try makeTestContribution(methodName: "pane.snapshot")
+
+        #expect(throws: AppIPCMethodRegistryError.self) {
+            _ = try AppIPCMethodRegistry(baseDefinitions: [method, method], contributions: [])
+        }
+        #expect(throws: AppIPCMethodRegistryError.self) {
+            _ = try AppIPCMethodRegistry(baseDefinitions: [method], contributions: [contribution])
+        }
+        #expect(throws: AppIPCMethodRegistryError.self) {
+            _ = try AppIPCMethodRegistry(
+                baseDefinitions: [],
+                contributions: [contribution, contribution]
+            )
+        }
+    }
+
+    @Test("registry rejects deferred and base-owned contributed namespaces")
+    func registryRejectsDeferredAndBaseOwnedContributedNamespaces() throws {
+        #expect(throws: IPCMethodDefinitionError.self) {
+            _ = try makeTestContribution(methodName: "zmx.example")
+        }
+
+        let rejectedPrefixes = [
+            "bridge", "diff", "review", "mcp", "browser", "webview", "orchestration",
+            "system", "auth", "permission", "events", "command", "ui", "terminal", "workspace", "drawer",
+        ]
+
+        for prefix in rejectedPrefixes {
+            let contribution = try makeTestContribution(methodName: "\(prefix).example")
+            #expect(throws: AppIPCMethodRegistryError.self) {
+                _ = try AppIPCMethodRegistry(baseDefinitions: [], contributions: [contribution])
+            }
+        }
+    }
+
+    @Test("registry rejects contributed pre-authentication methods")
+    func registryRejectsContributedPreAuthenticationMethods() throws {
+        let contribution = try makeTestContribution(
+            methodName: "pane.preAuthExample",
+            principalAvailability: .preAuthentication
+        )
+
+        #expect(throws: AppIPCMethodRegistryError.self) {
+            _ = try AppIPCMethodRegistry(baseDefinitions: [], contributions: [contribution])
+        }
+    }
+
+    @Test("registry rejects contributed execution owners outside query reader")
+    func registryRejectsContributedExecutionOwnersOutsideQueryReader() throws {
+        let contribution = try makeTestContribution(
+            methodName: "pane.workspaceAction",
+            executionOwner: .workspaceAction
+        )
+
+        #expect(throws: AppIPCMethodRegistryError.self) {
+            _ = try AppIPCMethodRegistry(baseDefinitions: [], contributions: [contribution])
+        }
+    }
+
+    @Test("contributed method security contract must be explicit")
+    func contributedMethodSecurityContractMustBeExplicit() throws {
+        #expect(throws: AppIPCMethodContributionError.self) {
+            _ = try makeTestContribution(
+                methodName: "pane.noTargetVocabulary",
+                targetVocabulary: []
+            )
+        }
+        #expect(throws: AppIPCMethodContributionError.self) {
+            _ = try makeTestContribution(
+                methodName: "pane.noDataScopes",
+                dataScopes: []
+            )
+        }
+        #expect(throws: AppIPCMethodContributionError.self) {
+            _ = try makeTestContribution(
+                methodName: "pane.noSensitiveDataExclusions",
+                sensitiveDataExclusions: []
+            )
+        }
+    }
+
+    @Test("registry rejects contributed data scopes outside security contract")
+    func registryRejectsContributedDataScopesOutsideSecurityContract() throws {
+        let contribution = try makeTestContribution(
+            methodName: "pane.badScope",
+            dataScopes: [.bridgeContent]
+        )
+
+        #expect(throws: AppIPCMethodRegistryError.self) {
+            _ = try AppIPCMethodRegistry(baseDefinitions: [], contributions: [contribution])
+        }
+    }
+
+    @Test("unsafe debug does not authorize non-allowlisted contributed methods")
+    func unsafeDebugDoesNotAuthorizeNonAllowlistedContributedMethods() throws {
+        let contribution = try makeTestContribution(methodName: "pane.experimentalRead")
+        let registry = try AppIPCMethodRegistry(baseDefinitions: [], contributions: [contribution])
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: GrantLedger(),
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let unsafeDebug = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: UUID(),
+            accessMode: .unsafeDebug,
+            kind: .unsafeDebugClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: unsafeDebug,
+                methodName: "pane.experimentalRead",
+                requestedTarget: .pane(UUID().uuidString),
+                activePaneId: nil
+            )
+        }
     }
 
     @Test("authorizes selfPane terminal send from the bound principal pane")
@@ -414,5 +553,53 @@ private func makeAutomationAuthorizationPrincipal() -> IPCPrincipal {
         accessMode: .agentStudioOnly,
         kind: .automationClient,
         approvalAuthority: .noApprovalAuthority
+    )
+}
+
+private func makeTestMethodDefinition(
+    name: String,
+    principalAvailability: IPCPrincipalAvailability = .authenticated,
+    executionOwner: IPCExecutionOwner = .queryReader
+) throws -> IPCMethodDefinition {
+    try IPCMethodDefinition(
+        name: name,
+        paramsSchema: IPCSchemaDescription(name: "\(name).params"),
+        resultSchema: IPCSchemaDescription(name: "\(name).result"),
+        privilegeClasses: [.paneContextRead],
+        principalAvailability: principalAvailability,
+        executionOwner: executionOwner,
+        resultSemantics: .applied
+    )
+}
+
+private func makeTestContribution(
+    methodName: String,
+    principalAvailability: IPCPrincipalAvailability = .authenticated,
+    executionOwner: IPCExecutionOwner = .queryReader,
+    targetVocabulary: Set<AppIPCContributionTargetVocabulary> = [.pane],
+    dataScopes: Set<IPCDataScope> = [.paneContext],
+    sensitiveDataExclusions: Set<String> = [
+        "cwd",
+        "rawTerminalOutput",
+        "zmxSessionIdentifier",
+    ]
+) throws -> AppIPCMethodContribution {
+    try AppIPCMethodContribution(
+        definition: makeTestMethodDefinition(
+            name: methodName,
+            principalAvailability: principalAvailability,
+            executionOwner: executionOwner
+        ),
+        securityContract: AppIPCContributionSecurityContract(
+            targetVocabulary: targetVocabulary,
+            dataScopes: dataScopes,
+            sensitiveDataExclusions: sensitiveDataExclusions
+        ),
+        authorizationContext: { request, _, _ in
+            AppIPCAuthorizedRequestContext(request: request, target: .pane(UUID().uuidString))
+        },
+        dispatch: { _, _, _ in
+            .object([:])
+        }
     )
 }

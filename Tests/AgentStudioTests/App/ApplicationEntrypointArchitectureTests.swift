@@ -89,6 +89,18 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(dispatchIPCSmokeCaseIndex < dispatchDebugEndIndex)
         #expect(startupDiagnosticsSource.contains("WindowRestoreBridge(windowLifecycleStore: windowLifecycleStore)"))
         #expect(startupDiagnosticsSource.contains("isReadyForLaunchRestore"))
+        let diagnosticActivateIndex = try #require(
+            startupDiagnosticsSource.range(of: "NSApp.activate(ignoringOtherApps: true)")?.lowerBound)
+        let diagnosticKeyWindowIndex = try #require(
+            startupDiagnosticsSource.range(of: "mainWindowController?.window?.makeKeyAndOrderFront(nil)")?.lowerBound)
+        let diagnosticActivationWaitIndex = try #require(
+            startupDiagnosticsSource.range(of: "await waitForStartupDiagnosticAppActivation()")?.lowerBound)
+        let diagnosticOpenTerminalIndex = try #require(
+            startupDiagnosticsSource.range(of: "workspaceSurfaceCoordinator.openFloatingTerminal(")?.lowerBound)
+        #expect(diagnosticActivateIndex < diagnosticKeyWindowIndex)
+        #expect(diagnosticKeyWindowIndex < diagnosticActivationWaitIndex)
+        #expect(diagnosticActivationWaitIndex < diagnosticOpenTerminalIndex)
+        #expect(startupDiagnosticsSource.contains("AppPolicies.StartupDiagnostic.appActivationTimeout"))
         #expect(startupDiagnosticsSource.contains("workspaceSurfaceCoordinator.openFloatingTerminal("))
         #expect(startupDiagnosticsSource.contains("provider: .zmx"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.command_exercised"))
@@ -143,7 +155,8 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(lifecycleConsumerIndex < appIPCStartIndex)
         #expect(ipcBootSource.contains("import AgentStudioAppIPC"))
         #expect(ipcBootSource.contains("import AgentStudioProgrammaticControl"))
-        #expect(ipcBootSource.contains("AppIPCMethodRegistry.phaseOne()"))
+        #expect(ipcBootSource.contains("AgentStudioIPCContributionRegistry.phaseAComposition()"))
+        #expect(ipcBootSource.contains("methodContributions: ipcComposition.methodContributions"))
         #expect(ipcBootSource.contains("let rootDirectory = AppDataPaths.rootDirectory()"))
         #expect(ipcBootSource.contains("socketDirectory: Self.appIPCSocketDirectory()"))
         #expect(ipcBootSource.contains("ProcessInfo.processInfo.environment[\"AGENTSTUDIO_IPC_SOCKET_DIR\"]"))

@@ -80,6 +80,7 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     case listWorkspaces
     case listPanes
     case currentPane
+    case paneSnapshot(handle: String)
     case paneFocus(handle: String)
     case commandList
     case commandExecute(IPCCommandExecuteParams)
@@ -123,6 +124,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             "pane.list"
         case .currentPane:
             "pane.current"
+        case .paneSnapshot:
+            "pane.snapshot"
         case .paneFocus:
             "pane.focus"
         case .commandList:
@@ -177,7 +180,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         case .eventsSubscribe:
             true
         case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
-            .currentPane, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend, .terminalWait,
+            .currentPane, .paneSnapshot, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend,
+            .terminalWait,
             .bridgeDiffLoad, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
             .bridgeDiffSelectFile, .bridgeDiffScrollToFile, .bridgeDiffExpandFile, .bridgeDiffCollapseFile,
             .bridgeFileTreeSearch, .bridgeFileTreeSetFilter, .bridgeFileTreeRevealPath, .bridgeFileViewGetContent,
@@ -196,6 +200,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         case .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes, .currentPane,
             .commandList:
             return .object([:])
+        case .paneSnapshot(let handle):
+            return .object(["handle": .string(handle)])
         case .paneFocus(let handle):
             return .object(["handle": .string(handle)])
         case .commandExecute(let params):
@@ -263,8 +269,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         case .bridgeFileViewShowMarkdownPreview(let params):
             return try JSONRPCCodec.encodeJSONValue(params)
         case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
-            .currentPane, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend, .terminalWait,
-            .eventsSubscribe, .eventsUnsubscribe:
+            .currentPane, .paneSnapshot, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend,
+            .terminalWait, .eventsSubscribe, .eventsUnsubscribe:
             throw AgentStudioIPCClientError(reason: .invalidArguments)
         }
     }

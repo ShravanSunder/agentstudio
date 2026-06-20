@@ -36,7 +36,10 @@ the question, then inspect current code/tests before making claims.
    for placement, [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md)
    for command routing, [Observability And Traceability](docs/architecture/observability_and_traceability.md)
    for trace/proof rules, and [AgentStudio IPC Architecture](docs/architecture/agentstudio_ipc_architecture.md)
-   for programmatic-control boundaries.
+   for programmatic-control boundaries. For UI shell, toolbar, tooltip, window,
+   or native macOS affordance changes, also read
+   [Style Guide](docs/guides/style_guide.md) and
+   [App Architecture](docs/architecture/appkit_swiftui_architecture.md).
 3. Testing: climb the proof pyramid. Start with focused Swift tests for the
    changed code, then `mise run lint`; use `mise run test` for broad repo
    health when the scope calls for it. Do not call unit tests, mocks, or fake
@@ -322,7 +325,7 @@ Search rule of thumb:
 
 ### Command Specs And Execution Owners
 
-Before adding or changing a command, read [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md). Use `AppCommand` for identity, `AppShortcut` for bindings, `AppCommandSpec` for command-bar/tooltips, and `LocalActionSpec` for UI-only actions. App/window/sidebar shell commands may route through `AppDelegate`; pane, drawer, focus, layout, and workspace commands route through `PaneTabViewController` so keyboard shortcuts, command-bar rows, and drawer buttons share the same resolver.
+Before adding or changing a command, read [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md). Use `AppCommand` for identity, `AppShortcut` for bindings, `AppCommandSpec` for command-bar/tooltips, and `LocalActionSpec` for UI-only actions. Dense toolbar/titlebar/drawer tooltip work must use the typed tooltip source contract in that doc and [Style Guide](docs/guides/style_guide.md), not parallel `.help`, AppKit `toolTip`, or custom hover strings. App/window/sidebar shell commands may route through `AppDelegate`; pane, drawer, focus, layout, and workspace commands route through `PaneTabViewController` so keyboard shortcuts, command-bar rows, and drawer buttons share the same resolver.
 
 Command-bar scopes have separate ownership:
 - `>` owns verbs and command execution.

@@ -42,6 +42,15 @@ struct DrawerIconBarInboxSlotTests {
         _ = view.body
     }
 
+    @Test("empty drawer add tooltip uses empty drawer shortcut")
+    func emptyDrawerAddTooltipUsesEmptyDrawerShortcut() throws {
+        let tooltipValue = EmptyDrawerBar.addTooltipValue()
+        let emptyDrawerShortcut = try #require(AppShortcut.addDrawerPane.displayKeyBinding(in: .emptyDrawer))
+
+        #expect(tooltipValue.shortcutDisplayText == ShortcutDisplayText(value: emptyDrawerShortcut.displayString))
+        #expect(tooltipValue.text == "Add Drawer Pane (\(emptyDrawerShortcut.displayString))")
+    }
+
     private func makeTrailingActions(
         inboxUnreadCount: Int,
         onOpenInbox: (() -> Void)?

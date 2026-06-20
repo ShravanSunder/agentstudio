@@ -124,8 +124,10 @@ private struct UnixSocketFixture {
     let endpoint: UnixSocketEndpoint
 
     init() throws {
-        directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("asipc-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        directory = URL(
+            fileURLWithPath: "/tmp/asipc-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))",
+            isDirectory: true
+        )
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         endpoint = UnixSocketEndpoint(path: directory.appendingPathComponent("ipc.sock").path)
     }

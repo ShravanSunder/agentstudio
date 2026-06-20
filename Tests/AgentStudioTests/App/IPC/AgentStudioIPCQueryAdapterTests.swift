@@ -8,8 +8,8 @@ import Testing
 @MainActor
 @Suite("AgentStudio IPC query adapter")
 struct AgentStudioIPCQueryAdapterTests {
-    @Test("system capabilities mirror the phase-one registry without backend namespaces")
-    func systemCapabilitiesMirrorRegistryWithoutBackendNamespaces() throws {
+    @Test("system capabilities mirror the app-composed phase-a registry without backend namespaces")
+    func systemCapabilitiesMirrorAppComposedPhaseARegistryWithoutBackendNamespaces() throws {
         let harness = try QueryAdapterHarness()
 
         let capabilities = try harness.adapter.systemCapabilities()
@@ -20,6 +20,26 @@ struct AgentStudioIPCQueryAdapterTests {
         #expect(methodNames.contains("terminal.send"))
         #expect(!methodNames.contains { $0.hasPrefix("zmx.") })
         #expect(methodNames == methodNames.sorted())
+    }
+
+    @Test("pane snapshot contribution declares the sensitive fields it excludes")
+    func paneSnapshotContributionDeclaresTheSensitiveFieldsItExcludes() throws {
+        let contribution = try #require(
+            try AgentStudioIPCContributionRegistry.phaseAComposition().methodContributions.first {
+                $0.definition.name == "pane.snapshot"
+            }
+        )
+
+        #expect(
+            contribution.securityContract.sensitiveDataExclusions == [
+                "cwd",
+                "paneTitle",
+                "rawTerminalOutput",
+                "rawRuntimePayload",
+                "tabTitle",
+                "url",
+                "zmxSessionIdentifier",
+            ])
     }
 
     @Test("current window fails closed when no workspace window is active")
@@ -122,8 +142,10 @@ struct AgentStudioIPCQueryAdapterTests {
         #expect(paneList.contains(webPane.id.uuidString))
         #expect(!encodedTerminal.contains("Secret Terminal"))
         #expect(!encodedTerminal.contains("Secret Web"))
+        #expect(!encodedTerminal.contains("Secret Tab"))
         #expect(!paneList.contains("Secret Terminal"))
         #expect(!paneList.contains("Secret Web"))
+        #expect(!paneList.contains("Secret Tab"))
         #expect(!encodedTerminal.contains("secret-zmx-session"))
         #expect(!encodedTerminal.contains(secretCWD.path))
         #expect(!paneList.contains("secret.example.local"))
@@ -143,7 +165,7 @@ private struct QueryAdapterHarness {
             runtimeId: UUID(),
             accessMode: .agentStudioOnly,
             appVersion: "test",
-            methodRegistry: try AppIPCMethodRegistry.phaseOne(),
+            methodRegistry: try AgentStudioIPCContributionRegistry.phaseARegistry(),
             workspaceStore: store,
             windowLifecycleReader: FakeWorkspaceWindowLifecycleReader(snapshot: windowSnapshot)
         )

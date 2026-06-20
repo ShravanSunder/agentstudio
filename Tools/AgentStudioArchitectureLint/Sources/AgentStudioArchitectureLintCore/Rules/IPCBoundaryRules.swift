@@ -113,7 +113,7 @@ struct AppIPCPortBoundaryRule: ArchitectureRule {
 struct IPCCompositionLocationRule: ArchitectureRule {
     let id = "agentstudio_ipc_composition_location"
     let severity = ArchitectureSeverity.error
-    let message = "Concrete AppIPC port implementations must live under App/IPCComposition"
+    let message = "Concrete AppIPC port implementations and method contributions must live under App/IPCComposition"
 
     private let portProtocolNames = Set([
         "ApprovalPolicyStore",
@@ -121,6 +121,9 @@ struct IPCCompositionLocationRule: ArchitectureRule {
         "AppIPCQueryPort",
         "AppIPCLayoutPort",
         "AppIPCRuntimePort",
+        "AppIPCCommandPort",
+        "AppIPCUIPresentationPort",
+        "AppIPCPermissionApprovalPort",
         "AppIPCEventPort",
     ])
 
@@ -132,17 +135,92 @@ struct IPCCompositionLocationRule: ArchitectureRule {
             return []
         }
 
-        let visitor = InheritanceCollectingVisitor()
+        var diagnostics: [ArchitectureDiagnostic] = []
+
+        let inheritanceVisitor = InheritanceCollectingVisitor()
+        inheritanceVisitor.walk(context.sourceFile)
+        diagnostics.append(
+            contentsOf: inheritanceVisitor.inheritedTypes.compactMap { inheritedType in
+                let inheritedName = inheritedType.name.split(separator: ".").last.map(String.init) ?? inheritedType.name
+                guard portProtocolNames.contains(inheritedName) || inheritedName.hasSuffix("AppIPCPort") else {
+                    return nil
+                }
+                return diagnostic(
+                    context: context,
+                    position: inheritedType.position,
+                    message: "Move concrete AppIPC port implementations under Sources/AgentStudio/App/IPCComposition"
+                )
+            })
+
+        let contributionVisitor = AppIPCContributionConstructionVisitor()
+        contributionVisitor.walk(context.sourceFile)
+        diagnostics.append(
+            contentsOf: contributionVisitor.constructions.map { construction in
+                diagnostic(
+                    context: context,
+                    position: construction.position,
+                    message: "Move AppIPC method contributions under Sources/AgentStudio/App/IPCComposition"
+                )
+            })
+
+        return diagnostics
+    }
+}
+
+private struct AppIPCContributionConstructionRecord {
+    let position: AbsolutePosition
+}
+
+private final class AppIPCContributionConstructionVisitor: SyntaxVisitor {
+    private(set) var constructions: [AppIPCContributionConstructionRecord] = []
+
+    override init(viewMode: SyntaxTreeViewMode = .sourceAccurate) {
+        super.init(viewMode: viewMode)
+    }
+
+    override func visitPost(_ node: FunctionCallExprSyntax) {
+        guard node.calledExpression.appIPCContributionTypeName == "AppIPCMethodContribution" else {
+            return
+        }
+        constructions.append(
+            AppIPCContributionConstructionRecord(position: node.calledExpression.positionAfterSkippingLeadingTrivia)
+        )
+    }
+}
+
+extension ExprSyntax {
+    fileprivate var appIPCContributionTypeName: String? {
+        if let reference = self.as(DeclReferenceExprSyntax.self) {
+            return reference.baseName.text
+        }
+        if let memberAccess = self.as(MemberAccessExprSyntax.self) {
+            return memberAccess.declName.baseName.text
+        }
+        return nil
+    }
+}
+
+struct FeatureAppIPCImportBoundaryRule: ArchitectureRule {
+    let id = "agentstudio_features_do_not_import_appipc"
+    let severity = ArchitectureSeverity.error
+    let message = "Feature slices must not import AgentStudioAppIPC; app composition owns IPC adapters"
+
+    func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
+        let classifier = AgentStudioPathClassifier(path: context.normalizedPath)
+        guard classifier.featureName != nil else {
+            return []
+        }
+
+        let visitor = ImportCollectingVisitor()
         visitor.walk(context.sourceFile)
-        return visitor.inheritedTypes.compactMap { inheritedType in
-            let inheritedName = inheritedType.name.split(separator: ".").last.map(String.init) ?? inheritedType.name
-            guard portProtocolNames.contains(inheritedName) || inheritedName.hasSuffix("AppIPCPort") else {
+        return visitor.imports.compactMap { importRecord in
+            guard importRecord.path.first == "AgentStudioAppIPC" else {
                 return nil
             }
             return diagnostic(
                 context: context,
-                position: inheritedType.position,
-                message: "Move concrete AppIPC port implementations under Sources/AgentStudio/App/IPCComposition"
+                position: importRecord.position,
+                message: "Features must expose capability seams for App/IPCComposition instead of importing AppIPC"
             )
         }
     }

@@ -35,10 +35,12 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_ipc_programmatic_control_boundary", severity: .error),
         ExpectedRule(id: "agentstudio_appipc_port_boundary", severity: .error),
         ExpectedRule(id: "agentstudio_ipc_composition_location", severity: .error),
+        ExpectedRule(id: "agentstudio_features_do_not_import_appipc", severity: .error),
         ExpectedRule(id: "agentstudio_ipc_public_surface_sanitization", severity: .error),
         ExpectedRule(id: "agentstudio_ipc_no_direct_atom_access", severity: .error),
         ExpectedRule(id: "agentstudio_no_forbidden_architecture_marker", severity: .error),
         ExpectedRule(id: "agentstudio_no_generic_clock_sleep", severity: .error),
         ExpectedRule(id: "agentstudio_no_task_sleep_in_tests", severity: .error),
+        ExpectedRule(id: "agentstudio_toolbar_tooltip_source", severity: .error),
     ]
 }

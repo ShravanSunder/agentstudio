@@ -38,11 +38,15 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
 
     func refreshReview(_ params: IPCBridgeReviewRefreshParams) async throws -> IPCBridgeReviewRefreshResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
-        return try await controller.refreshReviewForIPC(correlationId: params.correlationId)
+        return try await translateAsyncBridgeProjectionError {
+            try await controller.refreshReviewForIPC(correlationId: params.correlationId)
+        }
     }
 
     func getPackage(_ handle: IPCHandle) throws -> IPCBridgeReviewPackageResult {
-        try bridgeController(for: handle).ipcReviewPackageSnapshot()
+        try translateBridgeProjectionError {
+            try bridgeController(for: handle).ipcReviewPackageSnapshot()
+        }
     }
 
     func renderState(_ handle: IPCHandle) async throws -> IPCBridgeRenderStateResult {
@@ -51,79 +55,97 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
 
     func selectFile(_ params: IPCBridgeReviewSelectFileParams) async throws -> IPCBridgeReviewSelectFileResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
-        return try await controller.selectReviewItemForIPC(
-            itemId: params.itemId,
-            correlationId: params.correlationId
-        )
+        return try await translateAsyncBridgeProjectionError {
+            try await controller.selectReviewItemForIPC(
+                itemId: params.itemId,
+                correlationId: params.correlationId
+            )
+        }
     }
 
     func scrollToFile(_ params: IPCBridgeDiffScrollToFileParams) async throws -> IPCBridgePageControlResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
-        return try await controller.applyPageControlForIPC(
-            .scrollToFile(itemId: params.itemId),
-            correlationId: params.correlationId
-        )
+        return try await translateAsyncBridgeProjectionError {
+            try await controller.applyPageControlForIPC(
+                .scrollToFile(itemId: params.itemId),
+                correlationId: params.correlationId
+            )
+        }
     }
 
     func expandFile(_ params: IPCBridgeDiffExpandFileParams) async throws -> IPCBridgePageControlResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
-        return try await controller.applyPageControlForIPC(
-            .expandFile(itemId: params.itemId),
-            correlationId: params.correlationId
-        )
+        return try await translateAsyncBridgeProjectionError {
+            try await controller.applyPageControlForIPC(
+                .expandFile(itemId: params.itemId),
+                correlationId: params.correlationId
+            )
+        }
     }
 
     func collapseFile(_ params: IPCBridgeDiffCollapseFileParams) async throws -> IPCBridgePageControlResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
-        return try await controller.applyPageControlForIPC(
-            .collapseFile(itemId: params.itemId),
-            correlationId: params.correlationId
-        )
+        return try await translateAsyncBridgeProjectionError {
+            try await controller.applyPageControlForIPC(
+                .collapseFile(itemId: params.itemId),
+                correlationId: params.correlationId
+            )
+        }
     }
 
     func searchFileTree(_ params: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
-        return try await controller.applyPageControlForIPC(
-            .fileTreeSearch(searchText: params.searchText),
-            correlationId: params.correlationId
-        )
+        return try await translateAsyncBridgeProjectionError {
+            try await controller.applyPageControlForIPC(
+                .fileTreeSearch(searchText: params.searchText),
+                correlationId: params.correlationId
+            )
+        }
     }
 
     func setFileTreeFilter(_ params: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
-        return try await controller.applyPageControlForIPC(
-            .fileTreeSetFilter(
-                gitStatusFilter: params.gitStatusFilter,
-                fileClassFilter: params.fileClassFilter
-            ),
-            correlationId: params.correlationId
-        )
+        return try await translateAsyncBridgeProjectionError {
+            try await controller.applyPageControlForIPC(
+                .fileTreeSetFilter(
+                    gitStatusFilter: params.gitStatusFilter,
+                    fileClassFilter: params.fileClassFilter
+                ),
+                correlationId: params.correlationId
+            )
+        }
     }
 
     func revealFileTreePath(_ params: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
-        return try await controller.applyPageControlForIPC(
-            .fileTreeRevealPath(path: params.path),
-            correlationId: params.correlationId
-        )
+        return try await translateAsyncBridgeProjectionError {
+            try await controller.applyPageControlForIPC(
+                .fileTreeRevealPath(path: params.path),
+                correlationId: params.correlationId
+            )
+        }
     }
 
     func showMarkdownPreview(
         _ params: IPCBridgeFileViewShowMarkdownPreviewParams
     ) async throws -> IPCBridgePageControlResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
-        return try await controller.applyPageControlForIPC(
-            .fileViewShowMarkdownPreview(itemId: params.itemId),
-            correlationId: params.correlationId
-        )
+        return try await translateAsyncBridgeProjectionError {
+            try await controller.applyPageControlForIPC(
+                .fileViewShowMarkdownPreview(itemId: params.itemId),
+                correlationId: params.correlationId
+            )
+        }
     }
 
     func getContent(_ params: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
-        return try await controller.loadContentForIPC(
-            contentHandleId: params.contentHandleId,
-            reviewGeneration: params.reviewGeneration
-        )
+        return try await translateAsyncBridgeProjectionError {
+            try await controller.loadContentForIPC(
+                contentHandleId: params.contentHandleId,
+                reviewGeneration: params.reviewGeneration
+            )
+        }
     }
 
     func telemetrySnapshot(_ handle: IPCHandle) throws -> IPCBridgeTelemetrySnapshotResult {
@@ -170,6 +192,43 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
                 throw AppIPCBridgeError(reason: .targetNotFound)
             }
             return pane.id
+        }
+    }
+
+    private func translateBridgeProjectionError<T>(
+        _ operation: () throws -> T
+    ) throws -> T {
+        do {
+            return try operation()
+        } catch let error as BridgeIPCProjectionError {
+            throw AppIPCBridgeError(error)
+        }
+    }
+
+    private func translateAsyncBridgeProjectionError<T>(
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await operation()
+        } catch let error as BridgeIPCProjectionError {
+            throw AppIPCBridgeError(error)
+        }
+    }
+}
+
+extension AppIPCBridgeError {
+    fileprivate init(_ error: BridgeIPCProjectionError) {
+        switch error.reason {
+        case .packageUnavailable:
+            self.init(reason: .packageUnavailable)
+        case .itemNotFound:
+            self.init(reason: .itemNotFound)
+        case .contentUnavailable:
+            self.init(reason: .contentUnavailable)
+        case .payloadTooLarge:
+            self.init(reason: .payloadTooLarge)
+        case .validationRejected:
+            self.init(reason: .validationRejected)
         }
     }
 }

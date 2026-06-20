@@ -8,13 +8,11 @@ struct ObservabilityDebugLaunchScriptsTests {
     func debugLauncherUsesFourCharacterWorktreeCodeForSocketPathHeadroom() throws {
         let fixture = try LauncherScriptFixture()
         defer { fixture.cleanup() }
-
         let result = try fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--print-identity"],
             environment: [:]
         )
-
         #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
         let codeMatch = result.stdout.firstMatch(of: /AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=([0-9a-z]+)/)
         let code = String(codeMatch?.1 ?? "")
@@ -27,7 +25,6 @@ struct ObservabilityDebugLaunchScriptsTests {
     @Test("debug launcher allocates a shared swift build slot by default")
     func debugLauncherAllocatesSharedSwiftBuildSlotByDefault() throws {
         let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
-
         #expect(script.contains("source \"$PROJECT_ROOT/scripts/swift-build-slot.sh\" debug"))
         #expect(script.contains("mise run bridge-web-build"))
         #expect(script.contains("swift build --build-path \"$build_path\""))
@@ -36,7 +33,6 @@ struct ObservabilityDebugLaunchScriptsTests {
     @Test("debug launcher uses ai-tools observability stack contract")
     func debugLauncherUsesAiToolsObservabilityStackContract() throws {
         let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
-
         #expect(script.contains("AI_TOOLS_OBSERVABILITY_STACK_HELPER"))
         #expect(script.contains("AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL"))
         #expect(script.contains("AGENTSTUDIO_TRACE_PROOF_TOKEN"))
@@ -58,7 +54,6 @@ struct ObservabilityDebugLaunchScriptsTests {
             sleep 30
             """
         )
-
         let result = try fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
@@ -475,6 +470,9 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             done
             printf "data=%s\\n" "$AGENTSTUDIO_DATA_DIR" > "\(fixture.url("launched-env").path)"
             printf "ipc_socket_dir=%s\\n" "$AGENTSTUDIO_IPC_SOCKET_DIR" >> "\(fixture.url("launched-env").path)"
+            printf "zmx_path=%s\\n" "$AGENTSTUDIO_ZMX_PATH" >> "\(fixture.url("launched-env").path)"
+            printf "ghostty_disable_default_config=%s\\n" "$AGENTSTUDIO_GHOSTTY_DISABLE_DEFAULT_CONFIG" >> "\(fixture.url("launched-env").path)"
+            printf "ghostty_disable_vsync=%s\\n" "$AGENTSTUDIO_GHOSTTY_DISABLE_VSYNC" >> "\(fixture.url("launched-env").path)"
             printf "backend=%s\\n" "$AGENTSTUDIO_TRACE_BACKEND" >> "\(fixture.url("launched-env").path)"
             printf "marker=%s\\n" "$AGENTSTUDIO_TRACE_NAME" >> "\(fixture.url("launched-env").path)"
             printf "restore_trace=%s\\n" "${AGENTSTUDIO_RESTORE_TRACE:-}" >> "\(fixture.url("launched-env").path)"
@@ -548,7 +546,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
             hostileDataRoot: hostileDataRoot
         )
         try fixture.waitForFile(
-            fixture.url("launched-env"), containing: "diagnostic=cross-tab-move-geometry-smoke", timeoutSeconds: 5)
+            fixture.url("launched-env"), containing: "ipc_escrow=1", timeoutSeconds: 5)
         let launchedEnv = try String(contentsOf: fixture.url("launched-env"), encoding: .utf8)
         try expectDirectExecutableFallbackLaunchEnvironment(launchedEnv, hostileDataRoot: hostileDataRoot)
         #expect(!FileManager.default.fileExists(atPath: fixture.url("leaked-env").path))
@@ -571,62 +569,12 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         let result = try fixture.runScript(
             "scripts/run-debug-observability.sh",
             arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
-            environment: [
-                "AGENTSTUDIO_OPEN_BIN": try fixture.executable(
-                    "open",
-                    """
-                    #!/bin/bash
-                    printf "%s\\n" "$@" > "\(openArgsURL.path)"
-                    for arg in "$@"; do
-                      case "$arg" in
-                        *.app)
-                          printf "%s\\n" "$arg" > "\(launchedAppURL.path)"
-                          ;;
-                      esac
-                    done
-                    exit 0
-                    """
-                ).path,
-                "AGENTSTUDIO_PGREP_BIN": try fixture.executable(
-                    "pgrep",
-                    """
-                    #!/bin/bash
-                    if [ -f "\(launchedAppURL.path)" ]; then
-                      echo 42424
-                      exit 0
-                    fi
-                    exit 1
-                    """
-                ).path,
-                "AGENTSTUDIO_LSOF_BIN": try fixture.executable(
-                    "lsof",
-                    """
-                    #!/bin/bash
-                    app_path="$(cat "\(launchedAppURL.path)")"
-                    printf "p42424\\nftxt\\nn%s/Contents/MacOS/AgentStudio\\n" "$app_path"
-                    """
-                ).path,
-                "AGENTSTUDIO_DITTO_BIN": try fixture.executable(
-                    "ditto",
-                    """
-                    #!/bin/bash
-                    cp -R "$1" "$2"
-                    """
-                ).path,
-                "AGENTSTUDIO_CODESIGN_BIN": try fixture.executable(
-                    "codesign",
-                    """
-                    #!/bin/bash
-                    exit 0
-                    """
-                ).path,
-                "AGENTSTUDIO_OBSERVABILITY_STATE_FILE": stateFile.path,
-                "AGENTSTUDIO_RESTORE_TRACE": "1",
-                "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION": "cross-tab-move-geometry-smoke",
-                "AGENTSTUDIO_STARTUP_WATCH_FOLDER": fixture.url("watch-folder").path,
-                "AGENTSTUDIO_IPC_UNSAFE_NO_AUTH": "1",
-                "AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW": "1",
-            ]
+            environment: try launchServicesDiagnosticEnvironment(
+                fixture: fixture,
+                openArgsURL: openArgsURL,
+                launchedAppURL: launchedAppURL,
+                stateFile: stateFile
+            )
         )
 
         #expect(result.exitCode == 0)
@@ -646,6 +594,10 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         #expect(openArgs.contains("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"))
         #expect(openArgs.contains("AGENTSTUDIO_DATA_DIR="))
         #expect(openArgs.contains("AGENTSTUDIO_IPC_SOCKET_DIR="))
+        #expect(openArgs.contains("AGENTSTUDIO_ZMX_PATH="))
+        #expect(openArgs.contains("AGENTSTUDIO_GHOSTTY_DISABLE_DEFAULT_CONFIG=1"))
+        #expect(openArgs.contains("AGENTSTUDIO_GHOSTTY_DISABLE_VSYNC=1"))
+        #expect(openArgs.contains("/bin/zmx"))
         #expect(openArgs.contains("/ipc-socket"))
         #expect(openArgs.contains("/runs/debug-observability-"))
         try expectOwnerOnlyDirectory(stateValue("AGENTSTUDIO_OBSERVABILITY_DATA_DIR", in: state))
@@ -947,50 +899,4 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         #expect(!verifierScript.contains("\nbash \"$ROOT_DIR/scripts/inject-bundle-version.sh\""))
         #expect(verifierScript.contains("/bin/bash \"$ROOT_DIR/scripts/inject-bundle-version.sh\""))
     }
-}
-
-private func expectDirectExecutableFallbackState(_ state: String, buildExecutable: URL, hostileDataRoot: URL) throws {
-    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STATUS=running"))
-    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD=direct_executable"))
-    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE="))
-    #expect(state.contains("AgentStudio\\ Debug\\ "))
-    #expect(state.contains("/runs/debug-observability-"))
-    #expect(!state.contains("AGENTSTUDIO_OBSERVABILITY_EXECUTABLE=\(shellEscapedStateValue(buildExecutable.path))"))
-    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_DATA_DIR="))
-    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR="))
-    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
-    #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_WATCH_FOLDER="))
-    #expect(!state.contains(hostileDataRoot.path))
-    try expectOwnerOnlyDirectory(stateValue("AGENTSTUDIO_OBSERVABILITY_DATA_DIR", in: state))
-    try expectOwnerOnlyDirectory(stateValue("AGENTSTUDIO_OBSERVABILITY_ZMX_DIR", in: state))
-}
-
-private func expectDirectExecutableFallbackLaunchEnvironment(_ launchedEnv: String, hostileDataRoot: URL) throws {
-    #expect(launchedEnv.contains("data=/"))
-    #expect(launchedEnv.contains("ipc_socket_dir=/"))
-    #expect(launchedEnv.contains("/ipc-socket"))
-    #expect(launchedEnv.contains("/runs/debug-observability-"))
-    #expect(launchedEnv.contains("backend=otlp"))
-    #expect(launchedEnv.contains("marker=debug-observability-"))
-    #expect(launchedEnv.contains("restore_trace=1"))
-    #expect(launchedEnv.contains("diagnostic=cross-tab-move-geometry-smoke"))
-    #expect(launchedEnv.contains("watch_folder="))
-    #expect(launchedEnv.contains("ipc_no_auth=1"))
-    #expect(launchedEnv.contains("ipc_escrow=1"))
-    #expect(!launchedEnv.contains(hostileDataRoot.path))
-    try expectOwnerOnlyDirectory(stateValue("ipc_socket_dir", in: launchedEnv))
-}
-
-private func stateValue(_ key: String, in state: String) -> String {
-    state.split(separator: "\n")
-        .first { $0.hasPrefix("\(key)=") }
-        .map { String($0.dropFirst(key.count + 1)).replacingOccurrences(of: "\\ ", with: " ") } ?? ""
-}
-
-private func expectOwnerOnlyDirectory(_ rawPath: String) throws {
-    var statBuffer = stat()
-    #expect(!rawPath.isEmpty)
-    #expect(lstat(rawPath, &statBuffer) == 0)
-    #expect((statBuffer.st_mode & S_IFMT) == S_IFDIR)
-    #expect((statBuffer.st_mode & 0o077) == 0)
 }

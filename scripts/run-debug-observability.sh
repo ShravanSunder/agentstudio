@@ -651,12 +651,22 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
 fi
 launch_zmx_dir="$launch_data_root/z"
 launch_ipc_socket_dir="${AGENTSTUDIO_IPC_SOCKET_DIR:-$debug_root/ipc-socket}"
+launch_zmx_bin_dir="$debug_root/bin"
+launch_zmx_path="$launch_zmx_bin_dir/zmx"
 otlp_endpoint="$(/usr/bin/env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$STACK_HELPER" collector-url)"
 otlp_protocol=http/protobuf
 
 launch_log="${AGENTSTUDIO_OBSERVABILITY_LAUNCH_LOG:-$debug_root/logs/$trace_name.log}"
-mkdir -p "$(dirname "$launch_log")" "$(dirname "$state_file")" "$trace_dir" "$debug_root" "$launch_data_root" "$launch_zmx_dir" "$launch_ipc_socket_dir"
-chmod 700 "$debug_root" "$launch_data_root" "$launch_zmx_dir" "$launch_ipc_socket_dir"
+mkdir -p "$(dirname "$launch_log")" "$(dirname "$state_file")" "$trace_dir" "$debug_root" "$launch_data_root" "$launch_zmx_dir" "$launch_ipc_socket_dir" "$launch_zmx_bin_dir"
+chmod 700 "$debug_root" "$launch_data_root" "$launch_zmx_dir" "$launch_ipc_socket_dir" "$launch_zmx_bin_dir"
+if [ ! -x "$app_path/Contents/MacOS/zmx" ]; then
+  write_launch_failed_state missing_debug_zmx_binary
+  echo "debug app bundle missing executable zmx: $app_path/Contents/MacOS/zmx" >&2
+  echo "observability state: $state_file" >&2
+  exit 1
+fi
+"$DITTO_BIN" "$app_path/Contents/MacOS/zmx" "$launch_zmx_path"
+chmod 700 "$launch_zmx_path"
 : >"$launch_log"
 query_start="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -681,6 +691,9 @@ clean_open_env=(
 open_env_args=(
     --env "AGENTSTUDIO_DATA_DIR=$launch_data_root" \
     --env "AGENTSTUDIO_IPC_SOCKET_DIR=$launch_ipc_socket_dir" \
+    --env "AGENTSTUDIO_ZMX_PATH=$launch_zmx_path" \
+    --env "AGENTSTUDIO_GHOSTTY_DISABLE_DEFAULT_CONFIG=1" \
+    --env "AGENTSTUDIO_GHOSTTY_DISABLE_VSYNC=1" \
     --env "AGENTSTUDIO_TRACE_TAGS=$trace_tags" \
     --env "AGENTSTUDIO_TRACE_FLUSH=$trace_flush" \
     --env "AGENTSTUDIO_TRACE_BACKEND=$trace_backend" \
@@ -717,6 +730,9 @@ direct_launch_env=(
   "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
   "AGENTSTUDIO_DATA_DIR=$launch_data_root"
   "AGENTSTUDIO_IPC_SOCKET_DIR=$launch_ipc_socket_dir"
+  "AGENTSTUDIO_ZMX_PATH=$launch_zmx_path"
+  "AGENTSTUDIO_GHOSTTY_DISABLE_DEFAULT_CONFIG=1"
+  "AGENTSTUDIO_GHOSTTY_DISABLE_VSYNC=1"
   "AGENTSTUDIO_TRACE_TAGS=$trace_tags"
   "AGENTSTUDIO_TRACE_FLUSH=$trace_flush"
   "AGENTSTUDIO_TRACE_BACKEND=$trace_backend"

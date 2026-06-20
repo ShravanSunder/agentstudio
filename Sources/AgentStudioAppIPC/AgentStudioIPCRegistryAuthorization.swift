@@ -3,9 +3,46 @@ import Foundation
 
 public struct AppIPCMethodRegistry: Sendable {
     public let definitions: [IPCMethodDefinition]
+    private let contributionsByMethodName: [String: AppIPCMethodContribution]
 
     public init(definitions: [IPCMethodDefinition]) {
         self.definitions = definitions
+        self.contributionsByMethodName = [:]
+    }
+
+    package init(
+        baseDefinitions: [IPCMethodDefinition],
+        contributions: [AppIPCMethodContribution]
+    ) throws {
+        var definitionsByMethodName: [String: IPCMethodDefinition] = [:]
+        var mergedDefinitions: [IPCMethodDefinition] = []
+        var contributionsByMethodName: [String: AppIPCMethodContribution] = [:]
+
+        for definition in baseDefinitions {
+            guard definitionsByMethodName[definition.name] == nil else {
+                throw AppIPCMethodRegistryError.duplicateMethodName(definition.name)
+            }
+            definitionsByMethodName[definition.name] = definition
+            mergedDefinitions.append(definition)
+        }
+
+        for contribution in contributions {
+            let definition = contribution.definition
+            try Self.validateContributionDefinition(definition)
+            try Self.validateContributionSecurityContract(contribution)
+            guard definitionsByMethodName[definition.name] == nil else {
+                throw AppIPCMethodRegistryError.duplicateMethodName(definition.name)
+            }
+            guard contributionsByMethodName[definition.name] == nil else {
+                throw AppIPCMethodRegistryError.duplicateMethodName(definition.name)
+            }
+            definitionsByMethodName[definition.name] = definition
+            contributionsByMethodName[definition.name] = contribution
+            mergedDefinitions.append(definition)
+        }
+
+        self.definitions = mergedDefinitions.sorted { $0.name < $1.name }
+        self.contributionsByMethodName = contributionsByMethodName
     }
 
     public static func phaseOne() throws -> Self {
@@ -25,7 +62,6 @@ public struct AppIPCMethodRegistry: Sendable {
             Self.method("pane.focus", .layoutMutate, .workspaceAction),
             Self.method("pane.split", .layoutMutate, .workspaceAction),
             Self.method("pane.close", .layoutMutate, .workspaceAction),
-            Self.method("pane.snapshot", .paneContextRead, .queryReader),
             Self.method("drawer.toggle", .layoutMutate, .workspaceAction),
             Self.method("drawer.addPane", .layoutMutate, .workspaceAction),
             Self.method("terminal.status", .terminalStatusRead, .runtimeCommand),
@@ -66,6 +102,37 @@ public struct AppIPCMethodRegistry: Sendable {
         definitions.first { $0.name == methodName }
     }
 
+    package func contribution(named methodName: String) -> AppIPCMethodContribution? {
+        contributionsByMethodName[methodName]
+    }
+
+    private static func validateContributionDefinition(_ definition: IPCMethodDefinition) throws {
+        guard definition.name.hasPrefix("pane.") else {
+            throw AppIPCMethodRegistryError.disallowedContributorNamespace(definition.name)
+        }
+        guard definition.principalAvailability == .authenticated else {
+            throw AppIPCMethodRegistryError.preAuthenticationContributor(definition.name)
+        }
+        guard definition.executionOwner == .queryReader else {
+            throw AppIPCMethodRegistryError.unsupportedContributorExecutionOwner(
+                definition.name,
+                definition.executionOwner
+            )
+        }
+    }
+
+    private static func validateContributionSecurityContract(_ contribution: AppIPCMethodContribution) throws {
+        for privilege in contribution.definition.privilegeClasses {
+            let dataScope = PermissionScopeCanonicalizer.dataScope(for: privilege)
+            guard contribution.securityContract.dataScopes.contains(dataScope) else {
+                throw AppIPCMethodRegistryError.contributionDataScopeOutsideSecurityContract(
+                    contribution.definition.name,
+                    dataScope
+                )
+            }
+        }
+    }
+
     private static func method(
         _ name: String,
         _ privilege: IPCPrivilegeClass,
@@ -83,6 +150,14 @@ public struct AppIPCMethodRegistry: Sendable {
             resultSemantics: resultSemantics
         )
     }
+}
+
+package enum AppIPCMethodRegistryError: Error, Equatable, Sendable {
+    case duplicateMethodName(String)
+    case disallowedContributorNamespace(String)
+    case preAuthenticationContributor(String)
+    case contributionDataScopeOutsideSecurityContract(String, IPCDataScope)
+    case unsupportedContributorExecutionOwner(String, IPCExecutionOwner)
 }
 
 public struct AuthorizationError: Error, Equatable, Sendable {

@@ -26,12 +26,14 @@ SwiftLint through `mise run lint` and CI.
 | New state files use the `State/MainActor/{Atoms,Persistence}` path convention. | `agentstudio_state_actor_path` | warning | `docs/architecture/directory_structure.md` |
 | Programmatic-control contracts stay transport/app/UI independent. | `agentstudio_ipc_programmatic_control_boundary` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
 | `AgentStudioAppIPC` exposes ports instead of concrete app/runtime owners. | `agentstudio_appipc_port_boundary` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
-| Concrete AppIPC port implementations live under `Sources/AgentStudio/App/IPCComposition`. | `agentstudio_ipc_composition_location` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
+| Concrete AppIPC port implementations and method contributions live under `Sources/AgentStudio/App/IPCComposition`. | `agentstudio_ipc_composition_location` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
+| Feature slices do not import the app IPC service target directly; feature IPC methods are app-composed contributions. | `agentstudio_features_do_not_import_appipc` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
 | Public IPC surfaces expose scrubbed DTOs, not zmx namespaces or raw runtime payloads. | `agentstudio_ipc_public_surface_sanitization` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
 | AppIPC services and adapters route through ports and owners instead of direct atom access. | `agentstudio_ipc_no_direct_atom_access` | error | `docs/architecture/agentstudio_ipc_architecture.md` |
 | Sentinel fixture proves the local architecture rule registry is active. | `agentstudio_no_forbidden_architecture_marker` | error | `Tools/AgentStudioArchitectureLint/Tests/AgentStudioArchitectureLintTests/Fixtures/Bad/Sources/AgentStudio/App/BadForbiddenArchitectureMarker.swift` |
 | Production async delays avoid generic clock sleep overloads. | `agentstudio_no_generic_clock_sleep` | error | `docs/superpowers/specs/2026-06-18-agentstudio-swiftsyntax-async-sleep-rule-spec.md` |
 | Tests avoid direct wall-clock `Task.sleep(...)` calls and wait for events, state, or injected fake clocks. | `agentstudio_no_task_sleep_in_tests` | error | `AGENTS.md#no-wall-clock-tests` |
+| Dense action controls use typed tooltip sources instead of raw `.help("...")`, AppKit `toolTip = "..."`, or custom hover strings. Shared components consume resolved render values only. | `agentstudio_toolbar_tooltip_source` | error | `docs/superpowers/specs/2026-06-19-typed-tooltip-source-contract.md` |
 
 ## Former Shell And Custom SwiftLint Coverage
 
@@ -49,6 +51,7 @@ SwiftLint through `mise run lint` and CI.
 | Fail hot `repoEnrichmentByRepoId`, `worktreeEnrichmentByWorktreeId`, and `pullRequestCountByWorktreeId` dictionary reads outside named cold surfaces. | Blocking | `agentstudio_repo_cache_keyed_reads` |
 | Fail IPC contract code importing the app, AppKit, SwiftUI, or feature/runtime owners. | Blocking | `agentstudio_ipc_programmatic_control_boundary` and `agentstudio_appipc_port_boundary` |
 | Fail IPC composition outside the approved app composition location. | Blocking | `agentstudio_ipc_composition_location` |
+| Fail feature slices importing `AgentStudioAppIPC` directly. | Blocking | `agentstudio_features_do_not_import_appipc` |
 | Fail public IPC zmx namespace/raw runtime payload leakage. | Blocking | `agentstudio_ipc_public_surface_sanitization` |
 | Fail direct atom access from IPC services and adapters. | Blocking | `agentstudio_ipc_no_direct_atom_access` |
 | Fail production `Task.sleep(for:)` and generic `.sleep(for:)` outside the approved delay seam. | Blocking | `agentstudio_no_generic_clock_sleep` |

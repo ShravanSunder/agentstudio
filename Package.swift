@@ -154,6 +154,7 @@ let package = Package(
         .testTarget(
             name: "AgentStudioAppIPCTests",
             dependencies: [
+                "AgentStudio",
                 "AgentStudioAppIPC",
                 "AgentStudioIPCTransport",
                 "AgentStudioProgrammaticControl",

@@ -89,6 +89,8 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
         #expect(config.environmentVariables["ZMX_DIR"] == fixtureSessionConfiguration.zmxDir)
+        #expect(config.environmentVariables["ZMX_SESSION"]?.isEmpty == true)
+        #expect(config.environmentVariables["ZMX_SESSION_PREFIX"]?.isEmpty == true)
     }
 
     @Test
@@ -109,6 +111,8 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
         #expect(config.environmentVariables["ZMX_DIR"] == fixtureSessionConfiguration.zmxDir)
+        #expect(config.environmentVariables["ZMX_SESSION"]?.isEmpty == true)
+        #expect(config.environmentVariables["ZMX_SESSION_PREFIX"]?.isEmpty == true)
     }
 
     @Test
@@ -128,6 +132,8 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
         #expect(config.environmentVariables["ZMX_DIR"] == fixtureSessionConfiguration.zmxDir)
+        #expect(config.environmentVariables["ZMX_SESSION"]?.isEmpty == true)
+        #expect(config.environmentVariables["ZMX_SESSION_PREFIX"]?.isEmpty == true)
     }
 
     @Test
@@ -628,6 +634,36 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
 
         harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
         harness.coordinator.restoreViewsForActiveTabIfNeeded()
+
+        let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
+        let failedPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
+        let activeTab = try #require(harness.store.activeTab)
+        let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
+            for: activeTab.layout,
+            in: harness.windowLifecycleStore.terminalContainerBounds,
+            dividerThickness: AppStyles.General.Layout.paneGap,
+            minimizedPaneIds: activeTab.activeMinimizedPaneIds,
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
+        )
+
+        #expect(config.initialFrame == resolvedFrames[pane.id])
+        #expect(failedPlaceholder.mode == .failedToStart)
+    }
+
+    @Test
+    func restoreAllViews_retriesFloatingTerminalPreparingPlaceholderWhenBoundsExist() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = try #require(
+            harness.coordinator.openFloatingTerminal(launchDirectory: harness.tempDir, title: "Floating")
+        )
+        #expect(harness.surfaceManager.createdConfigsByPaneId[pane.id] == nil)
+        let preparingPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
+        #expect(preparingPlaceholder.mode == .preparing)
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
         let failedPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))

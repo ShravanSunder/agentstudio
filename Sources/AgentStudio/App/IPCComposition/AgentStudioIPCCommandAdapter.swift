@@ -13,15 +13,28 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
     }
 
     func listCommands() throws -> IPCCommandListResult {
-        IPCCommandListResult(commands: [])
+        let commands = AppCommand.allCases
+            .map(\.definition)
+            .map(\.ipcCommandListEntry)
+            .sorted { left, right in
+                left.id.rawValue < right.id.rawValue
+            }
+        return IPCCommandListResult(commands: commands)
     }
 
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
         guard params.targetHandle == nil else {
             throw AppIPCCommandError(reason: .targetNotFound)
         }
-        guard !Self.presentationOnlyCommandIds.contains(params.commandId) else {
-            throw AppIPCCommandError(reason: .requiresPresentation)
+        guard let command = AppCommand(rawValue: params.commandId.rawValue) else {
+            throw AppIPCCommandError(reason: .unsupportedCommand)
+        }
+        let definition = command.definition
+        guard definition.ipcExposure.commandListEntryIsHeadlessExecutable else {
+            if definition.ipcExposure.executionModes.contains(.uiPresentation) {
+                throw AppIPCCommandError(reason: .requiresPresentation)
+            }
+            throw AppIPCCommandError(reason: .requiresParameters)
         }
 
         let lifecycle = windowLifecycleReader.snapshot()
@@ -33,11 +46,4 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         }
         throw AppIPCCommandError(reason: .unsupportedCommand)
     }
-
-    private static let presentationOnlyCommandIds: Set<IPCCommandIdentifier> = [
-        .quickFind,
-        .commandPalette,
-        .panePicker,
-        .repoWorktreePicker,
-    ]
 }

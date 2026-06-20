@@ -147,6 +147,66 @@ final class SessionConfigurationTests {
 
     @Test
 
+    func test_zmxPath_usesEnvironmentOverride() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-session-config-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let zmxURL = tempDir.appending(path: "zmx")
+        try "#!/bin/sh\nexit 0\n".write(to: zmxURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: zmxURL.path)
+
+        let config = SessionConfiguration.detect(environment: [
+            SessionConfiguration.zmxPathEnvironmentKey: zmxURL.path,
+            AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
+        ])
+
+        #expect(config.zmxPath == zmxURL.path)
+    }
+
+    @Test
+    func test_zmxPath_ignoresEnvironmentOverrideWithoutDebugProofToken() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-session-config-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let zmxURL = tempDir.appending(path: "zmx")
+        try "#!/bin/sh\nexit 0\n".write(to: zmxURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: zmxURL.path)
+
+        let config = SessionConfiguration.detect(environment: [
+            SessionConfiguration.zmxPathEnvironmentKey: zmxURL.path
+        ])
+
+        #expect(config.zmxPath != zmxURL.path)
+    }
+
+    @Test
+    func test_zmxPath_ignoresEnvironmentOverrideForReleaseBuilds() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-session-config-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let zmxURL = tempDir.appending(path: "zmx")
+        try "#!/bin/sh\nexit 0\n".write(to: zmxURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: zmxURL.path)
+
+        let config = SessionConfiguration.detect(
+            environment: [
+                SessionConfiguration.zmxPathEnvironmentKey: zmxURL.path,
+                AppDataPaths.traceProofTokenEnvironmentKey: "test-proof-token",
+            ],
+            isDebugBuild: false
+        )
+
+        #expect(config.zmxPath != zmxURL.path)
+    }
+
+    @Test
+
     func test_zmxDir_pointsToShortSocketSafeAgentStudioSubdir() {
         // Act
         let config = SessionConfiguration.detect()

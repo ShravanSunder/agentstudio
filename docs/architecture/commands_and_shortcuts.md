@@ -2,16 +2,21 @@
 
 ## TL;DR
 
-Four files own the command + shortcut system. Each has one job. Use this
-doc as the decision tree before adding a new command, keystroke, or UI
-hint — it's how you avoid creating parallel constants that drift.
+These files own the command + shortcut system. Each has one job. Use this
+doc as the decision tree before adding a new command, keystroke, UI hint, or
+dense-control tooltip — it's how you avoid creating parallel constants that
+drift.
 
 | File | Owns |
 |------|------|
 | `Sources/AgentStudio/App/Commands/AppCommand.swift` | Command **identities** (the things you can dispatch). |
 | `Sources/AgentStudio/App/Commands/AppShortcut.swift` | Keyboard **bindings** + contexts where they fire. |
 | `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift` | `AppCommandSpec` — ties an `AppCommand` to its `AppShortcut` plus command-bar metadata. |
-| `Sources/AgentStudio/Core/Actions/UIActionPresentation.swift` | `LocalActionSpec` — UI **presentation** for tooltips, button labels, menu items. |
+| `Sources/AgentStudio/App/Commands/AppCommand+DisplayDescriptor.swift` | App-owned projection from `AppCommandSpec` into app-free display descriptors and tooltip render values. |
+| `Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift` | App-owned projection from `AppCommandSpec.ipcExposure` into public IPC command-list DTOs. |
+| `Sources/AgentStudio/Core/Actions/UIActionPresentation.swift` | `LocalActionSpec` and app-free action presentation helpers for tooltips, button labels, menu items. |
+| `Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift` | App-free tooltip source, provenance, copy style, and resolver. |
+| `Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift` | Render-only tooltip value that UI primitives and shared components may consume. |
 
 ## The four layers
 
@@ -40,8 +45,10 @@ hint — it's how you avoid creating parallel constants that drift.
 ```
 
 `AppCommand` is the identity. `AppShortcut` decides which keystrokes
-fire it. `AppCommandSpec` exposes it in the command bar. `LocalActionSpec`
-provides UI text for buttons/menus that aren't part of the command bar.
+fire it. `AppCommandSpec` exposes it in the command bar. App-owned projection
+extensions turn that metadata into tooltip display descriptors and IPC
+command-list entries. `LocalActionSpec` provides UI text for buttons/menus
+that aren't part of the command bar.
 
 ## Command planes
 
@@ -78,7 +85,7 @@ silently present UI.
 1. **New command identity?** Add a case to `AppCommand` enum.
 2. **Keyboard binding?** Add a case to `AppShortcut` with its trigger and
    contexts.
-3. **Visible in the command bar / used in tooltips?** Add a `AppCommandSpec`
+3. **Visible in the command bar / used in tooltips?** Add an `AppCommandSpec`
    entry in `AppCommand+Catalog.swift` that ties the command to the
    shortcut plus label / icon / `helpText`.
 4. **UI button or menu item that isn't in the command bar?** Add a
@@ -123,7 +130,9 @@ keyboard shortcuts. If a command works from a button but not from
 side channel instead of the same binding/state model as the button.
 
 Programmatic control uses the same command metadata, but it does not treat
-command-bar presentation as command execution. App IPC reserves `command.*` for
+command-bar presentation as command execution. `command.list` projects
+`AppCommandSpec` IPC metadata for discovery, including execution mode, target
+handle kinds, and required privileges. `command.execute` is still reserved for
 headless semantic commands and exposes command-bar presentation explicitly as
 `ui.commandBar.open`; see
 [AgentStudio IPC Architecture](agentstudio_ipc_architecture.md#command-and-ui-presentation-boundary).
@@ -316,6 +325,56 @@ prefers one (today only `.emptyDrawer` does), otherwise the primary.
 If the context's binding is non-character (an arrow, escape), the
 helper returns `nil` — handle that case explicitly.
 
+## Tooltips, help text, and compact control copy
+
+`ActionSpec.helpText` is descriptive command help. It is appropriate for command
+palette rows, menus, accessibility descriptions, and other places where the
+user is reading an action description.
+
+Icon buttons and dense toolbars need compact control text instead. Use the
+typed tooltip source contract rather than hand-written `.help("...")`,
+`toolTip = "..."`, or custom hover strings. The source model is projection, not
+inheritance:
+
+```text
+AppCommandSpec
+  -> CommandDisplayDescriptor
+  -> ControlTooltipSource
+  -> ControlTooltipRenderValue
+```
+
+For command-backed controls, `App/Commands` owns projection from
+`AppCommandSpec` into the display descriptor. For UI-only controls,
+`LocalActionSpec.actionSpec` projects into the same descriptor shape. For
+feature-local shortcuts, the feature's keyboard router and tooltip display must
+share one local descriptor before producing `ShortcutDisplayText`.
+
+`ControlTooltipRenderValue` and primitive shortcut display text may live at the
+Infrastructure/render boundary so `SharedComponents` can consume them.
+`SharedComponents` must not accept `AppCommandSpec`, `ActionSpec`,
+`ControlTooltipSource`, or IPC command DTOs. It renders resolved values and
+emits closures.
+
+`IPCCommandListEntry` is a projection result, not an internal display base.
+Programmatic control can discover command metadata, but tooltip provenance and
+copy policy stay in the app/Core display path.
+
+SwiftUI `.help(...)`, AppKit `toolTip`, and custom hover-tooltip presenters
+should all read from the same resolved tooltip value for a given dense control.
+Compact tooltip text must not replace accessibility labels or accessibility
+descriptions.
+
+Do not build one oversized tooltip by concatenating multiple command or local
+action help strings. If a control opens a menu or summarizes several actions,
+give that control one short tooltip such as "Clear notifications"; keep the
+longer action-specific descriptions on the individual menu items or command
+rows.
+
+Shortcut text still comes from `AppShortcut.displayKeyBinding(in:)` when the
+shortcut is app-wide. Feature-local keyboard shortcuts should use a small typed
+helper near that feature's keyboard router and project to `ShortcutDisplayText`;
+do not promote a local shortcut into `AppShortcut` only to render a tooltip.
+
 ## Where constants live
 
 This decision tree governs WHICH file holds a value. Misplacing a value
@@ -327,7 +386,7 @@ two call sites will fork and diverge.
 | `AppShortcut` | Is a keyboard binding (key + modifiers + contexts) | `cmd-shift-D` for `addDrawerPane`, raw `P` for empty-drawer alt |
 | `AppPolicies.DragAndDrop` (or other AppPolicies subdomain) | Is a runtime behavioral rule that gates filtering, hit testing, ordering, what's accepted vs rejected | `drawerMaxRows = 2`, `paneRowSideZoneFloor = 24`, `paneRowSideZoneFraction = 0.25` |
 | `AppStyles.General.Layout` (or other AppStyles subdomain) | Only changes how something LOOKS (paint width, font size, opacity) | `dropTargetMarkerWidth = 8`, `paneGap = 1` |
-| `LocalActionSpec` (`actionSpec.helpText` etc.) | Is UI text shown in tooltips / buttons / menus | "Add Drawer Pane", "Add a drawer pane to the active pane" |
+| `LocalActionSpec` (`actionSpec.label`, `actionSpec.helpText`, `actionSpec.controlToolTip`) | Is UI text shown in buttons, menus, command rows, or compact tooltips | "Add Drawer Pane", "Add a drawer pane to the active pane", "Clear notifications" |
 
 If a value SOMETIMES gates behavior and SOMETIMES is purely visual
 (rare), prefer `AppPolicies` and have the visual layer read from it.

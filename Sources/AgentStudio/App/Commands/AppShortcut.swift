@@ -93,6 +93,20 @@ struct ShortcutTrigger: Hashable, Sendable {
     let key: ShortcutInputKey
     let modifiers: Set<KeyBinding.Modifier>
 
+    var displayString: String {
+        var keys: [String] = []
+        if modifiers.contains(.command) { keys.append("⌘") }
+        if modifiers.contains(.shift) { keys.append("⇧") }
+        if modifiers.contains(.option) { keys.append("⌥") }
+        if modifiers.contains(.control) { keys.append("⌃") }
+        keys.append(key.displayString)
+        return keys.joined()
+    }
+
+    var displayText: ShortcutDisplayText {
+        ShortcutDisplayText(value: displayString)
+    }
+
     var keyBinding: KeyBinding? {
         guard case .character(let key) = key else { return nil }
         return KeyBinding(key: key.rawValue, modifiers: modifiers)

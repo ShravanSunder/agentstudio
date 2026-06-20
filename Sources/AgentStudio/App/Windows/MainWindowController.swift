@@ -177,7 +177,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         let worktreeButton = makeSidebarToolbarButton(
             identifier: "worktreeToolbarButton",
             accessibilityLabel: worktreeSidebarPresentation.actionSpec.label,
-            toolTip: worktreeSidebarPresentation.controlToolTip,
+            toolTip: worktreeSidebarPresentation.controlTooltipRenderValue(),
             action: #selector(showWorktreeSidebarAction)
         )
         self.worktreeToolbarButton = worktreeButton
@@ -186,7 +186,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         let inboxButton = makeSidebarToolbarButton(
             identifier: "inboxToolbarBell",
             accessibilityLabel: inboxSidebarPresentation.actionSpec.label,
-            toolTip: inboxSidebarPresentation.controlToolTip,
+            toolTip: inboxSidebarPresentation.controlTooltipRenderValue(),
             action: #selector(showInboxSidebarAction)
         )
         self.inboxToolbarButton = inboxButton
@@ -213,7 +213,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private func makeSidebarToolbarButton(
         identifier: String,
         accessibilityLabel: String,
-        toolTip: String,
+        toolTip: ControlTooltipRenderValue,
         action: Selector
     ) -> SidebarToolbarButton {
         let button = SidebarToolbarButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
@@ -222,7 +222,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         button.identifier = NSUserInterfaceItemIdentifier(identifier)
         button.target = self
         button.action = action
-        button.toolTip = toolTip
+        button.applyControlTooltip(toolTip)
         button.image = sidebarToolbarImage(
             symbolName: "circle",
             accessibilityDescription: accessibilityLabel
@@ -460,7 +460,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         let item = NSToolbarItem(itemIdentifier: .watchFolder)
         item.label = definition.actionSpec.label
         item.paletteLabel = definition.actionSpec.label
-        item.toolTip = definition.controlToolTip
+        item.applyControlTooltip(definition.controlTooltipRenderValue())
 
         let button = NSButton(
             title: definition.actionSpec.label,

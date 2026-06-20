@@ -48,9 +48,11 @@ struct CIFastLaneWorkflowTests {
         #expect(fastRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
         #expect(
             fastRunner.contains(
-                "--skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests'"
+                "--skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|AgentStudioAppIPCServiceTests'"
             )
         )
+        #expect(fastRunner.contains("serial App IPC service live socket suite"))
+        #expect(fastRunner.contains("--filter AgentStudioAppIPCServiceTests"))
         #expect(largeRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
         #expect(
             largeRunner.contains(

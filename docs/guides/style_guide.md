@@ -49,6 +49,7 @@ Use these apps as benchmarks for quality and style:
 - **Sidebar search**: Use `SharedComponents/SidebarSearchField` with `AppStyles.Shell.Sidebar.SearchField` tokens for sidebar search surfaces. Do not hand-roll separate rounded search boxes in each feature.
 - **Search ownership**: Keep command-palette search in `Features/CommandBar/` until its command scope semantics are separable from the text field. Keep Webview's select-all text field local until another surface needs that exact AppKit behavior.
 - **Selectable popovers**: Use `SharedComponents/SelectablePopover` for menu-like popovers with highlighted rows, arrow-key navigation, Return activation, Escape close, same-shortcut dismiss, and optional numbered shortcuts.
+- **Dense control tooltips**: Icon buttons, titlebar controls, drawer controls, and compact toolbar controls must render tooltip text from the typed tooltip source contract. Product owners project `AppCommandSpec`, `LocalActionSpec.actionSpec`, or feature-local shortcut descriptors into a `ControlTooltipRenderValue`; shared components render that value and must not own command/action semantics. Do not hand-write parallel `.help("...")`, AppKit `toolTip`, or custom hover strings for the same dense action.
 - **Presentation vs behavior**: Put spacing, radius, icon size, color, and opacity in `AppStyles`. Put limits, thresholds, validation, routing, retention, and accept/reject rules in `AppPolicies`.
 
 ### AppKit Styling

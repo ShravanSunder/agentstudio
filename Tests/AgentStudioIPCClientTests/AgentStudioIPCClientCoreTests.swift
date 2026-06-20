@@ -59,6 +59,27 @@ struct AgentStudioIPCClientCoreTests {
         )
     }
 
+    @Test("parses pane snapshot command and builds request frame")
+    func parsesPaneSnapshotCommandAndBuildsRequestFrame() throws {
+        let invocation = try AgentStudioIPCClientArguments.parse(
+            ["--socket", "/tmp/app.sock", "pane-snapshot", "pane:1"],
+            environment: [:]
+        )
+        let client = AgentStudioIPCClient(configuration: invocation.configuration)
+
+        #expect(invocation.command == .paneSnapshot(handle: "pane:1"))
+        let frame = try client.requestFrame(invocation.command, requestId: 14)
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(14))
+        #expect(request.method == "pane.snapshot")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["handle"] == .string("pane:1"))
+    }
+
     @Test("terminal wait can include an after sequence for replayable runtime facts")
     func terminalWaitCanIncludeAfterSequenceForReplayableRuntimeFacts() throws {
         let invocation = try AgentStudioIPCClientArguments.parse(
@@ -97,7 +118,7 @@ struct AgentStudioIPCClientCoreTests {
             environment: [:]
         )
         let executeInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "command-execute", "commandPalette"],
+            ["--socket", "/tmp/app.sock", "command-execute", "showCommandBarCommands"],
             environment: [:]
         )
         let unknownExecuteInvocation = try AgentStudioIPCClientArguments.parse(
@@ -109,7 +130,12 @@ struct AgentStudioIPCClientCoreTests {
         #expect(listInvocation.command == .commandList)
         #expect(
             executeInvocation.command
-                == .commandExecute(IPCCommandExecuteParams(commandId: .commandPalette, targetHandle: nil))
+                == .commandExecute(
+                    IPCCommandExecuteParams(
+                        commandId: IPCCommandIdentifier(rawValue: "showCommandBarCommands"),
+                        targetHandle: nil
+                    )
+                )
         )
         #expect(
             unknownExecuteInvocation.command
@@ -384,7 +410,12 @@ struct AgentStudioIPCClientCoreTests {
         )
 
         let frame = try client.requestFrame(
-            .commandExecute(IPCCommandExecuteParams(commandId: .panePicker, targetHandle: nil)),
+            .commandExecute(
+                IPCCommandExecuteParams(
+                    commandId: IPCCommandIdentifier(rawValue: "showCommandBarPanes"),
+                    targetHandle: nil
+                )
+            ),
             requestId: 10
         )
         let request = try JSONRPCCodec.decodeRequest(frame)
@@ -395,7 +426,7 @@ struct AgentStudioIPCClientCoreTests {
             Issue.record("expected object params")
             return
         }
-        #expect(params["commandId"] == .string("panePicker"))
+        #expect(params["commandId"] == .string("showCommandBarPanes"))
         #expect(params["targetHandle"] == nil)
     }
 

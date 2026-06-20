@@ -317,7 +317,14 @@ struct AgentStudioIPCBridgeServiceTests {
         let bridgeRequests: [(id: Int, method: String, params: JSONValue)] = [
             (79, "bridge.diff.getPackage", .object(["handle": .string("pane:1")])),
             (80, "bridge.diff.renderState", .object(["handle": .string("pane:1")])),
-            (81, "bridge.diff.refresh", .object(["handle": .string("pane:1")])),
+            (
+                81,
+                "bridge.diff.refresh",
+                .object([
+                    "handle": .string("pane:1"),
+                    "correlationId": .string(UUID().uuidString),
+                ])
+            ),
             (
                 82,
                 "bridge.diff.selectFile",

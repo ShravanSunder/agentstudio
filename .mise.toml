@@ -515,6 +515,10 @@ run = "/bin/bash scripts/verify-beta-observability.sh"
 description = "Verify AgentStudio debug startup records and scrubbed fields in VictoriaLogs"
 run = "/bin/bash scripts/verify-debug-observability.sh"
 
+[tasks.verify-agentstudio-ipc-phase-a-smoke]
+description = "Verify Phase A App IPC contribution routing through the debug socket"
+run = "/bin/bash scripts/verify-agentstudio-ipc-phase-a-smoke.sh"
+
 [tasks.smoke-debug-launchservices]
 description = "Launch debug AgentStudio and require real LaunchServices GUI proof"
 run = """

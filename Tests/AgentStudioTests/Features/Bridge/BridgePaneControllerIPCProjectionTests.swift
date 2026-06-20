@@ -1,4 +1,3 @@
-import AgentStudioAppIPC
 import Foundation
 import Testing
 
@@ -123,7 +122,7 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
 
-            await #expect(throws: AppIPCBridgeError.self) {
+            await #expect(throws: BridgeIPCProjectionError.self) {
                 _ = try await controller.loadContentForIPC(
                     contentHandleId: handle.handleId,
                     reviewGeneration: 7
@@ -169,7 +168,7 @@ extension WebKitSerializedTests {
 
             _ = try await controller.refreshReviewForIPC(correlationId: nil)
 
-            #expect(throws: AppIPCBridgeError.self) {
+            #expect(throws: BridgeIPCProjectionError.self) {
                 _ = try controller.ipcReviewPackageSnapshot()
             }
         }

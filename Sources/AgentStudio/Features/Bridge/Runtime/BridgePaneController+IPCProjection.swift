@@ -1,4 +1,3 @@
-import AgentStudioAppIPC
 import AgentStudioProgrammaticControl
 import Foundation
 
@@ -45,7 +44,7 @@ extension BridgePaneController {
 
     func refreshReviewForIPC(correlationId: UUID?) async throws -> IPCBridgeReviewRefreshResult {
         guard let worktreeId = runtime.metadata.worktreeId else {
-            throw AppIPCBridgeError(reason: .packageUnavailable)
+            throw BridgeIPCProjectionError(reason: .packageUnavailable)
         }
 
         let commandId = UUID()
@@ -72,7 +71,7 @@ extension BridgePaneController {
                 correlationId: correlationId
             )
         case .failure:
-            throw AppIPCBridgeError(reason: .packageUnavailable)
+            throw BridgeIPCProjectionError(reason: .packageUnavailable)
         }
     }
 
@@ -112,10 +111,10 @@ extension BridgePaneController {
         correlationId: UUID?
     ) async throws -> IPCBridgeReviewSelectFileResult {
         guard let package = paneState.diff.packageMetadata else {
-            throw AppIPCBridgeError(reason: .packageUnavailable)
+            throw BridgeIPCProjectionError(reason: .packageUnavailable)
         }
         guard package.itemsById[itemId] != nil else {
-            throw AppIPCBridgeError(reason: .itemNotFound)
+            throw BridgeIPCProjectionError(reason: .itemNotFound)
         }
 
         try await dispatchReviewItemSelectionToPage(itemId: itemId)
@@ -171,11 +170,11 @@ extension BridgePaneController {
             contentWorld: .page
         )
         guard let json = result as? String, let data = json.data(using: .utf8) else {
-            throw AppIPCBridgeError(reason: .validationRejected)
+            throw BridgeIPCProjectionError(reason: .validationRejected)
         }
         let snapshot = try JSONDecoder().decode(BridgePageControlProbeSnapshot.self, from: data)
         guard snapshot.method == command.method, snapshot.sequence >= 0 else {
-            throw AppIPCBridgeError(reason: .validationRejected)
+            throw BridgeIPCProjectionError(reason: .validationRejected)
         }
         return IPCBridgePageControlResult(
             paneId: paneId,
@@ -203,11 +202,11 @@ extension BridgePaneController {
                 requestedGeneration: BridgeReviewGeneration(reviewGeneration)
             )
         } catch {
-            throw AppIPCBridgeError(reason: .contentUnavailable)
+            throw BridgeIPCProjectionError(reason: .contentUnavailable)
         }
 
         guard result.data.count <= AppPolicies.Bridge.ipcMaxResponsePayloadBytes else {
-            throw AppIPCBridgeError(reason: .payloadTooLarge)
+            throw BridgeIPCProjectionError(reason: .payloadTooLarge)
         }
 
         let text = String(data: result.data, encoding: .utf8)
@@ -215,7 +214,7 @@ extension BridgePaneController {
         if let contentBase64,
             contentBase64.utf8.count > AppPolicies.Bridge.ipcMaxResponsePayloadBytes
         {
-            throw AppIPCBridgeError(reason: .payloadTooLarge)
+            throw BridgeIPCProjectionError(reason: .payloadTooLarge)
         }
 
         let ipcResult = IPCBridgeContentGetResult(
@@ -373,7 +372,7 @@ extension BridgePaneController {
     private nonisolated func javaScriptStringLiteral(_ value: String) throws -> String {
         let data = try JSONEncoder().encode(value)
         guard let literal = String(data: data, encoding: .utf8) else {
-            throw AppIPCBridgeError(reason: .validationRejected)
+            throw BridgeIPCProjectionError(reason: .validationRejected)
         }
         return literal
     }
@@ -381,7 +380,7 @@ extension BridgePaneController {
     private nonisolated func javaScriptLiteral<T: Encodable>(_ value: T) throws -> String {
         let data = try JSONEncoder().encode(value)
         guard let literal = String(data: data, encoding: .utf8) else {
-            throw AppIPCBridgeError(reason: .validationRejected)
+            throw BridgeIPCProjectionError(reason: .validationRejected)
         }
         return literal
     }

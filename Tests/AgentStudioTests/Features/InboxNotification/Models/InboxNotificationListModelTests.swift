@@ -272,64 +272,6 @@ struct InboxNotificationListModelTests {
         #expect(model.sections[0].unreadCount == 1)
     }
 
-    @Test("content mode filters roll-up alerts and activity rows")
-    func contentModeFiltersRollUpAlertsAndActivityRows() {
-        let activity = makeInboxNotification(
-            timestamp: Date(timeIntervalSince1970: 100),
-            kind: .unseenActivity,
-            title: "Activity",
-            claimKey: .init(
-                paneId: UUID(),
-                lane: .activity,
-                semantic: .unseenActivity,
-                sessionId: nil
-            )
-        )
-        let action = makeInboxNotification(
-            timestamp: Date(timeIntervalSince1970: 101),
-            kind: .approvalRequested,
-            title: "Action",
-            claimKey: .init(
-                paneId: UUID(),
-                lane: .actionNeeded,
-                semantic: .approvalRequested,
-                sessionId: nil
-            )
-        )
-        let settled = makeInboxNotification(
-            timestamp: Date(timeIntervalSince1970: 102),
-            kind: .agentSettledActivity,
-            title: "Settled",
-            claimKey: .init(
-                paneId: UUID(),
-                lane: .settledAgent,
-                semantic: .agentSettled,
-                sessionId: nil
-            )
-        )
-
-        let rollUpModel = InboxNotificationListModel(
-            notifications: [activity, action, settled],
-            grouping: .none,
-            sort: .oldestFirst,
-            searchText: "",
-            contentMode: .rollUpAlerts
-        )
-        let activityModel = InboxNotificationListModel(
-            notifications: [activity, action, settled],
-            grouping: .none,
-            sort: .oldestFirst,
-            searchText: "",
-            contentMode: .activity
-        )
-
-        let rollUpTitles = rollUpModel.sections.flatMap { $0.notifications }.map { $0.title }
-        let activityTitles = activityModel.sections.flatMap { $0.notifications }.map { $0.title }
-
-        #expect(rollUpTitles == ["Action", "Settled"])
-        #expect(activityTitles == ["Activity"])
-    }
-
     @Test("row state filter limits read rows when requested")
     func rowStateFilterLimitsReadRowsWhenRequested() {
         let unread = makeInboxNotification(

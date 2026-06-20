@@ -65,7 +65,7 @@ struct WelcomeLauncherArchitectureTests {
         #expect(source.contains(".watchFolder"))
         #expect(source.contains("commandToolbarButtonItem(for: .watchFolder, action: #selector(watchFolderAction))"))
         #expect(source.contains("let definition = AppCommandDispatcher.shared.definition(for: command)"))
-        #expect(source.contains("item.toolTip = definition.controlToolTip"))
+        #expect(source.contains("item.applyControlTooltip(definition.controlTooltipRenderValue())"))
         #expect(source.contains("string: \"  \" + definition.actionSpec.label"))
         #expect(!source.contains("\"Watch Folder\""))
     }
