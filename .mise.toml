@@ -238,26 +238,32 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.test]
 description = "Run default test suite (excludes E2E + ZmxE2E by default)"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test"
 
 [tasks.test-fast]
 description = "Run fast lane: fast non-WebKit tests, excluding large script/smoke/integration/benchmark proof"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
 
 [tasks.test-large]
 description = "Run large non-WebKit script, smoke, and integration tests"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-large"
 
 [tasks.test-prebuild]
 description = "Prebuild Swift test bundles for cached CI test lanes"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-prebuild"
 
 [tasks.test-webkit]
 description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"
 
 [tasks.test-coverage]
 description = "Run test suite with code coverage and print coverage JSON path"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -314,6 +320,7 @@ fi
 
 [tasks.test-e2e]
 description = "Run E2E serialized tests only (opt-in; zmx E2E currently unstable)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -327,6 +334,7 @@ AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTe
 
 [tasks.test-zmx-e2e]
 description = "Run zmx E2E tests only (opt-in; may stall)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail

@@ -20,9 +20,7 @@ describe('script runtime contract', () => {
 	test('runs TypeScript scripts through Node type stripping', async () => {
 		const scripts = await readPackageScripts();
 
-		expect(scripts['build']).toContain(
-			'node --experimental-strip-types scripts/build-app-assets.ts',
-		);
+		expect(scripts['build']).toBe('node --experimental-strip-types scripts/build-app.ts');
 		expect(scripts['audit:assets']).toBe(
 			'node --experimental-strip-types scripts/audit-dependencies-and-assets.ts',
 		);

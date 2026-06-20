@@ -13,6 +13,7 @@ import {
 	validatePackagedAppOutput,
 } from './app-asset-contract.ts';
 import { collectBuiltBundleAssets } from './build-app-assets-collector.ts';
+import { withBridgeWebAppBuildLock } from './build-app-assets-lock.ts';
 
 const packageRootPath = fileURLToPath(new URL('../', import.meta.url));
 const appDirectoryPath = fileURLToPath(
@@ -24,84 +25,92 @@ const bridgeAppCssSourcePath = join(packageRootPath, 'src/app/bridge-app.css');
 const bridgeAppCssAssetPath = join(appAssetsDirectoryPath, 'bridge-app.css');
 const portableWorkerAssetPath = 'workers/pierre-diffs-worker-portable.js';
 
-await resetGeneratedAppDirectory(appDirectoryPath);
-await mkdir(appAssetsDirectoryPath, { recursive: true });
-await mkdir(appWorkersDirectoryPath, { recursive: true });
+const runBuildAppAssets = async (): Promise<void> => {
+	await resetGeneratedAppDirectory(appDirectoryPath);
+	await mkdir(appAssetsDirectoryPath, { recursive: true });
+	await mkdir(appWorkersDirectoryPath, { recursive: true });
 
-await runCommand({
-	command: 'pnpm',
-	args: ['exec', 'tsdown', '--config', 'tsdown.config.ts'],
-	cwd: packageRootPath,
-});
-await removeGeneratedStyleAssets(appAssetsDirectoryPath);
-await runCommand({
-	command: 'pnpm',
-	args: [
-		'exec',
-		'tailwindcss',
-		'--input',
-		bridgeAppCssSourcePath,
-		'--output',
-		bridgeAppCssAssetPath,
-		'--minify',
-	],
-	cwd: packageRootPath,
-});
+	await runCommand({
+		command: 'pnpm',
+		args: ['exec', 'tsdown', '--config', 'tsdown.config.ts'],
+		cwd: packageRootPath,
+	});
+	await removeGeneratedStyleAssets(appAssetsDirectoryPath);
+	await runCommand({
+		command: 'pnpm',
+		args: [
+			'exec',
+			'tailwindcss',
+			'--input',
+			bridgeAppCssSourcePath,
+			'--output',
+			bridgeAppCssAssetPath,
+			'--minify',
+		],
+		cwd: packageRootPath,
+	});
 
-const portableWorkerSourceUrl = await resolvePublicPackageAsset(
-	'@pierre/diffs/worker/worker-portable.js',
-);
-await copyFile(
-	fileURLToPath(portableWorkerSourceUrl),
-	join(appDirectoryPath, portableWorkerAssetPath),
-);
-await normalizePackagedPierreWorker(join(appDirectoryPath, portableWorkerAssetPath));
-await normalizeGeneratedTextAssets(appDirectoryPath);
+	const portableWorkerSourceUrl = await resolvePublicPackageAsset(
+		'@pierre/diffs/worker/worker-portable.js',
+	);
+	await copyFile(
+		fileURLToPath(portableWorkerSourceUrl),
+		join(appDirectoryPath, portableWorkerAssetPath),
+	);
+	await normalizePackagedPierreWorker(join(appDirectoryPath, portableWorkerAssetPath));
+	await normalizeGeneratedTextAssets(appDirectoryPath);
 
-const builtAssets = await collectBuiltBundleAssets({
-	appDirectoryPath,
-	assetsDirectoryPath: appAssetsDirectoryPath,
-	entrypointName: 'bridge-app',
-});
-const mainScriptPath = builtAssets.mainScript;
-const stylePaths = builtAssets.styles;
-const markdownWorkerAssetPath = requiredAuxiliaryScriptPath({
-	auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
-	entrypointName: 'bridge-markdown-render-worker',
-});
-const manifest = await buildAppAssetManifest({
-	appDirectoryPath,
-	mainScriptPath,
-	auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
-	stylePaths,
-	workerAssets: [
-		{
-			kind: 'pierre-diffs-shiki',
-			path: portableWorkerAssetPath,
-			workerKind: 'classicWorker',
-			source: 'packagedAppAsset',
-		},
-		{
-			kind: 'bridge-markdown-render',
-			path: markdownWorkerAssetPath,
-			workerKind: 'moduleWorker',
-			source: 'packagedAppAsset',
-		},
-	],
-});
-const indexHtml = createAppIndexHtml({
-	mainScriptPath,
-	stylePaths,
-});
+	const builtAssets = await collectBuiltBundleAssets({
+		appDirectoryPath,
+		assetsDirectoryPath: appAssetsDirectoryPath,
+		entrypointName: 'bridge-app',
+	});
+	const mainScriptPath = builtAssets.mainScript;
+	const stylePaths = builtAssets.styles;
+	const markdownWorkerAssetPath = requiredAuxiliaryScriptPath({
+		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
+		entrypointName: 'bridge-markdown-render-worker',
+	});
+	const manifest = await buildAppAssetManifest({
+		appDirectoryPath,
+		mainScriptPath,
+		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
+		stylePaths,
+		workerAssets: [
+			{
+				kind: 'pierre-diffs-shiki',
+				path: portableWorkerAssetPath,
+				workerKind: 'classicWorker',
+				source: 'packagedAppAsset',
+			},
+			{
+				kind: 'bridge-markdown-render',
+				path: markdownWorkerAssetPath,
+				workerKind: 'moduleWorker',
+				source: 'packagedAppAsset',
+			},
+		],
+	});
+	const indexHtml = createAppIndexHtml({
+		mainScriptPath,
+		stylePaths,
+	});
 
-validatePackagedAppOutput({ indexHtml, manifest });
+	validatePackagedAppOutput({ indexHtml, manifest });
 
-await writeFile(
-	join(appDirectoryPath, appAssetManifestFileName),
-	formatAppAssetManifest(manifest),
-	'utf8',
-);
-await writeFile(join(appDirectoryPath, 'index.html'), indexHtml, 'utf8');
+	await writeFile(
+		join(appDirectoryPath, appAssetManifestFileName),
+		formatAppAssetManifest(manifest),
+		'utf8',
+	);
+	await writeFile(join(appDirectoryPath, 'index.html'), indexHtml, 'utf8');
+};
+
+if (process.env['BRIDGE_WEB_APP_BUILD_LOCK_HELD'] === '1') {
+	await runBuildAppAssets();
+} else {
+	await withBridgeWebAppBuildLock(runBuildAppAssets);
+}
 
 async function runCommand(props: {
 	readonly command: string;

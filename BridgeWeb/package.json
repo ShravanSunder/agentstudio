@@ -6,7 +6,7 @@
 	"scripts": {
 		"audit:assets": "node --experimental-strip-types scripts/audit-dependencies-and-assets.ts",
 		"benchmark:viewer": "vitest --config vitest.benchmark.config.ts run",
-		"build": "tsc --noEmit && node --experimental-strip-types scripts/build-app-assets.ts && node --experimental-strip-types scripts/normalize-build-output.ts && pnpm run audit:assets",
+		"build": "node --experimental-strip-types scripts/build-app.ts",
 		"check": "oxlint --type-aware && node --experimental-strip-types scripts/check-bridgeweb-architecture.ts && oxfmt --check . && tsc --noEmit",
 		"dev": "vite --host 127.0.0.1",
 		"fmt": "oxfmt .",
