@@ -272,13 +272,23 @@ extension CommandBarDataSource {
             revealInFinderItem(id: "wt-\(worktreeId.uuidString)", path: worktree.path, group: "Open", groupPriority: 0),
             CommandBarItem(
                 id: "wt-new-tab-\(worktreeId.uuidString)",
-                title: "New pane in new tab",
+                title: AppCommand.openNewTerminalInTab.definition.label,
                 icon: .system(.plusRectangle),
                 shortcutTrigger: newTabShortcut,
                 group: "Open",
                 groupPriority: 0,
                 action: .dispatchTargeted(.openNewTerminalInTab, target: worktreeId, targetType: .worktree),
                 command: .openNewTerminalInTab
+            ),
+            CommandBarItem(
+                id: "wt-review-\(worktreeId.uuidString)",
+                title: AppCommand.openBridgeReview.definition.label,
+                icon: AppCommand.openBridgeReview.definition.icon,
+                group: "Open",
+                groupPriority: 0,
+                keywords: ["review", "bridge", "diff"],
+                action: .dispatchTargeted(.openBridgeReview, target: worktreeId, targetType: .worktree),
+                command: .openBridgeReview
             ),
         ]
 

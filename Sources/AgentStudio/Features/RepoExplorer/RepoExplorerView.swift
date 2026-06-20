@@ -368,6 +368,13 @@ struct RepoExplorerView: View {
                                     targetType: .worktree
                                 )
                             },
+                            onReview: {
+                                AppCommandDispatcher.shared.dispatch(
+                                    .openBridgeReview,
+                                    target: resolvedWorktreeContext.worktree.id,
+                                    targetType: .worktree
+                                )
+                            },
                             onOpenInPane: {
                                 AppCommandDispatcher.shared.dispatch(
                                     .openWorktreeInPane,
