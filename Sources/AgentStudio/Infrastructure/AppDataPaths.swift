@@ -8,6 +8,7 @@ import Foundation
 /// - `AGENTSTUDIO_DATA_DIR` overrides both when set
 enum AppDataPaths {
     static let dataDirectoryEnvironmentKey = "AGENTSTUDIO_DATA_DIR"
+    static let traceProofTokenEnvironmentKey = "AGENTSTUDIO_TRACE_PROOF_TOKEN"
 
     enum ReleaseChannel: String {
         case stable
@@ -27,6 +28,17 @@ enum AppDataPaths {
         #else
             false
         #endif
+    }
+
+    static func allowsDebugHarnessEnvironmentOverrides(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isDebugBuild: Bool = Self.isDebugBuild
+    ) -> Bool {
+        guard isDebugBuild else { return false }
+        return
+            !(environment[traceProofTokenEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ?? true)
     }
 
     static func rootDirectory(

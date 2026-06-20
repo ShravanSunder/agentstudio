@@ -103,6 +103,10 @@ struct ShortcutTrigger: Hashable, Sendable {
         return keys.joined()
     }
 
+    var displayText: ShortcutDisplayText {
+        ShortcutDisplayText(value: displayString)
+    }
+
     var keyBinding: KeyBinding? {
         guard case .character(let key) = key else { return nil }
         return KeyBinding(key: key.rawValue, modifiers: modifiers)

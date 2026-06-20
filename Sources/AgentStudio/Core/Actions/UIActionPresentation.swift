@@ -7,21 +7,51 @@ struct ActionSpec: Equatable, Sendable {
 }
 
 extension ActionSpec {
+    func controlTooltipSource(
+        provenance: CommandDisplayProvenance,
+        textOverride: String? = nil,
+        shortcutText: ShortcutDisplayText? = nil
+    ) -> ControlTooltipSource {
+        .display(
+            CommandDisplayDescriptor(
+                provenance: provenance,
+                label: label,
+                helpText: helpText,
+                compactTooltipText: textOverride,
+                shortcutDisplayText: shortcutText
+            ))
+    }
+
+    func controlTooltipRenderValue(
+        provenance: CommandDisplayProvenance,
+        textOverride: String? = nil,
+        shortcutText: ShortcutDisplayText? = nil
+    ) -> ControlTooltipRenderValue {
+        ControlTooltipResolver.resolve(
+            controlTooltipSource(
+                provenance: provenance,
+                textOverride: textOverride,
+                shortcutText: shortcutText
+            ))
+    }
+
     func controlToolTip(
         textOverride: String? = nil,
-        shortcutText: String? = nil
+        shortcutText: ShortcutDisplayText? = nil
     ) -> String {
-        let baseText = textOverride ?? label
-
-        guard let shortcutText else {
-            return baseText
-        }
-
-        return "\(baseText) (\(shortcutText))"
+        controlTooltipRenderValue(
+            provenance: .localAction(rawValue: label),
+            textOverride: textOverride,
+            shortcutText: shortcutText
+        ).text
     }
 }
 
 extension KeyBinding {
+    var displayText: ShortcutDisplayText {
+        ShortcutDisplayText(value: displayString)
+    }
+
     var displayString: String {
         var keys: [String] = []
         if modifiers.contains(.command) { keys.append("⌘") }
@@ -34,48 +64,6 @@ extension KeyBinding {
 
     private var displayKey: String {
         key.count == 1 ? key.uppercased() : key
-    }
-}
-
-extension AppCommandSpec {
-    var actionSpec: ActionSpec {
-        ActionSpec(
-            label: label,
-            helpText: helpText,
-            icon: icon
-        )
-    }
-
-    var controlToolTip: String {
-        controlToolTip()
-    }
-
-    func controlToolTip(
-        textOverride: String? = nil,
-        includeShortcut: Bool = true,
-        shortcutTextOverride: String? = nil
-    ) -> String {
-        let baseText: String
-
-        if let textOverride {
-            baseText = textOverride
-        } else if commandBarShortcutTrigger != nil {
-            baseText = actionSpec.label
-        } else {
-            baseText = actionSpec.helpText
-        }
-
-        guard includeShortcut else {
-            return baseText
-        }
-
-        let shortcutText = shortcutTextOverride ?? commandBarShortcutTrigger?.displayString
-
-        guard let shortcutText else {
-            return baseText
-        }
-
-        return "\(baseText) (\(shortcutText))"
     }
 }
 

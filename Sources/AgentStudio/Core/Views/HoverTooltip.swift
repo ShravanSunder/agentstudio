@@ -40,10 +40,10 @@ enum HoverTooltipPlacement {
 }
 
 struct HoverTooltipBubble: View {
-    let text: String
+    let renderValue: ControlTooltipRenderValue
 
     var body: some View {
-        Text(text)
+        Text(renderValue.text)
             .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
@@ -97,7 +97,7 @@ struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
     let activeTarget: Target?
     let anchorFrames: [Target: CGRect]
     let availableWidth: CGFloat
-    let tooltipText: (Target) -> String?
+    let tooltipValue: (Target) -> ControlTooltipRenderValue?
     let verticalAnchor: HoverTooltipPlacement.VerticalAnchor
     let verticalOffset: CGFloat
     let edgeInset: CGFloat
@@ -111,7 +111,7 @@ struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
         verticalAnchor: HoverTooltipPlacement.VerticalAnchor = .containerTop,
         verticalOffset: CGFloat = HoverTooltipPlacement.defaultVerticalOffset,
         edgeInset: CGFloat = HoverTooltipPlacement.defaultEdgeInset,
-        tooltipText: @escaping (Target) -> String?
+        tooltipValue: @escaping (Target) -> ControlTooltipRenderValue?
     ) {
         self.activeTarget = activeTarget
         self.anchorFrames = anchorFrames
@@ -119,15 +119,15 @@ struct FloatingHoverTooltipPresenter<Target: Hashable>: View {
         self.verticalAnchor = verticalAnchor
         self.verticalOffset = verticalOffset
         self.edgeInset = edgeInset
-        self.tooltipText = tooltipText
+        self.tooltipValue = tooltipValue
     }
 
     var body: some View {
         if let activeTarget,
-            let text = tooltipText(activeTarget),
+            let renderValue = tooltipValue(activeTarget),
             let anchorFrame = anchorFrames[activeTarget]
         {
-            HoverTooltipBubble(text: text)
+            HoverTooltipBubble(renderValue: renderValue)
                 .background(
                     GeometryReader { tooltipGeometryProxy in
                         Color.clear.preference(

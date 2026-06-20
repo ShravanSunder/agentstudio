@@ -152,6 +152,22 @@ struct InboxNotificationSidebarViewTests {
         #expect(InboxSidebarKeyboardHint.toggleRead == "Space")
     }
 
+    @Test("root shortcut descriptors own route and display")
+    func rootShortcutDescriptorsOwnRouteAndDisplay() throws {
+        let toggleSort = try #require(
+            InboxSidebarShortcutCatalog.descriptor(for: .toggleSort)
+        )
+        let grouping = try #require(
+            InboxSidebarShortcutCatalog.descriptor(for: .toggleGroupingMenu)
+        )
+
+        #expect(toggleSort.displayText == ShortcutDisplayText(value: InboxSidebarKeyboardHint.toggleSort))
+        #expect(grouping.displayText == ShortcutDisplayText(value: InboxSidebarKeyboardHint.toggleGroupingMenu))
+        #expect(toggleSort.matches(characters: "s", key: "s", modifiers: .option))
+        #expect(grouping.matches(characters: "g", key: "g", modifiers: .option))
+        #expect(!toggleSort.matches(characters: "s", key: "s", modifiers: .command))
+    }
+
     @Test("clear action dispatches the clear read inbox command")
     func clearActionDispatchesClearReadInboxCommand() async throws {
         let router = MockAppCommandRouter()

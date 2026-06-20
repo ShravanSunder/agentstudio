@@ -49,6 +49,31 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
+    @Test("titlebar sidebar controls apply typed AppKit tooltips")
+    func sidebarControlsApplyTypedAppKitTooltips() async {
+        await withMainWindowControllerHarness { harness in
+            let worktreeButton =
+                findDescendant(
+                    in: harness.window,
+                    identifier: "worktreeToolbarButton"
+                ) as? NSButton
+            let bellButton =
+                findDescendant(
+                    in: harness.window,
+                    identifier: "inboxToolbarBell"
+                ) as? NSButton
+
+            #expect(
+                worktreeButton?.toolTip
+                    == AppCommand.showWorktreeSidebar.definition.controlTooltipRenderValue().text
+            )
+            #expect(
+                bellButton?.toolTip
+                    == AppCommand.showInboxNotifications.definition.controlTooltipRenderValue().text
+            )
+        }
+    }
+
     @Test("sidebar toolbar icons track active surface")
     func sidebarToolbarIconsTrackActiveSurface() async {
         await withMainWindowControllerHarness { harness in

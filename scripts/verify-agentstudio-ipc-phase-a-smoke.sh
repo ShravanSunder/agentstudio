@@ -143,6 +143,20 @@ def require_success(response, label):
     return response.get("result", {})
 
 
+def require_error(response, label, expected_code, expected_message):
+    error = response.get("error")
+    if error is None:
+        print(f"{label} unexpectedly succeeded: {response.get('result', {})}", file=sys.stderr)
+        sys.exit(1)
+    if error.get("code") != expected_code or error.get("message") != expected_message:
+        print(
+            f"{label} returned unexpected error: {error}; "
+            f"expected code={expected_code} message={expected_message!r}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 session = JSONRPCSession(socket_path)
 try:
     login_result = require_success(
@@ -152,6 +166,20 @@ try:
     if login_result.get("authenticated") is not True:
         print(f"auth.login did not authenticate: {login_result}", file=sys.stderr)
         sys.exit(1)
+    if os.path.exists(debug_token_path):
+        print(f"AgentStudio IPC debug token was not consumed: {debug_token_path}", file=sys.stderr)
+        sys.exit(1)
+
+    replay_session = JSONRPCSession(socket_path)
+    try:
+        require_error(
+            replay_session.request(900, "auth.login", {"token": debug_token}),
+            "auth.login replay",
+            -32001,
+            "unauthenticated",
+        )
+    finally:
+        replay_session.close()
 
     capabilities = require_success(
         session.request(2, "system.capabilities", {}),
@@ -193,6 +221,70 @@ try:
     canonical_result_pane_id = canonical_snapshot.get("pane", {}).get("id")
     if f"pane:{canonical_result_pane_id}" != canonical_pane_handle:
         print("pane.snapshot canonical result does not match requested pane", file=sys.stderr)
+        sys.exit(1)
+
+    command_list = require_success(
+        session.request(6, "command.list", {}),
+        "command.list",
+    )
+    commands = command_list.get("commands", [])
+    if not commands:
+        print("command.list returned no commands", file=sys.stderr)
+        sys.exit(1)
+    command_bar_entry = next(
+        (
+            command
+            for command in commands
+            if command.get("id") == "showCommandBarCommands"
+        ),
+        None,
+    )
+    if command_bar_entry is None:
+        print("command.list did not include showCommandBarCommands", file=sys.stderr)
+        sys.exit(1)
+    if command_bar_entry.get("title") != "Command Palette":
+        print(f"showCommandBarCommands title mismatch: {command_bar_entry}", file=sys.stderr)
+        sys.exit(1)
+    allowed_command_keys = {
+        "id",
+        "title",
+        "executionModes",
+        "targetKinds",
+        "requiredPrivileges",
+    }
+    for command in commands:
+        unexpected_keys = set(command.keys()) - allowed_command_keys
+        if unexpected_keys:
+            print(
+                f"command.list leaked non-IPC command metadata keys {sorted(unexpected_keys)}: {command}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    require_error(
+        session.request(
+            7,
+            "command.execute",
+            {"commandId": "showCommandBarCommands", "targetHandle": None},
+        ),
+        "command.execute showCommandBarCommands",
+        -32003,
+        "requires presentation",
+    )
+
+    command_bar_open = require_success(
+        session.request(
+            8,
+            "ui.commandBar.open",
+            {"scope": "commands"},
+        ),
+        "ui.commandBar.open commands",
+    )
+    if command_bar_open.get("scope") != "commands":
+        print(f"ui.commandBar.open did not report commands scope: {command_bar_open}", file=sys.stderr)
+        sys.exit(1)
+    if not command_bar_open.get("workspaceWindowId"):
+        print(f"ui.commandBar.open result missing workspaceWindowId: {command_bar_open}", file=sys.stderr)
         sys.exit(1)
 
     print(f"AgentStudio IPC Phase A smoke passed for {canonical_pane_handle}")

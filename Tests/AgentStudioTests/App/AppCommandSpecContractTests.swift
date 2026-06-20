@@ -87,6 +87,39 @@ struct CommandSpecContractTests {
         }
     }
 
+    @Test("app command specs project typed tooltip descriptors")
+    func appCommandSpecsProjectTypedTooltipDescriptors() {
+        let definition = AppCommand.openPaneLocationInEditorMenu.definition
+
+        let descriptor = definition.commandDisplayDescriptor(compactTooltipText: "Open in Editor")
+
+        #expect(descriptor.provenance == .appCommand(rawValue: "openPaneLocationInEditorMenu"))
+        #expect(descriptor.label == definition.label)
+        #expect(descriptor.helpText == definition.helpText)
+        #expect(descriptor.compactTooltipText == "Open in Editor")
+        #expect(descriptor.shortcutDisplayText == ShortcutDisplayText(value: "⌘⌥O"))
+        #expect(
+            ControlTooltipResolver.resolve(.display(descriptor))
+                == definition.controlTooltipRenderValue(textOverride: "Open in Editor")
+        )
+        #expect(definition.controlToolTip(textOverride: "Open in Editor") == "Open in Editor (⌘⌥O)")
+    }
+
+    @Test("app command tooltip source preserves help-text fallback without shortcut")
+    func appCommandTooltipSourcePreservesHelpTextFallbackWithoutShortcut() {
+        let definition = AppCommandSpec(
+            command: .renameArrangement,
+            label: "Rename Arrangement",
+            icon: .system(.pencil),
+            helpText: "Rename the current arrangement"
+        )
+
+        let renderValue = ControlTooltipResolver.resolve(definition.controlTooltipSource())
+
+        #expect(renderValue.text == "Rename the current arrangement")
+        #expect(renderValue.shortcutDisplayText == nil)
+    }
+
     private func makeCommandRichStore() -> WorkspaceStore {
         let store = WorkspaceStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/command-spec-contracts"))

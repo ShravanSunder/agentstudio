@@ -95,6 +95,7 @@ enum AppPolicies {
     }
 
     enum StartupDiagnostic {
+        static let appActivationTimeout: Duration = .seconds(2)
         static let launchRestoreBoundsTimeout: Duration = .seconds(3)
         static let ipcTerminalSmokeReadinessTimeout: Duration = .seconds(10)
     }
