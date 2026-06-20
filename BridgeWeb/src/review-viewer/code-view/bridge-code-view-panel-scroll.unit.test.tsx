@@ -284,6 +284,8 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		);
 		expect(collapseButton).not.toBeNull();
 		expect(collapseButton?.getAttribute('aria-expanded')).toBe('true');
+		expect(collapseButton?.className).toContain('size-6');
+		expect(collapseButton?.className).toContain('hover:border-[var(--bridge-border-opaque)]');
 
 		await act(async (): Promise<void> => {
 			collapseButton?.click();
@@ -421,10 +423,12 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		});
 
 		expect(codeViewDoubles.getInstanceRender).toHaveBeenCalledTimes(1);
-		expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+		expect(requestAnimationFrameSpy).toHaveBeenCalled();
 
 		await act(async (): Promise<void> => {
-			animationFrameCallbacks[0]?.(performance.now());
+			for (const animationFrameCallback of animationFrameCallbacks) {
+				animationFrameCallback(performance.now());
+			}
 			await Promise.resolve();
 		});
 

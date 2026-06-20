@@ -10,7 +10,7 @@ import {
 	bridgeViewerVisibleCodeTextContent,
 	bridgeViewerVisibleTreeTextContent,
 	clickBridgeViewerFilterMenuOption,
-	clickBridgeViewerProjectionButton,
+	clickBridgeViewerProjectionMenuOption,
 	collapseBridgeViewerTreeFolder,
 	expandBridgeViewerTreeFolder,
 	requireBridgeViewerHTMLElement,
@@ -419,7 +419,7 @@ async function measureWarmFilterSwitch(): Promise<BridgeViewerBrowserPerformance
 async function measureWarmProjectionChipSwitch(): Promise<BridgeViewerBrowserPerformanceSample> {
 	const { backend, fixture } = await mountInteractiveFixture();
 	const startedAt = performance.now();
-	clickBridgeViewerProjectionButton('Docs/plans');
+	await clickBridgeViewerProjectionMenuOption('Docs/plans');
 	const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 	await waitForBridgeViewerTreeItemAbsent(fixture.expected.initialPath);
 	const durationMilliseconds = performance.now() - startedAt;

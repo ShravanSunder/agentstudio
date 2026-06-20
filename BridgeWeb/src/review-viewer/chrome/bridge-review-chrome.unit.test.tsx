@@ -47,21 +47,21 @@ describe('Bridge review chrome controls', () => {
 		mountedRoot = createRoot(container);
 
 		act((): void => {
-			mountedRoot?.render(<BridgeReviewSearchControl onChange={() => undefined} value="" />);
+			mountedRoot?.render(
+				<BridgeReviewSearchControl isActive={false} onOpenSearch={() => undefined} />,
+			);
 		});
 
-		const input = requireElement(
-			container.querySelector<HTMLInputElement>('[data-testid="bridge-review-search-input"]'),
+		const button = requireElement(
+			container.querySelector<HTMLButtonElement>('[data-testid="bridge-review-search-toggle"]'),
 		);
 
-		expect(input.dataset['slot']).toBe('input');
-		expect(input.type).toBe('text');
-		expect(input.role).toBe('searchbox');
-		expect(input.autocomplete).toBe('off');
+		expect(button.type).toBe('button');
+		expect(container.querySelector('input[role="searchbox"]')).toBeNull();
 	});
 
-	test('search trigger focuses the hidden-until-open searchbox before typing', () => {
-		const changes: string[] = [];
+	test('search trigger opens the Pierre tree search row instead of rendering a second input', () => {
+		let openRequestCount = 0;
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -69,10 +69,10 @@ describe('Bridge review chrome controls', () => {
 		act((): void => {
 			mountedRoot?.render(
 				<BridgeReviewSearchControl
-					onChange={(value: string): void => {
-						changes.push(value);
+					isActive={false}
+					onOpenSearch={(): void => {
+						openRequestCount += 1;
 					}}
-					value=""
 				/>,
 			);
 		});
@@ -80,37 +80,30 @@ describe('Bridge review chrome controls', () => {
 		const button = requireElement(
 			container.querySelector('[data-testid="bridge-review-search-toggle"]'),
 		);
-		const input = requireElement(
-			container.querySelector<HTMLInputElement>('input[role="searchbox"]'),
-		);
 
 		act((): void => {
 			button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 		});
-		expect(document.activeElement).toBe(input);
-
-		input.value = '332';
-		input.dispatchEvent(new Event('input', { bubbles: true }));
-		expect(input.value).toBe('332');
+		expect(openRequestCount).toBe(1);
+		expect(container.querySelector('input[role="searchbox"]')).toBeNull();
 	});
 
-	test('search input stays inline with the rail toolbar instead of floating over the tree', () => {
+	test('search trigger stays icon-only in the rail toolbar', () => {
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
 
 		act((): void => {
-			mountedRoot?.render(<BridgeReviewSearchControl onChange={() => undefined} value="heap" />);
+			mountedRoot?.render(<BridgeReviewSearchControl isActive onOpenSearch={() => undefined} />);
 		});
 
-		const input = requireElement(
-			container.querySelector<HTMLInputElement>('[data-testid="bridge-review-search-input"]'),
+		const button = requireElement(
+			container.querySelector<HTMLButtonElement>('[data-testid="bridge-review-search-toggle"]'),
 		);
 
-		expect(input.className).not.toContain('absolute');
-		expect(input.className).toContain('w-36');
-		expect(input.className).toContain('group-focus-within/search:w-36');
-		expect(input.className).toContain('focus:w-36');
+		expect(button.className).toContain('h-7');
+		expect(button.className).toContain('w-7');
+		expect(button.className).toContain('bg-[var(--bridge-accent-soft)]');
 	});
 
 	test('filter menu trigger uses an icon chevron instead of a text glyph', () => {

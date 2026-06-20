@@ -41,6 +41,7 @@ export interface ReviewViewerShellProps {
 	readonly selectedItemId: string | null;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly selectedContentText?: string | null;
+	readonly codeViewContentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
 	readonly selectedContentUnavailablePath?: string | null;
 	readonly selectedMarkdownPreviewHtml?: string | null;
@@ -50,11 +51,14 @@ export interface ReviewViewerShellProps {
 	readonly projectionMode?: BridgeReviewProjectionMode;
 	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
 	readonly treeSearchText?: string;
+	readonly treeSearchOpen?: boolean;
+	readonly onTreeSearchOpen?: () => void;
 	readonly onTreeSearchTextChange?: (searchText: string) => void;
 	readonly gitStatusFilter?: BridgeFileChangeKind | 'all';
 	readonly onGitStatusFilterChange?: (status: BridgeFileChangeKind | 'all') => void;
 	readonly fileClassFilter?: BridgeFileClass | 'all';
 	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
+	readonly onRenderedCodeViewItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 }
@@ -111,6 +115,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
 	const fileClassFilter = props.fileClassFilter ?? 'all';
 	const treeSearchText = props.treeSearchText ?? '';
+	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
 	const projection = props.projection;
 
 	return (
@@ -150,6 +155,16 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								selectedContentResources={props.selectedContentResources ?? null}
 								selectedItemId={props.selectedItemId}
 								telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
+								{...(props.codeViewContentResourcesByItemId === undefined
+									? {}
+									: {
+											contentResourcesByItemId: props.codeViewContentResourcesByItemId,
+										})}
+								{...(props.onRenderedCodeViewItemIdsChange === undefined
+									? {}
+									: {
+											onRenderedItemIdsChange: props.onRenderedCodeViewItemIdsChange,
+										})}
 								{...(props.codeViewWorkerPoolEnabled === undefined
 									? {}
 									: { workerPoolEnabled: props.codeViewWorkerPoolEnabled })}
@@ -211,8 +226,8 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								<div data-testid="bridge-review-search-control-slot">
 									<span className="sr-only">Search files</span>
 									<BridgeReviewSearchControl
-										onChange={(value: string): void => props.onTreeSearchTextChange?.(value)}
-										value={treeSearchText}
+										isActive={treeSearchOpen}
+										onOpenSearch={(): void => props.onTreeSearchOpen?.()}
 									/>
 								</div>
 								<div className="shrink-0" data-testid="bridge-review-git-status-menu">
@@ -252,6 +267,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								onSelectItem={props.onSelectItem}
 								projection={projection}
 								reviewPackage={props.reviewPackage}
+								searchOpen={treeSearchOpen}
 								searchText={treeSearchText}
 								selectedItemId={props.selectedItemId}
 							/>

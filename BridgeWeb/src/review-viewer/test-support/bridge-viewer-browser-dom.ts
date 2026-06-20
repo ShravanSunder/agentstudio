@@ -183,22 +183,14 @@ export async function expandBridgeViewerTreeFolder(path: string): Promise<HTMLBu
 }
 
 export function setBridgeViewerSearchText(searchText: string): void {
-	const searchInput = document.querySelector<HTMLInputElement>(
-		'[data-testid="bridge-review-search-control"] input[role="searchbox"]',
+	window.dispatchEvent(
+		new CustomEvent('__bridge_review_control', {
+			detail: {
+				method: 'bridge.fileTree.search',
+				searchText,
+			},
+		}),
 	);
-	if (searchInput === null) {
-		throw new Error('expected Bridge viewer search input');
-	}
-	const valueSetter = Object.getOwnPropertyDescriptor(
-		HTMLInputElement.prototype,
-		'value',
-	)?.set?.bind(searchInput);
-	if (valueSetter === undefined) {
-		throw new Error('expected HTMLInputElement value setter');
-	}
-	searchInput.focus();
-	valueSetter(searchText);
-	searchInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
 }
 
 export async function clickBridgeViewerFilterMenuOption(
@@ -249,15 +241,23 @@ async function clickBridgeViewerFilterMenuOptionWhenReady(props: {
 	});
 }
 
-export function clickBridgeViewerProjectionButton(label: string): void {
-	const projectionButton = [...document.querySelectorAll('button')].find(
-		(candidate: Element): candidate is HTMLButtonElement =>
-			candidate instanceof HTMLButtonElement && (candidate.textContent ?? '').trim() === label,
+export async function clickBridgeViewerProjectionMenuOption(
+	label: string,
+	remainingAttempts = 20,
+): Promise<void> {
+	const menuTrigger = document.querySelector(
+		'[data-testid="bridge-review-projection-menu-control"]',
 	);
-	if (projectionButton === undefined) {
-		throw new Error(`expected Bridge viewer projection button ${label}`);
+	if (!(menuTrigger instanceof HTMLButtonElement)) {
+		throw new Error('expected Bridge viewer projection menu control');
 	}
-	projectionButton.click();
+	menuTrigger.focus();
+	menuTrigger.click();
+	await clickBridgeViewerFilterMenuOptionWhenReady({
+		label,
+		scope: document,
+		remainingAttempts,
+	});
 }
 
 export function findBridgeViewerTreeItemButton(path: string): HTMLButtonElement | null {

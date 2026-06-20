@@ -14,7 +14,7 @@ import {
 	bridgeViewerVisibleCodeTextContent,
 	bridgeViewerVisibleTreeTextContent,
 	clickBridgeViewerFilterMenuOption,
-	clickBridgeViewerProjectionButton,
+	clickBridgeViewerProjectionMenuOption,
 	collapseBridgeViewerTreeFolder,
 	expandBridgeViewerTreeFolder,
 	findBridgeViewerTreeItemButton,
@@ -221,6 +221,32 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
+	test('visible added files hydrate without requiring file selection', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushPackage();
+		await waitForBridgeViewerText(fixture.expected.initialText);
+
+		await waitForBridgeViewerText(fixture.expected.addedText);
+
+		expect(
+			backend.requestedUrls.some((url: string): boolean =>
+				url.includes(fixture.expected.addedHeadHandleId),
+			),
+		).toBe(true);
+
+		backend.dispose();
+	});
+
 	test('collapsed unchanged hunk separators expand additional context', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
@@ -274,6 +300,62 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		collapseButton.click();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
+		expect(collapseButton.getAttribute('aria-expanded')).toBe('true');
+
+		backend.dispose();
+	});
+
+	test('CodeView file header collapse preserves mid-viewport header position', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushPackage();
+		await waitForBridgeViewerText(fixture.expected.initialText);
+		await waitForBridgeViewerText(fixture.expected.addedText);
+
+		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
+		scrollOwner.scrollTop = Math.min(2_000, scrollOwner.scrollHeight - scrollOwner.clientHeight);
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		const collapseButton = await waitForVisibleBridgeCodeHeaderCollapseButtonInOffsetRange({
+			maxOffset: 480,
+			minOffset: 120,
+			scrollOwner,
+		});
+		const beforeOffset = bridgeCodeHeaderOffsetFromScrollOwner({
+			collapseButton,
+			scrollOwner,
+		});
+
+		collapseButton.click();
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		const afterCollapseOffset = bridgeCodeHeaderOffsetFromScrollOwner({
+			collapseButton,
+			scrollOwner,
+		});
+		expect(Math.abs(afterCollapseOffset - beforeOffset)).toBeLessThanOrEqual(2);
+		expect(collapseButton.getAttribute('aria-expanded')).toBe('false');
+
+		collapseButton.click();
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		const afterExpandOffset = bridgeCodeHeaderOffsetFromScrollOwner({
+			collapseButton,
+			scrollOwner,
+		});
+		expect(Math.abs(afterExpandOffset - beforeOffset)).toBeLessThanOrEqual(2);
 		expect(collapseButton.getAttribute('aria-expanded')).toBe('true');
 
 		backend.dispose();
@@ -539,7 +621,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const initialProjectionRequestCount = backend.projectionRequests.length;
 		expect(findBridgeViewerTreeItemButton(fixture.expected.initialPath)).not.toBeNull();
 
-		clickBridgeViewerProjectionButton('Docs/plans');
+		await clickBridgeViewerProjectionMenuOption('Docs/plans');
 		const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 		await waitForBridgeViewerTreeItemAbsent(fixture.expected.initialPath);
 
@@ -926,4 +1008,60 @@ function resourceUrlFromFetchInput(input: RequestInfo | URL): string {
 		return input.href;
 	}
 	return input.url;
+}
+
+interface WaitForVisibleBridgeCodeHeaderCollapseButtonInOffsetRangeProps {
+	readonly maxOffset: number;
+	readonly minOffset: number;
+	readonly scrollOwner: HTMLElement;
+}
+
+async function waitForVisibleBridgeCodeHeaderCollapseButtonInOffsetRange(
+	props: WaitForVisibleBridgeCodeHeaderCollapseButtonInOffsetRangeProps,
+	remainingAttempts = 180,
+): Promise<HTMLButtonElement> {
+	for (const collapseButton of bridgeCodeHeaderCollapseButtons()) {
+		const offset = bridgeCodeHeaderOffsetFromScrollOwner({
+			collapseButton,
+			scrollOwner: props.scrollOwner,
+		});
+		if (offset >= props.minOffset && offset <= props.maxOffset) {
+			return collapseButton;
+		}
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`expected visible Bridge CodeView header collapse button between ${props.minOffset} and ${props.maxOffset}`,
+		);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	return await waitForVisibleBridgeCodeHeaderCollapseButtonInOffsetRange(
+		props,
+		remainingAttempts - 1,
+	);
+}
+
+function bridgeCodeHeaderCollapseButtons(): readonly HTMLButtonElement[] {
+	const lightDomButtons = [
+		...document.querySelectorAll('[data-testid="bridge-code-view-header-collapse-button"]'),
+	].filter((button): button is HTMLButtonElement => button instanceof HTMLButtonElement);
+	const shadowButtons = [...document.querySelectorAll('diffs-container')].flatMap(
+		(container: Element): readonly HTMLButtonElement[] =>
+			[
+				...(container.shadowRoot?.querySelectorAll(
+					'[data-testid="bridge-code-view-header-collapse-button"]',
+				) ?? []),
+			].filter((button): button is HTMLButtonElement => button instanceof HTMLButtonElement),
+	);
+	return [...lightDomButtons, ...shadowButtons];
+}
+
+function bridgeCodeHeaderOffsetFromScrollOwner(props: {
+	readonly collapseButton: HTMLElement;
+	readonly scrollOwner: HTMLElement;
+}): number {
+	return (
+		props.collapseButton.getBoundingClientRect().top - props.scrollOwner.getBoundingClientRect().top
+	);
 }

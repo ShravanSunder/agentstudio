@@ -39,11 +39,27 @@ try {
 
 async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationResult> {
 	const reviewPackage = await fetchWorktreeReviewPackage();
-	const targetItem = Object.values(reviewPackage.itemsById).find((item) =>
-		targetPathOverride === null
-			? item.contentRoles.head !== null && item.contentRoles.head !== undefined
-			: item.headPath === targetPathOverride || item.basePath === targetPathOverride,
-	);
+	const targetItem =
+		Object.values(reviewPackage.itemsById).find((item) =>
+			targetPathOverride === null
+				? item.changeKind === 'added' &&
+					item.headPath === 'BridgeWeb/scripts/app-asset-contract.ts' &&
+					item.contentRoles.head !== null &&
+					item.contentRoles.head !== undefined
+				: item.headPath === targetPathOverride || item.basePath === targetPathOverride,
+		) ??
+		Object.values(reviewPackage.itemsById).find((item) =>
+			targetPathOverride === null
+				? item.changeKind === 'added' &&
+					item.contentRoles.head !== null &&
+					item.contentRoles.head !== undefined
+				: item.headPath === targetPathOverride || item.basePath === targetPathOverride,
+		) ??
+		Object.values(reviewPackage.itemsById).find((item) =>
+			targetPathOverride === null
+				? item.contentRoles.head !== null && item.contentRoles.head !== undefined
+				: item.headPath === targetPathOverride || item.basePath === targetPathOverride,
+		);
 	if (targetItem === undefined) {
 		throw new Error(
 			targetPathOverride === null
@@ -68,6 +84,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 	const page = await makeVerificationPage();
 	try {
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+		await revealFileTreePath(page, targetPath);
 		await page.waitForFunction(
 			(path: string): boolean =>
 				document
@@ -128,6 +145,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		if (result.selectedCharacterCount <= 0 || result.selectedLineCount <= 0) {
 			throw new Error(`Expected materialized selected content for ${targetPath}`);
 		}
+		await assertSelectedHeaderCollapseRoundTrip(page, targetPath);
 		if (result.workerPoolState !== 'ready') {
 			throw new Error(`Expected worker pool ready, got ${result.workerPoolState ?? 'null'}`);
 		}
@@ -188,5 +206,123 @@ async function clickFileTreePath(page: Page, path: string): Promise<void> {
 	}, path);
 	if (!didClick) {
 		throw new Error(`Expected file tree row for ${path}`);
+	}
+}
+
+async function revealFileTreePath(page: Page, path: string): Promise<void> {
+	const basename = path.split('/').at(-1) ?? path;
+	await fillBridgeViewerFileTreeSearch(page, basename.replace(/\.[^.]+$/u, ''));
+}
+
+async function fillBridgeViewerFileTreeSearch(page: Page, searchText: string): Promise<void> {
+	await page.locator('button[data-testid="bridge-review-search-toggle"]').click();
+	await page.waitForFunction((): boolean => {
+		const searchInput = document
+			.querySelector('file-tree-container')
+			?.shadowRoot?.querySelector('input[role="searchbox"], input[type="search"], input');
+		return searchInput instanceof HTMLInputElement;
+	});
+	await page.evaluate((value: string): void => {
+		const searchInput = document
+			.querySelector('file-tree-container')
+			?.shadowRoot?.querySelector<HTMLInputElement>(
+				'input[role="searchbox"], input[type="search"], input',
+			);
+		if (searchInput === null || searchInput === undefined) {
+			throw new Error('Expected Bridge viewer file tree search input');
+		}
+		searchInput.value = value;
+		searchInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+		searchInput.focus();
+	}, searchText);
+}
+
+async function assertSelectedHeaderCollapseRoundTrip(page: Page, path: string): Promise<void> {
+	await waitForSelectedHeaderExpansion(page, path, 'true');
+	await clickSelectedHeaderCollapseButton(page, path);
+	await waitForSelectedHeaderExpansion(page, path, 'false');
+	await assertSelectedHeaderAnchored(page, path, 'collapsed');
+	await clickSelectedHeaderCollapseButton(page, path);
+	await waitForSelectedHeaderExpansion(page, path, 'true');
+	await assertSelectedHeaderAnchored(page, path, 'expanded');
+}
+
+async function clickSelectedHeaderCollapseButton(page: Page, path: string): Promise<void> {
+	const didClick = await page.evaluate((targetPath: string): boolean => {
+		for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
+			if (container.shadowRoot?.textContent?.includes(targetPath) !== true) {
+				continue;
+			}
+			const headerButton = container.querySelector(
+				'[data-testid="bridge-code-view-header-collapse-button"]',
+			);
+			if (headerButton instanceof HTMLButtonElement) {
+				headerButton.click();
+				return true;
+			}
+			return false;
+		}
+		return false;
+	}, path);
+	if (!didClick) {
+		throw new Error(`Expected selected CodeView header collapse button for ${path}`);
+	}
+}
+
+async function waitForSelectedHeaderExpansion(
+	page: Page,
+	path: string,
+	ariaExpanded: 'false' | 'true',
+): Promise<void> {
+	await page.waitForFunction(
+		(props: { readonly path: string; readonly ariaExpanded: 'false' | 'true' }): boolean => {
+			for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
+				if (container.shadowRoot?.textContent?.includes(props.path) !== true) {
+					continue;
+				}
+				const button = container.querySelector(
+					'[data-testid="bridge-code-view-header-collapse-button"]',
+				);
+				return button?.getAttribute('aria-expanded') === props.ariaExpanded;
+			}
+			return false;
+		},
+		{ path, ariaExpanded },
+		{ timeout: 10_000 },
+	);
+}
+
+async function assertSelectedHeaderAnchored(
+	page: Page,
+	path: string,
+	phase: 'collapsed' | 'expanded',
+): Promise<void> {
+	const topOffset = await page.evaluate((targetPath: string): number | null => {
+		const scrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+		const scrollOwnerBounds =
+			scrollOwner instanceof HTMLElement ? scrollOwner.getBoundingClientRect() : null;
+		if (scrollOwnerBounds === null) {
+			return null;
+		}
+		for (const container of Array.from(document.querySelectorAll('diffs-container'))) {
+			if (container.shadowRoot?.textContent?.includes(targetPath) !== true) {
+				continue;
+			}
+			const button = container.querySelector(
+				'[data-testid="bridge-code-view-header-collapse-button"]',
+			);
+			if (!(button instanceof HTMLElement)) {
+				return null;
+			}
+			return button.getBoundingClientRect().top - scrollOwnerBounds.top;
+		}
+		return null;
+	}, path);
+	if (topOffset === null || topOffset < -2 || topOffset > 40) {
+		throw new Error(
+			`Expected worktree selected header to stay anchored after ${phase}, got ${
+				topOffset?.toString() ?? 'null'
+			}`,
+		);
 	}
 }

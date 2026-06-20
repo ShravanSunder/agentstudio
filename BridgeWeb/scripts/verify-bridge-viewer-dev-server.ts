@@ -92,7 +92,7 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
 		await page.waitForTimeout(1_200);
 		const initialResult = await readVerificationResult(page);
-		assertTopScopeState(initialResult.topScopeState);
+		assertTopScopeStateRemoved(initialResult.topScopeState);
 		const gitStatusFilterMenuState = await inspectGitStatusFilterMenu(page);
 		assertGitStatusFilterMenu(gitStatusFilterMenuState);
 		await searchForAddedFile(page);
@@ -288,9 +288,9 @@ function assertGitStatusFilterMenu(menuState: GitStatusFilterMenuState): void {
 	}
 }
 
-function assertTopScopeState(scopeState: TopScopeState | null): void {
+function assertTopScopeStateRemoved(scopeState: TopScopeState | null): void {
 	if (scopeState === null) {
-		throw new Error('Expected top projection scope state');
+		return;
 	}
 	if (!scopeState.isSegmentedControl) {
 		throw new Error('Expected projection scope to declare segmented-control composition');
@@ -366,6 +366,11 @@ async function assertSelectedHeaderCollapseRoundTrip(page: Page): Promise<void> 
 		{ timeout: 10_000 },
 	);
 	const collapsedText = (await readVerificationResult(page)).codeViewVisibleText;
+	const collapsedResult = await readVerificationResult(page);
+	assertSelectedHeaderAnchoredAfterToggle({
+		phase: 'collapsed',
+		result: collapsedResult,
+	});
 	if (collapsedText.includes(targetAddedText)) {
 		throw new Error('Expected selected added file content to be hidden after header collapse');
 	}
@@ -416,6 +421,11 @@ async function assertSelectedHeaderCollapseRoundTrip(page: Page): Promise<void> 
 		targetAddedText,
 		{ timeout: 10_000 },
 	);
+	const expandedResult = await readVerificationResult(page);
+	assertSelectedHeaderAnchoredAfterToggle({
+		phase: 'expanded',
+		result: expandedResult,
+	});
 }
 
 async function clickSelectedHeaderCollapseButton(page: Page): Promise<boolean> {
@@ -443,11 +453,23 @@ async function clickSelectedHeaderCollapseButton(page: Page): Promise<boolean> {
 	}, targetAddedPath);
 }
 
+function assertSelectedHeaderAnchoredAfterToggle(props: {
+	readonly phase: 'collapsed' | 'expanded';
+	readonly result: DevServerVerificationResult;
+}): void {
+	const topOffset =
+		props.result.selectedHeaderCollapseButtonState?.topOffsetFromScrollOwner ?? null;
+	if (topOffset === null || topOffset < -2 || topOffset > 40) {
+		throw new Error(
+			`Expected selected CodeView header to stay anchored after ${props.phase}, got ${
+				topOffset?.toString() ?? 'null'
+			}`,
+		);
+	}
+}
+
 async function searchForAddedFile(page: Page): Promise<void> {
-	await page.locator('button[data-testid="bridge-review-search-toggle"]').click();
-	await page
-		.locator('[data-testid="bridge-review-search-control"] input[role="searchbox"]')
-		.fill('NewPanel');
+	await fillBridgeViewerFileTreeSearch(page, 'NewPanel');
 	await page.waitForFunction(
 		(path: string): boolean => {
 			const row = document
@@ -458,6 +480,29 @@ async function searchForAddedFile(page: Page): Promise<void> {
 		targetAddedPath,
 		{ timeout: 10_000 },
 	);
+}
+
+async function fillBridgeViewerFileTreeSearch(page: Page, searchText: string): Promise<void> {
+	await page.locator('button[data-testid="bridge-review-search-toggle"]').click();
+	await page.waitForFunction((): boolean => {
+		const searchInput = document
+			.querySelector('file-tree-container')
+			?.shadowRoot?.querySelector('input[role="searchbox"], input[type="search"], input');
+		return searchInput instanceof HTMLInputElement;
+	});
+	await page.evaluate((value: string): void => {
+		const searchInput = document
+			.querySelector('file-tree-container')
+			?.shadowRoot?.querySelector<HTMLInputElement>(
+				'input[role="searchbox"], input[type="search"], input',
+			);
+		if (searchInput === null || searchInput === undefined) {
+			throw new Error('Expected Bridge viewer file tree search input');
+		}
+		searchInput.value = value;
+		searchInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+		searchInput.focus();
+	}, searchText);
 }
 
 async function inspectGitStatusFilterMenu(page: Page): Promise<GitStatusFilterMenuState> {

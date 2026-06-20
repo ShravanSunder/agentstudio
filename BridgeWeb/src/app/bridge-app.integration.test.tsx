@@ -512,11 +512,19 @@ describe('BridgeApp', () => {
 		expect(document.querySelector('[data-testid="review-viewer-shell"]')).not.toBeNull();
 
 		await act(async (): Promise<void> => {
-			const sourceButton = findButtonByText('Source');
-			if (sourceButton === null) {
-				throw new Error('expected source projection button');
+			const projectionMenuControl = document.querySelector<HTMLButtonElement>(
+				'[data-testid="bridge-review-projection-menu-control"]',
+			);
+			if (projectionMenuControl === null) {
+				throw new Error('expected projection menu control');
 			}
-			sourceButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			projectionMenuControl.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await Promise.resolve();
+			const sourceMenuItem = findMenuItemByText('Source');
+			if (sourceMenuItem === null) {
+				throw new Error('expected source projection menu item');
+			}
+			sourceMenuItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await Promise.resolve();
 		});
 
@@ -1949,12 +1957,16 @@ function findReviewTreeItemButton(path: string): HTMLButtonElement | null {
 	);
 }
 
-function findButtonByText(text: string): HTMLButtonElement | null {
-	const buttons = [...document.querySelectorAll('button')];
+function findMenuItemByText(text: string): HTMLElement | null {
+	const menuItems = [
+		...document.querySelectorAll(
+			'[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]',
+		),
+	];
 	return (
-		buttons.find(
-			(button): button is HTMLButtonElement =>
-				button instanceof HTMLButtonElement && button.textContent === text,
+		menuItems.find(
+			(menuItem): menuItem is HTMLElement =>
+				menuItem instanceof HTMLElement && (menuItem.textContent?.includes(text) ?? false),
 		) ?? null
 	);
 }

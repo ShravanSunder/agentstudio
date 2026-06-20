@@ -531,6 +531,9 @@ Write surfaces:
 - `BridgeWeb/src/app/bridge-app-dev-fixture.unit.test.ts`
 - `BridgeWeb/scripts/app-asset-contract.ts`
 - `BridgeWeb/scripts/app-asset-contract.unit.test.ts`
+- `BridgeWeb/scripts/verify-bridge-viewer-dev-server.ts`
+- `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts`
+- `BridgeWeb/scripts/capture-bridge-viewer-dev-visual-proof.ts`
 
 Implementation:
 
@@ -565,6 +568,22 @@ Implementation:
 - The large-diff spec supersedes the older dev-harness default of
   `medium-agentstudio`: default route is `large-diffshub` once Task 2 fixture
   repair is complete. The older `delivery` parameter remains supported.
+- Rewrite the dev-server proof scripts as fixture-aware harnesses, not
+  path-specific demos:
+  - no hardcoded `Sources/BridgeViewer/NewPanel.ts` or `NewPanel` search text
+    in verifier logic
+  - resolve target paths from fixture metadata or the active
+    `file-tree-container` DOM
+  - record `targetDisplayPath`, `selectedDisplayPath`, fixture id/class,
+    worker state, and screenshot paths in the proof artifact
+  - the same verifier shape must work for at least two large-fixture variants
+    whose selected added-file paths differ, and for the real-worktree fixture
+    whose paths are discovered at runtime
+- Dev-server Playwright proof must use event/DOM waits, not fixed sleeps. Both
+  verifier scripts must install console-error, page-error, uncaught-error, and
+  unhandled-rejection guards with the same narrow allowlist discipline as the
+  Vitest Browser Mode setup. A partial DOM after a runtime error is a failed
+  proof, not a pass.
 - For `workers=on`, provide dev-safe worker wiring:
   - CodeView/Pierre: explicit dev worker factory or dev worker script URL that
     works in plain Vite.
@@ -591,6 +610,9 @@ Proof:
   resetting selection.
 - Worker-on dev smoke proves visible CodeView and markdown preview without
   packaged-only worker URL failures, or the worker slice is explicitly split.
+- Verifier unit or scripted negative proof shows a console/page/runtime error
+  fails the dev-server proof, and a delayed-render fixture still passes through
+  event/DOM waits without wall-clock sleep dependence.
 
 ### Task 2: Repair Fixture Shape Before UX Polish
 
@@ -760,8 +782,10 @@ Implementation:
   - use the CLI, not manual copy/paste, to generate the required primitives
   - configure React/Vite/TypeScript/Tailwind v4 CSS variables and Base UI
     primitives where the current shadcn CLI supports them
-  - required primitives for this slice: Button, Tooltip, Popover or Dropdown
-    Menu, Input/Search; add only what the rail/chrome actually needs
+  - required primitives/wrappers for this slice: Button, Tooltip, Popover or
+    Dropdown Menu, Input/Search, and a compact ButtonGroup/ToggleGroup-style
+    segmented control for projection/view modes; add only what the rail/chrome
+    actually needs
   - if the CLI cannot generate a needed primitive with Base UI, document the
     fallback in the workflow state and keep the Bridge wrapper API compatible
     with the generated shadcn component shape
@@ -796,6 +820,9 @@ Implementation:
     initialization does not rely on a cold dynamic theme import. Do not confuse
     syntax theme selection with shadcn UI chrome tokens.
 - Replace text/native controls with compact shadcn-derived controls.
+- Projection/view mode controls must compose the local segmented
+  ButtonGroup/ToggleGroup wrapper. Do not rebuild them as a standalone
+  floating text strip or as unrelated raw buttons.
 - Keep file rail on the right.
 - Use Tailwind v4 classes with generated shadcn CSS variables.
 - Current implementation gaps to close before claiming Task 5:
@@ -946,16 +973,19 @@ Proof:
   toolbar icon scale, filter popover width/offset, menu row height, status badge
   box, selected checkmark alignment, tree row height, disclosure chevrons,
   selected row contrast, and file-click-to-CodeView-scroll behavior.
+- DiffsHub reference captures used for pass/fail comparison must live inside
+  the same repo-local proof packet as the BridgeWeb captures, for example
+  `tmp/bridge-viewer-visual-proof/<timestamp>/diffshub-reference-*.png`.
+  Machine-global `/tmp/diffshub_*.png` screenshots are scratch only and cannot
+  be authoritative proof. The proof packet must record the source URL, theme
+  setting, viewport, capture time, and file paths for every reference crop.
 - Browser proof records bounding boxes for search/filter buttons, popover size,
   menu row height, badge/checkmark geometry, separator spacing, menu roles, item
   count, row cursor/user-select style, selected-row `aria-selected`, folder
   `aria-expanded`, search result row-count delta, and `Clear filter` presence.
-  The artifact should include the DiffsHub reference screenshots captured by
-  the browser lane when available in the local environment:
-  `/tmp/diffshub_stealth.png`, `/tmp/diffshub_evidence_after_filter.png`,
-  `/tmp/diffshub_evidence_after_filter2.png`, `/tmp/diffshub_search2.png`,
-  `/tmp/diffshub_after_click_treeitem.png`, and
-  `/tmp/diffshub_after_collapse_all.png`.
+  The artifact must include freshly captured DiffsHub reference screenshots in
+  that same repo-local proof packet. Stale external screenshots may inform
+  diagnosis but cannot satisfy the visual-parity row.
 
 ### Task 6: Worker-Backed Rendering Proof
 
@@ -1130,8 +1160,11 @@ Proof:
 - Package state reports large item counts and expected fixture/worktree data.
 - Screenshots show large viewer, scrolled CodeView, scrolled rail, filter/search
   state, added-file content, markdown preview, and failure/unavailable UI.
-- Scroll/selection diagnostics or scripted native interaction proof show file
-  selection changes visible content and both scroll owners move independently.
+- Scroll/selection diagnostics and scripted native interaction geometry proof
+  show file selection changes visible content and both scroll owners move
+  independently. IPC diagnostics alone are not enough for this row: the native
+  proof must record header-top offsets before/after file selection and
+  collapse/expand, with screenshot or measured geometry attached.
 - Stage artifact for `agent-studio.bridge-start` on
   `luna-338-pierreshikitrees-review-viewer` records package push, tree
   render/search/reveal, file select, CodeView hydration/render, markdown

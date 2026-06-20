@@ -9,6 +9,8 @@ const defaultDevServerUrl =
 const preferredTargetPaths = [
 	process.env['BRIDGE_VIEWER_VISUAL_TARGET_PATH'],
 	'Sources/BridgeViewer/NewPanel.ts',
+	'large/browser/huge-diff.ts',
+	'docs/plans/bridge-viewer-browser.md',
 	'.github/workflows/ci.yml',
 	'BridgeWeb/package.json',
 	'BridgeWeb/scripts/capture-bridge-viewer-dev-visual-proof.ts',
@@ -163,7 +165,11 @@ async function resolveVisualProofTargetPath(page: Page): Promise<string> {
 				return candidatePath;
 			}
 		}
-		const firstPath = treeRoot.querySelector('[data-item-path]')?.getAttribute('data-item-path');
+		const firstPath =
+			treeRoot
+				.querySelector('[data-item-path][data-item-type="file"]')
+				?.getAttribute('data-item-path') ??
+			treeRoot.querySelector('[data-item-path]')?.getAttribute('data-item-path');
 		if (firstPath === null || firstPath === undefined || firstPath.length === 0) {
 			throw new Error('Expected at least one Bridge file tree item path');
 		}
@@ -173,10 +179,7 @@ async function resolveVisualProofTargetPath(page: Page): Promise<string> {
 
 async function searchForFile(page: Page, targetDisplayPath: string): Promise<void> {
 	const searchText = targetDisplayPath.split('/').at(-1) ?? targetDisplayPath;
-	await page.locator('button[data-testid="bridge-review-search-toggle"]').click();
-	await page
-		.locator('[data-testid="bridge-review-search-control"] input[role="searchbox"]')
-		.fill(searchText);
+	await fillBridgeViewerFileTreeSearch(page, searchText);
 	await page.waitForFunction(
 		(path: string): boolean => {
 			const row = document
@@ -190,23 +193,41 @@ async function searchForFile(page: Page, targetDisplayPath: string): Promise<voi
 }
 
 async function clearRailSearch(page: Page): Promise<void> {
-	const searchInput = page.locator(
-		'[data-testid="bridge-review-search-control"] input[role="searchbox"]',
-	);
-	await searchInput.fill('');
+	await fillBridgeViewerFileTreeSearch(page, '');
 	await page.keyboard.press('Escape');
 	await page.locator('[data-testid="bridge-review-git-status-menu-control"]').focus();
 	await page.waitForFunction(
 		(): boolean => {
-			const input = document.querySelector('[data-testid="bridge-review-search-input"]');
-			if (!(input instanceof HTMLElement)) {
-				return true;
-			}
-			const computedStyle = window.getComputedStyle(input);
-			return computedStyle.opacity === '0' || computedStyle.pointerEvents === 'none';
+			const input = document
+				.querySelector('file-tree-container')
+				?.shadowRoot?.querySelector('input[role="searchbox"], input[type="search"], input');
+			return !(input instanceof HTMLInputElement) || input.value.length === 0;
 		},
 		{ timeout: 10_000 },
 	);
+}
+
+async function fillBridgeViewerFileTreeSearch(page: Page, searchText: string): Promise<void> {
+	await page.locator('button[data-testid="bridge-review-search-toggle"]').click();
+	await page.waitForFunction((): boolean => {
+		const searchInput = document
+			.querySelector('file-tree-container')
+			?.shadowRoot?.querySelector('input[role="searchbox"], input[type="search"], input');
+		return searchInput instanceof HTMLInputElement;
+	});
+	await page.evaluate((value: string): void => {
+		const searchInput = document
+			.querySelector('file-tree-container')
+			?.shadowRoot?.querySelector<HTMLInputElement>(
+				'input[role="searchbox"], input[type="search"], input',
+			);
+		if (searchInput === null || searchInput === undefined) {
+			throw new Error('Expected Bridge viewer file tree search input');
+		}
+		searchInput.value = value;
+		searchInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+		searchInput.focus();
+	}, searchText);
 }
 
 async function clickFileTreePath(page: Page, path: string): Promise<void> {

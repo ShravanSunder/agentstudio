@@ -54,6 +54,22 @@ const bridgeReviewTreeUnsafeCSS = `
     padding-inline-start: 0;
     padding-inline-end: 2px;
     margin-inline-end: 2px;
+    scrollbar-width: thin;
+    scrollbar-color: rgb(205 214 244 / 0.32) transparent;
+  }
+
+  [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgb(205 214 244 / 0.28);
   }
 
   [data-file-tree-search-container][data-open='false'] {
@@ -80,6 +96,7 @@ export interface BridgeReviewTreesPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly projection: BridgeReviewProjectionResult;
 	readonly selectedItemId: string | null;
+	readonly searchOpen: boolean;
 	readonly searchText: string;
 	readonly onSelectItem: (itemId: string) => void;
 }
@@ -149,14 +166,16 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	}, [source]);
 
 	useEffect((): void => {
-		if (props.searchText.length === 0) {
+		if (!props.searchOpen) {
 			model.setSearch(null);
 			model.closeSearch();
 			return;
 		}
 		model.openSearch(props.searchText);
-		model.setSearch(props.searchText);
-	}, [model, props.searchText]);
+		if (props.searchText.length > 0) {
+			model.setSearch(props.searchText);
+		}
+	}, [model, props.searchOpen, props.searchText]);
 
 	useEffect((): void => {
 		if (props.selectedItemId === null) {

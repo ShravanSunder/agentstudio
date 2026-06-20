@@ -118,6 +118,8 @@ describe('BridgeReviewTreesPanel', () => {
 		expect(options).not.toHaveProperty('itemHeight');
 		expect(options?.preparedInput).toBeDefined();
 		expect(options?.unsafeCSS).toContain('data-file-tree-virtualized-scroll');
+		expect(options?.unsafeCSS).toContain('scrollbar-width: thin');
+		expect(options?.unsafeCSS).toContain('::-webkit-scrollbar');
 		expect(options?.unsafeCSS).toContain('data-file-tree-sticky-overlay-content');
 		expect(options?.unsafeCSS).not.toContain(
 			"[data-item-contains-git-change='true'] > [data-item-section='git']",
@@ -165,6 +167,7 @@ function renderTreesPanel(): void {
 				onSelectItem={() => undefined}
 				projection={projection}
 				reviewPackage={reviewPackage}
+				searchOpen={false}
 				searchText=""
 				selectedItemId="source-high"
 			/>,

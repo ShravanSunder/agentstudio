@@ -24,6 +24,15 @@ export interface LoadSelectedReviewItemContentProps {
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 }
 
+export interface LoadReviewItemContentResourcesProps extends Omit<
+	LoadSelectedReviewItemContentProps,
+	'selectedItemId'
+> {
+	readonly itemId: string;
+}
+
+type LoadReviewContentContext = Omit<LoadSelectedReviewItemContentProps, 'selectedItemId'>;
+
 export async function loadSelectedReviewItemContent(
 	props: LoadSelectedReviewItemContentProps,
 ): Promise<BridgeContentResource | null> {
@@ -52,7 +61,16 @@ export async function loadSelectedReviewItemContentResources(
 	if (props.selectedItemId === null) {
 		return null;
 	}
-	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
+	return await loadReviewItemContentResources({
+		...props,
+		itemId: props.selectedItemId,
+	});
+}
+
+export async function loadReviewItemContentResources(
+	props: LoadReviewItemContentResourcesProps,
+): Promise<BridgeCodeViewContentResources | null> {
+	const selectedItem = props.reviewPackage.itemsById[props.itemId];
 	if (selectedItem === undefined) {
 		return null;
 	}
@@ -99,7 +117,7 @@ interface LoadContentHandleProps {
 	readonly handle: BridgeContentHandle;
 	readonly expectedRole: BridgeContentRole;
 	readonly selectedItem: BridgeReviewItemDescriptor;
-	readonly props: LoadSelectedReviewItemContentProps;
+	readonly props: LoadReviewContentContext;
 }
 
 async function loadContentHandle(
