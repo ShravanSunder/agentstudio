@@ -171,6 +171,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         RestoreTrace.log("appDidFinishLaunching: end")
         runStartupDiagnosticActionIfRequested()
+        scheduleFullDiskAccessHealthCheck()
     }
 
     isolated deinit {

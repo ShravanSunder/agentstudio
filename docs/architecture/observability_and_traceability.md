@@ -53,7 +53,8 @@ proof can opt into `AGENTSTUDIO_TRACE_TAGS=atoms` or `*`.
 
 High-volume or domain-sensitive lanes remain explicit opt-in for ordinary app
 startup. This includes `atoms`, `eventbus`, `terminal.activity`,
-`terminal.signal`, `inbox`, `paneInbox`, and `persistence.snapshot`.
+`terminal.signal`, `terminal.tcc`, `inbox`, `paneInbox`, and
+`persistence.snapshot`.
 
 Terminal signal instrumentation is controlled by the `terminal.signal` tag. It
 captures low-volume Ghostty action/control facts such as desktop notification,
@@ -62,6 +63,29 @@ debounced unseen-activity windows remain under `terminal.activity`. Keep raw
 terminal payloads, pane ids, surface ids, and notification ids JSONL-only; OTLP
 may export only controlled signal class, action name, route result, reason, and
 safe aggregate counters.
+
+TCC upgrade diagnostics are controlled by the `terminal.tcc` tag and the
+explicit startup diagnostic action `tcc-upgrade-probe`. The probe records bundle
+identity classification and shell-child access classification for protected
+folders so beta/debug proof can distinguish grant loss from ordinary startup
+failure. Raw bundle paths, probe paths, responsible executable paths, and TCC
+database client strings must stay JSONL-only; OTLP may export only controlled
+classification enums, booleans, and counts.
+Repeating `tcc-upgrade-probe` runs also emit an app identity snapshot for each
+probe sequence. The snapshot compares the current on-disk app executable
+identity to the startup baseline and exports only controlled classifications
+such as same/different/missing disk identity plus reachability. Raw executable
+paths remain JSONL-only.
+Use `scripts/report-tcc-upgrade-probe-observability.sh` after a marker-scoped
+debug or beta launch to summarize the identity/access rows. The report helper
+is read-only and can require identity discontinuity or access denial, which is
+the proof gate for a Homebrew-style replacement reproduction.
+For the generated-debug reproduction only, use
+`scripts/replace-running-debug-app-for-tcc-probe.sh` to dry-run and, with
+explicit acknowledgement, replace the executable inside the generated
+per-worktree debug app while the monitor is active. The helper refuses beta,
+stable, `/Applications`, and non-generated debug paths; it is not a release or
+Homebrew updater.
 
 Atom instrumentation is controlled by the `atoms` tag. It emits reduced,
 aggregate-safe events such as `performance.atom.read`,

@@ -228,6 +228,105 @@ struct AgentStudioOTLPTraceProjectionTests {
     }
 
     @Test
+    func tccDiagnosticProjectionKeepsClassificationsAndDropsRawPaths() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 175,
+            severityText: .warn,
+            body: "terminal.tcc.access_probe",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio",
+                "dev.release.channel": "beta",
+            ],
+            scope: .init(name: "agentstudio.terminal.tcc", version: "0.1.0"),
+            attributes: [
+                "agentstudio.tcc.phase": .string("startup_diagnostic"),
+                "agentstudio.tcc.subject": .string("shell_child"),
+                "agentstudio.tcc.access.target": .string("documents"),
+                "agentstudio.tcc.access.result": .string("denied_eacces"),
+                "agentstudio.tcc.responsible.kind": .string("agentstudio_beta"),
+                "agentstudio.tcc.command.exit_class": .string("permission_denied"),
+                "agentstudio.tcc.probe.sequence": .int(7),
+                "agentstudio.tcc.bundle.changed": .bool(true),
+                "agentstudio.tcc.bundle.executable.reachable": .bool(true),
+                "agentstudio.tcc.tccdb.bundle_grant.present": .bool(true),
+                "agentstudio.tcc.tccdb.path_row.count": .int(2),
+                "agentstudio.tcc.raw.executable_path": .string(
+                    "/Applications/AgentStudio Beta.app/Contents/MacOS/AgentStudio"),
+                "agentstudio.tcc.raw.probe_path": .string("/Users/shravansunder/Documents/private"),
+                "agentstudio.tcc.raw.responsible_path": .string(
+                    "/Applications/AgentStudio Beta.app/Contents/MacOS/AgentStudio"),
+                "agentstudio.tcc.tccdb.raw_client": .string("/Users/shravansunder/debug/AgentStudio"),
+                "agentstudio.trace.tag": .string("terminal.tcc"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.body == "terminal.tcc.access_probe")
+        #expect(projection.attributes["agentstudio.trace.tag"] == .string("terminal.tcc"))
+        #expect(projection.attributes["agentstudio.tcc.phase"] == .string("startup_diagnostic"))
+        #expect(projection.attributes["agentstudio.tcc.subject"] == .string("shell_child"))
+        #expect(projection.attributes["agentstudio.tcc.access.target"] == .string("documents"))
+        #expect(projection.attributes["agentstudio.tcc.access.result"] == .string("denied_eacces"))
+        #expect(projection.attributes["agentstudio.tcc.responsible.kind"] == .string("agentstudio_beta"))
+        #expect(projection.attributes["agentstudio.tcc.command.exit_class"] == .string("permission_denied"))
+        #expect(projection.attributes["agentstudio.tcc.probe.sequence"] == .int(7))
+        #expect(projection.attributes["agentstudio.tcc.bundle.changed"] == .bool(true))
+        #expect(projection.attributes["agentstudio.tcc.bundle.executable.reachable"] == .bool(true))
+        #expect(projection.attributes["agentstudio.tcc.tccdb.bundle_grant.present"] == .bool(true))
+        #expect(projection.attributes["agentstudio.tcc.tccdb.path_row.count"] == .int(2))
+        #expect(projection.attributes["agentstudio.tcc.raw.executable_path"] == nil)
+        #expect(projection.attributes["agentstudio.tcc.raw.probe_path"] == nil)
+        #expect(projection.attributes["agentstudio.tcc.raw.responsible_path"] == nil)
+        #expect(projection.attributes["agentstudio.tcc.tccdb.raw_client"] == nil)
+        #expect(!renderedProjection.contains("/Users/shravansunder/Documents/private"))
+        #expect(!renderedProjection.contains("AgentStudio Beta.app/Contents/MacOS/AgentStudio"))
+    }
+
+    @Test
+    func fullDiskAccessHealthProjectionKeepsOnlySafeClassificationFields() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 176,
+            severityText: .warn,
+            body: "app.full_disk_access.health_check.completed",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio",
+                "dev.release.channel": "beta",
+            ],
+            scope: .init(name: "agentstudio.app.startup", version: "0.1.0"),
+            attributes: [
+                "agentstudio.app.startup.phase": .string("full_disk_access_health_check"),
+                "agentstudio.app.startup.outcome": .string("blocked"),
+                "agentstudio.full_disk_access.health.healthy": .bool(false),
+                "agentstudio.tcc.access.target": .string("messages_data"),
+                "agentstudio.tcc.access.result": .string("denied_eperm"),
+                "agentstudio.tcc.command.exit_class": .string("permission_denied"),
+                "agentstudio.tcc.raw.probe_path": .string("/Users/shravansunder/Library/Messages"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.body == "app.full_disk_access.health_check.completed")
+        #expect(projection.attributes["agentstudio.app.startup.phase"] == .string("full_disk_access_health_check"))
+        #expect(projection.attributes["agentstudio.app.startup.outcome"] == .string("blocked"))
+        #expect(projection.attributes["agentstudio.full_disk_access.health.healthy"] == .bool(false))
+        #expect(projection.attributes["agentstudio.tcc.access.target"] == .string("messages_data"))
+        #expect(projection.attributes["agentstudio.tcc.access.result"] == .string("denied_eperm"))
+        #expect(projection.attributes["agentstudio.tcc.command.exit_class"] == .string("permission_denied"))
+        #expect(projection.attributes["agentstudio.tcc.raw.probe_path"] == nil)
+        #expect(!renderedProjection.contains("/Users/shravansunder/Library/Messages"))
+    }
+
+    @Test
     func persistenceProjectionDropsPathsWorkspaceIDsAndRawErrors() {
         let workspaceID = UUID(uuidString: "F6ADCB1B-E191-4890-963E-37F4A694B065")!
         let record = AgentStudioTraceRecord(
