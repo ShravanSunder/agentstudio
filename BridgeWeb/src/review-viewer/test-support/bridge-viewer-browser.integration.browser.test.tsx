@@ -505,6 +505,33 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
+	test('CodeView scrollbars stay compact like the DiffsHub review surface', async () => {
+		const fixture = makeBridgeViewerBrowserFixture();
+		const backend = installBridgeViewerMockedBackend(fixture);
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushPackage();
+		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
+
+		const largeButton = await waitForBridgeViewerTreeItemButton(fixture.expected.largePath);
+		largeButton.click();
+		await waitForBridgeViewerText(fixture.expected.largeText);
+		const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+		const codeScrollStyle = getComputedStyle(codeScroll);
+
+		expect(codeScrollStyle.scrollbarWidth).toBe('thin');
+		expect(codeScrollStyle.scrollbarColor).toContain('rgba(205, 214, 244, 0.32)');
+
+		backend.dispose();
+	});
+
 	test('search expands nested tree matches without losing selected CodeView content', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);

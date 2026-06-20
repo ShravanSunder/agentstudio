@@ -453,7 +453,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			>
 				<CodeView
 					className={cn(
-						'bridge-code-view-scroll-owner cv-scrollbar relative h-full min-h-0 min-w-0',
+						'bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 min-w-0',
 						'flex-1 overflow-y-auto overflow-x-hidden overscroll-contain',
 						'[overflow-anchor:none] [will-change:scroll-position]',
 						'[&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]',

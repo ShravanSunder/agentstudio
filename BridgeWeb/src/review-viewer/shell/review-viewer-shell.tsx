@@ -127,7 +127,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
 				<section
 					aria-label="Selected content"
-					className="min-h-0 min-w-0 overflow-auto overscroll-contain bg-[var(--bridge-canvas-bg)]"
+					className="bridge-scrollbar min-h-0 min-w-0 overflow-auto overscroll-contain bg-[var(--bridge-canvas-bg)]"
 					data-testid="bridge-review-code-scroll"
 				>
 					<section

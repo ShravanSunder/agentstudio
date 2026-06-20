@@ -173,6 +173,27 @@ button:disabled,
 	cursor: default;
 }
 
+.bridge-scrollbar {
+	scrollbar-width: thin;
+	scrollbar-color: rgb(205 214 244 / 0.32) transparent;
+}
+
+.bridge-scrollbar::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+.bridge-scrollbar::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.bridge-scrollbar::-webkit-scrollbar-thumb {
+	border: 1px solid transparent;
+	border-radius: 999px;
+	background: rgb(205 214 244 / 0.28);
+	background-clip: content-box;
+}
+
 .bridge-review-projection-button {
 	font-size: 11px;
 	line-height: 1;

@@ -192,6 +192,7 @@ describe('review viewer shell', () => {
 		expect(railScroll?.type).toBe('div');
 		expect(railTreeSlot?.type).toBe('nav');
 		expect(classNameForElement(codeScroll)).toContain('overflow-auto');
+		expect(classNameForElement(codeScroll)).toContain('bridge-scrollbar');
 		expect(classNameForElement(railScroll)).toContain('overflow-hidden');
 		expect(classNameForElement(codeScroll)).toContain('min-h-0');
 		expect(classNameForElement(railScroll)).toContain('min-h-0');
