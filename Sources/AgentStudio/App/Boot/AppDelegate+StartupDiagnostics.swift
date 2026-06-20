@@ -56,7 +56,6 @@ extension AppDelegate {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await Task.yield()
             self.startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.dispatched",
                 phase: "startup_diagnostic_action",
@@ -64,8 +63,10 @@ extension AppDelegate {
             )
             switch action.kind {
             case .newTab:
+                await Task.yield()
                 AppCommandDispatcher.shared.dispatch(.newTab)
             case .commandBarRepoFilter:
+                await Task.yield()
                 AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)
                 await Task.yield()
                 self.commandBarController.state.rawInput = "# repo"

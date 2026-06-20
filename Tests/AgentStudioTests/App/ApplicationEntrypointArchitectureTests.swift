@@ -105,6 +105,11 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(startupDiagnosticsSource.contains("provider: .zmx"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.command_exercised"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.blocked"))
+        let diagnosticDispatchIndex = try #require(
+            startupDiagnosticsSource.range(of: "app.startup_diagnostic_action.dispatched")?.lowerBound)
+        let firstDiagnosticYieldIndex = try #require(
+            startupDiagnosticsSource.range(of: "await Task.yield()")?.lowerBound)
+        #expect(diagnosticDispatchIndex < firstDiagnosticYieldIndex)
         #expect(!startupDiagnosticsSource.contains("for _ in 0..<80"))
         #expect(diagnosticActionSource.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
         #expect(!appDelegateSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
