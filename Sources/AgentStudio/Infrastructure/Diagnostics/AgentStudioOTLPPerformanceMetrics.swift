@@ -121,6 +121,9 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         if record.body.hasPrefix("performance.bridge.") {
             guard Self.hasCompleteBridgeMetricTaxonomy(record) else { return nil }
         }
+        if Self.requiresSidebarMetricTaxonomy(record) {
+            guard Self.hasCompleteSidebarMetricTaxonomy(record) else { return nil }
+        }
 
         let dimensions = Self.dimensions(for: record)
         self.eventName = record.body
@@ -181,6 +184,38 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             appendBridgeDimension(
                 name: "slice",
                 attributeKey: "agentstudio.bridge.slice",
+                record: record,
+                dimensions: &dimensions
+            )
+        }
+        if Self.requiresSidebarMetricTaxonomy(record) {
+            appendSafeStringDimension(
+                name: "surface",
+                attributeKey: "agentstudio.performance.sidebar.surface",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendSafeStringDimension(
+                name: "phase",
+                attributeKey: "agentstudio.performance.sidebar.phase",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendSafeStringDimension(
+                name: "query_state",
+                attributeKey: "agentstudio.performance.sidebar.query_state",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendSafeStringDimension(
+                name: "group_mode",
+                attributeKey: "agentstudio.performance.sidebar.group_mode",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendSafeStringDimension(
+                name: "trigger",
+                attributeKey: "agentstudio.performance.sidebar.trigger",
                 record: record,
                 dimensions: &dimensions
             )
@@ -248,12 +283,37 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             && BridgeTelemetrySlice(rawValue: stringAttribute(record, "agentstudio.bridge.slice") ?? "") != nil
     }
 
+    private static func hasCompleteSidebarMetricTaxonomy(_ record: AgentStudioOTLPProjectedLogRecord) -> Bool {
+        SidebarMetricSurface(rawValue: stringAttribute(record, "agentstudio.performance.sidebar.surface") ?? "") != nil
+            && SidebarMetricPhase(rawValue: stringAttribute(record, "agentstudio.performance.sidebar.phase") ?? "")
+                != nil
+            && SidebarMetricQueryState(
+                rawValue: stringAttribute(record, "agentstudio.performance.sidebar.query_state") ?? "") != nil
+            && SidebarMetricGroupMode(
+                rawValue: stringAttribute(record, "agentstudio.performance.sidebar.group_mode") ?? "") != nil
+            && SidebarMetricTrigger(rawValue: stringAttribute(record, "agentstudio.performance.sidebar.trigger") ?? "")
+                != nil
+    }
+
+    private static func requiresSidebarMetricTaxonomy(_ record: AgentStudioOTLPProjectedLogRecord) -> Bool {
+        record.body == "performance.sidebar.projection" || record.body == "performance.sidebar.row_index"
+    }
+
     private static func stringAttribute(_ record: AgentStudioOTLPProjectedLogRecord, _ key: String) -> String? {
         guard case .string(let value) = record.attributes[key] else { return nil }
         return value
     }
 
     private static func appendBridgeDimension(
+        name: String,
+        attributeKey: String,
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        appendSafeStringDimension(name: name, attributeKey: attributeKey, record: record, dimensions: &dimensions)
+    }
+
+    private static func appendSafeStringDimension(
         name: String,
         attributeKey: String,
         record: AgentStudioOTLPProjectedLogRecord,
@@ -272,6 +332,41 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 || scalar == "."
         }
     }
+}
+
+private enum SidebarMetricSurface: String {
+    case inbox
+    case repo
+}
+
+private enum SidebarMetricPhase: String {
+    case requestBuildMainActor = "request_build_mainactor"
+    case projectionWorker = "projection_worker"
+    case mainActorApply = "mainactor_apply"
+    case rowIndex = "row_index"
+    case startupDiagnostic = "startup_diagnostic"
+}
+
+private enum SidebarMetricQueryState: String {
+    case empty
+    case nonEmpty = "non_empty"
+}
+
+private enum SidebarMetricGroupMode: String {
+    case repo
+    case pane
+    case tab
+    case noGrouping = "none"
+    case notApplicable = "not_applicable"
+}
+
+private enum SidebarMetricTrigger: String {
+    case groupingSwitch = "grouping_switch"
+    case surfaceSwitch = "surface_switch"
+    case search
+    case collapseToggle = "collapse_toggle"
+    case dataRefresh = "data_refresh"
+    case startupDiagnostic = "startup_diagnostic"
 }
 
 struct AgentStudioOTLPPerformanceMetricSample: Equatable, Sendable {

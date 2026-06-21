@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import Testing
 
@@ -30,5 +31,44 @@ struct SidebarSurfaceConvergenceTests {
         #expect(SidebarRepoGroupHeader<EmptyView>.chromePolicy == .sourceGroupHeader)
         #expect(RepoExplorerView.groupHeaderChromePolicy == .sourceGroupHeader)
         #expect(InboxNotificationGroupHeader.chromePolicy(for: .sourceGroup) == .sourceGroupHeader)
+    }
+
+    @Test("repo and inbox headers share SidebarHeaderLayout")
+    @MainActor
+    func repoAndInboxHeadersShareSidebarHeaderLayout() throws {
+        #expect(RepoExplorerView.headerLayoutPolicy == SidebarHeaderLayoutPolicy.standard)
+        #expect(InboxSidebarHeader.headerLayoutPolicy == SidebarHeaderLayoutPolicy.standard)
+
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let repoSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+        let inboxSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift"),
+            encoding: .utf8
+        )
+
+        #expect(repoSource.contains("SidebarHeaderLayout {"))
+        #expect(inboxSource.contains("SidebarHeaderLayout {"))
+        #expect(!repoSource.contains("InboxSidebarHeader("))
+    }
+
+    @Test("repo sidebar owns toolbar controls through shared header slots")
+    func repoSidebarOwnsToolbarControlsThroughSharedHeaderSlots() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let repoSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(repoSource.contains("} toolbarRow: {"))
+        #expect(repoSource.contains("repoSidebarSortButton"))
+        #expect(repoSource.contains("repoSidebarGroupingButton"))
+        #expect(repoSource.contains("RepoExplorerGroupingMode.allCases"))
+        #expect(repoSource.contains("LocalActionSpec.repoSidebarCurrentOrder.actionSpec"))
+        #expect(repoSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
+        #expect(!repoSource.contains("InboxSidebarToolbarTooltipTarget"))
     }
 }

@@ -41,7 +41,7 @@ struct RepoExplorerViewTests {
         #expect(entries.count == 2)
         guard
             case .resolvedGroupHeader(let headerGroup) = entries[0],
-            case .resolvedWorktreeRow(let childGroupId, let childRepoId, let childWorktreeId) = entries[1]
+            case .resolvedWorktreeRow(let childGroupId, let childRepoId, let childWorktreeId, _) = entries[1]
         else {
             Issue.record("Expected flat resolved header followed by child row")
             return
@@ -171,15 +171,11 @@ struct RepoExplorerViewTests {
             repos: [repo]
         )
 
-        let icon = RepoExplorerView.sourceGroupIcon(
-            for: group,
-            checkoutColorOverrides: [repoId.uuidString: "#EAC54F"]
-        )
+        let icon = RepoExplorerView.sourceGroupIcon(for: group)
 
         let expectedColorHex = RepoPresentationColoring.checkoutColorHex(
             for: repo,
-            in: group,
-            checkoutColorOverrides: [repoId.uuidString: "#EAC54F"]
+            in: group
         )
 
         if case .coloredRepo(let colorHex) = icon {
@@ -187,6 +183,19 @@ struct RepoExplorerViewTests {
         } else {
             Issue.record("Expected RepoExplorer group header to use colored repo source icon")
         }
+    }
+
+    @Test("source group icon uses semantic pane and tab colors outside repo grouping")
+    func sourceGroupIconUsesSemanticPaneAndTabColorsOutsideRepoGrouping() {
+        let group = RepoPresentationGroup(
+            id: "pane:active",
+            repoTitle: "Pane 1",
+            organizationName: nil,
+            repos: []
+        )
+
+        #expect(RepoExplorerView.sourceGroupIcon(for: group, groupingMode: .pane) == .paneGroup)
+        #expect(RepoExplorerView.sourceGroupIcon(for: group, groupingMode: .tab) == .tabGroup)
     }
 
     @Test("checkout icon kind uses git-worktree for a secondary worktree")

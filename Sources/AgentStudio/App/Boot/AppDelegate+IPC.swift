@@ -52,6 +52,11 @@ extension AppDelegate {
                         windowLifecycleReader: windowLifecycleReader
                     ),
                     uiPresentationPort: AgentStudioIPCUIPresentationAdapter(presenter: self),
+                    sidebarPort: AgentStudioIPCSidebarAdapter(
+                        repoPrefs: atomStore.repoExplorerSidebarPrefs,
+                        inboxPrefs: atomStore.inboxNotificationPrefs,
+                        sidebarState: atomStore.workspaceSidebarState
+                    ),
                     permissionApprovalPort: AgentStudioIPCHumanApprovalPort()
                 ),
                 methodContributions: ipcComposition.methodContributions

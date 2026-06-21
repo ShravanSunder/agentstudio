@@ -22,9 +22,9 @@ struct InboxNotificationGroupHeader: View {
             }
             return .repo
         case .pane:
-            return .pane
+            return .paneGroup
         case .tab:
-            return .tab
+            return .tabGroup
         case .workspace:
             return .workspace
         case .otherSources:

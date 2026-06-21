@@ -2,8 +2,8 @@ import Foundation
 
 /// Shared raw-string wrapper for durable sidebar cache keys.
 ///
-/// Tags keep repo groups, checkout colors, and inbox groups from crossing at
-/// compile time while all three persist as plain strings.
+/// Tags keep repo groups, legacy checkout color keys, and inbox groups from crossing at
+/// compile time while all keys persist as plain strings.
 struct SidebarCacheKey<Tag>: Codable, Sendable, ExpressibleByStringLiteral {
     let rawValue: String
 

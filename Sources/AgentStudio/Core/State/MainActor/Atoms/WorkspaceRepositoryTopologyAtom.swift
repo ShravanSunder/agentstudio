@@ -144,6 +144,26 @@ final class WorkspaceRepositoryTopologyAtom {
         unavailableRepoIds.contains(repoId)
     }
 
+    func setRepoFavorite(_ repoId: UUID, isFavorite: Bool) {
+        guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else { return }
+        repos[repoIndex].isFavorite = isFavorite
+    }
+
+    func updateRepoNote(_ repoId: UUID, note: String?) {
+        guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else { return }
+        repos[repoIndex].note = normalizedNote(note)
+    }
+
+    func updateWorktreeNote(_ worktreeId: UUID, note: String?) {
+        for repoIndex in repos.indices {
+            guard let worktreeIndex = repos[repoIndex].worktrees.firstIndex(where: { $0.id == worktreeId }) else {
+                continue
+            }
+            repos[repoIndex].worktrees[worktreeIndex].note = normalizedNote(note)
+            return
+        }
+    }
+
     @discardableResult
     func addWatchedPath(_ path: URL) -> WatchedPath? {
         let normalizedPath = path.standardizedFileURL
@@ -197,7 +217,8 @@ final class WorkspaceRepositoryTopologyAtom {
                     repoId: repoId,
                     name: discovered.name,
                     path: discovered.path,
-                    isMainWorktree: discovered.isMainWorktree
+                    isMainWorktree: discovered.isMainWorktree,
+                    note: existingMain.note
                 )
             }
             if let matched = existingByName[discovered.name] {
@@ -206,7 +227,8 @@ final class WorkspaceRepositoryTopologyAtom {
                     repoId: repoId,
                     name: discovered.name,
                     path: discovered.path,
-                    isMainWorktree: discovered.isMainWorktree
+                    isMainWorktree: discovered.isMainWorktree,
+                    note: matched.note
                 )
             }
             return discovered
@@ -215,6 +237,11 @@ final class WorkspaceRepositoryTopologyAtom {
         guard merged != existing else { return false }
         repos[index].worktrees = merged
         return true
+    }
+
+    private func normalizedNote(_ note: String?) -> String? {
+        let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == true ? nil : trimmed
     }
 
     private func scheduleWorktreePathIndexRebuild() {

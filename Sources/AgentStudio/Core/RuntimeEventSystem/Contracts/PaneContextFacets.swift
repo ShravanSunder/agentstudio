@@ -3,8 +3,8 @@ import Foundation
 /// Canonical source context carried by pane metadata and runtime envelopes.
 ///
 /// This is the single shared context shape for pane/worktree/repo identity facets.
-/// All fields are optional except `tags`, because not every pane participates in
-/// every grouping dimension.
+/// All fields are optional because not every pane participates in every grouping
+/// dimension.
 struct PaneContextFacets: Codable, Hashable, Sendable {
     var repoId: UUID?
     var repoName: String?
@@ -15,7 +15,6 @@ struct PaneContextFacets: Codable, Hashable, Sendable {
     var organizationName: String?
     var origin: String?
     var upstream: String?
-    var tags: [String]
 
     init(
         repoId: UUID? = nil,
@@ -26,8 +25,7 @@ struct PaneContextFacets: Codable, Hashable, Sendable {
         parentFolder: String? = nil,
         organizationName: String? = nil,
         origin: String? = nil,
-        upstream: String? = nil,
-        tags: [String] = []
+        upstream: String? = nil
     ) {
         self.repoId = repoId
         self.repoName = repoName
@@ -38,7 +36,6 @@ struct PaneContextFacets: Codable, Hashable, Sendable {
         self.organizationName = organizationName
         self.origin = origin
         self.upstream = upstream
-        self.tags = tags
     }
 
     static let empty = Self()
@@ -54,8 +51,7 @@ struct PaneContextFacets: Codable, Hashable, Sendable {
             parentFolder: parentFolder ?? defaults.parentFolder,
             organizationName: organizationName ?? defaults.organizationName,
             origin: origin ?? defaults.origin,
-            upstream: upstream ?? defaults.upstream,
-            tags: tags.isEmpty ? defaults.tags : tags
+            upstream: upstream ?? defaults.upstream
         )
     }
 

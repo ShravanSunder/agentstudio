@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-struct RepoPresentationGroup: Identifiable {
+struct RepoPresentationGroup: Identifiable, Equatable, Sendable {
     let id: String
     let repoTitle: String
     let organizationName: String?
@@ -12,11 +12,13 @@ struct RepoPresentationGroup: Identifiable {
     }
 }
 
-struct RepoPresentationItem: Identifiable, Hashable {
+struct RepoPresentationItem: Identifiable, Hashable, Sendable {
     let id: UUID
     let name: String
     let repoPath: URL
     let stableKey: String
+    let isFavorite: Bool
+    let note: String?
     var worktrees: [Worktree]
 
     init(
@@ -24,12 +26,16 @@ struct RepoPresentationItem: Identifiable, Hashable {
         name: String,
         repoPath: URL,
         stableKey: String,
+        isFavorite: Bool = false,
+        note: String? = nil,
         worktrees: [Worktree]
     ) {
         self.id = id
         self.name = name
         self.repoPath = repoPath
         self.stableKey = stableKey
+        self.isFavorite = isFavorite
+        self.note = note
         self.worktrees = worktrees
     }
 
@@ -39,6 +45,8 @@ struct RepoPresentationItem: Identifiable, Hashable {
             name: repo.name,
             repoPath: repo.repoPath,
             stableKey: repo.stableKey,
+            isFavorite: repo.isFavorite,
+            note: repo.note,
             worktrees: repo.worktrees
         )
     }
@@ -52,11 +60,6 @@ struct RepoIdentityMetadata: Sendable {
 }
 
 enum RepoPresentationGrouping {
-    struct ColorPreset {
-        let name: String
-        let hex: String
-    }
-
     private struct OwnerCandidate {
         let repoId: UUID
         let repoWorktreeCount: Int
@@ -66,15 +69,6 @@ enum RepoPresentationGrouping {
     }
 
     static let automaticPaletteHexes: [String] = AppStyles.Shell.Sidebar.accentPaletteHexes
-
-    static let colorPresets: [ColorPreset] = [
-        ColorPreset(name: "Yellow", hex: "#F5C451"),
-        ColorPreset(name: "Sky", hex: "#58C4FF"),
-        ColorPreset(name: "Violet", hex: "#A78BFA"),
-        ColorPreset(name: "Green", hex: "#4ADE80"),
-        ColorPreset(name: "Orange", hex: "#FB923C"),
-        ColorPreset(name: "Pink", hex: "#F472B6"),
-    ]
 
     static func colorHexForCheckoutIndex(_ index: Int, seed: String) -> String {
         if index < automaticPaletteHexes.count {
@@ -239,16 +233,8 @@ enum RepoPresentationColoring {
 
     static func checkoutColorHex(
         for repo: RepoPresentationItem,
-        in group: RepoPresentationGroup,
-        checkoutColorOverrides: [String: String] = [:]
+        in group: RepoPresentationGroup
     ) -> String {
-        let overrideKey = repo.id.uuidString
-        if let hex = checkoutColorOverrides[overrideKey],
-            let nsColor = NSColor(hex: hex)
-        {
-            return nsColor.hexString
-        }
-
         let orderedFamilies = group.repos.sorted { lhs, rhs in
             lhs.stableKey.localizedCaseInsensitiveCompare(rhs.stableKey) == .orderedAscending
         }
@@ -268,14 +254,12 @@ enum RepoPresentationColoring {
     }
 
     static func sourceGroupColorHex(
-        for group: RepoPresentationGroup,
-        checkoutColorOverrides: [String: String] = [:]
+        for group: RepoPresentationGroup
     ) -> String? {
         guard let primaryRepo = primaryRepoForSourceGroup(group) else { return nil }
         return checkoutColorHex(
             for: primaryRepo,
-            in: group,
-            checkoutColorOverrides: checkoutColorOverrides
+            in: group
         )
     }
 

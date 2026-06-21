@@ -30,6 +30,8 @@ extension AgentStudioAppIPCServer {
             return try await processRuntimeRequest(request)
         case "command.list", "command.execute", "ui.commandBar.open":
             return try await processCommandOrUIRequest(request)
+        case "sidebar.grouping.set", "sidebar.grouping.get", "sidebar.surface.set", "sidebar.surface.get":
+            return try await processSidebarRequest(request)
         case "permission.request", "permission.requestStatus", "permission.grantStatus",
             "permission.pendingApprovals", "permission.resolveRequest":
             return try processPermissionRequest(request, principal: principal)
@@ -154,6 +156,37 @@ extension AgentStudioAppIPCServer {
             let params = try decodeParams(IPCCommandBarOpenParams.self, from: request.params)
             let result = try await MainActor.run {
                 try service.ports.uiPresentationPort.openCommandBar(params)
+            }
+            return try encodeResult(result)
+        default:
+            throw AgentStudioAppIPCRequestError.methodNotFound
+        }
+    }
+
+    private func processSidebarRequest(_ request: JSONRPCRequest) async throws -> JSONValue {
+        switch request.method {
+        case "sidebar.grouping.set":
+            let params = try decodeParams(IPCSidebarGroupingSetParams.self, from: request.params)
+            let result = try await MainActor.run {
+                try service.ports.sidebarPort.setGrouping(params)
+            }
+            return try encodeResult(result)
+        case "sidebar.grouping.get":
+            let params = try decodeParams(IPCSidebarGroupingGetParams.self, from: request.params)
+            let result = try await MainActor.run {
+                try service.ports.sidebarPort.getGrouping(params)
+            }
+            return try encodeResult(result)
+        case "sidebar.surface.set":
+            let params = try decodeParams(IPCSidebarSurfaceSetParams.self, from: request.params)
+            let result = try await MainActor.run {
+                try service.ports.sidebarPort.setSurface(params)
+            }
+            return try encodeResult(result)
+        case "sidebar.surface.get":
+            let params = try decodeParams(IPCSidebarSurfaceGetParams.self, from: request.params)
+            let result = try await MainActor.run {
+                try service.ports.sidebarPort.getSurface(params)
             }
             return try encodeResult(result)
         default:

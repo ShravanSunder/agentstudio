@@ -9,10 +9,13 @@ enum RepoExplorerCheckoutIconKind {
 struct RepoExplorerWorktreeRowContent: View {
     let checkoutTitle: String
     let branchName: String
+    var placementText = ""
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let unreadCount: Int
+    var isFavorite = false
+    var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
 
     private var syncCounts: (ahead: String, behind: String) {
@@ -53,6 +56,14 @@ struct RepoExplorerWorktreeRowContent: View {
         unreadCount > 0
     }
 
+    static func favoriteAccessibilityLabel(isFavorite: Bool) -> String {
+        isFavorite ? "Remove Favorite" : "Add Favorite"
+    }
+
+    static func favoriteHelpText(isFavorite: Bool) -> String {
+        isFavorite ? "Remove favorite" : "Add favorite"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.General.Spacing.tight) {
@@ -70,6 +81,20 @@ struct RepoExplorerWorktreeRowContent: View {
                     .layoutPriority(1)
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button(action: onToggleFavorite) {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
+                        .foregroundStyle(isFavorite ? iconColor : .secondary)
+                        .frame(
+                            width: AppStyles.General.Button.compact,
+                            height: AppStyles.General.Button.compact
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Self.favoriteAccessibilityLabel(isFavorite: isFavorite))
+                .help(Self.favoriteHelpText(isFavorite: isFavorite))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -87,6 +112,24 @@ struct RepoExplorerWorktreeRowContent: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !placementText.isEmpty {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
+                    Image(systemName: "rectangle.split.2x1")
+                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
+
+                    Text(placementText)
+                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
                 SidebarDiffChip(
@@ -143,15 +186,17 @@ struct RepoExplorerWorktreeRow: View {
     let worktree: Worktree
     let checkoutTitle: String
     let branchName: String
+    var placementText = ""
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let unreadCount: Int
+    var isFavorite = false
+    var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
     let onOpen: () -> Void
     let onOpenNew: () -> Void
     let onOpenInPane: () -> Void
-    let onSetIconColor: (String?) -> Void
     static let rowChromePolicy = SidebarRowShell<RepoExplorerWorktreeRowContent>.chromePolicy
 
     @State private var isHovering = false
@@ -161,10 +206,13 @@ struct RepoExplorerWorktreeRow: View {
             RepoExplorerWorktreeRowContent(
                 checkoutTitle: checkoutTitle,
                 branchName: branchName,
+                placementText: placementText,
                 checkoutIconKind: checkoutIconKind,
                 iconColor: iconColor,
                 branchStatus: branchStatus,
                 unreadCount: unreadCount,
+                isFavorite: isFavorite,
+                onToggleFavorite: onToggleFavorite,
                 onUnreadPillTap: onUnreadPillTap
             )
         }
@@ -193,6 +241,15 @@ struct RepoExplorerWorktreeRow: View {
                 menuLabel(actionSpec: LocalActionSpec.goToTerminal.actionSpec)
             }
 
+            Button {
+                onToggleFavorite()
+            } label: {
+                Label(
+                    RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: isFavorite),
+                    systemImage: isFavorite ? "star.slash" : "star"
+                )
+            }
+
             Menu(LocalActionSpec.openInMenu.actionSpec.label) {
                 Button {
                     openInCursor()
@@ -219,20 +276,6 @@ struct RepoExplorerWorktreeRow: View {
                 PathActions.copyPath(worktree.path)
             } label: {
                 menuLabel(actionSpec: LocalActionSpec.copyPath.actionSpec)
-            }
-
-            Divider()
-
-            Menu(LocalActionSpec.setIconColorMenu.actionSpec.label) {
-                ForEach(RepoPresentationGrouping.colorPresets, id: \.hex) { preset in
-                    Button(preset.name) {
-                        onSetIconColor(preset.hex)
-                    }
-                }
-                Divider()
-                Button(LocalActionSpec.resetIconColorDefault.actionSpec.label) {
-                    onSetIconColor(nil)
-                }
             }
         }
     }

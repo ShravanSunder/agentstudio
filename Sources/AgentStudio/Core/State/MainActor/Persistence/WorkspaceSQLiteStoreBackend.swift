@@ -514,13 +514,16 @@ enum WorkspaceSQLiteStateBridge {
                 name: repo.name,
                 repoPath: repo.repoPath,
                 createdAt: repo.createdAt,
+                isFavorite: repo.isFavorite,
+                note: repo.note,
                 worktrees: (worktreesByRepoId[repo.id] ?? []).map { worktree in
                     WorkspaceCoreRepository.WorktreeRecord(
                         id: worktree.id,
                         repoId: worktree.repoId,
                         name: worktree.name,
                         path: worktree.path,
-                        isMainWorktree: worktree.isMainWorktree
+                        isMainWorktree: worktree.isMainWorktree,
+                        note: worktree.note
                     )
                 }
             )
@@ -548,7 +551,7 @@ enum WorkspaceSQLiteStateBridge {
         from state: WorkspacePersistor.PersistableState
     ) -> [WorkspaceCoreRepository.TabShellRecord] {
         state.tabs.map { tab in
-            .init(id: tab.id, name: tab.name)
+            .init(id: tab.id, name: tab.name, colorHex: tab.colorHex)
         }
     }
 
@@ -704,8 +707,7 @@ enum WorkspaceSQLiteStateBridge {
             durableFacets: .init(
                 repoId: metadata.facets.repoId,
                 worktreeId: metadata.facets.worktreeId,
-                cwd: metadata.facets.cwd,
-                tags: metadata.facets.tags
+                cwd: metadata.facets.cwd
             )
         )
     }
@@ -821,8 +823,7 @@ enum WorkspaceSQLiteStateBridge {
             facets: .init(
                 repoId: record.durableFacets.repoId,
                 worktreeId: record.durableFacets.worktreeId,
-                cwd: record.durableFacets.cwd,
-                tags: record.durableFacets.tags
+                cwd: record.durableFacets.cwd
             ),
             checkoutRef: record.checkoutRef,
             note: record.note
@@ -884,7 +885,8 @@ enum WorkspaceSQLiteStateBridge {
             allPaneIds: state.allPaneIds,
             arrangements: arrangements,
             activeArrangementId: activeArrangementId,
-            zoomedPaneId: nil
+            zoomedPaneId: nil,
+            colorHex: shell?.colorHex
         )
     }
 
@@ -924,7 +926,9 @@ enum WorkspaceSQLiteStateBridge {
             id: record.id,
             name: record.name,
             repoPath: record.repoPath,
-            createdAt: record.createdAt
+            createdAt: record.createdAt,
+            isFavorite: record.isFavorite,
+            note: record.note
         )
     }
 
@@ -934,7 +938,8 @@ enum WorkspaceSQLiteStateBridge {
             repoId: record.repoId,
             name: record.name,
             path: record.path,
-            isMainWorktree: record.isMainWorktree
+            isMainWorktree: record.isMainWorktree,
+            note: record.note
         )
     }
 

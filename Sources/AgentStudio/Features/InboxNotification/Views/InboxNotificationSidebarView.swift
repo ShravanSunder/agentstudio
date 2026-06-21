@@ -7,18 +7,6 @@ private let inboxNotificationSidebarLogger = Logger(
     category: "InboxNotificationSidebarView"
 )
 
-private struct InboxNotificationListModelKey: Equatable {
-    let notifications: [InboxNotification]
-    let grouping: InboxNotificationGrouping
-    let sort: InboxNotificationSort
-    let searchText: String
-    let filter: InboxFilter?
-    let contentMode: InboxNotificationContentMode
-    let rowStateFilter: InboxNotificationRowStateFilter
-    let collapsedGroups: Set<InboxNotificationGroupKey>
-    let repoPresentationFingerprint: String
-}
-
 @MainActor
 struct InboxNotificationSidebarView: View {
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier(
@@ -34,11 +22,16 @@ struct InboxNotificationSidebarView: View {
     let workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
     let repoCache: RepoCacheAtom
     let dispatcher: AppCommandDispatcher
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let initialProjectionTrigger: String
     let onRefocusActivePane: @MainActor @Sendable () -> Void
 
     @State private var searchText = ""
     @State private var cachedListModel: InboxNotificationListModel
-    @State private var cachedListModelKey: InboxNotificationListModelKey
+    @State private var cachedListModelKey: InboxNotificationListProjectionKey
+    @State private var projectionWorker = InboxNotificationListProjectionWorker()
+    @State private var projectionTask: Task<Void, Never>?
+    @State private var projectionGeneration = 0
     @State private var groupingMenuOpen = false
     @State private var flashingRowIds: Set<UUID> = []
     @State private var activeFilter: InboxFilter?
@@ -57,6 +50,8 @@ struct InboxNotificationSidebarView: View {
         workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
         repoCache: RepoCacheAtom,
         dispatcher: AppCommandDispatcher,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        initialProjectionTrigger: String = "startup_diagnostic",
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
     ) {
         self.inboxAtom = inboxAtom
@@ -68,6 +63,8 @@ struct InboxNotificationSidebarView: View {
         self.workspaceRepositoryTopologyAtom = workspaceRepositoryTopologyAtom
         self.repoCache = repoCache
         self.dispatcher = dispatcher
+        self.performanceTraceRecorder = performanceTraceRecorder
+        self.initialProjectionTrigger = initialProjectionTrigger
         self.onRefocusActivePane = onRefocusActivePane
         let initialRepoEnrichmentByRepoId = Self.repoEnrichmentByRepoId(
             repos: workspaceRepositoryTopologyAtom.repos,
@@ -75,10 +72,9 @@ struct InboxNotificationSidebarView: View {
         )
         let initialRepoPresentationByRepoId = Self.repoPresentationByRepoId(
             repos: workspaceRepositoryTopologyAtom.repos,
-            repoEnrichmentByRepoId: initialRepoEnrichmentByRepoId,
-            checkoutColors: sidebarCache.checkoutColors
+            repoEnrichmentByRepoId: initialRepoEnrichmentByRepoId
         )
-        let initialKey = InboxNotificationListModelKey(
+        let initialKey = InboxNotificationListProjectionKey(
             notifications: inboxAtom.notifications,
             grouping: prefsAtom.grouping,
             sort: prefsAtom.sort,
@@ -92,22 +88,7 @@ struct InboxNotificationSidebarView: View {
             )
         )
         self._cachedListModelKey = State(initialValue: initialKey)
-        self._cachedListModel = State(
-            initialValue: InboxNotificationListModel(
-                notifications: inboxAtom.notifications,
-                grouping: prefsAtom.grouping,
-                sort: prefsAtom.sort,
-                searchText: "",
-                contentMode: Self.globalSidebarContentMode(prefsAtom.globalInboxContentMode),
-                rowStateFilter: prefsAtom.globalInboxRowStateFilter,
-                filter: nil,
-                collapsedGroups: inboxSidebarState.collapsedGroups,
-                repoPresentation: { repoId in
-                    guard let repoId else { return nil }
-                    return initialRepoPresentationByRepoId[repoId]
-                }
-            )
-        )
+        self._cachedListModel = State(initialValue: .empty)
     }
 
     var body: some View {
@@ -162,6 +143,11 @@ struct InboxNotificationSidebarView: View {
         }
         .task {
             applyPendingFilterDraft()
+            refreshListModel(force: true)
+        }
+        .onDisappear {
+            projectionTask?.cancel()
+            projectionTask = nil
         }
     }
 
@@ -187,8 +173,7 @@ struct InboxNotificationSidebarView: View {
             repoEnrichmentByRepoId: Self.repoEnrichmentByRepoId(
                 repos: workspaceRepositoryTopologyAtom.repos,
                 repoCache: repoCache
-            ),
-            checkoutColors: sidebarCache.checkoutColors
+            )
         )
     }
 
@@ -222,9 +207,11 @@ struct InboxNotificationSidebarView: View {
         }
     }
 
-    private func refreshListModel() {
+    private func refreshListModel(force: Bool = false) {
+        let clock = ContinuousClock()
+        let requestBuildStart = clock.now
         let resolvedRepoPresentationByRepoId = repoPresentationByRepoId
-        let key = InboxNotificationListModelKey(
+        let key = InboxNotificationListProjectionKey(
             notifications: inboxAtom.notifications,
             grouping: prefsAtom.grouping,
             sort: prefsAtom.sort,
@@ -235,28 +222,159 @@ struct InboxNotificationSidebarView: View {
             collapsedGroups: inboxSidebarState.collapsedGroups,
             repoPresentationFingerprint: Self.repoPresentationFingerprint(resolvedRepoPresentationByRepoId)
         )
-        guard key != cachedListModelKey else { return }
+        guard force || key != cachedListModelKey else { return }
+        if projectionTask != nil {
+            performanceTraceRecorder?.record(
+                .sidebarProjection,
+                attributes: sidebarProjectionTraceAttributes(
+                    for: key,
+                    phase: "projection_worker",
+                    extra: ["agentstudio.performance.sidebar.cancellation.count": .int(1)]
+                )
+            )
+        }
+        projectionGeneration += 1
+        let generation = projectionGeneration
+        let projectionTrigger = sidebarProjectionTrigger(previous: cachedListModelKey, next: key)
         cachedListModelKey = key
-        cachedListModel = InboxNotificationListModel(
-            notifications: key.notifications,
-            grouping: key.grouping,
-            sort: key.sort,
-            searchText: key.searchText,
-            contentMode: key.contentMode,
-            rowStateFilter: key.rowStateFilter,
-            filter: key.filter,
-            collapsedGroups: key.collapsedGroups,
-            repoPresentation: { repoId in
-                guard let repoId else { return nil }
-                return resolvedRepoPresentationByRepoId[repoId]
-            }
+        projectionTask?.cancel()
+        let request = InboxNotificationListProjectionRequest(
+            generation: generation,
+            key: key,
+            trigger: projectionTrigger,
+            repoPresentationByRepoId: resolvedRepoPresentationByRepoId
         )
+        let requestBuildDuration = requestBuildStart.duration(to: clock.now)
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: requestBuildDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: key,
+                trigger: projectionTrigger,
+                phase: "request_build_mainactor",
+                extra: [
+                    "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: requestBuildDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(0),
+                ]
+            )
+        )
+        let worker = projectionWorker
+        projectionTask = Task { @MainActor in
+            guard !Task.isCancelled else { return }
+            do {
+                let result = try await worker.project(request)
+                guard !Task.isCancelled else { return }
+                applyProjectionResult(result)
+            } catch is CancellationError {
+                clearProjectionTaskIfCurrent(generation: generation)
+            } catch {
+                inboxNotificationSidebarLogger.error(
+                    "Inbox list projection failed for generation \(generation, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+                clearProjectionTaskIfCurrent(generation: generation)
+            }
+        }
+    }
+
+    private func clearProjectionTaskIfCurrent(generation: Int) {
+        guard generation == projectionGeneration else { return }
+        projectionTask = nil
+    }
+
+    private func applyProjectionResult(_ result: InboxNotificationListProjectionResult) {
+        guard result.generation == projectionGeneration, result.key == cachedListModelKey else {
+            performanceTraceRecorder?.record(
+                .sidebarProjection,
+                attributes: sidebarProjectionTraceAttributes(
+                    for: result.key,
+                    trigger: result.trigger,
+                    phase: "mainactor_apply",
+                    extra: ["agentstudio.performance.sidebar.stale_discard.count": .int(1)]
+                )
+            )
+            return
+        }
+
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: result.workerDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: result.key,
+                trigger: result.trigger,
+                phase: "projection_worker",
+                extra: [
+                    "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: result.workerDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(result.model.sections.count),
+                ]
+            )
+        )
+
+        let clock = ContinuousClock()
+        let applyStart = clock.now
+        cachedListModel = result.model
+        projectionTask = nil
+        let applyDuration = applyStart.duration(to: clock.now)
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: applyDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: result.key,
+                trigger: result.trigger,
+                phase: "mainactor_apply",
+                extra: [
+                    "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(result.model.sections.count),
+                ]
+            )
+        )
+    }
+
+    private func sidebarProjectionTraceAttributes(
+        for key: InboxNotificationListProjectionKey,
+        trigger: String = "startup_diagnostic",
+        phase: String,
+        extra: [String: AgentStudioTraceValue] = [:]
+    ) -> [String: AgentStudioTraceValue] {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.sidebar.surface": .string("inbox"),
+            "agentstudio.performance.sidebar.phase": .string(phase),
+            "agentstudio.performance.sidebar.trigger": .string(trigger),
+            "agentstudio.performance.sidebar.query_state": .string(key.searchText.isEmpty ? "empty" : "non_empty"),
+            "agentstudio.performance.sidebar.group_mode": .string(key.grouping.performanceMetricValue),
+            "agentstudio.performance.sidebar.input.count": .int(key.notifications.count),
+            "agentstudio.performance.sidebar.query_character.count": .int(key.searchText.count),
+        ]
+        attributes.merge(extra) { _, newValue in newValue }
+        return attributes
+    }
+
+    private func sidebarProjectionTrigger(
+        previous: InboxNotificationListProjectionKey?,
+        next: InboxNotificationListProjectionKey
+    ) -> String {
+        guard let previous else {
+            return initialProjectionTrigger == "surface_switch"
+                ? "surface_switch"
+                : (next.grouping == .byTab ? "startup_diagnostic" : "grouping_switch")
+        }
+        if previous.grouping != next.grouping {
+            return "grouping_switch"
+        }
+        if previous.searchText != next.searchText {
+            return "search"
+        }
+        if previous.collapsedGroups != next.collapsedGroups {
+            return "collapse_toggle"
+        }
+        return "data_refresh"
     }
 
     static func repoPresentationByRepoId(
         repos: [Repo],
-        repoEnrichmentByRepoId: [UUID: RepoEnrichment],
-        checkoutColors: [SidebarCheckoutColorKey: String]
+        repoEnrichmentByRepoId: [UUID: RepoEnrichment]
     ) -> [UUID: InboxNotificationRepoGroupPresentation] {
         let sidebarRepos = repos.map(RepoPresentationItem.init(repo:))
         let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
@@ -267,11 +385,6 @@ struct InboxNotificationSidebarView: View {
             repos: sidebarRepos,
             metadataByRepoId: repoMetadataById
         )
-        let checkoutColorOverrides = Dictionary(
-            uniqueKeysWithValues: checkoutColors.map { key, value in
-                (key.rawValue, value)
-            }
-        )
         let originalReposByGroupId = Dictionary(grouping: sidebarRepos) { repo in
             repoMetadataById[repo.id]?.groupKey ?? "path:\(repo.repoPath.standardizedFileURL.path)"
         }
@@ -279,8 +392,7 @@ struct InboxNotificationSidebarView: View {
         var presentationsByRepoId: [UUID: InboxNotificationRepoGroupPresentation] = [:]
         for group in resolvedGroups {
             let sourceGroupAccentColorHex = RepoPresentationColoring.sourceGroupColorHex(
-                for: group,
-                checkoutColorOverrides: checkoutColorOverrides
+                for: group
             )
             for repo in originalReposByGroupId[group.id] ?? group.repos {
                 presentationsByRepoId[repo.id] = InboxNotificationRepoGroupPresentation(

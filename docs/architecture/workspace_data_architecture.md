@@ -228,18 +228,11 @@ struct WorkspaceSidebarExpandedGroupState: Codable {
 
 ### Tier D: Sidebar Settings-Bound Preferences
 
-```swift
-struct SidebarCheckoutColorSettingsState: Codable {
-    var checkoutColors: [String: String]   // repoId → color name
-}
-```
-
-`checkoutColors` is settings-bound user preference state owned by
-`SidebarCheckoutColorAtom`. During Step 0 the legacy `SidebarCacheStore`
-temporarily round-trips expanded groups and checkout colors through the existing
-sidebar-cache JSON file so the app continues to run before SQLite/settings
-repositories land. The shared file is a compatibility wrapper, not the
-architectural lifecycle boundary.
+Sidebar settings intentionally do not own checkout colors. Repo/sidebar
+presentation uses automatic colors, while `SidebarCheckoutColorAtom` remains a
+legacy cleanup surface only. `WorkspaceSettingsStore` must ignore and clear
+legacy checkout-color payloads instead of writing them back to
+`<workspace-id>.settings.json`.
 
 ### Tier E: Workspace UI State
 

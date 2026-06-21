@@ -6,6 +6,8 @@ extension AppDelegate: ShellCommandHandling {
         case .watchFolder, .toggleSidebar, .filterSidebar,
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showWorktreeSidebar,
+            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             true
@@ -72,6 +74,9 @@ extension AppDelegate: ShellCommandHandling {
         case .showWorktreeSidebar:
             mainWindowController?.showWorktreeSidebar()
             return true
+        case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone:
+            return executeSidebarGroupingCommand(command)
         case .newWindow:
             newWindow()
             return true
@@ -165,11 +170,35 @@ extension AppDelegate: ShellCommandHandling {
             .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
+            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
             .openWebview, .openBridgeReview, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false
         }
+    }
+
+    private func executeSidebarGroupingCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .setRepoSidebarGroupingRepo:
+            atomStore?.repoExplorerSidebarPrefs.setGroupingMode(.repo)
+        case .setRepoSidebarGroupingPane:
+            atomStore?.repoExplorerSidebarPrefs.setGroupingMode(.pane)
+        case .setRepoSidebarGroupingTab:
+            atomStore?.repoExplorerSidebarPrefs.setGroupingMode(.tab)
+        case .setInboxGroupingTab:
+            atomStore?.inboxNotificationPrefs.setGrouping(.byTab)
+        case .setInboxGroupingRepo:
+            atomStore?.inboxNotificationPrefs.setGrouping(.byRepo)
+        case .setInboxGroupingPane:
+            atomStore?.inboxNotificationPrefs.setGrouping(.byPane)
+        case .setInboxGroupingNone:
+            atomStore?.inboxNotificationPrefs.setGrouping(.none)
+        default:
+            return false
+        }
+        return true
     }
 }

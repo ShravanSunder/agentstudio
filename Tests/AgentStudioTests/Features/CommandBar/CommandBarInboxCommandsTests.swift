@@ -30,13 +30,12 @@ struct CommandBarInboxCommandsTests {
         var didToggleSort = false
         var didToggleBell = false
         var didReturnToWorktrees = false
-        var selectedGroupings: [InboxNotificationGrouping] = []
         let commands = InboxNotificationCommands(
             actions: .init(
                 markAllAsRead: { didMarkAllRead = true },
                 clearReadHistory: { didClearReadHistory = true },
                 clearAll: { didClearAll = true },
-                setGrouping: { selectedGroupings.append($0) },
+                setGrouping: { _ in },
                 toggleBellEnabled: { didToggleBell = true },
                 returnToWorktreeSidebar: { didReturnToWorktrees = true }
             ),
@@ -97,11 +96,19 @@ struct CommandBarInboxCommandsTests {
         } else {
             Issue.record("Expected inbox.toggleSort to dispatch toggleInboxNotificationSort")
         }
+        let groupingCommandsById: [String: AppCommand] = [
+            "inbox.grouping.none": .setInboxGroupingNone,
+            "inbox.grouping.byRepo": .setInboxGroupingRepo,
+            "inbox.grouping.byPane": .setInboxGroupingPane,
+            "inbox.grouping.byTab": .setInboxGroupingTab,
+        ]
+        try assertGroupingCommands(groupingCommandsById, in: items)
 
         for item in items {
             guard item.id != "inbox.clearReadHistory",
                 item.id != "inbox.clearAll",
-                item.id != "inbox.toggleSort"
+                item.id != "inbox.toggleSort",
+                !groupingCommandsById.keys.contains(item.id)
             else { continue }
             runCustomAction(item)
         }
@@ -113,7 +120,6 @@ struct CommandBarInboxCommandsTests {
                 && didToggleSort
                 && didToggleBell
                 && didReturnToWorktrees
-                && Set(selectedGroupings) == Set(InboxNotificationGrouping.allCases)
         }
     }
 
@@ -122,6 +128,21 @@ struct CommandBarInboxCommandsTests {
             action()
         } else {
             Issue.record("Expected \(item.id) to be a custom command")
+        }
+    }
+
+    private func assertGroupingCommands(
+        _ groupingCommandsById: [String: AppCommand],
+        in items: [CommandBarItem]
+    ) throws {
+        for (id, command) in groupingCommandsById {
+            let item = try #require(items.first { $0.id == id })
+            #expect(item.command == command)
+            #expect(item.title == command.definition.label)
+            guard case .dispatch(let dispatchedCommand) = item.action, dispatchedCommand == command else {
+                Issue.record("Expected \(id) to dispatch \(command.rawValue)")
+                continue
+            }
         }
     }
 }

@@ -42,8 +42,7 @@ struct InboxNotificationRepoPresentationTests {
                     identity: identity,
                     updatedAt: Date(timeIntervalSince1970: 100)
                 )
-            ],
-            checkoutColors: [SidebarCheckoutColorKey(repoId.uuidString): "#EAC54F"]
+            ]
         )
         let presentation = try #require(presentations[repoId])
         let expectedAccentColorHex = RepoPresentationColoring.checkoutColorHex(
@@ -53,8 +52,7 @@ struct InboxNotificationRepoPresentationTests {
                 repoTitle: identity.displayName,
                 organizationName: identity.organizationName,
                 repos: [RepoPresentationItem(repo: repo)]
-            ),
-            checkoutColorOverrides: [repoId.uuidString: "#EAC54F"]
+            )
         )
 
         #expect(presentation.groupId == "github:ShravanSunder/agent-studio")
@@ -120,8 +118,7 @@ struct InboxNotificationRepoPresentationTests {
                     identity: identity,
                     updatedAt: Date(timeIntervalSince1970: 100)
                 ),
-            ],
-            checkoutColors: [SidebarCheckoutColorKey(mainRepoId.uuidString): "#EAC54F"]
+            ]
         )
         let mainPresentation = try #require(presentations[mainRepoId])
         let forkPresentation = try #require(presentations[forkRepoId])
@@ -203,8 +200,7 @@ struct InboxNotificationRepoPresentationTests {
                     identity: identity,
                     updatedAt: Date(timeIntervalSince1970: 100)
                 ),
-            ],
-            checkoutColors: [SidebarCheckoutColorKey(ownerRepoId.uuidString): "#EAC54F"]
+            ]
         )
         let ownerPresentation = try #require(presentations[ownerRepoId])
         let duplicatePresentation = try #require(presentations[duplicateRepoId])

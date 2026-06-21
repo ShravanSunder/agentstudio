@@ -11,7 +11,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "bridge.", "orchestration."]
 
-        #expect(registry.definitions.count == 31)
+        #expect(registry.definitions.count == 35)
         #expect(registry.definition(named: "pane.snapshot") == nil)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
@@ -31,6 +31,18 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let commandBarOpen = try #require(registry.definition(named: "ui.commandBar.open"))
         #expect(commandBarOpen.privilegeClasses == [.uiPresent])
         #expect(commandBarOpen.executionOwner == .uiPresentation)
+
+        for methodName in ["sidebar.grouping.set", "sidebar.surface.set"] {
+            let definition = try #require(registry.definition(named: methodName))
+            #expect(definition.privilegeClasses == [.layoutMutate])
+            #expect(definition.executionOwner == .workspaceAction)
+        }
+
+        for methodName in ["sidebar.grouping.get", "sidebar.surface.get"] {
+            let definition = try #require(registry.definition(named: methodName))
+            #expect(definition.privilegeClasses == [.workspaceRead])
+            #expect(definition.executionOwner == .queryReader)
+        }
 
         for methodName in ["pane.split", "pane.close", "drawer.toggle", "drawer.addPane"] {
             let definition = try #require(registry.definition(named: methodName))
@@ -296,6 +308,48 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             requestedTarget: .app,
             activePaneId: nil
         )
+    }
+
+    @Test("sidebar semantic methods stay automation-only even with app scoped grants")
+    func sidebarSemanticMethodsStayAutomationOnlyEvenWithAppScopedGrants() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let grantLedger = GrantLedger()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: grantLedger,
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let spawnedPane = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+        let automation = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: UUID(),
+            accessMode: .unsafeDebug,
+            kind: .automationClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .workspaceRead, target: .app, dataScope: .unspecified),
+            to: spawnedPane.principalId
+        )
+
+        for methodName in ["sidebar.grouping.get", "sidebar.surface.get"] {
+            #expect(throws: AuthorizationError.self) {
+                try service.authorize(
+                    principal: spawnedPane,
+                    methodName: methodName,
+                    requestedTarget: .app,
+                    activePaneId: "pane-1"
+                )
+            }
+
+            try service.authorize(
+                principal: automation,
+                methodName: methodName,
+                requestedTarget: .app,
+                activePaneId: nil
+            )
+        }
     }
 
     @Test("spawned pane baseline does not include ui presentation")

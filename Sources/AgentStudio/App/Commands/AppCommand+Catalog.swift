@@ -767,6 +767,20 @@ extension AppCommand {
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
+        case .setRepoSidebarGroupingRepo:
+            return repoSidebarGroupingDefinition(.repo)
+        case .setRepoSidebarGroupingPane:
+            return repoSidebarGroupingDefinition(.pane)
+        case .setRepoSidebarGroupingTab:
+            return repoSidebarGroupingDefinition(.tab)
+        case .setInboxGroupingTab:
+            return inboxGroupingDefinition(.byTab)
+        case .setInboxGroupingRepo:
+            return inboxGroupingDefinition(.byRepo)
+        case .setInboxGroupingPane:
+            return inboxGroupingDefinition(.byPane)
+        case .setInboxGroupingNone:
+            return inboxGroupingDefinition(.none)
         case .newFloatingTerminal:
             return AppCommandSpec(
                 command: self,
@@ -967,32 +981,6 @@ extension AppCommand {
             visibleWhen: [.hasActiveTab, .hasArrangements],
             commandBarGroupName: "Tab",
             commandBarGroupPriority: CommandBarGroupPriority.tab
-        )
-    }
-
-    private func worktreeDefinition(label: String, icon: CommandIcon, helpText: String) -> AppCommandSpec {
-        AppCommandSpec(
-            command: self,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            appliesTo: [.worktree],
-            commandBarGroupName: "Repo",
-            commandBarGroupPriority: CommandBarGroupPriority.repo
-        )
-    }
-
-    private func managementDefinition(shortcut: AppShortcut, label: String, icon: CommandIcon, helpText: String)
-        -> AppCommandSpec
-    {
-        AppCommandSpec(
-            command: self,
-            shortcut: shortcut,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            requiresManagementLayer: true,
-            isHiddenInCommandBar: true
         )
     }
 

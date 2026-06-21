@@ -181,6 +181,12 @@ Path actions use `LocalActionSpec.copyPath` and
 `LocalActionSpec.revealInFinder` for labels and icons. The execution helper is
 shared so sidebar context menus and command-bar rows do not drift.
 
+Repo sidebar grouping commands (`repo`, `pane`, `tab`) and inbox grouping
+commands (`tab`, `repo`, `pane`, `none`) are app/sidebar shell commands. They
+belong in the `>` command surface when exposed as command rows; they are not
+repo-object rows in `#`. Programmatic tests use semantic `sidebar.grouping.*`
+and `sidebar.surface.*` IPC methods rather than command-bar presentation.
+
 ## Multiple bindings per command — `alternateTriggers`
 
 A command can have one **primary** trigger plus any number of
