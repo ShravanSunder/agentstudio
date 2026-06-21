@@ -25,6 +25,14 @@ struct AppStylesNamespaceTests {
         #expect(AppStyles.Shell.ManagementLayer.actionSize == 28)
     }
 
+    @Test("shell namespace owns compact titlebar density tokens")
+    func shellNamespaceOwnsCompactTitlebarDensityTokens() {
+        #expect(AppStyles.Shell.TabBar.height == 28)
+        #expect(AppStyles.Shell.Titlebar.iconSize == 14)
+        #expect(AppStyles.Shell.Titlebar.buttonSize == 28)
+        #expect(AppStyles.Shell.Titlebar.buttonSpacing == 4)
+    }
+
     @Test("workspace focus namespaces own content-specific transient surfaces")
     func workspaceFocusNamespacesOwnContentSpecificTokens() {
         #expect(AppStyles.WorkspaceFocus.Terminal.startupOverlayPadding == 28)

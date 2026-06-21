@@ -461,27 +461,31 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         item.paletteLabel = definition.actionSpec.label
         item.applyControlTooltip(definition.controlTooltipRenderValue())
 
-        let button = NSButton(
-            title: definition.actionSpec.label,
-            target: self,
-            action: action
-        )
-        button.bezelStyle = .rounded
-        button.bezelColor = .systemTeal
-        button.controlSize = .regular
+        let buttonSize = AppStyles.Shell.Titlebar.buttonSize
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: buttonSize, height: buttonSize))
+        button.title = ""
+        button.target = self
+        button.action = action
+        button.bezelStyle = .accessoryBarAction
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.applyControlTooltip(definition.controlTooltipRenderValue())
+        button.setAccessibilityLabel(definition.actionSpec.label)
 
         if case .system(let systemName) = definition.actionSpec.icon {
-            button.image = NSImage(
+            let image = NSImage(
                 systemSymbolName: systemName.rawValue,
                 accessibilityDescription: definition.actionSpec.label
             )
+            button.image =
+                image?.withSymbolConfiguration(
+                    NSImage.SymbolConfiguration(
+                        pointSize: AppStyles.Shell.Titlebar.iconSize,
+                        weight: .medium
+                    )
+                ) ?? image
         }
 
-        button.imagePosition = .imageLeading
-        button.attributedTitle = NSAttributedString(
-            string: "  " + definition.actionSpec.label,
-            attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
-        )
         item.view = button
         return item
     }
@@ -493,8 +497,6 @@ extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .flexibleSpace,
-            .managementLayer,
-            .space,
             .watchFolder,
         ]
     }
@@ -508,16 +510,6 @@ extension MainWindowController: NSToolbarDelegate {
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .managementLayer:
-            let presentation = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer).actionSpec
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = presentation.label
-            item.paletteLabel = presentation.label
-            // SwiftUI hosting for reactive toggle state
-            let hostingView = NSHostingView(rootView: ManagementLayerToolbarButton())
-            hostingView.sizingOptions = .intrinsicContentSize
-            item.view = hostingView
-            return item
         case .watchFolder:
             return commandToolbarButtonItem(for: .watchFolder, action: #selector(watchFolderAction))
 

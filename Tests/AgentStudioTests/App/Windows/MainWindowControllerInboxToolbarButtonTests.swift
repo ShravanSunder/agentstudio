@@ -32,8 +32,8 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    @Test("titlebar sidebar controls omit search and leave traffic-light padding")
-    func sidebarControlsOmitSearchAndPadFromTrafficLights() async {
+    @Test("titlebar sidebar controls keep original accessory placement")
+    func sidebarControlsKeepOriginalAccessoryPlacement() async {
         await withMainWindowControllerHarness { harness in
             let accessory =
                 findDescendant(
@@ -43,9 +43,44 @@ struct MainWindowControllerInboxToolbarButtonTests {
             let buttons = accessory?.arrangedSubviews.compactMap { $0 as? SidebarToolbarButton } ?? []
 
             #expect(accessory != nil)
+            #expect(accessory?.spacing == 10)
             #expect(accessory?.edgeInsets.left == 22)
+            #expect(accessory?.frame.size.width == 104)
             #expect(buttons.map { $0.identifier?.rawValue } == ["worktreeToolbarButton", "inboxToolbarBell"])
             #expect(buttons.allSatisfy { $0.currentSymbolName != "magnifyingglass" })
+        }
+    }
+
+    @Test("native toolbar removes management item and keeps watch folder")
+    func nativeToolbarRemovesManagementItemAndKeepsWatchFolder() async throws {
+        try await withMainWindowControllerHarness { harness in
+            let toolbar = try #require(harness.window.toolbar)
+            let identifiers = harness.controller.toolbarDefaultItemIdentifiers(toolbar)
+
+            #expect(!identifiers.contains(.managementLayer))
+            #expect(identifiers.contains(.watchFolder))
+        }
+    }
+
+    @Test("watch folder toolbar item is compact icon only")
+    func watchFolderToolbarItemIsCompactIconOnly() async throws {
+        try await withMainWindowControllerHarness { harness in
+            let toolbar = try #require(harness.window.toolbar)
+            let item = try #require(
+                harness.controller.toolbar(
+                    toolbar,
+                    itemForItemIdentifier: .watchFolder,
+                    willBeInsertedIntoToolbar: true
+                )
+            )
+            let button = try #require(item.view as? NSButton)
+
+            #expect(button.title.isEmpty)
+            #expect(button.image != nil)
+            #expect(button.frame.size.width == AppStyles.Shell.Titlebar.buttonSize)
+            #expect(button.frame.size.height == AppStyles.Shell.Titlebar.buttonSize)
+            #expect(button.toolTip == AppCommand.watchFolder.definition.controlTooltipRenderValue().text)
+            #expect(button.cell?.accessibilityLabel() == AppCommand.watchFolder.definition.actionSpec.label)
         }
     }
 

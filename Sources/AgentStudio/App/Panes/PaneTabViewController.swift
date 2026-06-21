@@ -338,7 +338,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             tabBarHostingView.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
             tabBarHostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             tabBarHostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            tabBarHostingView.heightAnchor.constraint(equalToConstant: 36),
+            tabBarHostingView.heightAnchor.constraint(equalToConstant: AppStyles.Shell.TabBar.height),
 
             // Terminal container below tab bar
             terminalContainer.topAnchor.constraint(equalTo: tabBarHostingView.bottomAnchor),
