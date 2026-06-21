@@ -9,6 +9,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu.js';
+import { Skeleton } from '../../components/ui/skeleton.js';
 import {
 	createBridgeReviewItemRegistry,
 	reviewItemPathLabel,
@@ -46,6 +47,7 @@ export interface ReviewViewerShellProps {
 	readonly selectedContentText?: string | null;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
 	readonly selectedContentUnavailablePath?: string | null;
+	readonly selectedCanvasLoadingReason?: BridgeReviewCanvasLoadingReason | null;
 	readonly selectedMarkdownPreviewHtml?: string | null;
 	readonly selectedMarkdownPreviewSourcePath?: string | null;
 	readonly visibleContentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
@@ -68,6 +70,8 @@ export interface ReviewViewerShellProps {
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 }
+
+export type BridgeReviewCanvasLoadingReason = 'content' | 'markdownPreview';
 
 export function BridgeReviewEmptyShell(): ReactElement {
 	return (
@@ -138,7 +142,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 				>
 					<section
 						aria-label="Code canvas"
-						className="h-full min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
+						className="relative h-full min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
 						data-testid="bridge-review-canvas"
 					>
 						{props.selectedMarkdownPreviewHtml !== undefined &&
@@ -186,6 +190,10 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									? {}
 									: { telemetryRecorder: props.telemetryRecorder })}
 							/>
+						)}
+						{props.selectedCanvasLoadingReason === undefined ||
+						props.selectedCanvasLoadingReason === null ? null : (
+							<BridgeReviewCanvasLoadingState reason={props.selectedCanvasLoadingReason} />
 						)}
 					</section>
 				</section>
@@ -309,6 +317,32 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 				</aside>
 			</div>
 		</main>
+	);
+}
+
+export function BridgeReviewCanvasLoadingState(props: {
+	readonly reason: BridgeReviewCanvasLoadingReason;
+}): ReactElement {
+	return (
+		<div
+			aria-hidden="true"
+			className="pointer-events-none absolute left-8 top-12 z-20 flex w-[min(28rem,calc(100%-4rem))] flex-col gap-2 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)]/75 p-3 shadow-[0_18px_48px_rgb(0_0_0_/_0.45)] backdrop-blur"
+			data-bridge-review-canvas-loading-reason={props.reason}
+			data-testid="bridge-review-canvas-loading-state"
+		>
+			<Skeleton
+				className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]"
+				data-testid="bridge-review-canvas-loading-line"
+			/>
+			<Skeleton
+				className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]"
+				data-testid="bridge-review-canvas-loading-line"
+			/>
+			<Skeleton
+				className="h-3 w-3/4 bg-[var(--bridge-surface-raised-bg)]"
+				data-testid="bridge-review-canvas-loading-line"
+			/>
+		</div>
 	);
 }
 

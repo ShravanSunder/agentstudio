@@ -8,6 +8,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import { createBridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
+import { makeBridgeViewerBrowserFixture } from '../test-support/bridge-viewer-mocked-backend.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import type { BridgeReviewContentRegistry } from './review-content-registry.js';
 import {
@@ -117,6 +118,40 @@ describe('useVisibleReviewContentHydration', () => {
 
 		expect(lastSnapshot(snapshots).visibleReadyItemCount).toBe(0);
 		expect(lastSnapshot(snapshots).visibleContentResourcesByItemId.size).toBe(0);
+	});
+
+	test('hydrates a large visible CodeView window instead of stopping at the first collapsed header page', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const visibleItemIds = fixture.reviewPackage.orderedItemIds.slice(0, 72);
+		const loadedItemIds: string[] = [];
+		const registry = makeTestContentRegistry(async ({ handle }) => {
+			loadedItemIds.push(handle.itemId);
+			return {
+				handle,
+				text: `loaded ${handle.itemId}`,
+			};
+		});
+		const snapshots: UseVisibleReviewContentHydrationResult[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<VisibleHydrationHarness
+					registry={registry}
+					onSnapshot={(snapshot): void => {
+						snapshots.push(snapshot);
+					}}
+					reviewPackage={fixture.reviewPackage}
+					visibleItemIds={visibleItemIds}
+				/>,
+			);
+			await flushVisibleHydrationMicrotasks();
+		});
+
+		expect(new Set(loadedItemIds).size).toBeGreaterThan(48);
+		expect(lastSnapshot(snapshots).visibleReadyItemCount).toBe(visibleItemIds.length);
 	});
 });
 

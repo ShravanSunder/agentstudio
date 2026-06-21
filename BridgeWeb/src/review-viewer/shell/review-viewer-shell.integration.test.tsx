@@ -7,7 +7,11 @@ import { BridgeReviewButton } from '../chrome/bridge-review-button.js';
 import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
-import { BridgeReviewProjectionMenu, ReviewViewerShell } from './review-viewer-shell.js';
+import {
+	BridgeReviewCanvasLoadingState,
+	BridgeReviewProjectionMenu,
+	ReviewViewerShell,
+} from './review-viewer-shell.js';
 
 describe('review viewer shell', () => {
 	test('renders compact rail summary controls and visible item list', () => {
@@ -246,6 +250,38 @@ describe('review viewer shell', () => {
 		expect(findElementByComponent(element, BridgeCodeViewPanel)).not.toBeNull();
 	});
 
+	test('shows a shadcn canvas skeleton while markdown output is rendering', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const element = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+				selectedCanvasLoadingReason: 'markdownPreview',
+				selectedMarkdownPreviewHtml: null,
+				selectedMarkdownPreviewSourcePath: null,
+			}),
+		);
+
+		const loadingState = findElementByComponent(element, BridgeReviewCanvasLoadingState);
+		const loadingStateBody = requireTestElement(
+			BridgeReviewCanvasLoadingState({ reason: 'markdownPreview' }),
+		);
+
+		expect(findElementByComponent(element, BridgeMarkdownPreview)).toBeNull();
+		expect(findElementByComponent(element, BridgeCodeViewPanel)).not.toBeNull();
+		expect(loadingState).not.toBeNull();
+		expect(loadingState?.props.reason).toBe('markdownPreview');
+		expect(
+			findElementByTestId(loadingStateBody, 'bridge-review-canvas-loading-state'),
+		).not.toBeNull();
+		expect(
+			findElementsByTestId(loadingStateBody, 'bridge-review-canvas-loading-line'),
+		).toHaveLength(3);
+	});
+
 	test('renders only items matching folder file-class and change-kind filter state', () => {
 		const basePackage = makeBridgeReviewPackage();
 		const sourceItem = basePackage.itemsById['item-source'];
@@ -319,6 +355,7 @@ interface TestElementProps {
 	readonly 'data-sidebar-position'?: string;
 	readonly 'data-testid'?: string;
 	readonly disabled?: boolean;
+	readonly reason?: string;
 	readonly role?: string;
 }
 
@@ -355,6 +392,24 @@ function findElementByTestId(
 	return findElementByTestId(node.props.children, testId);
 }
 
+function findElementsByTestId(
+	node: ReactNode,
+	testId: string,
+): readonly ReactElement<TestElementProps>[] {
+	if (Array.isArray(node)) {
+		return node.flatMap((child: ReactNode): readonly ReactElement<TestElementProps>[] =>
+			findElementsByTestId(child, testId),
+		);
+	}
+	if (!isReactElement(node)) {
+		return [];
+	}
+	return [
+		...(node.props['data-testid'] === testId ? [node] : []),
+		...findElementsByTestId(node.props.children, testId),
+	];
+}
+
 function findElementsByType(
 	node: ReactNode,
 	type: string,
@@ -373,7 +428,7 @@ function findElementsByType(
 function findElementByComponent(
 	node: ReactNode,
 	component: ReactElement['type'],
-): ReactElement | null {
+): ReactElement<TestElementProps> | null {
 	if (Array.isArray(node)) {
 		for (const child of node) {
 			const match = findElementByComponent(child, component);

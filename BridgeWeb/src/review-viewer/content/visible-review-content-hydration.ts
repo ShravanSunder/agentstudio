@@ -37,7 +37,7 @@ interface VisibleContentResourcesState {
 	readonly status: 'loading' | 'ready' | 'failed';
 }
 
-const visibleContentHydrationItemLimit = 48;
+const visibleContentHydrationItemLimit = 96;
 
 export function useVisibleReviewContentHydration(
 	props: UseVisibleReviewContentHydrationProps,

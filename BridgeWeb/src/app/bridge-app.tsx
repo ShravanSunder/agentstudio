@@ -63,6 +63,7 @@ import {
 	BridgeReviewProjectionFailedShell,
 	BridgeReviewProjectionPendingShell,
 	ReviewViewerShell,
+	type BridgeReviewCanvasLoadingReason,
 } from '../review-viewer/shell/review-viewer-shell.js';
 import {
 	createBridgeReviewViewerStore,
@@ -658,6 +659,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		reviewPackage !== null && rootSnapshot.selectedItemId !== null
 			? makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId)
 			: null;
+	const selectedCanvasLoadingReason = selectedCanvasLoadingReasonForCurrentSelection({
+		selectedContentKey: currentSelectedContentKey,
+		selectedContentResourcesState,
+		selectedItemId: rootSnapshot.selectedItemId,
+		selectedMarkdownPreviewState,
+	});
 
 	return (
 		<div
@@ -692,6 +699,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						selectedItemId: rootSnapshot.selectedItemId,
 						selectedContentResourcesState,
 					})}
+					selectedCanvasLoadingReason={selectedCanvasLoadingReason}
 					selectedItemId={rootSnapshot.selectedItemId}
 					visibleContentResourcesByItemId={visibleContentHydration.visibleContentResourcesByItemId}
 					visibleLoadingItemCount={visibleContentHydration.visibleLoadingItemCount}
@@ -966,6 +974,38 @@ function selectedContentUnavailablePathForCurrentSelection(
 	}
 	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
 	return selectedItem?.headPath ?? selectedItem?.basePath ?? props.selectedItemId;
+}
+
+interface SelectedCanvasLoadingReasonForCurrentSelectionProps {
+	readonly selectedItemId: string | null;
+	readonly selectedContentKey: string | null;
+	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
+	readonly selectedMarkdownPreviewState: SelectedMarkdownPreviewState | null;
+}
+
+function selectedCanvasLoadingReasonForCurrentSelection(
+	props: SelectedCanvasLoadingReasonForCurrentSelectionProps,
+): BridgeReviewCanvasLoadingReason | null {
+	if (props.selectedItemId === null || props.selectedContentKey === null) {
+		return null;
+	}
+	if (
+		props.selectedContentResourcesState !== null &&
+		props.selectedContentResourcesState.itemId === props.selectedItemId &&
+		props.selectedContentResourcesState.contentKey === props.selectedContentKey &&
+		props.selectedContentResourcesState.status === 'loading'
+	) {
+		return 'content';
+	}
+	if (
+		props.selectedMarkdownPreviewState !== null &&
+		props.selectedMarkdownPreviewState.itemId === props.selectedItemId &&
+		props.selectedMarkdownPreviewState.contentKey === props.selectedContentKey &&
+		props.selectedMarkdownPreviewState.status === 'rendering'
+	) {
+		return 'markdownPreview';
+	}
+	return null;
 }
 
 interface RecordMarkdownRenderQueueTelemetryProps {
