@@ -170,17 +170,33 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const treeSearchText = props.treeSearchText ?? '';
 	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
 	const projection = props.projection;
+	const selectedItem =
+		props.selectedItemId === null
+			? null
+			: (props.reviewPackage.itemsById[props.selectedItemId] ?? null);
+	const selectedDisplayPath =
+		selectedItem === null
+			? null
+			: (selectedItem.headPath ?? selectedItem.basePath ?? selectedItem.itemId);
+	const selectedContentState = selectedContentStateForShell({
+		selectedCanvasLoadingReason: props.selectedCanvasLoadingReason ?? null,
+		selectedContentResources: props.selectedContentResources ?? null,
+		selectedContentUnavailablePath: props.selectedContentUnavailablePath ?? null,
+		selectedMarkdownPreviewHtml: props.selectedMarkdownPreviewHtml ?? null,
+	});
 
 	return (
 		<main
 			className="flex h-screen min-h-screen w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
+			data-selected-content-state={selectedContentState}
+			data-selected-display-path={selectedDisplayPath ?? undefined}
 			data-sidebar-position="right"
 			data-testid="review-viewer-shell"
 		>
 			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
 				<section
 					aria-label="Selected content"
-					className="bridge-scrollbar min-h-0 min-w-0 overflow-auto overscroll-contain bg-[var(--bridge-canvas-bg)]"
+					className="min-h-0 min-w-0 overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]"
 					data-testid="bridge-review-code-scroll"
 				>
 					<section
@@ -475,6 +491,24 @@ function BridgeReviewContentUnavailableState(props: { readonly sourcePath: strin
 			</div>
 		</section>
 	);
+}
+
+function selectedContentStateForShell(props: {
+	readonly selectedCanvasLoadingReason: BridgeReviewCanvasLoadingReason | null;
+	readonly selectedContentResources: BridgeCodeViewContentResources | null;
+	readonly selectedContentUnavailablePath: string | null;
+	readonly selectedMarkdownPreviewHtml: string | null;
+}): 'failed' | 'loading' | 'ready' | 'unavailable' {
+	if (props.selectedContentUnavailablePath !== null) {
+		return 'failed';
+	}
+	if (props.selectedMarkdownPreviewHtml !== null || props.selectedContentResources !== null) {
+		return 'ready';
+	}
+	if (props.selectedCanvasLoadingReason === 'content') {
+		return 'loading';
+	}
+	return 'unavailable';
 }
 
 const projectionButtonSpecs: readonly {

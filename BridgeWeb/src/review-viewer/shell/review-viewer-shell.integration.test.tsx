@@ -202,13 +202,31 @@ describe('review viewer shell', () => {
 		expect(codeScroll?.type).toBe('section');
 		expect(railScroll?.type).toBe('div');
 		expect(railTreeSlot?.type).toBe('nav');
-		expect(classNameForElement(codeScroll)).toContain('overflow-auto');
-		expect(classNameForElement(codeScroll)).toContain('bridge-scrollbar');
+		expect(classNameForElement(codeScroll)).toContain('overflow-hidden');
+		expect(classNameForElement(codeScroll)).not.toContain('bridge-scrollbar');
 		expect(classNameForElement(railScroll)).toContain('overflow-hidden');
 		expect(classNameForElement(codeScroll)).toContain('min-h-0');
 		expect(classNameForElement(railScroll)).toContain('min-h-0');
 		expect(classNameForElement(railTreeSlot)).toContain('h-full');
 		expect(classNameForElement(railTreeSlot)).toContain('min-h-0');
+	});
+
+	test('exposes selected identity and content readiness from the shell', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const element = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+				selectedContentResources: {},
+			}),
+		);
+		const shell = findElementByTestId(element, 'review-viewer-shell');
+
+		expect(shell?.props['data-selected-display-path']).toBe('Sources/App/View.swift');
+		expect(shell?.props['data-selected-content-state']).toBe('ready');
 	});
 
 	test('renders selected markdown preview in the code canvas when worker output is ready', () => {
@@ -352,6 +370,8 @@ interface TestElementProps {
 	readonly children?: ReactNode;
 	readonly className?: string;
 	readonly 'data-bridge-segmented-control'?: string;
+	readonly 'data-selected-content-state'?: string;
+	readonly 'data-selected-display-path'?: string;
 	readonly 'data-sidebar-position'?: string;
 	readonly 'data-testid'?: string;
 	readonly disabled?: boolean;

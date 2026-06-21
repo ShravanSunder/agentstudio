@@ -163,9 +163,7 @@ describe('BridgeReviewTreesPanel', () => {
 
 		expect(treesReactMock.model.openSearch).toHaveBeenCalledWith('View.swift');
 		expect(treesReactMock.model.setSearch).toHaveBeenCalledWith('View.swift');
-		expect(treesReactMock.model.scrollToPath).toHaveBeenCalledWith(
-			'Sources/App/View.swift',
-		);
+		expect(treesReactMock.model.scrollToPath).toHaveBeenCalledWith('Sources/App/View.swift');
 	});
 });
 

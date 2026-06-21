@@ -304,14 +304,6 @@ export function findBridgeViewerCodeScrollOwner(): HTMLElement | null {
 	) {
 		return codeViewScrollOwner;
 	}
-	const outerScrollOwner = document.querySelector('[data-testid="bridge-review-code-scroll"]');
-	if (
-		outerScrollOwner instanceof HTMLElement &&
-		outerScrollOwner.clientHeight > 0 &&
-		outerScrollOwner.scrollHeight > outerScrollOwner.clientHeight + 32
-	) {
-		return outerScrollOwner;
-	}
 	const codeViewPanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
 	const candidates: Element[] =
 		codeViewPanel === null ? [] : [...codeViewPanel.querySelectorAll('*')];
@@ -324,7 +316,6 @@ export function findBridgeViewerCodeScrollOwner(): HTMLElement | null {
 		candidates.find(
 			(candidate): candidate is HTMLElement =>
 				candidate instanceof HTMLElement &&
-				candidate !== outerScrollOwner &&
 				candidate.clientHeight > 0 &&
 				candidate.scrollHeight > candidate.clientHeight + 32,
 		) ?? null

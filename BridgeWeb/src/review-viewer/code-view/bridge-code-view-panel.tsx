@@ -539,7 +539,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			const shouldUseInitialPlacement =
 				initialSelectedItemByViewerKeyRef.current?.viewerKey === viewerKey &&
 				initialSelectedItemByViewerKeyRef.current.selectedItemId === selectedItemId;
-			const scrollBehavior: CodeViewScrollBehavior = shouldUseInitialPlacement ? 'instant' : 'smooth';
+			const scrollBehavior: CodeViewScrollBehavior = shouldUseInitialPlacement
+				? 'instant'
+				: 'smooth';
 			controller.scrollToItem(selectedItemId, scrollBehavior);
 			if (scrollBehavior === 'instant') {
 				completedSelectionScrollKeyRef.current = selectionScrollKey;
