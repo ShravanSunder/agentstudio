@@ -1,9 +1,4 @@
-import type {
-	CodeViewItem,
-	CodeViewOptions,
-	CodeViewScrollBehavior,
-	PostRenderPhase,
-} from '@pierre/diffs';
+import type { CodeViewItem, CodeViewOptions, CodeViewScrollBehavior } from '@pierre/diffs';
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
@@ -21,11 +16,6 @@ import {
 	type ApplyBridgeCodeViewItemUpdateResult,
 	type BridgeCodeViewModel,
 } from './bridge-code-view-controller.js';
-import { syncBridgeCodeViewLoadingBody } from './bridge-code-view-loading-body.js';
-import {
-	BridgeCodeViewLoadingState,
-	BridgeCodeViewVisibleLoadingState,
-} from './bridge-code-view-loading-state.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
@@ -91,10 +81,6 @@ interface BridgeCodeViewRenderedItemsSource {
 	readonly getRenderedItems: () => readonly BridgeCodeViewRenderedItemSnapshot[];
 }
 
-interface BridgeCodeViewPostRenderContext {
-	readonly item: CodeViewItem;
-}
-
 export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	theme: {
 		dark: bridgePierreDarkThemeName,
@@ -119,7 +105,6 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 		paddingBottom: 0,
 		gap: 1,
 	},
-	onPostRender: handleBridgeCodeViewPostRender,
 	unsafeCSS: `
 		[data-diffs-header] {
 			--diffs-addition-base: var(--bridge-added);
@@ -170,22 +155,6 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 		}
 	`,
 };
-
-function handleBridgeCodeViewPostRender(
-	containerElement: HTMLElement,
-	_instance: unknown,
-	phase: PostRenderPhase,
-	context: BridgeCodeViewPostRenderContext,
-): void {
-	if (!isBridgeCodeViewItem(context.item)) {
-		return;
-	}
-	syncBridgeCodeViewLoadingBody({
-		containerElement,
-		item: context.item,
-		phase,
-	});
-}
 
 export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactElement {
 	const viewerKey = makeViewerKey(props);
@@ -721,10 +690,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					style={{ height: '100%' }}
 				/>
 			</BridgePierreWorkerPoolProvider>
-			{selectedContentState === 'pending' ? <BridgeCodeViewLoadingState /> : null}
-			{(props.visibleLoadingItemCount ?? 0) > 0 && selectedContentState !== 'pending' ? (
-				<BridgeCodeViewVisibleLoadingState />
-			) : null}
 		</section>
 	);
 }

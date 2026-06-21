@@ -181,7 +181,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewPanel?.getAttribute('data-selected-content-character-count')).toBe('0');
 		expect(codeViewPanel?.getAttribute('data-selected-content-line-count')).toBe('0');
 		expect(codeViewPanel?.getAttribute('data-selected-content-cache-key-count')).toBe('0');
-		expect(document.querySelector('[data-testid="bridge-code-view-loading-state"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="bridge-code-view-loading-state"]')).toBeNull();
 		expect(codeViewDoubles.updateItem).not.toHaveBeenCalled();
 	});
 
@@ -222,7 +222,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		} satisfies CodeViewScrollTarget);
 	});
 
-	test('shows a shadcn loading skeleton when visible review content is still hydrating', async () => {
+	test('keeps visible loading state inside CodeView items instead of floating a panel overlay', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -246,11 +246,9 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			await Promise.resolve();
 		});
 
-		const loadingSkeleton = document.querySelector(
-			'[data-testid="bridge-code-view-visible-loading-state"]',
-		);
-		expect(loadingSkeleton).not.toBeNull();
-		expect(loadingSkeleton?.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(3);
+		expect(
+			document.querySelector('[data-testid="bridge-code-view-visible-loading-state"]'),
+		).toBeNull();
 	});
 
 	test('passes compact DiffsHub-style CodeView options and review header renderers', async () => {

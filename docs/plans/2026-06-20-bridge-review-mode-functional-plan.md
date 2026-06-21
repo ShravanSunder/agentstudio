@@ -114,13 +114,11 @@ Observed current state before implementation:
   scroll position. Task 5/6 must keep CodeView as the primary review surface
   during file selection, and markdown preview must be an explicit render-mode
   request or review mode, not an accidental side effect of tree selection.
-- Current loading skeleton behavior needs visual correction. Manual video proof
-  showed the skeleton can appear detached from CodeView row geometry during
-  scroll/hydration, as if it is floating in the canvas instead of occupying the
-  same item body slot that will later render the real file/diff content. Task 5
-  must either make loading content a real stable CodeView item body with
-  deterministic height/placement or replace it with a row-local loading state
-  that cannot visually drift away from the file header and CodeView layout.
+- Loading skeleton correction checkpoint: manual video proof showed detached
+  skeletons floating outside CodeView row geometry during scroll/hydration. The
+  active direction is now row-owned loading materialization only: loading content
+  must occupy the same CodeView item body slot that later renders the real
+  file/diff content, with no absolute overlay path reintroduced.
 - Current Victoria verifier coverage is strong for the existing Bridge telemetry
   taxonomy, but the new resource data-plane names
   `performance.bridge.resource.fetch/cache/range`,
