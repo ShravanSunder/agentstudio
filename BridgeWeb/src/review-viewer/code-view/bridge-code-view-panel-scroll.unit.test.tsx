@@ -479,19 +479,41 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
+		let controlHandle: BridgeCodeViewControlHandle | null = null;
 
 		await act(async (): Promise<void> => {
 			mountedRoot?.render(
 				<BridgeCodeViewPanel
+					onControlHandleChange={(handle): void => {
+						controlHandle = handle;
+					}}
 					projection={projection}
 					reviewPackage={reviewPackage}
 					selectedContentResources={null}
-					selectedItemId={firstItem.id}
+					selectedItemId={null}
 					workerPoolEnabled={false}
 				/>,
 			);
 			await Promise.resolve();
 		});
+		codeViewDoubles.scrollTo.mockClear();
+		codeViewDoubles.updateItem.mockClear();
+
+		let didStartSmoothReveal = false;
+		await act(async (): Promise<void> => {
+			didStartSmoothReveal =
+				controlHandle?.scrollToItem(firstItem.id, { behavior: 'smooth' }) ?? false;
+			await Promise.resolve();
+		});
+		expect(didStartSmoothReveal).toBe(true);
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: firstItem.id,
+			align: 'start',
+			behavior: 'smooth',
+		} satisfies CodeViewScrollTarget);
+		codeViewDoubles.scrollTo.mockClear();
+		codeViewDoubles.updateItem.mockClear();
 
 		const headerContainer = document.createElement('div');
 		document.body.append(headerContainer);
@@ -514,7 +536,9 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			position: 240,
 			behavior: 'instant',
 		} satisfies CodeViewScrollTarget);
-		expect(codeViewDoubles.scrollTo).toHaveBeenCalledBefore(codeViewDoubles.updateItem);
+		const settleScrollOrder = codeViewDoubles.scrollTo.mock.invocationCallOrder[0];
+		const itemUpdateOrder = codeViewDoubles.updateItem.mock.invocationCallOrder[0];
+		expect(settleScrollOrder).toBeLessThan(itemUpdateOrder ?? Number.POSITIVE_INFINITY);
 		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith({
 			...firstItem,
 			collapsed: false,

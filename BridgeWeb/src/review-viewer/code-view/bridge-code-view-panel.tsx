@@ -184,6 +184,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const pendingRecoveryRenderFrameRef = useRef<number | null>(null);
 	const pendingRenderedItemsPublishFrameRef = useRef<number | null>(null);
 	const pendingSelectionScrollFrameRef = useRef<number | null>(null);
+	const pendingSmoothSelectionScrollKeyRef = useRef<string | null>(null);
 	const pendingVisibleHeaderPublishFrameRef = useRef<number | null>(null);
 	const renderedWindowItemIdsRef = useRef<readonly string[]>([]);
 	const scrollToTopTargetItemIdRef = useRef<string | null>(null);
@@ -290,7 +291,10 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		if (currentItem.collapsed === collapsed) {
 			return true;
 		}
-		settleCodeViewScrollAtCurrentPosition(codeViewHandle);
+		if (pendingSmoothSelectionScrollKeyRef.current !== null) {
+			settleCodeViewScrollAtCurrentPosition(codeViewHandle);
+			pendingSmoothSelectionScrollKeyRef.current = null;
+		}
 		const headerAnchor = captureCodeViewHeaderAnchor({
 			handle: codeViewHandle,
 			itemId,
@@ -307,6 +311,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		controller.applyItemUpdate(nextItem);
 		restoreCodeViewHeaderAnchorAcrossLayout({
 			anchor: headerAnchor,
+			frameBudget: codeViewHeaderAnchorRestoreFrameBudget,
 			isCurrent: (): boolean => codeViewHandleRef.current === codeViewHandle,
 		});
 		setCollapsedItemIds((currentIds: ReadonlySet<string>): ReadonlySet<string> => {
@@ -352,6 +357,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			const selectionScrollKey = `${viewerKey}:${codeViewMountVersion}:${itemId}`;
 			completedSelectionScrollKeyRef.current = selectionScrollKey;
 			if (scrollBehavior === 'instant') {
+				pendingSmoothSelectionScrollKeyRef.current = null;
 				scrollToTopTargetItemIdRef.current = itemId;
 				scrollCodeViewHeaderToScrollTopAcrossLayout({
 					handle: codeViewHandle,
@@ -360,6 +366,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						codeViewHandleRef.current === codeViewHandle &&
 						scrollToTopTargetItemIdRef.current === itemId,
 				});
+			} else {
+				pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
 			}
 			lastSelectionScrollKeyRef.current = selectionScrollKey;
 			return true;
@@ -444,6 +452,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		controllerEntryRef.current = null;
 		completedSelectionScrollKeyRef.current = null;
 		lastSelectionScrollKeyRef.current = null;
+		pendingSmoothSelectionScrollKeyRef.current = null;
 		setMaterializationDiagnostic(emptyMaterializationDiagnostic());
 	}, [viewerKey]);
 
@@ -507,6 +516,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}
 			controller.scrollToItem(selectedItemId);
 			completedSelectionScrollKeyRef.current = selectionScrollKey;
+			pendingSmoothSelectionScrollKeyRef.current = null;
 			scrollToTopTargetItemIdRef.current = selectedItemId;
 			scrollCodeViewHeaderToScrollTopAcrossLayout({
 				handle: codeViewHandle,
@@ -602,6 +612,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				const selectionScrollKey = `${viewerKey}:${codeViewMountVersion}:${itemId}`;
 				if (completedSelectionScrollKeyRef.current !== selectionScrollKey) {
 					controller.scrollToItem(itemId, 'instant');
+					pendingSmoothSelectionScrollKeyRef.current = null;
 					scrollToTopTargetItemIdRef.current = itemId;
 					scrollCodeViewHeaderToScrollTopAcrossLayout({
 						handle: codeViewHandle,
