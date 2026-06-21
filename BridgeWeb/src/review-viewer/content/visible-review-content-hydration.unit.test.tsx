@@ -153,11 +153,55 @@ describe('useVisibleReviewContentHydration', () => {
 		expect(new Set(loadedItemIds).size).toBeGreaterThan(48);
 		expect(lastSnapshot(snapshots).visibleReadyItemCount).toBe(visibleItemIds.length);
 	});
+
+	test('hydrates a selected item neighborhood before CodeView publishes the rendered window', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const selectedIndex = 180;
+		const selectedItemId = fixture.reviewPackage.orderedItemIds[selectedIndex];
+		const nextItemId = fixture.reviewPackage.orderedItemIds[selectedIndex + 1];
+		const previousItemId = fixture.reviewPackage.orderedItemIds[selectedIndex - 1];
+		if (selectedItemId === undefined || nextItemId === undefined || previousItemId === undefined) {
+			throw new Error('expected large fixture selection neighborhood');
+		}
+		const loadedItemIds: string[] = [];
+		const registry = makeTestContentRegistry(async ({ handle }) => {
+			loadedItemIds.push(handle.itemId);
+			return {
+				handle,
+				text: `loaded ${handle.itemId}`,
+			};
+		});
+		const snapshots: UseVisibleReviewContentHydrationResult[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<VisibleHydrationHarness
+					registry={registry}
+					onSnapshot={(snapshot): void => {
+						snapshots.push(snapshot);
+					}}
+					reviewPackage={fixture.reviewPackage}
+					selectedItemId={selectedItemId}
+					visibleItemIds={[]}
+				/>,
+			);
+			await flushVisibleHydrationMicrotasks();
+		});
+
+		expect(loadedItemIds).toContain(selectedItemId);
+		expect(loadedItemIds).toContain(previousItemId);
+		expect(loadedItemIds).toContain(nextItemId);
+		expect(lastSnapshot(snapshots).visibleReadyItemCount).toBeGreaterThan(1);
+	});
 });
 
 interface VisibleHydrationHarnessProps {
 	readonly registry: BridgeReviewContentRegistry;
 	readonly reviewPackage: ReturnType<typeof makeBridgeViewerProjectionFixture>;
+	readonly selectedItemId?: string | null;
 	readonly visibleItemIds: readonly string[];
 	readonly onSnapshot: (snapshot: UseVisibleReviewContentHydrationResult) => void;
 }
@@ -166,7 +210,7 @@ function VisibleHydrationHarness(props: VisibleHydrationHarnessProps): ReactElem
 	const hydration = useVisibleReviewContentHydration({
 		contentRegistry: props.registry,
 		reviewPackage: props.reviewPackage,
-		selectedItemId: null,
+		selectedItemId: props.selectedItemId ?? null,
 		telemetryParentTraceContext: null,
 		telemetryRecorder: createBridgeTelemetryRecorder(null),
 	});

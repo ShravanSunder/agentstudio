@@ -287,9 +287,9 @@ function normalizeVisibleReviewItemIds(props: {
 		return [];
 	}
 	const normalizedItemIds: string[] = [];
-	if (props.selectedItemId !== null) {
-		normalizedItemIds.push(props.selectedItemId);
-	}
+	normalizedItemIds.push(
+		...selectedReviewItemNeighborhood(props.reviewPackage, props.selectedItemId),
+	);
 	normalizedItemIds.push(...props.itemIds);
 	const uniqueItemIds: string[] = [];
 	const seenItemIds = new Set<string>();
@@ -304,6 +304,23 @@ function normalizeVisibleReviewItemIds(props: {
 		}
 	}
 	return uniqueItemIds;
+}
+
+function selectedReviewItemNeighborhood(
+	reviewPackage: BridgeReviewPackage,
+	selectedItemId: string | null,
+): readonly string[] {
+	if (selectedItemId === null) {
+		return [];
+	}
+	const selectedIndex = reviewPackage.orderedItemIds.indexOf(selectedItemId);
+	if (selectedIndex < 0) {
+		return [selectedItemId];
+	}
+	return reviewPackage.orderedItemIds.slice(
+		Math.max(0, selectedIndex - 2),
+		Math.min(reviewPackage.orderedItemIds.length, selectedIndex + 3),
+	);
 }
 
 function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
