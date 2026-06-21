@@ -50,10 +50,13 @@ struct ApplicationEntrypointArchitectureTests {
             path: "Sources/AgentStudio/App/Boot/AppDelegate+StartupDiagnostics.swift")
         let diagnosticActionURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Boot/AgentStudioStartupDiagnosticAction.swift")
+        let paneTabViewControllerURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Panes/PaneTabViewController.swift")
 
         let appDelegateSource = try String(contentsOf: appDelegateURL, encoding: .utf8)
         let startupDiagnosticsSource = try String(contentsOf: startupDiagnosticsURL, encoding: .utf8)
         let diagnosticActionSource = try String(contentsOf: diagnosticActionURL, encoding: .utf8)
+        let paneTabViewControllerSource = try String(contentsOf: paneTabViewControllerURL, encoding: .utf8)
 
         let presentationCompleteIndex = try #require(
             appDelegateSource.range(of: "mainWindowController?.completeLaunchPresentation()")?.lowerBound)
@@ -77,6 +80,14 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
         #expect(startupDiagnosticsSource.contains("commandBarController.state.rawInput = \"# repo\""))
         #expect(startupDiagnosticsSource.contains("handleWatchFolderRequested(startingAt: folderURL)"))
+        let diagnosticTaskIndex = try #require(
+            startupDiagnosticsSource.range(of: "Task { @MainActor")?.lowerBound)
+        let diagnosticDispatchRecordIndex = try #require(
+            startupDiagnosticsSource.range(of: "app.startup_diagnostic_action.dispatched")?.lowerBound)
+        let diagnosticFirstYieldIndex = try #require(
+            startupDiagnosticsSource.range(of: "await Task.yield()")?.lowerBound)
+        #expect(diagnosticTaskIndex < diagnosticDispatchRecordIndex)
+        #expect(diagnosticDispatchRecordIndex < diagnosticFirstYieldIndex)
         let dispatchDebugGuardIndex = try #require(startupDiagnosticsSource.range(of: "#if DEBUG")?.lowerBound)
         let dispatchSmokeCaseIndex = try #require(
             startupDiagnosticsSource.range(of: "case .crossTabMoveGeometrySmoke")?.lowerBound)
@@ -103,11 +114,68 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(startupDiagnosticsSource.contains("AppPolicies.StartupDiagnostic.appActivationTimeout"))
         #expect(startupDiagnosticsSource.contains("workspaceSurfaceCoordinator.openFloatingTerminal("))
         #expect(startupDiagnosticsSource.contains("provider: .zmx"))
+        try assertBridgeReviewSmokeDiagnosticSuppressesLaunchRestore(
+            appDelegateSource: appDelegateSource,
+            startupDiagnosticsSource: startupDiagnosticsSource,
+            diagnosticActionSource: diagnosticActionSource,
+            paneTabViewControllerSource: paneTabViewControllerSource
+        )
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.command_exercised"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.blocked"))
         #expect(!startupDiagnosticsSource.contains("for _ in 0..<80"))
         #expect(diagnosticActionSource.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
         #expect(!appDelegateSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
+    }
+
+    private func assertBridgeReviewSmokeDiagnosticSuppressesLaunchRestore(
+        appDelegateSource: String,
+        startupDiagnosticsSource: String,
+        diagnosticActionSource: String,
+        paneTabViewControllerSource: String
+    ) throws {
+        #expect(diagnosticActionSource.contains("suppressesAutomaticLaunchPaneRestore"))
+        #expect(diagnosticActionSource.contains("kind == .bridgeReviewObservabilitySmoke"))
+        #expect(appDelegateSource.contains("suppressesAutomaticLaunchPaneRestore == true"))
+        #expect(appDelegateSource.contains("launchRestoreObservationState.complete()"))
+        #expect(paneTabViewControllerSource.contains("suppressesAutomaticLaunchPaneRestore == true"))
+        #expect(paneTabViewControllerSource.contains("skipped visible view restore for startup diagnostic"))
+
+        let bridgeDiagnosticIndex = try #require(
+            startupDiagnosticsSource.range(of: "private func runBridgeReviewObservabilitySmokeDiagnostic")?.lowerBound)
+        let bridgeDiagnosticEndIndex = try #require(
+            startupDiagnosticsSource.range(
+                of: "private func recordBridgeReviewObservabilitySmokePhase",
+                range: bridgeDiagnosticIndex..<startupDiagnosticsSource.endIndex
+            )?.lowerBound)
+        let bridgeDiagnosticKeyWindowIndex = try #require(
+            startupDiagnosticsSource.range(
+                of: "mainWindowController?.window?.makeKeyAndOrderFront(nil)",
+                range: bridgeDiagnosticIndex..<startupDiagnosticsSource.endIndex
+            )?.lowerBound)
+        let bridgeDiagnosticActivationWaitIndex = try #require(
+            startupDiagnosticsSource.range(
+                of: "await waitForStartupDiagnosticAppActivation()",
+                range: bridgeDiagnosticIndex..<startupDiagnosticsSource.endIndex
+            )?.lowerBound)
+        let bridgeDiagnosticBoundsWaitIndex = try #require(
+            startupDiagnosticsSource.range(
+                of: "recordBridgeReviewObservabilitySmokePhase(\"bounds_wait_started\"",
+                range: bridgeDiagnosticIndex..<startupDiagnosticsSource.endIndex
+            )?.lowerBound)
+
+        #expect(bridgeDiagnosticIndex < bridgeDiagnosticKeyWindowIndex)
+        #expect(bridgeDiagnosticKeyWindowIndex < bridgeDiagnosticActivationWaitIndex)
+        #expect(bridgeDiagnosticActivationWaitIndex < bridgeDiagnosticBoundsWaitIndex)
+        #expect(
+            startupDiagnosticsSource.range(
+                of: "workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(pane.id",
+                range: bridgeDiagnosticIndex..<bridgeDiagnosticEndIndex
+            ) != nil)
+        #expect(
+            startupDiagnosticsSource.range(
+                of: "restoreAllViews",
+                range: bridgeDiagnosticIndex..<bridgeDiagnosticEndIndex
+            ) == nil)
     }
 
     @Test("AppKit persistent UI restoration is disabled")

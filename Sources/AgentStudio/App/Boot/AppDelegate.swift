@@ -158,7 +158,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         mainWindowController?.completeLaunchPresentation()
-        observeLaunchRestoreReadiness()
+        if AgentStudioStartupDiagnosticAction.fromEnvironment()?.suppressesAutomaticLaunchPaneRestore == true {
+            launchRestoreObservationState.complete()
+        } else {
+            observeLaunchRestoreReadiness()
+        }
         wireLifecycleConsumers()
         startAppIPCServer()
         if let window = mainWindowController?.window {

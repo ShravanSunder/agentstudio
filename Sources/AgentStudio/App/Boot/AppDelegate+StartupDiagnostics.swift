@@ -13,7 +13,6 @@ extension AppDelegate {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await Task.yield()
             self.startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.dispatched",
                 phase: "startup_diagnostic_action",
@@ -139,7 +138,13 @@ extension AppDelegate {
         private func runBridgeReviewObservabilitySmokeDiagnostic(
             action: AgentStudioStartupDiagnosticAction
         ) async {
+            recordBridgeReviewObservabilitySmokePhase("activation_started", action: action)
             NSApp.activate(ignoringOtherApps: true)
+            mainWindowController?.window?.makeKeyAndOrderFront(nil)
+            recordBridgeReviewObservabilitySmokePhase("window_ordered", action: action)
+            await waitForStartupDiagnosticAppActivation()
+            recordBridgeReviewObservabilitySmokePhase("activation_wait_finished", action: action)
+            recordBridgeReviewObservabilitySmokePhase("bounds_wait_started", action: action)
 
             guard let terminalContainerBounds = await startupDiagnosticLaunchRestoreBounds() else {
                 startupTraceRecorder.recordAppStartup(
@@ -152,14 +157,18 @@ extension AppDelegate {
                 )
                 return
             }
+            recordBridgeReviewObservabilitySmokePhase("bounds_ready", action: action)
 
             if !launchRestoreObservationState.didComplete {
+                recordBridgeReviewObservabilitySmokePhase("launch_restore_started", action: action)
                 await finishLaunchRestore(
                     using: terminalContainerBounds,
                     source: "bridgeReviewObservabilitySmokePreflight"
                 )
+                recordBridgeReviewObservabilitySmokePhase("launch_restore_finished", action: action)
             }
 
+            recordBridgeReviewObservabilitySmokePhase("pane_open_started", action: action)
             guard let pane = workspaceSurfaceCoordinator.openBridgeReviewObservabilitySmoke() else {
                 startupTraceRecorder.recordAppStartup(
                     "app.startup_diagnostic_action.blocked",
@@ -171,9 +180,12 @@ extension AppDelegate {
                 )
                 return
             }
+            recordBridgeReviewObservabilitySmokePhase("pane_opened", action: action)
 
-            await workspaceSurfaceCoordinator.restoreAllViews(in: terminalContainerBounds)
+            recordBridgeReviewObservabilitySmokePhase("restore_views_started", action: action)
+            workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(pane.id, forceWhenBoundsExist: true)
             await Task.yield()
+            recordBridgeReviewObservabilitySmokePhase("restore_views_finished", action: action)
 
             guard
                 let bridgeView = viewRegistry.view(for: pane.id)?
@@ -189,8 +201,10 @@ extension AppDelegate {
                 )
                 return
             }
+            recordBridgeReviewObservabilitySmokePhase("bridge_view_mounted", action: action)
 
             let commandId = UUIDv7.generate()
+            recordBridgeReviewObservabilitySmokePhase("load_diff_started", action: action)
             let result = await bridgeView.controller.handleDiffCommand(
                 .loadDiff(
                     DiffArtifact(
@@ -202,12 +216,15 @@ extension AppDelegate {
                 commandId: commandId,
                 correlationId: nil
             )
+            recordBridgeReviewObservabilitySmokePhase("load_diff_finished", action: action)
             let outcome: String
             switch result {
             case .success:
+                recordBridgeReviewObservabilitySmokePhase("render_proof_started", action: action)
                 let renderProof = await waitForBridgeReviewObservabilitySmokeRenderProof(
                     for: bridgeView.controller
                 )
+                recordBridgeReviewObservabilitySmokePhase("render_proof_finished", action: action)
                 outcome = renderProof.succeeded ? "succeeded" : "blocked"
                 recordBridgeReviewObservabilitySmokeDiagnosticResult(
                     action: action,
@@ -225,6 +242,17 @@ extension AppDelegate {
                 action: action,
                 outcome: outcome,
                 renderProof: renderProof
+            )
+        }
+
+        private func recordBridgeReviewObservabilitySmokePhase(
+            _ phase: String,
+            action: AgentStudioStartupDiagnosticAction
+        ) {
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.bridge_smoke.\(phase)",
+                phase: "startup_diagnostic_action",
+                attributes: startupDiagnosticTraceAttributes(for: action)
             )
         }
 

@@ -1044,6 +1044,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func scheduleVisibleViewRestoreAfterLayout(reason: StaticString) {
+        if AgentStudioStartupDiagnosticAction.fromEnvironment()?.suppressesAutomaticLaunchPaneRestore == true {
+            RestoreTrace.log(
+                "PaneTabViewController skipped visible view restore for startup diagnostic reason=\(reason)")
+            return
+        }
         pendingVisibleViewRestoreTask?.cancel()
         pendingVisibleViewRestoreTask = Task { @MainActor [weak self] in
             await Task.yield()
