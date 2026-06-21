@@ -123,6 +123,9 @@ export function parseBridgeWorktreeContentRequest(props: {
 	readonly contentUrl: URL;
 	readonly handleId: string;
 }): BridgeWorktreeDevProviderContentRequest | null {
+	if (!hasOnlySearchParams(props.contentUrl, ['generation', 'revision'])) {
+		return null;
+	}
 	const reviewGeneration = parseNonnegativeIntegerSearchParam(props.contentUrl, 'generation');
 	const revision = parseNonnegativeIntegerSearchParam(props.contentUrl, 'revision');
 	if (reviewGeneration === null || revision === null) {
@@ -145,10 +148,21 @@ export function decodeBridgeWorktreeContentHandle(pathname: string): string | nu
 }
 
 function parseNonnegativeIntegerSearchParam(url: URL, name: string): number | null {
-	const value = url.searchParams.get(name);
-	if (value === null || !/^(?:0|[1-9]\d*)$/u.test(value)) {
+	const values = url.searchParams.getAll(name);
+	const value = values.length === 1 ? values[0] : null;
+	if (value === null || value === undefined || !/^(?:0|[1-9]\d*)$/u.test(value)) {
 		return null;
 	}
 	const parsedValue = Number(value);
 	return Number.isSafeInteger(parsedValue) ? parsedValue : null;
+}
+
+function hasOnlySearchParams(url: URL, allowedNames: readonly string[]): boolean {
+	const allowed = new Set(allowedNames);
+	for (const [name] of url.searchParams.entries()) {
+		if (!allowed.has(name)) {
+			return false;
+		}
+	}
+	return allowedNames.every((name: string): boolean => url.searchParams.getAll(name).length === 1);
 }

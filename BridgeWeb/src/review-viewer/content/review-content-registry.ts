@@ -53,8 +53,10 @@ export function createBridgeReviewContentRegistry(
 	const entriesByResourceKey = new Map<string, RegistryEntry>();
 	const inFlightByResourceKey = new Map<string, Promise<BridgeContentResource>>();
 	let activeIdentity: BridgeReviewContentRegistryIdentity | null = null;
+	let registryEpoch = 0;
 
 	const clear = (): void => {
+		registryEpoch += 1;
 		entriesByResourceKey.clear();
 		inFlightByResourceKey.clear();
 	};
@@ -97,8 +99,12 @@ export function createBridgeReviewContentRegistry(
 			return await inFlight;
 		}
 
+		const requestEpoch = registryEpoch;
 		const request = loadBridgeContentResource(loadProps)
 			.then((resource: BridgeContentResource): BridgeContentResource => {
+				if (requestEpoch !== registryEpoch) {
+					throw new Error('Bridge content registry discarded stale in-flight content');
+				}
 				entriesByResourceKey.set(resourceKey, {
 					generation: loadProps.handle.reviewGeneration,
 					revision: revisionForHandle(loadProps.handle),

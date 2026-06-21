@@ -32,6 +32,24 @@ describe('BridgeWeb Vite worktree content route helpers', () => {
 		expect(parsed).toBeNull();
 	});
 
+	test('rejects duplicate content generation and revision query params', () => {
+		const parsed = parseBridgeWorktreeContentRequest({
+			contentUrl: new URL('/handle?generation=7&generation=8&revision=3', 'http://127.0.0.1'),
+			handleId: 'handle',
+		});
+
+		expect(parsed).toBeNull();
+	});
+
+	test('rejects unexpected content resource query params', () => {
+		const parsed = parseBridgeWorktreeContentRequest({
+			contentUrl: new URL('/handle?generation=7&revision=3&path=secret', 'http://127.0.0.1'),
+			handleId: 'handle',
+		});
+
+		expect(parsed).toBeNull();
+	});
+
 	test('parses valid content resource identity query params', () => {
 		const parsed = parseBridgeWorktreeContentRequest({
 			contentUrl: new URL('/handle?generation=7&revision=3', 'http://127.0.0.1'),

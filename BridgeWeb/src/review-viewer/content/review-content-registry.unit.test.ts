@@ -41,6 +41,46 @@ describe('review content registry', () => {
 		});
 	});
 
+	test('evicts the least recently used cached body when max entries is exceeded', async () => {
+		const registry = createBridgeReviewContentRegistry({ maxEntries: 1 });
+		const firstHandle = makeBridgeContentHandle('item-source', 'head');
+		const secondHandle = makeBridgeContentHandle('item-renamed', 'head');
+		const requestedUrls: string[] = [];
+
+		await registry.load({
+			handle: firstHandle,
+			fetchContent: async (url: string): Promise<Response> => {
+				requestedUrls.push(url);
+				return new Response('first body');
+			},
+		});
+		await registry.load({
+			handle: secondHandle,
+			fetchContent: async (url: string): Promise<Response> => {
+				requestedUrls.push(url);
+				return new Response('second body');
+			},
+		});
+		const reloadedFirst = await registry.load({
+			handle: firstHandle,
+			fetchContent: async (url: string): Promise<Response> => {
+				requestedUrls.push(url);
+				return new Response('first body reloaded');
+			},
+		});
+
+		expect(reloadedFirst.text).toBe('first body reloaded');
+		expect(requestedUrls).toEqual([
+			'agentstudio://resource/content/handle-item-source-head?generation=1',
+			'agentstudio://resource/content/handle-item-renamed-head?generation=1',
+			'agentstudio://resource/content/handle-item-source-head?generation=1',
+		]);
+		expect(registry.snapshot()).toMatchObject({
+			cachedResourceCount: 1,
+			inFlightRequestCount: 0,
+		});
+	});
+
 	test('coalesces concurrent requests for the same content resource', async () => {
 		const registry = createBridgeReviewContentRegistry();
 		const handle = makeBridgeContentHandle('item-source', 'head');
@@ -74,6 +114,50 @@ describe('review content registry', () => {
 			{ handle, text: 'shared response' },
 		]);
 		expect(fetchCount).toBe(1);
+	});
+
+	test('does not cache stale in-flight content after active identity changes', async () => {
+		const registry = createBridgeReviewContentRegistry();
+		const handle = makeBridgeContentHandle('item-source', 'head');
+		let releaseFetch = releaseDeferredNoop;
+		const releasePromise = new Promise<void>((resolve): void => {
+			releaseFetch = resolve;
+		});
+
+		registry.setActiveIdentity({
+			packageId: 'package-one',
+			reviewGeneration: 1,
+			revision: 0,
+		});
+		const staleRequest = registry.load({
+			handle,
+			fetchContent: async (): Promise<Response> => {
+				await releasePromise;
+				return new Response('stale response');
+			},
+		});
+		expect(registry.snapshot().inFlightRequestCount).toBe(1);
+
+		registry.setActiveIdentity({
+			packageId: 'package-two',
+			reviewGeneration: 1,
+			revision: 0,
+		});
+		releaseFetch();
+		await expect(staleRequest).rejects.toThrow(
+			'Bridge content registry discarded stale in-flight content',
+		);
+
+		const fresh = await registry.load({
+			handle,
+			fetchContent: async (): Promise<Response> => new Response('fresh response'),
+		});
+
+		expect(fresh.text).toBe('fresh response');
+		expect(registry.snapshot()).toMatchObject({
+			cachedResourceCount: 1,
+			inFlightRequestCount: 0,
+		});
 	});
 
 	test('clears cached bodies when active package identity changes', async () => {
