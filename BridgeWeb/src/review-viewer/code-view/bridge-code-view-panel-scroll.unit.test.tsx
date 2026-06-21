@@ -460,6 +460,69 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		).toBeGreaterThan(0);
 	});
 
+	test('does not re-scroll the selected item when its content hydrates after initial reveal', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
+		});
+		const selectedItem = reviewPackage.itemsById['docs-plan'];
+		const headHandle = selectedItem?.contentRoles.head;
+		if (selectedItem === undefined || headHandle === undefined || headHandle === null) {
+			throw new Error('expected docs-plan head handle');
+		}
+		const selectedContentResource: BridgeContentResource = {
+			handle: headHandle,
+			text: '# Bridge plan\n\nInspect this as source.',
+		};
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: 'docs-plan',
+			align: 'start',
+			behavior: 'instant',
+		} satisfies CodeViewScrollTarget);
+		codeViewDoubles.scrollTo.mockClear();
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={{ head: selectedContentResource }}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'docs-plan' }),
+		);
+		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
+	});
+
 	test('materializes selected content without depending on an animation frame', async () => {
 		const requestAnimationFrameSpy = vi
 			.spyOn(window, 'requestAnimationFrame')

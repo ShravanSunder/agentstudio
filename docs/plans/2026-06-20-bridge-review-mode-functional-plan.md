@@ -98,6 +98,22 @@ Observed current state before implementation:
   itself: `BridgeWeb/scripts/capture-bridge-viewer-dev-visual-proof.ts` still
   uses fixed waits in places. Replace those with event/DOM waits before
   `proof:visual:dev-server` is treated as a hard visual acceptance gate.
+- Current CodeView motion still differs from DiffsHub for large diffs. Video
+  review of DiffsHub versus the Bridge dev server showed Bridge can issue
+  multiple scroll/reveal operations for one selected file: an app-level
+  pre-scroll, a selected-item CodeView reveal, a hydration-time re-scroll, and
+  layout correction frames. DiffsHub performs one item reveal for the selection,
+  then lets CodeView keep the sticky header stable. Task 5 must remove duplicate
+  scroll authority, prevent content hydration from re-scrolling an already
+  revealed selected header, and add browser proof that file selection, visible
+  hydration, and collapse/expand do not produce jumpy motion.
+- Current markdown-file selection has a separate click-vs-scroll bug. Manual
+  dev-server proof showed that scrolling to a new markdown file can stay in the
+  expected DiffsHub-style CodeView, while clicking the markdown file from the
+  tree can jump the viewer to a file/markdown-render path and a surprising
+  scroll position. Task 5/6 must keep CodeView as the primary review surface
+  during file selection, and markdown preview must be an explicit render-mode
+  request or review mode, not an accidental side effect of tree selection.
 - Current Victoria verifier coverage is strong for the existing Bridge telemetry
   taxonomy, but the new resource data-plane names
   `performance.bridge.resource.fetch/cache/range`,
@@ -472,13 +488,37 @@ Steps:
      moves up
    - pinned-top collapse keeps the pinned header stable and content below moves
      up
-6. Remove duplicate file names in headers and use Pierre/lucide-compatible
+6. Make selected-file navigation a single-authority motion path:
+   - one file-tree click produces one CodeView reveal intent
+   - hydration of the same selected item updates content without issuing a
+     second scroll-to-item
+   - user-initiated file selection uses DiffsHub-like smooth reveal where
+     practical; forced instant correction is reserved for deterministic recovery
+     paths
+   - visible-window hydration must overscan and materialize the selected item,
+     but it must not prune/recreate the selected body in a way that causes the
+     header to jump
+7. Keep markdown selection inside the Review CodeView unless the user or IPC
+   explicitly switches render mode:
+   - tree-click selection must not accidentally replace the main CodeView with a
+     markdown/file-view pane
+   - scroll-only and click-to-file paths must render the same selected markdown
+     item shape
+   - markdown preview remains a typed explicit view/mode handled by Task 6
+8. Remove duplicate file names in headers and use Pierre/lucide-compatible
    icon discipline.
-7. Use stable dimensions and layout constraints so hover, selected, and collapsed
+9. Use stable dimensions and layout constraints so hover, selected, and collapsed
    states do not resize rows unexpectedly.
 
 Proof:
 
+- unit regression: selected-content hydration after initial reveal does not call
+  CodeView scroll again
+- browser proof: one tree click yields one selected-file reveal and no second
+  scroll jump when content hydrates
+- browser proof: clicking a markdown file and scrolling to that markdown file
+  leave the same CodeView review surface unless render mode was explicitly
+  changed
 - browser test for file click scroll-to-header
 - browser test for collapse stability in pinned and mid-screen states
 - browser test for added full-content rendering

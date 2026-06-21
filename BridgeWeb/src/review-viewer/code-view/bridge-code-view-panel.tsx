@@ -208,6 +208,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	});
 	const codeViewHandleRef = useRef<CodeViewHandle<undefined> | null>(null);
 	const controllerEntryRef = useRef<BridgeCodeViewControllerEntry | null>(null);
+	const completedSelectionScrollKeyRef = useRef<string | null>(null);
 	const lastSelectionScrollKeyRef = useRef<string | null>(null);
 	const mountedHandleViewerKeyRef = useRef<string | null>(null);
 	const pendingRecoveryRenderFrameRef = useRef<number | null>(null);
@@ -376,6 +377,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				});
 			}
 			controller.scrollToItem(itemId, options.behavior ?? 'instant');
+			const selectionScrollKey = `${viewerKey}:${codeViewMountVersion}:${itemId}`;
+			completedSelectionScrollKeyRef.current = selectionScrollKey;
 			scrollToTopTargetItemIdRef.current = itemId;
 			scrollCodeViewHeaderToScrollTopAcrossLayout({
 				handle: codeViewHandle,
@@ -384,7 +387,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					codeViewHandleRef.current === codeViewHandle &&
 					scrollToTopTargetItemIdRef.current === itemId,
 			});
-			lastSelectionScrollKeyRef.current = `${viewerKey}:${codeViewMountVersion}:${itemId}`;
+			lastSelectionScrollKeyRef.current = selectionScrollKey;
 			return true;
 		},
 		[codeViewMountVersion, viewerKey],
@@ -465,6 +468,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 
 	useEffect((): void => {
 		controllerEntryRef.current = null;
+		completedSelectionScrollKeyRef.current = null;
 		lastSelectionScrollKeyRef.current = null;
 		setMaterializationDiagnostic(emptyMaterializationDiagnostic());
 	}, [viewerKey]);
@@ -524,7 +528,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				handle: codeViewHandle,
 				controllerEntryRef,
 			});
+			if (completedSelectionScrollKeyRef.current === selectionScrollKey) {
+				return;
+			}
 			controller.scrollToItem(selectedItemId);
+			completedSelectionScrollKeyRef.current = selectionScrollKey;
 			scrollToTopTargetItemIdRef.current = selectedItemId;
 			scrollCodeViewHeaderToScrollTopAcrossLayout({
 				handle: codeViewHandle,
@@ -617,15 +625,20 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			const updateResult = controller.applyItemUpdate(nextMaterializedItem);
 			didUpdateRenderedItems = true;
 			if (itemId === props.selectedItemId) {
-				controller.scrollToItem(itemId, 'instant');
-				scrollToTopTargetItemIdRef.current = itemId;
-				scrollCodeViewHeaderToScrollTopAcrossLayout({
-					handle: codeViewHandle,
-					itemId,
-					isCurrent: (): boolean =>
-						codeViewHandleRef.current === codeViewHandle &&
-						scrollToTopTargetItemIdRef.current === itemId,
-				});
+				const selectionScrollKey = `${viewerKey}:${codeViewMountVersion}:${itemId}`;
+				if (completedSelectionScrollKeyRef.current !== selectionScrollKey) {
+					controller.scrollToItem(itemId, 'instant');
+					scrollToTopTargetItemIdRef.current = itemId;
+					scrollCodeViewHeaderToScrollTopAcrossLayout({
+						handle: codeViewHandle,
+						itemId,
+						isCurrent: (): boolean =>
+							codeViewHandleRef.current === codeViewHandle &&
+							scrollToTopTargetItemIdRef.current === itemId,
+					});
+					completedSelectionScrollKeyRef.current = selectionScrollKey;
+					lastSelectionScrollKeyRef.current = selectionScrollKey;
+				}
 				setMaterializationDiagnostic(
 					materializationDiagnosticForCodeViewItem({
 						item: nextMaterializedItem,
