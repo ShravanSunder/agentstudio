@@ -608,6 +608,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				/>
 			</BridgePierreWorkerPoolProvider>
 			{selectedContentState === 'pending' ? <BridgeCodeViewLoadingState /> : null}
+			{(props.visibleLoadingItemCount ?? 0) > 0 && selectedContentState !== 'pending' ? (
+				<BridgeCodeViewVisibleLoadingState />
+			) : null}
 		</section>
 	);
 }
@@ -618,6 +621,20 @@ function BridgeCodeViewLoadingState(): ReactElement {
 			aria-hidden="true"
 			className="pointer-events-none absolute left-8 top-12 z-10 flex w-[min(28rem,calc(100%-4rem))] flex-col gap-2 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)]/75 p-3 shadow-[0_18px_48px_rgb(0_0_0_/_0.45)] backdrop-blur"
 			data-testid="bridge-code-view-loading-state"
+		>
+			<Skeleton className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]" />
+			<Skeleton className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]" />
+			<Skeleton className="h-3 w-3/4 bg-[var(--bridge-surface-raised-bg)]" />
+		</div>
+	);
+}
+
+function BridgeCodeViewVisibleLoadingState(): ReactElement {
+	return (
+		<div
+			aria-hidden="true"
+			className="pointer-events-none absolute left-8 top-12 z-10 flex w-[min(28rem,calc(100%-4rem))] flex-col gap-2 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)]/75 p-3 shadow-[0_18px_48px_rgb(0_0_0_/_0.45)] backdrop-blur"
+			data-testid="bridge-code-view-visible-loading-state"
 		>
 			<Skeleton className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]" />
 			<Skeleton className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]" />

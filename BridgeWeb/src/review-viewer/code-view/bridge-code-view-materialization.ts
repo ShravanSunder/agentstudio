@@ -138,6 +138,7 @@ function createPlaceholderDiffItem(item: BridgeReviewItemDescriptor): BridgeCode
 		id: item.itemId,
 		type: 'diff',
 		fileDiff,
+		collapsed: true,
 		version: codeViewRenderVersion({
 			contentState: 'placeholder',
 			itemVersion: item.itemVersion,
@@ -168,6 +169,7 @@ function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
 		id: props.item.itemId,
 		type: 'file',
 		file,
+		...(props.contentState === 'placeholder' ? { collapsed: true } : {}),
 		version: codeViewRenderVersion({
 			contentState: props.contentState,
 			itemVersion: props.version,

@@ -176,6 +176,37 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewDoubles.updateItem).not.toHaveBeenCalled();
 	});
 
+	test('shows a shadcn loading skeleton when visible review content is still hydrating', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={{}}
+					selectedItemId="source-high"
+					visibleLoadingItemCount={3}
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		const loadingSkeleton = document.querySelector(
+			'[data-testid="bridge-code-view-visible-loading-state"]',
+		);
+		expect(loadingSkeleton).not.toBeNull();
+		expect(loadingSkeleton?.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(3);
+	});
+
 	test('passes compact DiffsHub-style CodeView options and review header renderers', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
@@ -294,7 +325,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			'[data-testid="bridge-code-view-header-collapse-button"]',
 		);
 		expect(collapseButton).not.toBeNull();
-		expect(collapseButton?.getAttribute('aria-expanded')).toBe('true');
+		expect(collapseButton?.getAttribute('aria-expanded')).toBe('false');
 		expect(collapseButton?.className).toContain('size-6');
 		expect(collapseButton?.className).toContain('hover:border-[var(--bridge-border-opaque)]');
 
@@ -305,7 +336,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 
 		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith({
 			...firstItem,
-			collapsed: true,
+			collapsed: false,
 			version: (firstItem.version ?? 0) + 1,
 		});
 		expect(codeViewDoubles.getInstanceRender).toHaveBeenCalled();

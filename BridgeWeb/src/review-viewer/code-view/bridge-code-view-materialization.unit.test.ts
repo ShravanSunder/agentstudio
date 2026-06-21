@@ -16,7 +16,12 @@ describe('Bridge CodeView materialization', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: {
+				mode: { kind: 'normalReview' },
+				facets: [
+					{ kind: 'visibility', includeHidden: true, includeBinary: true, includeLarge: true },
+				],
+			},
 		});
 
 		const items = createBridgeCodeViewInitialItems({ reviewPackage, projection });
@@ -32,6 +37,7 @@ describe('Bridge CodeView materialization', () => {
 		expect(firstItem).toMatchObject({
 			id: 'source-high',
 			type: 'diff',
+			collapsed: true,
 			version: 2,
 			fileDiff: {
 				name: 'Sources/App/Core.swift',
@@ -42,6 +48,26 @@ describe('Bridge CodeView materialization', () => {
 			},
 		});
 		expectTypeOf(firstItem).toMatchTypeOf<BridgeCodeViewItem>();
+	});
+
+	test('creates collapsed placeholder file items so unloaded content does not render as blank body rows', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+
+		const items = createBridgeCodeViewInitialItems({ reviewPackage, projection });
+		const placeholderFile = items.find(
+			(item: BridgeCodeViewItem): boolean => item.id === 'deleted-source',
+		);
+
+		if (placeholderFile === undefined || placeholderFile.type !== 'file') {
+			throw new Error('expected deleted-source placeholder file');
+		}
+		expect(placeholderFile.bridgeMetadata.contentState).toBe('placeholder');
+		expect(placeholderFile.file.contents).toBe('');
+		expect(placeholderFile.collapsed).toBe(true);
 	});
 
 	test('keeps a diff placeholder as a diff when only one role is loaded', () => {
@@ -99,7 +125,7 @@ describe('Bridge CodeView materialization', () => {
 		};
 		const projection = buildBridgeReviewProjection({
 			reviewPackage: generationZeroPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 		const placeholder = createBridgeCodeViewInitialItems({
 			reviewPackage: generationZeroPackage,
