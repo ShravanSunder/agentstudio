@@ -688,10 +688,6 @@ extension WorkspaceSurfaceCoordinator {
         let visiblePaneIds = orderedPaneIds.filter {
             visibilityTierResolver.tier(for: PaneId(uuid: $0)) == .p0Visible
         }
-        let hiddenPaneIds = orderedPaneIds.filter {
-            visibilityTierResolver.tier(for: PaneId(uuid: $0)) == .p1Hidden
-        }
-        let liveHiddenSessionIds = await hiddenLiveSessionIds()
         let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
         var progress = RestoreAllViewsProgress()
 
@@ -700,7 +696,6 @@ extension WorkspaceSurfaceCoordinator {
             restorePaneAndDrawers(
                 paneId,
                 resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-                liveHiddenSessionIds: liveHiddenSessionIds,
                 progress: &progress
             )
         }
@@ -713,20 +708,6 @@ extension WorkspaceSurfaceCoordinator {
             RestoreTrace.log(
                 "restoreAllViews syncFocus activeTab=\(activeTab.id) activePane=\(activePaneId) activeSurface=\(terminalView.surfaceId?.uuidString ?? "nil")"
             )
-        }
-
-        // Stage 2: restore eligible hidden panes cooperatively after visible work.
-        for (index, paneId) in hiddenPaneIds.enumerated() {
-            if Task.isCancelled { break }
-            restorePaneAndDrawers(
-                paneId,
-                resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-                liveHiddenSessionIds: liveHiddenSessionIds,
-                progress: &progress
-            )
-            if index.isMultiple(of: 2) {
-                await Task.yield()
-            }
         }
 
         Self.logger.info(
@@ -751,35 +732,12 @@ extension WorkspaceSurfaceCoordinator {
         return paneIds.filter { seen.insert($0).inserted }
     }
 
-    private func hiddenLiveSessionIds() async -> Set<String> {
-        let hiddenZmxPaneIds = store.paneAtom.panes.values.compactMap { pane -> UUID? in
-            guard pane.provider == .zmx else { return nil }
-            let paneId = PaneId(uuid: pane.id)
-            return visibilityTierResolver.tier(for: paneId) == .p1Hidden ? pane.id : nil
-        }
-        let needsHiddenSessionDiscovery = !hiddenZmxPaneIds.isEmpty
-        if !needsHiddenSessionDiscovery {
-            return []
-        }
-        return await terminalRestoreRuntime.discoverLiveSessionIds()
-    }
-
-    private func shouldRestoreHiddenPane(
-        _ pane: Pane,
-        liveHiddenSessionIds: Set<String>
-    ) -> Bool {
+    private func shouldRestorePaneDuringInitialRestore(_ pane: Pane) -> Bool {
         guard pane.residency == .active else {
             return false
         }
         let paneId = PaneId(uuid: pane.id)
-        guard visibilityTierResolver.tier(for: paneId) == .p1Hidden else {
-            return true
-        }
-        return terminalRestoreRuntime.shouldRestoreHiddenPane(
-            pane,
-            store: store,
-            liveSessionIds: liveHiddenSessionIds
-        )
+        return visibilityTierResolver.tier(for: paneId) == .p0Visible
     }
 
     func initialFrame(
@@ -799,7 +757,6 @@ extension WorkspaceSurfaceCoordinator {
     private func restorePaneAndDrawers(
         _ paneId: UUID,
         resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
-        liveHiddenSessionIds: Set<String>,
         progress: inout RestoreAllViewsProgress
     ) {
         guard progress.restoredPaneIds.insert(paneId).inserted else { return }
@@ -808,12 +765,11 @@ extension WorkspaceSurfaceCoordinator {
             RestoreTrace.log("restoreAllViews skip missing pane=\(paneId)")
             return
         }
-        guard shouldRestoreHiddenPane(pane, liveHiddenSessionIds: liveHiddenSessionIds) else {
+        guard shouldRestorePaneDuringInitialRestore(pane) else {
             RestoreTrace.log("restoreAllViews skip hidden pane=\(paneId) reason=policy")
             restoreDrawerPanes(
                 for: pane,
                 resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-                liveHiddenSessionIds: liveHiddenSessionIds,
                 progress: &progress
             )
             return
@@ -835,7 +791,6 @@ extension WorkspaceSurfaceCoordinator {
         restoreDrawerPanes(
             for: pane,
             resolvedPaneFramesByTabId: resolvedPaneFramesByTabId,
-            liveHiddenSessionIds: liveHiddenSessionIds,
             progress: &progress
         )
     }
@@ -843,7 +798,6 @@ extension WorkspaceSurfaceCoordinator {
     private func restoreDrawerPanes(
         for parentPane: Pane,
         resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]],
-        liveHiddenSessionIds: Set<String>,
         progress: inout RestoreAllViewsProgress
     ) {
         guard let drawer = parentPane.drawer else { return }
@@ -855,7 +809,7 @@ extension WorkspaceSurfaceCoordinator {
                 )
                 continue
             }
-            guard shouldRestoreHiddenPane(drawerPane, liveHiddenSessionIds: liveHiddenSessionIds) else {
+            guard shouldRestorePaneDuringInitialRestore(drawerPane) else {
                 RestoreTrace.log(
                     "restoreAllViews skip hidden drawer pane=\(drawerPaneId) parent=\(parentPane.id) reason=policy"
                 )
