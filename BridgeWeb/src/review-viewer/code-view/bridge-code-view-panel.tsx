@@ -155,6 +155,7 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 		}
 	`,
 };
+const codeViewHeaderAnchorRestoreFrameBudget = 30;
 
 export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactElement {
 	const viewerKey = makeViewerKey(props);
@@ -289,6 +290,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		if (currentItem.collapsed === collapsed) {
 			return true;
 		}
+		settleCodeViewScrollAtCurrentPosition(codeViewHandle);
 		const headerAnchor = captureCodeViewHeaderAnchor({
 			handle: codeViewHandle,
 			itemId,
@@ -727,6 +729,39 @@ function captureCodeViewHeaderAnchor(props: {
 	};
 }
 
+function settleCodeViewScrollAtCurrentPosition(handle: CodeViewHandle<undefined>): void {
+	const instance = handle.getInstance();
+	const containerElement =
+		typeof instance?.getContainerElement === 'function' ? instance.getContainerElement() : null;
+	if (!(containerElement instanceof HTMLElement)) {
+		return;
+	}
+	const scrollOwner = containerElement.closest('.bridge-code-view-scroll-owner');
+	if (!(scrollOwner instanceof HTMLElement)) {
+		return;
+	}
+	const targetScrollTop = scrollOwner.scrollTop;
+	handle.scrollTo({
+		type: 'position',
+		position: targetScrollTop,
+		behavior: 'instant',
+	});
+	instance?.render(true);
+	const firstSettledDelta = targetScrollTop - scrollOwner.scrollTop;
+	if (Math.abs(firstSettledDelta) < 1) {
+		return;
+	}
+	handle.scrollTo({
+		type: 'position',
+		position: targetScrollTop + firstSettledDelta,
+		behavior: 'instant',
+	});
+	instance?.render(true);
+	if (Math.abs(scrollOwner.scrollTop - targetScrollTop) >= 1) {
+		scrollOwner.scrollTop = targetScrollTop;
+	}
+}
+
 function restoreCodeViewHeaderAnchor(anchor: BridgeCodeViewHeaderAnchor | null): void {
 	if (anchor === null || !anchor.scrollOwner.isConnected || !anchor.containerElement.isConnected) {
 		return;
@@ -764,7 +799,7 @@ function scrollCodeViewHeaderToScrollTopAcrossLayout(
 		handle: props.handle,
 		itemId: props.itemId,
 	});
-	const frameBudget = props.frameBudget ?? 5;
+	const frameBudget = props.frameBudget ?? codeViewHeaderAnchorRestoreFrameBudget;
 	if (frameBudget <= 0) {
 		return;
 	}

@@ -131,6 +131,11 @@ Observed current state before implementation:
   too-few scrollTop values, large single-frame top-snap jumps for long moves,
   and unstable direction changes, so future visual work has a numeric guardrail
   before screenshot/manual comparison.
+- Collapse-anchor checkpoint: file-header collapse/expand now settles any
+  in-flight Pierre smooth scroll at the current scroll position before applying
+  the item layout update, then restores the header anchor across layout frames.
+  The large dev-server verifier must keep the selected header within the pinned
+  top band after both collapsed and expanded states.
 - Current Victoria verifier coverage is strong for the existing Bridge telemetry
   taxonomy, but the new resource data-plane names
   `performance.bridge.resource.fetch/cache/range`,

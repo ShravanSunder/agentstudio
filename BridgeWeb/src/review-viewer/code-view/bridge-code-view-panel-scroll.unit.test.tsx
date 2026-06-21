@@ -26,6 +26,7 @@ interface MockCodeViewProps {
 
 const codeViewDoubles = vi.hoisted(() => ({
 	addItems: vi.fn(),
+	containerElement: null as HTMLElement | null,
 	getInstanceRender: vi.fn(),
 	getItem: vi.fn((id: string): unknown => ({ id })),
 	lastProps: null as MockCodeViewProps | null,
@@ -46,9 +47,12 @@ vi.mock('@pierre/diffs/react', async () => {
 		React.useImperativeHandle(ref, () => ({
 			addItems: codeViewDoubles.addItems,
 			getInstance: (): {
+				readonly getContainerElement: () => HTMLElement | undefined;
 				readonly getRenderedItems: () => readonly { readonly id: string }[];
 				readonly render: () => void;
 			} => ({
+				getContainerElement: (): HTMLElement | undefined =>
+					codeViewDoubles.containerElement ?? undefined,
 				getRenderedItems: (): readonly { readonly id: string }[] => codeViewDoubles.renderedItems,
 				render: codeViewDoubles.getInstanceRender,
 			}),
@@ -76,6 +80,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		codeViewDoubles.containerElement = null;
 		codeViewDoubles.getItem.mockImplementation((id: string): unknown => ({ id }));
 		codeViewDoubles.lastProps = null;
 		codeViewDoubles.renderedItems = [];
@@ -445,6 +450,76 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			version: (firstItem.version ?? 0) + 1,
 		});
 		expect(codeViewDoubles.getInstanceRender).toHaveBeenCalled();
+
+		await act(async (): Promise<void> => {
+			headerRoot.unmount();
+		});
+	});
+
+	test('file header collapse settles in-flight smooth selection motion before updating layout', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const [firstItem] = createBridgeCodeViewInitialItems({ reviewPackage, projection });
+		if (firstItem === undefined) {
+			throw new Error('expected initial CodeView item');
+		}
+		codeViewDoubles.getItem.mockImplementation((id: string): CodeViewItem | undefined =>
+			id === firstItem.id ? firstItem : undefined,
+		);
+		const scrollOwner = document.createElement('div');
+		scrollOwner.className = 'bridge-code-view-scroll-owner';
+		scrollOwner.scrollTop = 240;
+		const codeViewContainer = document.createElement('div');
+		scrollOwner.append(codeViewContainer);
+		document.body.append(scrollOwner);
+		codeViewDoubles.containerElement = codeViewContainer;
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId={firstItem.id}
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		const headerContainer = document.createElement('div');
+		document.body.append(headerContainer);
+		const headerRoot = createRoot(headerContainer);
+		await act(async (): Promise<void> => {
+			headerRoot.render(<>{codeViewDoubles.lastProps?.renderHeaderPrefix?.(firstItem)}</>);
+			await Promise.resolve();
+		});
+
+		const collapseButton = headerContainer.querySelector<HTMLButtonElement>(
+			'[data-testid="bridge-code-view-header-collapse-button"]',
+		);
+		await act(async (): Promise<void> => {
+			collapseButton?.click();
+			await Promise.resolve();
+		});
+
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'position',
+			position: 240,
+			behavior: 'instant',
+		} satisfies CodeViewScrollTarget);
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledBefore(codeViewDoubles.updateItem);
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith({
+			...firstItem,
+			collapsed: false,
+			version: (firstItem.version ?? 0) + 1,
+		});
 
 		await act(async (): Promise<void> => {
 			headerRoot.unmount();
