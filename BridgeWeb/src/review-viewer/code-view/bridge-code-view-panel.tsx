@@ -332,6 +332,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				handle: codeViewHandle,
 				controllerEntryRef,
 			});
+			const scrollBehavior = options.behavior ?? 'instant';
 			if ((options.expandIfCollapsed ?? true) && currentItem.collapsed === true) {
 				const nextItem: BridgeCodeViewItem = {
 					...currentItem,
@@ -345,17 +346,19 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					return nextIds;
 				});
 			}
-			controller.scrollToItem(itemId, options.behavior ?? 'instant');
+			controller.scrollToItem(itemId, scrollBehavior);
 			const selectionScrollKey = `${viewerKey}:${codeViewMountVersion}:${itemId}`;
 			completedSelectionScrollKeyRef.current = selectionScrollKey;
-			scrollToTopTargetItemIdRef.current = itemId;
-			scrollCodeViewHeaderToScrollTopAcrossLayout({
-				handle: codeViewHandle,
-				itemId,
-				isCurrent: (): boolean =>
-					codeViewHandleRef.current === codeViewHandle &&
-					scrollToTopTargetItemIdRef.current === itemId,
-			});
+			if (scrollBehavior === 'instant') {
+				scrollToTopTargetItemIdRef.current = itemId;
+				scrollCodeViewHeaderToScrollTopAcrossLayout({
+					handle: codeViewHandle,
+					itemId,
+					isCurrent: (): boolean =>
+						codeViewHandleRef.current === codeViewHandle &&
+						scrollToTopTargetItemIdRef.current === itemId,
+				});
+			}
 			lastSelectionScrollKeyRef.current = selectionScrollKey;
 			return true;
 		},

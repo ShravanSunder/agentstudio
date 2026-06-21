@@ -119,6 +119,12 @@ Observed current state before implementation:
   active direction is now row-owned loading materialization only: loading content
   must occupy the same CodeView item body slot that later renders the real
   file/diff content, with no absolute overlay path reintroduced.
+- Smooth selection-motion checkpoint: unit proof now covers the specific
+  DiffsHub mismatch where an interactive file-tree reveal asked CodeView for a
+  smooth item scroll but Bridge immediately scheduled its own repeated
+  `requestAnimationFrame` header-top correction. Smooth reveals must delegate
+  motion to Pierre CodeView; Bridge's direct header correction stays limited to
+  instant recovery and initial-selection paths.
 - Current Victoria verifier coverage is strong for the existing Bridge telemetry
   taxonomy, but the new resource data-plane names
   `performance.bridge.resource.fetch/cache/range`,

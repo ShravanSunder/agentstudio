@@ -252,7 +252,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			}
 			if (options.reveal !== false) {
 				codeViewControlHandleRef.current?.scrollToItem(itemId, {
-					behavior: options.revealBehavior ?? 'instant',
+					behavior: options.revealBehavior ?? 'smooth',
 				});
 			}
 			const isSelectionChange = rootSnapshotRef.current.selectedItemId !== itemId;

@@ -10,7 +10,7 @@ import type { BridgeContentResource } from '../../foundation/content/content-res
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import { createBridgeCodeViewInitialItems } from './bridge-code-view-materialization.js';
-import { BridgeCodeViewPanel } from './bridge-code-view-panel.js';
+import { BridgeCodeViewPanel, type BridgeCodeViewControlHandle } from './bridge-code-view-panel.js';
 import { bridgePierreDarkThemeName } from './bridge-code-view-theme.js';
 
 interface MockCodeViewProps {
@@ -220,6 +220,67 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			align: 'start',
 			behavior: 'instant',
 		} satisfies CodeViewScrollTarget);
+	});
+
+	test('smooth control-handle reveal delegates motion to Pierre without top-snap correction', async () => {
+		const requestAnimationFrameSpy = vi
+			.spyOn(window, 'requestAnimationFrame')
+			.mockImplementation((): number => 1);
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const initialCodeViewItems = createBridgeCodeViewInitialItems({
+			projection,
+			reviewPackage,
+		});
+		const sourceHighCodeViewItem = initialCodeViewItems.find(
+			(item: CodeViewItem): boolean => item.id === 'source-high',
+		);
+		if (sourceHighCodeViewItem === undefined) {
+			throw new Error('expected source-high initial CodeView item');
+		}
+		codeViewDoubles.getItem.mockImplementation((id: string): unknown =>
+			id === 'source-high' ? sourceHighCodeViewItem : undefined,
+		);
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+		let controlHandle: BridgeCodeViewControlHandle | null = null;
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					onControlHandleChange={(handle): void => {
+						controlHandle = handle;
+					}}
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId={null}
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		requestAnimationFrameSpy.mockClear();
+		codeViewDoubles.scrollTo.mockClear();
+
+		let didReveal = false;
+		await act(async (): Promise<void> => {
+			didReveal = controlHandle?.scrollToItem('source-high', { behavior: 'smooth' }) ?? false;
+			await Promise.resolve();
+		});
+
+		expect(didReveal).toBe(true);
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: 'source-high',
+			align: 'start',
+			behavior: 'smooth',
+		} satisfies CodeViewScrollTarget);
+		expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
 	});
 
 	test('keeps visible loading state inside CodeView items instead of floating a panel overlay', async () => {
