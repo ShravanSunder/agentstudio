@@ -68,6 +68,86 @@ describe('BridgeApp', () => {
 		expect(document.body.textContent).toContain('Waiting for review package');
 	});
 
+	test('renders a shadcn package loading shell while native package metadata is loading', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+
+		await act(async (): Promise<void> => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+			);
+			document.dispatchEvent(
+				new CustomEvent('__bridge_push', {
+					detail: {
+						__v: 1,
+						__pushId: 'status-loading',
+						__revision: 1,
+						__epoch: 2,
+						store: 'diff',
+						op: 'replace',
+						level: 'hot',
+						slice: 'diff_status',
+						nonce: 'push-nonce',
+						data: { status: 'loading', error: null, epoch: 2 },
+					},
+				}),
+			);
+		});
+
+		expect(
+			document.querySelector('[data-testid="bridge-review-package-loading-shell"]'),
+		).not.toBeNull();
+		expect(document.querySelector('[data-testid="bridge-review-shell-skeleton"]')).not.toBeNull();
+		expect(document.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(3);
+		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).toBeNull();
+	});
+
+	test('renders package failure instead of an empty shell when native package loading fails', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+
+		await act(async (): Promise<void> => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+			);
+			document.dispatchEvent(
+				new CustomEvent('__bridge_push', {
+					detail: {
+						__v: 1,
+						__pushId: 'status-error',
+						__revision: 1,
+						__epoch: 2,
+						store: 'diff',
+						op: 'replace',
+						level: 'hot',
+						slice: 'diff_status',
+						nonce: 'push-nonce',
+						data: { status: 'error', error: 'loadFailed', epoch: 2 },
+					},
+				}),
+			);
+		});
+
+		expect(
+			document.querySelector('[data-testid="bridge-review-package-failed-shell"]'),
+		).not.toBeNull();
+		expect(document.body.textContent).toContain('Review package unavailable');
+		expect(document.body.textContent).toContain('loadFailed');
+		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).toBeNull();
+	});
+
 	test('mounts transport in order renders pushed package and sends selection commands', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeBridgeReviewPackage();

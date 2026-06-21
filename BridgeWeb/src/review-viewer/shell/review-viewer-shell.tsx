@@ -94,8 +94,9 @@ export function BridgeReviewProjectionPendingShell(): ReactElement {
 			className="flex h-screen min-h-screen w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-projection-pending-shell"
 		>
-			<section aria-label="Review projection status">
+			<section aria-label="Review projection status" className="flex w-72 flex-col gap-3">
 				<p className="text-sm">Projecting review</p>
+				<BridgeReviewShellSkeleton />
 			</section>
 		</main>
 	);
@@ -112,6 +113,46 @@ export function BridgeReviewProjectionFailedShell(): ReactElement {
 				<p className="mt-1 text-xs">The review package could not be projected.</p>
 			</section>
 		</main>
+	);
+}
+
+export function BridgeReviewPackageLoadingShell(): ReactElement {
+	return (
+		<main
+			className="flex h-screen min-h-screen w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
+			data-testid="bridge-review-package-loading-shell"
+		>
+			<section aria-label="Review package status" className="flex w-72 flex-col gap-3">
+				<p className="text-sm">Loading review package</p>
+				<BridgeReviewShellSkeleton />
+			</section>
+		</main>
+	);
+}
+
+export function BridgeReviewPackageFailedShell(props: {
+	readonly error: string | null;
+}): ReactElement {
+	return (
+		<main
+			className="flex h-screen min-h-screen w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
+			data-testid="bridge-review-package-failed-shell"
+		>
+			<section aria-label="Review package status" className="text-center">
+				<p className="text-sm text-[var(--bridge-text-primary)]">Review package unavailable</p>
+				<p className="mt-1 text-xs">{props.error ?? 'The review package could not be loaded.'}</p>
+			</section>
+		</main>
+	);
+}
+
+function BridgeReviewShellSkeleton(): ReactElement {
+	return (
+		<div className="flex w-full flex-col gap-2" data-testid="bridge-review-shell-skeleton">
+			<Skeleton className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]" />
+			<Skeleton className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]" />
+			<Skeleton className="h-3 w-3/4 bg-[var(--bridge-surface-raised-bg)]" />
+		</div>
 	);
 }
 

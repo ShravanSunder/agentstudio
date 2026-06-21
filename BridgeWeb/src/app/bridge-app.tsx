@@ -60,6 +60,8 @@ import type { BridgeReviewProjectionResult } from '../review-viewer/models/revie
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
 import {
 	BridgeReviewEmptyShell,
+	BridgeReviewPackageFailedShell,
+	BridgeReviewPackageLoadingShell,
 	BridgeReviewProjectionFailedShell,
 	BridgeReviewProjectionPendingShell,
 	ReviewViewerShell,
@@ -104,6 +106,12 @@ declare global {
 interface BridgeReviewPackageTelemetryContext {
 	readonly slice: BridgeTelemetrySlice;
 	readonly traceContext: BridgeTraceContext | null;
+}
+
+interface BridgeDiffStatusState {
+	readonly status: 'idle' | 'loading' | 'ready' | 'error';
+	readonly error: string | null;
+	readonly epoch: number;
 }
 
 interface SelectedContentResourcesState {
@@ -156,6 +164,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const rootSnapshot = useStore(viewerStore, selectBridgeReviewViewerRootSnapshot);
 	const viewerActions = useStore(viewerStore, (state) => state.actions);
 	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
+	const [diffStatus, setDiffStatus] = useState<BridgeDiffStatusState>({
+		status: 'idle',
+		error: null,
+		epoch: 0,
+	});
 	const [selectedContentResourcesState, setSelectedContentResourcesState] =
 		useState<SelectedContentResourcesState | null>(null);
 	const [selectedMarkdownPreviewState, setSelectedMarkdownPreviewState] =
@@ -307,6 +320,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				applyReviewEnvelope(
 					envelope,
 					setReviewPackage,
+					setDiffStatus,
 					(itemId: string | null): void => viewerActions.setSelectedItemId(itemId),
 					(): string | null => viewerStore.getState().rootSnapshot.selectedItemId,
 					reviewPackageRef,
@@ -689,7 +703,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			className="dark h-screen min-h-screen w-full overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)] antialiased"
 			data-testid="bridge-app-root"
 		>
-			{reviewPackage === null ? (
+			{reviewPackage === null && diffStatus.status === 'loading' ? (
+				<BridgeReviewPackageLoadingShell />
+			) : reviewPackage === null && diffStatus.status === 'error' ? (
+				<BridgeReviewPackageFailedShell error={diffStatus.error} />
+			) : reviewPackage === null ? (
 				<BridgeReviewEmptyShell />
 			) : rootSnapshot.projectionStatus === 'failed' ? (
 				<BridgeReviewProjectionFailedShell />
@@ -1223,6 +1241,7 @@ function applyReviewEnvelope(
 	setReviewPackage: (
 		update: (current: BridgeReviewPackage | null) => BridgeReviewPackage | null,
 	) => void,
+	setDiffStatus: (update: (current: BridgeDiffStatusState) => BridgeDiffStatusState) => void,
 	setSelectedItemId: (itemId: string | null) => void,
 	getSelectedItemId: () => string | null,
 	reviewPackageRef: { current: BridgeReviewPackage | null },
@@ -1232,6 +1251,14 @@ function applyReviewEnvelope(
 	},
 ): void {
 	if (envelope.store !== 'diff') {
+		return;
+	}
+	const diffStatusPayload = extractDiffStatus(envelope.data);
+	if (diffStatusPayload !== null) {
+		setDiffStatus(
+			(current): BridgeDiffStatusState =>
+				diffStatusPayload.epoch < current.epoch ? current : diffStatusPayload,
+		);
 		return;
 	}
 	const packagePayload = extractReviewPackage(envelope.data);
@@ -1250,6 +1277,13 @@ function applyReviewEnvelope(
 		telemetryContextByPackageKey.set(makeTelemetryPackageKey(packagePayload), telemetryContext);
 		currentReviewPackageTelemetryContextRef.current = telemetryContext;
 		reviewPackageRef.current = packagePayload;
+		setDiffStatus(
+			(): BridgeDiffStatusState => ({
+				status: 'ready',
+				error: null,
+				epoch: packagePayload.reviewGeneration,
+			}),
+		);
 		setReviewPackage((): BridgeReviewPackage => packagePayload);
 		const currentSelectedItemId = getSelectedItemId();
 		setSelectedItemId(
@@ -1292,6 +1326,23 @@ function applyReviewEnvelope(
 			? firstVisibleItemId(result.registry.reviewPackage)
 			: currentSelectedItemId,
 	);
+}
+
+function extractDiffStatus(data: unknown): BridgeDiffStatusState | null {
+	if (!isRecord(data)) {
+		return null;
+	}
+	const status = data['status'];
+	if (status !== 'idle' && status !== 'loading' && status !== 'ready' && status !== 'error') {
+		return null;
+	}
+	const epoch = data['epoch'];
+	const error = data['error'];
+	return {
+		status,
+		error: typeof error === 'string' && error.length > 0 ? error : null,
+		epoch: typeof epoch === 'number' && Number.isInteger(epoch) && epoch >= 0 ? epoch : 0,
+	};
 }
 
 function isStaleReviewPackageReplacement(
