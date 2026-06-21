@@ -38,10 +38,24 @@ interface DevServerVerificationResult {
 	readonly gitStatusFilterMenuState: GitStatusFilterMenuState | null;
 	readonly hydrationDiagnostics: BridgeViewerHydrationDiagnostics;
 	readonly selectedHeaderCollapseButtonState: HeaderCollapseButtonState | null;
+	readonly selectedScrollMotion: ScrollMotionProbe | null;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
 	readonly topScopeState: TopScopeState | null;
 	readonly workerPoolState: string | null;
+}
+
+interface ScrollMotionProbe {
+	readonly directionChangeCount: number;
+	readonly finalSampleScrollTop: number;
+	readonly initialScrollTop: number;
+	readonly maximumSingleFrameDelta: number;
+	readonly sampleCount: number;
+	readonly samples: readonly number[];
+	readonly scrollClientHeight: number;
+	readonly scrollHeight: number;
+	readonly totalObservedDelta: number;
+	readonly uniqueScrollTopCount: number;
 }
 
 interface HeaderCollapseButtonState {
@@ -95,6 +109,7 @@ try {
 				fixtureClass,
 				gitStatusFilterMenu: result.gitStatusFilterMenuState,
 				hydrationDiagnostics: result.hydrationDiagnostics,
+				selectedScrollMotion: result.selectedScrollMotion,
 				selectedHeaderCollapseButton: result.selectedHeaderCollapseButtonState,
 				markdownDevServerUrl,
 				markdownDisplayPath: markdownResult.displayPath,
@@ -126,7 +141,10 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 			text: targetModifiedText,
 		});
 		await searchForAddedFile(page);
-		await clickFileTreePath(page, targetAddedPath);
+		const selectedScrollMotion = await clickFileTreePathAndMeasureScrollMotion(
+			page,
+			targetAddedPath,
+		);
 		await waitForSelectedPath(page, targetAddedPath);
 		await waitForCodeViewText(page, targetAddedText);
 		await waitForSelectedHeaderAligned(page);
@@ -134,8 +152,10 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 		const result = {
 			...(await readVerificationResult(page)),
 			gitStatusFilterMenuState,
+			selectedScrollMotion,
 		};
 		assertSelectedHeaderCollapseButton(result);
+		assertSelectedScrollMotion(result.selectedScrollMotion);
 		if (result.selectedDisplayPath !== targetAddedPath) {
 			throw new Error(
 				`Expected selected display path ${targetAddedPath}, got ${
@@ -350,6 +370,45 @@ function assertCodeViewScrolledToSelectedItem(props: {
 				`Initial scrollTop: ${props.initialResult.codeViewScrollTop}`,
 				`Final scrollTop: ${props.result.codeViewScrollTop}`,
 			].join('\n'),
+		);
+	}
+}
+
+function assertSelectedScrollMotion(scrollMotion: ScrollMotionProbe | null): void {
+	if (scrollMotion === null) {
+		throw new Error('Expected selected file click to record CodeView scroll motion');
+	}
+	const absoluteObservedDelta = Math.abs(scrollMotion.totalObservedDelta);
+	if (scrollMotion.scrollHeight <= scrollMotion.scrollClientHeight) {
+		throw new Error(
+			`Expected CodeView scroll range for motion proof, got height ${scrollMotion.scrollHeight} and client ${scrollMotion.scrollClientHeight}`,
+		);
+	}
+	if (absoluteObservedDelta < 16) {
+		throw new Error(
+			[
+				'Expected file-tree click to move the CodeView scroll owner.',
+				`Total delta: ${scrollMotion.totalObservedDelta}`,
+				`Samples: ${scrollMotion.samples.join(', ')}`,
+			].join('\n'),
+		);
+	}
+	if (scrollMotion.uniqueScrollTopCount < 4) {
+		throw new Error(
+			`Expected smooth CodeView motion with multiple scrollTop samples, got ${scrollMotion.uniqueScrollTopCount} unique values`,
+		);
+	}
+	if (
+		scrollMotion.maximumSingleFrameDelta >= absoluteObservedDelta * 0.9 &&
+		absoluteObservedDelta > scrollMotion.scrollClientHeight * 2
+	) {
+		throw new Error(
+			`Expected CodeView to own smooth motion instead of one top-snap jump, max frame delta ${scrollMotion.maximumSingleFrameDelta} of total ${absoluteObservedDelta}`,
+		);
+	}
+	if (scrollMotion.directionChangeCount > 2) {
+		throw new Error(
+			`Expected mostly monotonic selected-file scroll motion, got ${scrollMotion.directionChangeCount} direction changes`,
 		);
 	}
 }
@@ -762,6 +821,77 @@ async function clickFileTreePath(page: Page, path: string): Promise<void> {
 	}
 }
 
+async function clickFileTreePathAndMeasureScrollMotion(
+	page: Page,
+	path: string,
+): Promise<ScrollMotionProbe> {
+	return await page.evaluate(async (targetPath: string): Promise<ScrollMotionProbe> => {
+		const scrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+		const row = document
+			.querySelector('file-tree-container')
+			?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(targetPath)}"]`);
+		if (!(scrollOwner instanceof HTMLElement)) {
+			throw new Error('Expected CodeView scroll owner before measuring selection motion');
+		}
+		if (!(row instanceof HTMLElement)) {
+			throw new Error(`Expected file tree row for ${targetPath}`);
+		}
+
+		const samples: number[] = [];
+		const sample = (): void => {
+			samples.push(scrollOwner.scrollTop);
+		};
+		sample();
+		row.click();
+		for (let frameIndex = 0; frameIndex < 30; frameIndex += 1) {
+			// oxlint-disable-next-line no-await-in-loop -- Smooth-scroll proof must sample sequential animation frames.
+			await new Promise<void>((resolve): void => {
+				requestAnimationFrame((): void => {
+					resolve();
+				});
+			});
+			sample();
+		}
+
+		const deltas = samples
+			.slice(1)
+			.map(
+				(sampleValue: number, index: number): number =>
+					sampleValue - (samples[index] ?? sampleValue),
+			);
+		let previousDirection = 0;
+		let directionChangeCount = 0;
+		for (const delta of deltas) {
+			const direction = Math.sign(delta);
+			if (direction === 0) {
+				continue;
+			}
+			if (previousDirection !== 0 && direction !== previousDirection) {
+				directionChangeCount += 1;
+			}
+			previousDirection = direction;
+		}
+
+		const initialScrollTop = samples[0] ?? 0;
+		const finalSampleScrollTop = samples.at(-1) ?? initialScrollTop;
+		return {
+			directionChangeCount,
+			finalSampleScrollTop,
+			initialScrollTop,
+			maximumSingleFrameDelta: Math.max(
+				0,
+				...deltas.map((delta: number): number => Math.abs(delta)),
+			),
+			sampleCount: samples.length,
+			samples,
+			scrollClientHeight: scrollOwner.clientHeight,
+			scrollHeight: scrollOwner.scrollHeight,
+			totalObservedDelta: finalSampleScrollTop - initialScrollTop,
+			uniqueScrollTopCount: new Set(samples).size,
+		};
+	}, path);
+}
+
 async function readVerificationResult(page: Page): Promise<DevServerVerificationResult> {
 	const hydrationDiagnostics = parseBridgeViewerHydrationDiagnostics(
 		await page.evaluate(collectBridgeViewerHydrationDiagnosticsFromRoot, undefined),
@@ -865,6 +995,7 @@ async function readVerificationResult(page: Page): Promise<DevServerVerification
 						.querySelector('[data-selected-content-state]')
 						?.getAttribute('data-selected-content-state') ?? null,
 				selectedDisplayPath,
+				selectedScrollMotion: null,
 				topScopeState:
 					topScope instanceof HTMLElement && topScopeBounds !== null && topScopeStyle !== null
 						? {

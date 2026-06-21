@@ -125,6 +125,12 @@ Observed current state before implementation:
   `requestAnimationFrame` header-top correction. Smooth reveals must delegate
   motion to Pierre CodeView; Bridge's direct header correction stays limited to
   instant recovery and initial-selection paths.
+- Motion-proof checkpoint: the large dev-server verifier now samples CodeView
+  `scrollTop` over animation frames after a file-tree click and emits
+  `selectedScrollMotion` in the proof JSON. The gate rejects zero movement,
+  too-few scrollTop values, large single-frame top-snap jumps for long moves,
+  and unstable direction changes, so future visual work has a numeric guardrail
+  before screenshot/manual comparison.
 - Current Victoria verifier coverage is strong for the existing Bridge telemetry
   taxonomy, but the new resource data-plane names
   `performance.bridge.resource.fetch/cache/range`,
