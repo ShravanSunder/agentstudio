@@ -253,6 +253,7 @@ describe('useVisibleReviewContentHydration', () => {
 
 		expect(firstSignals.every((signal): boolean => signal.aborted)).toBe(true);
 		expect(capturedSignals.length).toBeGreaterThan(firstSignals.length);
+		expect(lastSnapshot(snapshots).visibleLoadingItemIds.has(secondSelectedItemId)).toBe(true);
 		expect(lastSnapshot(snapshots).visibleLoadingItemCount).toBeGreaterThan(0);
 	});
 });

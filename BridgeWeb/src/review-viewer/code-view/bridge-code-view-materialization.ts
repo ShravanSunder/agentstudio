@@ -12,7 +12,7 @@ import type {
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { bridgeContentRoleSchema } from '../models/review-projection-models.js';
 
-export const bridgeCodeViewContentStateSchema = z.enum(['placeholder', 'hydrated']);
+export const bridgeCodeViewContentStateSchema = z.enum(['placeholder', 'loading', 'hydrated']);
 
 export const bridgeCodeViewItemMetadataSchema = z.object({
 	itemId: z.string().min(1),
@@ -94,6 +94,63 @@ export function materializeBridgeCodeViewItem(
 		version: item.itemVersion,
 		contentState: 'hydrated',
 	});
+}
+
+export function materializeBridgeCodeViewLoadingItem(
+	item: BridgeReviewItemDescriptor,
+): BridgeCodeViewItem {
+	if (shouldUseDiffPlaceholder(item)) {
+		return createLoadingDiffItem(item);
+	}
+	const file: FileContents = {
+		name: displayPathForItem(item),
+		contents: 'Loading content...\nLoading syntax view...\n',
+		cacheKey: `${item.cacheKey}:loading`,
+	};
+	return {
+		id: item.itemId,
+		type: 'file',
+		file,
+		version: codeViewRenderVersion({
+			contentState: 'loading',
+			itemVersion: item.itemVersion,
+		}),
+		bridgeMetadata: createMetadata({
+			item,
+			contentState: 'loading',
+			contentRoles: [],
+			cacheKey: file.cacheKey ?? `${item.cacheKey}:loading`,
+		}),
+	};
+}
+
+function createLoadingDiffItem(item: BridgeReviewItemDescriptor): BridgeCodeViewDiffItem {
+	const oldFile: FileContents = {
+		name: item.basePath ?? displayPathForItem(item),
+		contents: '',
+		cacheKey: `${item.cacheKey}:loading:base`,
+	};
+	const newFile: FileContents = {
+		name: item.headPath ?? displayPathForItem(item),
+		contents: 'Loading content...\nLoading syntax view...\n',
+		cacheKey: `${item.cacheKey}:loading:head`,
+	};
+	const fileDiff = parseDiffFromFile(oldFile, newFile);
+	return {
+		id: item.itemId,
+		type: 'diff',
+		fileDiff,
+		version: codeViewRenderVersion({
+			contentState: 'loading',
+			itemVersion: item.itemVersion,
+		}),
+		bridgeMetadata: createMetadata({
+			item,
+			contentState: 'loading',
+			contentRoles: [],
+			cacheKey: `${item.cacheKey}:loading`,
+		}),
+	};
 }
 
 function createPlaceholderItem(item: BridgeReviewItemDescriptor): BridgeCodeViewItem {
@@ -222,8 +279,18 @@ function codeViewRenderVersion(props: {
 	readonly contentState: BridgeCodeViewItemMetadata['contentState'];
 	readonly itemVersion: number;
 }): number {
-	const baseVersion = props.itemVersion * 2;
-	return props.contentState === 'hydrated' ? baseVersion + 1 : baseVersion;
+	const baseVersion = props.itemVersion * 3;
+	switch (props.contentState) {
+		case 'hydrated':
+			return baseVersion + 2;
+		case 'loading':
+			return baseVersion + 1;
+		case 'placeholder':
+			return baseVersion;
+	}
+	const exhaustiveContentState: never = props.contentState;
+	void exhaustiveContentState;
+	throw new Error('Unhandled Bridge CodeView content state');
 }
 
 function loadedDiffContentRoles(props: CreateDiffItemProps): readonly BridgeContentRole[] {

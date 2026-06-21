@@ -123,6 +123,10 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			await Promise.resolve();
 		});
 
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
 		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
 			type: 'item',
 			id: 'docs-plan',
@@ -158,6 +162,10 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			await Promise.resolve();
 		});
 
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
 		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
 			type: 'item',
 			id: 'source-high',
@@ -174,6 +182,43 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewPanel?.getAttribute('data-selected-content-cache-key-count')).toBe('0');
 		expect(document.querySelector('[data-testid="bridge-code-view-loading-state"]')).not.toBeNull();
 		expect(codeViewDoubles.updateItem).not.toHaveBeenCalled();
+	});
+
+	test('defers selected item scrolling out of the React effect flush', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="source-high"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
+
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: 'source-high',
+			align: 'start',
+			behavior: 'instant',
+		} satisfies CodeViewScrollTarget);
 	});
 
 	test('shows a shadcn loading skeleton when visible review content is still hydrating', async () => {
@@ -395,6 +440,10 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			await Promise.resolve();
 		});
 
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
 		expect(codeViewDoubles.lastProps?.initialItems).toBe(initialItems);
 		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'docs-plan' }),
@@ -435,12 +484,17 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			await Promise.resolve();
 		});
 
+		onVisibleItemIdsChange.mockClear();
 		codeViewDoubles.lastProps?.onScroll?.(128, {
 			getRenderedItems: (): readonly { readonly id: string }[] => [
 				{ id: 'source-high' },
 				{ id: 'source-normal' },
 				{ id: 'source-normal' },
 			],
+		});
+
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
 		});
 
 		expect(onVisibleItemIdsChange).toHaveBeenCalledWith(['source-high', 'source-normal']);
@@ -482,6 +536,10 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			await Promise.resolve();
 		});
 
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
 		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'source-normal' }),
 		);
@@ -489,6 +547,63 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewPanel?.getAttribute('data-code-view-rendered-content-resource-count')).toBe('1');
 		expect(codeViewPanel?.getAttribute('data-code-view-visible-ready-item-count')).toBe('1');
 		expect(codeViewPanel?.getAttribute('data-selected-materialized-update-result')).toBe('not-run');
+	});
+
+	test('defers CodeView item materialization out of the React effect flush', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
+		});
+		const selectedItem = reviewPackage.itemsById['docs-plan'];
+		const headHandle = selectedItem?.contentRoles.head;
+		if (selectedItem === undefined || headHandle === undefined || headHandle === null) {
+			throw new Error('expected docs-plan head handle');
+		}
+		const selectedContentResource: BridgeContentResource = {
+			handle: headHandle,
+			text: '# Bridge plan\n\nInspect this as source.',
+		};
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		codeViewDoubles.updateItem.mockClear();
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={{ head: selectedContentResource }}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(codeViewDoubles.updateItem).not.toHaveBeenCalled();
+
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'docs-plan' }),
+		);
 	});
 
 	test('runs a deferred CodeView render after selected content materializes', async () => {
@@ -545,7 +660,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			await Promise.resolve();
 		});
 
-		expect(codeViewDoubles.getInstanceRender).toHaveBeenCalledTimes(1);
+		expect(codeViewDoubles.getInstanceRender).toHaveBeenCalledTimes(0);
 		expect(requestAnimationFrameSpy).toHaveBeenCalled();
 
 		await act(async (): Promise<void> => {
@@ -576,6 +691,14 @@ function collectText(node: ReactNode): string {
 		return collectText(node.props.children);
 	}
 	return '';
+}
+
+async function waitForAnimationFrame(): Promise<void> {
+	await new Promise<void>((resolve) => {
+		requestAnimationFrame((): void => {
+			resolve();
+		});
+	});
 }
 
 function isReactElementWithChildren(

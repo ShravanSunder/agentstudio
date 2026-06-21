@@ -27,6 +27,7 @@ export interface UseVisibleReviewContentHydrationProps {
 export interface UseVisibleReviewContentHydrationResult {
 	readonly setVisibleItemIds: (itemIds: readonly string[]) => void;
 	readonly visibleContentResourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources>;
+	readonly visibleLoadingItemIds: ReadonlySet<string>;
 	readonly visibleLoadingItemCount: number;
 	readonly visibleReadyItemCount: number;
 }
@@ -287,11 +288,13 @@ export function useVisibleReviewContentHydration(
 
 	return useMemo((): UseVisibleReviewContentHydrationResult => {
 		const visibleContentResourcesByItemId = new Map<string, BridgeCodeViewContentResources>();
+		const visibleLoadingItemIds = new Set<string>();
 		let visibleLoadingItemCount = 0;
 		let visibleReadyItemCount = 0;
 		for (const itemId of visibleItemIds) {
 			const currentState = contentStateByItemId.get(itemId);
 			if (currentState?.status === 'loading') {
+				visibleLoadingItemIds.add(itemId);
 				visibleLoadingItemCount += 1;
 				continue;
 			}
@@ -304,6 +307,7 @@ export function useVisibleReviewContentHydration(
 		return {
 			setVisibleItemIds,
 			visibleContentResourcesByItemId,
+			visibleLoadingItemIds,
 			visibleLoadingItemCount,
 			visibleReadyItemCount,
 		};

@@ -5,6 +5,7 @@ import { buildBridgeReviewProjection } from '../navigation/review-projection.js'
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import {
 	createBridgeCodeViewInitialItems,
+	materializeBridgeCodeViewLoadingItem,
 	materializeBridgeCodeViewItem,
 	type BridgeCodeViewDiffItem,
 	type BridgeCodeViewFileItem,
@@ -38,7 +39,7 @@ describe('Bridge CodeView materialization', () => {
 			id: 'source-high',
 			type: 'diff',
 			collapsed: true,
-			version: 2,
+			version: 3,
 			fileDiff: {
 				name: 'Sources/App/Core.swift',
 			},
@@ -70,6 +71,47 @@ describe('Bridge CodeView materialization', () => {
 		expect(placeholderFile.collapsed).toBe(true);
 	});
 
+	test('materializes a visible loading item with non-empty CodeView body text', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const item = reviewPackage.itemsById['hidden-binary'];
+		if (item === undefined) {
+			throw new Error('expected fixture item');
+		}
+
+		const loadingItem = materializeBridgeCodeViewLoadingItem(item);
+
+		if (loadingItem.type !== 'file') {
+			throw new Error('expected loading item to use file view');
+		}
+		expect(loadingItem.file.contents).toContain('Loading content');
+		expect(loadingItem.collapsed).toBeUndefined();
+		expect(loadingItem.bridgeMetadata).toMatchObject({
+			contentState: 'loading',
+			contentRoles: [],
+			itemId: item.itemId,
+		});
+	});
+
+	test('materializes a diff-backed loading item without changing its CodeView item type', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const item = reviewPackage.itemsById['source-high'];
+		if (item === undefined) {
+			throw new Error('expected fixture diff item');
+		}
+
+		const loadingItem = materializeBridgeCodeViewLoadingItem(item);
+
+		if (loadingItem.type !== 'diff') {
+			throw new Error('expected loading item to keep diff view');
+		}
+		expect(loadingItem.fileDiff.additionLines).toContain('Loading content...\n');
+		expect(loadingItem.bridgeMetadata).toMatchObject({
+			contentState: 'loading',
+			contentRoles: [],
+			itemId: item.itemId,
+		});
+	});
+
 	test('keeps a diff placeholder as a diff when only one role is loaded', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['docs-plan'];
@@ -92,7 +134,7 @@ describe('Bridge CodeView materialization', () => {
 		expect(materialized).toMatchObject({
 			id: 'docs-plan',
 			type: 'diff',
-			version: 15,
+			version: 23,
 			fileDiff: {
 				name: 'docs/plans/2026-bridge-plan.md',
 				deletionLines: [],
@@ -161,7 +203,7 @@ describe('Bridge CodeView materialization', () => {
 		}
 
 		expect(placeholder.version).toBe(0);
-		expect(materialized.version).toBe(1);
+		expect(materialized.version).toBe(2);
 		expect(materialized.version).toBeGreaterThan(placeholder.version);
 	});
 
@@ -248,7 +290,7 @@ describe('Bridge CodeView materialization', () => {
 		}
 
 		expect(materialized.fileDiff.name).toBe('Sources/App/Core.swift');
-		expect(materialized.version).toBe(19);
+		expect(materialized.version).toBe(29);
 		expect(materialized.fileDiff.deletionLines).toContain('let value = 1\n');
 		expect(materialized.fileDiff.additionLines).toContain('let value = 2\n');
 		expect(materialized.bridgeMetadata).toMatchObject({

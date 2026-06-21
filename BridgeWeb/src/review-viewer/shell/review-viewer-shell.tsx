@@ -51,6 +51,7 @@ export interface ReviewViewerShellProps {
 	readonly selectedMarkdownPreviewHtml?: string | null;
 	readonly selectedMarkdownPreviewSourcePath?: string | null;
 	readonly visibleContentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
+	readonly visibleLoadingItemIds?: ReadonlySet<string>;
 	readonly visibleLoadingItemCount?: number;
 	readonly visibleReadyItemCount?: number;
 	readonly codeViewWorkerPoolEnabled?: boolean;
@@ -206,6 +207,9 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								selectedContentResources={props.selectedContentResources ?? null}
 								selectedItemId={props.selectedItemId}
 								telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
+								{...(props.visibleLoadingItemIds === undefined
+									? {}
+									: { visibleLoadingItemIds: props.visibleLoadingItemIds })}
 								visibleLoadingItemCount={props.visibleLoadingItemCount ?? 0}
 								visibleReadyItemCount={props.visibleReadyItemCount ?? 0}
 								{...(props.visibleContentResourcesByItemId === undefined

@@ -738,6 +738,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					selectedCanvasLoadingReason={selectedCanvasLoadingReason}
 					selectedItemId={rootSnapshot.selectedItemId}
 					visibleContentResourcesByItemId={visibleContentHydration.visibleContentResourcesByItemId}
+					visibleLoadingItemIds={visibleContentHydration.visibleLoadingItemIds}
 					visibleLoadingItemCount={visibleContentHydration.visibleLoadingItemCount}
 					visibleReadyItemCount={visibleContentHydration.visibleReadyItemCount}
 					onCodeViewVisibleItemIdsChange={visibleContentHydration.setVisibleItemIds}
