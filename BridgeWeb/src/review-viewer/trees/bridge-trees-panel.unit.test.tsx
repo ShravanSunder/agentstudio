@@ -157,9 +157,25 @@ describe('BridgeReviewTreesPanel', () => {
 		);
 		expect(style).not.toHaveProperty('--trees-density-override');
 	});
+
+	test('reveals the first matching review path when search text changes', () => {
+		renderTreesPanel({ searchOpen: true, searchText: 'View.swift', selectedItemId: null });
+
+		expect(treesReactMock.model.openSearch).toHaveBeenCalledWith('View.swift');
+		expect(treesReactMock.model.setSearch).toHaveBeenCalledWith('View.swift');
+		expect(treesReactMock.model.scrollToPath).toHaveBeenCalledWith(
+			'Sources/App/View.swift',
+		);
+	});
 });
 
-function renderTreesPanel(): void {
+function renderTreesPanel(
+	props: {
+		readonly searchOpen?: boolean;
+		readonly searchText?: string;
+		readonly selectedItemId?: string | null;
+	} = {},
+): void {
 	const reviewPackage = makeBridgeViewerProjectionFixture();
 	const projection = buildBridgeReviewProjection({
 		reviewPackage,
@@ -175,9 +191,9 @@ function renderTreesPanel(): void {
 				onSelectItem={() => undefined}
 				projection={projection}
 				reviewPackage={reviewPackage}
-				searchOpen={false}
-				searchText=""
-				selectedItemId="source-high"
+				searchOpen={props.searchOpen ?? false}
+				searchText={props.searchText ?? ''}
+				selectedItemId={props.selectedItemId === undefined ? 'source-high' : props.selectedItemId}
 			/>,
 		);
 	});

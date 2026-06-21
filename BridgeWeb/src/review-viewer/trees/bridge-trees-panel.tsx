@@ -189,6 +189,13 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		model.openSearch(props.searchText);
 		if (props.searchText.length > 0) {
 			model.setSearch(props.searchText);
+			const matchedPath = firstBridgeTreeSearchMatchPath({
+				orderedPaths: sourceRef.current.orderedPaths,
+				searchText: props.searchText,
+			});
+			if (matchedPath !== null) {
+				controllerRef.current?.revealTreePath(matchedPath);
+			}
 		}
 	}, [model, props.searchOpen, props.searchText]);
 
@@ -212,5 +219,20 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		>
 			<FileTree model={model} style={bridgeReviewTreeStyle} />
 		</div>
+	);
+}
+
+function firstBridgeTreeSearchMatchPath(props: {
+	readonly orderedPaths: readonly string[];
+	readonly searchText: string;
+}): string | null {
+	const normalizedSearchText = props.searchText.trim().toLocaleLowerCase();
+	if (normalizedSearchText.length === 0) {
+		return null;
+	}
+	return (
+		props.orderedPaths.find((path: string): boolean =>
+			path.toLocaleLowerCase().includes(normalizedSearchText),
+		) ?? null
 	);
 }

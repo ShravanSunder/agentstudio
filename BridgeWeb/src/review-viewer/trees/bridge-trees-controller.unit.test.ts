@@ -232,6 +232,31 @@ describe('Bridge Trees controller', () => {
 		]);
 	});
 
+	test('reveals a tree path without changing selection focus semantics', () => {
+		const model = new RecordingTreesModel();
+		const controller = new BridgeTreesController({ model });
+		const source = makeSource({
+			orderedPaths: ['src/deep/nested/file.ts'],
+			gitStatusEntries: [{ path: 'src/deep/nested/file.ts', status: 'modified' }],
+			primaryItemIdByTreePath: {
+				'src/deep/nested/file.ts': 'deep-file',
+			},
+		});
+		const rootDirectory = model.addDirectory('src', false);
+		const deepDirectory = model.addDirectory('src/deep', false);
+		const nestedDirectory = model.addDirectory('src/deep/nested', false);
+
+		controller.applySource(source);
+		controller.revealTreePath('src/deep/nested/file.ts');
+
+		expect(rootDirectory.expand).toHaveBeenCalledTimes(1);
+		expect(deepDirectory.expand).toHaveBeenCalledTimes(1);
+		expect(nestedDirectory.expand).toHaveBeenCalledTimes(1);
+		expect(model.scrollToPathCalls).toEqual([
+			{ path: 'src/deep/nested/file.ts', options: undefined },
+		]);
+	});
+
 	test('reveals appended paths without expanding the whole large tree', () => {
 		const model = new RecordingTreesModel();
 		const controller = new BridgeTreesController({ model });

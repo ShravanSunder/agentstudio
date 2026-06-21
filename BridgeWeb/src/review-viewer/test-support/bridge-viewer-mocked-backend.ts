@@ -29,6 +29,7 @@ export type BridgeViewerBrowserFixtureClass =
 	| 'medium-agentstudio'
 	| 'large-diffshub';
 export type BridgeViewerMockedBackendDeliveryMode = 'full-load' | 'streaming-append';
+export type BridgeViewerLargeFixtureItemPlacement = 'near-start' | 'after-fillers';
 
 export interface InstallBridgeViewerMockedBackendOptions {
 	readonly latencyProfile?: BridgeViewerMockedBackendLatencyProfile;
@@ -132,9 +133,11 @@ const bridgeViewerCommandNonce = 'browser-command-nonce';
 export function makeBridgeViewerBrowserFixture(
 	props: {
 		readonly fixtureClass?: BridgeViewerBrowserFixtureClass;
+		readonly largeItemPlacement?: BridgeViewerLargeFixtureItemPlacement;
 	} = {},
 ): BridgeViewerBrowserFixture {
 	const fixtureClass = props.fixtureClass ?? 'small-mixed';
+	const largeItemPlacement = props.largeItemPlacement ?? 'near-start';
 	const basePackage = makeBridgeReviewPackage();
 	const sourceItem = makeBrowserFixtureItem({
 		itemId: 'browser-source-a',
@@ -197,15 +200,11 @@ export function makeBridgeViewerBrowserFixture(
 		{ length: fillerItemCountForFixtureClass(fixtureClass) },
 		(_value: unknown, index: number) => makeBrowserFillerItem({ fixtureClass, index }),
 	);
-	const items = [
-		sourceItem,
-		secondItem,
-		addedItem,
-		docsItem,
-		largeItem,
-		hunkedItem,
-		...fillerItems,
-	];
+	const leadingItems = [sourceItem, secondItem, addedItem, docsItem];
+	const items =
+		largeItemPlacement === 'after-fillers'
+			? [...leadingItems, hunkedItem, ...fillerItems, largeItem]
+			: [...leadingItems, largeItem, hunkedItem, ...fillerItems];
 	const contentByHandleId = new Map<string, string>();
 
 	addContent(contentByHandleId, sourceItem, {

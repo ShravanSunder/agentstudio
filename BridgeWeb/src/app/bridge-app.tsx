@@ -173,6 +173,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		useState<SelectedContentResourcesState | null>(null);
 	const [selectedMarkdownPreviewState, setSelectedMarkdownPreviewState] =
 		useState<SelectedMarkdownPreviewState | null>(null);
+	const selectedMarkdownPreviewStateRef = useRef<SelectedMarkdownPreviewState | null>(null);
+	selectedMarkdownPreviewStateRef.current = selectedMarkdownPreviewState;
 	const [isTreeSearchOpen, setIsTreeSearchOpen] = useState(false);
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
 	const currentReviewPackageTelemetryContextRef =
@@ -387,6 +389,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				reviewPackage: reviewPackageRef.current,
 				selectReviewItem,
 				selectedContentResources,
+				selectedMarkdownPreviewState,
 				setTreeSearchOpen: setIsTreeSearchOpen,
 				codeViewControlHandle: codeViewControlHandleRef.current,
 				viewerActions,
@@ -416,6 +419,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		markdownWorkerClient,
 		selectReviewItem,
 		selectedContentResources,
+		selectedMarkdownPreviewState,
 		target,
 		viewerActions,
 		viewerStore,
@@ -531,13 +535,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				didCancel = true;
 			};
 		}
-		if (rootSnapshot.renderMode.kind !== 'markdownPreview') {
-			setSelectedMarkdownPreviewState(null);
-			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
-			return (): void => {
-				didCancel = true;
-			};
-		}
 
 		const selectedContentKey = makeSelectedContentResourcesKey(
 			reviewPackage,
@@ -548,6 +545,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			selectedItemId: rootSnapshot.selectedItemId,
 			resources: selectedContentResources,
 		});
+		const selectedMarkdownPreviewSnapshot = selectedMarkdownPreviewStateRef.current;
 
 		if (decision.kind === 'codeView') {
 			viewerActions.setRenderMode({ kind: 'codeView' });
@@ -565,6 +563,28 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			};
 		}
 
+		if (
+			selectedMarkdownPreviewSnapshot !== null &&
+			selectedMarkdownPreviewSnapshot.itemId === rootSnapshot.selectedItemId &&
+			selectedMarkdownPreviewSnapshot.contentKey === selectedContentKey &&
+			selectedMarkdownPreviewSnapshot.status === 'failed'
+		) {
+			viewerActions.setRenderMode({ kind: 'codeView' });
+			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
+			return (): void => {
+				didCancel = true;
+			};
+		}
+
+		if (rootSnapshot.renderMode.kind !== 'markdownPreview') {
+			viewerActions.setRenderMode({ kind: 'markdownPreview' });
+			setSelectedMarkdownPreviewState(null);
+			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
+			return (): void => {
+				didCancel = true;
+			};
+		}
+
 		if (markdownWorkerClient === null) {
 			viewerActions.setRenderMode({ kind: 'codeView' });
 			setSelectedMarkdownPreviewState(null);
@@ -573,6 +593,18 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				parentTraceContext,
 				reason: 'workerUnavailable',
 			});
+			return (): void => {
+				didCancel = true;
+			};
+		}
+
+		if (
+			selectedMarkdownPreviewSnapshot !== null &&
+			selectedMarkdownPreviewSnapshot.itemId === rootSnapshot.selectedItemId &&
+			selectedMarkdownPreviewSnapshot.contentKey === selectedContentKey &&
+			(selectedMarkdownPreviewSnapshot.status === 'rendering' ||
+				selectedMarkdownPreviewSnapshot.status === 'ready')
+		) {
 			return (): void => {
 				didCancel = true;
 			};
@@ -613,12 +645,24 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			});
 			if (completion.status !== 'success') {
 				viewerActions.setRenderMode({ kind: 'codeView' });
-				setSelectedMarkdownPreviewState(null);
+				setSelectedMarkdownPreviewState({
+					itemId: source.itemId,
+					contentKey: selectedContentKey,
+					sourcePath: source.sourcePath,
+					status: 'failed',
+					html: null,
+				});
 				return;
 			}
 			if (isOversizedMarkdownPreviewOutput(completion.response.html)) {
 				viewerActions.setRenderMode({ kind: 'codeView' });
-				setSelectedMarkdownPreviewState(null);
+				setSelectedMarkdownPreviewState({
+					itemId: source.itemId,
+					contentKey: selectedContentKey,
+					sourcePath: source.sourcePath,
+					status: 'failed',
+					html: null,
+				});
 				return;
 			}
 			setSelectedMarkdownPreviewState({
@@ -704,6 +748,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		selectedItemId: rootSnapshot.selectedItemId,
 		selectedMarkdownPreviewState,
 	});
+	const selectedContentLoadingItemId =
+		selectedCanvasLoadingReason === 'content' ? rootSnapshot.selectedItemId : null;
 
 	return (
 		<div
@@ -737,10 +783,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					projectionMode={rootSnapshot.projectionMode}
 					reviewPackage={reviewPackage}
 					selectedContentResources={selectedContentResources}
+					selectedContentLoadingItemId={selectedContentLoadingItemId}
 					selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
 						reviewPackage,
 						selectedItemId: rootSnapshot.selectedItemId,
 						selectedContentResourcesState,
+						visibleFailedItemIds: visibleContentHydration.visibleFailedItemIds,
 					})}
 					selectedCanvasLoadingReason={selectedCanvasLoadingReason}
 					selectedItemId={rootSnapshot.selectedItemId}
@@ -794,6 +842,7 @@ interface ApplyBridgeAppControlCommandProps {
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly selectReviewItem: (itemId: string, options?: SelectBridgeReviewItemOptions) => boolean;
 	readonly selectedContentResources: BridgeCodeViewContentResources | null;
+	readonly selectedMarkdownPreviewState: SelectedMarkdownPreviewState | null;
 	readonly setTreeSearchOpen: (isOpen: boolean) => void;
 	readonly viewerActions: BridgeReviewViewerStoreActions;
 }
@@ -822,6 +871,7 @@ function applyBridgeAppControlCommand(
 		reviewPackage,
 		selectReviewItem,
 		selectedContentResources,
+		selectedMarkdownPreviewState,
 		viewerActions,
 	} = props;
 	switch (command.method) {
@@ -899,7 +949,9 @@ function applyBridgeAppControlCommand(
 				viewerActions.setRenderMode({ kind: 'markdownPreview' });
 				return { status: 'pending', reason: 'preview_render_pending' };
 			}
-			return props.rootSnapshot.renderMode.kind === 'markdownPreview'
+			return selectedMarkdownPreviewState !== null &&
+				selectedMarkdownPreviewState.itemId === itemId &&
+				selectedMarkdownPreviewState.status === 'ready'
 				? { status: 'accepted', reason: null }
 				: { status: 'pending', reason: 'preview_render_pending' };
 		}
@@ -1000,6 +1052,7 @@ interface SelectedContentUnavailablePathForCurrentSelectionProps {
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly selectedItemId: string | null;
 	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
+	readonly visibleFailedItemIds: ReadonlySet<string>;
 }
 
 function selectedContentUnavailablePathForCurrentSelection(
@@ -1007,6 +1060,10 @@ function selectedContentUnavailablePathForCurrentSelection(
 ): string | null {
 	if (props.reviewPackage === null || props.selectedItemId === null) {
 		return null;
+	}
+	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
+	if (props.visibleFailedItemIds.has(props.selectedItemId)) {
+		return selectedItem?.headPath ?? selectedItem?.basePath ?? props.selectedItemId;
 	}
 	const selectedContentKey = makeSelectedContentResourcesKey(
 		props.reviewPackage,
@@ -1020,7 +1077,6 @@ function selectedContentUnavailablePathForCurrentSelection(
 	) {
 		return null;
 	}
-	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
 	return selectedItem?.headPath ?? selectedItem?.basePath ?? props.selectedItemId;
 }
 

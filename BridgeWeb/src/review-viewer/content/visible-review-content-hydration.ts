@@ -27,6 +27,7 @@ export interface UseVisibleReviewContentHydrationProps {
 export interface UseVisibleReviewContentHydrationResult {
 	readonly setVisibleItemIds: (itemIds: readonly string[]) => void;
 	readonly visibleContentResourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources>;
+	readonly visibleFailedItemIds: ReadonlySet<string>;
 	readonly visibleLoadingItemIds: ReadonlySet<string>;
 	readonly visibleLoadingItemCount: number;
 	readonly visibleReadyItemCount: number;
@@ -288,6 +289,7 @@ export function useVisibleReviewContentHydration(
 
 	return useMemo((): UseVisibleReviewContentHydrationResult => {
 		const visibleContentResourcesByItemId = new Map<string, BridgeCodeViewContentResources>();
+		const visibleFailedItemIds = new Set<string>();
 		const visibleLoadingItemIds = new Set<string>();
 		let visibleLoadingItemCount = 0;
 		let visibleReadyItemCount = 0;
@@ -296,6 +298,10 @@ export function useVisibleReviewContentHydration(
 			if (currentState?.status === 'loading') {
 				visibleLoadingItemIds.add(itemId);
 				visibleLoadingItemCount += 1;
+				continue;
+			}
+			if (currentState?.status === 'failed') {
+				visibleFailedItemIds.add(itemId);
 				continue;
 			}
 			const resources = resourcesByItemIdRef.current.get(itemId);
@@ -307,6 +313,7 @@ export function useVisibleReviewContentHydration(
 		return {
 			setVisibleItemIds,
 			visibleContentResourcesByItemId,
+			visibleFailedItemIds,
 			visibleLoadingItemIds,
 			visibleLoadingItemCount,
 			visibleReadyItemCount,

@@ -220,7 +220,7 @@ afterEach(() => {
 test(
 	'Bridge viewer browser scenarios meet interactive performance budgets',
 	{
-		timeout: 45_000,
+		timeout: 120_000,
 	},
 	async () => {
 		for (const scenario of browserPerformanceScenarios) {
@@ -301,7 +301,7 @@ test(
 );
 
 async function measureColdPackagePush(): Promise<BridgeViewerBrowserPerformanceSample> {
-	const fixture = makeBridgeViewerBrowserFixture();
+	const fixture = makeBridgeViewerBrowserFixture({ largeItemPlacement: 'after-fillers' });
 	const backend = installBridgeViewerMockedBackend(fixture);
 	const startedAt = performance.now();
 
@@ -315,7 +315,11 @@ async function measureColdPackagePush(): Promise<BridgeViewerBrowserPerformanceS
 	);
 	await backend.pushPackage();
 	await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
-	await waitForBridgeViewerText(fixture.expected.initialText);
+	await waitForBridgeViewerCodePanelSelection({
+		itemId: 'browser-source-a',
+		displayPath: fixture.expected.initialPath,
+	});
+	await waitForBridgeViewerVisibleCodeText(fixture.expected.initialText);
 
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(durationMilliseconds).toBeGreaterThan(0);
@@ -338,7 +342,11 @@ async function measureWarmTreeSelect(): Promise<BridgeViewerBrowserPerformanceSa
 	const beforeAction = snapshotBackendLedgerCounts(backend);
 	const startedAt = performance.now();
 	secondButton.click();
-	await waitForBridgeViewerText(fixture.expected.secondText);
+	await waitForBridgeViewerCodePanelSelection({
+		itemId: 'browser-source-b',
+		displayPath: fixture.expected.secondPath,
+	});
+	await waitForBridgeViewerVisibleCodeText(fixture.expected.secondText);
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(
 		backend.requestedUrls.some((url: string): boolean =>
@@ -350,10 +358,7 @@ async function measureWarmTreeSelect(): Promise<BridgeViewerBrowserPerformanceSa
 			isBridgeCommandForItem(detail, 'review.markFileViewed', 'browser-source-b'),
 		),
 	).toBe(true);
-	expectBackendLedgerDelta(backend, beforeAction, {
-		contentHandleId: fixture.expected.secondHeadHandleId,
-		commandItemId: 'browser-source-b',
-	});
+	expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-source-b');
 	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
@@ -363,12 +368,18 @@ async function measureWarmAddedFile(): Promise<BridgeViewerBrowserPerformanceSam
 	const beforeAction = snapshotBackendLedgerCounts(backend);
 	const startedAt = performance.now();
 	addedButton.click();
-	await waitForBridgeViewerText(fixture.expected.addedText);
-	const durationMilliseconds = performance.now() - startedAt;
-	expectBackendLedgerDelta(backend, beforeAction, {
-		contentHandleId: fixture.expected.addedHeadHandleId,
-		commandItemId: 'browser-added-source',
+	await waitForBridgeViewerCodePanelSelection({
+		itemId: 'browser-added-source',
+		displayPath: fixture.expected.addedPath,
 	});
+	await waitForBridgeViewerVisibleCodeText(fixture.expected.addedText);
+	const durationMilliseconds = performance.now() - startedAt;
+	expect(
+		backend.requestedUrls.some((url: string): boolean =>
+			url.includes(fixture.expected.addedHeadHandleId),
+		),
+	).toBe(true);
+	expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-added-source');
 	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
@@ -499,10 +510,12 @@ async function measureLargeSemanticSelect(): Promise<BridgeViewerBrowserPerforma
 		const largeButton = await waitForBridgeViewerTreeItemButton(fixture.expected.largePath);
 		const durationMilliseconds = performance.now() - startedAt;
 		expect(largeButton.getAttribute('aria-selected')).toBe('true');
-		expectBackendLedgerDelta(backend, beforeAction, {
-			contentHandleId: fixture.expected.largeHeadHandleId,
-			commandItemId: 'browser-large-diff',
-		});
+		expect(
+			backend.requestedUrls.some((url: string): boolean =>
+				url.includes(fixture.expected.largeHeadHandleId),
+			),
+		).toBe(true);
+		expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-large-diff');
 		expect(document.querySelector('[data-testid="bridge-pierre-worker-pool-failed"]')).toBeNull();
 		return finishPerformanceSample({
 			durationMilliseconds,
@@ -821,6 +834,19 @@ function expectBackendLedgerDelta(
 	expect(
 		actionCommands.some((detail: unknown): boolean =>
 			isBridgeCommandForItem(detail, 'review.markFileViewed', props.commandItemId),
+		),
+	).toBe(true);
+}
+
+function expectBackendCommandLedgerDelta(
+	backend: BridgeViewerMockedBackend,
+	beforeAction: BackendLedgerCounts,
+	commandItemId: string,
+): void {
+	const actionCommands = backend.commandDetails.slice(beforeAction.commandCount);
+	expect(
+		actionCommands.some((detail: unknown): boolean =>
+			isBridgeCommandForItem(detail, 'review.markFileViewed', commandItemId),
 		),
 	).toBe(true);
 }

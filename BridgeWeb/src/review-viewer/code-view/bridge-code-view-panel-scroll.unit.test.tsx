@@ -227,6 +227,63 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		} satisfies CodeViewScrollTarget);
 	});
 
+	test('uses smooth CodeView motion when mounted selection props change', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId={null}
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		codeViewDoubles.scrollTo.mockClear();
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="source-high"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
+
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: 'source-high',
+			align: 'start',
+			behavior: 'smooth',
+		} satisfies CodeViewScrollTarget);
+		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalledWith({
+			type: 'item',
+			id: 'source-high',
+			align: 'start',
+			behavior: 'instant',
+		} satisfies CodeViewScrollTarget);
+	});
+
 	test('smooth control-handle reveal delegates motion to Pierre without top-snap correction', async () => {
 		const requestAnimationFrameSpy = vi
 			.spyOn(window, 'requestAnimationFrame')
@@ -681,7 +738,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
 	});
 
-	test('re-scrolls an explicitly revealed placeholder after selected content hydrates', async () => {
+	test('keeps explicitly revealed placeholder hydration on the smooth CodeView motion path', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -756,7 +813,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			type: 'item',
 			id: 'docs-plan',
 			align: 'start',
-			behavior: 'instant',
+			behavior: 'smooth',
 		} satisfies CodeViewScrollTarget);
 	});
 
@@ -955,6 +1012,42 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewPanel?.getAttribute('data-code-view-rendered-content-resource-count')).toBe('1');
 		expect(codeViewPanel?.getAttribute('data-code-view-visible-ready-item-count')).toBe('1');
 		expect(codeViewPanel?.getAttribute('data-selected-materialized-update-result')).toBe('not-run');
+	});
+
+	test('materializes selected content loading inline before visible hydration reports the row', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentLoadingItemId="docs-plan"
+					selectedContentResources={null}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: 'docs-plan',
+				bridgeMetadata: expect.objectContaining({ contentState: 'loading' }),
+			}),
+		);
 	});
 
 	test('materializes selected content during the post-commit effect before animation frames', async () => {

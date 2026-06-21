@@ -43,6 +43,7 @@ export interface ReviewViewerShellProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly projection: BridgeReviewProjectionResult;
 	readonly selectedItemId: string | null;
+	readonly selectedContentLoadingItemId?: string | null;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly selectedContentText?: string | null;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
@@ -204,6 +205,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							<BridgeCodeViewPanel
 								projection={projection}
 								reviewPackage={props.reviewPackage}
+								selectedContentLoadingItemId={props.selectedContentLoadingItemId ?? null}
 								selectedContentResources={props.selectedContentResources ?? null}
 								selectedItemId={props.selectedItemId}
 								telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
@@ -237,7 +239,8 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							/>
 						)}
 						{props.selectedCanvasLoadingReason === undefined ||
-						props.selectedCanvasLoadingReason === null ? null : (
+						props.selectedCanvasLoadingReason === null ||
+						props.selectedCanvasLoadingReason === 'content' ? null : (
 							<BridgeReviewCanvasLoadingState reason={props.selectedCanvasLoadingReason} />
 						)}
 					</section>

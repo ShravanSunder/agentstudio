@@ -688,6 +688,72 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		}
 	});
 
+	test('large fixture deep tree selection scrolls the selected file body into the CodeView viewport', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
+		const deepPath = 'Sources/AgentStudio/source/module-24/file-292.ts';
+		const deepExpectedText = "export const fillerbrowser-filler-large-diffshub-292 = 'head';";
+
+		try {
+			render(
+				<BridgeApp
+					codeViewWorkerPoolEnabled={true}
+					codeViewWorkerFactory={workerFactory.workerFactory}
+					fetchContent={backend.fetchContent}
+					markdownWorkerClient={null}
+					projectionWorkerClient={backend.projectionWorkerClient}
+				/>,
+			);
+			await backend.pushPackage(
+				reviewPackageForBridgeAppDevFixtureScenario({
+					fixture,
+					scenario: 'scroll',
+				}),
+			);
+			await waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
+			await waitForSelectedBridgeViewerContentState('ready');
+			await waitForBridgeViewerTextWithDiagnostics(fixture.expected.largeText);
+
+			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+			const scrollTopBeforeClick = codeScroll.scrollTop;
+			const selectedItemId = bridgeReviewFixtureItemIdForPath(fixture, deepPath);
+
+			const motionSamples = await sampleBridgeCodeViewScrollMotion({
+				frameCount: 24,
+				scrollOwner: codeScroll,
+				action: (): void => {
+					window.dispatchEvent(
+						new CustomEvent('__bridge_review_control', {
+							detail: {
+								method: 'bridge.fileTree.revealPath',
+								path: deepPath,
+							},
+						}),
+					);
+				},
+			});
+			await waitForSelectedBridgeViewerDisplayPath(deepPath);
+			await waitForSelectedBridgeViewerContentState('ready');
+			await waitForBridgeViewerTextWithDiagnostics(deepExpectedText);
+			const selectedHeaderButton =
+				await waitForBridgeCodeHeaderCollapseButtonForItem(selectedItemId);
+			const selectedHeaderOffset = await waitForBridgeCodeHeaderOffsetFromScrollOwner({
+				collapseButton: selectedHeaderButton,
+				maxOffset: 8,
+				scrollOwner: codeScroll,
+			});
+
+			expect(bridgeViewerVisibleCodeTextContent(codeScroll)).toContain(deepExpectedText);
+			expect(selectedHeaderOffset).toBeGreaterThanOrEqual(0);
+			expect(codeScroll.scrollTop).not.toBe(scrollTopBeforeClick);
+			expect(isBridgeCodeViewSmoothMotionSample(motionSamples)).toBe(true);
+		} finally {
+			workerFactory.revoke();
+			backend.dispose();
+		}
+	});
+
 	test('custom filter controls route through projection requests and preserve a visible selection', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
@@ -921,7 +987,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
-	test('selecting docs keeps the review CodeView until markdown preview is explicitly requested', async () => {
+	test('selecting docs renders the markdown preview through the worker lane', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 		const markdownWorker = createImmediateMarkdownWorkerClient();
@@ -939,10 +1005,10 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		docsButton.click();
 		await waitForBridgeViewerText(fixture.expected.docsMarkdownHeading);
 
-		expect(document.querySelector('[data-testid="bridge-code-view-panel"]')).not.toBeNull();
-		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
-		expect(markdownWorker.requests).toHaveLength(0);
-		expect(bridgeViewerRenderedTextContent()).toContain('const fixture = true;');
+		await waitForBridgeViewerElement('[data-testid="bridge-markdown-preview"]');
+		await waitForBridgeViewerText('Rendered markdown preview');
+		expect(markdownWorker.requests).toHaveLength(1);
+		expect(markdownWorker.requests[0]?.sourcePath).toBe(fixture.expected.docsPath);
 
 		backend.dispose();
 	});
@@ -1267,6 +1333,40 @@ function bridgeCodeHeaderOffsetFromScrollOwner(props: {
 		(headerElement ?? props.collapseButton).getBoundingClientRect().top -
 		props.scrollOwner.getBoundingClientRect().top
 	);
+}
+
+async function sampleBridgeCodeViewScrollMotion(props: {
+	readonly action: () => void;
+	readonly frameCount: number;
+	readonly scrollOwner: HTMLElement;
+}): Promise<readonly number[]> {
+	const samples: number[] = [props.scrollOwner.scrollTop];
+	props.action();
+	for (let index = 0; index < props.frameCount; index += 1) {
+		await waitForBridgeViewerAnimationFrame();
+		samples.push(props.scrollOwner.scrollTop);
+	}
+	return samples;
+}
+
+function isBridgeCodeViewSmoothMotionSample(samples: readonly number[]): boolean {
+	if (samples.length < 4) {
+		return false;
+	}
+	const firstScrollTop = samples[0] ?? 0;
+	const lastScrollTop = samples.at(-1) ?? firstScrollTop;
+	const totalDistance = Math.abs(lastScrollTop - firstScrollTop);
+	if (totalDistance < 64) {
+		return false;
+	}
+	const uniqueRoundedSamples = new Set(samples.map((sample: number): number => Math.round(sample)));
+	const largestFrameDelta = samples
+		.slice(1)
+		.reduce((largestDelta: number, sample: number, index: number): number => {
+			const previousSample = samples[index] ?? sample;
+			return Math.max(largestDelta, Math.abs(sample - previousSample));
+		}, 0);
+	return uniqueRoundedSamples.size >= 4 && largestFrameDelta < totalDistance * 0.9;
 }
 
 function bridgeReviewFixtureItemIdForPath(

@@ -745,7 +745,7 @@ describe('BridgeApp', () => {
 		expect(bridgeAppRenderedTextContent()).not.toContain('content fetch unavailable');
 	});
 
-	test('aborts obsolete selected content fetches when selection changes', async () => {
+	test('keeps shared content fetches alive while selection moves to another item', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeTwoItemReviewPackage();
 		const contentRequests: Array<{
@@ -798,10 +798,7 @@ describe('BridgeApp', () => {
 			.filter((request): boolean => request.url.includes('item-source'))
 			.map((request): AbortSignal | undefined => request.signal);
 		expect(initialSignals).toHaveLength(2);
-		expect(
-			initialSignals.every((signal): signal is AbortSignal => signal instanceof AbortSignal),
-		).toBe(true);
-		expect(initialSignals.every((signal): boolean => signal?.aborted === false)).toBe(true);
+		expect(initialSignals).toEqual([undefined, undefined]);
 
 		await act(async (): Promise<void> => {
 			const secondButton = findReviewTreeItemButton('Sources/App/Second.swift');
@@ -812,7 +809,10 @@ describe('BridgeApp', () => {
 			await Promise.resolve();
 		});
 
-		expect(initialSignals.every((signal): boolean => signal?.aborted === true)).toBe(true);
+		const codeViewPanel = document.querySelector<HTMLElement>(
+			'[data-testid="bridge-code-view-panel"]',
+		);
+		expect(codeViewPanel?.dataset['selectedContentState']).toBe('pending');
 	});
 
 	test('package apply telemetry priority is derived from slice, not push level', async () => {
@@ -1451,14 +1451,6 @@ describe('BridgeApp', () => {
 
 		await pushReviewPackage(reviewPackage);
 		await waitForRequestedUrl(requestedUrls, 'handle-item-added-plan-head');
-		expect(document.querySelector('[data-testid="bridge-code-view-panel"]')).not.toBeNull();
-		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
-		expect(capturedRequests).toHaveLength(0);
-
-		await dispatchBridgeAppControl({
-			method: 'bridge.fileView.showMarkdownPreview',
-			itemId: 'item-added-plan',
-		});
 		await waitForMarkdownRequest(capturedRequests);
 		const request = capturedRequests[0];
 		if (request === undefined) {
@@ -1532,15 +1524,13 @@ describe('BridgeApp', () => {
 
 		await pushReviewPackage(reviewPackage);
 		await waitForRequestedUrl(requestedUrls, 'handle-item-control-plan-head');
-		expect(document.querySelector('[data-testid="bridge-code-view-panel"]')).not.toBeNull();
 		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
-		expect(capturedRequests).toHaveLength(0);
+		await waitForMarkdownRequest(capturedRequests);
 
 		await dispatchBridgeAppControl({
 			method: 'bridge.fileView.showMarkdownPreview',
 			itemId: 'item-control-plan',
 		});
-		await waitForMarkdownRequest(capturedRequests);
 		expect(window.bridgeReviewControlProbe).toMatchObject({
 			method: 'bridge.fileView.showMarkdownPreview',
 			status: 'pending',
@@ -1825,14 +1815,7 @@ describe('BridgeApp', () => {
 
 		await pushReviewPackage(reviewPackage);
 		await waitForRequestedUrl(requestedUrls, 'handle-item-large-plan-head');
-		expect(document.querySelector('[data-testid="bridge-code-view-panel"]')).not.toBeNull();
 		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
-		expect(capturedRequests).toHaveLength(0);
-
-		await dispatchBridgeAppControl({
-			method: 'bridge.fileView.showMarkdownPreview',
-			itemId: 'item-large-plan',
-		});
 		await waitForMarkdownRequest(capturedRequests);
 		const request = capturedRequests[0];
 		if (request === undefined) {

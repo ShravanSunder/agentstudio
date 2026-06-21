@@ -183,6 +183,11 @@ export class BridgeTreesController {
 		return itemId;
 	}
 
+	revealTreePath(path: string): void {
+		this.revealTreePathAncestors(path);
+		this.#model.scrollToPath(path);
+	}
+
 	revealTreePathAncestors(path: string): void {
 		expandAncestorDirectories({ model: this.#model, path });
 	}

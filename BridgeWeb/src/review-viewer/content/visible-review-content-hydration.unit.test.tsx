@@ -58,6 +58,7 @@ describe('useVisibleReviewContentHydration', () => {
 
 		expect(load).toHaveBeenCalledTimes(1);
 		expect(lastSnapshot(snapshots).visibleLoadingItemCount).toBe(0);
+		expect(lastSnapshot(snapshots).visibleFailedItemIds.has('hidden-binary')).toBe(true);
 
 		await act(async (): Promise<void> => {
 			await flushVisibleHydrationMicrotasks();

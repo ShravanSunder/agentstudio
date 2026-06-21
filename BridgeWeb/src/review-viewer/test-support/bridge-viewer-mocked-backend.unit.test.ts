@@ -34,6 +34,16 @@ describe('bridge viewer mocked backend', () => {
 		);
 	});
 
+	test('can keep the huge diff outside the cold baseline rendered window', () => {
+		const fixture = makeBridgeViewerBrowserFixture({
+			fixtureClass: 'small-mixed',
+			largeItemPlacement: 'after-fillers',
+		});
+
+		expect(fixture.reviewPackage.orderedItemIds.at(-1)).toBe('browser-large-diff');
+		expect(fixture.metadata.diffLineCount).toBeGreaterThanOrEqual(100_000);
+	});
+
 	test('large fixture meets scale and distribution targets for large-diff proof', () => {
 		const largeFixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const changeKindCounts = requireMetadataRecord(largeFixture.metadata, 'changeKindCounts');
