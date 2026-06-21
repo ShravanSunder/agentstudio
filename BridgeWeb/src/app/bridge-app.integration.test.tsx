@@ -1451,6 +1451,14 @@ describe('BridgeApp', () => {
 
 		await pushReviewPackage(reviewPackage);
 		await waitForRequestedUrl(requestedUrls, 'handle-item-added-plan-head');
+		expect(document.querySelector('[data-testid="bridge-code-view-panel"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+		expect(capturedRequests).toHaveLength(0);
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileView.showMarkdownPreview',
+			itemId: 'item-added-plan',
+		});
 		await waitForMarkdownRequest(capturedRequests);
 		const request = capturedRequests[0];
 		if (request === undefined) {
@@ -1524,18 +1532,21 @@ describe('BridgeApp', () => {
 
 		await pushReviewPackage(reviewPackage);
 		await waitForRequestedUrl(requestedUrls, 'handle-item-control-plan-head');
-		await waitForMarkdownRequest(capturedRequests);
+		expect(document.querySelector('[data-testid="bridge-code-view-panel"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+		expect(capturedRequests).toHaveLength(0);
 
 		await dispatchBridgeAppControl({
 			method: 'bridge.fileView.showMarkdownPreview',
 			itemId: 'item-control-plan',
 		});
+		await waitForMarkdownRequest(capturedRequests);
 		expect(window.bridgeReviewControlProbe).toMatchObject({
 			method: 'bridge.fileView.showMarkdownPreview',
 			status: 'pending',
 			itemId: 'item-control-plan',
 			reason: 'preview_render_pending',
-			renderMode: { kind: 'codeView' },
+			renderMode: { kind: 'markdownPreview' },
 		});
 
 		const request = capturedRequests[0];
@@ -1814,6 +1825,14 @@ describe('BridgeApp', () => {
 
 		await pushReviewPackage(reviewPackage);
 		await waitForRequestedUrl(requestedUrls, 'handle-item-large-plan-head');
+		expect(document.querySelector('[data-testid="bridge-code-view-panel"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+		expect(capturedRequests).toHaveLength(0);
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileView.showMarkdownPreview',
+			itemId: 'item-large-plan',
+		});
 		await waitForMarkdownRequest(capturedRequests);
 		const request = capturedRequests[0];
 		if (request === undefined) {

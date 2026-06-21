@@ -531,6 +531,13 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				didCancel = true;
 			};
 		}
+		if (rootSnapshot.renderMode.kind !== 'markdownPreview') {
+			setSelectedMarkdownPreviewState(null);
+			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
+			return (): void => {
+				didCancel = true;
+			};
+		}
 
 		const selectedContentKey = makeSelectedContentResourcesKey(
 			reviewPackage,
@@ -621,7 +628,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				status: 'ready',
 				html: completion.response.html,
 			});
-			viewerActions.setRenderMode({ kind: 'markdownPreview' });
 		});
 
 		return (): void => {
@@ -631,6 +637,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	}, [
 		markdownWorkerClient,
 		reviewPackage,
+		rootSnapshot.renderMode.kind,
 		rootSnapshot.selectedItemId,
 		selectedContentResources,
 		viewerActions,
@@ -887,6 +894,10 @@ function applyBridgeAppControlCommand(
 			}
 			if (markdownWorkerClient === null) {
 				return { status: 'rejected', reason: 'worker_unavailable' };
+			}
+			if (props.rootSnapshot.renderMode.kind !== 'markdownPreview') {
+				viewerActions.setRenderMode({ kind: 'markdownPreview' });
+				return { status: 'pending', reason: 'preview_render_pending' };
 			}
 			return props.rootSnapshot.renderMode.kind === 'markdownPreview'
 				? { status: 'accepted', reason: null }

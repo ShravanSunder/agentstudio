@@ -176,6 +176,8 @@ async function verifyMarkdownScenario(): Promise<MarkdownScenarioResult> {
 	const page = await makeVerificationPage();
 	try {
 		await page.goto(markdownDevServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+		await waitForSelectedPath(page, targetMarkdownPath);
+		await dispatchMarkdownPreviewCommand(page);
 		await page.waitForFunction(
 			(heading: string): boolean =>
 				document
@@ -203,6 +205,16 @@ async function verifyMarkdownScenario(): Promise<MarkdownScenarioResult> {
 	} finally {
 		await page.close();
 	}
+}
+
+async function dispatchMarkdownPreviewCommand(page: Page): Promise<void> {
+	await page.evaluate((): void => {
+		document.dispatchEvent(
+			new CustomEvent('__bridge_review_control', {
+				detail: { method: 'bridge.fileView.showMarkdownPreview' },
+			}),
+		);
+	});
 }
 
 async function makeVerificationPage(): Promise<Page> {

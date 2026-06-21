@@ -915,7 +915,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
-	test('selected docs render through the typed markdown worker client path', async () => {
+	test('selecting docs keeps the review CodeView until markdown preview is explicitly requested', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 		const markdownWorker = createImmediateMarkdownWorkerClient();
@@ -932,19 +932,11 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 		docsButton.click();
 		await waitForBridgeViewerText(fixture.expected.docsMarkdownHeading);
-		await waitForBridgeViewerElement('[data-testid="bridge-markdown-preview"]');
 
-		expect(markdownWorker.requests).toHaveLength(1);
-		expect(markdownWorker.requests[0]?.markdownText).toContain(fixture.expected.docsMarkdownText);
-		expect(markdownWorker.requests[0]?.sourcePath).toBe(fixture.expected.docsPath);
+		expect(document.querySelector('[data-testid="bridge-code-view-panel"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+		expect(markdownWorker.requests).toHaveLength(0);
 		expect(bridgeViewerRenderedTextContent()).toContain('const fixture = true;');
-		expect(document.querySelector('[data-testid="bridge-markdown-preview"] img')).toBeNull();
-		expect(document.querySelector('[data-testid="bridge-markdown-preview"] a[href]')).toBeNull();
-		expect(
-			document.querySelector(
-				'[data-testid="bridge-markdown-preview"] form, [data-testid="bridge-markdown-preview"] input, [data-testid="bridge-markdown-preview"] button, [data-testid="bridge-markdown-preview"] details, [data-testid="bridge-markdown-preview"] dialog, [data-testid="bridge-markdown-preview"] [contenteditable]',
-			),
-		).toBeNull();
 
 		backend.dispose();
 	});
@@ -967,6 +959,15 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await backend.pushPackage();
 		const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 		docsButton.click();
+		await waitForBridgeViewerText(fixture.expected.docsMarkdownHeading);
+		document.dispatchEvent(
+			new CustomEvent('__bridge_review_control', {
+				detail: {
+					method: 'bridge.fileView.showMarkdownPreview',
+					itemId: 'browser-docs-plan',
+				},
+			}),
+		);
 		const pendingRequest = await markdownWorker.waitForPendingRequest();
 		const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
 		secondButton.click();

@@ -114,6 +114,13 @@ Observed current state before implementation:
   scroll position. Task 5/6 must keep CodeView as the primary review surface
   during file selection, and markdown preview must be an explicit render-mode
   request or review mode, not an accidental side effect of tree selection.
+- Current loading skeleton behavior needs visual correction. Manual video proof
+  showed the skeleton can appear detached from CodeView row geometry during
+  scroll/hydration, as if it is floating in the canvas instead of occupying the
+  same item body slot that will later render the real file/diff content. Task 5
+  must either make loading content a real stable CodeView item body with
+  deterministic height/placement or replace it with a row-local loading state
+  that cannot visually drift away from the file header and CodeView layout.
 - Current Victoria verifier coverage is strong for the existing Bridge telemetry
   taxonomy, but the new resource data-plane names
   `performance.bridge.resource.fetch/cache/range`,
@@ -505,9 +512,16 @@ Steps:
    - scroll-only and click-to-file paths must render the same selected markdown
      item shape
    - markdown preview remains a typed explicit view/mode handled by Task 6
-8. Remove duplicate file names in headers and use Pierre/lucide-compatible
+8. Fix visible-content loading placeholders so they are anchored to CodeView
+   item geometry:
+   - loading skeletons must not float as free canvas overlays while scrolling
+   - placeholder height must be stable enough that hydration does not move the
+     header unexpectedly
+   - placeholder and final content must share the same CodeView item ownership
+     path or an explicitly tested row-local fallback
+9. Remove duplicate file names in headers and use Pierre/lucide-compatible
    icon discipline.
-9. Use stable dimensions and layout constraints so hover, selected, and collapsed
+10. Use stable dimensions and layout constraints so hover, selected, and collapsed
    states do not resize rows unexpectedly.
 
 Proof:
@@ -519,6 +533,9 @@ Proof:
 - browser proof: clicking a markdown file and scrolling to that markdown file
   leave the same CodeView review surface unless render mode was explicitly
   changed
+- browser/visual proof: loading skeletons remain inside the selected or visible
+  file row geometry while scrolling and disappear without a layout jump when
+  content hydrates
 - browser test for file click scroll-to-header
 - browser test for collapse stability in pinned and mid-screen states
 - browser test for added full-content rendering

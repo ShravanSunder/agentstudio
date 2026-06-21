@@ -394,6 +394,8 @@ async function verifyWorktreeMarkdownPreview(props: {
 		{ timeout: 30_000 },
 	);
 	await clickFileTreePath(props.page, props.markdownTarget.displayPath);
+	await waitForSelectedPath(props.page, props.markdownTarget.displayPath);
+	await dispatchMarkdownPreviewCommand(props.page);
 	await props.page.waitForFunction(
 		(path: string): boolean =>
 			document
@@ -410,6 +412,34 @@ async function verifyWorktreeMarkdownPreview(props: {
 		throw new Error(`Expected non-empty markdown preview for ${props.markdownTarget.displayPath}`);
 	}
 	return previewTextLength;
+}
+
+async function waitForSelectedPath(page: Page, path: string): Promise<void> {
+	await page.waitForFunction(
+		(targetPath: string): boolean =>
+			document
+				.querySelector('[data-selected-display-path]')
+				?.getAttribute('data-selected-display-path') === targetPath,
+		path,
+		{ timeout: 10_000 },
+	);
+	await page.waitForFunction(
+		(): boolean =>
+			document
+				.querySelector('[data-selected-content-state]')
+				?.getAttribute('data-selected-content-state') === 'ready',
+		{ timeout: 20_000 },
+	);
+}
+
+async function dispatchMarkdownPreviewCommand(page: Page): Promise<void> {
+	await page.evaluate((): void => {
+		document.dispatchEvent(
+			new CustomEvent('__bridge_review_control', {
+				detail: { method: 'bridge.fileView.showMarkdownPreview' },
+			}),
+		);
+	});
 }
 
 async function assertSelectedHeaderCollapseRoundTrip(page: Page, path: string): Promise<void> {
