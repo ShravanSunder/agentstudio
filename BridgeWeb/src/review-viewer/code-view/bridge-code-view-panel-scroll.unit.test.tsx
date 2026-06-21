@@ -15,6 +15,10 @@ import { bridgePierreDarkThemeName } from './bridge-code-view-theme.js';
 
 interface MockCodeViewProps {
 	readonly initialItems?: readonly CodeViewItem[];
+	readonly onScroll?: (
+		scrollTop: number,
+		viewer: { readonly getRenderedItems: () => readonly { readonly id: string }[] },
+	) => void;
 	readonly options?: CodeViewOptions<undefined>;
 	readonly renderHeaderMetadata?: (item: CodeViewItem) => ReactNode;
 	readonly renderHeaderPrefix?: (item: CodeViewItem) => ReactNode;
@@ -25,6 +29,7 @@ const codeViewDoubles = vi.hoisted(() => ({
 	getInstanceRender: vi.fn(),
 	getItem: vi.fn((id: string): unknown => ({ id })),
 	lastProps: null as MockCodeViewProps | null,
+	renderedItems: [] as { readonly id: string }[],
 	scrollTo: vi.fn(),
 	setSelectedLines: vi.fn(),
 	updateItem: vi.fn((): boolean => true),
@@ -40,7 +45,11 @@ vi.mock('@pierre/diffs/react', async () => {
 		codeViewDoubles.lastProps = props;
 		React.useImperativeHandle(ref, () => ({
 			addItems: codeViewDoubles.addItems,
-			getInstance: (): { readonly render: () => void } => ({
+			getInstance: (): {
+				readonly getRenderedItems: () => readonly { readonly id: string }[];
+				readonly render: () => void;
+			} => ({
+				getRenderedItems: (): readonly { readonly id: string }[] => codeViewDoubles.renderedItems,
 				render: codeViewDoubles.getInstanceRender,
 			}),
 			getItem: codeViewDoubles.getItem,
@@ -69,6 +78,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		vi.clearAllMocks();
 		codeViewDoubles.getItem.mockImplementation((id: string): unknown => ({ id }));
 		codeViewDoubles.lastProps = null;
+		codeViewDoubles.renderedItems = [];
 	});
 
 	afterEach(() => {
@@ -85,7 +95,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'docsAndPlans' }, refinements: [] },
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
 		});
 		const selectedItem = reviewPackage.itemsById['docs-plan'];
 		const headHandle = selectedItem?.contentRoles.head;
@@ -129,7 +139,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -162,6 +172,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewPanel?.getAttribute('data-selected-content-character-count')).toBe('0');
 		expect(codeViewPanel?.getAttribute('data-selected-content-line-count')).toBe('0');
 		expect(codeViewPanel?.getAttribute('data-selected-content-cache-key-count')).toBe('0');
+		expect(document.querySelector('[data-testid="bridge-code-view-loading-state"]')).not.toBeNull();
 		expect(codeViewDoubles.updateItem).not.toHaveBeenCalled();
 	});
 
@@ -169,7 +180,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 		const [firstItem] = createBridgeCodeViewInitialItems({ reviewPackage, projection });
 		if (firstItem === undefined) {
@@ -245,7 +256,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 		const [firstItem] = createBridgeCodeViewInitialItems({ reviewPackage, projection });
 		if (firstItem === undefined) {
@@ -308,7 +319,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'docsAndPlans' }, refinements: [] },
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
 		});
 		const selectedItem = reviewPackage.itemsById['docs-plan'];
 		const headHandle = selectedItem?.contentRoles.head;
@@ -368,6 +379,87 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		).toBeGreaterThan(0);
 	});
 
+	test('publishes the current Pierre rendered window for visible content hydration', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const onVisibleItemIdsChange = vi.fn();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					onVisibleItemIdsChange={onVisibleItemIdsChange}
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="source-high"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		codeViewDoubles.lastProps?.onScroll?.(128, {
+			getRenderedItems: (): readonly { readonly id: string }[] => [
+				{ id: 'source-high' },
+				{ id: 'source-normal' },
+				{ id: 'source-normal' },
+			],
+		});
+
+		expect(onVisibleItemIdsChange).toHaveBeenCalledWith(['source-high', 'source-normal']);
+	});
+
+	test('materializes visible non-selected item resources without routing them through selection', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const visibleItem = reviewPackage.itemsById['source-normal'];
+		const headHandle = visibleItem?.contentRoles.head;
+		if (visibleItem === undefined || headHandle === undefined || headHandle === null) {
+			throw new Error('expected source-normal head handle');
+		}
+		const visibleContentResource: BridgeContentResource = {
+			handle: headHandle,
+			text: 'let visibleWindowHydrated = true',
+		};
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="source-high"
+					visibleContentResourcesByItemId={
+						new Map([['source-normal', { head: visibleContentResource }]])
+					}
+					visibleReadyItemCount={1}
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'source-normal' }),
+		);
+		const codeViewPanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+		expect(codeViewPanel?.getAttribute('data-code-view-rendered-content-resource-count')).toBe('1');
+		expect(codeViewPanel?.getAttribute('data-code-view-visible-ready-item-count')).toBe('1');
+		expect(codeViewPanel?.getAttribute('data-selected-materialized-update-result')).toBe('not-run');
+	});
+
 	test('runs a deferred CodeView render after selected content materializes', async () => {
 		const animationFrameCallbacks: FrameRequestCallback[] = [];
 		const requestAnimationFrameSpy = vi
@@ -380,7 +472,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'docsAndPlans' }, refinements: [] },
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
 		});
 		const selectedItem = reviewPackage.itemsById['docs-plan'];
 		const headHandle = selectedItem?.contentRoles.head;

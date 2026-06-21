@@ -48,6 +48,10 @@ import {
 	type BridgeReviewContentRegistry,
 } from '../review-viewer/content/review-content-registry.js';
 import {
+	makeReviewItemContentResourcesKey,
+	useVisibleReviewContentHydration,
+} from '../review-viewer/content/visible-review-content-hydration.js';
+import {
 	bridgeMarkdownPreviewMaxBytes,
 	resolveBridgeMarkdownPreviewDecision,
 	type BridgeMarkdownPreviewFallbackReason,
@@ -213,6 +217,15 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			}),
 		[reviewPackage, rootSnapshot.selectedItemId, selectedContentResourcesState],
 	);
+	const visibleContentHydration = useVisibleReviewContentHydration({
+		contentRegistry,
+		...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+		reviewPackage,
+		selectedItemId: rootSnapshot.selectedItemId,
+		telemetryParentTraceContext:
+			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+		telemetryRecorder: telemetryRecorderRef.current,
+	});
 	const flushTelemetry = useCallback((): void => {
 		telemetryRecorderRef.current.flush();
 	}, []);
@@ -243,6 +256,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		store: viewerStore,
 		reviewPackage,
 		projectionMode: rootSnapshot.projectionMode,
+		facets: rootSnapshot.facets,
 		gitStatusFilter: rootSnapshot.gitStatusFilter,
 		fileClassFilter: rootSnapshot.fileClassFilter,
 		projectionWorkerClient,
@@ -679,6 +693,10 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						selectedContentResourcesState,
 					})}
 					selectedItemId={rootSnapshot.selectedItemId}
+					visibleContentResourcesByItemId={visibleContentHydration.visibleContentResourcesByItemId}
+					visibleLoadingItemCount={visibleContentHydration.visibleLoadingItemCount}
+					visibleReadyItemCount={visibleContentHydration.visibleReadyItemCount}
+					onCodeViewVisibleItemIdsChange={visibleContentHydration.setVisibleItemIds}
 					{...(props.codeViewWorkerPoolEnabled === undefined
 						? {}
 						: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
@@ -888,23 +906,10 @@ function makeSelectedContentResourcesKey(
 	if (selectedItem === undefined) {
 		return `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}:${reviewPackage.revision}:${selectedItemId}:missing`;
 	}
-	const roleKeys = [
-		selectedItem.contentRoles.base,
-		selectedItem.contentRoles.head,
-		selectedItem.contentRoles.diff,
-		selectedItem.contentRoles.file,
-	]
-		.map((handle): string => handle?.cacheKey ?? 'none')
-		.join('|');
-	return [
-		reviewPackage.packageId,
-		String(reviewPackage.reviewGeneration),
-		String(reviewPackage.revision),
-		selectedItem.itemId,
-		String(selectedItem.itemVersion),
-		selectedItem.cacheKey,
-		roleKeys,
-	].join(':');
+	return makeReviewItemContentResourcesKey({
+		item: selectedItem,
+		reviewPackage,
+	});
 }
 
 interface SelectedContentResourcesForCurrentSelectionProps {

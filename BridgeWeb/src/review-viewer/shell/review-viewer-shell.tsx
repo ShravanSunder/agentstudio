@@ -48,6 +48,9 @@ export interface ReviewViewerShellProps {
 	readonly selectedContentUnavailablePath?: string | null;
 	readonly selectedMarkdownPreviewHtml?: string | null;
 	readonly selectedMarkdownPreviewSourcePath?: string | null;
+	readonly visibleContentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
+	readonly visibleLoadingItemCount?: number;
+	readonly visibleReadyItemCount?: number;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly projectionMode?: BridgeReviewProjectionMode;
@@ -61,6 +64,7 @@ export interface ReviewViewerShellProps {
 	readonly fileClassFilter?: BridgeFileClass | 'all';
 	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
+	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 }
@@ -113,7 +117,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 		selectedItemId: props.selectedItemId,
 	});
 	const summary = props.reviewPackage.summary;
-	const projectionMode = props.projectionMode ?? { kind: 'allFiles' };
+	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
 	const fileClassFilter = props.fileClassFilter ?? 'all';
 	const treeSearchText = props.treeSearchText ?? '';
@@ -157,6 +161,16 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								selectedContentResources={props.selectedContentResources ?? null}
 								selectedItemId={props.selectedItemId}
 								telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
+								visibleLoadingItemCount={props.visibleLoadingItemCount ?? 0}
+								visibleReadyItemCount={props.visibleReadyItemCount ?? 0}
+								{...(props.visibleContentResourcesByItemId === undefined
+									? {}
+									: {
+											visibleContentResourcesByItemId: props.visibleContentResourcesByItemId,
+										})}
+								{...(props.onCodeViewVisibleItemIdsChange === undefined
+									? {}
+									: { onVisibleItemIdsChange: props.onCodeViewVisibleItemIdsChange })}
 								{...(props.onCodeViewControlHandleChange === undefined
 									? {}
 									: {
@@ -305,7 +319,7 @@ export function BridgeReviewProjectionMenu(props: {
 	const selectedProjectionSpec =
 		projectionButtonSpecs.find((spec): boolean => spec.mode.kind === props.projectionMode.kind) ??
 		projectionButtonSpecs[0];
-	const selectedValue = selectedProjectionSpec?.value ?? 'allFiles';
+	const selectedValue = selectedProjectionSpec?.value ?? 'normalReview';
 
 	return (
 		<DropdownMenu>
@@ -387,12 +401,11 @@ const projectionButtonSpecs: readonly {
 	readonly testIdSuffix: string;
 	readonly value: string;
 }[] = [
-	{ label: 'All', mode: { kind: 'allFiles' }, testIdSuffix: 'all-files', value: 'allFiles' },
 	{
-		label: 'Changed',
-		mode: { kind: 'changedFiles' },
-		testIdSuffix: 'changed-files',
-		value: 'changedFiles',
+		label: 'Normal',
+		mode: { kind: 'normalReview' },
+		testIdSuffix: 'normal-review',
+		value: 'normalReview',
 	},
 	{
 		label: 'Guided',
@@ -401,19 +414,11 @@ const projectionButtonSpecs: readonly {
 		value: 'guidedReview',
 	},
 	{
-		label: 'Change set',
-		mode: { kind: 'currentChangeSet', scope: { kind: 'activePackage' } },
-		testIdSuffix: 'change-set',
-		value: 'currentChangeSet',
+		label: 'Plans/specs',
+		mode: { kind: 'plansAndSpecs' },
+		testIdSuffix: 'plans-specs',
+		value: 'plansAndSpecs',
 	},
-	{
-		label: 'Docs/plans',
-		mode: { kind: 'docsAndPlans' },
-		testIdSuffix: 'docs-plans',
-		value: 'docsAndPlans',
-	},
-	{ label: 'Tests', mode: { kind: 'tests' }, testIdSuffix: 'tests', value: 'tests' },
-	{ label: 'Source', mode: { kind: 'source' }, testIdSuffix: 'source', value: 'source' },
 ];
 
 const gitStatusOptions: readonly BridgeReviewFilterOption<BridgeFileChangeKind | 'all'>[] = [
