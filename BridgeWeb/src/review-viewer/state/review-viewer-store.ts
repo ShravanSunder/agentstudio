@@ -5,7 +5,7 @@ import type {
 	BridgeReviewFilterState,
 	BridgeReviewRenderMode,
 	BridgeReviewProjectionMode,
-	BridgeReviewProjectionRefinement,
+	BridgeReviewProjectionFacet,
 	BridgeReviewProjectionRequestIdentity,
 	BridgeReviewProjectionResult,
 } from '../models/review-projection-models.js';
@@ -17,7 +17,7 @@ export type BridgeContentHydrationStatusKind = 'idle' | 'queued' | 'loading' | '
 export interface BridgeReviewViewerRootSnapshot {
 	readonly selectedItemId: string | null;
 	readonly projectionMode: BridgeReviewProjectionMode;
-	readonly refinements: readonly BridgeReviewProjectionRefinement[];
+	readonly facets: readonly BridgeReviewProjectionFacet[];
 	readonly treeSearchText: string;
 	readonly gitStatusFilter: BridgeReviewFilterState['gitStatusFilter'];
 	readonly fileClassFilter: BridgeReviewFilterState['fileClassFilter'];
@@ -45,9 +45,7 @@ export interface ApplyProjectionWorkerResultProps {
 export interface BridgeReviewViewerStoreActions {
 	readonly setSelectedItemId: (itemId: string | null) => void;
 	readonly setProjectionMode: (mode: BridgeReviewProjectionMode) => void;
-	readonly setProjectionRefinements: (
-		refinements: readonly BridgeReviewProjectionRefinement[],
-	) => void;
+	readonly setProjectionFacets: (facets: readonly BridgeReviewProjectionFacet[]) => void;
 	readonly setTreeSearchText: (searchText: string) => void;
 	readonly setGitStatusFilter: (status: BridgeReviewFilterState['gitStatusFilter']) => void;
 	readonly setFileClassFilter: (fileClass: BridgeReviewFilterState['fileClassFilter']) => void;
@@ -76,7 +74,7 @@ export type BridgeReviewViewerStore = Mutate<
 	[['zustand/subscribeWithSelector', never]]
 >;
 
-const defaultProjectionMode: BridgeReviewProjectionMode = { kind: 'allFiles' };
+const defaultProjectionMode: BridgeReviewProjectionMode = { kind: 'normalReview' };
 const defaultRenderMode: BridgeReviewRenderMode = { kind: 'codeView' };
 
 export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
@@ -97,7 +95,7 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 				rootSnapshot: {
 					selectedItemId: null,
 					projectionMode: defaultProjectionMode,
-					refinements: [],
+					facets: [],
 					treeSearchText: '',
 					gitStatusFilter: 'all',
 					fileClassFilter: 'all',
@@ -121,10 +119,8 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 					setProjectionMode: (mode: BridgeReviewProjectionMode): void => {
 						replaceRootSnapshot({ projectionMode: mode });
 					},
-					setProjectionRefinements: (
-						refinements: readonly BridgeReviewProjectionRefinement[],
-					): void => {
-						replaceRootSnapshot({ refinements });
+					setProjectionFacets: (facets: readonly BridgeReviewProjectionFacet[]): void => {
+						replaceRootSnapshot({ facets });
 					},
 					setTreeSearchText: (searchText: string): void => {
 						replaceRootSnapshot({ treeSearchText: searchText });

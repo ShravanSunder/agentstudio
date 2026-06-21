@@ -45,14 +45,17 @@ describe('Bridge review projection worker client', () => {
 		const firstTask = client.startProjection({
 			abortKey: 'projection',
 			projectionInput,
-			projectionRequest: { base: { kind: 'source' }, refinements: [] },
+			projectionRequest: {
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'fileClass', fileClasses: ['source'] }],
+			},
 			visibleItemIds: [],
 			workloadId: 'bridge_viewer_medium_review_v1',
 		});
 		const secondTask = client.startProjection({
 			abortKey: 'projection',
 			projectionInput,
-			projectionRequest: { base: { kind: 'docsAndPlans' }, refinements: [] },
+			projectionRequest: { mode: { kind: 'plansAndSpecs' }, facets: [] },
 			visibleItemIds: [],
 			workloadId: 'bridge_viewer_medium_review_v1',
 		});
@@ -103,7 +106,10 @@ describe('Bridge review projection worker client', () => {
 		});
 		const task = client.startProjection({
 			projectionInput,
-			projectionRequest: { base: { kind: 'source' }, refinements: [] },
+			projectionRequest: {
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'fileClass', fileClasses: ['source'] }],
+			},
 			visibleItemIds: [],
 			workloadId: 'interactive',
 		});

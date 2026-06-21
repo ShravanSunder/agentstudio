@@ -20,7 +20,7 @@ describe('Bridge review projection web worker transport', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		client?.startProjection({
 			projectionInput: makeBridgeReviewProjectionInput(reviewPackage),
-			projectionRequest: { base: { kind: 'allFiles' }, refinements: [] },
+			projectionRequest: { mode: { kind: 'normalReview' }, facets: [] },
 			visibleItemIds: [],
 			workloadId: 'interactive',
 		});
@@ -43,7 +43,7 @@ describe('Bridge review projection web worker transport', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const task = client.startProjection({
 			projectionInput: makeBridgeReviewProjectionInput(reviewPackage),
-			projectionRequest: { base: { kind: 'allFiles' }, refinements: [] },
+			projectionRequest: { mode: { kind: 'normalReview' }, facets: [] },
 			visibleItemIds: [],
 			workloadId: 'interactive',
 		});
@@ -66,7 +66,7 @@ describe('Bridge review projection web worker transport', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const task = client.startProjection({
 			projectionInput: makeBridgeReviewProjectionInput(reviewPackage),
-			projectionRequest: { base: { kind: 'allFiles' }, refinements: [] },
+			projectionRequest: { mode: { kind: 'normalReview' }, facets: [] },
 			visibleItemIds: [],
 			workloadId: 'interactive',
 		});

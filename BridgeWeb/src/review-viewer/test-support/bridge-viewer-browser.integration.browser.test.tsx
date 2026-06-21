@@ -705,7 +705,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 
 		expect(testFileButton.dataset['itemPath']).toBe(fixture.expected.testFilterPath);
 		expect(backend.projectionRequests.length).toBeGreaterThan(initialProjectionRequestCount);
-		expect(backend.projectionRequests.at(-1)?.projectionRequest.refinements).toContainEqual({
+		expect(backend.projectionRequests.at(-1)?.projectionRequest.facets).toContainEqual({
 			kind: 'fileClass',
 			fileClasses: ['test'],
 		});
@@ -731,14 +731,14 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const initialProjectionRequestCount = backend.projectionRequests.length;
 		expect(findBridgeViewerTreeItemButton(fixture.expected.initialPath)).not.toBeNull();
 
-		await clickBridgeViewerProjectionMenuOption('Docs/plans');
+		await clickBridgeViewerProjectionMenuOption('Plans/specs');
 		const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 		await waitForBridgeViewerTreeItemAbsent(fixture.expected.initialPath);
 
 		expect(docsButton.dataset['itemPath']).toBe(fixture.expected.docsPath);
 		expect(backend.projectionRequests.length).toBeGreaterThan(initialProjectionRequestCount);
-		expect(backend.projectionRequests.at(-1)?.projectionRequest.base).toEqual({
-			kind: 'docsAndPlans',
+		expect(backend.projectionRequests.at(-1)?.projectionRequest.mode).toEqual({
+			kind: 'plansAndSpecs',
 		});
 
 		backend.dispose();
@@ -899,11 +899,11 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 
 		expect(findBridgeViewerTreeItemButton(fixture.expected.searchPath)).not.toBeNull();
 		expect(findBridgeViewerTreeItemButton(fixture.expected.testFilterPath)).toBeNull();
-		expect(backend.projectionRequests[1]?.projectionRequest.refinements).toContainEqual({
+		expect(backend.projectionRequests[1]?.projectionRequest.facets).toContainEqual({
 			kind: 'fileClass',
 			fileClasses: ['test'],
 		});
-		expect(backend.projectionRequests[2]?.projectionRequest.refinements).toContainEqual({
+		expect(backend.projectionRequests[2]?.projectionRequest.facets).toContainEqual({
 			kind: 'fileClass',
 			fileClasses: ['source'],
 		});

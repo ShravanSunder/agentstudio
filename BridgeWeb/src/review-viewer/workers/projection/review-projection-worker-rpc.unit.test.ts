@@ -15,8 +15,11 @@ import {
 describe('review projection worker RPC contract', () => {
 	test('fingerprints projection requests without requiring ES2023 Array toSorted', () => {
 		const projectionRequest = {
-			base: { kind: 'source' },
-			refinements: [{ kind: 'folder', folderPath: 'Sources/App' }],
+			mode: { kind: 'normalReview' },
+			facets: [
+				{ kind: 'fileClass', fileClasses: ['source'] },
+				{ kind: 'folder', folderPath: 'Sources/App' },
+			],
 		} as const;
 		const arrayPrototype = Array.prototype as Array<unknown> & {
 			toSorted?: Array<unknown>['toSorted'];
@@ -26,7 +29,7 @@ describe('review projection worker RPC contract', () => {
 
 		try {
 			expect(fingerprintBridgeReviewProjectionRequest(projectionRequest)).toBe(
-				'review-projection:{"base":{"kind":"source"},"refinements":[{"folderPath":"Sources/App","kind":"folder"}]}',
+				'review-projection:{"facets":[{"fileClasses":["source"],"kind":"fileClass"},{"folderPath":"Sources/App","kind":"folder"}],"mode":{"kind":"normalReview"}}',
 			);
 		} finally {
 			if (originalToSorted !== undefined) {
@@ -39,8 +42,11 @@ describe('review projection worker RPC contract', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projectionInput = makeBridgeReviewProjectionInput(reviewPackage);
 		const projectionRequest = {
-			base: { kind: 'source' },
-			refinements: [{ kind: 'folder', folderPath: 'Sources/App' }],
+			mode: { kind: 'normalReview' },
+			facets: [
+				{ kind: 'fileClass', fileClasses: ['source'] },
+				{ kind: 'folder', folderPath: 'Sources/App' },
+			],
 		} as const;
 		const request = bridgeReviewProjectionWorkerRequestSchema.parse({
 			schemaVersion: 1,
@@ -80,8 +86,8 @@ describe('review projection worker RPC contract', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projectionInput = makeBridgeReviewProjectionInput(reviewPackage);
 		const projectionRequest = {
-			base: { kind: 'guidedReview' },
-			refinements: [
+			mode: { kind: 'guidedReview' },
+			facets: [
 				{ kind: 'visibility', includeHidden: true, includeBinary: true, includeLarge: true },
 			],
 		} as const;

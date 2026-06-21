@@ -409,7 +409,7 @@ async function measureWarmFilterSwitch(): Promise<BridgeViewerBrowserPerformance
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(document.body.textContent ?? '').not.toContain('Content unavailable');
 	await waitForBridgeViewerText(fixture.expected.initialText);
-	expect(backend.projectionRequests.at(-1)?.projectionRequest.refinements).toContainEqual({
+	expect(backend.projectionRequests.at(-1)?.projectionRequest.facets).toContainEqual({
 		kind: 'fileClass',
 		fileClasses: ['test'],
 	});
@@ -419,13 +419,13 @@ async function measureWarmFilterSwitch(): Promise<BridgeViewerBrowserPerformance
 async function measureWarmProjectionChipSwitch(): Promise<BridgeViewerBrowserPerformanceSample> {
 	const { backend, fixture } = await mountInteractiveFixture();
 	const startedAt = performance.now();
-	await clickBridgeViewerProjectionMenuOption('Docs/plans');
+	await clickBridgeViewerProjectionMenuOption('Plans/specs');
 	const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 	await waitForBridgeViewerTreeItemAbsent(fixture.expected.initialPath);
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(docsButton.dataset['itemPath']).toBe(fixture.expected.docsPath);
-	expect(backend.projectionRequests.at(-1)?.projectionRequest.base).toEqual({
-		kind: 'docsAndPlans',
+	expect(backend.projectionRequests.at(-1)?.projectionRequest.mode).toEqual({
+		kind: 'plansAndSpecs',
 	});
 	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }

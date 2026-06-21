@@ -14,7 +14,7 @@ describe('BridgeCodeViewController', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 		const [firstItem] = createBridgeCodeViewInitialItems({ reviewPackage, projection });
 		if (firstItem === undefined) {
@@ -45,7 +45,7 @@ describe('BridgeCodeViewController', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 		const [firstItem] = createBridgeCodeViewInitialItems({ reviewPackage, projection });
 		if (firstItem === undefined) {
@@ -77,7 +77,7 @@ describe('BridgeCodeViewController', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 		const [firstItem] = createBridgeCodeViewInitialItems({ reviewPackage, projection });
 		if (firstItem === undefined) {

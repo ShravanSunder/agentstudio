@@ -17,7 +17,7 @@ import type {
 	BridgeReviewProjectionInput,
 	BridgeReviewProjectionInputItem,
 	BridgeReviewProjectionMode,
-	BridgeReviewProjectionRefinement,
+	BridgeReviewProjectionFacet,
 	BridgeReviewProjectionRequest,
 } from '../models/review-projection-models.js';
 import {
@@ -118,20 +118,17 @@ export function buildBridgeReviewProjection(
 export function buildBridgeReviewProjectionFromInput(
 	props: BuildBridgeReviewProjectionFromInputProps,
 ): BridgeReviewProjection {
-	const visibility = visibilityForRequest(props.request.refinements);
+	const visibility = visibilityForRequest(props.request.facets);
 	const baseItems = props.projectionInput.orderedItems.filter(
 		(item: BridgeReviewProjectionInputItem): boolean => isVisibleByDefault(item, visibility),
 	);
 	const projectedItems = [
-		...applyProjectionRefinements(
-			itemsForMode(baseItems, props.request.base),
-			props.request.refinements,
-		),
+		...applyProjectionFacets(itemsForMode(baseItems, props.request.mode), props.request.facets),
 	];
 	// oxlint-disable-next-line unicorn/no-array-sort -- WebKit engines older than Safari 16.4 do not support Array#toSorted.
 	projectedItems.sort(
 		(left: BridgeReviewProjectionInputItem, right: BridgeReviewProjectionInputItem): number =>
-			compareForMode(props.request.base, left, right),
+			compareForMode(props.request.mode, left, right),
 	);
 	const orderedItemIds = projectedItems.map(
 		(item: BridgeReviewProjectionInputItem): string => item.itemId,
@@ -140,7 +137,7 @@ export function buildBridgeReviewProjectionFromInput(
 	const projection = {
 		...props.request,
 		projectionId: projectionIdForRequest(props.projectionInput, props.request),
-		label: labelForMode(props.request.base),
+		label: labelForMode(props.request.mode),
 		orderedItemIds,
 		...maps,
 		facetCounts: facetCountsForItems(projectedItems),
@@ -154,30 +151,16 @@ function itemsForMode(
 	mode: BridgeReviewProjectionMode,
 ): readonly BridgeReviewProjectionInputItem[] {
 	switch (mode.kind) {
-		case 'allFiles':
-			return items;
-		case 'changedFiles':
+		case 'normalReview':
 			return items.filter((item: BridgeReviewProjectionInputItem): boolean =>
 				changedKinds.has(item.changeKind),
 			);
 		case 'guidedReview':
-			return items;
-		case 'currentChangeSet':
 			return items.filter((item: BridgeReviewProjectionInputItem): boolean =>
-				itemMatchesCurrentChangeSet(item, mode.scope),
+				changedKinds.has(item.changeKind),
 			);
-		case 'docsAndPlans':
+		case 'plansAndSpecs':
 			return items.filter(isDocsOrPlanItem);
-		case 'tests':
-			return items.filter(
-				(item: BridgeReviewProjectionInputItem): boolean => item.fileClass === 'test',
-			);
-		case 'source':
-			return items.filter(
-				(item: BridgeReviewProjectionInputItem): boolean => item.fileClass === 'source',
-			);
-		case 'custom':
-			return items;
 	}
 
 	return assertNever(mode);
@@ -203,30 +186,30 @@ function itemMatchesCurrentChangeSet(
 	return assertNever(scope.provenanceKind);
 }
 
-function applyProjectionRefinements(
+function applyProjectionFacets(
 	items: readonly BridgeReviewProjectionInputItem[],
-	refinements: readonly BridgeReviewProjectionRefinement[],
+	facets: readonly BridgeReviewProjectionFacet[],
 ): readonly BridgeReviewProjectionInputItem[] {
-	return refinements.reduce(
+	return facets.reduce(
 		(
 			currentItems: readonly BridgeReviewProjectionInputItem[],
-			refinement: BridgeReviewProjectionRefinement,
+			refinement: BridgeReviewProjectionFacet,
 		): readonly BridgeReviewProjectionInputItem[] => {
 			if (refinement.kind === 'visibility') {
 				return currentItems;
 			}
 
 			return currentItems.filter((item: BridgeReviewProjectionInputItem): boolean =>
-				itemMatchesRefinement(item, refinement),
+				itemMatchesFacet(item, refinement),
 			);
 		},
 		items,
 	);
 }
 
-function itemMatchesRefinement(
+function itemMatchesFacet(
 	item: BridgeReviewProjectionInputItem,
-	refinement: Exclude<BridgeReviewProjectionRefinement, { readonly kind: 'visibility' }>,
+	refinement: Exclude<BridgeReviewProjectionFacet, { readonly kind: 'visibility' }>,
 ): boolean {
 	switch (refinement.kind) {
 		case 'folder':
@@ -245,18 +228,20 @@ function itemMatchesRefinement(
 			return refinement.fileClasses.includes(item.fileClass);
 		case 'gitStatus':
 			return refinement.statuses.includes(item.changeKind);
+		case 'changeScope':
+			return itemMatchesCurrentChangeSet(item, refinement.scope);
 	}
 
 	return assertNever(refinement);
 }
 
 function visibilityForRequest(
-	refinements: readonly BridgeReviewProjectionRefinement[],
+	facets: readonly BridgeReviewProjectionFacet[],
 ): ProjectionVisibility {
-	const visibility = refinements.find(
+	const visibility = facets.find(
 		(
-			refinement: BridgeReviewProjectionRefinement,
-		): refinement is Extract<BridgeReviewProjectionRefinement, { readonly kind: 'visibility' }> =>
+			refinement: BridgeReviewProjectionFacet,
+		): refinement is Extract<BridgeReviewProjectionFacet, { readonly kind: 'visibility' }> =>
 			refinement.kind === 'visibility',
 	);
 
@@ -437,22 +422,12 @@ function projectionIdForRequest(
 
 function labelForMode(mode: BridgeReviewProjectionMode): string {
 	switch (mode.kind) {
-		case 'allFiles':
-			return 'All files';
-		case 'changedFiles':
-			return 'Changed files';
+		case 'normalReview':
+			return 'Normal review';
 		case 'guidedReview':
 			return 'Guided review';
-		case 'currentChangeSet':
-			return 'Current change set';
-		case 'docsAndPlans':
-			return 'Docs and plans';
-		case 'tests':
-			return 'Tests';
-		case 'source':
-			return 'Source';
-		case 'custom':
-			return 'Custom';
+		case 'plansAndSpecs':
+			return 'Plans and specs';
 	}
 
 	return assertNever(mode);

@@ -142,7 +142,7 @@ describe('bridge viewer mocked backend', () => {
 		});
 		const projectionInput = makeBridgeReviewProjectionInput(fixture.reviewPackage);
 		const projectionRequest = makeBridgeReviewProjectionRequest({
-			projectionMode: { kind: 'allFiles' },
+			projectionMode: { kind: 'normalReview' },
 			gitStatusFilter: 'all',
 			fileClassFilter: 'source',
 		});
@@ -175,7 +175,7 @@ describe('bridge viewer mocked backend', () => {
 		});
 		const projectionInput = makeBridgeReviewProjectionInput(fixture.reviewPackage);
 		const projectionRequest = makeBridgeReviewProjectionRequest({
-			projectionMode: { kind: 'allFiles' },
+			projectionMode: { kind: 'normalReview' },
 			gitStatusFilter: 'all',
 			fileClassFilter: 'source',
 		});
@@ -211,7 +211,7 @@ describe('bridge viewer mocked backend', () => {
 		});
 		const projectionInput = makeBridgeReviewProjectionInput(fixture.reviewPackage);
 		const projectionRequest = makeBridgeReviewProjectionRequest({
-			projectionMode: { kind: 'allFiles' },
+			projectionMode: { kind: 'normalReview' },
 			gitStatusFilter: 'all',
 			fileClassFilter: 'all',
 		});

@@ -30,7 +30,8 @@ describe('Bridge review projection coordinator', () => {
 		startBridgeReviewProjectionCoordinatorRequest({
 			store,
 			reviewPackage: makeBridgeViewerBrowserFixture({ fixtureClass: 'small-mixed' }).reviewPackage,
-			projectionMode: { kind: 'allFiles' },
+			projectionMode: { kind: 'normalReview' },
+			facets: [],
 			gitStatusFilter: 'all',
 			fileClassFilter: 'all',
 			projectionWorkerClient: null,
@@ -73,7 +74,8 @@ describe('Bridge review projection coordinator', () => {
 			store,
 			reviewPackage: makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' })
 				.reviewPackage,
-			projectionMode: { kind: 'allFiles' },
+			projectionMode: { kind: 'normalReview' },
+			facets: [],
 			gitStatusFilter: 'all',
 			fileClassFilter: 'all',
 			projectionWorkerClient: deferredWorker.client,
@@ -110,7 +112,8 @@ describe('Bridge review projection coordinator', () => {
 			store,
 			reviewPackage: makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' })
 				.reviewPackage,
-			projectionMode: { kind: 'allFiles' },
+			projectionMode: { kind: 'normalReview' },
+			facets: [],
 			gitStatusFilter: 'all',
 			fileClassFilter: 'all',
 			projectionWorkerClient: deferredWorker.client,
@@ -143,7 +146,8 @@ describe('Bridge review projection coordinator', () => {
 			store,
 			reviewPackage: makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' })
 				.reviewPackage,
-			projectionMode: { kind: 'allFiles' },
+			projectionMode: { kind: 'normalReview' },
+			facets: [],
 			gitStatusFilter: 'all',
 			fileClassFilter: 'all',
 			projectionWorkerClient: null,
@@ -184,7 +188,8 @@ describe('Bridge review projection coordinator', () => {
 			store,
 			reviewPackage: makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' })
 				.reviewPackage,
-			projectionMode: { kind: 'allFiles' },
+			projectionMode: { kind: 'normalReview' },
+			facets: [],
 			gitStatusFilter: 'all',
 			fileClassFilter: 'all',
 			projectionWorkerClient: failingWorker,

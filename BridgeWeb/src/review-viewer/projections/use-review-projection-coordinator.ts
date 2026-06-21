@@ -12,7 +12,7 @@ import type {
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import type {
 	BridgeReviewProjectionMode,
-	BridgeReviewProjectionRefinement,
+	BridgeReviewProjectionFacet,
 	BridgeReviewProjectionWorkloadId,
 } from '../models/review-projection-models.js';
 import { makeBridgeReviewProjectionRequest } from '../navigation/review-projection-request.js';
@@ -27,6 +27,7 @@ export interface UseBridgeReviewProjectionCoordinatorProps {
 	readonly store: BridgeReviewViewerStore;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly projectionMode: BridgeReviewProjectionMode;
+	readonly facets: readonly BridgeReviewProjectionFacet[];
 	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
 	readonly fileClassFilter: BridgeFileClass | 'all';
 	readonly projectionWorkerClient: BridgeReviewProjectionWorkerClient | null;
@@ -39,6 +40,7 @@ export interface StartBridgeReviewProjectionCoordinatorRequestProps {
 	readonly store: BridgeReviewViewerStore;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly projectionMode: BridgeReviewProjectionMode;
+	readonly facets: readonly BridgeReviewProjectionFacet[];
 	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
 	readonly fileClassFilter: BridgeFileClass | 'all';
 	readonly projectionWorkerClient: BridgeReviewProjectionWorkerClient | null;
@@ -56,6 +58,7 @@ export function useBridgeReviewProjectionCoordinator(
 ): void {
 	const {
 		fileClassFilter,
+		facets,
 		flushTelemetry,
 		gitStatusFilter,
 		projectionMode,
@@ -75,6 +78,7 @@ export function useBridgeReviewProjectionCoordinator(
 			store,
 			reviewPackage,
 			projectionMode,
+			facets,
 			gitStatusFilter,
 			fileClassFilter,
 			projectionWorkerClient,
@@ -85,6 +89,7 @@ export function useBridgeReviewProjectionCoordinator(
 		});
 	}, [
 		fileClassFilter,
+		facets,
 		flushTelemetry,
 		gitStatusFilter,
 		projectionMode,
@@ -102,6 +107,7 @@ export function startBridgeReviewProjectionCoordinatorRequest(
 ): () => void {
 	const projectionRequest = makeBridgeReviewProjectionRequest({
 		projectionMode: props.projectionMode,
+		facets: props.facets,
 		gitStatusFilter: props.gitStatusFilter,
 		fileClassFilter: props.fileClassFilter,
 	});
@@ -109,13 +115,11 @@ export function startBridgeReviewProjectionCoordinatorRequest(
 	const decision = selectBridgeReviewProjectionExecutionLane({
 		changedItemCount: projectionInput.orderedItems.length,
 		projectedTreePathCount: projectedTreePathCount(projectionInput.orderedItems),
-		activeRefinementPathCount: activeRefinementPathCount(
+		activeRefinementPathCount: activeFacetPathCount(
 			projectionInput.orderedItems,
-			projectionRequest.refinements,
+			projectionRequest.facets,
 		),
-		hasActiveNonVisibilityRefinement: hasActiveNonVisibilityRefinement(
-			projectionRequest.refinements,
-		),
+		hasActiveNonVisibilityRefinement: hasActiveNonVisibilityFacet(projectionRequest.facets),
 		workloadId: projectionWorkloadId,
 	});
 	const executionLane =
@@ -194,17 +198,13 @@ function projectedTreePathCount(
 	).size;
 }
 
-function activeRefinementPathCount(
+function activeFacetPathCount(
 	items: readonly { readonly itemId: string }[],
-	refinements: readonly BridgeReviewProjectionRefinement[],
+	facets: readonly BridgeReviewProjectionFacet[],
 ): number {
-	return hasActiveNonVisibilityRefinement(refinements) ? items.length : 0;
+	return hasActiveNonVisibilityFacet(facets) ? items.length : 0;
 }
 
-function hasActiveNonVisibilityRefinement(
-	refinements: readonly BridgeReviewProjectionRefinement[],
-): boolean {
-	return refinements.some(
-		(refinement: BridgeReviewProjectionRefinement): boolean => refinement.kind !== 'visibility',
-	);
+function hasActiveNonVisibilityFacet(facets: readonly BridgeReviewProjectionFacet[]): boolean {
+	return facets.some((facet: BridgeReviewProjectionFacet): boolean => facet.kind !== 'visibility');
 }

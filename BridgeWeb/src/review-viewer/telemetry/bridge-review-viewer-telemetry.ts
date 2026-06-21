@@ -139,22 +139,12 @@ function byteCountBucket(byteCount: number): BridgeTelemetryBucket {
 
 function projectionKindAttribute(mode: BridgeReviewProjectionMode): string {
 	switch (mode.kind) {
-		case 'allFiles':
-			return 'all_files';
-		case 'changedFiles':
-			return 'changed_files';
-		case 'currentChangeSet':
-			return 'current_change_set';
-		case 'custom':
-			return 'custom';
-		case 'docsAndPlans':
-			return 'docs_and_plans';
+		case 'normalReview':
+			return 'normal_review';
 		case 'guidedReview':
 			return 'guided_review';
-		case 'source':
-			return 'source';
-		case 'tests':
-			return 'tests';
+		case 'plansAndSpecs':
+			return 'plans_and_specs';
 	}
 	return assertNever(mode);
 }

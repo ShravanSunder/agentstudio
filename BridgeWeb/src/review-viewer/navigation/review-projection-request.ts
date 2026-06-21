@@ -4,12 +4,13 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type {
 	BridgeReviewProjectionMode,
-	BridgeReviewProjectionRefinement,
+	BridgeReviewProjectionFacet,
 	BridgeReviewProjectionRequest,
 } from '../models/review-projection-models.js';
 
 export interface MakeBridgeReviewProjectionRequestProps {
 	readonly projectionMode: BridgeReviewProjectionMode;
+	readonly facets?: readonly BridgeReviewProjectionFacet[];
 	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
 	readonly fileClassFilter: BridgeFileClass | 'all';
 }
@@ -17,15 +18,15 @@ export interface MakeBridgeReviewProjectionRequestProps {
 export function makeBridgeReviewProjectionRequest(
 	props: MakeBridgeReviewProjectionRequestProps,
 ): BridgeReviewProjectionRequest {
-	const refinements: BridgeReviewProjectionRefinement[] = [];
+	const facets: BridgeReviewProjectionFacet[] = [...(props.facets ?? [])];
 	if (props.gitStatusFilter !== 'all') {
-		refinements.push({ kind: 'gitStatus', statuses: [props.gitStatusFilter] });
+		facets.push({ kind: 'gitStatus', statuses: [props.gitStatusFilter] });
 	}
 	if (props.fileClassFilter !== 'all') {
-		refinements.push({ kind: 'fileClass', fileClasses: [props.fileClassFilter] });
+		facets.push({ kind: 'fileClass', fileClasses: [props.fileClassFilter] });
 	}
 	return {
-		base: props.projectionMode,
-		refinements,
+		mode: props.projectionMode,
+		facets,
 	};
 }

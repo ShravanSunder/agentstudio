@@ -11,17 +11,20 @@ import {
 } from './review-projection.js';
 
 describe('Bridge review projection', () => {
-	test('models base projection and refinements as discriminated unions', () => {
+	test('models base projection and facets as discriminated unions', () => {
 		expect(
 			bridgeReviewProjectionRequestSchema.safeParse({
 				base: { kind: 'currentChangeSet' },
-				refinements: [],
+				facets: [],
 			}).success,
 		).toBe(false);
 		expect(
 			bridgeReviewProjectionRequestSchema.safeParse({
-				base: { kind: 'currentChangeSet', scope: { kind: 'activePackage' } },
-				refinements: [{ kind: 'folder', folderPath: 'Sources/App' }],
+				mode: { kind: 'normalReview' },
+				facets: [
+					{ kind: 'changeScope', scope: { kind: 'activePackage' } },
+					{ kind: 'folder', folderPath: 'Sources/App' },
+				],
 			}).success,
 		).toBe(true);
 	});
@@ -29,7 +32,7 @@ describe('Bridge review projection', () => {
 	test('projects base modes without content fetches or raw bodies', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 
-		expect(projectItemIds({ base: { kind: 'allFiles' }, refinements: [] })).toEqual([
+		expect(projectItemIds({ mode: { kind: 'normalReview' }, facets: [] })).toEqual([
 			'source-high',
 			'source-normal',
 			'test-view',
@@ -38,11 +41,19 @@ describe('Bridge review projection', () => {
 			'deleted-source',
 			'duplicate-display',
 		]);
-		expect(projectItemIds({ base: { kind: 'docsAndPlans' }, refinements: [] })).toEqual([
-			'docs-plan',
-		]);
-		expect(projectItemIds({ base: { kind: 'tests' }, refinements: [] })).toEqual(['test-view']);
-		expect(projectItemIds({ base: { kind: 'source' }, refinements: [] })).toEqual([
+		expect(projectItemIds({ mode: { kind: 'plansAndSpecs' }, facets: [] })).toEqual(['docs-plan']);
+		expect(
+			projectItemIds({
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'fileClass', fileClasses: ['test'] }],
+			}),
+		).toEqual(['test-view']);
+		expect(
+			projectItemIds({
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'fileClass', fileClasses: ['source'] }],
+			}),
+		).toEqual([
 			'source-high',
 			'source-normal',
 			'renamed-source',
@@ -109,7 +120,7 @@ describe('Bridge review projection', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 
 		expect(projection.candidatePathsByItemId['renamed-source']).toEqual([
@@ -123,33 +134,33 @@ describe('Bridge review projection', () => {
 		expect(projection.availableContentRolesByItemId['deleted-source']).toEqual(['base']);
 	});
 
-	test('applies composable folder, extension, class, status, and visibility refinements', () => {
+	test('applies composable folder, extension, class, status, and visibility facets', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const project = (request: BridgeReviewProjectionRequest): readonly string[] =>
 			buildBridgeReviewProjection({ reviewPackage, request }).orderedItemIds;
 
 		expect(
 			project({
-				base: { kind: 'changedFiles' },
-				refinements: [{ kind: 'folder', folderPath: 'Sources/App' }],
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'folder', folderPath: 'Sources/App' }],
 			}),
 		).toEqual(['source-high', 'source-normal', 'duplicate-display']);
 		expect(
 			project({
-				base: { kind: 'allFiles' },
-				refinements: [{ kind: 'extension', extensions: ['md'] }],
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'extension', extensions: ['md'] }],
 			}),
 		).toEqual(['docs-plan']);
 		expect(
 			project({
-				base: { kind: 'allFiles' },
-				refinements: [{ kind: 'gitStatus', statuses: ['deleted'] }],
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'gitStatus', statuses: ['deleted'] }],
 			}),
 		).toEqual(['deleted-source']);
 		expect(
 			project({
-				base: { kind: 'allFiles' },
-				refinements: [
+				mode: { kind: 'normalReview' },
+				facets: [
 					{ kind: 'visibility', includeHidden: true, includeBinary: true, includeLarge: true },
 				],
 			}),
@@ -161,8 +172,8 @@ describe('Bridge review projection', () => {
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
 			request: {
-				base: { kind: 'guidedReview' },
-				refinements: [
+				mode: { kind: 'guidedReview' },
+				facets: [
 					{ kind: 'visibility', includeHidden: true, includeBinary: true, includeLarge: true },
 				],
 			},
@@ -187,8 +198,8 @@ describe('Bridge review projection', () => {
 			const projection = buildBridgeReviewProjection({
 				reviewPackage,
 				request: {
-					base: { kind: 'guidedReview' },
-					refinements: [
+					mode: { kind: 'guidedReview' },
+					facets: [
 						{ kind: 'visibility', includeHidden: true, includeBinary: true, includeLarge: true },
 					],
 				},

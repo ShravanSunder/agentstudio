@@ -202,7 +202,7 @@ function runLargeTreeIteration(
 	const projectionFilterStart = performance.now();
 	const docsProjection = buildBridgeReviewProjectionFromInput({
 		projectionInput,
-		request: { base: { kind: 'docsAndPlans' }, refinements: [] },
+		request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
 	});
 	const projectionFilterMilliseconds = elapsedSince(projectionFilterStart);
 
@@ -244,7 +244,7 @@ async function runLargeDiffIteration(
 	const projectionStart = performance.now();
 	const projection = buildBridgeReviewProjection({
 		reviewPackage: workload.reviewPackage,
-		request: { base: { kind: 'changedFiles' }, refinements: [] },
+		request: { mode: { kind: 'normalReview' }, facets: [] },
 	});
 	const projectionBuildMilliseconds = elapsedSince(projectionStart);
 

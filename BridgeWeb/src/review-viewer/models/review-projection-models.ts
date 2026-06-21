@@ -61,13 +61,20 @@ export const bridgeReviewFacetCountsSchema = z.object({
 
 export type BridgeReviewFacetCounts = z.infer<typeof bridgeReviewFacetCountsSchema>;
 
-export const bridgeReviewProjectionRefinementSchema = z.discriminatedUnion('kind', [
+export const bridgeReviewProjectionFacetSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('folder'), folderPath: z.string().min(1) }),
-	z.object({ kind: z.literal('extension'), extensions: z.array(z.string().min(1)) }),
-	z.object({ kind: z.literal('language'), languages: z.array(z.string().min(1)) }),
-	z.object({ kind: z.literal('mime'), mimeTypes: z.array(z.string().min(1)) }),
-	z.object({ kind: z.literal('fileClass'), fileClasses: z.array(bridgeFileClassSchema) }),
-	z.object({ kind: z.literal('gitStatus'), statuses: z.array(bridgeFileChangeKindSchema) }),
+	z.object({ kind: z.literal('extension'), extensions: z.array(z.string().min(1)).readonly() }),
+	z.object({ kind: z.literal('language'), languages: z.array(z.string().min(1)).readonly() }),
+	z.object({ kind: z.literal('mime'), mimeTypes: z.array(z.string().min(1)).readonly() }),
+	z.object({
+		kind: z.literal('fileClass'),
+		fileClasses: z.array(bridgeFileClassSchema).readonly(),
+	}),
+	z.object({
+		kind: z.literal('gitStatus'),
+		statuses: z.array(bridgeFileChangeKindSchema).readonly(),
+	}),
+	z.object({ kind: z.literal('changeScope'), scope: bridgeCurrentChangeSetScopeSchema }),
 	z.object({
 		kind: z.literal('visibility'),
 		includeHidden: z.boolean(),
@@ -76,9 +83,7 @@ export const bridgeReviewProjectionRefinementSchema = z.discriminatedUnion('kind
 	}),
 ]);
 
-export type BridgeReviewProjectionRefinement = z.infer<
-	typeof bridgeReviewProjectionRefinementSchema
->;
+export type BridgeReviewProjectionFacet = z.infer<typeof bridgeReviewProjectionFacetSchema>;
 
 export const bridgeReviewProjectionItemProvenanceSchema = z.object({
 	promptIds: z.array(z.string()).readonly(),
@@ -142,17 +147,9 @@ export const bridgeReviewProjectionResultSchema = z.object({
 export type BridgeReviewProjectionResult = z.infer<typeof bridgeReviewProjectionResultSchema>;
 
 export const bridgeReviewProjectionModeSchema = z.discriminatedUnion('kind', [
-	z.object({ kind: z.literal('allFiles') }),
-	z.object({ kind: z.literal('changedFiles') }),
+	z.object({ kind: z.literal('normalReview') }),
 	z.object({ kind: z.literal('guidedReview') }),
-	z.object({
-		kind: z.literal('currentChangeSet'),
-		scope: bridgeCurrentChangeSetScopeSchema,
-	}),
-	z.object({ kind: z.literal('docsAndPlans') }),
-	z.object({ kind: z.literal('tests') }),
-	z.object({ kind: z.literal('source') }),
-	z.object({ kind: z.literal('custom'), customProjectionId: z.string().min(1) }),
+	z.object({ kind: z.literal('plansAndSpecs') }),
 ]);
 
 export type BridgeReviewProjectionMode = z.infer<typeof bridgeReviewProjectionModeSchema>;
@@ -173,8 +170,8 @@ export const bridgeReviewFilterStateSchema = z.object({
 export type BridgeReviewFilterState = z.infer<typeof bridgeReviewFilterStateSchema>;
 
 export const bridgeReviewProjectionRequestSchema = z.object({
-	base: bridgeReviewProjectionModeSchema,
-	refinements: z.array(bridgeReviewProjectionRefinementSchema).readonly(),
+	mode: bridgeReviewProjectionModeSchema,
+	facets: z.array(bridgeReviewProjectionFacetSchema).readonly(),
 });
 
 export type BridgeReviewProjectionRequest = z.infer<typeof bridgeReviewProjectionRequestSchema>;

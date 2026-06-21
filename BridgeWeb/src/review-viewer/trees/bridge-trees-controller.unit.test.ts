@@ -20,7 +20,7 @@ describe('Bridge Trees controller', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 
 		const source = createBridgeTreesSource({
@@ -64,7 +64,7 @@ describe('Bridge Trees controller', () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const projection = buildBridgeReviewProjection({
 			reviewPackage: fixture.reviewPackage,
-			request: { base: { kind: 'allFiles' }, refinements: [] },
+			request: { mode: { kind: 'normalReview' }, facets: [] },
 		});
 
 		const source = createBridgeTreesSource({
@@ -120,7 +120,7 @@ describe('Bridge Trees controller', () => {
 
 	test('plans the medium streaming delta as an append-only tree mutation', () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'medium-agentstudio' });
-		const request = { base: { kind: 'allFiles' }, refinements: [] } as const;
+		const request = { mode: { kind: 'normalReview' }, facets: [] } as const;
 		const previousProjection = buildBridgeReviewProjection({
 			reviewPackage: fixture.reviewPackage,
 			request,
@@ -272,7 +272,7 @@ function makeSource(
 	const reviewPackage = makeBridgeViewerProjectionFixture();
 	const projection = buildBridgeReviewProjection({
 		reviewPackage,
-		request: { base: { kind: 'allFiles' }, refinements: [] },
+		request: { mode: { kind: 'normalReview' }, facets: [] },
 	});
 	return {
 		...createBridgeTreesSource({ reviewPackage, projection }),

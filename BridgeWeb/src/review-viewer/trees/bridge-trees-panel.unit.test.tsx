@@ -163,7 +163,7 @@ function renderTreesPanel(): void {
 	const reviewPackage = makeBridgeViewerProjectionFixture();
 	const projection = buildBridgeReviewProjection({
 		reviewPackage,
-		request: { base: { kind: 'allFiles' }, refinements: [] },
+		request: { mode: { kind: 'normalReview' }, facets: [] },
 	});
 	const container = document.createElement('div');
 	document.body.append(container);

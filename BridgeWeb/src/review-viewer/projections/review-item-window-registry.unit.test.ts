@@ -12,7 +12,10 @@ describe('review item window registry', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'source' }, refinements: [] },
+			request: {
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'fileClass', fileClasses: ['source'] }],
+			},
 		});
 		const registry = createBridgeReviewItemWindowRegistry();
 		registry.setActiveIdentity({
@@ -52,7 +55,7 @@ describe('review item window registry', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'docsAndPlans' }, refinements: [] },
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
 		});
 		const registry = createBridgeReviewItemWindowRegistry();
 		registry.setActiveIdentity({
@@ -81,7 +84,10 @@ describe('review item window registry', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'source' }, refinements: [] },
+			request: {
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'fileClass', fileClasses: ['source'] }],
+			},
 		});
 		const registry = createBridgeReviewItemWindowRegistry({
 			budget: { maxExplicitItemIds: 1, maxCursorWindowItems: 8 },
@@ -112,7 +118,10 @@ describe('review item window registry', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'source' }, refinements: [] },
+			request: {
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'fileClass', fileClasses: ['source'] }],
+			},
 		});
 		const registry = createBridgeReviewItemWindowRegistry();
 		registry.setActiveIdentity({
@@ -149,7 +158,10 @@ describe('review item window registry', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'source' }, refinements: [] },
+			request: {
+				mode: { kind: 'normalReview' },
+				facets: [{ kind: 'fileClass', fileClasses: ['source'] }],
+			},
 		});
 		const registry = createBridgeReviewItemWindowRegistry();
 		const identity = {

@@ -65,7 +65,7 @@ describe('BridgeCodeViewPanel', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'docsAndPlans' }, refinements: [] },
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
 		});
 		const selectedItem = reviewPackage.itemsById['docs-plan'];
 		const headHandle = selectedItem?.contentRoles.head;
@@ -106,7 +106,7 @@ describe('BridgeCodeViewPanel', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
-			request: { base: { kind: 'docsAndPlans' }, refinements: [] },
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
 		});
 		const selectedItem = reviewPackage.itemsById['docs-plan'];
 		const headHandle = selectedItem?.contentRoles.head;

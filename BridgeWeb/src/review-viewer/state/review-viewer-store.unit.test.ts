@@ -32,7 +32,7 @@ describe('Bridge review viewer Zustand store', () => {
 
 		expect(rootRenderCount).toBe(0);
 
-		store.getState().actions.setProjectionMode({ kind: 'source' });
+		store.getState().actions.setProjectionMode({ kind: 'normalReview' });
 
 		expect(rootRenderCount).toBe(1);
 		unsubscribe();
@@ -57,8 +57,11 @@ describe('Bridge review viewer Zustand store', () => {
 	test('discards stale worker projection results before mutating projection state', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projectionInput = makeBridgeReviewProjectionInput(reviewPackage);
-		const sourceRequest = { base: { kind: 'source' }, refinements: [] } as const;
-		const docsRequest = { base: { kind: 'docsAndPlans' }, refinements: [] } as const;
+		const sourceRequest = {
+			mode: { kind: 'normalReview' },
+			facets: [{ kind: 'fileClass', fileClasses: ['source'] }],
+		} as const;
+		const docsRequest = { mode: { kind: 'plansAndSpecs' }, facets: [] } as const;
 		const sourceIdentity = {
 			requestId: 'request-source',
 			packageId: projectionInput.packageId,
