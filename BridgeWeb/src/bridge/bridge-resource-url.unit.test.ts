@@ -86,6 +86,24 @@ describe('bridge resource URL', () => {
 		});
 	});
 
+	test('rejects review item lists that exceed the explicit item budget', () => {
+		const parsed = parseBridgeResourceUrl(
+			'agentstudio://resource/review-items/package-1?revision=3&generation=7&rangeKind=list&itemIds=item-a,item-b,item-c',
+			{ reviewItemsBudget: { maxExplicitItemIds: 2, maxCursorWindowItems: 8 } },
+		);
+
+		expect(parsed).toBeNull();
+	});
+
+	test('rejects review item cursor windows that exceed the cursor budget', () => {
+		const parsed = parseBridgeResourceUrl(
+			'agentstudio://resource/review-items/package-1?generation=7&revision=3&rangeKind=itemWindow&cursor=cursor-1&start=10&end=19',
+			{ reviewItemsBudget: { maxExplicitItemIds: 2, maxCursorWindowItems: 8 } },
+		);
+
+		expect(parsed).toBeNull();
+	});
+
 	test('parses tree cursor resources', () => {
 		const parsed = parseBridgeResourceUrl(
 			'agentstudio://resource/tree/tree-1?generation=7&revision=3&cursor=cursor-1&depth=2',

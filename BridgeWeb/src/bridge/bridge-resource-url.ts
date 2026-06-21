@@ -24,6 +24,12 @@ export const bridgeCursorResourceRangeSchema = z
 		depth: z.number().int().nonnegative(),
 	})
 	.strict();
+export const bridgeReviewItemsResourceBudgetSchema = z
+	.object({
+		maxExplicitItemIds: z.number().int().positive(),
+		maxCursorWindowItems: z.number().int().positive(),
+	})
+	.strict();
 
 export const bridgeResourceRangeSchema = z.discriminatedUnion('kind', [
 	bridgeWholeResourceRangeSchema,
@@ -38,6 +44,7 @@ export type BridgeWholeResourceRange = z.infer<typeof bridgeWholeResourceRangeSc
 export type BridgeItemWindowResourceRange = z.infer<typeof bridgeItemWindowResourceRangeSchema>;
 export type BridgeListResourceRange = z.infer<typeof bridgeListResourceRangeSchema>;
 export type BridgeCursorResourceRange = z.infer<typeof bridgeCursorResourceRangeSchema>;
+export type BridgeReviewItemsResourceBudget = z.infer<typeof bridgeReviewItemsResourceBudgetSchema>;
 
 export interface BridgeReviewPackageResourceUrl {
 	readonly kind: 'reviewPackage';
@@ -89,13 +96,20 @@ export type BridgeResourceUrl =
 	| BridgeParsedContentResourceUrl
 	| BridgeTreeResourceUrl;
 
+export interface ParseBridgeResourceUrlOptions {
+	readonly reviewItemsBudget?: BridgeReviewItemsResourceBudget;
+}
+
 type QueryEntries = ReadonlyMap<string, readonly string[]>;
 
 const resourceProtocol = 'agentstudio:';
 const resourceHost = 'resource';
 const traversalPattern = /(?:^|\/)\.\.?(?:\/|$)/u;
 
-export function parseBridgeResourceUrl(resourceUrl: string): BridgeResourceUrl | null {
+export function parseBridgeResourceUrl(
+	resourceUrl: string,
+	options: ParseBridgeResourceUrlOptions = {},
+): BridgeResourceUrl | null {
 	const parsedUrl = parseUrl(resourceUrl);
 	if (parsedUrl === null) {
 		return null;
@@ -114,7 +128,7 @@ export function parseBridgeResourceUrl(resourceUrl: string): BridgeResourceUrl |
 		case 'review-package':
 			return parseReviewPackageResource(resourceId, queryEntries);
 		case 'review-items':
-			return parseReviewItemsResource(resourceId, queryEntries);
+			return parseReviewItemsResource(resourceId, queryEntries, options.reviewItemsBudget);
 		case 'content':
 			return parseContentResource(resourceId, queryEntries);
 		case 'tree':
@@ -224,7 +238,10 @@ function parseReviewPackageResource(
 function parseReviewItemsResource(
 	packageId: string,
 	queryEntries: QueryEntries,
+	budget: BridgeReviewItemsResourceBudget | undefined,
 ): BridgeReviewItemsResourceUrl | null {
+	const parsedBudget =
+		budget === undefined ? undefined : bridgeReviewItemsResourceBudgetSchema.parse(budget);
 	if (
 		!hasOnlyQueryKeys(queryEntries, [
 			'generation',
@@ -259,6 +276,9 @@ function parseReviewItemsResource(
 		const start = nonnegativeInteger(startText);
 		const end = nonnegativeInteger(endText);
 		if (start === null || end === null || end <= start) {
+			return null;
+		}
+		if (parsedBudget !== undefined && end - start > parsedBudget.maxCursorWindowItems) {
 			return null;
 		}
 		const range = bridgeItemWindowResourceRangeSchema.parse({
@@ -302,6 +322,9 @@ function parseReviewItemsResource(
 			itemIds.length === 0 ||
 			itemIds.some((itemId: string): boolean => !isOpaqueResourceId(itemId))
 		) {
+			return null;
+		}
+		if (parsedBudget !== undefined && itemIds.length > parsedBudget.maxExplicitItemIds) {
 			return null;
 		}
 		const range = bridgeListResourceRangeSchema.parse({
