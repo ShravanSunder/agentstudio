@@ -226,6 +226,50 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     }
 
     @Test
+    func restoreAllViews_skips_orphanedZmxEvenWhenLiveSessionExists() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let visiblePane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        let orphanedPane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            provider: .zmx,
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+
+        let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
+        let orphanedTab = Tab(paneId: orphanedPane.id, name: "Orphaned")
+        harness.store.appendTab(visibleTab)
+        harness.store.appendTab(orphanedTab)
+        harness.store.setActiveTab(visibleTab.id)
+        harness.store.setResidency(
+            .orphaned(reason: .worktreeNotFound(path: worktree.path.path)),
+            for: orphanedPane.id
+        )
+
+        let orphanedLiveSessionId = ZmxBackend.sessionId(
+            repoStableKey: repo.stableKey,
+            worktreeStableKey: worktree.stableKey,
+            paneId: orphanedPane.id
+        )
+        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
+            sessionConfiguration: fixtureSessionConfiguration,
+            liveSessionIdsProvider: { _ in [orphanedLiveSessionId] }
+        )
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
+
+        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
+    }
+
+    @Test
     func activePartialRestoreThenFullRestore_attemptsZmxAttachDuringInitialRestore() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }

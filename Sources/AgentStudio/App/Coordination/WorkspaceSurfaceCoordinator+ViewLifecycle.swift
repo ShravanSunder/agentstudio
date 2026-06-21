@@ -768,6 +768,9 @@ extension WorkspaceSurfaceCoordinator {
         _ pane: Pane,
         liveHiddenSessionIds: Set<String>
     ) -> Bool {
+        guard pane.residency == .active else {
+            return false
+        }
         let paneId = PaneId(uuid: pane.id)
         guard visibilityTierResolver.tier(for: paneId) == .p1Hidden else {
             return true
