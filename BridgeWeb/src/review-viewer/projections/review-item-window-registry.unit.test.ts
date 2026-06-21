@@ -77,6 +77,37 @@ describe('review item window registry', () => {
 		expect(registry.snapshot().cachedWindowCount).toBe(0);
 	});
 
+	test('rejects explicit item-id windows that exceed the registry budget before reading items', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { base: { kind: 'source' }, refinements: [] },
+		});
+		const registry = createBridgeReviewItemWindowRegistry({
+			budget: { maxExplicitItemIds: 1, maxCursorWindowItems: 8 },
+		});
+		registry.setActiveIdentity({
+			packageId: reviewPackage.packageId,
+			reviewGeneration: reviewPackage.reviewGeneration,
+			revision: reviewPackage.revision,
+		});
+		const resourceUrl = makeBridgeReviewItemsResourceUrl({
+			packageId: reviewPackage.packageId,
+			generation: reviewPackage.reviewGeneration,
+			revision: reviewPackage.revision,
+			range: { kind: 'list', itemIds: ['source-high', 'source-normal'] },
+		});
+
+		expect(() =>
+			registry.readWindow({
+				reviewPackage,
+				projection,
+				resourceUrl,
+			}),
+		).toThrow('Bridge review item window registry requires a review-items resource URL');
+		expect(registry.snapshot().cachedWindowCount).toBe(0);
+	});
+
 	test('serves cursor windows only after a cursor has been registered for the active identity', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({

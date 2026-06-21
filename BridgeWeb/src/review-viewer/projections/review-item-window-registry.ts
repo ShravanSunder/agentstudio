@@ -1,9 +1,11 @@
 import { z } from 'zod';
 
 import {
+	bridgeReviewItemsResourceBudgetSchema,
 	parseBridgeResourceUrl,
 	type BridgeItemWindowResourceRange,
 	type BridgeListResourceRange,
+	type BridgeReviewItemsResourceBudget,
 } from '../../bridge/bridge-resource-url.js';
 import type {
 	BridgeReviewItemDescriptor,
@@ -86,7 +88,17 @@ interface CursorEntry {
 	readonly orderedItemIds: readonly string[];
 }
 
-export function createBridgeReviewItemWindowRegistry(): BridgeReviewItemWindowRegistry {
+export interface CreateBridgeReviewItemWindowRegistryProps {
+	readonly budget?: BridgeReviewItemsResourceBudget;
+}
+
+export function createBridgeReviewItemWindowRegistry(
+	props: CreateBridgeReviewItemWindowRegistryProps = {},
+): BridgeReviewItemWindowRegistry {
+	const budget =
+		props.budget === undefined
+			? undefined
+			: bridgeReviewItemsResourceBudgetSchema.parse(props.budget);
 	const windowsByResourceKey = new Map<string, BridgeReviewItemWindow>();
 	const cursorsById = new Map<string, CursorEntry>();
 	let activeIdentity: BridgeReviewItemWindowRegistryIdentity | null = null;
@@ -107,17 +119,20 @@ export function createBridgeReviewItemWindowRegistry(): BridgeReviewItemWindowRe
 		activeIdentity = parsedIdentity;
 	};
 
-	const registerCursor = (props: RegisterBridgeReviewItemWindowCursorProps): void => {
-		const identity = bridgeReviewItemWindowRegistryIdentitySchema.parse(props.identity);
+	const registerCursor = (cursorProps: RegisterBridgeReviewItemWindowCursorProps): void => {
+		const identity = bridgeReviewItemWindowRegistryIdentitySchema.parse(cursorProps.identity);
 		assertActiveIdentity({ activeIdentity, identity });
-		cursorsById.set(props.cursor, {
+		cursorsById.set(cursorProps.cursor, {
 			identity,
-			orderedItemIds: [...props.orderedItemIds],
+			orderedItemIds: [...cursorProps.orderedItemIds],
 		});
 	};
 
-	const readWindow = (props: ReadBridgeReviewItemWindowProps): BridgeReviewItemWindow => {
-		const parsedUrl = parseBridgeResourceUrl(props.resourceUrl);
+	const readWindow = (readProps: ReadBridgeReviewItemWindowProps): BridgeReviewItemWindow => {
+		const parsedUrl = parseBridgeResourceUrl(
+			readProps.resourceUrl,
+			budget === undefined ? {} : { reviewItemsBudget: budget },
+		);
 		if (parsedUrl?.kind !== 'reviewItems') {
 			throw new Error('Bridge review item window registry requires a review-items resource URL');
 		}
@@ -127,7 +142,7 @@ export function createBridgeReviewItemWindowRegistry(): BridgeReviewItemWindowRe
 			revision: parsedUrl.revision,
 		});
 		assertActiveIdentity({ activeIdentity, identity });
-		assertPackageIdentity({ reviewPackage: props.reviewPackage, identity });
+		assertPackageIdentity({ reviewPackage: readProps.reviewPackage, identity });
 
 		const cachedWindow = windowsByResourceKey.get(parsedUrl.canonicalUrl);
 		if (cachedWindow !== undefined) {
@@ -139,9 +154,9 @@ export function createBridgeReviewItemWindowRegistry(): BridgeReviewItemWindowRe
 			cursorsById,
 			identity,
 		});
-		assertItemIdsBelongToProjection({ itemIds, projection: props.projection });
+		assertItemIdsBelongToProjection({ itemIds, projection: readProps.projection });
 		const items = itemIds.map((itemId: string): BridgeReviewItemDescriptor => {
-			const item = props.reviewPackage.itemsById[itemId];
+			const item = readProps.reviewPackage.itemsById[itemId];
 			if (item === undefined) {
 				throw new Error('Bridge review item window contains item outside active package');
 			}
