@@ -107,6 +107,24 @@ Manual visual review blocker, 2026-06-19:
   viewport and remain stable after collapse/expand. Collapse/open must not jump
   the scroll owner unexpectedly, desync the chevron, or make the file boundary
   ambiguous.
+- Motion is now a hard browser gate. CodeView scroll, rail click-to-file,
+  collapse/expand, and hydration after selection must feel like DiffsHub rather
+  than a teleport. Static screenshots do not close this row. Use Playwright,
+  Browser Mode, or video-derived frame analysis to compare BridgeWeb against a
+  DiffsHub reference and fail the checkpoint when scroll deltas spike, the
+  selected file does not settle at the top, a pinned header is displaced, or
+  collapse/expand changes the scroll anchor unexpectedly.
+- Skeletons and pending placeholders must live inside the CodeView item they
+  represent. A floating loading block in open canvas, a skeleton detached from
+  its file header, or a placeholder that collapses/expands the scroll space
+  differently than loaded content is a failed state.
+- BridgeWeb must not trigger Pierre/React lifecycle warnings during CodeView
+  materialization. In particular, avoid calling Pierre imperative `updateItem`
+  or related item mutations directly from React lifecycle phases when that
+  causes `flushSync` warnings. Route imperative mutations through a
+  feature-owned post-effect scheduler/queue, then prove streaming append,
+  selected-file hydration, collapse/expand, and large-fixture scroll run with a
+  clean browser console.
 - Added files must render as full added content through the Bridge content
   handle path and Pierre CodeView item model. A mostly black body or placeholder
   row for added files is a failed UX state.
@@ -294,6 +312,9 @@ or an explicitly approved split/replan says why a row moved out of scope.
 | Large fixture target | Fixture metadata and screenshot | Default dev route uses `large-diffshub` or a Node-PR-class equivalent with thousands of files, huge selected diff/file payload, docs/plans, tests, source, deleted, renamed, and added files. |
 | Right-side file rail | Browser interaction test and screenshot | File rail is right-side, compact, independently scrollable, searchable, filterable, and clicking a file selects and scrolls CodeView to that file. |
 | CodeView scroll ownership | Browser scroll test, benchmark row, and native screenshot | CodeView owns the main review scroll; document/body/root do not drift while review content scrolls. |
+| CodeView motion quality | Browser motion probe or video/frame analysis plus DiffsHub reference | Scroll, rail click-to-file, collapse/expand, and hydration settle smoothly without teleporting, large frame-delta spikes, displaced pinned headers, or unexpected scroll-anchor jumps. |
+| Loading placement | Browser screenshot/video and DOM assertions | Skeletons and placeholders render inside the target CodeView item/header space and do not float in canvas or move the scroll anchor when content hydrates. |
+| Clean CodeView update lifecycle | Browser console/assertion gate | Streaming append, selected-file hydration, collapse/expand, and large-fixture scroll do not emit React/Pierre `flushSync` or lifecycle warnings from Bridge-owned imperative updates. |
 | Collapsible file headers | Browser test and screenshot | Every mounted CodeView file header is a non-text-cursor control that toggles item collapse/expand using Pierre-supported item ownership. |
 | Added file content | Browser test, benchmark row, and native screenshot | Added source files show full fetched content through the Bridge content-handle lane, not placeholder rows. |
 | Markdown preview | Browser test, worker ledger, sanitizer assertions, and real AgentStudio debug-pane screenshot/state | `.md` files render a sanitized markdown preview through the markdown worker path by default; native/manual Bridge markdown remains an active blocker until proven in WKWebView, not only mocked/browser tests. |

@@ -116,6 +116,47 @@ describe('review content registry', () => {
 		expect(fetchCount).toBe(1);
 	});
 
+	test('keeps shared in-flight content alive when the first viewport consumer aborts', async () => {
+		const registry = createBridgeReviewContentRegistry();
+		const handle = makeBridgeContentHandle('item-source', 'head');
+		const viewportAbortController = new AbortController();
+		let fetchCount = 0;
+		let fetchSignal: RequestInit['signal'];
+		let releaseFetch = releaseDeferredNoop;
+		const releasePromise = new Promise<void>((resolve): void => {
+			releaseFetch = resolve;
+		});
+
+		const viewportRequest = registry.load({
+			handle,
+			signal: viewportAbortController.signal,
+			fetchContent: async (_url: string, init?: RequestInit): Promise<Response> => {
+				fetchCount += 1;
+				fetchSignal = init?.signal;
+				await releasePromise;
+				return new Response('selected body survives viewport churn');
+			},
+		});
+		const selectedRequest = registry.load({
+			handle,
+			fetchContent: async (): Promise<Response> => {
+				fetchCount += 1;
+				return new Response('duplicate selected response');
+			},
+		});
+		expect(registry.snapshot().inFlightRequestCount).toBe(1);
+
+		viewportAbortController.abort();
+		releaseFetch();
+
+		await expect(Promise.all([viewportRequest, selectedRequest])).resolves.toEqual([
+			{ handle, text: 'selected body survives viewport churn' },
+			{ handle, text: 'selected body survives viewport churn' },
+		]);
+		expect(fetchCount).toBe(1);
+		expect(fetchSignal).toBeUndefined();
+	});
+
 	test('does not cache stale in-flight content after active identity changes', async () => {
 		const registry = createBridgeReviewContentRegistry();
 		const handle = makeBridgeContentHandle('item-source', 'head');

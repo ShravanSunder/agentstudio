@@ -353,6 +353,28 @@ known failed state, not a target.
     render as black/empty placeholders instead of full green added content, and
     scrollbars or separators that do not match the dark AgentStudio/DiffsHub
     grammar.
+    Motion proof is required, not optional. CodeView scroll, file-rail click to
+    file, collapse/expand, and visible-content hydration must be checked with a
+    browser-controlled motion probe or video-derived frame analysis against a
+    DiffsHub reference. A static final screenshot is insufficient when the
+    experience teleports, stalls, jitters, or leaves a pinned header off-screen.
+    Current DiffsHub reference captures are smooth at roughly a single-frame
+    visual delta, while the local Bridge captures have shown larger abrupt
+    deltas and click-to-file jumps. Treat this as a correctness bug in the
+    interaction loop, not a cosmetic polish item.
+    Loading states must belong to the CodeView item being hydrated. Skeletons,
+    placeholders, and pending content affordances must reserve the same row or
+    item space that the loaded content will occupy. A skeleton floating in open
+    canvas, disconnected from the target file header, or shifting the scroll
+    anchor after hydration is a failed state.
+    Browser proof must also reject React/Pierre lifecycle warnings during the
+    CodeView update path. In particular, BridgeWeb must not call Pierre
+    imperative item updates from a React lifecycle phase in a way that triggers
+    `flushSync` warnings or couples materialization to layout effects. Route
+    expensive or imperative CodeView mutations through a feature-owned
+    post-effect scheduler/queue and prove the browser console stays clean for
+    streaming append, selected-file hydration, collapse, and large-fixture
+    scrolling.
 20. Native AgentStudio debug proof still gates PR readiness. It must prove the
     same repaired behavior in the WKWebView Bridge pane after browser proof is
     green.

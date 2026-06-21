@@ -222,7 +222,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
-	test('visible added files stay metadata-only until selected or revealed', async () => {
+	test('visible added files hydrate without requiring file selection', async () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const backend = installBridgeViewerMockedBackend(fixture);
 
@@ -239,12 +239,13 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
 
-		expect(bridgeViewerRenderedTextContent()).not.toContain(fixture.expected.addedText);
+		await waitForBridgeViewerText(fixture.expected.addedText);
+		expect(bridgeViewerRenderedTextContent()).toContain(fixture.expected.addedText);
 		expect(
 			backend.requestedUrls.some((url: string): boolean =>
 				url.includes(fixture.expected.addedHeadHandleId),
 			),
-		).toBe(false);
+		).toBe(true);
 
 		const addedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.addedPath);
 		addedButton.click();
@@ -670,14 +671,17 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			backend.pendingContentResponses[0]?.resolve();
 			await waitForSelectedBridgeViewerContentState('ready');
 			await waitForBridgeViewerTextWithDiagnostics(fixture.expected.addedText);
+			const hydratedSelectedHeaderButton =
+				await waitForBridgeCodeHeaderCollapseButtonForItem(selectedItemId);
 			const stableOffsetAfterHydration = await waitForStableBridgeCodeHeaderOffsetFromScrollOwner({
-				collapseButton: selectedHeaderButton,
+				collapseButton: hydratedSelectedHeaderButton,
 				maxOffset: 8,
 				scrollOwner: codeScroll,
 			});
 
+			expect(offsetBeforeHydration).toBeLessThanOrEqual(8);
 			expect(stableOffsetAfterHydration).toBeGreaterThanOrEqual(0);
-			expect(Math.abs(stableOffsetAfterHydration - offsetBeforeHydration)).toBeLessThanOrEqual(4);
+			expect(stableOffsetAfterHydration).toBeLessThanOrEqual(4);
 		} finally {
 			workerFactory.revoke();
 			backend.dispose();
@@ -775,7 +779,9 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		expect(backend.projectionRequests.at(-1)?.revision).toBe(fixture.streamingAppendDelta.revision);
 
 		appendedButton.click();
-		await waitForBridgeViewerText(fixture.expected.appendedText);
+		await waitForSelectedBridgeViewerDisplayPath(fixture.expected.appendedPath);
+		await waitForSelectedBridgeViewerContentState('ready');
+		await waitForBridgeViewerTextWithDiagnostics(fixture.expected.appendedText);
 
 		expect(
 			backend.requestedUrls.some((url: string): boolean =>
@@ -1256,8 +1262,10 @@ function bridgeCodeHeaderOffsetFromScrollOwner(props: {
 	readonly collapseButton: HTMLElement;
 	readonly scrollOwner: HTMLElement;
 }): number {
+	const headerElement = props.collapseButton.closest<HTMLElement>('[data-diffs-header]');
 	return (
-		props.collapseButton.getBoundingClientRect().top - props.scrollOwner.getBoundingClientRect().top
+		(headerElement ?? props.collapseButton).getBoundingClientRect().top -
+		props.scrollOwner.getBoundingClientRect().top
 	);
 }
 

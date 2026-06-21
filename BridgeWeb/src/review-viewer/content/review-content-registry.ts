@@ -100,7 +100,7 @@ export function createBridgeReviewContentRegistry(
 		}
 
 		const requestEpoch = registryEpoch;
-		const request = loadBridgeContentResource(loadProps)
+		const request = loadBridgeContentResource(sharedRequestProps(loadProps))
 			.then((resource: BridgeContentResource): BridgeContentResource => {
 				if (requestEpoch !== registryEpoch) {
 					throw new Error('Bridge content registry discarded stale in-flight content');
@@ -128,6 +128,22 @@ export function createBridgeReviewContentRegistry(
 	});
 
 	return { clear, load, setActiveIdentity, snapshot };
+}
+
+function sharedRequestProps(
+	loadProps: LoadBridgeContentResourceProps,
+): LoadBridgeContentResourceProps {
+	return {
+		handle: loadProps.handle,
+		...(loadProps.fetchContent === undefined ? {} : { fetchContent: loadProps.fetchContent }),
+		...(loadProps.traceContext === undefined ? {} : { traceContext: loadProps.traceContext }),
+		...(loadProps.sendTraceparentHeader === undefined
+			? {}
+			: { sendTraceparentHeader: loadProps.sendTraceparentHeader }),
+		...(loadProps.telemetryRecorder === undefined
+			? {}
+			: { telemetryRecorder: loadProps.telemetryRecorder }),
+	};
 }
 
 export function canonicalContentResourceKey(handle: BridgeContentHandle): string {
