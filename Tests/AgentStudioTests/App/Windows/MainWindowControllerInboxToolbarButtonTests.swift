@@ -57,6 +57,9 @@ struct MainWindowControllerInboxToolbarButtonTests {
             let toolbar = try #require(harness.window.toolbar)
             let identifiers = harness.controller.toolbarDefaultItemIdentifiers(toolbar)
 
+            #expect(toolbar.displayMode == .iconOnly)
+            #expect(toolbar.allowsUserCustomization == false)
+            #expect(toolbar.allowsDisplayModeCustomization == false)
             #expect(!identifiers.contains(.managementLayer))
             #expect(identifiers.contains(.watchFolder))
         }

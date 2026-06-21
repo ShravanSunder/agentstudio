@@ -359,6 +359,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
+        toolbar.allowsDisplayModeCustomization = false
         window?.toolbar = toolbar
         window?.toolbarStyle = .unified
     }
