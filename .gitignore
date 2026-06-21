@@ -31,6 +31,7 @@ xcuserdata/
 
 # Node.js
 node_modules/
+.pnpm-store/
 BridgeWeb/dist/
 
 # Generated BridgeWeb app bundle resources. Regenerate with:
