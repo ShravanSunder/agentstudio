@@ -5,7 +5,6 @@ import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { cn } from '../../app/class-name.js';
-import { Skeleton } from '../../components/ui/skeleton.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
@@ -17,6 +16,10 @@ import {
 	type ApplyBridgeCodeViewItemUpdateResult,
 	type BridgeCodeViewModel,
 } from './bridge-code-view-controller.js';
+import {
+	BridgeCodeViewLoadingState,
+	BridgeCodeViewVisibleLoadingState,
+} from './bridge-code-view-loading-state.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
@@ -700,34 +703,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				<BridgeCodeViewVisibleLoadingState />
 			) : null}
 		</section>
-	);
-}
-
-function BridgeCodeViewLoadingState(): ReactElement {
-	return (
-		<div
-			aria-hidden="true"
-			className="pointer-events-none absolute left-8 top-12 z-10 flex w-[min(28rem,calc(100%-4rem))] flex-col gap-2 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)]/75 p-3 shadow-[0_18px_48px_rgb(0_0_0_/_0.45)] backdrop-blur"
-			data-testid="bridge-code-view-loading-state"
-		>
-			<Skeleton className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]" />
-			<Skeleton className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]" />
-			<Skeleton className="h-3 w-3/4 bg-[var(--bridge-surface-raised-bg)]" />
-		</div>
-	);
-}
-
-function BridgeCodeViewVisibleLoadingState(): ReactElement {
-	return (
-		<div
-			aria-hidden="true"
-			className="pointer-events-none absolute left-8 top-12 z-10 flex w-[min(28rem,calc(100%-4rem))] flex-col gap-2 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)]/75 p-3 shadow-[0_18px_48px_rgb(0_0_0_/_0.45)] backdrop-blur"
-			data-testid="bridge-code-view-visible-loading-state"
-		>
-			<Skeleton className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]" />
-			<Skeleton className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]" />
-			<Skeleton className="h-3 w-3/4 bg-[var(--bridge-surface-raised-bg)]" />
-		</div>
 	);
 }
 
