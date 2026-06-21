@@ -31,6 +31,7 @@ struct InboxNotificationListProjectionWorkerTests {
         let request = InboxNotificationListProjectionRequest(
             generation: 7,
             key: key,
+            trigger: "search",
             repoPresentationByRepoId: [:]
         )
 
@@ -38,6 +39,7 @@ struct InboxNotificationListProjectionWorkerTests {
 
         #expect(result.generation == 7)
         #expect(result.key == key)
+        #expect(result.trigger == "search")
         #expect(result.model.sections.visibleNotificationIds == [matchingNotification.id])
     }
 

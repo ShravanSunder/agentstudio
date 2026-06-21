@@ -92,6 +92,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.phase",
         "agentstudio.performance.sidebar.query_state",
         "agentstudio.performance.sidebar.surface",
+        "agentstudio.performance.sidebar.trigger",
         "agentstudio.performance.sidebar.toggle.intent",
         "agentstudio.performance.terminal.geometry.reason",
         "agentstudio.performance.terminal.surface.source",
@@ -191,6 +192,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms",
         "agentstudio.performance.sidebar.query_character.count",
         "agentstudio.performance.sidebar.repo.count",
+        "agentstudio.performance.sidebar.row_index_elapsed_ms",
         "agentstudio.performance.sidebar.stale_discard.count",
         "agentstudio.performance.sidebar.cancellation.count",
         "agentstudio.performance.sidebar.total_worker_elapsed_ms",
@@ -414,7 +416,9 @@ enum AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.sidebar.query_state":
             ["empty", "non_empty"].contains(value)
         case "agentstudio.performance.sidebar.group_mode":
-            ["repo", "pane", "tab", "not_applicable"].contains(value)
+            ["repo", "pane", "tab", "none", "not_applicable"].contains(value)
+        case "agentstudio.performance.sidebar.trigger":
+            ["grouping_switch", "surface_switch", "search", "collapse_toggle", "startup_diagnostic"].contains(value)
         default:
             true
         }

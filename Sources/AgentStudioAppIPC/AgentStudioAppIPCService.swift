@@ -135,12 +135,21 @@ public protocol AppIPCUIPresentationPort: Sendable {
     func openCommandBar(_ params: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult
 }
 
+@MainActor
+public protocol AppIPCSidebarPort: Sendable {
+    func setGrouping(_ params: IPCSidebarGroupingSetParams) throws -> IPCSidebarGroupingResult
+    func getGrouping(_ params: IPCSidebarGroupingGetParams) throws -> IPCSidebarGroupingResult
+    func setSurface(_ params: IPCSidebarSurfaceSetParams) throws -> IPCSidebarSurfaceResult
+    func getSurface(_ params: IPCSidebarSurfaceGetParams) throws -> IPCSidebarSurfaceResult
+}
+
 public struct AgentStudioAppIPCPorts: Sendable {
     public let queryPort: any AppIPCQueryPort
     public let layoutPort: any AppIPCLayoutPort
     public let runtimePort: any AppIPCRuntimePort
     public let commandPort: any AppIPCCommandPort
     public let uiPresentationPort: any AppIPCUIPresentationPort
+    public let sidebarPort: any AppIPCSidebarPort
     public let permissionApprovalPort: any AppIPCPermissionApprovalPort
 
     public init(
@@ -149,6 +158,7 @@ public struct AgentStudioAppIPCPorts: Sendable {
         runtimePort: any AppIPCRuntimePort,
         commandPort: any AppIPCCommandPort,
         uiPresentationPort: any AppIPCUIPresentationPort,
+        sidebarPort: any AppIPCSidebarPort,
         permissionApprovalPort: any AppIPCPermissionApprovalPort
     ) {
         self.queryPort = queryPort
@@ -156,6 +166,7 @@ public struct AgentStudioAppIPCPorts: Sendable {
         self.runtimePort = runtimePort
         self.commandPort = commandPort
         self.uiPresentationPort = uiPresentationPort
+        self.sidebarPort = sidebarPort
         self.permissionApprovalPort = permissionApprovalPort
     }
 }

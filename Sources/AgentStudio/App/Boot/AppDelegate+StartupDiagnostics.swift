@@ -365,6 +365,7 @@ extension AppDelegate {
             let request = InboxNotificationListProjectionRequest(
                 generation: 1,
                 key: key,
+                trigger: "startup_diagnostic",
                 repoPresentationByRepoId: repoPresentationByRepoId
             )
             do {
@@ -373,6 +374,7 @@ extension AppDelegate {
                 return InboxNotificationListProjectionResult(
                     generation: request.generation,
                     key: key,
+                    trigger: request.trigger,
                     model: .empty,
                     workerDuration: .zero
                 )
@@ -388,10 +390,11 @@ extension AppDelegate {
             [
                 "agentstudio.performance.sidebar.surface": .string("inbox"),
                 "agentstudio.performance.sidebar.phase": .string(phase),
+                "agentstudio.performance.sidebar.trigger": .string("startup_diagnostic"),
                 "agentstudio.performance.sidebar.query_state": .string("empty"),
                 "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
                 "agentstudio.performance.sidebar.input.count": .int(inputCount),
-                "agentstudio.performance.sidebar.section.count": .int(sectionCount),
+                "agentstudio.performance.sidebar.group.count": .int(sectionCount),
                 "agentstudio.performance.sidebar.query_character.count": .int(0),
             ].merging(extra) { _, newValue in newValue }
         }

@@ -50,15 +50,18 @@ struct RepoExplorerProjectionWorkerTests {
             generation: 3,
             snapshot: snapshot,
             expandedGroupIds: [],
-            isFiltering: true
+            isFiltering: true,
+            trigger: "search"
         )
 
         let result = try await RepoExplorerProjectionWorker().project(request)
 
         #expect(result.generation == 3)
         #expect(result.snapshot == snapshot)
+        #expect(result.trigger == "search")
         #expect(result.rowIndex.entries.count == 2)
-        #expect(result.projection.resolvedGroups.first?.repos.first?.worktrees.map(\.id) == [matchingWorktree.id])
+        let visibleWorktreeIds = result.projection.resolvedGroups.first?.repos.first?.worktrees.map { $0.id }
+        #expect(visibleWorktreeIds == [matchingWorktree.id])
         #expect(result.workerDuration > .zero)
     }
 }

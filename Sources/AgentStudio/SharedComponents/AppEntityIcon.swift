@@ -24,7 +24,9 @@ enum AppEntityIcon: Equatable {
     case coloredRepo(colorHex: String)
     case checkout(colorHex: String, isMain: Bool)
     case pane
+    case paneGroup
     case tab
+    case tabGroup
     case workspace
     case otherSources
 
@@ -34,9 +36,9 @@ enum AppEntityIcon: Equatable {
             return .octicon(.repo)
         case .checkout(_, let isMain):
             return .octicon(isMain ? .starFill : .gitWorktree)
-        case .pane:
+        case .pane, .paneGroup:
             return .system(.rectangleSplit2x1)
-        case .tab:
+        case .tab, .tabGroup:
             return .system(.squareStackFill)
         case .workspace:
             return .system(.building2)
@@ -57,7 +59,7 @@ enum AppEntityIcon: Equatable {
     @ViewBuilder
     func swiftUIImage(size: CGFloat) -> some View {
         switch self {
-        case .pane, .tab, .workspace, .otherSources:
+        case .pane, .paneGroup, .tab, .tabGroup, .workspace, .otherSources:
             Image(systemName: symbolName)
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(foregroundStyle)
@@ -72,6 +74,10 @@ enum AppEntityIcon: Equatable {
         switch self {
         case .coloredRepo(let colorHex), .checkout(let colorHex, _):
             return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
+        case .paneGroup:
+            return AppStyles.Shell.Sidebar.paneGroupIconColor
+        case .tabGroup:
+            return AppStyles.Shell.Sidebar.tabGroupIconColor
         case .repo, .pane, .tab, .workspace, .otherSources:
             return .secondary
         }
@@ -81,7 +87,7 @@ enum AppEntityIcon: Equatable {
         switch self {
         case .checkout(_, let isMain):
             return isMain ? 0 : 180
-        case .repo, .coloredRepo, .pane, .tab, .workspace, .otherSources:
+        case .repo, .coloredRepo, .pane, .paneGroup, .tab, .tabGroup, .workspace, .otherSources:
             return 0
         }
     }

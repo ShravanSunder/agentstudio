@@ -216,6 +216,7 @@ private struct PaneAgentLiveServerFixture {
                 runtimePort: PaneAgentTestRuntimePort(),
                 commandPort: PaneAgentTestCommandPort(),
                 uiPresentationPort: PaneAgentTestUIPresentationPort(),
+                sidebarPort: PaneAgentTestSidebarPort(),
                 permissionApprovalPort: PaneAgentTestPermissionApprovalPort()
             )
         )
@@ -332,6 +333,24 @@ private struct PaneAgentTestCommandPort: AppIPCCommandPort {
 private struct PaneAgentTestUIPresentationPort: AppIPCUIPresentationPort {
     func openCommandBar(_: IPCCommandBarOpenParams) throws -> IPCCommandBarOpenResult {
         throw AppIPCUIPresentationError(reason: .noActiveWindow)
+    }
+}
+
+private struct PaneAgentTestSidebarPort: AppIPCSidebarPort {
+    func setGrouping(_ params: IPCSidebarGroupingSetParams) throws -> IPCSidebarGroupingResult {
+        IPCSidebarGroupingResult(surface: params.surface, mode: params.mode, correlationId: params.correlationId)
+    }
+
+    func getGrouping(_ params: IPCSidebarGroupingGetParams) throws -> IPCSidebarGroupingResult {
+        IPCSidebarGroupingResult(surface: params.surface, mode: .repo)
+    }
+
+    func setSurface(_ params: IPCSidebarSurfaceSetParams) throws -> IPCSidebarSurfaceResult {
+        IPCSidebarSurfaceResult(surface: params.surface, correlationId: params.correlationId)
+    }
+
+    func getSurface(_: IPCSidebarSurfaceGetParams) throws -> IPCSidebarSurfaceResult {
+        IPCSidebarSurfaceResult(surface: .repo)
     }
 }
 

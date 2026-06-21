@@ -429,8 +429,8 @@ struct InboxNotificationSidebarViewSourceGroupTests {
     @MainActor
     func inboxGroupHeaderMapsEverySourceKindToFixedIconSlot() {
         #expect(InboxNotificationGroupHeader.icon(for: .repo(organizationName: nil)) == .repo)
-        #expect(InboxNotificationGroupHeader.icon(for: .pane) == .pane)
-        #expect(InboxNotificationGroupHeader.icon(for: .tab) == .tab)
+        #expect(InboxNotificationGroupHeader.icon(for: .pane) == .paneGroup)
+        #expect(InboxNotificationGroupHeader.icon(for: .tab) == .tabGroup)
         #expect(InboxNotificationGroupHeader.icon(for: .workspace) == .workspace)
         #expect(InboxNotificationGroupHeader.icon(for: .otherSources) == .otherSources)
     }

@@ -91,7 +91,10 @@ enum AppShortcutDispatchPolicy {
             .managementLayerCreateBrowser, .managementLayerExit, .toggleSidebar,
             .showInboxNotifications, .toggleInboxNotificationSort, .clearReadInboxNotifications,
             .clearAllInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .showWorktreeSidebar, .newFloatingTerminal, .newWindow, .closeWindow,
+            .showWorktreeSidebar,
+            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
+            .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,
             .showCommandBarRepos, .openWebview, .openBridgeReview, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:

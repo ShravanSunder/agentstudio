@@ -242,6 +242,26 @@ through command-bar UI because they have explicit target and mode parameters.
 Picker-oriented flows, such as repo/worktree selection, should stay under
 `ui.commandBar.open(scope: repos)` until they have a semantic method contract.
 
+## Sidebar Semantic Boundary
+
+Sidebar grouping and active-surface control are semantic IPC methods, not
+command-bar presentation. Runtime proof and automation use:
+
+- `sidebar.grouping.set(surface: repo|inbox, mode: repo|pane|tab|none)`
+- `sidebar.grouping.get(surface: repo|inbox)`
+- `sidebar.surface.set(surface: repo|inbox)`
+- `sidebar.surface.get()`
+
+Repo grouping accepts only `repo`, `pane`, and `tab`; `repo + none` is rejected
+before mutating app state. Inbox grouping accepts `tab`, `repo`, `pane`, and
+`none`. Surface methods read and mutate the workspace sidebar active surface,
+not command-bar scope.
+
+These methods require authenticated IPC. Debug-token escrow creates the local
+automation principal used by verifier scripts. Unsafe no-auth debug sockets do
+not get sidebar method access, so proof cannot accidentally pass through the
+broader unsafe path.
+
 ## App IPC Contribution Boundary
 
 Phase A lets app-owned composition register additional IPC methods without

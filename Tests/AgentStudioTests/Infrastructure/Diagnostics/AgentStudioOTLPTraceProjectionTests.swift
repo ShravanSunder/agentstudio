@@ -246,7 +246,10 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.performance.sidebar.phase": .string("mainactor_apply"),
                 "agentstudio.performance.sidebar.query_state": .string("non_empty"),
                 "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
                 "agentstudio.performance.sidebar.input.count": .int(10),
+                "agentstudio.performance.sidebar.group.count": .int(3),
+                "agentstudio.performance.sidebar.section.count": .int(99),
                 "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(2.75),
                 "agentstudio.performance.sidebar.notification_text": .string("secret user prompt"),
                 "agentstudio.performance.sidebar.query_text": .string("billing secret"),
@@ -263,13 +266,49 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("mainactor_apply"))
         #expect(projection.attributes["agentstudio.performance.sidebar.query_state"] == .string("non_empty"))
         #expect(projection.attributes["agentstudio.performance.sidebar.group_mode"] == .string("not_applicable"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("grouping_switch"))
         #expect(projection.attributes["agentstudio.performance.sidebar.input.count"] == .int(10))
+        #expect(projection.attributes["agentstudio.performance.sidebar.group.count"] == .int(3))
+        #expect(projection.attributes["agentstudio.performance.sidebar.section.count"] == nil)
         #expect(projection.attributes["agentstudio.performance.sidebar.mainactor_apply_elapsed_ms"] == .double(2.75))
         #expect(projection.attributes["agentstudio.performance.sidebar.notification_text"] == nil)
         #expect(projection.attributes["agentstudio.performance.sidebar.query_text"] == nil)
         #expect(projection.attributes["agentstudio.performance.sidebar.repo.id"] == nil)
         #expect(!renderedProjection.contains("secret user prompt"))
         #expect(!renderedProjection.contains("billing secret"))
+    }
+
+    @Test
+    func sidebarRowIndexProjectionKeepsCanonicalPhaseAndElapsedKey() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 176,
+            severityText: .info,
+            body: "performance.sidebar.row_index",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(1.25),
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("row_index"),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("pane"),
+                "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
+                "agentstudio.performance.sidebar.row_index_elapsed_ms": .double(1.25),
+                "agentstudio.performance.sidebar.row_index_worker_elapsed_ms": .double(99),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.body == "performance.sidebar.row_index")
+        #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("row_index"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("grouping_switch"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.row_index_elapsed_ms"] == .double(1.25))
+        #expect(projection.attributes["agentstudio.performance.sidebar.row_index_worker_elapsed_ms"] == nil)
     }
 
     @Test

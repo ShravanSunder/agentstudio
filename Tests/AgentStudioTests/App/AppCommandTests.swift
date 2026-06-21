@@ -877,6 +877,29 @@ final class AppCommandTests {
         #expect(def.appliesTo.isEmpty)
     }
 
+    @MainActor
+
+    @Test
+    func test_dispatcher_sidebarGroupingCommands_registered() {
+        let expected: [(AppCommand, String, CommandIcon)] = [
+            (.setRepoSidebarGroupingRepo, "Group Repos by Repo", RepoExplorerGroupingMode.repo.icon),
+            (.setRepoSidebarGroupingPane, "Group Repos by Pane", RepoExplorerGroupingMode.pane.icon),
+            (.setRepoSidebarGroupingTab, "Group Repos by Tab", RepoExplorerGroupingMode.tab.icon),
+            (.setInboxGroupingTab, "Group Inbox by Tab", InboxNotificationGrouping.byTab.icon),
+            (.setInboxGroupingRepo, "Group Inbox by Repo", InboxNotificationGrouping.byRepo.icon),
+            (.setInboxGroupingPane, "Group Inbox by Pane", InboxNotificationGrouping.byPane.icon),
+            (.setInboxGroupingNone, "Group Inbox by None", InboxNotificationGrouping.none.icon),
+        ]
+
+        for (command, label, icon) in expected {
+            let definition = AppCommandDispatcher.shared.definition(for: command)
+            #expect(definition.label == label)
+            #expect(definition.icon == icon)
+            #expect(definition.commandBarGroupName == (command.rawValue.hasPrefix("setInbox") ? "Inbox" : "Sidebar"))
+            #expect(!definition.isHiddenInCommandBar)
+        }
+    }
+
     // MARK: - Webview Commands
 
     @MainActor

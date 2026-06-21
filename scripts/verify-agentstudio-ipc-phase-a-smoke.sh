@@ -287,6 +287,55 @@ try:
         print(f"ui.commandBar.open result missing workspaceWindowId: {command_bar_open}", file=sys.stderr)
         sys.exit(1)
 
+    sidebar_expectations = [
+        (9, "sidebar.surface.set", {"surface": "repo"}, "repo"),
+        (10, "sidebar.grouping.set", {"surface": "repo", "mode": "repo"}, "repo"),
+        (11, "sidebar.grouping.set", {"surface": "repo", "mode": "pane"}, "pane"),
+        (12, "sidebar.grouping.set", {"surface": "repo", "mode": "tab"}, "tab"),
+        (13, "sidebar.surface.set", {"surface": "inbox"}, "inbox"),
+        (14, "sidebar.grouping.set", {"surface": "inbox", "mode": "tab"}, "tab"),
+        (15, "sidebar.grouping.set", {"surface": "inbox", "mode": "repo"}, "repo"),
+        (16, "sidebar.grouping.set", {"surface": "inbox", "mode": "pane"}, "pane"),
+        (17, "sidebar.grouping.set", {"surface": "inbox", "mode": "none"}, "none"),
+    ]
+    for request_id, method, params, expected_value in sidebar_expectations:
+        result = require_success(session.request(request_id, method, params), method)
+        actual_value = result.get("surface") if method == "sidebar.surface.set" else result.get("mode")
+        if actual_value != expected_value:
+            print(f"{method} mismatch: {result}; expected {expected_value}", file=sys.stderr)
+            sys.exit(1)
+
+    repo_grouping = require_success(
+        session.request(18, "sidebar.grouping.get", {"surface": "repo"}),
+        "sidebar.grouping.get repo",
+    )
+    if repo_grouping.get("mode") != "tab":
+        print(f"repo grouping did not persist tab mode: {repo_grouping}", file=sys.stderr)
+        sys.exit(1)
+
+    inbox_grouping = require_success(
+        session.request(19, "sidebar.grouping.get", {"surface": "inbox"}),
+        "sidebar.grouping.get inbox",
+    )
+    if inbox_grouping.get("mode") != "none":
+        print(f"inbox grouping did not persist none mode: {inbox_grouping}", file=sys.stderr)
+        sys.exit(1)
+
+    sidebar_surface = require_success(
+        session.request(20, "sidebar.surface.get", {}),
+        "sidebar.surface.get",
+    )
+    if sidebar_surface.get("surface") != "inbox":
+        print(f"sidebar surface did not persist inbox: {sidebar_surface}", file=sys.stderr)
+        sys.exit(1)
+
+    require_error(
+        session.request(21, "sidebar.grouping.set", {"surface": "repo", "mode": "none"}),
+        "sidebar.grouping.set repo none",
+        -32007,
+        "validation rejected",
+    )
+
     print(f"AgentStudio IPC Phase A smoke passed for {canonical_pane_handle}")
 finally:
     session.close()

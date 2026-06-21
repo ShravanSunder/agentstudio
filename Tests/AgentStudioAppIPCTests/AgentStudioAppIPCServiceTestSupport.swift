@@ -164,6 +164,44 @@ struct FakeLayoutPort: AppIPCLayoutPort {
     }
 }
 
+@MainActor
+final class FakeSidebarPort: AppIPCSidebarPort {
+    private(set) var repoGrouping: IPCSidebarGroupingMode = .repo
+    private(set) var inboxGrouping: IPCSidebarGroupingMode = .tab
+    private(set) var surface: IPCSidebarSurface = .repo
+
+    func setGrouping(_ params: IPCSidebarGroupingSetParams) throws -> IPCSidebarGroupingResult {
+        switch params.surface {
+        case .repo:
+            guard params.mode != .noGrouping else {
+                throw AppIPCCommandError(reason: .validationRejected)
+            }
+            repoGrouping = params.mode
+        case .inbox:
+            inboxGrouping = params.mode
+        }
+        return IPCSidebarGroupingResult(surface: params.surface, mode: params.mode, correlationId: params.correlationId)
+    }
+
+    func getGrouping(_ params: IPCSidebarGroupingGetParams) throws -> IPCSidebarGroupingResult {
+        switch params.surface {
+        case .repo:
+            return IPCSidebarGroupingResult(surface: .repo, mode: repoGrouping)
+        case .inbox:
+            return IPCSidebarGroupingResult(surface: .inbox, mode: inboxGrouping)
+        }
+    }
+
+    func setSurface(_ params: IPCSidebarSurfaceSetParams) throws -> IPCSidebarSurfaceResult {
+        surface = params.surface
+        return IPCSidebarSurfaceResult(surface: surface, correlationId: params.correlationId)
+    }
+
+    func getSurface(_: IPCSidebarSurfaceGetParams) throws -> IPCSidebarSurfaceResult {
+        IPCSidebarSurfaceResult(surface: surface)
+    }
+}
+
 struct FakeRuntimePort: AppIPCRuntimePort {
     let successfulPaneId: UUID?
 
@@ -303,6 +341,7 @@ struct LiveServerFixture {
         runtimePort: any AppIPCRuntimePort = FakeRuntimePort(),
         commandPort: any AppIPCCommandPort = FakeCommandPort(),
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
+        sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
         debugTokenEscrowEnabled: Bool = false,
         methodContributions: [AppIPCMethodContribution] = []
     ) throws {
@@ -325,6 +364,7 @@ struct LiveServerFixture {
             runtimePort: runtimePort,
             commandPort: commandPort,
             uiPresentationPort: uiPresentationPort,
+            sidebarPort: sidebarPort,
             permissionApprovalPort: FakePermissionApprovalPort()
         )
         let service = try AgentStudioAppIPCService(

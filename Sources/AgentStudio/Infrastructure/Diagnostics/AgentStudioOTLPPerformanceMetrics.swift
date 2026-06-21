@@ -213,6 +213,12 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 record: record,
                 dimensions: &dimensions
             )
+            appendSafeStringDimension(
+                name: "trigger",
+                attributeKey: "agentstudio.performance.sidebar.trigger",
+                record: record,
+                dimensions: &dimensions
+            )
         }
         return dimensions
     }
@@ -285,6 +291,8 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 rawValue: stringAttribute(record, "agentstudio.performance.sidebar.query_state") ?? "") != nil
             && SidebarMetricGroupMode(
                 rawValue: stringAttribute(record, "agentstudio.performance.sidebar.group_mode") ?? "") != nil
+            && SidebarMetricTrigger(rawValue: stringAttribute(record, "agentstudio.performance.sidebar.trigger") ?? "")
+                != nil
     }
 
     private static func requiresSidebarMetricTaxonomy(_ record: AgentStudioOTLPProjectedLogRecord) -> Bool {
@@ -347,7 +355,16 @@ private enum SidebarMetricGroupMode: String {
     case repo
     case pane
     case tab
+    case noGrouping = "none"
     case notApplicable = "not_applicable"
+}
+
+private enum SidebarMetricTrigger: String {
+    case groupingSwitch = "grouping_switch"
+    case surfaceSwitch = "surface_switch"
+    case search
+    case collapseToggle = "collapse_toggle"
+    case startupDiagnostic = "startup_diagnostic"
 }
 
 struct AgentStudioOTLPPerformanceMetricSample: Equatable, Sendable {

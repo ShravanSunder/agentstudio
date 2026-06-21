@@ -158,7 +158,8 @@ struct RepoExplorerView: View {
             generation: projectionGeneration + 1,
             snapshot: sidebarSnapshot,
             expandedGroupIds: Set(sidebarCache.expandedGroups.map(\.rawValue)),
-            isFiltering: isFiltering
+            isFiltering: isFiltering,
+            trigger: "startup_diagnostic"
         )
     }
 
@@ -505,7 +506,10 @@ struct RepoExplorerView: View {
     }
 
     private func iconForGroup(_ group: RepoPresentationGroup) -> AppEntityIcon {
-        Self.sourceGroupIcon(for: group)
+        Self.sourceGroupIcon(
+            for: group,
+            groupingMode: repoExplorerPrefs.groupingMode
+        )
     }
 
     private func isGroupExpanded(_ groupId: String) -> Bool {
@@ -619,11 +623,13 @@ struct RepoExplorerView: View {
         }
 
         projectionGeneration += 1
+        let projectionTrigger = sidebarProjectionTrigger(previous: cachedProjectionRequest, next: request)
         let generatedRequest = RepoExplorerProjectionRequest(
             generation: projectionGeneration,
             snapshot: request.snapshot,
             expandedGroupIds: request.expandedGroupIds,
-            isFiltering: request.isFiltering
+            isFiltering: request.isFiltering,
+            trigger: projectionTrigger
         )
         cachedProjectionRequest = generatedRequest
         projectionTask?.cancel()
@@ -661,7 +667,8 @@ struct RepoExplorerView: View {
                         generation: result.generation,
                         snapshot: result.snapshot,
                         expandedGroupIds: result.expandedGroupIds,
-                        isFiltering: result.isFiltering
+                        isFiltering: result.isFiltering,
+                        trigger: result.trigger
                     ),
                     phase: "mainactor_apply",
                     extra: ["agentstudio.performance.sidebar.stale_discard.count": .int(1)]
@@ -678,12 +685,15 @@ struct RepoExplorerView: View {
                     generation: result.generation,
                     snapshot: result.snapshot,
                     expandedGroupIds: result.expandedGroupIds,
-                    isFiltering: result.isFiltering
+                    isFiltering: result.isFiltering,
+                    trigger: result.trigger
                 ),
                 phase: "projection_worker",
                 extra: [
                     "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
-                        AgentStudioPerformanceTraceRecorder.milliseconds(from: result.workerDuration))
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: result.workerDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(result.projection.resolvedGroups.count),
+                    "agentstudio.performance.sidebar.loading_repo.count": .int(result.projection.loadingRepos.count),
                 ]
             )
         )
@@ -695,11 +705,12 @@ struct RepoExplorerView: View {
                     generation: result.generation,
                     snapshot: result.snapshot,
                     expandedGroupIds: result.expandedGroupIds,
-                    isFiltering: result.isFiltering
+                    isFiltering: result.isFiltering,
+                    trigger: result.trigger
                 ),
-                phase: "row_index_worker",
+                phase: "row_index",
                 extra: [
-                    "agentstudio.performance.sidebar.row_index_worker_elapsed_ms": .double(
+                    "agentstudio.performance.sidebar.row_index_elapsed_ms": .double(
                         AgentStudioPerformanceTraceRecorder.milliseconds(from: result.rowIndexDuration))
                 ]
             )
@@ -718,12 +729,15 @@ struct RepoExplorerView: View {
                     generation: result.generation,
                     snapshot: result.snapshot,
                     expandedGroupIds: result.expandedGroupIds,
-                    isFiltering: result.isFiltering
+                    isFiltering: result.isFiltering,
+                    trigger: result.trigger
                 ),
                 phase: "mainactor_apply",
                 extra: [
                     "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(
-                        AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration))
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(result.projection.resolvedGroups.count),
+                    "agentstudio.performance.sidebar.loading_repo.count": .int(result.projection.loadingRepos.count),
                 ]
             )
         )
@@ -737,6 +751,7 @@ struct RepoExplorerView: View {
         var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.performance.sidebar.surface": .string("repo"),
             "agentstudio.performance.sidebar.phase": .string(phase),
+            "agentstudio.performance.sidebar.trigger": .string(request.trigger),
             "agentstudio.performance.sidebar.query_state": .string(
                 request.snapshot.query.isEmpty ? "empty" : "non_empty"),
             "agentstudio.performance.sidebar.group_mode": .string(request.snapshot.groupingMode.rawValue),
@@ -748,6 +763,25 @@ struct RepoExplorerView: View {
         ]
         attributes.merge(extra) { _, newValue in newValue }
         return attributes
+    }
+
+    private func sidebarProjectionTrigger(
+        previous: RepoExplorerProjectionRequest?,
+        next: RepoExplorerProjectionRequest
+    ) -> String {
+        guard let previous else {
+            return next.snapshot.groupingMode == .repo ? "startup_diagnostic" : "grouping_switch"
+        }
+        if previous.snapshot.groupingMode != next.snapshot.groupingMode {
+            return "grouping_switch"
+        }
+        if previous.snapshot.query != next.snapshot.query {
+            return "search"
+        }
+        if previous.expandedGroupIds != next.expandedGroupIds {
+            return "collapse_toggle"
+        }
+        return "surface_switch"
     }
 
 }
@@ -811,8 +845,18 @@ extension RepoExplorerView {
     }
 
     static func sourceGroupIcon(
-        for group: RepoPresentationGroup
+        for group: RepoPresentationGroup,
+        groupingMode: RepoExplorerGroupingMode = .repo
     ) -> AppEntityIcon {
+        switch groupingMode {
+        case .pane:
+            return .paneGroup
+        case .tab:
+            return .tabGroup
+        case .repo:
+            break
+        }
+
         guard
             let colorHex = RepoPresentationColoring.sourceGroupColorHex(
                 for: group

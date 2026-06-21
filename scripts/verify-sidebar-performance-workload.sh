@@ -182,6 +182,179 @@ if values:
 PY
 }
 
+metric_value_or_empty() {
+  local query="$1"
+  local response
+  response="$(query_victoria_metrics "$query")"
+  metric_max_value "$response"
+}
+
+metric_event_elapsed_selector() {
+  local surface="$1"
+  local phase="$2"
+  local group_mode="$3"
+  local trigger="$4"
+  printf 'agent.proof.marker="%s",event="performance.sidebar.projection",surface="%s",phase="%s",group_mode="%s",trigger="%s"' \
+    "$(metric_label_selector "$TRACE_NAME")" \
+    "$(metric_label_selector "$surface")" \
+    "$(metric_label_selector "$phase")" \
+    "$(metric_label_selector "$group_mode")" \
+    "$(metric_label_selector "$trigger")"
+}
+
+metric_event_elapsed_max_query() {
+  local surface="$1"
+  local phase="$2"
+  local group_mode="$3"
+  local trigger="$4"
+  printf 'max(agentstudio_performance_event_elapsed_ms_max{%s})' \
+    "$(metric_event_elapsed_selector "$surface" "$phase" "$group_mode" "$trigger")"
+}
+
+metric_event_elapsed_p95_query() {
+  local surface="$1"
+  local phase="$2"
+  local group_mode="$3"
+  local trigger="$4"
+  printf 'histogram_quantile(0.95, sum by (le) (agentstudio_performance_event_elapsed_ms_bucket{%s}))' \
+    "$(metric_event_elapsed_selector "$surface" "$phase" "$group_mode" "$trigger")"
+}
+
+require_metric_value() {
+  local key="$1"
+  local query="$2"
+  local value
+  value="$(metric_value_or_empty "$query")"
+  if [ -z "$value" ]; then
+    echo "missing required sidebar metric series: $key" >&2
+    echo "query: $query" >&2
+    exit 1
+  fi
+  printf '%s\n' "$value"
+}
+
+wait_for_required_metric_value() {
+  local key="$1"
+  local query="$2"
+  local attempt
+  local value
+  for attempt in $(seq 1 30); do
+    value="$(metric_value_or_empty "$query")"
+    if [ -n "$value" ]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+    /bin/sleep 2
+  done
+  require_metric_value "$key" "$query"
+}
+
+run_authenticated_sidebar_ipc_workload() {
+  local metadata_path="${1:?missing metadata path}"
+  local debug_token_path="${2:?missing debug token path}"
+  /usr/bin/python3 - "$metadata_path" "$debug_token_path" <<'PY'
+import json
+import os
+import socket
+import sys
+import time
+
+metadata_path = sys.argv[1]
+debug_token_path = sys.argv[2]
+timeout = float(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_TIMEOUT_SECONDS", "15"))
+step_delay = float(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_STEP_DELAY_SECONDS", "0.35"))
+
+with open(metadata_path, "r", encoding="utf-8") as metadata_file:
+    metadata = json.load(metadata_file)
+socket_path = metadata.get("socketPath")
+if not socket_path:
+    print(f"IPC metadata missing socketPath: {metadata_path}", file=sys.stderr)
+    sys.exit(1)
+with open(debug_token_path, "r", encoding="utf-8") as token_file:
+    token = token_file.read().strip()
+if not token:
+    print(f"IPC debug token file is empty: {debug_token_path}", file=sys.stderr)
+    sys.exit(1)
+
+
+class Session:
+    def __init__(self, path):
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.socket.settimeout(timeout)
+        self.socket.connect(path)
+        self.reader = self.socket.makefile("rb")
+
+    def close(self):
+        self.reader.close()
+        self.socket.close()
+
+    def request(self, request_id, method, params):
+        payload = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
+        self.socket.sendall((json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8"))
+        while True:
+            line = self.reader.readline()
+            if not line:
+                print(f"IPC socket closed before response for {method}", file=sys.stderr)
+                sys.exit(1)
+            response = json.loads(line.decode("utf-8"))
+            if response.get("id") == request_id:
+                return response
+
+
+def require_success(response, label):
+    if response.get("error") is not None:
+        print(f"{label} failed: {response['error']}", file=sys.stderr)
+        sys.exit(1)
+    return response.get("result", {})
+
+
+def require_error(response, label, expected_code, expected_message):
+    error = response.get("error")
+    if error is None:
+        print(f"{label} unexpectedly succeeded: {response.get('result', {})}", file=sys.stderr)
+        sys.exit(1)
+    if error.get("code") != expected_code or error.get("message") != expected_message:
+        print(f"{label} returned unexpected error: {error}", file=sys.stderr)
+        sys.exit(1)
+
+
+session = Session(socket_path)
+try:
+    require_success(session.request(1, "auth.login", {"token": token}), "auth.login")
+    if os.path.exists(debug_token_path):
+        print(f"IPC debug token was not consumed: {debug_token_path}", file=sys.stderr)
+        sys.exit(1)
+    replay = Session(socket_path)
+    try:
+        require_error(replay.request(900, "auth.login", {"token": token}), "auth.login replay", -32001, "unauthenticated")
+    finally:
+        replay.close()
+
+    operations = [
+        ("sidebar.surface.set", {"surface": "repo"}),
+        ("sidebar.grouping.set", {"surface": "repo", "mode": "repo"}),
+        ("sidebar.grouping.set", {"surface": "repo", "mode": "pane"}),
+        ("sidebar.grouping.set", {"surface": "repo", "mode": "tab"}),
+        ("sidebar.grouping.set", {"surface": "repo", "mode": "repo"}),
+        ("sidebar.surface.set", {"surface": "inbox"}),
+        ("sidebar.grouping.set", {"surface": "inbox", "mode": "tab"}),
+        ("sidebar.grouping.set", {"surface": "inbox", "mode": "repo"}),
+        ("sidebar.grouping.set", {"surface": "inbox", "mode": "pane"}),
+        ("sidebar.grouping.set", {"surface": "inbox", "mode": "none"}),
+        ("sidebar.grouping.set", {"surface": "inbox", "mode": "tab"}),
+        ("sidebar.surface.set", {"surface": "repo"}),
+        ("sidebar.surface.set", {"surface": "inbox"}),
+        ("sidebar.surface.set", {"surface": "repo"}),
+    ]
+    for index, (method, params) in enumerate(operations, start=2):
+        require_success(session.request(index, method, params), method)
+        if step_delay > 0:
+            time.sleep(step_delay)
+finally:
+    session.close()
+PY
+}
+
 performance_threshold_check() {
   local label="${1:?missing label}"
   local baseline_value="${2:?missing baseline value}"
@@ -287,6 +460,7 @@ fi
 env \
   AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
   AGENTSTUDIO_TRACE_NAME="$TRACE_NAME" \
+  AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
   AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=sidebar-performance-proof \
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
   "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
@@ -304,6 +478,11 @@ if [ "$activation_mode" != "background" ]; then
   echo "sidebar proof requires background LaunchServices activation mode: ${activation_mode:-<missing>}" >&2
   exit 1
 fi
+
+state_data_dir="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
+ipc_metadata_path="${AGENTSTUDIO_OBSERVABILITY_IPC_METADATA:-$state_data_dir/ipc/runtime.json}"
+ipc_debug_token_path="${AGENTSTUDIO_OBSERVABILITY_IPC_DEBUG_TOKEN:-$state_data_dir/ipc/debug-token}"
+run_authenticated_sidebar_ipc_workload "$ipc_metadata_path" "$ipc_debug_token_path"
 
 metrics_result="$(wait_for_sidebar_metric_count)"
 metrics_count="$(printf '%s\n' "$metrics_result" | sed -n '1p')"
@@ -352,11 +531,52 @@ if [ "$apply_elapsed_count" = "0" ] || [ -z "$apply_elapsed_ms" ]; then
   exit 1
 fi
 
+repo_pane_projection_worker_elapsed_ms_p95="$(
+  wait_for_required_metric_value repo_pane_projection_worker_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo projection_worker pane grouping_switch)"
+)"
+repo_pane_projection_worker_elapsed_ms_max="$(
+  wait_for_required_metric_value repo_pane_projection_worker_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo projection_worker pane grouping_switch)"
+)"
+repo_tab_mainactor_apply_elapsed_ms_p95="$(
+  wait_for_required_metric_value repo_tab_mainactor_apply_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo mainactor_apply tab grouping_switch)"
+)"
+repo_tab_mainactor_apply_elapsed_ms_max="$(
+  wait_for_required_metric_value repo_tab_mainactor_apply_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo mainactor_apply tab grouping_switch)"
+)"
+inbox_none_projection_worker_elapsed_ms_p95="$(
+  wait_for_required_metric_value inbox_none_projection_worker_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query inbox projection_worker none grouping_switch)"
+)"
+inbox_none_projection_worker_elapsed_ms_max="$(
+  wait_for_required_metric_value inbox_none_projection_worker_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query inbox projection_worker none grouping_switch)"
+)"
+inbox_pane_mainactor_apply_elapsed_ms_p95="$(
+  wait_for_required_metric_value inbox_pane_mainactor_apply_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query inbox mainactor_apply pane grouping_switch)"
+)"
+inbox_pane_mainactor_apply_elapsed_ms_max="$(
+  wait_for_required_metric_value inbox_pane_mainactor_apply_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query inbox mainactor_apply pane grouping_switch)"
+)"
+
 if [ "$mode" = "baseline" ]; then
   {
     echo "trace_name=$TRACE_NAME"
     echo "inbox_projection_worker_elapsed_ms_max=$worker_elapsed_ms"
     echo "inbox_mainactor_apply_elapsed_ms_max=$apply_elapsed_ms"
+    echo "repo_pane_projection_worker_elapsed_ms_p95=$repo_pane_projection_worker_elapsed_ms_p95"
+    echo "repo_pane_projection_worker_elapsed_ms_max=$repo_pane_projection_worker_elapsed_ms_max"
+    echo "repo_tab_mainactor_apply_elapsed_ms_p95=$repo_tab_mainactor_apply_elapsed_ms_p95"
+    echo "repo_tab_mainactor_apply_elapsed_ms_max=$repo_tab_mainactor_apply_elapsed_ms_max"
+    echo "inbox_none_projection_worker_elapsed_ms_p95=$inbox_none_projection_worker_elapsed_ms_p95"
+    echo "inbox_none_projection_worker_elapsed_ms_max=$inbox_none_projection_worker_elapsed_ms_max"
+    echo "inbox_pane_mainactor_apply_elapsed_ms_p95=$inbox_pane_mainactor_apply_elapsed_ms_p95"
+    echo "inbox_pane_mainactor_apply_elapsed_ms_max=$inbox_pane_mainactor_apply_elapsed_ms_max"
   } >"$BASELINE_FILE"
 fi
 
@@ -365,6 +585,14 @@ if [ "$mode" = "compare" ]; then
     echo "missing sidebar baseline artifact: $BASELINE_FILE; run --baseline first" >&2
     exit 1
   fi
+  compare_repo_pane_projection_worker_elapsed_ms_p95="$repo_pane_projection_worker_elapsed_ms_p95"
+  compare_repo_pane_projection_worker_elapsed_ms_max="$repo_pane_projection_worker_elapsed_ms_max"
+  compare_repo_tab_mainactor_apply_elapsed_ms_p95="$repo_tab_mainactor_apply_elapsed_ms_p95"
+  compare_repo_tab_mainactor_apply_elapsed_ms_max="$repo_tab_mainactor_apply_elapsed_ms_max"
+  compare_inbox_none_projection_worker_elapsed_ms_p95="$inbox_none_projection_worker_elapsed_ms_p95"
+  compare_inbox_none_projection_worker_elapsed_ms_max="$inbox_none_projection_worker_elapsed_ms_max"
+  compare_inbox_pane_mainactor_apply_elapsed_ms_p95="$inbox_pane_mainactor_apply_elapsed_ms_p95"
+  compare_inbox_pane_mainactor_apply_elapsed_ms_max="$inbox_pane_mainactor_apply_elapsed_ms_max"
   # shellcheck disable=SC1090
   . "$BASELINE_FILE"
   performance_threshold_check \
@@ -375,6 +603,38 @@ if [ "$mode" = "compare" ]; then
     inbox_mainactor_apply_elapsed_ms_max \
     "${inbox_mainactor_apply_elapsed_ms_max:?missing baseline apply elapsed}" \
     "$apply_elapsed_ms"
+  performance_threshold_check repo_pane_projection_worker_elapsed_ms_p95 \
+    "${repo_pane_projection_worker_elapsed_ms_p95:?missing baseline repo pane worker p95}" \
+    "$compare_repo_pane_projection_worker_elapsed_ms_p95"
+  performance_threshold_check repo_pane_projection_worker_elapsed_ms_max \
+    "${repo_pane_projection_worker_elapsed_ms_max:?missing baseline repo pane worker max}" \
+    "$compare_repo_pane_projection_worker_elapsed_ms_max"
+  performance_threshold_check repo_tab_mainactor_apply_elapsed_ms_p95 \
+    "${repo_tab_mainactor_apply_elapsed_ms_p95:?missing baseline repo tab apply p95}" \
+    "$compare_repo_tab_mainactor_apply_elapsed_ms_p95"
+  performance_threshold_check repo_tab_mainactor_apply_elapsed_ms_max \
+    "${repo_tab_mainactor_apply_elapsed_ms_max:?missing baseline repo tab apply max}" \
+    "$compare_repo_tab_mainactor_apply_elapsed_ms_max"
+  performance_threshold_check inbox_none_projection_worker_elapsed_ms_p95 \
+    "${inbox_none_projection_worker_elapsed_ms_p95:?missing baseline inbox none worker p95}" \
+    "$compare_inbox_none_projection_worker_elapsed_ms_p95"
+  performance_threshold_check inbox_none_projection_worker_elapsed_ms_max \
+    "${inbox_none_projection_worker_elapsed_ms_max:?missing baseline inbox none worker max}" \
+    "$compare_inbox_none_projection_worker_elapsed_ms_max"
+  performance_threshold_check inbox_pane_mainactor_apply_elapsed_ms_p95 \
+    "${inbox_pane_mainactor_apply_elapsed_ms_p95:?missing baseline inbox pane apply p95}" \
+    "$compare_inbox_pane_mainactor_apply_elapsed_ms_p95"
+  performance_threshold_check inbox_pane_mainactor_apply_elapsed_ms_max \
+    "${inbox_pane_mainactor_apply_elapsed_ms_max:?missing baseline inbox pane apply max}" \
+    "$compare_inbox_pane_mainactor_apply_elapsed_ms_max"
+  repo_pane_projection_worker_elapsed_ms_p95="$compare_repo_pane_projection_worker_elapsed_ms_p95"
+  repo_pane_projection_worker_elapsed_ms_max="$compare_repo_pane_projection_worker_elapsed_ms_max"
+  repo_tab_mainactor_apply_elapsed_ms_p95="$compare_repo_tab_mainactor_apply_elapsed_ms_p95"
+  repo_tab_mainactor_apply_elapsed_ms_max="$compare_repo_tab_mainactor_apply_elapsed_ms_max"
+  inbox_none_projection_worker_elapsed_ms_p95="$compare_inbox_none_projection_worker_elapsed_ms_p95"
+  inbox_none_projection_worker_elapsed_ms_max="$compare_inbox_none_projection_worker_elapsed_ms_max"
+  inbox_pane_mainactor_apply_elapsed_ms_p95="$compare_inbox_pane_mainactor_apply_elapsed_ms_p95"
+  inbox_pane_mainactor_apply_elapsed_ms_max="$compare_inbox_pane_mainactor_apply_elapsed_ms_max"
 fi
 
 {
@@ -388,6 +648,15 @@ fi
   echo "inbox_mainactor_apply.metric_result_count=$apply_event_count"
   echo "inbox_projection_worker_elapsed_ms_max=$worker_elapsed_ms"
   echo "inbox_mainactor_apply_elapsed_ms_max=$apply_elapsed_ms"
+  echo "repo_pane_projection_worker_elapsed_ms_p95=$repo_pane_projection_worker_elapsed_ms_p95"
+  echo "repo_pane_projection_worker_elapsed_ms_max=$repo_pane_projection_worker_elapsed_ms_max"
+  echo "repo_tab_mainactor_apply_elapsed_ms_p95=$repo_tab_mainactor_apply_elapsed_ms_p95"
+  echo "repo_tab_mainactor_apply_elapsed_ms_max=$repo_tab_mainactor_apply_elapsed_ms_max"
+  echo "inbox_none_projection_worker_elapsed_ms_p95=$inbox_none_projection_worker_elapsed_ms_p95"
+  echo "inbox_none_projection_worker_elapsed_ms_max=$inbox_none_projection_worker_elapsed_ms_max"
+  echo "inbox_pane_mainactor_apply_elapsed_ms_p95=$inbox_pane_mainactor_apply_elapsed_ms_p95"
+  echo "inbox_pane_mainactor_apply_elapsed_ms_max=$inbox_pane_mainactor_apply_elapsed_ms_max"
+  echo "sidebar_surface_switch.ipc_sequence=repo,inbox,repo,inbox,repo"
   if [ "$mode" = "baseline" ] || [ "$mode" = "compare" ]; then
     echo "baseline_file=$BASELINE_FILE"
   fi

@@ -248,8 +248,10 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio.performance.sidebar.surface": .string("inbox"),
                 "agentstudio.performance.sidebar.phase": .string("mainactor_apply"),
                 "agentstudio.performance.sidebar.query_state": .string("non_empty"),
-                "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                "agentstudio.performance.sidebar.group_mode": .string("none"),
+                "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
                 "agentstudio.performance.sidebar.input.count": .int(42),
+                "agentstudio.performance.sidebar.group.count": .int(4),
                 "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(4.5),
                 "agentstudio.performance.sidebar.query_character.count": .int(3),
             ]
@@ -261,13 +263,20 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             AgentStudioOTLPPerformanceMetricDimension(name: "surface", value: "inbox"),
             AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "mainactor_apply"),
             AgentStudioOTLPPerformanceMetricDimension(name: "query_state", value: "non_empty"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "group_mode", value: "not_applicable"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "group_mode", value: "none"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "trigger", value: "grouping_switch"),
         ]
 
         #expect(metricEvent.dimensions == expectedDimensions)
         #expect(metricEvent.elapsedMilliseconds == 4.5)
         #expect(
             metricEvent.samples == [
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.sidebar.projection",
+                    label: "agentstudio_performance_sidebar_group_count",
+                    dimensions: expectedDimensions,
+                    value: 4
+                ),
                 AgentStudioOTLPPerformanceMetricSample(
                     eventName: "performance.sidebar.projection",
                     label: "agentstudio_performance_sidebar_input_count",
@@ -320,6 +329,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio.performance.sidebar.phase": .string("query_text_/Users/private"),
                 "agentstudio.performance.sidebar.query_state": .string("empty"),
                 "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                "agentstudio.performance.sidebar.trigger": .string("startup_diagnostic"),
             ]
         )
 

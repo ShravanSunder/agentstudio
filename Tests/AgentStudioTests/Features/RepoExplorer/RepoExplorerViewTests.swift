@@ -185,6 +185,19 @@ struct RepoExplorerViewTests {
         }
     }
 
+    @Test("source group icon uses semantic pane and tab colors outside repo grouping")
+    func sourceGroupIconUsesSemanticPaneAndTabColorsOutsideRepoGrouping() {
+        let group = RepoPresentationGroup(
+            id: "pane:active",
+            repoTitle: "Pane 1",
+            organizationName: nil,
+            repos: []
+        )
+
+        #expect(RepoExplorerView.sourceGroupIcon(for: group, groupingMode: .pane) == .paneGroup)
+        #expect(RepoExplorerView.sourceGroupIcon(for: group, groupingMode: .tab) == .tabGroup)
+    }
+
     @Test("checkout icon kind uses git-worktree for a secondary worktree")
     func checkoutIconKindUsesGitWorktreeForSecondaryWorktree() {
         let repoId = UUID()

@@ -11,7 +11,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "bridge.", "orchestration."]
 
-        #expect(registry.definitions.count == 31)
+        #expect(registry.definitions.count == 35)
         #expect(registry.definition(named: "pane.snapshot") == nil)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
@@ -31,6 +31,18 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let commandBarOpen = try #require(registry.definition(named: "ui.commandBar.open"))
         #expect(commandBarOpen.privilegeClasses == [.uiPresent])
         #expect(commandBarOpen.executionOwner == .uiPresentation)
+
+        for methodName in ["sidebar.grouping.set", "sidebar.surface.set"] {
+            let definition = try #require(registry.definition(named: methodName))
+            #expect(definition.privilegeClasses == [.layoutMutate])
+            #expect(definition.executionOwner == .workspaceAction)
+        }
+
+        for methodName in ["sidebar.grouping.get", "sidebar.surface.get"] {
+            let definition = try #require(registry.definition(named: methodName))
+            #expect(definition.privilegeClasses == [.workspaceRead])
+            #expect(definition.executionOwner == .queryReader)
+        }
 
         for methodName in ["pane.split", "pane.close", "drawer.toggle", "drawer.addPane"] {
             let definition = try #require(registry.definition(named: methodName))

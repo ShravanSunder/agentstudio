@@ -230,11 +230,13 @@ struct InboxNotificationSidebarView: View {
         }
         projectionGeneration += 1
         let generation = projectionGeneration
+        let projectionTrigger = sidebarProjectionTrigger(previous: cachedListModelKey, next: key)
         cachedListModelKey = key
         projectionTask?.cancel()
         let request = InboxNotificationListProjectionRequest(
             generation: generation,
             key: key,
+            trigger: projectionTrigger,
             repoPresentationByRepoId: resolvedRepoPresentationByRepoId
         )
         let worker = projectionWorker
@@ -266,6 +268,7 @@ struct InboxNotificationSidebarView: View {
                 .sidebarProjection,
                 attributes: sidebarProjectionTraceAttributes(
                     for: result.key,
+                    trigger: result.trigger,
                     phase: "mainactor_apply",
                     extra: ["agentstudio.performance.sidebar.stale_discard.count": .int(1)]
                 )
@@ -278,10 +281,12 @@ struct InboxNotificationSidebarView: View {
             duration: result.workerDuration,
             attributes: sidebarProjectionTraceAttributes(
                 for: result.key,
+                trigger: result.trigger,
                 phase: "projection_worker",
                 extra: [
                     "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
-                        AgentStudioPerformanceTraceRecorder.milliseconds(from: result.workerDuration))
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: result.workerDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(result.model.sections.count),
                 ]
             )
         )
@@ -296,10 +301,12 @@ struct InboxNotificationSidebarView: View {
             duration: applyDuration,
             attributes: sidebarProjectionTraceAttributes(
                 for: result.key,
+                trigger: result.trigger,
                 phase: "mainactor_apply",
                 extra: [
                     "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(
-                        AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration))
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(result.model.sections.count),
                 ]
             )
         )
@@ -307,19 +314,40 @@ struct InboxNotificationSidebarView: View {
 
     private func sidebarProjectionTraceAttributes(
         for key: InboxNotificationListProjectionKey,
+        trigger: String = "startup_diagnostic",
         phase: String,
         extra: [String: AgentStudioTraceValue] = [:]
     ) -> [String: AgentStudioTraceValue] {
         var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.performance.sidebar.surface": .string("inbox"),
             "agentstudio.performance.sidebar.phase": .string(phase),
+            "agentstudio.performance.sidebar.trigger": .string(trigger),
             "agentstudio.performance.sidebar.query_state": .string(key.searchText.isEmpty ? "empty" : "non_empty"),
-            "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+            "agentstudio.performance.sidebar.group_mode": .string(key.grouping.performanceMetricValue),
             "agentstudio.performance.sidebar.input.count": .int(key.notifications.count),
             "agentstudio.performance.sidebar.query_character.count": .int(key.searchText.count),
         ]
         attributes.merge(extra) { _, newValue in newValue }
         return attributes
+    }
+
+    private func sidebarProjectionTrigger(
+        previous: InboxNotificationListProjectionKey?,
+        next: InboxNotificationListProjectionKey
+    ) -> String {
+        guard let previous else {
+            return next.grouping == .byTab ? "startup_diagnostic" : "grouping_switch"
+        }
+        if previous.grouping != next.grouping {
+            return "grouping_switch"
+        }
+        if previous.searchText != next.searchText {
+            return "search"
+        }
+        if previous.collapsedGroups != next.collapsedGroups {
+            return "collapse_toggle"
+        }
+        return "surface_switch"
     }
 
     static func repoPresentationByRepoId(

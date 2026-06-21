@@ -5,6 +5,7 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
     let snapshot: RepoExplorerSnapshot
     let expandedGroupIds: Set<String>
     let isFiltering: Bool
+    let trigger: String
 }
 
 struct RepoExplorerProjectionResult: Equatable, Sendable {
@@ -12,6 +13,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let snapshot: RepoExplorerSnapshot
     let expandedGroupIds: Set<String>
     let isFiltering: Bool
+    let trigger: String
     let projection: RepoExplorerSidebarProjection
     let rowIndex: RepoExplorerRowIndex
     let workerDuration: Duration
@@ -36,6 +38,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             snapshot: snapshot,
             expandedGroupIds: [],
             isFiltering: false,
+            trigger: "startup_diagnostic",
             projection: projection,
             rowIndex: RepoExplorerRowIndex(
                 projection: projection,
@@ -74,6 +77,7 @@ actor RepoExplorerProjectionWorker {
                 snapshot: request.snapshot,
                 expandedGroupIds: request.expandedGroupIds,
                 isFiltering: request.isFiltering,
+                trigger: request.trigger,
                 projection: projection,
                 rowIndex: rowIndex,
                 workerDuration: workerStart.duration(to: clock.now),

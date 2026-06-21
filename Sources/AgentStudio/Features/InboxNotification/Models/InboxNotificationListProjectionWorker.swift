@@ -15,12 +15,14 @@ struct InboxNotificationListProjectionKey: Equatable, Sendable {
 struct InboxNotificationListProjectionRequest: Equatable, Sendable {
     let generation: Int
     let key: InboxNotificationListProjectionKey
+    let trigger: String
     let repoPresentationByRepoId: [UUID: InboxNotificationRepoGroupPresentation]
 }
 
 struct InboxNotificationListProjectionResult: Equatable, Sendable {
     let generation: Int
     let key: InboxNotificationListProjectionKey
+    let trigger: String
     let model: InboxNotificationListModel
     let workerDuration: Duration
 }
@@ -53,6 +55,7 @@ actor InboxNotificationListProjectionWorker {
             return InboxNotificationListProjectionResult(
                 generation: request.generation,
                 key: request.key,
+                trigger: request.trigger,
                 model: model,
                 workerDuration: start.duration(to: clock.now)
             )

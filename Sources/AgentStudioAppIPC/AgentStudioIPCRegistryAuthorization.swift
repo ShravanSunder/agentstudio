@@ -70,6 +70,10 @@ public struct AppIPCMethodRegistry: Sendable {
             Self.method("command.list", .systemRead, .queryReader),
             Self.method("command.execute", .debugUnsafe, .appCommand),
             Self.method("ui.commandBar.open", .uiPresent, .uiPresentation),
+            Self.method("sidebar.grouping.set", .layoutMutate, .workspaceAction),
+            Self.method("sidebar.grouping.get", .workspaceRead, .queryReader),
+            Self.method("sidebar.surface.set", .layoutMutate, .workspaceAction),
+            Self.method("sidebar.surface.get", .workspaceRead, .queryReader),
             Self.method("permission.request", .permissionRequest, .permissionBroker, resultSemantics: .accepted),
             Self.method("permission.requestStatus", .permissionRead, .permissionBroker),
             Self.method("permission.grantStatus", .permissionRead, .permissionBroker),
@@ -299,6 +303,10 @@ public struct AuthorizationService: Sendable {
             throw AuthorizationError(reason: .methodNotFound)
         }
 
+        if authenticatedAutomationAllows(methodName: methodName, for: principal) {
+            return
+        }
+
         if unsafeDebugAllows(methodName: methodName, definition: definition, for: principal) {
             return
         }
@@ -353,6 +361,16 @@ public struct AuthorizationService: Sendable {
             && !definition.privilegeClasses.contains(.eventsRead)
     }
 
+    private func authenticatedAutomationAllows(methodName: String, for principal: IPCPrincipal) -> Bool {
+        guard principal.accessMode == .unsafeDebug else {
+            return false
+        }
+        guard case .automationClient = principal.kind else {
+            return false
+        }
+        return Self.authenticatedAutomationMethodAllowlist.contains(methodName)
+    }
+
     private func baselineAllows(_ scope: IPCPermissionScope, for principal: IPCPrincipal) -> Bool {
         if scope.privilege == .grantApprove, principal.hasApprovalAuthority {
             return true
@@ -400,6 +418,13 @@ public struct AuthorizationService: Sendable {
         "command.list",
         "command.execute",
         "ui.commandBar.open",
+    ]
+
+    private static let authenticatedAutomationMethodAllowlist: Set<String> = [
+        "sidebar.grouping.set",
+        "sidebar.grouping.get",
+        "sidebar.surface.set",
+        "sidebar.surface.get",
     ]
 }
 
