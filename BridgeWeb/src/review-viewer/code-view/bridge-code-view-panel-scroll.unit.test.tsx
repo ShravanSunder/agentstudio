@@ -88,6 +88,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			});
 			mountedRoot = null;
 		}
+		vi.restoreAllMocks();
 		document.body.replaceChildren();
 	});
 
@@ -459,6 +460,49 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		).toBeGreaterThan(0);
 	});
 
+	test('materializes selected content without depending on an animation frame', async () => {
+		const requestAnimationFrameSpy = vi
+			.spyOn(window, 'requestAnimationFrame')
+			.mockImplementation((): number => 1);
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
+		});
+		const selectedItem = reviewPackage.itemsById['docs-plan'];
+		const headHandle = selectedItem?.contentRoles.head;
+		if (selectedItem === undefined || headHandle === undefined || headHandle === null) {
+			throw new Error('expected docs-plan head handle');
+		}
+		const selectedContentResource: BridgeContentResource = {
+			handle: headHandle,
+			text: '# Bridge plan\n\nInspect this as source.',
+		};
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={{ head: selectedContentResource }}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(requestAnimationFrameSpy).toHaveBeenCalled();
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'docs-plan' }),
+		);
+		const codeViewPanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+		expect(codeViewPanel?.getAttribute('data-selected-materialized-update-result')).toBe('updated');
+	});
+
 	test('publishes the current Pierre rendered window for visible content hydration', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
@@ -549,7 +593,14 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewPanel?.getAttribute('data-selected-materialized-update-result')).toBe('not-run');
 	});
 
-	test('defers CodeView item materialization out of the React effect flush', async () => {
+	test('materializes selected content during the post-commit effect before animation frames', async () => {
+		const animationFrameCallbacks: FrameRequestCallback[] = [];
+		vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+			(callback: FrameRequestCallback): number => {
+				animationFrameCallbacks.push(callback);
+				return animationFrameCallbacks.length;
+			},
+		);
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -595,15 +646,10 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			await Promise.resolve();
 		});
 
-		expect(codeViewDoubles.updateItem).not.toHaveBeenCalled();
-
-		await act(async (): Promise<void> => {
-			await waitForAnimationFrame();
-		});
-
 		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'docs-plan' }),
 		);
+		expect(animationFrameCallbacks.length).toBeGreaterThan(0);
 	});
 
 	test('runs a deferred CodeView render after selected content materializes', async () => {
@@ -660,7 +706,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			await Promise.resolve();
 		});
 
-		expect(codeViewDoubles.getInstanceRender).toHaveBeenCalledTimes(0);
+		expect(codeViewDoubles.getInstanceRender).toHaveBeenCalledTimes(1);
 		expect(requestAnimationFrameSpy).toHaveBeenCalled();
 
 		await act(async (): Promise<void> => {

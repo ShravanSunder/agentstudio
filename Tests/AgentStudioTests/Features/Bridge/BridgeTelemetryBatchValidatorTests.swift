@@ -110,6 +110,41 @@ struct BridgeTelemetryBatchValidatorTests {
     }
 
     @Test
+    func validatorAcceptsCurrentReviewProjectionModeTelemetry() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let projectionKinds = [
+            "normal_review",
+            "guided_review",
+            "plans_and_specs",
+        ]
+
+        for projectionKind in projectionKinds {
+            let batch = batchWithWebSample(
+                WebSampleProps(
+                    name: "performance.bridge.trees.projection_build",
+                    phase: "projection_build",
+                    plane: "data",
+                    priority: "warm",
+                    slice: "review_projection",
+                    transport: "worker",
+                    extraStrings: [
+                        "agentstudio.bridge.fixture_class": "large",
+                        "agentstudio.bridge.item_count_bucket": "large",
+                        "agentstudio.bridge.projection.kind": projectionKind,
+                        "agentstudio.bridge.result": "success",
+                        "agentstudio.bridge.tree_path_count_bucket": "large",
+                        "agentstudio.bridge.worker.lane": "projection",
+                    ]
+                )
+            )
+
+            #expect(validator.validate(batch) == .accepted(batch))
+        }
+    }
+
+    @Test
     func validatorRejectsEventInappropriateAuxiliaryAttributes() {
         let validator = BridgeTelemetryBatchValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])

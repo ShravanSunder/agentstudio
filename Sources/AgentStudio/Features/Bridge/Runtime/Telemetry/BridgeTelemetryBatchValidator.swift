@@ -837,6 +837,8 @@ extension BridgeTelemetryBatchValidator {
             "custom",
             "docs_and_plans",
             "guided_review",
+            "normal_review",
+            "plans_and_specs",
             "source",
             "tests",
         ],

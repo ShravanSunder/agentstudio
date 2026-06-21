@@ -1,4 +1,9 @@
-import type { CodeViewItem, CodeViewOptions, CodeViewScrollBehavior } from '@pierre/diffs';
+import type {
+	CodeViewItem,
+	CodeViewOptions,
+	CodeViewScrollBehavior,
+	PostRenderPhase,
+} from '@pierre/diffs';
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
@@ -16,6 +21,7 @@ import {
 	type ApplyBridgeCodeViewItemUpdateResult,
 	type BridgeCodeViewModel,
 } from './bridge-code-view-controller.js';
+import { syncBridgeCodeViewLoadingBody } from './bridge-code-view-loading-body.js';
 import {
 	BridgeCodeViewLoadingState,
 	BridgeCodeViewVisibleLoadingState,
@@ -85,6 +91,10 @@ interface BridgeCodeViewRenderedItemsSource {
 	readonly getRenderedItems: () => readonly BridgeCodeViewRenderedItemSnapshot[];
 }
 
+interface BridgeCodeViewPostRenderContext {
+	readonly item: CodeViewItem;
+}
+
 export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	theme: {
 		dark: bridgePierreDarkThemeName,
@@ -109,6 +119,7 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 		paddingBottom: 0,
 		gap: 1,
 	},
+	onPostRender: handleBridgeCodeViewPostRender,
 	unsafeCSS: `
 		[data-diffs-header] {
 			--diffs-addition-base: var(--bridge-added);
@@ -160,6 +171,22 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	`,
 };
 
+function handleBridgeCodeViewPostRender(
+	containerElement: HTMLElement,
+	_instance: unknown,
+	phase: PostRenderPhase,
+	context: BridgeCodeViewPostRenderContext,
+): void {
+	if (!isBridgeCodeViewItem(context.item)) {
+		return;
+	}
+	syncBridgeCodeViewLoadingBody({
+		containerElement,
+		item: context.item,
+		phase,
+	});
+}
+
 export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactElement {
 	const viewerKey = makeViewerKey(props);
 	const selectedDisplayPath =
@@ -183,7 +210,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const controllerEntryRef = useRef<BridgeCodeViewControllerEntry | null>(null);
 	const lastSelectionScrollKeyRef = useRef<string | null>(null);
 	const mountedHandleViewerKeyRef = useRef<string | null>(null);
-	const pendingMaterializationFrameRef = useRef<number | null>(null);
 	const pendingRecoveryRenderFrameRef = useRef<number | null>(null);
 	const pendingRenderedItemsPublishFrameRef = useRef<number | null>(null);
 	const pendingSelectionScrollFrameRef = useRef<number | null>(null);
@@ -442,10 +468,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 
 	useEffect(
 		(): (() => void) => (): void => {
-			if (pendingMaterializationFrameRef.current !== null) {
-				cancelAnimationFrame(pendingMaterializationFrameRef.current);
-				pendingMaterializationFrameRef.current = null;
-			}
 			if (pendingRecoveryRenderFrameRef.current !== null) {
 				cancelAnimationFrame(pendingRecoveryRenderFrameRef.current);
 				pendingRecoveryRenderFrameRef.current = null;
@@ -529,115 +551,100 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		viewerKey,
 	]);
 
-	useEffect((): (() => void) | undefined => {
+	useEffect((): void => {
 		if (loadingMaterializationItemIds.length === 0 && materializationResourceEntries.length === 0) {
-			return undefined;
+			return;
 		}
 		const codeViewHandle = codeViewHandleRef.current;
 		if (codeViewHandle === null) {
-			return undefined;
+			return;
 		}
-		if (pendingMaterializationFrameRef.current !== null) {
-			cancelAnimationFrame(pendingMaterializationFrameRef.current);
-		}
-		pendingMaterializationFrameRef.current = requestAnimationFrame((): void => {
-			pendingMaterializationFrameRef.current = null;
-			if (codeViewHandleRef.current !== codeViewHandle) {
-				return;
-			}
-			const controller = controllerForHandle({
-				handle: codeViewHandle,
-				controllerEntryRef,
-			});
-			let didUpdateRenderedItems = false;
-			for (const itemId of loadingMaterializationItemIds) {
-				const loadingItemDescriptor = props.reviewPackage.itemsById[itemId];
-				if (loadingItemDescriptor === undefined) {
-					continue;
-				}
-				const loadingItem = materializeBridgeCodeViewLoadingItem(loadingItemDescriptor);
-				const existingItem = codeViewHandle.getItem(itemId);
-				if (
-					existingItem !== undefined &&
-					isBridgeCodeViewItem(existingItem) &&
-					existingItem.bridgeMetadata.contentState === 'loading' &&
-					existingItem.bridgeMetadata.cacheKey === loadingItem.bridgeMetadata.cacheKey
-				) {
-					continue;
-				}
-				controller.applyItemUpdate(loadingItem);
-				didUpdateRenderedItems = true;
-			}
-			for (const [itemId, resources] of materializationResourceEntries) {
-				const selectedItem = props.reviewPackage.itemsById[itemId];
-				if (selectedItem === undefined) {
-					continue;
-				}
-				const materializedItem = materializeBridgeCodeViewItem({
-					item: selectedItem,
-					resources,
-				});
-				if (materializedItem === null) {
-					continue;
-				}
-				const nextMaterializedItem = collapsedItemIds.has(materializedItem.id)
-					? ({
-							...materializedItem,
-							collapsed: true,
-							version: (materializedItem.version ?? 0) + 1,
-						} satisfies BridgeCodeViewItem)
-					: materializedItem;
-				const existingItem = codeViewHandle.getItem(itemId);
-				if (
-					existingItem !== undefined &&
-					isBridgeCodeViewItem(existingItem) &&
-					existingItem.bridgeMetadata.contentState === 'hydrated' &&
-					existingItem.bridgeMetadata.cacheKey === nextMaterializedItem.bridgeMetadata.cacheKey &&
-					existingItem.collapsed === nextMaterializedItem.collapsed
-				) {
-					continue;
-				}
-				const updateResult = controller.applyItemUpdate(nextMaterializedItem);
-				didUpdateRenderedItems = true;
-				if (itemId === props.selectedItemId) {
-					controller.scrollToItem(itemId, 'instant');
-					scrollToTopTargetItemIdRef.current = itemId;
-					scrollCodeViewHeaderToScrollTopAcrossLayout({
-						handle: codeViewHandle,
-						itemId,
-						isCurrent: (): boolean =>
-							codeViewHandleRef.current === codeViewHandle &&
-							scrollToTopTargetItemIdRef.current === itemId,
-					});
-					setMaterializationDiagnostic(
-						materializationDiagnosticForCodeViewItem({
-							item: nextMaterializedItem,
-							updateResult,
-						}),
-					);
-					if (props.telemetryRecorder !== undefined) {
-						recordBridgeCodeViewHydrationTelemetry({
-							telemetryRecorder: props.telemetryRecorder,
-							parentTraceContext: props.telemetryParentTraceContext ?? null,
-							projection: props.projection,
-							item: selectedItem,
-							resources,
-							workerPoolEnabled: props.workerPoolEnabled !== false,
-						});
-					}
-				}
-			}
-			if (!didUpdateRenderedItems) {
-				return;
-			}
-			scheduleCodeViewRecoveryRender();
+		const controller = controllerForHandle({
+			handle: codeViewHandle,
+			controllerEntryRef,
 		});
-		return (): void => {
-			if (pendingMaterializationFrameRef.current !== null) {
-				cancelAnimationFrame(pendingMaterializationFrameRef.current);
-				pendingMaterializationFrameRef.current = null;
+		let didUpdateRenderedItems = false;
+		for (const itemId of loadingMaterializationItemIds) {
+			const loadingItemDescriptor = props.reviewPackage.itemsById[itemId];
+			if (loadingItemDescriptor === undefined) {
+				continue;
 			}
-		};
+			const loadingItem = materializeBridgeCodeViewLoadingItem(loadingItemDescriptor);
+			const existingItem = codeViewHandle.getItem(itemId);
+			if (
+				existingItem !== undefined &&
+				isBridgeCodeViewItem(existingItem) &&
+				existingItem.bridgeMetadata.contentState === 'loading' &&
+				existingItem.bridgeMetadata.cacheKey === loadingItem.bridgeMetadata.cacheKey
+			) {
+				continue;
+			}
+			controller.applyItemUpdate(loadingItem);
+			didUpdateRenderedItems = true;
+		}
+		for (const [itemId, resources] of materializationResourceEntries) {
+			const selectedItem = props.reviewPackage.itemsById[itemId];
+			if (selectedItem === undefined) {
+				continue;
+			}
+			const materializedItem = materializeBridgeCodeViewItem({
+				item: selectedItem,
+				resources,
+			});
+			if (materializedItem === null) {
+				continue;
+			}
+			const nextMaterializedItem = collapsedItemIds.has(materializedItem.id)
+				? ({
+						...materializedItem,
+						collapsed: true,
+						version: (materializedItem.version ?? 0) + 1,
+					} satisfies BridgeCodeViewItem)
+				: materializedItem;
+			const existingItem = codeViewHandle.getItem(itemId);
+			if (
+				existingItem !== undefined &&
+				isBridgeCodeViewItem(existingItem) &&
+				existingItem.bridgeMetadata.contentState === 'hydrated' &&
+				existingItem.bridgeMetadata.cacheKey === nextMaterializedItem.bridgeMetadata.cacheKey &&
+				existingItem.collapsed === nextMaterializedItem.collapsed
+			) {
+				continue;
+			}
+			const updateResult = controller.applyItemUpdate(nextMaterializedItem);
+			didUpdateRenderedItems = true;
+			if (itemId === props.selectedItemId) {
+				controller.scrollToItem(itemId, 'instant');
+				scrollToTopTargetItemIdRef.current = itemId;
+				scrollCodeViewHeaderToScrollTopAcrossLayout({
+					handle: codeViewHandle,
+					itemId,
+					isCurrent: (): boolean =>
+						codeViewHandleRef.current === codeViewHandle &&
+						scrollToTopTargetItemIdRef.current === itemId,
+				});
+				setMaterializationDiagnostic(
+					materializationDiagnosticForCodeViewItem({
+						item: nextMaterializedItem,
+						updateResult,
+					}),
+				);
+				if (props.telemetryRecorder !== undefined) {
+					recordBridgeCodeViewHydrationTelemetry({
+						telemetryRecorder: props.telemetryRecorder,
+						parentTraceContext: props.telemetryParentTraceContext ?? null,
+						projection: props.projection,
+						item: selectedItem,
+						resources,
+						workerPoolEnabled: props.workerPoolEnabled !== false,
+					});
+				}
+			}
+		}
+		if (!didUpdateRenderedItems) {
+			return;
+		}
+		scheduleCodeViewRecoveryRender();
 	}, [
 		collapsedItemIds,
 		codeViewMountVersion,

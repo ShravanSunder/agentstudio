@@ -203,6 +203,10 @@ button:disabled,
 	font-family: var(--font-mono);
 }
 
+.bridge-code-view-panel [data-bridge-code-view-loading-item='true'] {
+	position: relative;
+}
+
 @layer base {
 	* {
 		@apply border-border outline-ring/50;
