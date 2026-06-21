@@ -214,6 +214,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const pendingRenderedItemsPublishFrameRef = useRef<number | null>(null);
 	const pendingSelectionScrollFrameRef = useRef<number | null>(null);
 	const pendingVisibleHeaderPublishFrameRef = useRef<number | null>(null);
+	const renderedWindowItemIdsRef = useRef<readonly string[]>([]);
 	const scrollToTopTargetItemIdRef = useRef<string | null>(null);
 	const visibleHeaderItemIdsRef = useRef<ReadonlySet<string>>(new Set<string>());
 	const [codeViewMountVersion, setCodeViewMountVersion] = useState(0);
@@ -223,16 +224,21 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const onControlHandleChange = props.onControlHandleChange;
 	const [materializationDiagnostic, setMaterializationDiagnostic] =
 		useState<BridgeCodeViewMaterializationDiagnostic>(() => emptyMaterializationDiagnostic());
+	const publishVisibleHydrationItemIds = useCallback((): void => {
+		const onVisibleItemIdsChange = props.onVisibleItemIdsChange;
+		if (onVisibleItemIdsChange === undefined) {
+			return;
+		}
+		onVisibleItemIdsChange(
+			uniqueItemIds([...visibleHeaderItemIdsRef.current, ...renderedWindowItemIdsRef.current]),
+		);
+	}, [props.onVisibleItemIdsChange]);
 	const publishVisibleItemIds = useCallback(
 		(source: BridgeCodeViewRenderedItemsSource): void => {
-			const onVisibleItemIdsChange = props.onVisibleItemIdsChange;
-			if (onVisibleItemIdsChange === undefined) {
-				return;
-			}
-			const itemIds = uniqueRenderedItemIds(source.getRenderedItems());
-			onVisibleItemIdsChange(itemIds);
+			renderedWindowItemIdsRef.current = uniqueRenderedItemIds(source.getRenderedItems());
+			publishVisibleHydrationItemIds();
 		},
-		[props.onVisibleItemIdsChange],
+		[publishVisibleHydrationItemIds],
 	);
 	const publishVisibleItemIdsFromCurrentHandle = useCallback((): void => {
 		const instance = codeViewHandleRef.current?.getInstance();
@@ -259,12 +265,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		[publishVisibleItemIds],
 	);
 	const publishVisibleHeaderItemIds = useCallback((): void => {
-		const onVisibleItemIdsChange = props.onVisibleItemIdsChange;
-		if (onVisibleItemIdsChange === undefined) {
-			return;
-		}
-		onVisibleItemIdsChange([...visibleHeaderItemIdsRef.current]);
-	}, [props.onVisibleItemIdsChange]);
+		publishVisibleHydrationItemIds();
+	}, [publishVisibleHydrationItemIds]);
 	const scheduleVisibleHeaderItemIdsPublish = useCallback((): void => {
 		if (pendingVisibleHeaderPublishFrameRef.current !== null) {
 			cancelAnimationFrame(pendingVisibleHeaderPublishFrameRef.current);
@@ -298,6 +300,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			codeViewHandleRef.current = handle;
 			if (handle !== null && mountedHandleViewerKeyRef.current !== viewerKey) {
 				mountedHandleViewerKeyRef.current = viewerKey;
+				renderedWindowItemIdsRef.current = [];
 				visibleHeaderItemIdsRef.current = new Set<string>();
 				setCodeViewMountVersion((currentVersion: number): number => currentVersion + 1);
 			}
@@ -921,14 +924,18 @@ function hasRenderedItemsSource(value: unknown): value is BridgeCodeViewRendered
 function uniqueRenderedItemIds(
 	renderedItems: readonly BridgeCodeViewRenderedItemSnapshot[],
 ): readonly string[] {
+	return uniqueItemIds(renderedItems.map((renderedItem): string => renderedItem.id));
+}
+
+function uniqueItemIds(candidateItemIds: readonly string[]): readonly string[] {
 	const itemIds: string[] = [];
 	const seenItemIds = new Set<string>();
-	for (const renderedItem of renderedItems) {
-		if (seenItemIds.has(renderedItem.id)) {
+	for (const itemId of candidateItemIds) {
+		if (seenItemIds.has(itemId)) {
 			continue;
 		}
-		seenItemIds.add(renderedItem.id);
-		itemIds.push(renderedItem.id);
+		seenItemIds.add(itemId);
+		itemIds.push(itemId);
 	}
 	return itemIds;
 }

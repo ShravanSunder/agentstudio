@@ -544,6 +544,70 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(onVisibleItemIdsChange).toHaveBeenCalledWith(['source-high', 'source-normal']);
 	});
 
+	test('publishes a union of visible headers and Pierre rendered items for hydration', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const [firstItem] = createBridgeCodeViewInitialItems({ reviewPackage, projection });
+		if (firstItem === undefined) {
+			throw new Error('expected initial CodeView item');
+		}
+		const onVisibleItemIdsChange = vi.fn();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					onVisibleItemIdsChange={onVisibleItemIdsChange}
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="source-high"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		const headerContainer = document.createElement('div');
+		document.body.append(headerContainer);
+		const headerRoot = createRoot(headerContainer);
+		await act(async (): Promise<void> => {
+			headerRoot.render(<>{codeViewDoubles.lastProps?.renderHeaderPrefix?.(firstItem)}</>);
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+		onVisibleItemIdsChange.mockClear();
+
+		codeViewDoubles.lastProps?.onScroll?.(128, {
+			getRenderedItems: (): readonly { readonly id: string }[] => [
+				{ id: 'source-normal' },
+				{ id: 'test-view' },
+			],
+		});
+
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(onVisibleItemIdsChange).toHaveBeenLastCalledWith([
+			'source-high',
+			'source-normal',
+			'test-view',
+		]);
+
+		await act(async (): Promise<void> => {
+			headerRoot.unmount();
+		});
+		headerContainer.remove();
+	});
+
 	test('materializes visible non-selected item resources without routing them through selection', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
