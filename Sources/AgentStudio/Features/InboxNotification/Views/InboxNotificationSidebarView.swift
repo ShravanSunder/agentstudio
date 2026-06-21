@@ -23,6 +23,7 @@ struct InboxNotificationSidebarView: View {
     let repoCache: RepoCacheAtom
     let dispatcher: AppCommandDispatcher
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let initialProjectionTrigger: String
     let onRefocusActivePane: @MainActor @Sendable () -> Void
 
     @State private var searchText = ""
@@ -50,6 +51,7 @@ struct InboxNotificationSidebarView: View {
         repoCache: RepoCacheAtom,
         dispatcher: AppCommandDispatcher,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        initialProjectionTrigger: String = "startup_diagnostic",
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
     ) {
         self.inboxAtom = inboxAtom
@@ -62,6 +64,7 @@ struct InboxNotificationSidebarView: View {
         self.repoCache = repoCache
         self.dispatcher = dispatcher
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.initialProjectionTrigger = initialProjectionTrigger
         self.onRefocusActivePane = onRefocusActivePane
         let initialRepoEnrichmentByRepoId = Self.repoEnrichmentByRepoId(
             repos: workspaceRepositoryTopologyAtom.repos,
@@ -205,6 +208,8 @@ struct InboxNotificationSidebarView: View {
     }
 
     private func refreshListModel(force: Bool = false) {
+        let clock = ContinuousClock()
+        let requestBuildStart = clock.now
         let resolvedRepoPresentationByRepoId = repoPresentationByRepoId
         let key = InboxNotificationListProjectionKey(
             notifications: inboxAtom.notifications,
@@ -238,6 +243,21 @@ struct InboxNotificationSidebarView: View {
             key: key,
             trigger: projectionTrigger,
             repoPresentationByRepoId: resolvedRepoPresentationByRepoId
+        )
+        let requestBuildDuration = requestBuildStart.duration(to: clock.now)
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: requestBuildDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: key,
+                trigger: projectionTrigger,
+                phase: "request_build_mainactor",
+                extra: [
+                    "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: requestBuildDuration)),
+                    "agentstudio.performance.sidebar.group.count": .int(0),
+                ]
+            )
         )
         let worker = projectionWorker
         projectionTask = Task { @MainActor in
@@ -336,7 +356,9 @@ struct InboxNotificationSidebarView: View {
         next: InboxNotificationListProjectionKey
     ) -> String {
         guard let previous else {
-            return next.grouping == .byTab ? "startup_diagnostic" : "grouping_switch"
+            return initialProjectionTrigger == "surface_switch"
+                ? "surface_switch"
+                : (next.grouping == .byTab ? "startup_diagnostic" : "grouping_switch")
         }
         if previous.grouping != next.grouping {
             return "grouping_switch"
@@ -347,7 +369,7 @@ struct InboxNotificationSidebarView: View {
         if previous.collapsedGroups != next.collapsedGroups {
             return "collapse_toggle"
         }
-        return "surface_switch"
+        return "data_refresh"
     }
 
     static func repoPresentationByRepoId(

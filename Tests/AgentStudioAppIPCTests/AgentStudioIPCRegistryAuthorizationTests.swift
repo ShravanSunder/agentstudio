@@ -310,6 +310,48 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         )
     }
 
+    @Test("sidebar semantic methods stay automation-only even with app scoped grants")
+    func sidebarSemanticMethodsStayAutomationOnlyEvenWithAppScopedGrants() throws {
+        let registry = try AppIPCMethodRegistry.phaseOne()
+        let grantLedger = GrantLedger()
+        let service = AuthorizationService(
+            methodRegistry: registry,
+            grantLedger: grantLedger,
+            canonicalizer: PermissionScopeCanonicalizer()
+        )
+        let spawnedPane = makeAuthorizationPrincipal(boundPaneId: "pane-1")
+        let automation = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: UUID(),
+            accessMode: .unsafeDebug,
+            kind: .automationClient,
+            approvalAuthority: .noApprovalAuthority
+        )
+
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .workspaceRead, target: .app, dataScope: .unspecified),
+            to: spawnedPane.principalId
+        )
+
+        for methodName in ["sidebar.grouping.get", "sidebar.surface.get"] {
+            #expect(throws: AuthorizationError.self) {
+                try service.authorize(
+                    principal: spawnedPane,
+                    methodName: methodName,
+                    requestedTarget: .app,
+                    activePaneId: "pane-1"
+                )
+            }
+
+            try service.authorize(
+                principal: automation,
+                methodName: methodName,
+                requestedTarget: .app,
+                activePaneId: nil
+            )
+        }
+    }
+
     @Test("spawned pane baseline does not include ui presentation")
     func spawnedPaneBaselineDoesNotIncludeUIPresentation() throws {
         let registry = try AppIPCMethodRegistry.phaseOne()

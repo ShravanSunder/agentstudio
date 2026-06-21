@@ -340,6 +340,7 @@ private enum SidebarMetricSurface: String {
 }
 
 private enum SidebarMetricPhase: String {
+    case requestBuildMainActor = "request_build_mainactor"
     case projectionWorker = "projection_worker"
     case mainActorApply = "mainactor_apply"
     case rowIndex = "row_index"
@@ -364,6 +365,7 @@ private enum SidebarMetricTrigger: String {
     case surfaceSwitch = "surface_switch"
     case search
     case collapseToggle = "collapse_toggle"
+    case dataRefresh = "data_refresh"
     case startupDiagnostic = "startup_diagnostic"
 }
 

@@ -77,10 +77,27 @@ struct RepoExplorerView: View {
     let onShowNotificationsForWorktree: (Worktree) -> Void
     let unreadCount: (Worktree) -> Int
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    let initialProjectionTrigger: String
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
     static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
     static let headerLayoutPolicy = SidebarHeaderLayout<EmptyView, EmptyView, EmptyView, EmptyView>.policy
+
+    init(
+        store: WorkspaceStore,
+        onRefocusActivePane: @escaping () -> Void,
+        onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
+        unreadCount: @escaping (Worktree) -> Int,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        initialProjectionTrigger: String = "startup_diagnostic"
+    ) {
+        self.store = store
+        self.onRefocusActivePane = onRefocusActivePane
+        self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
+        self.unreadCount = unreadCount
+        self.performanceTraceRecorder = performanceTraceRecorder
+        self.initialProjectionTrigger = initialProjectionTrigger
+    }
 
     private var repoCache: RepoCacheAtom {
         atom(\.repoCache)
@@ -159,7 +176,7 @@ struct RepoExplorerView: View {
             snapshot: sidebarSnapshot,
             expandedGroupIds: Set(sidebarCache.expandedGroups.map(\.rawValue)),
             isFiltering: isFiltering,
-            trigger: "startup_diagnostic"
+            trigger: initialProjectionTrigger
         )
     }
 
@@ -594,6 +611,8 @@ struct RepoExplorerView: View {
     }
 
     private func refreshProjection(force: Bool = false) {
+        let clock = ContinuousClock()
+        let requestBuildStart = clock.now
         let request = projectionRequest
         let requestKey = ProjectionRequestKey(
             snapshot: request.snapshot,
@@ -630,6 +649,19 @@ struct RepoExplorerView: View {
             expandedGroupIds: request.expandedGroupIds,
             isFiltering: request.isFiltering,
             trigger: projectionTrigger
+        )
+        let requestBuildDuration = requestBuildStart.duration(to: clock.now)
+        performanceTraceRecorder?.recordDuration(
+            .sidebarProjection,
+            duration: requestBuildDuration,
+            attributes: sidebarProjectionTraceAttributes(
+                for: generatedRequest,
+                phase: "request_build_mainactor",
+                extra: [
+                    "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: requestBuildDuration))
+                ]
+            )
         )
         cachedProjectionRequest = generatedRequest
         projectionTask?.cancel()
@@ -770,7 +802,9 @@ struct RepoExplorerView: View {
         next: RepoExplorerProjectionRequest
     ) -> String {
         guard let previous else {
-            return next.snapshot.groupingMode == .repo ? "startup_diagnostic" : "grouping_switch"
+            return initialProjectionTrigger == "surface_switch"
+                ? "surface_switch"
+                : (next.snapshot.groupingMode == .repo ? "startup_diagnostic" : "grouping_switch")
         }
         if previous.snapshot.groupingMode != next.snapshot.groupingMode {
             return "grouping_switch"
@@ -781,7 +815,7 @@ struct RepoExplorerView: View {
         if previous.expandedGroupIds != next.expandedGroupIds {
             return "collapse_toggle"
         }
-        return "surface_switch"
+        return "data_refresh"
     }
 
 }

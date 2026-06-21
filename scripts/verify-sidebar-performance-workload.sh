@@ -194,8 +194,13 @@ metric_event_elapsed_selector() {
   local phase="$2"
   local group_mode="$3"
   local trigger="$4"
-  printf 'agent.proof.marker="%s",event="performance.sidebar.projection",surface="%s",phase="%s",group_mode="%s",trigger="%s"' \
+  local event_name="performance.sidebar.projection"
+  if [ "$phase" = "row_index" ]; then
+    event_name="performance.sidebar.row_index"
+  fi
+  printf 'agent.proof.marker="%s",event="%s",surface="%s",phase="%s",group_mode="%s",trigger="%s"' \
     "$(metric_label_selector "$TRACE_NAME")" \
+    "$(metric_label_selector "$event_name")" \
     "$(metric_label_selector "$surface")" \
     "$(metric_label_selector "$phase")" \
     "$(metric_label_selector "$group_mode")" \
@@ -220,6 +225,15 @@ metric_event_elapsed_p95_query() {
     "$(metric_event_elapsed_selector "$surface" "$phase" "$group_mode" "$trigger")"
 }
 
+metric_event_elapsed_count_query() {
+  local surface="$1"
+  local phase="$2"
+  local group_mode="$3"
+  local trigger="$4"
+  printf 'sum(agentstudio_performance_event_elapsed_ms_bucket{%s,le="+Inf"})' \
+    "$(metric_event_elapsed_selector "$surface" "$phase" "$group_mode" "$trigger")"
+}
+
 require_metric_value() {
   local key="$1"
   local query="$2"
@@ -231,6 +245,35 @@ require_metric_value() {
     exit 1
   fi
   printf '%s\n' "$value"
+}
+
+wait_for_required_metric_count() {
+  local key="$1"
+  local query="$2"
+  local minimum="$3"
+  local attempt
+  local value
+  for attempt in $(seq 1 30); do
+    value="$(metric_value_or_empty "$query")"
+    if [ -n "$value" ]; then
+      if /usr/bin/python3 - "$value" "$minimum" <<'PY'
+import sys
+
+value = float(sys.argv[1])
+minimum = float(sys.argv[2])
+raise SystemExit(0 if value >= minimum else 1)
+PY
+      then
+        printf '%s\n' "$value"
+        return 0
+      fi
+    fi
+    /bin/sleep 2
+  done
+  echo "missing required sidebar metric sample count: $key >= $minimum" >&2
+  echo "query: $query" >&2
+  echo "value: ${value:-<missing>}" >&2
+  exit 1
 }
 
 wait_for_required_metric_value() {
@@ -263,6 +306,7 @@ metadata_path = sys.argv[1]
 debug_token_path = sys.argv[2]
 timeout = float(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_TIMEOUT_SECONDS", "15"))
 step_delay = float(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_STEP_DELAY_SECONDS", "0.35"))
+cycles = int(os.environ.get("AGENTSTUDIO_SIDEBAR_IPC_CYCLES", "5"))
 
 with open(metadata_path, "r", encoding="utf-8") as metadata_file:
     metadata = json.load(metadata_file)
@@ -330,26 +374,58 @@ try:
     finally:
         replay.close()
 
-    operations = [
-        ("sidebar.surface.set", {"surface": "repo"}),
-        ("sidebar.grouping.set", {"surface": "repo", "mode": "repo"}),
-        ("sidebar.grouping.set", {"surface": "repo", "mode": "pane"}),
-        ("sidebar.grouping.set", {"surface": "repo", "mode": "tab"}),
-        ("sidebar.grouping.set", {"surface": "repo", "mode": "repo"}),
-        ("sidebar.surface.set", {"surface": "inbox"}),
-        ("sidebar.grouping.set", {"surface": "inbox", "mode": "tab"}),
-        ("sidebar.grouping.set", {"surface": "inbox", "mode": "repo"}),
-        ("sidebar.grouping.set", {"surface": "inbox", "mode": "pane"}),
-        ("sidebar.grouping.set", {"surface": "inbox", "mode": "none"}),
-        ("sidebar.grouping.set", {"surface": "inbox", "mode": "tab"}),
-        ("sidebar.surface.set", {"surface": "repo"}),
-        ("sidebar.surface.set", {"surface": "inbox"}),
-        ("sidebar.surface.set", {"surface": "repo"}),
-    ]
-    for index, (method, params) in enumerate(operations, start=2):
-        require_success(session.request(index, method, params), method)
+    request_id = [2]
+
+    def next_id():
+        current = request_id[0]
+        request_id[0] += 1
+        return current
+
+    def set_grouping(surface, mode):
+        require_success(
+            session.request(next_id(), "sidebar.grouping.set", {"surface": surface, "mode": mode}),
+            f"sidebar.grouping.set {surface} {mode}",
+        )
+        result = require_success(
+            session.request(next_id(), "sidebar.grouping.get", {"surface": surface}),
+            f"sidebar.grouping.get {surface}",
+        )
+        if result.get("mode") != mode:
+            print(f"sidebar grouping read-back mismatch for {surface}: {result}", file=sys.stderr)
+            sys.exit(1)
         if step_delay > 0:
             time.sleep(step_delay)
+
+    def set_surface(surface):
+        require_success(
+            session.request(next_id(), "sidebar.surface.set", {"surface": surface}),
+            f"sidebar.surface.set {surface}",
+        )
+        result = require_success(
+            session.request(next_id(), "sidebar.surface.get", {}),
+            "sidebar.surface.get",
+        )
+        if result.get("surface") != surface:
+            print(f"sidebar surface read-back mismatch for {surface}: {result}", file=sys.stderr)
+            sys.exit(1)
+        if step_delay > 0:
+            time.sleep(step_delay)
+
+    for _ in range(cycles):
+        set_surface("repo")
+        set_grouping("repo", "repo")
+        set_grouping("repo", "pane")
+        set_grouping("repo", "tab")
+        set_grouping("repo", "repo")
+        set_surface("inbox")
+        set_grouping("inbox", "tab")
+        set_grouping("inbox", "repo")
+        set_grouping("inbox", "pane")
+        set_grouping("inbox", "none")
+        set_grouping("inbox", "tab")
+        set_surface("repo")
+        set_surface("inbox")
+        set_surface("repo")
 finally:
     session.close()
 PY
@@ -435,7 +511,7 @@ SUMMARY_FILE="$ARTIFACT/summary.txt"
 BASELINE_FILE="$PROOF_ROOT/sidebar-performance-baseline.env"
 mkdir -p "$ARTIFACT" "$(dirname "$STATE_FILE")"
 
-sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_NAME")'",event="performance.sidebar.projection",surface=~"inbox|repo",phase=~"startup_diagnostic|mainactor_apply|projection_worker"}'
+sidebar_metric_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_NAME")'",event="performance.sidebar.projection",surface=~"inbox|repo",phase=~"startup_diagnostic|request_build_mainactor|mainactor_apply|projection_worker|row_index"}'
 inbox_worker_event_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_NAME")'",event="performance.sidebar.projection",surface="inbox",phase="projection_worker"}'
 inbox_apply_event_query='agentstudio_performance_events_total{agent.proof.marker="'$(metric_label_selector "$TRACE_NAME")'",event="performance.sidebar.projection",surface="inbox",phase="mainactor_apply"}'
 inbox_worker_elapsed_query='agentstudio_performance_event_elapsed_ms_max{agent.proof.marker="'$(metric_label_selector "$TRACE_NAME")'",event="performance.sidebar.projection",surface="inbox",phase="projection_worker"}'
@@ -563,6 +639,82 @@ inbox_pane_mainactor_apply_elapsed_ms_max="$(
   wait_for_required_metric_value inbox_pane_mainactor_apply_elapsed_ms_max \
     "$(metric_event_elapsed_max_query inbox mainactor_apply pane grouping_switch)"
 )"
+repo_pane_projection_worker_elapsed_ms_count="$(
+  wait_for_required_metric_count repo_pane_projection_worker_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo projection_worker pane grouping_switch)" 3
+)"
+repo_tab_mainactor_apply_elapsed_ms_count="$(
+  wait_for_required_metric_count repo_tab_mainactor_apply_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo mainactor_apply tab grouping_switch)" 3
+)"
+inbox_none_projection_worker_elapsed_ms_count="$(
+  wait_for_required_metric_count inbox_none_projection_worker_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query inbox projection_worker none grouping_switch)" 3
+)"
+inbox_pane_mainactor_apply_elapsed_ms_count="$(
+  wait_for_required_metric_count inbox_pane_mainactor_apply_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query inbox mainactor_apply pane grouping_switch)" 3
+)"
+repo_pane_request_build_mainactor_elapsed_ms_p95="$(
+  wait_for_required_metric_value repo_pane_request_build_mainactor_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo request_build_mainactor pane grouping_switch)"
+)"
+repo_pane_request_build_mainactor_elapsed_ms_max="$(
+  wait_for_required_metric_value repo_pane_request_build_mainactor_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo request_build_mainactor pane grouping_switch)"
+)"
+repo_pane_request_build_mainactor_elapsed_ms_count="$(
+  wait_for_required_metric_count repo_pane_request_build_mainactor_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo request_build_mainactor pane grouping_switch)" 3
+)"
+repo_pane_row_index_elapsed_ms_p95="$(
+  wait_for_required_metric_value repo_pane_row_index_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo row_index pane grouping_switch)"
+)"
+repo_pane_row_index_elapsed_ms_max="$(
+  wait_for_required_metric_value repo_pane_row_index_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo row_index pane grouping_switch)"
+)"
+repo_pane_row_index_elapsed_ms_count="$(
+  wait_for_required_metric_count repo_pane_row_index_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo row_index pane grouping_switch)" 3
+)"
+inbox_none_request_build_mainactor_elapsed_ms_p95="$(
+  wait_for_required_metric_value inbox_none_request_build_mainactor_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query inbox request_build_mainactor none grouping_switch)"
+)"
+inbox_none_request_build_mainactor_elapsed_ms_max="$(
+  wait_for_required_metric_value inbox_none_request_build_mainactor_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query inbox request_build_mainactor none grouping_switch)"
+)"
+inbox_none_request_build_mainactor_elapsed_ms_count="$(
+  wait_for_required_metric_count inbox_none_request_build_mainactor_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query inbox request_build_mainactor none grouping_switch)" 3
+)"
+surface_switch_repo_mainactor_apply_elapsed_ms_p95="$(
+  wait_for_required_metric_value surface_switch_repo_mainactor_apply_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo mainactor_apply not_applicable surface_switch)"
+)"
+surface_switch_repo_mainactor_apply_elapsed_ms_max="$(
+  wait_for_required_metric_value surface_switch_repo_mainactor_apply_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo mainactor_apply not_applicable surface_switch)"
+)"
+surface_switch_repo_mainactor_apply_elapsed_ms_count="$(
+  wait_for_required_metric_count surface_switch_repo_mainactor_apply_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo mainactor_apply not_applicable surface_switch)" 3
+)"
+surface_switch_inbox_mainactor_apply_elapsed_ms_p95="$(
+  wait_for_required_metric_value surface_switch_inbox_mainactor_apply_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query inbox mainactor_apply not_applicable surface_switch)"
+)"
+surface_switch_inbox_mainactor_apply_elapsed_ms_max="$(
+  wait_for_required_metric_value surface_switch_inbox_mainactor_apply_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query inbox mainactor_apply not_applicable surface_switch)"
+)"
+surface_switch_inbox_mainactor_apply_elapsed_ms_count="$(
+  wait_for_required_metric_count surface_switch_inbox_mainactor_apply_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query inbox mainactor_apply not_applicable surface_switch)" 3
+)"
 
 if [ "$mode" = "baseline" ]; then
   {
@@ -577,6 +729,16 @@ if [ "$mode" = "baseline" ]; then
     echo "inbox_none_projection_worker_elapsed_ms_max=$inbox_none_projection_worker_elapsed_ms_max"
     echo "inbox_pane_mainactor_apply_elapsed_ms_p95=$inbox_pane_mainactor_apply_elapsed_ms_p95"
     echo "inbox_pane_mainactor_apply_elapsed_ms_max=$inbox_pane_mainactor_apply_elapsed_ms_max"
+    echo "repo_pane_request_build_mainactor_elapsed_ms_p95=$repo_pane_request_build_mainactor_elapsed_ms_p95"
+    echo "repo_pane_request_build_mainactor_elapsed_ms_max=$repo_pane_request_build_mainactor_elapsed_ms_max"
+    echo "repo_pane_row_index_elapsed_ms_p95=$repo_pane_row_index_elapsed_ms_p95"
+    echo "repo_pane_row_index_elapsed_ms_max=$repo_pane_row_index_elapsed_ms_max"
+    echo "inbox_none_request_build_mainactor_elapsed_ms_p95=$inbox_none_request_build_mainactor_elapsed_ms_p95"
+    echo "inbox_none_request_build_mainactor_elapsed_ms_max=$inbox_none_request_build_mainactor_elapsed_ms_max"
+    echo "surface_switch_repo_mainactor_apply_elapsed_ms_p95=$surface_switch_repo_mainactor_apply_elapsed_ms_p95"
+    echo "surface_switch_repo_mainactor_apply_elapsed_ms_max=$surface_switch_repo_mainactor_apply_elapsed_ms_max"
+    echo "surface_switch_inbox_mainactor_apply_elapsed_ms_p95=$surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
+    echo "surface_switch_inbox_mainactor_apply_elapsed_ms_max=$surface_switch_inbox_mainactor_apply_elapsed_ms_max"
   } >"$BASELINE_FILE"
 fi
 
@@ -593,6 +755,16 @@ if [ "$mode" = "compare" ]; then
   compare_inbox_none_projection_worker_elapsed_ms_max="$inbox_none_projection_worker_elapsed_ms_max"
   compare_inbox_pane_mainactor_apply_elapsed_ms_p95="$inbox_pane_mainactor_apply_elapsed_ms_p95"
   compare_inbox_pane_mainactor_apply_elapsed_ms_max="$inbox_pane_mainactor_apply_elapsed_ms_max"
+  compare_repo_pane_request_build_mainactor_elapsed_ms_p95="$repo_pane_request_build_mainactor_elapsed_ms_p95"
+  compare_repo_pane_request_build_mainactor_elapsed_ms_max="$repo_pane_request_build_mainactor_elapsed_ms_max"
+  compare_repo_pane_row_index_elapsed_ms_p95="$repo_pane_row_index_elapsed_ms_p95"
+  compare_repo_pane_row_index_elapsed_ms_max="$repo_pane_row_index_elapsed_ms_max"
+  compare_inbox_none_request_build_mainactor_elapsed_ms_p95="$inbox_none_request_build_mainactor_elapsed_ms_p95"
+  compare_inbox_none_request_build_mainactor_elapsed_ms_max="$inbox_none_request_build_mainactor_elapsed_ms_max"
+  compare_surface_switch_repo_mainactor_apply_elapsed_ms_p95="$surface_switch_repo_mainactor_apply_elapsed_ms_p95"
+  compare_surface_switch_repo_mainactor_apply_elapsed_ms_max="$surface_switch_repo_mainactor_apply_elapsed_ms_max"
+  compare_surface_switch_inbox_mainactor_apply_elapsed_ms_p95="$surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
+  compare_surface_switch_inbox_mainactor_apply_elapsed_ms_max="$surface_switch_inbox_mainactor_apply_elapsed_ms_max"
   # shellcheck disable=SC1090
   . "$BASELINE_FILE"
   performance_threshold_check \
@@ -627,6 +799,36 @@ if [ "$mode" = "compare" ]; then
   performance_threshold_check inbox_pane_mainactor_apply_elapsed_ms_max \
     "${inbox_pane_mainactor_apply_elapsed_ms_max:?missing baseline inbox pane apply max}" \
     "$compare_inbox_pane_mainactor_apply_elapsed_ms_max"
+  performance_threshold_check repo_pane_request_build_mainactor_elapsed_ms_p95 \
+    "${repo_pane_request_build_mainactor_elapsed_ms_p95:?missing baseline repo pane request-build p95}" \
+    "$compare_repo_pane_request_build_mainactor_elapsed_ms_p95"
+  performance_threshold_check repo_pane_request_build_mainactor_elapsed_ms_max \
+    "${repo_pane_request_build_mainactor_elapsed_ms_max:?missing baseline repo pane request-build max}" \
+    "$compare_repo_pane_request_build_mainactor_elapsed_ms_max"
+  performance_threshold_check repo_pane_row_index_elapsed_ms_p95 \
+    "${repo_pane_row_index_elapsed_ms_p95:?missing baseline repo pane row-index p95}" \
+    "$compare_repo_pane_row_index_elapsed_ms_p95"
+  performance_threshold_check repo_pane_row_index_elapsed_ms_max \
+    "${repo_pane_row_index_elapsed_ms_max:?missing baseline repo pane row-index max}" \
+    "$compare_repo_pane_row_index_elapsed_ms_max"
+  performance_threshold_check inbox_none_request_build_mainactor_elapsed_ms_p95 \
+    "${inbox_none_request_build_mainactor_elapsed_ms_p95:?missing baseline inbox none request-build p95}" \
+    "$compare_inbox_none_request_build_mainactor_elapsed_ms_p95"
+  performance_threshold_check inbox_none_request_build_mainactor_elapsed_ms_max \
+    "${inbox_none_request_build_mainactor_elapsed_ms_max:?missing baseline inbox none request-build max}" \
+    "$compare_inbox_none_request_build_mainactor_elapsed_ms_max"
+  performance_threshold_check surface_switch_repo_mainactor_apply_elapsed_ms_p95 \
+    "${surface_switch_repo_mainactor_apply_elapsed_ms_p95:?missing baseline repo surface-switch p95}" \
+    "$compare_surface_switch_repo_mainactor_apply_elapsed_ms_p95"
+  performance_threshold_check surface_switch_repo_mainactor_apply_elapsed_ms_max \
+    "${surface_switch_repo_mainactor_apply_elapsed_ms_max:?missing baseline repo surface-switch max}" \
+    "$compare_surface_switch_repo_mainactor_apply_elapsed_ms_max"
+  performance_threshold_check surface_switch_inbox_mainactor_apply_elapsed_ms_p95 \
+    "${surface_switch_inbox_mainactor_apply_elapsed_ms_p95:?missing baseline inbox surface-switch p95}" \
+    "$compare_surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
+  performance_threshold_check surface_switch_inbox_mainactor_apply_elapsed_ms_max \
+    "${surface_switch_inbox_mainactor_apply_elapsed_ms_max:?missing baseline inbox surface-switch max}" \
+    "$compare_surface_switch_inbox_mainactor_apply_elapsed_ms_max"
   repo_pane_projection_worker_elapsed_ms_p95="$compare_repo_pane_projection_worker_elapsed_ms_p95"
   repo_pane_projection_worker_elapsed_ms_max="$compare_repo_pane_projection_worker_elapsed_ms_max"
   repo_tab_mainactor_apply_elapsed_ms_p95="$compare_repo_tab_mainactor_apply_elapsed_ms_p95"
@@ -635,6 +837,16 @@ if [ "$mode" = "compare" ]; then
   inbox_none_projection_worker_elapsed_ms_max="$compare_inbox_none_projection_worker_elapsed_ms_max"
   inbox_pane_mainactor_apply_elapsed_ms_p95="$compare_inbox_pane_mainactor_apply_elapsed_ms_p95"
   inbox_pane_mainactor_apply_elapsed_ms_max="$compare_inbox_pane_mainactor_apply_elapsed_ms_max"
+  repo_pane_request_build_mainactor_elapsed_ms_p95="$compare_repo_pane_request_build_mainactor_elapsed_ms_p95"
+  repo_pane_request_build_mainactor_elapsed_ms_max="$compare_repo_pane_request_build_mainactor_elapsed_ms_max"
+  repo_pane_row_index_elapsed_ms_p95="$compare_repo_pane_row_index_elapsed_ms_p95"
+  repo_pane_row_index_elapsed_ms_max="$compare_repo_pane_row_index_elapsed_ms_max"
+  inbox_none_request_build_mainactor_elapsed_ms_p95="$compare_inbox_none_request_build_mainactor_elapsed_ms_p95"
+  inbox_none_request_build_mainactor_elapsed_ms_max="$compare_inbox_none_request_build_mainactor_elapsed_ms_max"
+  surface_switch_repo_mainactor_apply_elapsed_ms_p95="$compare_surface_switch_repo_mainactor_apply_elapsed_ms_p95"
+  surface_switch_repo_mainactor_apply_elapsed_ms_max="$compare_surface_switch_repo_mainactor_apply_elapsed_ms_max"
+  surface_switch_inbox_mainactor_apply_elapsed_ms_p95="$compare_surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
+  surface_switch_inbox_mainactor_apply_elapsed_ms_max="$compare_surface_switch_inbox_mainactor_apply_elapsed_ms_max"
 fi
 
 {
@@ -650,12 +862,31 @@ fi
   echo "inbox_mainactor_apply_elapsed_ms_max=$apply_elapsed_ms"
   echo "repo_pane_projection_worker_elapsed_ms_p95=$repo_pane_projection_worker_elapsed_ms_p95"
   echo "repo_pane_projection_worker_elapsed_ms_max=$repo_pane_projection_worker_elapsed_ms_max"
+  echo "repo_pane_projection_worker_elapsed_ms_count=$repo_pane_projection_worker_elapsed_ms_count"
   echo "repo_tab_mainactor_apply_elapsed_ms_p95=$repo_tab_mainactor_apply_elapsed_ms_p95"
   echo "repo_tab_mainactor_apply_elapsed_ms_max=$repo_tab_mainactor_apply_elapsed_ms_max"
+  echo "repo_tab_mainactor_apply_elapsed_ms_count=$repo_tab_mainactor_apply_elapsed_ms_count"
   echo "inbox_none_projection_worker_elapsed_ms_p95=$inbox_none_projection_worker_elapsed_ms_p95"
   echo "inbox_none_projection_worker_elapsed_ms_max=$inbox_none_projection_worker_elapsed_ms_max"
+  echo "inbox_none_projection_worker_elapsed_ms_count=$inbox_none_projection_worker_elapsed_ms_count"
   echo "inbox_pane_mainactor_apply_elapsed_ms_p95=$inbox_pane_mainactor_apply_elapsed_ms_p95"
   echo "inbox_pane_mainactor_apply_elapsed_ms_max=$inbox_pane_mainactor_apply_elapsed_ms_max"
+  echo "inbox_pane_mainactor_apply_elapsed_ms_count=$inbox_pane_mainactor_apply_elapsed_ms_count"
+  echo "repo_pane_request_build_mainactor_elapsed_ms_p95=$repo_pane_request_build_mainactor_elapsed_ms_p95"
+  echo "repo_pane_request_build_mainactor_elapsed_ms_max=$repo_pane_request_build_mainactor_elapsed_ms_max"
+  echo "repo_pane_request_build_mainactor_elapsed_ms_count=$repo_pane_request_build_mainactor_elapsed_ms_count"
+  echo "repo_pane_row_index_elapsed_ms_p95=$repo_pane_row_index_elapsed_ms_p95"
+  echo "repo_pane_row_index_elapsed_ms_max=$repo_pane_row_index_elapsed_ms_max"
+  echo "repo_pane_row_index_elapsed_ms_count=$repo_pane_row_index_elapsed_ms_count"
+  echo "inbox_none_request_build_mainactor_elapsed_ms_p95=$inbox_none_request_build_mainactor_elapsed_ms_p95"
+  echo "inbox_none_request_build_mainactor_elapsed_ms_max=$inbox_none_request_build_mainactor_elapsed_ms_max"
+  echo "inbox_none_request_build_mainactor_elapsed_ms_count=$inbox_none_request_build_mainactor_elapsed_ms_count"
+  echo "surface_switch_repo_mainactor_apply_elapsed_ms_p95=$surface_switch_repo_mainactor_apply_elapsed_ms_p95"
+  echo "surface_switch_repo_mainactor_apply_elapsed_ms_max=$surface_switch_repo_mainactor_apply_elapsed_ms_max"
+  echo "surface_switch_repo_mainactor_apply_elapsed_ms_count=$surface_switch_repo_mainactor_apply_elapsed_ms_count"
+  echo "surface_switch_inbox_mainactor_apply_elapsed_ms_p95=$surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
+  echo "surface_switch_inbox_mainactor_apply_elapsed_ms_max=$surface_switch_inbox_mainactor_apply_elapsed_ms_max"
+  echo "surface_switch_inbox_mainactor_apply_elapsed_ms_count=$surface_switch_inbox_mainactor_apply_elapsed_ms_count"
   echo "sidebar_surface_switch.ipc_sequence=repo,inbox,repo,inbox,repo"
   if [ "$mode" = "baseline" ] || [ "$mode" = "compare" ]; then
     echo "baseline_file=$BASELINE_FILE"

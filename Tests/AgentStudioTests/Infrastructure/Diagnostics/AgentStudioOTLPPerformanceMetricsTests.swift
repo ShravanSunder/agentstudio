@@ -254,6 +254,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio.performance.sidebar.group.count": .int(4),
                 "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(4.5),
                 "agentstudio.performance.sidebar.query_character.count": .int(3),
+                "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(0.5),
             ]
         )
 
@@ -294,6 +295,12 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                     label: "agentstudio_performance_sidebar_query_character_count",
                     dimensions: expectedDimensions,
                     value: 3
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.sidebar.projection",
+                    label: "agentstudio_performance_sidebar_request_build_mainactor_elapsed_ms",
+                    dimensions: expectedDimensions,
+                    value: 0.5
                 ),
             ])
     }

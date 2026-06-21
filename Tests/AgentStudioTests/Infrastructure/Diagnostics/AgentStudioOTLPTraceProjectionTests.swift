@@ -249,6 +249,7 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
                 "agentstudio.performance.sidebar.input.count": .int(10),
                 "agentstudio.performance.sidebar.group.count": .int(3),
+                "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(0.5),
                 "agentstudio.performance.sidebar.section.count": .int(99),
                 "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(2.75),
                 "agentstudio.performance.sidebar.notification_text": .string("secret user prompt"),
@@ -269,6 +270,8 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("grouping_switch"))
         #expect(projection.attributes["agentstudio.performance.sidebar.input.count"] == .int(10))
         #expect(projection.attributes["agentstudio.performance.sidebar.group.count"] == .int(3))
+        #expect(
+            projection.attributes["agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms"] == .double(0.5))
         #expect(projection.attributes["agentstudio.performance.sidebar.section.count"] == nil)
         #expect(projection.attributes["agentstudio.performance.sidebar.mainactor_apply_elapsed_ms"] == .double(2.75))
         #expect(projection.attributes["agentstudio.performance.sidebar.notification_text"] == nil)
@@ -309,6 +312,38 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("grouping_switch"))
         #expect(projection.attributes["agentstudio.performance.sidebar.row_index_elapsed_ms"] == .double(1.25))
         #expect(projection.attributes["agentstudio.performance.sidebar.row_index_worker_elapsed_ms"] == nil)
+    }
+
+    @Test
+    func sidebarRequestBuildProjectionKeepsCanonicalPhaseAndDataRefreshTrigger() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 177,
+            severityText: .info,
+            body: "performance.sidebar.projection",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(0.75),
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("request_build_mainactor"),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("pane"),
+                "agentstudio.performance.sidebar.trigger": .string("data_refresh"),
+                "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(0.75),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("request_build_mainactor"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("data_refresh"))
+        #expect(
+            projection.attributes["agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms"] == .double(0.75)
+        )
     }
 
     @Test

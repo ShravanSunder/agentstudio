@@ -7,6 +7,8 @@ STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-obse
 state_status=""
 state_pid=""
 state_data_dir=""
+state_activation_mode=""
+state_ipc_auth_mode=""
 
 if [ -f "$STATE_FILE" ]; then
   while IFS='=' read -r key value; do
@@ -31,6 +33,12 @@ PY
         ;;
       AGENTSTUDIO_OBSERVABILITY_DATA_DIR)
         state_data_dir="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE)
+        state_activation_mode="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE)
+        state_ipc_auth_mode="$decoded_value"
         ;;
     esac
   done <"$STATE_FILE"
@@ -58,6 +66,18 @@ fi
 
 if [ -z "$state_data_dir" ]; then
   echo "AgentStudio debug observability state missing data directory" >&2
+  echo "state file: $STATE_FILE" >&2
+  exit 1
+fi
+
+if [ "$state_ipc_auth_mode" != "authenticated" ]; then
+  echo "AgentStudio IPC phase-a smoke requires authenticated IPC auth mode: ${state_ipc_auth_mode:-<missing>}" >&2
+  echo "state file: $STATE_FILE" >&2
+  exit 1
+fi
+
+if [ "$state_activation_mode" != "background" ]; then
+  echo "AgentStudio IPC phase-a smoke requires background activation mode: ${state_activation_mode:-<missing>}" >&2
   echo "state file: $STATE_FILE" >&2
   exit 1
 fi

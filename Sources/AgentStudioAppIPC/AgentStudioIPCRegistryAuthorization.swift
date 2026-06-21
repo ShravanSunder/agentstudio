@@ -307,6 +307,10 @@ public struct AuthorizationService: Sendable {
             return
         }
 
+        if Self.authenticatedAutomationMethodAllowlist.contains(methodName) {
+            throw AuthorizationError(reason: .unauthorized)
+        }
+
         if unsafeDebugAllows(methodName: methodName, definition: definition, for: principal) {
             return
         }
