@@ -170,6 +170,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const lastTelemetryMarkedItemRef = useRef<string | null>(null);
 	const lastFirstRenderPackageRef = useRef<string | null>(null);
 	const codeViewControlHandleRef = useRef<BridgeCodeViewControlHandle | null>(null);
+	const selectedContentAbortControllerRef = useRef<AbortController | null>(null);
 	const reviewPackageRef = useRef<BridgeReviewPackage | null>(null);
 	reviewPackageRef.current = reviewPackage;
 	const projectionRef = useRef(projection);
@@ -241,9 +242,16 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					behavior: options.revealBehavior ?? 'instant',
 				});
 			}
+			const isSelectionChange = rootSnapshotRef.current.selectedItemId !== itemId;
+			if (isSelectionChange) {
+				selectedContentAbortControllerRef.current?.abort();
+				selectedContentAbortControllerRef.current = null;
+			}
 			viewerActions.setSelectedItemId(itemId);
 			viewerActions.setRenderMode({ kind: 'codeView' });
-			setSelectedContentResourcesState(null);
+			if (isSelectionChange) {
+				setSelectedContentResourcesState(null);
+			}
 			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
 			rpcClient.sendCommand({
 				method: 'review.markFileViewed',
@@ -402,12 +410,16 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	useEffect((): (() => void) => {
 		let didCancel = false;
 		const contentAbortController = new AbortController();
+		selectedContentAbortControllerRef.current = contentAbortController;
 		const selectedItemId = rootSnapshot.selectedItemId;
 		if (reviewPackage === null || selectedItemId === null) {
 			setSelectedContentResourcesState(null);
 			return (): void => {
 				didCancel = true;
 				contentAbortController.abort();
+				if (selectedContentAbortControllerRef.current === contentAbortController) {
+					selectedContentAbortControllerRef.current = null;
+				}
 			};
 		}
 		const selectedItem = reviewPackage.itemsById[selectedItemId];
@@ -416,6 +428,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			return (): void => {
 				didCancel = true;
 				contentAbortController.abort();
+				if (selectedContentAbortControllerRef.current === contentAbortController) {
+					selectedContentAbortControllerRef.current = null;
+				}
 			};
 		}
 		const selectedContentKey = makeSelectedContentResourcesKey(reviewPackage, selectedItemId);
@@ -484,6 +499,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		return (): void => {
 			didCancel = true;
 			contentAbortController.abort();
+			if (selectedContentAbortControllerRef.current === contentAbortController) {
+				selectedContentAbortControllerRef.current = null;
+			}
 		};
 	}, [contentRegistry, props.fetchContent, reviewPackage, rootSnapshot.selectedItemId]);
 

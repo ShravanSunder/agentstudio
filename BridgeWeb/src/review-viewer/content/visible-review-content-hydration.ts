@@ -49,6 +49,10 @@ export function useVisibleReviewContentHydration(
 	const resourcesByItemIdRef = useRef<ReadonlyMap<string, BridgeCodeViewContentResources>>(
 		new Map<string, BridgeCodeViewContentResources>(),
 	);
+	const reportedVisibleItemIdsRef = useRef<readonly string[]>([]);
+	const loadAbortControllersByContentKeyRef = useRef<Map<string, AbortController>>(
+		new Map<string, AbortController>(),
+	);
 
 	const packageIdentityKey =
 		props.reviewPackage === null
@@ -60,6 +64,8 @@ export function useVisibleReviewContentHydration(
 				].join(':');
 
 	useEffect((): void => {
+		reportedVisibleItemIdsRef.current = [];
+		abortVisibleContentLoads(loadAbortControllersByContentKeyRef.current);
 		setVisibleItemIdsState([]);
 		setContentStateByItemId(new Map<string, VisibleContentResourcesState>());
 		resourcesByItemIdRef.current = new Map<string, BridgeCodeViewContentResources>();
@@ -67,6 +73,7 @@ export function useVisibleReviewContentHydration(
 
 	const setVisibleItemIds = useCallback(
 		(itemIds: readonly string[]): void => {
+			reportedVisibleItemIdsRef.current = itemIds;
 			const nextItemIds = normalizeVisibleReviewItemIds({
 				itemIds,
 				reviewPackage: props.reviewPackage,
@@ -77,6 +84,24 @@ export function useVisibleReviewContentHydration(
 			);
 		},
 		[props.reviewPackage, props.selectedItemId],
+	);
+
+	useEffect((): void => {
+		const nextItemIds = normalizeVisibleReviewItemIds({
+			itemIds: reportedVisibleItemIdsRef.current,
+			reviewPackage: props.reviewPackage,
+			selectedItemId: props.selectedItemId,
+		});
+		setVisibleItemIdsState((currentItemIds: readonly string[]): readonly string[] =>
+			stringArraysEqual(currentItemIds, nextItemIds) ? currentItemIds : nextItemIds,
+		);
+	}, [props.reviewPackage, props.selectedItemId]);
+
+	useEffect(
+		(): (() => void) => () => {
+			abortVisibleContentLoads(loadAbortControllersByContentKeyRef.current);
+		},
+		[],
 	);
 
 	useEffect((): void => {
@@ -121,6 +146,8 @@ export function useVisibleReviewContentHydration(
 			},
 		);
 		for (const loadPlan of loadPlans) {
+			const loadAbortController = new AbortController();
+			loadAbortControllersByContentKeyRef.current.set(loadPlan.contentKey, loadAbortController);
 			recordBridgeViewerContentQueueTelemetry({
 				telemetryRecorder: props.telemetryRecorder,
 				parentTraceContext: props.telemetryParentTraceContext,
@@ -135,6 +162,7 @@ export function useVisibleReviewContentHydration(
 					? {
 							reviewPackage: currentReviewPackage,
 							itemId: loadPlan.itemId,
+							signal: loadAbortController.signal,
 							traceContext,
 							contentRegistry: props.contentRegistry,
 							telemetryRecorder: props.telemetryRecorder,
@@ -143,12 +171,16 @@ export function useVisibleReviewContentHydration(
 							reviewPackage: currentReviewPackage,
 							itemId: loadPlan.itemId,
 							fetchContent: props.fetchContent,
+							signal: loadAbortController.signal,
 							traceContext,
 							contentRegistry: props.contentRegistry,
 							telemetryRecorder: props.telemetryRecorder,
 						};
 			void loadReviewItemContentResources(loadProps)
 				.then((resources): void => {
+					if (loadAbortController.signal.aborted) {
+						return;
+					}
 					setContentStateByItemId(
 						(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
 							const currentState = currentStateByItemId.get(loadPlan.itemId);
@@ -171,6 +203,9 @@ export function useVisibleReviewContentHydration(
 					);
 				})
 				.catch((): void => {
+					if (loadAbortController.signal.aborted) {
+						return;
+					}
 					setContentStateByItemId(
 						(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
 							const currentState = currentStateByItemId.get(loadPlan.itemId);
@@ -186,6 +221,14 @@ export function useVisibleReviewContentHydration(
 							return nextStateByItemId;
 						},
 					);
+				})
+				.finally((): void => {
+					const currentController = loadAbortControllersByContentKeyRef.current.get(
+						loadPlan.contentKey,
+					);
+					if (currentController === loadAbortController) {
+						loadAbortControllersByContentKeyRef.current.delete(loadPlan.contentKey);
+					}
 				});
 		}
 	}, [
@@ -200,6 +243,24 @@ export function useVisibleReviewContentHydration(
 
 	useEffect((): void => {
 		const visibleItemIdSet = new Set(visibleItemIds);
+		const retainedContentKeys = new Set<string>();
+		if (props.reviewPackage !== null) {
+			for (const itemId of visibleItemIds) {
+				const item = props.reviewPackage.itemsById[itemId];
+				if (item !== undefined) {
+					retainedContentKeys.add(
+						makeReviewItemContentResourcesKey({
+							item,
+							reviewPackage: props.reviewPackage,
+						}),
+					);
+				}
+			}
+		}
+		abortVisibleContentLoadsExcept(
+			loadAbortControllersByContentKeyRef.current,
+			retainedContentKeys,
+		);
 		setContentStateByItemId(
 			(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
 				const nextStateByItemId = new Map<string, VisibleContentResourcesState>();
@@ -222,7 +283,7 @@ export function useVisibleReviewContentHydration(
 		if (!mapEntriesEqual(resourcesByItemIdRef.current, nextResourcesByItemId)) {
 			resourcesByItemIdRef.current = nextResourcesByItemId;
 		}
-	}, [visibleItemIds]);
+	}, [props.reviewPackage, visibleItemIds]);
 
 	return useMemo((): UseVisibleReviewContentHydrationResult => {
 		const visibleContentResourcesByItemId = new Map<string, BridgeCodeViewContentResources>();
@@ -343,4 +404,26 @@ function mapEntriesEqual<TKey, TValue>(
 		}
 	}
 	return true;
+}
+
+function abortVisibleContentLoads(
+	loadAbortControllersByContentKey: Map<string, AbortController>,
+): void {
+	for (const loadAbortController of loadAbortControllersByContentKey.values()) {
+		loadAbortController.abort();
+	}
+	loadAbortControllersByContentKey.clear();
+}
+
+function abortVisibleContentLoadsExcept(
+	loadAbortControllersByContentKey: Map<string, AbortController>,
+	retainedContentKeys: ReadonlySet<string>,
+): void {
+	for (const [contentKey, loadAbortController] of loadAbortControllersByContentKey) {
+		if (retainedContentKeys.has(contentKey)) {
+			continue;
+		}
+		loadAbortController.abort();
+		loadAbortControllersByContentKey.delete(contentKey);
+	}
 }

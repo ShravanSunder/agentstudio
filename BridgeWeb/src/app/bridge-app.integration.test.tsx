@@ -520,11 +520,13 @@ describe('BridgeApp', () => {
 			}
 			projectionMenuControl.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await Promise.resolve();
-			const sourceMenuItem = findMenuItemByText('Source');
-			if (sourceMenuItem === null) {
-				throw new Error('expected source projection menu item');
+			const guidedMenuItem = document.querySelector<HTMLElement>(
+				'[data-testid="bridge-review-projection-guided-review"]',
+			);
+			if (guidedMenuItem === null) {
+				throw new Error('expected guided review projection menu item');
 			}
-			sourceMenuItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			guidedMenuItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await Promise.resolve();
 		});
 
@@ -666,7 +668,10 @@ describe('BridgeApp', () => {
 	test('aborts obsolete selected content fetches when selection changes', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeTwoItemReviewPackage();
-		const contentSignals: Array<AbortSignal | undefined> = [];
+		const contentRequests: Array<{
+			readonly signal: AbortSignal | undefined;
+			readonly url: string;
+		}> = [];
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -675,7 +680,7 @@ describe('BridgeApp', () => {
 			mountedRoot?.render(
 				<BridgeApp
 					fetchContent={async (_url: string, init?: RequestInit): Promise<Response> => {
-						contentSignals.push(init?.signal ?? undefined);
+						contentRequests.push({ signal: init?.signal ?? undefined, url: _url });
 						return await new Promise<Response>((): void => {});
 					}}
 				/>,
@@ -706,10 +711,13 @@ describe('BridgeApp', () => {
 			await Promise.resolve();
 		});
 		await act(async (): Promise<void> => {
-			await waitForContentRequestCount(contentSignals, 2);
+			await waitForContentRequestCount(contentRequests, 2);
 		});
 
-		const initialSignals = [...contentSignals];
+		const initialSignals = contentRequests
+			.filter((request): boolean => request.url.includes('item-source'))
+			.map((request): AbortSignal | undefined => request.signal);
+		expect(initialSignals).toHaveLength(2);
 		expect(
 			initialSignals.every((signal): signal is AbortSignal => signal instanceof AbortSignal),
 		).toBe(true);
@@ -1816,20 +1824,20 @@ async function waitForAnimationFrame(): Promise<void> {
 }
 
 async function waitForContentRequestCount(
-	contentSignals: readonly (AbortSignal | undefined)[],
+	contentRequests: readonly unknown[],
 	expectedCount: number,
 	remainingAttempts = 20,
 ): Promise<void> {
-	if (contentSignals.length >= expectedCount) {
+	if (contentRequests.length >= expectedCount) {
 		return;
 	}
 	if (remainingAttempts <= 0) {
 		throw new Error(
-			`expected at least ${expectedCount} content requests, got ${contentSignals.length}`,
+			`expected at least ${expectedCount} content requests, got ${contentRequests.length}`,
 		);
 	}
 	await Promise.resolve();
-	await waitForContentRequestCount(contentSignals, expectedCount, remainingAttempts - 1);
+	await waitForContentRequestCount(contentRequests, expectedCount, remainingAttempts - 1);
 }
 
 async function waitForRequestedUrl(
@@ -2160,20 +2168,6 @@ function findReviewTreeSearchInput(): HTMLInputElement | null {
 	}
 	const input = shadowRoot.querySelector('input[type="search"], input');
 	return input instanceof HTMLInputElement ? input : null;
-}
-
-function findMenuItemByText(text: string): HTMLElement | null {
-	const menuItems = [
-		...document.querySelectorAll(
-			'[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]',
-		),
-	];
-	return (
-		menuItems.find(
-			(menuItem): menuItem is HTMLElement =>
-				menuItem instanceof HTMLElement && (menuItem.textContent?.includes(text) ?? false),
-		) ?? null
-	);
 }
 
 function isMarkFileViewedCommand(commandDetail: unknown): boolean {

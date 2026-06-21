@@ -196,6 +196,65 @@ describe('useVisibleReviewContentHydration', () => {
 		expect(loadedItemIds).toContain(nextItemId);
 		expect(lastSnapshot(snapshots).visibleReadyItemCount).toBeGreaterThan(1);
 	});
+
+	test('aborts obsolete visible content loads when selected neighborhood changes', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const firstSelectedItemId = fixture.reviewPackage.orderedItemIds[180];
+		const secondSelectedItemId = fixture.reviewPackage.orderedItemIds[280];
+		if (firstSelectedItemId === undefined || secondSelectedItemId === undefined) {
+			throw new Error('expected large fixture selection ids');
+		}
+		const capturedSignals: AbortSignal[] = [];
+		const registry = makeTestContentRegistry(({ signal }) => {
+			if (!(signal instanceof AbortSignal)) {
+				throw new Error('expected visible content load abort signal');
+			}
+			capturedSignals.push(signal);
+			return new Promise<BridgeContentResource>(() => {});
+		});
+		const snapshots: UseVisibleReviewContentHydrationResult[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<VisibleHydrationHarness
+					registry={registry}
+					onSnapshot={(snapshot): void => {
+						snapshots.push(snapshot);
+					}}
+					reviewPackage={fixture.reviewPackage}
+					selectedItemId={firstSelectedItemId}
+					visibleItemIds={[]}
+				/>,
+			);
+			await flushVisibleHydrationMicrotasks();
+		});
+
+		expect(capturedSignals.length).toBeGreaterThan(0);
+		expect(capturedSignals.every((signal): boolean => !signal.aborted)).toBe(true);
+		const firstSignals = [...capturedSignals];
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<VisibleHydrationHarness
+					registry={registry}
+					onSnapshot={(snapshot): void => {
+						snapshots.push(snapshot);
+					}}
+					reviewPackage={fixture.reviewPackage}
+					selectedItemId={secondSelectedItemId}
+					visibleItemIds={[]}
+				/>,
+			);
+			await flushVisibleHydrationMicrotasks();
+		});
+
+		expect(firstSignals.every((signal): boolean => signal.aborted)).toBe(true);
+		expect(capturedSignals.length).toBeGreaterThan(firstSignals.length);
+		expect(lastSnapshot(snapshots).visibleLoadingItemCount).toBeGreaterThan(0);
+	});
 });
 
 interface VisibleHydrationHarnessProps {
