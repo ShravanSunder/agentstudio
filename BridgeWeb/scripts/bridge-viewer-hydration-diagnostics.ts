@@ -82,7 +82,7 @@ export function collectBridgeViewerHydrationDiagnosticsFromRoot(
 			return false;
 		}
 		const lineCount = shadowRoot.querySelectorAll('[data-line-index], [data-line]').length;
-		return lineCount === 0 && (shadowRoot.textContent ?? '').trim().length === 0;
+		return lineCount === 0;
 	}
 
 	const panel = root.querySelector('[data-testid="bridge-code-view-panel"]');

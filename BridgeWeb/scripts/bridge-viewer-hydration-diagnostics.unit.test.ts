@@ -77,4 +77,26 @@ describe('bridge viewer hydration diagnostics', () => {
 			visibleHydratedCacheCountAvailable: false,
 		});
 	});
+
+	test('counts expanded headers with only header text as empty rendered bodies', () => {
+		document.body.innerHTML = `
+			<section data-testid="bridge-code-view-panel"></section>
+		`;
+		const emptyExpandedContainer = document.createElement('diffs-container');
+		emptyExpandedContainer.setAttribute('data-item-id', 'item-header-only');
+		const shadowRoot = emptyExpandedContainer.attachShadow({ mode: 'open' });
+		shadowRoot.innerHTML = `
+			<header data-diffs-header="default">
+				<button data-testid="bridge-code-view-header-collapse-button" aria-expanded="true">
+					BridgeWeb/src/review-viewer/placeholder.ts
+				</button>
+			</header>
+		`;
+		document.body.append(emptyExpandedContainer);
+
+		const diagnostics = collectBridgeViewerHydrationDiagnosticsFromRoot(document);
+
+		expect(diagnostics.emptyExpandedHeaderCount).toBe(1);
+		expect(diagnostics.hasEmptyExpandedHeaders).toBe(true);
+	});
 });
