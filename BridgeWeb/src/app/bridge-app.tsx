@@ -917,6 +917,9 @@ function applyBridgeAppControlCommand(
 			if (reviewPackage === null || !(command.itemId in reviewPackage.itemsById)) {
 				return { status: 'rejected', reason: 'item_not_found' };
 			}
+			if (!projectionContainsItemId(projection, command.itemId)) {
+				return { status: 'rejected', reason: 'item_not_rendered' };
+			}
 			if (codeViewControlHandle === null) {
 				return { status: 'rejected', reason: 'code_view_unavailable' };
 			}
@@ -930,6 +933,9 @@ function applyBridgeAppControlCommand(
 		case 'bridge.diff.collapseFile':
 			if (reviewPackage === null || !(command.itemId in reviewPackage.itemsById)) {
 				return { status: 'rejected', reason: 'item_not_found' };
+			}
+			if (!projectionContainsItemId(projection, command.itemId)) {
+				return { status: 'rejected', reason: 'item_not_rendered' };
 			}
 			if (codeViewControlHandle === null) {
 				return { status: 'rejected', reason: 'code_view_unavailable' };
@@ -1000,6 +1006,13 @@ function applyBridgeAppControlCommand(
 		}
 	}
 	return { status: 'rejected', reason: 'unsupported_method' };
+}
+
+function projectionContainsItemId(
+	projection: BridgeReviewProjectionResult | null,
+	itemId: string,
+): boolean {
+	return projection?.orderedItemIds.includes(itemId) ?? false;
 }
 
 function makeBridgeAppControlProbe(props: MakeBridgeAppControlProbeProps): BridgeAppControlProbe {
