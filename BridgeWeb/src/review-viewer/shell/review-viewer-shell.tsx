@@ -1,14 +1,6 @@
-import { ListFilterIcon } from 'lucide-react';
+import { BotIcon, FileTextIcon, ListChecksIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from '../../components/ui/dropdown-menu.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import {
 	createBridgeReviewItemRegistry,
@@ -36,6 +28,7 @@ import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import type {
 	BridgeReviewProjectionMode,
 	BridgeReviewProjectionResult,
+	BridgeReviewSearchMode,
 } from '../models/review-projection-models.js';
 import { BridgeReviewTreesPanel } from '../trees/bridge-trees-panel.js';
 
@@ -60,8 +53,10 @@ export interface ReviewViewerShellProps {
 	readonly projectionMode?: BridgeReviewProjectionMode;
 	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
 	readonly treeSearchText?: string;
+	readonly treeSearchMode?: BridgeReviewSearchMode;
 	readonly treeSearchOpen?: boolean;
 	readonly onTreeSearchOpen?: () => void;
+	readonly onTreeSearchModeChange?: (mode: BridgeReviewSearchMode) => void;
 	readonly onTreeSearchTextChange?: (searchText: string) => void;
 	readonly gitStatusFilter?: BridgeFileChangeKind | 'all';
 	readonly onGitStatusFilterChange?: (status: BridgeFileChangeKind | 'all') => void;
@@ -168,6 +163,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
 	const fileClassFilter = props.fileClassFilter ?? 'all';
 	const treeSearchText = props.treeSearchText ?? '';
+	const treeSearchMode = props.treeSearchMode ?? { kind: 'text' };
 	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
 	const projection = props.projection;
 	const selectedItem =
@@ -306,6 +302,8 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									<BridgeReviewSearchControl
 										isActive={treeSearchOpen}
 										onOpenSearch={(): void => props.onTreeSearchOpen?.()}
+										onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
+										searchMode={treeSearchMode}
 									/>
 								</div>
 							</div>
@@ -388,76 +386,49 @@ export function BridgeReviewProjectionMenu(props: {
 	readonly projectionMode: BridgeReviewProjectionMode;
 	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
 }): ReactElement {
-	const selectedProjectionSpec =
-		projectionButtonSpecs.find((spec): boolean => spec.mode.kind === props.projectionMode.kind) ??
-		projectionButtonSpecs[0];
-	const selectedValue = selectedProjectionSpec?.value ?? 'normalReview';
-	const handleProjectionValueChange = (value: unknown): void => {
-		if (typeof value !== 'string' || value === selectedValue) {
-			return;
-		}
-		const nextProjectionSpec = projectionButtonSpecs.find((spec): boolean => spec.value === value);
-		if (nextProjectionSpec === undefined) {
-			return;
-		}
-		props.onProjectionModeChange?.(nextProjectionSpec.mode);
-	};
-
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger
-				aria-label="Review view"
-				className={[
-					'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent bg-transparent px-0',
-					'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
-					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
-					'focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none',
-					'data-popup-open:bg-[var(--bridge-accent-soft)] data-popup-open:text-[var(--bridge-text-primary)]',
-				].join(' ')}
-				data-testid="bridge-review-projection-menu-control"
-				title="Review view"
-			>
-				<ListFilterIcon aria-hidden="true" className="size-4" />
-				<span className="sr-only">{selectedProjectionSpec?.label ?? 'All'}</span>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent
-				align="end"
-				className={[
-					'z-[80] w-52 rounded-[10px] border border-[rgb(137_180_250_/_0.24)]',
-					'bg-[var(--bridge-menu-bg)] p-2 text-[var(--bridge-text-secondary)]',
-					'shadow-[0_24px_68px_rgb(0_0_0_/_0.86)] ring-1 ring-[rgb(205_214_244_/_0.14)]',
-				].join(' ')}
-				data-testid="bridge-review-projection-menu"
-				sideOffset={6}
-			>
-				<header className="px-2 pb-2 pt-1">
-					<p className="text-[13px] font-medium text-[var(--bridge-text-primary)]">Review view</p>
-					<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">
-						Scope the visible review set
-					</p>
-				</header>
-				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
-				<DropdownMenuRadioGroup value={selectedValue} onValueChange={handleProjectionValueChange}>
-					{projectionButtonSpecs.map((spec) => (
-						<DropdownMenuRadioItem
-							className={[
-								'h-8 gap-2 rounded-[7px] px-2 py-0 pr-8 text-[13px]',
-								'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-accent-soft)]',
-								'focus:text-[var(--bridge-text-primary)]',
-								spec.value === selectedValue && 'text-[var(--bridge-text-primary)]',
-							]
-								.filter(Boolean)
-								.join(' ')}
-							data-testid={`bridge-review-projection-${spec.testIdSuffix}`}
-							key={spec.value}
-							value={spec.value}
-						>
-							<span className="min-w-0 truncate">{spec.label}</span>
-						</DropdownMenuRadioItem>
-					))}
-				</DropdownMenuRadioGroup>
-			</DropdownMenuContent>
-		</DropdownMenu>
+		<div
+			aria-label="Review mode"
+			className={[
+				'inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md border border-[var(--bridge-border-subtle)]',
+				'bg-[var(--bridge-header-control-bg)] p-0.5',
+			].join(' ')}
+			data-bridge-segmented-control="review-mode"
+			data-testid="bridge-review-mode-segmented-control"
+			role="radiogroup"
+		>
+			{projectionButtonSpecs.map((spec) => {
+				const isSelected = spec.mode.kind === props.projectionMode.kind;
+				return (
+					<button
+						aria-checked={isSelected ? 'true' : 'false'}
+						aria-label={spec.label}
+						className={[
+							'flex size-6 items-center justify-center rounded-[5px] border border-transparent',
+							'text-[var(--bridge-text-secondary)] transition-colors',
+							'hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
+							'focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none',
+							isSelected &&
+								'bg-[var(--bridge-accent-soft)] text-[var(--bridge-text-primary)] shadow-[inset_0_0_0_1px_rgb(137_180_250_/_0.16)]',
+						]
+							.filter(Boolean)
+							.join(' ')}
+						data-testid="bridge-review-mode-segment"
+						key={spec.value}
+						onClick={(): void => {
+							if (!isSelected) {
+								props.onProjectionModeChange?.(spec.mode);
+							}
+						}}
+						role="radio"
+						title={spec.label}
+						type="button"
+					>
+						<spec.Icon aria-hidden="true" className="size-3.5" />
+					</button>
+				);
+			})}
+		</div>
 	);
 }
 
@@ -497,26 +468,26 @@ function selectedContentStateForShell(props: {
 const projectionButtonSpecs: readonly {
 	readonly label: string;
 	readonly mode: BridgeReviewProjectionMode;
-	readonly testIdSuffix: string;
 	readonly value: string;
+	readonly Icon: typeof ListChecksIcon;
 }[] = [
 	{
-		label: 'Normal',
+		label: 'Normal review',
 		mode: { kind: 'normalReview' },
-		testIdSuffix: 'normal-review',
 		value: 'normalReview',
+		Icon: ListChecksIcon,
 	},
 	{
-		label: 'Guided',
+		label: 'Guided review',
 		mode: { kind: 'guidedReview' },
-		testIdSuffix: 'guided-review',
 		value: 'guidedReview',
+		Icon: BotIcon,
 	},
 	{
 		label: 'Plans/specs',
 		mode: { kind: 'plansAndSpecs' },
-		testIdSuffix: 'plans-specs',
 		value: 'plansAndSpecs',
+		Icon: FileTextIcon,
 	},
 ];
 

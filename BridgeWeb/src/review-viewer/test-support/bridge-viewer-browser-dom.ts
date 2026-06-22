@@ -262,6 +262,7 @@ export function setBridgeViewerSearchText(searchText: string): void {
 			detail: {
 				method: 'bridge.fileTree.search',
 				searchText,
+				searchMode: { kind: 'text' },
 			},
 		}),
 	);

@@ -4,6 +4,7 @@ import { createStore, type Mutate, type StoreApi } from 'zustand/vanilla';
 import type {
 	BridgeReviewFilterState,
 	BridgeReviewRenderMode,
+	BridgeReviewSearchMode,
 	BridgeReviewProjectionMode,
 	BridgeReviewProjectionFacet,
 	BridgeReviewProjectionRequestIdentity,
@@ -19,6 +20,7 @@ export interface BridgeReviewViewerRootSnapshot {
 	readonly projectionMode: BridgeReviewProjectionMode;
 	readonly facets: readonly BridgeReviewProjectionFacet[];
 	readonly treeSearchText: string;
+	readonly treeSearchMode: BridgeReviewSearchMode;
 	readonly gitStatusFilter: BridgeReviewFilterState['gitStatusFilter'];
 	readonly fileClassFilter: BridgeReviewFilterState['fileClassFilter'];
 	readonly renderMode: BridgeReviewRenderMode;
@@ -47,6 +49,7 @@ export interface BridgeReviewViewerStoreActions {
 	readonly setProjectionMode: (mode: BridgeReviewProjectionMode) => void;
 	readonly setProjectionFacets: (facets: readonly BridgeReviewProjectionFacet[]) => void;
 	readonly setTreeSearchText: (searchText: string) => void;
+	readonly setTreeSearchMode: (searchMode: BridgeReviewSearchMode) => void;
 	readonly setGitStatusFilter: (status: BridgeReviewFilterState['gitStatusFilter']) => void;
 	readonly setFileClassFilter: (fileClass: BridgeReviewFilterState['fileClassFilter']) => void;
 	readonly setRenderMode: (renderMode: BridgeReviewRenderMode) => void;
@@ -76,6 +79,7 @@ export type BridgeReviewViewerStore = Mutate<
 
 const defaultProjectionMode: BridgeReviewProjectionMode = { kind: 'normalReview' };
 const defaultRenderMode: BridgeReviewRenderMode = { kind: 'codeView' };
+const defaultTreeSearchMode: BridgeReviewSearchMode = { kind: 'text' };
 
 export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 	return createStore<BridgeReviewViewerStoreState>()(
@@ -97,6 +101,7 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 					projectionMode: defaultProjectionMode,
 					facets: [],
 					treeSearchText: '',
+					treeSearchMode: defaultTreeSearchMode,
 					gitStatusFilter: 'all',
 					fileClassFilter: 'all',
 					renderMode: defaultRenderMode,
@@ -124,6 +129,9 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 					},
 					setTreeSearchText: (searchText: string): void => {
 						replaceRootSnapshot({ treeSearchText: searchText });
+					},
+					setTreeSearchMode: (searchMode: BridgeReviewSearchMode): void => {
+						replaceRootSnapshot({ treeSearchMode: searchMode });
 					},
 					setGitStatusFilter: (status: BridgeReviewFilterState['gitStatusFilter']): void => {
 						replaceRootSnapshot({ gitStatusFilter: status });

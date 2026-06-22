@@ -161,8 +161,16 @@ export const bridgeReviewRenderModeSchema = z.discriminatedUnion('kind', [
 
 export type BridgeReviewRenderMode = z.infer<typeof bridgeReviewRenderModeSchema>;
 
+export const bridgeReviewSearchModeSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('text') }),
+	z.object({ kind: z.literal('regex') }),
+]);
+
+export type BridgeReviewSearchMode = z.infer<typeof bridgeReviewSearchModeSchema>;
+
 export const bridgeReviewFilterStateSchema = z.object({
 	treeSearchText: z.string(),
+	treeSearchMode: bridgeReviewSearchModeSchema,
 	gitStatusFilter: z.union([z.literal('all'), bridgeFileChangeKindSchema]),
 	fileClassFilter: z.union([z.literal('all'), bridgeFileClassSchema]),
 });

@@ -1,10 +1,6 @@
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, test } from 'vitest';
 
-import {
-	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
-} from '../../components/ui/dropdown-menu.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
@@ -104,20 +100,36 @@ describe('review viewer shell', () => {
 		expect(railStats).not.toBeNull();
 	});
 
-	test('routes projection menu selection through the Base UI radio group change path', () => {
+	test('renders review mode as a compact segmented control instead of a filter menu', () => {
+		const requestedModes: string[] = [];
 		const element = requireTestElement(
 			BridgeReviewProjectionMenu({
-				projectionMode: { kind: 'normalReview' },
-				onProjectionModeChange: () => undefined,
+				projectionMode: { kind: 'guidedReview' },
+				onProjectionModeChange: (mode): void => {
+					requestedModes.push(mode.kind);
+				},
 			}),
 		);
 
-		const radioGroup = findElementByComponent(element, DropdownMenuRadioGroup);
-		const radioItems = findElementsByComponent(element, DropdownMenuRadioItem);
+		const segmentedControl = findElementByTestId(element, 'bridge-review-mode-segmented-control');
+		const modeButtons = findElementsByTestId(element, 'bridge-review-mode-segment');
 
-		expect(radioGroup?.props.onValueChange).toBeTypeOf('function');
-		expect(radioItems).toHaveLength(3);
-		expect(radioItems.map((item) => item.props.onClick)).toEqual([undefined, undefined, undefined]);
+		expect(segmentedControl?.props.role).toBe('radiogroup');
+		expect(segmentedControl?.props['aria-label']).toBe('Review mode');
+		expect(modeButtons).toHaveLength(3);
+		expect(modeButtons.map((button) => button.props['aria-checked'])).toEqual([
+			'false',
+			'true',
+			'false',
+		]);
+		expect(findElementByTestId(element, 'bridge-review-projection-menu')).toBeNull();
+
+		const plansButton = modeButtons[2];
+		if (plansButton?.props.onClick === undefined) {
+			throw new Error('expected plans/specs mode button');
+		}
+		plansButton.props.onClick();
+		expect(requestedModes).toEqual(['plansAndSpecs']);
 	});
 
 	test('renders custom review controls without native select widgets', () => {
@@ -381,6 +393,8 @@ function collectTextFragments(node: ReactNode): readonly string[] {
 }
 
 interface TestElementProps {
+	readonly 'aria-checked'?: string;
+	readonly 'aria-label'?: string;
 	readonly ariaPressed?: boolean;
 	readonly children?: ReactNode;
 	readonly className?: string;
@@ -482,24 +496,6 @@ function findElementByComponent(
 		return node;
 	}
 	return findElementByComponent(node.props.children, component);
-}
-
-function findElementsByComponent(
-	node: ReactNode,
-	component: ReactElement['type'],
-): readonly ReactElement<TestElementProps>[] {
-	if (Array.isArray(node)) {
-		return node.flatMap((child: ReactNode): readonly ReactElement<TestElementProps>[] =>
-			findElementsByComponent(child, component),
-		);
-	}
-	if (!isReactElement(node)) {
-		return [];
-	}
-	return [
-		...(node.type === component ? [node] : []),
-		...findElementsByComponent(node.props.children, component),
-	];
 }
 
 function classNameForElement(element: ReactElement<TestElementProps> | null): string {

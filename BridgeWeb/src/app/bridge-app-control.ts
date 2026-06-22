@@ -4,6 +4,7 @@ import {
 	bridgeFileChangeKindSchema,
 	bridgeFileClassSchema,
 	bridgeReviewRenderModeSchema,
+	bridgeReviewSearchModeSchema,
 } from '../review-viewer/models/review-projection-models.js';
 
 export const bridgeAppControlMethodSchema = z.enum([
@@ -32,6 +33,7 @@ export const bridgeAppControlCommandSchema = z.discriminatedUnion('method', [
 	z.object({
 		method: z.literal('bridge.fileTree.search'),
 		searchText: z.string(),
+		searchMode: bridgeReviewSearchModeSchema,
 	}),
 	z.object({
 		method: z.literal('bridge.fileTree.setFilter'),
@@ -57,6 +59,7 @@ export const bridgeAppControlProbeSchema = z.object({
 	itemId: z.string().min(1).nullable(),
 	path: z.string().min(1).nullable(),
 	treeSearchText: z.string(),
+	treeSearchMode: bridgeReviewSearchModeSchema,
 	gitStatusFilter: z.union([z.literal('all'), bridgeFileChangeKindSchema]),
 	fileClassFilter: z.union([z.literal('all'), bridgeFileClassSchema]),
 	renderMode: bridgeReviewRenderModeSchema,

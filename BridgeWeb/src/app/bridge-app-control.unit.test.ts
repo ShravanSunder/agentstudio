@@ -45,6 +45,17 @@ describe('bridge app control schema', () => {
 			gitStatusFilter: 'modified',
 			fileClassFilter: 'source',
 		});
+		expect(
+			bridgeAppControlCommandSchema.parse({
+				method: 'bridge.fileTree.search',
+				searchText: '^docs/.+\\.md$',
+				searchMode: { kind: 'regex' },
+			}),
+		).toEqual({
+			method: 'bridge.fileTree.search',
+			searchText: '^docs/.+\\.md$',
+			searchMode: { kind: 'regex' },
+		});
 	});
 
 	test('rejects raw WebKit and command-palette shaped control payloads', () => {
@@ -71,6 +82,7 @@ describe('bridge app control schema', () => {
 				itemId: null,
 				path: null,
 				treeSearchText: 'runtime',
+				treeSearchMode: { kind: 'text' },
 				gitStatusFilter: 'all',
 				fileClassFilter: 'all',
 				renderMode: { kind: 'codeView' },
@@ -80,6 +92,7 @@ describe('bridge app control schema', () => {
 			method: 'bridge.fileTree.search',
 			status: 'accepted',
 			treeSearchText: 'runtime',
+			treeSearchMode: { kind: 'text' },
 		});
 	});
 });

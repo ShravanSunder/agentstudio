@@ -42,16 +42,30 @@ describe('Bridge review viewer Zustand store', () => {
 		const store = createBridgeReviewViewerStore();
 
 		store.getState().actions.setTreeSearchText('docs');
+		store.getState().actions.setTreeSearchMode({ kind: 'regex' });
 		store.getState().actions.setGitStatusFilter('modified');
 		store.getState().actions.setFileClassFilter('docs');
 		store.getState().actions.setRenderMode({ kind: 'markdownPreview' });
 
 		expect(store.getState().rootSnapshot).toMatchObject({
 			treeSearchText: 'docs',
+			treeSearchMode: { kind: 'regex' },
 			gitStatusFilter: 'modified',
 			fileClassFilter: 'docs',
 			renderMode: { kind: 'markdownPreview' },
 		});
+	});
+
+	test('keeps review mode separate from file-filter facets', () => {
+		const store = createBridgeReviewViewerStore();
+
+		store.getState().actions.setProjectionFacets([{ kind: 'fileClass', fileClasses: ['docs'] }]);
+		store.getState().actions.setProjectionMode({ kind: 'guidedReview' });
+
+		expect(store.getState().rootSnapshot.projectionMode).toEqual({ kind: 'guidedReview' });
+		expect(store.getState().rootSnapshot.facets).toEqual([
+			{ kind: 'fileClass', fileClasses: ['docs'] },
+		]);
 	});
 
 	test('discards stale worker projection results before mutating projection state', () => {

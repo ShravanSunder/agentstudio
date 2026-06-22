@@ -106,6 +106,38 @@ describe('Bridge review chrome controls', () => {
 		expect(button.className).toContain('bg-[var(--bridge-accent-soft)]');
 	});
 
+	test('search control exposes regex mode as a compact icon toggle', () => {
+		let requestedMode: { readonly kind: 'text' } | { readonly kind: 'regex' } = { kind: 'text' };
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		act((): void => {
+			mountedRoot?.render(
+				<BridgeReviewSearchControl
+					isActive={false}
+					onOpenSearch={() => undefined}
+					onSearchModeChange={(mode): void => {
+						requestedMode = mode;
+					}}
+					searchMode={{ kind: 'text' }}
+				/>,
+			);
+		});
+
+		const regexButton = requireElement(
+			container.querySelector<HTMLButtonElement>('[data-testid="bridge-review-regex-toggle"]'),
+		);
+
+		expect(regexButton.type).toBe('button');
+		expect(regexButton.getAttribute('aria-pressed')).toBe('false');
+
+		act((): void => {
+			regexButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		});
+		expect(requestedMode).toEqual({ kind: 'regex' });
+	});
+
 	test('filter menu trigger uses an icon chevron instead of a text glyph', () => {
 		const container = document.createElement('div');
 		document.body.append(container);

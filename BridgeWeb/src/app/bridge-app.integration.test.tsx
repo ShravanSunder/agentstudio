@@ -592,21 +592,13 @@ describe('BridgeApp', () => {
 		expect(document.querySelector('[data-testid="review-viewer-shell"]')).not.toBeNull();
 
 		await act(async (): Promise<void> => {
-			const projectionMenuControl = document.querySelector<HTMLButtonElement>(
-				'[data-testid="bridge-review-projection-menu-control"]',
+			const guidedModeButton = document.querySelector<HTMLButtonElement>(
+				'[data-testid="bridge-review-mode-segment"][aria-label="Guided review"]',
 			);
-			if (projectionMenuControl === null) {
-				throw new Error('expected projection menu control');
+			if (guidedModeButton === null) {
+				throw new Error('expected guided review mode control');
 			}
-			projectionMenuControl.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-			await Promise.resolve();
-			const guidedMenuItem = document.querySelector<HTMLElement>(
-				'[data-testid="bridge-review-projection-guided-review"]',
-			);
-			if (guidedMenuItem === null) {
-				throw new Error('expected guided review projection menu item');
-			}
-			guidedMenuItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			guidedModeButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await Promise.resolve();
 		});
 
@@ -1877,6 +1869,7 @@ describe('BridgeApp', () => {
 			itemId: null,
 			path: null,
 			treeSearchText: 'stale',
+			treeSearchMode: { kind: 'text' },
 			gitStatusFilter: 'all',
 			fileClassFilter: 'all',
 			renderMode: { kind: 'codeView' },

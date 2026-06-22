@@ -396,7 +396,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			if (!parsedCommand.success) {
 				publishBridgeAppControlProbe({
 					probe: makeBridgeAppControlProbe({
-						command: { method: 'bridge.fileTree.search', searchText: '' },
+						command: {
+							method: 'bridge.fileTree.search',
+							searchText: '',
+							searchMode: { kind: 'text' },
+						},
 						status: 'rejected',
 						reason: 'invalid_control_command',
 						sequence: nextBridgeAppControlProbeSequence(controlProbeSequenceRef),
@@ -810,6 +814,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					onProjectionModeChange={viewerActions.setProjectionMode}
 					onSelectItem={selectReviewItem}
 					onTreeSearchOpen={(): void => setIsTreeSearchOpen(true)}
+					onTreeSearchModeChange={viewerActions.setTreeSearchMode}
 					onTreeSearchTextChange={viewerActions.setTreeSearchText}
 					projection={projection}
 					projectionMode={rootSnapshot.projectionMode}
@@ -858,6 +863,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					}
 					telemetryRecorder={telemetryRecorderRef.current}
 					treeSearchOpen={isTreeSearchOpen}
+					treeSearchMode={rootSnapshot.treeSearchMode}
 					treeSearchText={rootSnapshot.treeSearchText}
 				/>
 			)}
@@ -937,6 +943,7 @@ function applyBridgeAppControlCommand(
 		case 'bridge.fileTree.search':
 			props.setTreeSearchOpen(true);
 			viewerActions.setTreeSearchText(command.searchText);
+			viewerActions.setTreeSearchMode(command.searchMode);
 			return { status: 'accepted', reason: null };
 		case 'bridge.fileTree.setFilter':
 			viewerActions.setGitStatusFilter(command.gitStatusFilter);
@@ -1011,6 +1018,7 @@ function makeBridgeAppControlProbe(props: MakeBridgeAppControlProbeProps): Bridg
 		itemId,
 		path,
 		treeSearchText: props.rootSnapshot.treeSearchText,
+		treeSearchMode: props.rootSnapshot.treeSearchMode,
 		gitStatusFilter: props.rootSnapshot.gitStatusFilter,
 		fileClassFilter: props.rootSnapshot.fileClassFilter,
 		renderMode: props.rootSnapshot.renderMode,
