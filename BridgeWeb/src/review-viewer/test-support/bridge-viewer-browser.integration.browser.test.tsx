@@ -1391,6 +1391,9 @@ async function waitForBridgeViewerTextWithDiagnostics(
 				`materializedAdditions=${selectedBridgeViewerPanelAttribute('data-selected-materialized-addition-line-count') ?? 'null'}`,
 				`materializedDeletions=${selectedBridgeViewerPanelAttribute('data-selected-materialized-deletion-line-count') ?? 'null'}`,
 				`materializedFileLines=${selectedBridgeViewerPanelAttribute('data-selected-materialized-file-line-count') ?? 'null'}`,
+				`codeGeometry=${JSON.stringify(bridgeViewerCodeGeometry())}`,
+				`codeScroll=${JSON.stringify(bridgeViewerCodeScrollSnapshot())}`,
+				`diffContainers=${JSON.stringify(bridgeViewerDiffContainerSnapshots())}`,
 				`rendered=${bridgeViewerRenderedTextContent().slice(0, 800)}`,
 			].join('; '),
 		);
@@ -1404,6 +1407,32 @@ function selectedBridgeViewerPanelAttribute(attributeName: string): string | nul
 	return (
 		document.querySelector('[data-testid="bridge-code-view-panel"]')?.getAttribute(attributeName) ??
 		null
+	);
+}
+
+function bridgeViewerCodeScrollSnapshot(): Record<string, number | string> {
+	const scrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+	if (!(scrollOwner instanceof HTMLElement)) {
+		return { state: 'missing' };
+	}
+	return {
+		clientHeight: Math.round(scrollOwner.clientHeight),
+		scrollHeight: Math.round(scrollOwner.scrollHeight),
+		scrollTop: Math.round(scrollOwner.scrollTop),
+	};
+}
+
+function bridgeViewerDiffContainerSnapshots(): readonly Record<string, number | string>[] {
+	return [...document.querySelectorAll('diffs-container')].map(
+		(element: Element, index: number): Record<string, number | string> => {
+			const box = element.getBoundingClientRect();
+			return {
+				height: Math.round(box.height),
+				index,
+				text: (element.shadowRoot?.textContent ?? '').slice(0, 240),
+				top: Math.round(box.top),
+			};
+		},
 	);
 }
 
