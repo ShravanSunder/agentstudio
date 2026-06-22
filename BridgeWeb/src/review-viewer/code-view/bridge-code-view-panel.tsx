@@ -551,6 +551,12 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			return;
 		}
 		lastSelectionScrollKeyRef.current = selectionScrollKey;
+		const shouldUseInitialPlacement =
+			initialSelectedItemByViewerKeyRef.current?.viewerKey === viewerKey &&
+			initialSelectedItemByViewerKeyRef.current.selectedItemId === selectedItemId;
+		pendingSmoothSelectionScrollKeyRef.current = shouldUseInitialPlacement
+			? null
+			: selectionScrollKey;
 		if (pendingSelectionScrollFrameRef.current !== null) {
 			cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
 		}
@@ -569,9 +575,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			if (completedSelectionScrollKeyRef.current === selectionScrollKey) {
 				return;
 			}
-			const shouldUseInitialPlacement =
-				initialSelectedItemByViewerKeyRef.current?.viewerKey === viewerKey &&
-				initialSelectedItemByViewerKeyRef.current.selectedItemId === selectedItemId;
 			const scrollBehavior: CodeViewScrollBehavior = shouldUseInitialPlacement
 				? 'instant'
 				: 'smooth';
@@ -588,7 +591,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						scrollToTopTargetItemIdRef.current === selectedItemId,
 				});
 			} else {
-				pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
+				completedSelectionScrollKeyRef.current = selectionScrollKey;
+				pendingSmoothSelectionScrollKeyRef.current = null;
 			}
 		});
 	}, [codeViewMountVersion, props.reviewPackage, props.selectedItemId, viewerKey]);
@@ -685,6 +689,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						const shouldPreserveSmoothReveal =
 							pendingSmoothSelectionScrollKeyRef.current === selectionScrollKey;
 						if (shouldPreserveSmoothReveal) {
+							if (pendingSelectionScrollFrameRef.current !== null) {
+								cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
+								pendingSelectionScrollFrameRef.current = null;
+								controller.scrollToItem(itemId, 'smooth');
+							}
 							pendingSmoothSelectionScrollKeyRef.current = null;
 						} else {
 							controller.scrollToItem(itemId, 'instant');
@@ -792,10 +801,7 @@ function nextCodeViewItemForCollapse(props: {
 	readonly currentItem: BridgeCodeViewItem;
 	readonly itemDescriptor: BridgeReviewItemDescriptor;
 }): BridgeCodeViewItem {
-	if (
-		props.collapsed === false &&
-		props.currentItem.bridgeMetadata.contentState === 'placeholder'
-	) {
+	if (!props.collapsed && props.currentItem.bridgeMetadata.contentState === 'placeholder') {
 		return {
 			...materializeBridgeCodeViewLoadingItem(props.itemDescriptor),
 			collapsed: false,

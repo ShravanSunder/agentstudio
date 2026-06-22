@@ -926,6 +926,99 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(scrollOwner.scrollTop).toBe(100);
 	});
 
+	test('keeps prop-driven smooth selection pending when content hydrates before the reveal frame', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
+		});
+		const selectedItem = reviewPackage.itemsById['docs-plan'];
+		const headHandle = selectedItem?.contentRoles.head;
+		if (selectedItem === undefined || headHandle === undefined || headHandle === null) {
+			throw new Error('expected docs-plan head handle');
+		}
+		const selectedContentResource: BridgeContentResource = {
+			handle: headHandle,
+			text: '# Bridge plan\n\nInspect this as source.',
+		};
+		const initialCodeViewItems = createBridgeCodeViewInitialItems({ reviewPackage, projection });
+		const placeholderItem = initialCodeViewItems.find(
+			(item: CodeViewItem): boolean => item.id === 'docs-plan',
+		);
+		if (placeholderItem === undefined) {
+			throw new Error('expected docs-plan placeholder item');
+		}
+		codeViewDoubles.getItem.mockImplementation((id: string): CodeViewItem | undefined =>
+			id === 'docs-plan' ? placeholderItem : undefined,
+		);
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId={null}
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
+		codeViewDoubles.scrollTo.mockClear();
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={{ head: selectedContentResource }}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'docs-plan' }),
+		);
+		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalledWith({
+			type: 'item',
+			id: 'docs-plan',
+			align: 'start',
+			behavior: 'instant',
+		} satisfies CodeViewScrollTarget);
+
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+			await waitForAnimationFrame();
+		});
+
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: 'docs-plan',
+			align: 'start',
+			behavior: 'smooth',
+		} satisfies CodeViewScrollTarget);
+	});
+
 	test('materializes selected content without depending on an animation frame', async () => {
 		const requestAnimationFrameSpy = vi
 			.spyOn(window, 'requestAnimationFrame')
