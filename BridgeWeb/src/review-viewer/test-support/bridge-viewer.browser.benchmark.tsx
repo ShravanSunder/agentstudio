@@ -416,8 +416,11 @@ async function measureWarmFilterSwitch(): Promise<BridgeViewerBrowserPerformance
 	const startedAt = performance.now();
 	await clickBridgeViewerFilterMenuOption('bridge-review-file-class-menu-control', 'Test');
 	const testFileButton = await waitForBridgeViewerTreeItemButton(fixture.expected.testFilterPath);
+	const railScroll = await waitForBridgeViewerTreeScrollOwner();
+	const visibleTreeText = bridgeViewerVisibleTreeTextContent(railScroll);
 	expect(testFileButton.dataset['itemPath']).toBe(fixture.expected.testFilterPath);
-	await waitForBridgeViewerTreeItemAbsent(fixture.expected.initialPath);
+	expect(visibleTreeText).toContain(fixture.expected.testFilterPath);
+	expect(visibleTreeText).not.toContain(fixture.expected.initialPath);
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(document.body.textContent ?? '').not.toContain('Content unavailable');
 	await waitForBridgeViewerText(fixture.expected.testFilterText);
@@ -433,9 +436,12 @@ async function measureWarmProjectionChipSwitch(): Promise<BridgeViewerBrowserPer
 	const startedAt = performance.now();
 	await clickBridgeViewerProjectionMenuOption('Plans/specs');
 	const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
-	await waitForBridgeViewerTreeItemAbsent(fixture.expected.initialPath);
+	const railScroll = await waitForBridgeViewerTreeScrollOwner();
+	const visibleTreeText = bridgeViewerVisibleTreeTextContent(railScroll);
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(docsButton.dataset['itemPath']).toBe(fixture.expected.docsPath);
+	expect(visibleTreeText).toContain(fixture.expected.docsPath);
+	expect(visibleTreeText).not.toContain(fixture.expected.initialPath);
 	expect(backend.projectionRequests.at(-1)?.projectionRequest.mode).toEqual({
 		kind: 'plansAndSpecs',
 	});

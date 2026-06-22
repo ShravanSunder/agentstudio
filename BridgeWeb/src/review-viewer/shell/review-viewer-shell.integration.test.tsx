@@ -1,6 +1,10 @@
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, test } from 'vitest';
 
+import {
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+} from '../../components/ui/dropdown-menu.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { BridgeReviewButton } from '../chrome/bridge-review-button.js';
@@ -99,6 +103,22 @@ describe('review viewer shell', () => {
 		expect(projectionMenu).not.toBeNull();
 		expect(projectionButtons).toHaveLength(2);
 		expect(railStats).not.toBeNull();
+	});
+
+	test('routes projection menu selection through the Base UI radio group change path', () => {
+		const element = requireTestElement(
+			BridgeReviewProjectionMenu({
+				projectionMode: { kind: 'normalReview' },
+				onProjectionModeChange: () => undefined,
+			}),
+		);
+
+		const radioGroup = findElementByComponent(element, DropdownMenuRadioGroup);
+		const radioItems = findElementsByComponent(element, DropdownMenuRadioItem);
+
+		expect(radioGroup?.props.onValueChange).toBeTypeOf('function');
+		expect(radioItems).toHaveLength(3);
+		expect(radioItems.map((item) => item.props.onClick)).toEqual([undefined, undefined, undefined]);
 	});
 
 	test('renders custom review controls without native select widgets', () => {
@@ -375,6 +395,8 @@ interface TestElementProps {
 	readonly 'data-sidebar-position'?: string;
 	readonly 'data-testid'?: string;
 	readonly disabled?: boolean;
+	readonly onClick?: () => void;
+	readonly onValueChange?: () => void;
 	readonly reason?: string;
 	readonly role?: string;
 }

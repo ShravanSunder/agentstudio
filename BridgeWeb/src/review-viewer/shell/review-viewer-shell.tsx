@@ -418,6 +418,16 @@ export function BridgeReviewProjectionMenu(props: {
 		projectionButtonSpecs.find((spec): boolean => spec.mode.kind === props.projectionMode.kind) ??
 		projectionButtonSpecs[0];
 	const selectedValue = selectedProjectionSpec?.value ?? 'normalReview';
+	const handleProjectionValueChange = (value: unknown): void => {
+		if (typeof value !== 'string' || value === selectedValue) {
+			return;
+		}
+		const nextProjectionSpec = projectionButtonSpecs.find((spec): boolean => spec.value === value);
+		if (nextProjectionSpec === undefined) {
+			return;
+		}
+		props.onProjectionModeChange?.(nextProjectionSpec.mode);
+	};
 
 	return (
 		<DropdownMenu>
@@ -453,7 +463,7 @@ export function BridgeReviewProjectionMenu(props: {
 					</p>
 				</header>
 				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
-				<DropdownMenuRadioGroup value={selectedValue}>
+				<DropdownMenuRadioGroup value={selectedValue} onValueChange={handleProjectionValueChange}>
 					{projectionButtonSpecs.map((spec) => (
 						<DropdownMenuRadioItem
 							className={[
@@ -466,7 +476,6 @@ export function BridgeReviewProjectionMenu(props: {
 								.join(' ')}
 							data-testid={`bridge-review-projection-${spec.testIdSuffix}`}
 							key={spec.value}
-							onClick={() => props.onProjectionModeChange?.(spec.mode)}
 							value={spec.value}
 						>
 							<span className="min-w-0 truncate">{spec.label}</span>

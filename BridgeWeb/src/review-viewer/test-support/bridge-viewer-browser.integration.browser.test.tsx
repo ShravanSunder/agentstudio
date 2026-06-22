@@ -804,9 +804,12 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 
 		await clickBridgeViewerProjectionMenuOption('Plans/specs');
 		const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
-		await waitForBridgeViewerTreeItemAbsent(fixture.expected.initialPath);
+		const railScroll = await waitForBridgeViewerTreeScrollOwner();
+		const visibleTreeText = bridgeViewerVisibleTreeTextContent(railScroll);
 
 		expect(docsButton.dataset['itemPath']).toBe(fixture.expected.docsPath);
+		expect(visibleTreeText).toContain(fixture.expected.docsPath);
+		expect(visibleTreeText).not.toContain(fixture.expected.initialPath);
 		expect(backend.projectionRequests.length).toBeGreaterThan(initialProjectionRequestCount);
 		expect(backend.projectionRequests.at(-1)?.projectionRequest.mode).toEqual({
 			kind: 'plansAndSpecs',
