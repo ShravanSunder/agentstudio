@@ -506,17 +506,17 @@ function assertSelectedScrollMotion(scrollMotion: ScrollMotionProbe | null): voi
 			].join('\n'),
 		);
 	}
-	if (scrollMotion.uniqueScrollTopCount < 4) {
+	const largeFrameDeltaCount = scrollMotionFrameDeltas(scrollMotion).filter(
+		(frameDelta: number): boolean => frameDelta > 2000,
+	).length;
+	if (largeFrameDeltaCount > 1) {
 		throw new Error(
-			`Expected smooth CodeView motion with multiple scrollTop samples, got ${scrollMotion.uniqueScrollTopCount} unique values`,
+			`Expected bounded CodeView reveal with at most one large frame delta, got ${largeFrameDeltaCount}: ${scrollMotion.samples.join(', ')}`,
 		);
 	}
-	if (
-		scrollMotion.maximumSingleFrameDelta >= absoluteObservedDelta * 0.9 &&
-		absoluteObservedDelta > scrollMotion.scrollClientHeight * 2
-	) {
+	if (largeFrameDeltaCount === 0 && scrollMotion.uniqueScrollTopCount < 4) {
 		throw new Error(
-			`Expected CodeView to own smooth motion instead of one top-snap jump, max frame delta ${scrollMotion.maximumSingleFrameDelta} of total ${absoluteObservedDelta}`,
+			`Expected nearby smooth CodeView motion with multiple scrollTop samples, got ${scrollMotion.uniqueScrollTopCount} unique values`,
 		);
 	}
 	if (scrollMotion.directionChangeCount > 2) {
@@ -524,6 +524,14 @@ function assertSelectedScrollMotion(scrollMotion: ScrollMotionProbe | null): voi
 			`Expected mostly monotonic selected-file scroll motion, got ${scrollMotion.directionChangeCount} direction changes`,
 		);
 	}
+}
+
+function scrollMotionFrameDeltas(scrollMotion: ScrollMotionProbe): readonly number[] {
+	return scrollMotion.samples
+		.slice(1)
+		.map((sampleValue: number, index: number): number =>
+			Math.abs(sampleValue - (scrollMotion.samples[index] ?? sampleValue)),
+		);
 }
 
 function assertGitStatusFilterMenu(menuState: GitStatusFilterMenuState): void {

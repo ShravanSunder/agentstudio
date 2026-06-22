@@ -264,7 +264,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			}
 			if (options.revealInCodeView !== false) {
 				codeViewControlHandleRef.current?.scrollToItem(itemId, {
-					behavior: options.revealBehavior ?? 'smooth',
+					behavior: options.revealBehavior ?? 'smooth-auto',
 				});
 			}
 			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
@@ -613,14 +613,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			};
 		}
 
-		if (rootSnapshot.renderMode.kind !== 'markdownPreview') {
-			setSelectedMarkdownPreviewState(null);
-			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
-			return (): void => {
-				didCancel = true;
-			};
-		}
-
 		if (markdownWorkerClient === null) {
 			viewerActions.setRenderMode({ kind: 'codeView' });
 			setSelectedMarkdownPreviewState(null);
@@ -629,6 +621,14 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				parentTraceContext,
 				reason: 'workerUnavailable',
 			});
+			return (): void => {
+				didCancel = true;
+			};
+		}
+
+		if (rootSnapshot.renderMode.kind !== 'markdownPreview') {
+			setSelectedMarkdownPreviewState(null);
+			markdownWorkerClient.abort(bridgeMarkdownPreviewAbortKey);
 			return (): void => {
 				didCancel = true;
 			};
@@ -923,7 +923,7 @@ function applyBridgeAppControlCommand(
 			if (codeViewControlHandle === null) {
 				return { status: 'rejected', reason: 'code_view_unavailable' };
 			}
-			if (!codeViewControlHandle.scrollToItem(command.itemId, { behavior: 'smooth' })) {
+			if (!codeViewControlHandle.scrollToItem(command.itemId, { behavior: 'smooth-auto' })) {
 				return { status: 'rejected', reason: 'item_not_rendered' };
 			}
 			return selectReviewItem(command.itemId, { revealInCodeView: false })

@@ -771,7 +771,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		}
 	});
 
-	test('large fixture programmatic file reveal uses smooth CodeView motion', async () => {
+	test('large fixture programmatic file reveal uses bounded CodeView motion', async () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const backend = installBridgeViewerMockedBackend(fixture);
 		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
@@ -817,7 +817,9 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			await waitForSelectedBridgeViewerDisplayPath(deepPath);
 			await waitForSelectedBridgeViewerContentState('ready');
 
-			expect(isBridgeCodeViewSmoothMotionSample(motionSamples)).toBe(true);
+			const motionSummary = summarizeBridgeCodeViewScrollMotion(motionSamples);
+			expect(isBridgeCodeViewIntentionalRevealMotionSample(motionSamples)).toBe(true);
+			expect(motionSummary.largeFrameDeltaCount).toBeLessThanOrEqual(1);
 		} finally {
 			await cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
 			workerFactory.revoke();
@@ -1109,7 +1111,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
-	test('selecting docs renders markdown preview only after the explicit preview command', async () => {
+	test('selecting docs renders markdown in CodeView and keeps preview command explicit', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 		const markdownWorker = createImmediateMarkdownWorkerClient();
@@ -1715,20 +1717,15 @@ function isBridgeCodeViewSmoothMotionSample(samples: readonly number[]): boolean
 	if (samples.length < 4) {
 		return false;
 	}
-	const firstScrollTop = samples[0] ?? 0;
-	const lastScrollTop = samples.at(-1) ?? firstScrollTop;
-	const totalDistance = Math.abs(lastScrollTop - firstScrollTop);
-	if (totalDistance < 64) {
+	const motionSummary = summarizeBridgeCodeViewScrollMotion(samples);
+	if (motionSummary.totalDistance < 64) {
 		return false;
 	}
 	const uniqueRoundedSamples = new Set(samples.map((sample: number): number => Math.round(sample)));
-	const largestFrameDelta = samples
-		.slice(1)
-		.reduce((largestDelta: number, sample: number, index: number): number => {
-			const previousSample = samples[index] ?? sample;
-			return Math.max(largestDelta, Math.abs(sample - previousSample));
-		}, 0);
-	return uniqueRoundedSamples.size >= 4 && largestFrameDelta < totalDistance * 0.9;
+	return (
+		uniqueRoundedSamples.size >= 4 &&
+		motionSummary.largestFrameDelta < motionSummary.totalDistance * 0.9
+	);
 }
 
 function isBridgeCodeViewIntentionalRevealMotionSample(samples: readonly number[]): boolean {
@@ -1744,13 +1741,33 @@ function isBridgeCodeViewIntentionalRevealMotionSample(samples: readonly number[
 	if (totalDistance < 64) {
 		return false;
 	}
+	const largestFrameDelta = summarizeBridgeCodeViewScrollMotion(samples).largestFrameDelta;
+	return largestFrameDelta >= totalDistance * 0.9;
+}
+
+function summarizeBridgeCodeViewScrollMotion(samples: readonly number[]): {
+	readonly largeFrameDeltaCount: number;
+	readonly largestFrameDelta: number;
+	readonly totalDistance: number;
+} {
+	const firstScrollTop = samples[0] ?? 0;
+	const lastScrollTop = samples.at(-1) ?? firstScrollTop;
+	const frameDeltas = samples.slice(1).map((sample: number, index: number): number => {
+		const previousSample = samples[index] ?? sample;
+		return Math.abs(sample - previousSample);
+	});
 	const largestFrameDelta = samples
 		.slice(1)
 		.reduce((largestDelta: number, sample: number, index: number): number => {
 			const previousSample = samples[index] ?? sample;
 			return Math.max(largestDelta, Math.abs(sample - previousSample));
 		}, 0);
-	return largestFrameDelta >= totalDistance * 0.9;
+	return {
+		largeFrameDeltaCount: frameDeltas.filter((frameDelta: number): boolean => frameDelta > 2000)
+			.length,
+		largestFrameDelta,
+		totalDistance: Math.abs(lastScrollTop - firstScrollTop),
+	};
 }
 
 function bridgeReviewFixtureItemIdForPath(

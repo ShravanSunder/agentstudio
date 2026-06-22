@@ -1371,10 +1371,15 @@ swift test --filter AgentStudioIPCClientCoreTests
 ## 2026-06-22 Motion And Hydration Checkpoint
 
 - Programmatic file reveal had a real DiffsHub-parity bug: the
-  `bridge.diff.scrollToFile` control path still called CodeView with
-  `behavior: instant`, producing large jump deltas even after normal tree
-  selection used smoother reveal behavior. The browser gate must keep proving
-  this path with a large fixture and frame-sampled scroll motion.
+  `bridge.diff.scrollToFile` control path and normal file selection treated
+  far item reveals as unbounded `smooth` scrolls. On the large fixture this
+  produced repeated giant frame deltas over a million-pixel virtualized
+  distance. The accepted policy is bounded reveal: nearby file changes may use
+  smooth CodeView motion, while far file reveals use Pierre's `smooth-auto`
+  policy so they resolve quickly instead of animating through many huge
+  frames. The browser gate must keep proving this path with a large fixture,
+  frame-sampled scroll motion, and a check that there is at most one large
+  frame delta during far reveal.
 - Review-mode browser tests must drive the current segmented shadcn/Base UI
   control. The removed projection dropdown is historical and tests must not
   preserve it as a fake contract.
