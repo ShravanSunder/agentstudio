@@ -227,7 +227,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		} satisfies CodeViewScrollTarget);
 	});
 
-	test('uses smooth CodeView motion when mounted selection props change', async () => {
+	test('uses Pierre smooth-auto motion when mounted selection props change', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -274,7 +274,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			type: 'item',
 			id: 'source-high',
 			align: 'start',
-			behavior: 'smooth',
+			behavior: 'smooth-auto',
 		} satisfies CodeViewScrollTarget);
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalledWith({
 			type: 'item',
@@ -450,7 +450,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(collectText(props?.renderHeaderMetadata?.(firstItem))).toContain('-2');
 	});
 
-	test('file header prefix toggles Pierre item collapse with a new item version', async () => {
+	test('file header prefix expands a placeholder as an inline loading item', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -501,11 +501,13 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			await Promise.resolve();
 		});
 
-		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith({
-			...firstItem,
-			collapsed: false,
-			version: (firstItem.version ?? 0) + 1,
-		});
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: firstItem.id,
+				collapsed: false,
+				bridgeMetadata: expect.objectContaining({ contentState: 'loading' }),
+			}),
+		);
 		expect(codeViewDoubles.getInstanceRender).toHaveBeenCalled();
 
 		await act(async (): Promise<void> => {
@@ -596,11 +598,13 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		const settleScrollOrder = codeViewDoubles.scrollTo.mock.invocationCallOrder[0];
 		const itemUpdateOrder = codeViewDoubles.updateItem.mock.invocationCallOrder[0];
 		expect(settleScrollOrder).toBeLessThan(itemUpdateOrder ?? Number.POSITIVE_INFINITY);
-		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith({
-			...firstItem,
-			collapsed: false,
-			version: (firstItem.version ?? 0) + 1,
-		});
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: firstItem.id,
+				collapsed: false,
+				bridgeMetadata: expect.objectContaining({ contentState: 'loading' }),
+			}),
+		);
 
 		await act(async (): Promise<void> => {
 			headerRoot.unmount();
@@ -738,7 +742,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
 	});
 
-	test('keeps explicitly revealed placeholder hydration on the smooth CodeView motion path', async () => {
+	test('does not issue a second selected-item scroll when explicitly revealed placeholder hydrates', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -809,12 +813,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'docs-plan' }),
 		);
-		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
-			type: 'item',
-			id: 'docs-plan',
-			align: 'start',
-			behavior: 'smooth',
-		} satisfies CodeViewScrollTarget);
+		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
 	});
 
 	test('materializes selected content without depending on an animation frame', async () => {

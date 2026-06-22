@@ -38,7 +38,7 @@ describe('bridge markdown render mode', () => {
 		});
 	});
 
-	test('keeps two-sided markdown diffs in CodeView', () => {
+	test('previews the head side of two-sided markdown diffs', () => {
 		const modifiedMarkdownItem = makeAddedMarkdownItem({
 			basePath: 'docs/plans/bridge-plan.md',
 			changeKind: 'modified',
@@ -65,10 +65,17 @@ describe('bridge markdown render mode', () => {
 			},
 		});
 
-		expect(decision).toEqual({ kind: 'codeView', reason: 'twoSidedDiff' });
+		expect(decision).toMatchObject({
+			kind: 'preview',
+			source: {
+				itemId: 'item-plan',
+				role: 'head',
+				markdownText: '# After',
+			},
+		});
 	});
 
-	test('keeps partially available modified markdown diffs in CodeView', () => {
+	test('previews partially available modified markdown diffs from the loaded side', () => {
 		const modifiedMarkdownItem = makeAddedMarkdownItem({
 			basePath: 'docs/plans/bridge-plan.md',
 			changeKind: 'modified',
@@ -91,7 +98,14 @@ describe('bridge markdown render mode', () => {
 			resources: { head: { handle: head, text: '# After' } },
 		});
 
-		expect(decision).toEqual({ kind: 'codeView', reason: 'twoSidedDiff' });
+		expect(decision).toMatchObject({
+			kind: 'preview',
+			source: {
+				itemId: 'item-plan',
+				role: 'head',
+				markdownText: '# After',
+			},
+		});
 	});
 
 	test('previews file markdown content', () => {

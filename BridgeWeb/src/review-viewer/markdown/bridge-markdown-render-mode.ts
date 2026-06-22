@@ -77,16 +77,8 @@ export function resolveBridgeMarkdownPreviewDecision(
 		return { kind: 'codeView', reason: 'contentPending' };
 	}
 
-	if (props.resources.base !== undefined && props.resources.head !== undefined) {
-		return { kind: 'codeView', reason: 'twoSidedDiff' };
-	}
-
 	if (props.resources.diff !== undefined) {
 		return { kind: 'codeView', reason: 'diffPatchResource' };
-	}
-
-	if (!isMarkdownPreviewEligibleItem(item)) {
-		return { kind: 'codeView', reason: 'twoSidedDiff' };
 	}
 
 	const selectedResource = preferredMarkdownPreviewResource(props.resources);
@@ -129,10 +121,6 @@ export function resolveBridgeMarkdownPreviewDecision(
 			markdownText: selectedResource.text,
 		},
 	};
-}
-
-function isMarkdownPreviewEligibleItem(item: BridgeReviewItemDescriptor): boolean {
-	return item.itemKind === 'file' || item.changeKind === 'added' || item.changeKind === 'deleted';
 }
 
 function preferredMarkdownPreviewResource(

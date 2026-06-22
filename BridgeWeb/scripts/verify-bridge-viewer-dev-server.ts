@@ -180,6 +180,7 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 				].join('\n'),
 			);
 		}
+		assertNoEmptyExpandedHeaders(result.hydrationDiagnostics, 'selected added file');
 		assertCodeViewScrolledToSelectedItem({ initialResult, result });
 		await assertSelectedHeaderCollapseRoundTrip(page);
 		return result;
@@ -523,6 +524,7 @@ async function assertSelectedHeaderCollapseRoundTrip(page: Page): Promise<void> 
 	);
 	const collapsedText = (await readVerificationResult(page)).codeViewVisibleText;
 	const collapsedResult = await readVerificationResult(page);
+	assertNoEmptyExpandedHeaders(collapsedResult.hydrationDiagnostics, 'selected header collapsed');
 	assertSelectedHeaderAnchoredAfterToggle({
 		phase: 'collapsed',
 		result: collapsedResult,
@@ -578,10 +580,28 @@ async function assertSelectedHeaderCollapseRoundTrip(page: Page): Promise<void> 
 		{ timeout: 10_000 },
 	);
 	const expandedResult = await readVerificationResult(page);
+	assertNoEmptyExpandedHeaders(expandedResult.hydrationDiagnostics, 'selected header expanded');
 	assertSelectedHeaderAnchoredAfterToggle({
 		phase: 'expanded',
 		result: expandedResult,
 	});
+}
+
+function assertNoEmptyExpandedHeaders(
+	hydrationDiagnostics: BridgeViewerHydrationDiagnostics,
+	phase: string,
+): void {
+	if (!hydrationDiagnostics.hasEmptyExpandedHeaders) {
+		return;
+	}
+	throw new Error(
+		[
+			`Expected no empty expanded CodeView headers during ${phase}.`,
+			`Empty expanded header count: ${hydrationDiagnostics.emptyExpandedHeaderCount}`,
+			`Rendered item ids: ${hydrationDiagnostics.renderedItemIds.join(', ')}`,
+			`Rendered items without ids: ${hydrationDiagnostics.renderedItemsWithoutIdsCount}`,
+		].join('\n'),
+	);
 }
 
 async function clickSelectedHeaderCollapseButton(page: Page): Promise<boolean> {

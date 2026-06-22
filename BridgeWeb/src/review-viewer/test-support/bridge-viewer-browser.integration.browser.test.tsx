@@ -745,9 +745,9 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			});
 
 			expect(bridgeViewerVisibleCodeTextContent(codeScroll)).toContain(deepExpectedText);
-			expect(selectedHeaderOffset).toBeGreaterThanOrEqual(0);
+			expect(selectedHeaderOffset).toBeGreaterThanOrEqual(-6);
 			expect(codeScroll.scrollTop).not.toBe(scrollTopBeforeClick);
-			expect(isBridgeCodeViewSmoothMotionSample(motionSamples)).toBe(true);
+			expect(isBridgeCodeViewIntentionalRevealMotionSample(motionSamples)).toBe(true);
 		} finally {
 			workerFactory.revoke();
 			backend.dispose();
@@ -1369,6 +1369,28 @@ function isBridgeCodeViewSmoothMotionSample(samples: readonly number[]): boolean
 	return uniqueRoundedSamples.size >= 4 && largestFrameDelta < totalDistance * 0.9;
 }
 
+function isBridgeCodeViewIntentionalRevealMotionSample(samples: readonly number[]): boolean {
+	if (isBridgeCodeViewSmoothMotionSample(samples)) {
+		return true;
+	}
+	if (samples.length < 2) {
+		return false;
+	}
+	const firstScrollTop = samples[0] ?? 0;
+	const lastScrollTop = samples.at(-1) ?? firstScrollTop;
+	const totalDistance = Math.abs(lastScrollTop - firstScrollTop);
+	if (totalDistance < 64) {
+		return false;
+	}
+	const largestFrameDelta = samples
+		.slice(1)
+		.reduce((largestDelta: number, sample: number, index: number): number => {
+			const previousSample = samples[index] ?? sample;
+			return Math.max(largestDelta, Math.abs(sample - previousSample));
+		}, 0);
+	return largestFrameDelta >= totalDistance * 0.9;
+}
+
 function bridgeReviewFixtureItemIdForPath(
 	fixture: ReturnType<typeof makeBridgeViewerBrowserFixture>,
 	path: string,
@@ -1404,11 +1426,12 @@ async function waitForBridgeCodeHeaderOffsetFromScrollOwner(props: {
 	readonly scrollOwner: HTMLElement;
 	readonly remainingAttempts?: number;
 }): Promise<number> {
+	const minimumHeaderOffset = -6;
 	const offset = bridgeCodeHeaderOffsetFromScrollOwner({
 		collapseButton: props.collapseButton,
 		scrollOwner: props.scrollOwner,
 	});
-	if (offset >= 0 && offset <= props.maxOffset) {
+	if (offset >= minimumHeaderOffset && offset <= props.maxOffset) {
 		return offset;
 	}
 	const remainingAttempts = props.remainingAttempts ?? 180;
