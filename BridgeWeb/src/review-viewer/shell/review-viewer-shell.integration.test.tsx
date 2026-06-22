@@ -7,7 +7,7 @@ import {
 } from '../../components/ui/dropdown-menu.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
-import { BridgeReviewButton } from '../chrome/bridge-review-button.js';
+import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
@@ -75,9 +75,8 @@ describe('review viewer shell', () => {
 
 		const text = collectText(element);
 		expect(findElementByComponent(element, BridgeReviewProjectionMenu)).not.toBeNull();
+		expect(findElementByComponent(element, BridgeReviewFacetMenu)).not.toBeNull();
 		expect(text).toContain('Search files');
-		expect(text).toContain('Git status');
-		expect(text).toContain('File class');
 		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 	});
 
@@ -95,13 +94,13 @@ describe('review viewer shell', () => {
 
 		const projectionScope = findElementByTestId(element, 'bridge-review-projection-scope');
 		const projectionMenu = findElementByComponent(element, BridgeReviewProjectionMenu);
-		const projectionButtons = findElementsByComponent(element, BridgeReviewButton);
+		const facetMenu = findElementByComponent(element, BridgeReviewFacetMenu);
 		const railStats = findElementByTestId(element, 'bridge-review-rail-stats');
 
 		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 		expect(projectionScope).toBeNull();
 		expect(projectionMenu).not.toBeNull();
-		expect(projectionButtons).toHaveLength(2);
+		expect(facetMenu).not.toBeNull();
 		expect(railStats).not.toBeNull();
 	});
 
@@ -134,8 +133,7 @@ describe('review viewer shell', () => {
 		);
 
 		expect(findElementsByType(element, 'select')).toEqual([]);
-		expect(findElementByTestId(element, 'bridge-review-git-status-menu')).not.toBeNull();
-		expect(findElementByTestId(element, 'bridge-review-file-class-menu')).not.toBeNull();
+		expect(findElementByTestId(element, 'bridge-review-facet-menu')).not.toBeNull();
 		expect(findElementByTestId(element, 'bridge-review-search-control-slot')).not.toBeNull();
 	});
 
@@ -156,23 +154,20 @@ describe('review viewer shell', () => {
 		const trailingGroup = findElementByTestId(element, 'bridge-review-rail-toolbar-trailing');
 		const fileTreeButton = findElementByTestId(element, 'bridge-review-rail-files-view');
 		const commentsButton = findElementByTestId(element, 'bridge-review-rail-comments-view');
+		const leadingControlOrder = directChildControlNames(leadingGroup);
 		const trailingControlOrder = directChildControlNames(trailingGroup);
 
 		expect(toolbar?.type).toBe('div');
 		expect(classNameForElement(toolbar)).toContain('justify-between');
 		expect(classNameForElement(leadingGroup)).toContain('gap-1');
 		expect(classNameForElement(trailingGroup)).toContain('gap-1');
+		expect(leadingControlOrder).toEqual(['BridgeReviewProjectionMenu']);
 		expect(trailingControlOrder).toEqual([
-			'BridgeReviewProjectionMenu',
-			'bridge-review-git-status-menu',
-			'bridge-review-file-class-menu',
+			'bridge-review-facet-menu',
 			'bridge-review-search-control-slot',
 		]);
-		expect(fileTreeButton?.type).toBe(BridgeReviewButton);
-		expect(commentsButton?.type).toBe(BridgeReviewButton);
-		expect(commentsButton?.props.disabled).toBeUndefined();
-		expect(collectText(fileTreeButton)).toBe('');
-		expect(collectText(commentsButton)).toBe('');
+		expect(fileTreeButton).toBeNull();
+		expect(commentsButton).toBeNull();
 	});
 
 	test('uses the dark right-sidebar review layout', () => {

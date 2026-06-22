@@ -65,6 +65,8 @@ interface BridgeCodeViewMaterializationDiagnostic {
 	readonly updateResult: ApplyBridgeCodeViewItemUpdateResult | 'not-run';
 	readonly itemType: BridgeCodeViewItem['type'] | 'none';
 	readonly itemVersion: number;
+	readonly modelContentState: BridgeCodeViewItem['bridgeMetadata']['contentState'] | 'none';
+	readonly modelItemVersion: number;
 	readonly additionLineCount: number;
 	readonly deletionLineCount: number;
 	readonly fileLineCount: number;
@@ -693,6 +695,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				const updateResult = controller.applyItemUpdate(nextMaterializedItem);
 				didUpdateRenderedItems = true;
 				if (itemId === props.selectedItemId) {
+					const currentModelItem = codeViewHandle.getItem(itemId);
 					const selectionScrollKey = `${viewerKey}:${codeViewMountVersion}:${itemId}`;
 					if (completedSelectionScrollKeyRef.current !== selectionScrollKey) {
 						const shouldPreserveSmoothReveal =
@@ -724,6 +727,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					setMaterializationDiagnostic(
 						materializationDiagnosticForCodeViewItem({
 							item: nextMaterializedItem,
+							modelItem: isBridgeCodeViewItem(currentModelItem) ? currentModelItem : null,
 							updateResult,
 						}),
 					);
@@ -777,6 +781,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			data-selected-materialized-file-line-count={materializationDiagnostic.fileLineCount}
 			data-selected-materialized-item-type={materializationDiagnostic.itemType}
 			data-selected-materialized-item-version={materializationDiagnostic.itemVersion}
+			data-selected-materialized-model-content-state={materializationDiagnostic.modelContentState}
+			data-selected-materialized-model-item-version={materializationDiagnostic.modelItemVersion}
 			data-selected-materialized-update-result={materializationDiagnostic.updateResult}
 			data-selected-display-path={selectedDisplayPath ?? undefined}
 			data-selected-item-id={props.selectedItemId ?? undefined}
@@ -1128,6 +1134,8 @@ function emptyMaterializationDiagnostic(): BridgeCodeViewMaterializationDiagnost
 		updateResult: 'not-run',
 		itemType: 'none',
 		itemVersion: 0,
+		modelContentState: 'none',
+		modelItemVersion: 0,
 		additionLineCount: 0,
 		deletionLineCount: 0,
 		fileLineCount: 0,
@@ -1136,13 +1144,18 @@ function emptyMaterializationDiagnostic(): BridgeCodeViewMaterializationDiagnost
 
 function materializationDiagnosticForCodeViewItem(props: {
 	readonly item: BridgeCodeViewItem;
+	readonly modelItem: BridgeCodeViewItem | null;
 	readonly updateResult: ApplyBridgeCodeViewItemUpdateResult;
 }): BridgeCodeViewMaterializationDiagnostic {
+	const modelContentState = props.modelItem?.bridgeMetadata.contentState ?? 'none';
+	const modelItemVersion = props.modelItem?.version ?? 0;
 	if (props.item.type === 'diff') {
 		return {
 			updateResult: props.updateResult,
 			itemType: props.item.type,
 			itemVersion: props.item.version ?? 0,
+			modelContentState,
+			modelItemVersion,
 			additionLineCount: props.item.fileDiff.additionLines.length,
 			deletionLineCount: props.item.fileDiff.deletionLines.length,
 			fileLineCount: 0,
@@ -1152,6 +1165,8 @@ function materializationDiagnosticForCodeViewItem(props: {
 		updateResult: props.updateResult,
 		itemType: props.item.type,
 		itemVersion: props.item.version ?? 0,
+		modelContentState,
+		modelItemVersion,
 		additionLineCount: 0,
 		deletionLineCount: 0,
 		fileLineCount: lineCountForContentResourceText(props.item.file.contents),
@@ -1278,8 +1293,8 @@ function bridgeReviewItemForCodeViewItem(
 	return props.reviewPackage.itemsById[props.item.bridgeMetadata.itemId] ?? null;
 }
 
-function isBridgeCodeViewItem(item: CodeViewItem): item is BridgeCodeViewItem {
-	return 'bridgeMetadata' in item;
+function isBridgeCodeViewItem(item: CodeViewItem | undefined): item is BridgeCodeViewItem {
+	return item !== undefined && 'bridgeMetadata' in item;
 }
 
 interface ControllerForHandleProps {

@@ -399,7 +399,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			document.querySelector('button[data-testid="bridge-review-search-toggle"]'),
 		);
 		const statusFilterButton = requireBridgeViewerHTMLElement(
-			document.querySelector('button[data-testid="bridge-review-git-status-menu-control"]'),
+			document.querySelector('button[data-testid="bridge-review-facet-menu-control"]'),
 		);
 
 		expect(getComputedStyle(collapseButton).cursor).toBe('pointer');
@@ -785,7 +785,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await waitForBridgeViewerText(fixture.expected.initialText);
 		const initialProjectionRequestCount = backend.projectionRequests.length;
 
-		await clickBridgeViewerFilterMenuOption('bridge-review-file-class-menu-control', 'Test');
+		await clickBridgeViewerFilterMenuOption('bridge-review-facet-menu-control', 'Test');
 		const testFileButton = await waitForBridgeViewerTreeItemButton(fixture.expected.testFilterPath);
 
 		expect(testFileButton.dataset['itemPath']).toBe(fixture.expected.testFilterPath);
@@ -816,15 +816,31 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
 		const gitStatusFilterButton = requireBridgeViewerHTMLElement(
-			document.querySelector('[data-testid="bridge-review-git-status-menu-control"]'),
+			document.querySelector('[data-testid="bridge-review-facet-menu-control"]'),
 		);
 		gitStatusFilterButton.click();
-		await waitForBridgeViewerElement('[data-testid="bridge-review-filter-popover"]');
+		await waitForBridgeViewerElement('[data-testid="bridge-review-facet-popover"]');
 
 		const checkedStates = [...document.querySelectorAll('[role="menuitemcheckbox"]')].map(
 			(item: Element): string | null => item.getAttribute('aria-checked'),
 		);
-		expect(checkedStates).toEqual(['false', 'false', 'false', 'false', 'false']);
+		expect(checkedStates).toEqual([
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+			'false',
+		]);
 
 		backend.dispose();
 	});
@@ -1003,11 +1019,11 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.pendingProjectionResponses[0]?.resolve();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
-		await clickBridgeViewerFilterMenuOption('bridge-review-file-class-menu-control', 'Test');
+		await clickBridgeViewerFilterMenuOption('bridge-review-facet-menu-control', 'Test');
 		await waitForProjectionRequestCount(backend, 2);
 		await waitForProjectionAbortCount(backend, 1);
 		await waitForPendingProjectionResponseExactCount(backend, 1);
-		await clickBridgeViewerFilterMenuOption('bridge-review-file-class-menu-control', 'Source');
+		await clickBridgeViewerFilterMenuOption('bridge-review-facet-menu-control', 'Source');
 		await waitForProjectionRequestCount(backend, 3);
 		await waitForProjectionAbortCount(backend, 2);
 		await waitForPendingProjectionResponseExactCount(backend, 1);
@@ -1388,9 +1404,12 @@ async function waitForBridgeViewerTextWithDiagnostics(
 				`selectedContentState=${selectedBridgeViewerContentState() ?? 'null'}`,
 				`materializedUpdate=${selectedBridgeViewerPanelAttribute('data-selected-materialized-update-result') ?? 'null'}`,
 				`materializedType=${selectedBridgeViewerPanelAttribute('data-selected-materialized-item-type') ?? 'null'}`,
+				`materializedModelState=${selectedBridgeViewerPanelAttribute('data-selected-materialized-model-content-state') ?? 'null'}`,
+				`materializedModelVersion=${selectedBridgeViewerPanelAttribute('data-selected-materialized-model-item-version') ?? 'null'}`,
 				`materializedAdditions=${selectedBridgeViewerPanelAttribute('data-selected-materialized-addition-line-count') ?? 'null'}`,
 				`materializedDeletions=${selectedBridgeViewerPanelAttribute('data-selected-materialized-deletion-line-count') ?? 'null'}`,
 				`materializedFileLines=${selectedBridgeViewerPanelAttribute('data-selected-materialized-file-line-count') ?? 'null'}`,
+				`workerPool=${JSON.stringify(bridgeViewerWorkerPoolSnapshot())}`,
 				`codeGeometry=${JSON.stringify(bridgeViewerCodeGeometry())}`,
 				`codeScroll=${JSON.stringify(bridgeViewerCodeScrollSnapshot())}`,
 				`diffContainers=${JSON.stringify(bridgeViewerDiffContainerSnapshots())}`,
@@ -1410,6 +1429,21 @@ function selectedBridgeViewerPanelAttribute(attributeName: string): string | nul
 	);
 }
 
+function bridgeViewerWorkerPoolSnapshot(): Record<string, string> {
+	const dataset = document.documentElement.dataset;
+	return {
+		activeTasks: dataset['bridgePierreWorkerPoolActiveTasks'] ?? 'missing',
+		busyWorkers: dataset['bridgePierreWorkerPoolBusyWorkers'] ?? 'missing',
+		diffCacheSize: dataset['bridgePierreWorkerPoolDiffCacheSize'] ?? 'missing',
+		fileCacheSize: dataset['bridgePierreWorkerPoolFileCacheSize'] ?? 'missing',
+		managerState: dataset['bridgePierreWorkerPoolManagerState'] ?? 'missing',
+		queuedTasks: dataset['bridgePierreWorkerPoolQueuedTasks'] ?? 'missing',
+		state: dataset['bridgePierreWorkerPoolState'] ?? 'missing',
+		totalWorkers: dataset['bridgePierreWorkerPoolTotalWorkers'] ?? 'missing',
+		workersFailed: dataset['bridgePierreWorkerPoolWorkersFailed'] ?? 'missing',
+	};
+}
+
 function bridgeViewerCodeScrollSnapshot(): Record<string, number | string> {
 	const scrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
 	if (!(scrollOwner instanceof HTMLElement)) {
@@ -1426,10 +1460,18 @@ function bridgeViewerDiffContainerSnapshots(): readonly Record<string, number | 
 	return [...document.querySelectorAll('diffs-container')].map(
 		(element: Element, index: number): Record<string, number | string> => {
 			const box = element.getBoundingClientRect();
+			const shadowRoot = element.shadowRoot;
+			const lineElements = [...(shadowRoot?.querySelectorAll('[data-line-index]') ?? [])];
 			return {
 				height: Math.round(box.height),
 				index,
-				text: (element.shadowRoot?.textContent ?? '').slice(0, 240),
+				lineCount: lineElements.length,
+				lineText: lineElements
+					.slice(0, 5)
+					.map((lineElement: Element): string => lineElement.textContent ?? '')
+					.join('\\n')
+					.slice(0, 240),
+				text: (shadowRoot?.textContent ?? '').slice(0, 240),
 				top: Math.round(box.top),
 			};
 		},

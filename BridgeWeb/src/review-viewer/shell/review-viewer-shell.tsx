@@ -1,4 +1,4 @@
-import { FolderTreeIcon, ListFilterIcon, MessageSquareIcon } from 'lucide-react';
+import { ListFilterIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 import {
@@ -21,11 +21,11 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
-import { BridgeReviewButton, BridgeReviewIcon } from '../chrome/bridge-review-button.js';
 import {
-	BridgeReviewFilterMenu,
-	type BridgeReviewFilterOption,
-} from '../chrome/bridge-review-filter-menu.js';
+	BridgeReviewFacetMenu,
+	bridgeReviewFileClassIcon,
+	type BridgeReviewFacetMenuOption,
+} from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewSearchControl } from '../chrome/bridge-review-search-control.js';
 import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
 import {
@@ -276,57 +276,29 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								className="flex min-w-0 items-center gap-1"
 								data-testid="bridge-review-rail-toolbar-leading"
 							>
-								<BridgeReviewButton
-									data-testid="bridge-review-rail-files-view"
-									ariaPressed
-									ariaLabel="Show changed files"
-									className="h-7 w-7 rounded-md border-transparent bg-transparent px-0"
-									title="Changed files"
-								>
-									<BridgeReviewIcon>
-										<FolderTreeIcon aria-hidden="true" className="size-4" />
-									</BridgeReviewIcon>
-								</BridgeReviewButton>
-								<BridgeReviewButton
-									data-testid="bridge-review-rail-comments-view"
-									ariaLabel="Show review comments"
-									className="h-7 w-7 rounded-md border-transparent bg-transparent px-0"
-									title="Review comments"
-								>
-									<BridgeReviewIcon>
-										<MessageSquareIcon aria-hidden="true" className="size-4" />
-									</BridgeReviewIcon>
-								</BridgeReviewButton>
-							</div>
-							<div
-								className="flex min-w-0 items-center justify-end gap-1"
-								data-testid="bridge-review-rail-toolbar-trailing"
-							>
 								<BridgeReviewProjectionMenu
 									projectionMode={projectionMode}
 									{...(props.onProjectionModeChange === undefined
 										? {}
 										: { onProjectionModeChange: props.onProjectionModeChange })}
 								/>
-								<div className="shrink-0" data-testid="bridge-review-git-status-menu">
-									<span className="sr-only">Git status</span>
-									<BridgeReviewFilterMenu
-										label="Git status filter"
-										onChange={(value): void => props.onGitStatusFilterChange?.(value)}
-										options={gitStatusOptions}
-										showDefaultOptionInMenu={false}
-										testId="bridge-review-git-status-menu-control"
-										value={gitStatusFilter}
-									/>
-								</div>
-								<div className="shrink-0" data-testid="bridge-review-file-class-menu">
-									<span className="sr-only">File class</span>
-									<BridgeReviewFilterMenu
-										label="File class filter"
-										onChange={(value): void => props.onFileClassFilterChange?.(value)}
-										options={fileClassOptions}
-										testId="bridge-review-file-class-menu-control"
-										value={fileClassFilter}
+							</div>
+							<div
+								className="flex min-w-0 items-center justify-end gap-1"
+								data-testid="bridge-review-rail-toolbar-trailing"
+							>
+								<div className="shrink-0" data-testid="bridge-review-facet-menu">
+									<BridgeReviewFacetMenu
+										fileClassFilter={fileClassFilter}
+										fileClassOptions={fileClassOptions}
+										gitStatusFilter={gitStatusFilter}
+										gitStatusOptions={gitStatusOptions}
+										onFileClassFilterChange={(value): void =>
+											props.onFileClassFilterChange?.(value)
+										}
+										onGitStatusFilterChange={(value): void =>
+											props.onGitStatusFilterChange?.(value)
+										}
 									/>
 								</div>
 								<div data-testid="bridge-review-search-control-slot">
@@ -548,13 +520,18 @@ const projectionButtonSpecs: readonly {
 	},
 ];
 
-const gitStatusOptions: readonly BridgeReviewFilterOption<BridgeFileChangeKind | 'all'>[] = [
-	{ value: 'all', label: 'All statuses', selectedLabel: 'All', icon: '*' },
-	{ value: 'added', label: 'Added', icon: 'A' },
-	{ value: 'modified', label: 'Modified', icon: 'M' },
-	{ value: 'renamed', label: 'Renamed', icon: 'R' },
-	{ value: 'deleted', label: 'Deleted', icon: 'D' },
-	{ value: 'copied', label: 'Copied', icon: 'C' },
+const gitStatusOptions: readonly BridgeReviewFacetMenuOption<BridgeFileChangeKind | 'all'>[] = [
+	{ value: 'all', label: 'All statuses', description: 'Show every Git change kind', icon: '*' },
+	{ value: 'added', label: 'Added', description: 'New files and created paths', icon: 'A' },
+	{ value: 'modified', label: 'Modified', description: 'Files changed in place', icon: 'M' },
+	{ value: 'renamed', label: 'Renamed', description: 'Moves and path renames', icon: 'R' },
+	{ value: 'deleted', label: 'Deleted', description: 'Removed files and paths', icon: 'D' },
+	{
+		value: 'copied',
+		label: 'Copied',
+		description: 'Copied paths when Git reports them',
+		icon: 'C',
+	},
 ];
 
 const bridgeFileClassOptions: readonly BridgeFileClass[] = [
@@ -570,17 +547,46 @@ const bridgeFileClassOptions: readonly BridgeFileClass[] = [
 	'unknown',
 ];
 
-const fileClassOptions: readonly BridgeReviewFilterOption<BridgeFileClass | 'all'>[] = [
-	{ value: 'all', label: 'All classes', selectedLabel: 'All', icon: '*' },
+const fileClassOptions: readonly BridgeReviewFacetMenuOption<BridgeFileClass | 'all'>[] = [
+	{ value: 'all', label: 'All file types', description: 'Show every classified file', icon: '*' },
 	...bridgeFileClassOptions.map(
-		(fileClass: BridgeFileClass): BridgeReviewFilterOption<BridgeFileClass | 'all'> => ({
+		(fileClass: BridgeFileClass): BridgeReviewFacetMenuOption<BridgeFileClass | 'all'> => ({
 			value: fileClass,
 			label: sentenceCase(fileClass),
-			icon: fileClass.slice(0, 1).toUpperCase(),
+			description: descriptionForFileClass(fileClass),
+			icon: bridgeReviewFileClassIcon(fileClass),
 		}),
 	),
 ];
 
 function sentenceCase(value: string): string {
 	return value.length === 0 ? value : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+}
+
+function descriptionForFileClass(fileClass: BridgeFileClass): string {
+	switch (fileClass) {
+		case 'source':
+			return 'Application and library implementation files';
+		case 'test':
+			return 'Tests, specs, fixtures, and verification code';
+		case 'docs':
+			return 'Plans, specs, markdown, and documentation';
+		case 'config':
+			return 'Build, package, and tool configuration';
+		case 'generated':
+			return 'Generated files that may be lower review priority';
+		case 'vendor':
+			return 'Vendored or third-party source trees';
+		case 'binary':
+			return 'Binary files and non-text assets';
+		case 'large':
+			return 'Large text files that need careful hydration';
+		case 'fixture':
+			return 'Fixture data and test inputs';
+		case 'unknown':
+			return 'Files without a confident class';
+	}
+	const exhaustiveFileClass: never = fileClass;
+	void exhaustiveFileClass;
+	return 'Files in this class';
 }

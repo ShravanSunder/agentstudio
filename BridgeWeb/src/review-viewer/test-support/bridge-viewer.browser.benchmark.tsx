@@ -421,7 +421,7 @@ async function measureWarmSearchExpandMatches(): Promise<BridgeViewerBrowserPerf
 async function measureWarmFilterSwitch(): Promise<BridgeViewerBrowserPerformanceSample> {
 	const { backend, fixture } = await mountInteractiveFixture();
 	const startedAt = performance.now();
-	await clickBridgeViewerFilterMenuOption('bridge-review-file-class-menu-control', 'Test');
+	await clickBridgeViewerFilterMenuOption('bridge-review-facet-menu-control', 'Test');
 	const railScroll = await waitForBridgeViewerTreeScrollOwner();
 	await waitForBridgeViewerVisibleTreeItemPathAbsent(railScroll, fixture.expected.initialPath);
 	await waitForBridgeViewerVisibleTreeItemPath(railScroll, fixture.expected.testFilterPath);
