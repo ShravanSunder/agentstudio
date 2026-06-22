@@ -1380,6 +1380,17 @@ swift test --filter AgentStudioIPCClientCoreTests
   frames. The browser gate must keep proving this path with a large fixture,
   frame-sampled scroll motion, and a check that there is at most one large
   frame delta during far reveal.
+- The remaining scroll risk is Bridge-owned DOM correction layered on top of
+  Pierre's scroll/reflow machinery. In particular,
+  `BridgeCodeViewPanel.scrollCodeViewHeaderToScrollTopAcrossLayout` and
+  `restoreCodeViewHeaderAnchorAcrossLayout` mutate the outer scroll owner
+  after Pierre has already computed item anchoring. Future motion fixes must
+  either remove, narrow, or explicitly gate those correction loops with browser
+  proof; do not add another scroll-adjustment layer.
+- Explicit control-handle motion and automatic selection motion are different
+  contracts. If a caller passes `behavior: 'smooth'`, hydration re-reveal must
+  preserve that exact behavior. Automatic file-tree / selected-item reveal
+  should use `smooth-auto` so far targets jump once and settle quickly.
 - Review-mode browser tests must drive the current segmented shadcn/Base UI
   control. The removed projection dropdown is historical and tests must not
   preserve it as a fake contract.
@@ -1395,13 +1406,55 @@ swift test --filter AgentStudioIPCClientCoreTests
   artifact at `/Users/shravansunder/Downloads/[capture]/2026-06-21.0653.Brave Browser.Bridge.mp4`
   remains the reference failure until a browser screenshot/DOM assertion proves
   the corrected placement.
+- Loading rows are still Bridge-owned item swaps rather than Pierre-owned
+  renderer placeholders. The next loading/skeleton slice should start at
+  `BridgeCodeViewPanel`'s visible-loading item id set and
+  `bridge-code-view-materialization.ts` loading item creation, then prove the
+  placeholder remains inside the owning CodeView item through hydration.
+- Empty hydrated file bodies remain a separate materialization risk:
+  `createFileContents(...).contents = resource?.text ?? ''` can produce a
+  real Pierre file item with zero body rows for empty text. That must be tested
+  as visible empty-file materialization instead of inferred from header text.
+- Worktree selected-content had a global dev-server route bug: content URLs
+  forwarded `scenario=current-worktree`, but
+  `parseBridgeWorktreeContentRequest` rejected any query keys beyond
+  `generation` and `revision`. The fix allows optional `scenario` as routing
+  context while still requiring exactly one generation and revision. Current
+  proof after restarting the dev server: route unit test passes, direct curl
+  returns 200 for a scenario-qualified content handle, headless worktree page
+  has no `Content unavailable`, and `test:dev-server:worktree` reports selected
+  content `ready`.
+- The current `test:dev-server:worktree` gate is green again for the default
+  `.github/workflows/ci.yml` selection. Keep the broader added-TypeScript path
+  as useful future coverage, but the all-files `Content unavailable` regression
+  is closed by the scenario-query route fix.
+- Search and regex controls are now a live blocker. The next browser pass must
+  prove that clicking `Search files` reveals a visible/editable input, that the
+  search input changes projection state, the regex affordance is clickable,
+  regex mode changes matching behavior, and failures surface as UI state
+  instead of silently doing nothing. Current headless proof toggles regex, but
+  the search input remains hidden/uneditable after the search button click.
+- `agentstudio://resource/review-items` is only partially proven. TS parsing,
+  canonical URL creation, item-window budgeting, and registry behavior exist,
+  but native AgentStudio scheme handling and the semantic
+  `bridge.review.prepareWindow` RPC path still need real IPC proof.
+- Overscan/overscroll containment exists in the spec/code vocabulary, but the
+  user-facing underscroll/edge-blank concern is not yet a named acceptance
+  check. Add explicit top/bottom scroll-boundary assertions for no underfill,
+  no over-correction, and no duplicate Bridge-owned scroll loops.
 - The current browser integration floor is `pnpm --dir BridgeWeb run
   test:browser:integration`; the checkpoint is not acceptable unless that full
   Browser Mode suite passes, not only focused tests.
 
 ## Next Workflow
 
-Run `shravan-dev-workflow:plan-review-swarm` against this reset, then execute
-with `shravan-dev-workflow:implementation-execute-plan` only after accepted
-plan-review findings are addressed. Current reset state lives under
-`tmp/workflow-state/2026-06-19-bridgeweb-diffshub-shadcn-reset/`.
+Use
+`docs/plans/2026-06-20-bridge-review-mode-functional-plan.md` as the active
+execution contract. This remediation file is now the historical issue ledger
+plus current blocker notes. Before the next code slice, run or restore the
+local proof lanes directly if subagent delegation is unavailable:
+
+- Headless Playwright/dev-server repro for search/regex controls.
+- Full `pnpm --dir BridgeWeb run test:browser:integration`.
+- Playwright-backed `pnpm --dir BridgeWeb run test:dev-server` and
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.

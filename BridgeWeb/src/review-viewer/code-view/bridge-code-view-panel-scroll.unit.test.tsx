@@ -235,7 +235,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		} satisfies CodeViewScrollTarget);
 	});
 
-	test('uses Pierre smooth motion when mounted selection props change', async () => {
+	test('uses Pierre adaptive motion when mounted selection props change', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -282,7 +282,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			type: 'item',
 			id: 'source-high',
 			align: 'start',
-			behavior: 'smooth',
+			behavior: 'smooth-auto',
 		} satisfies CodeViewScrollTarget);
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalledWith({
 			type: 'item',
@@ -345,11 +345,11 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			type: 'item',
 			id: 'source-high',
 			align: 'start',
-			behavior: 'smooth',
+			behavior: 'smooth-auto',
 		} satisfies CodeViewScrollTarget);
 	});
 
-	test('expands a prop-driven selected placeholder before smooth reveal', async () => {
+	test('expands a prop-driven selected placeholder before adaptive reveal', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -413,7 +413,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			type: 'item',
 			id: 'docs-plan',
 			align: 'start',
-			behavior: 'smooth',
+			behavior: 'smooth-auto',
 		} satisfies CodeViewScrollTarget);
 	});
 
@@ -1056,7 +1056,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		} satisfies CodeViewScrollTarget);
 	});
 
-	test('preserves smooth selected placeholder reveal during hydration without top-snap correction', async () => {
+	test('preserves adaptive selected placeholder reveal during hydration without top-snap correction', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -1177,7 +1177,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(scrollOwner.scrollTop).toBe(100);
 	});
 
-	test('keeps prop-driven smooth selection pending when content hydrates before the reveal frame', async () => {
+	test('keeps prop-driven adaptive selection pending when content hydrates before the reveal frame', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -1266,11 +1266,11 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			type: 'item',
 			id: 'docs-plan',
 			align: 'start',
-			behavior: 'smooth',
+			behavior: 'smooth-auto',
 		} satisfies CodeViewScrollTarget);
 	});
 
-	test('keeps prop-driven smooth selection in flight for collapse anchoring after reveal', async () => {
+	test('keeps prop-driven adaptive selection in flight for collapse anchoring after reveal', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -1357,7 +1357,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			type: 'item',
 			id: 'docs-plan',
 			align: 'start',
-			behavior: 'smooth',
+			behavior: 'smooth-auto',
 		} satisfies CodeViewScrollTarget);
 		codeViewDoubles.scrollTo.mockClear();
 

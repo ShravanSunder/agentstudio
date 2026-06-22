@@ -50,6 +50,22 @@ describe('BridgeWeb Vite worktree content route helpers', () => {
 		expect(parsed).toBeNull();
 	});
 
+	test('allows worktree scenario routing context on content resource requests', () => {
+		const parsed = parseBridgeWorktreeContentRequest({
+			contentUrl: new URL(
+				'/handle?scenario=current-worktree&generation=7&revision=3',
+				'http://127.0.0.1',
+			),
+			handleId: 'handle',
+		});
+
+		expect(parsed).toEqual({
+			handleId: 'handle',
+			reviewGeneration: 7,
+			revision: 3,
+		});
+	});
+
 	test('parses valid content resource identity query params', () => {
 		const parsed = parseBridgeWorktreeContentRequest({
 			contentUrl: new URL('/handle?generation=7&revision=3', 'http://127.0.0.1'),

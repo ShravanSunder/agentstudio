@@ -167,6 +167,73 @@ Observed current state before implementation:
   `performance.bridge.viewer.visible_window`, and
   `performance.bridge.controller.apply` must be added only after those emitters
   exist. Verifier churn should follow product telemetry, not lead it.
+- 2026-06-22 live worktree checkpoint: the dev server was listening on
+  `127.0.0.1:5173`, and both the worktree URL
+  `/?fixture=worktree&workers=on&scenario=current-worktree` and the mock URL
+  `/?fixture=large-diffshub&workers=on&scenario=scroll` returned HTTP 200.
+  This only proves the server is reachable; it does not prove the selected
+  viewer state is correct.
+- 2026-06-22 worktree content-unavailable fix: headless browser proof showed
+  the failure was global for worktree content, not limited to one file. The
+  browser forwarded `scenario=current-worktree` on
+  `/__bridge-worktree/content/*` requests, while the Vite content route only
+  accepted `generation` and `revision`, so every scenario-qualified content
+  request returned 400 before reaching the provider. The route now allows
+  optional `scenario` as routing context while keeping `generation` and
+  `revision` required. Proof is green for
+  `scripts/bridge-worktree-vite-route.unit.test.ts` and
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`, which reports selected
+  content `ready`.
+- 2026-06-22 search/regex blocker: the visible search and regex controls are
+  still not functionally complete in the live dev-server UI. Headless proof can
+  toggle the regex button from `Use regex search` to `Use text search`, but
+  clicking `Search files` does not reveal a visible/editable search input, so
+  filtering cannot be driven from the current chrome. Add browser reproduction
+  for clickability, facet state changes, regex-mode behavior, and
+  worker/projection output before claiming Task 3/4 filter completion.
+- 2026-06-22 resource item-window boundary: TypeScript-side parsing, window
+  budgeting, and registry code exist for
+  `agentstudio://resource/review-items`, but native AgentStudio scheme-handler
+  proof and semantic `bridge.review.prepareWindow` RPC proof are not yet green.
+  Do not describe item-range/resource-window work as fully implemented until
+  both the native route and RPC path are exercised through real Bridge IPC.
+- 2026-06-22 scroll-boundary wording: specs and code discuss hydration/tree
+  overscan and CSS overscroll containment. The separate underscroll/edge-blank
+  behavior is not yet a named proof gate. Add a scroll-boundary proof that
+  checks top/bottom edge anchoring, no blank underfill, and no duplicate
+  Bridge-owned correction loops before marking DiffsHub parity complete.
+- 2026-06-22 delegated proof note: the requested headless-browser and
+  Vitest/Playwright subagent lanes failed before running because the subagent
+  access token could not be refreshed after an account/session change. The main
+  executor must run those local proof gates directly until delegation is
+  available again.
+
+## 2026-06-22 Major Blockers And Fix Order
+
+- [x] 1. Restore local proof visibility: keep the dev server reachable at the
+  worktree and mock URLs, then run the browser investigation locally while
+  subagent delegation is unavailable.
+- [x] 2. Reproduce and fix worktree `Content unavailable`. Root cause was the
+  Vite worktree content route rejecting scenario-qualified content requests.
+  Proof: route unit test, route-level curl 200, headless page
+  `unavailableCount: 0`, and `test:dev-server:worktree` selected content
+  `ready`.
+- [ ] 3. Reproduce and fix search/regex controls. Prove input, regex toggle,
+  invalid-regex handling, worker/projection output, and visible UI state on the
+  large fixture.
+- [ ] 4. Finish Task 5 scroll/motion parity only after the two functional
+  blockers above are isolated. Preserve the current `smooth-auto` far-reveal
+  gate, then add explicit top/bottom no-underfill scroll-boundary proof.
+- [ ] 5. Close the resource-window contract: native
+  `agentstudio://resource/review-items` handling plus
+  `bridge.review.prepareWindow` RPC proof through real Bridge IPC.
+- [ ] 6. Re-run the full BridgeWeb proof floor:
+  `pnpm --dir BridgeWeb run test:browser:integration`,
+  `pnpm --dir BridgeWeb run test:dev-server`, and
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`. Extend the worktree gate
+  to cover the failing added TypeScript path before using it as closing proof.
+- [ ] 7. Continue native AgentStudio blank-pane and Victoria metrics proof only
+  after the browser/worktree surface is no longer functionally broken.
 
 ## Product Requirements
 

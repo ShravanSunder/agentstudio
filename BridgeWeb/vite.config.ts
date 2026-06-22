@@ -123,7 +123,12 @@ export function parseBridgeWorktreeContentRequest(props: {
 	readonly contentUrl: URL;
 	readonly handleId: string;
 }): BridgeWorktreeDevProviderContentRequest | null {
-	if (!hasOnlySearchParams(props.contentUrl, ['generation', 'revision'])) {
+	if (
+		!hasOnlySearchParams(props.contentUrl, {
+			allowedNames: ['generation', 'revision', 'scenario'],
+			requiredNames: ['generation', 'revision'],
+		})
+	) {
 		return null;
 	}
 	const reviewGeneration = parseNonnegativeIntegerSearchParam(props.contentUrl, 'generation');
@@ -157,12 +162,20 @@ function parseNonnegativeIntegerSearchParam(url: URL, name: string): number | nu
 	return Number.isSafeInteger(parsedValue) ? parsedValue : null;
 }
 
-function hasOnlySearchParams(url: URL, allowedNames: readonly string[]): boolean {
-	const allowed = new Set(allowedNames);
+function hasOnlySearchParams(
+	url: URL,
+	props: {
+		readonly allowedNames: readonly string[];
+		readonly requiredNames: readonly string[];
+	},
+): boolean {
+	const allowed = new Set(props.allowedNames);
 	for (const [name] of url.searchParams.entries()) {
 		if (!allowed.has(name)) {
 			return false;
 		}
 	}
-	return allowedNames.every((name: string): boolean => url.searchParams.getAll(name).length === 1);
+	return props.requiredNames.every(
+		(name: string): boolean => url.searchParams.getAll(name).length === 1,
+	);
 }

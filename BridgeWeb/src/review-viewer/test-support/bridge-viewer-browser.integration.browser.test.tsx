@@ -763,7 +763,9 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			expect(bridgeViewerVisibleCodeTextContent(codeScroll)).toContain(deepExpectedText);
 			expect(selectedHeaderOffset).toBeGreaterThanOrEqual(-6);
 			expect(codeScroll.scrollTop).not.toBe(scrollTopBeforeClick);
+			const motionSummary = summarizeBridgeCodeViewScrollMotion(motionSamples);
 			expect(isBridgeCodeViewIntentionalRevealMotionSample(motionSamples)).toBe(true);
+			expect(motionSummary.largeFrameDeltaCount).toBeLessThanOrEqual(1);
 		} finally {
 			await cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
 			workerFactory.revoke();
