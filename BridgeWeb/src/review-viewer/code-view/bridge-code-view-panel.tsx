@@ -409,6 +409,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				});
 			} else {
 				pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
+				scrollToTopTargetItemIdRef.current = null;
 				if (scrollBehavior === 'smooth-auto') {
 					scrollToTopTargetItemIdRef.current = itemId;
 					scrollCodeViewHeaderToScrollTopAcrossLayout({
@@ -564,6 +565,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		const shouldUseInitialPlacement =
 			initialSelectedItemByViewerKeyRef.current?.viewerKey === viewerKey &&
 			initialSelectedItemByViewerKeyRef.current.selectedItemId === selectedItemId;
+		if (!shouldUseInitialPlacement) {
+			scrollToTopTargetItemIdRef.current = null;
+		}
 		pendingPreHydrationSelectionScrollKeyRef.current = shouldUseInitialPlacement
 			? null
 			: selectionScrollKey;

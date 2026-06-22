@@ -224,7 +224,7 @@ describe('Bridge review chrome controls', () => {
 		expect(clearButton.getAttribute('data-disabled')).toBeNull();
 	});
 
-	test('git status filter can use clear action instead of an all-status menu row', () => {
+	test('git status filter hides the all-status row without checking every status', () => {
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -268,7 +268,7 @@ describe('Bridge review chrome controls', () => {
 		).toEqual(['Added', 'Modified']);
 		expect(
 			checkboxItems.map((item: Element): string | null => item.getAttribute('aria-checked')),
-		).toEqual(['true', 'true']);
+		).toEqual(['false', 'false']);
 		expect(clearButton.getAttribute('data-disabled')).not.toBeNull();
 	});
 

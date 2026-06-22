@@ -794,6 +794,35 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
+	test('git status filter starts from all without marking every hidden-default option checked', async () => {
+		const fixture = makeBridgeViewerBrowserFixture();
+		const backend = installBridgeViewerMockedBackend(fixture);
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushPackage();
+		await waitForBridgeViewerText(fixture.expected.initialText);
+
+		const gitStatusFilterButton = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-review-git-status-menu-control"]'),
+		);
+		gitStatusFilterButton.click();
+		await waitForBridgeViewerElement('[data-testid="bridge-review-filter-popover"]');
+
+		const checkedStates = [...document.querySelectorAll('[role="menuitemcheckbox"]')].map(
+			(item: Element): string | null => item.getAttribute('aria-checked'),
+		);
+		expect(checkedStates).toEqual(['false', 'false', 'false', 'false', 'false']);
+
+		backend.dispose();
+	});
+
 	test('view chips update projection through custom controls', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);

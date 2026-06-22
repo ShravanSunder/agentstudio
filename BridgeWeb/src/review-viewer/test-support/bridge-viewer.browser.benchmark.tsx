@@ -24,6 +24,8 @@ import {
 	waitForBridgeViewerText,
 	waitForBridgeViewerTreeItemAbsent,
 	waitForBridgeViewerTreeItemButton,
+	waitForBridgeViewerVisibleTreeItemPath,
+	waitForBridgeViewerVisibleTreeItemPathAbsent,
 	waitForBridgeViewerTreeScrollOwner,
 } from './bridge-viewer-browser-dom.js';
 import {
@@ -417,8 +419,10 @@ async function measureWarmFilterSwitch(): Promise<BridgeViewerBrowserPerformance
 	const { backend, fixture } = await mountInteractiveFixture();
 	const startedAt = performance.now();
 	await clickBridgeViewerFilterMenuOption('bridge-review-file-class-menu-control', 'Test');
-	const testFileButton = await waitForBridgeViewerTreeItemButton(fixture.expected.testFilterPath);
 	const railScroll = await waitForBridgeViewerTreeScrollOwner();
+	await waitForBridgeViewerVisibleTreeItemPathAbsent(railScroll, fixture.expected.initialPath);
+	await waitForBridgeViewerVisibleTreeItemPath(railScroll, fixture.expected.testFilterPath);
+	const testFileButton = await waitForBridgeViewerTreeItemButton(fixture.expected.testFilterPath);
 	const visibleTreePaths = bridgeViewerVisibleTreeItemPaths(railScroll);
 	expect(testFileButton.dataset['itemPath']).toBe(fixture.expected.testFilterPath);
 	expect(visibleTreePaths).toContain(fixture.expected.testFilterPath);

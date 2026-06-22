@@ -810,6 +810,108 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
 	});
 
+	test('cancels stale instant header correction before a later smooth selection reveal', async () => {
+		const animationFrameCallbacks: FrameRequestCallback[] = [];
+		vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+			(callback: FrameRequestCallback): number => {
+				animationFrameCallbacks.push(callback);
+				return animationFrameCallbacks.length;
+			},
+		);
+		vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((): void => {});
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const initialCodeViewItems = createBridgeCodeViewInitialItems({ reviewPackage, projection });
+		const sourceHighItem = initialCodeViewItems.find(
+			(item: CodeViewItem): boolean => item.id === 'source-high',
+		);
+		const sourceNormalItem = initialCodeViewItems.find(
+			(item: CodeViewItem): boolean => item.id === 'source-normal',
+		);
+		if (sourceHighItem === undefined || sourceNormalItem === undefined) {
+			throw new Error('expected source-high and source-normal CodeView items');
+		}
+		codeViewDoubles.getItem.mockImplementation((id: string): CodeViewItem | undefined => {
+			if (id === 'source-high') {
+				return sourceHighItem;
+			}
+			if (id === 'source-normal') {
+				return sourceNormalItem;
+			}
+			return undefined;
+		});
+		const scrollOwner = document.createElement('div');
+		scrollOwner.className = 'bridge-code-view-scroll-owner';
+		scrollOwner.scrollTop = 100;
+		Object.defineProperty(scrollOwner, 'getBoundingClientRect', {
+			value: (): DOMRect => makeTestDOMRect({ top: 0 }),
+		});
+		const codeViewContainer = document.createElement('div');
+		const staleHeader = document.createElement('div');
+		staleHeader.dataset['diffsHeader'] = 'default';
+		Object.defineProperty(staleHeader, 'getBoundingClientRect', {
+			value: (): DOMRect => makeTestDOMRect({ top: 40 }),
+		});
+		const staleHeaderMarker = document.createElement('span');
+		staleHeaderMarker.dataset['bridgeCodeViewItemId'] = 'source-high';
+		staleHeader.append(staleHeaderMarker);
+		codeViewContainer.append(staleHeader);
+		scrollOwner.append(codeViewContainer);
+		document.body.append(scrollOwner);
+		codeViewDoubles.containerElement = codeViewContainer;
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="source-high"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		const initialSelectionFrame = animationFrameCallbacks.shift();
+		if (initialSelectionFrame === undefined) {
+			throw new Error('expected initial selected-item RAF');
+		}
+		await act(async (): Promise<void> => {
+			initialSelectionFrame(performance.now());
+			await Promise.resolve();
+		});
+		expect(scrollOwner.scrollTop).toBe(140);
+		const staleCorrectionFrame = animationFrameCallbacks.at(-1);
+		if (staleCorrectionFrame === undefined) {
+			throw new Error('expected stale header-correction RAF');
+		}
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="source-normal"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
+			staleCorrectionFrame(performance.now());
+			await Promise.resolve();
+		});
+
+		expect(scrollOwner.scrollTop).toBe(140);
+	});
+
 	test('smoothly re-reveals an explicitly revealed placeholder when it hydrates', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
@@ -1594,6 +1696,20 @@ function collectText(node: ReactNode): string {
 		return collectText(node.props.children);
 	}
 	return '';
+}
+
+function makeTestDOMRect(props: { readonly top: number }): DOMRect {
+	return {
+		bottom: props.top,
+		height: 0,
+		left: 0,
+		right: 0,
+		toJSON: (): Record<string, number> => ({}),
+		top: props.top,
+		width: 0,
+		x: 0,
+		y: props.top,
+	};
 }
 
 async function waitForAnimationFrame(): Promise<void> {

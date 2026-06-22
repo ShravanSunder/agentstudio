@@ -101,10 +101,7 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 				{menuOptions.map(
 					(option: BridgeReviewFilterOption<TValue>): ReactElement => (
 						<DropdownMenuCheckboxItem
-							checked={
-								option.value === props.value ||
-								(props.showDefaultOptionInMenu === false && isDefaultSelection)
-							}
+							checked={option.value === props.value}
 							className={cn(
 								'h-8 gap-2 rounded-[7px] px-2 py-0 pr-8 text-[13px]',
 								'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-accent-soft)]',

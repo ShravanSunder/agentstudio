@@ -1339,13 +1339,19 @@ Still not accepted by the DiffsHub-class visual gate:
 - Large fixture tree-click behavior must be consistent for all visible file
   rows. Clicking a file row must resolve to a review item, update selected
   content state, and scroll the corresponding CodeView header into the viewport.
+- Markdown preview file-click behavior is not accepted until covered by a
+  failing-then-passing browser test. Current evidence shows preview mode swaps
+  out `BridgeCodeViewPanel`, clears the CodeView control handle, and can force
+  preview-to-file selection through remount/initial-placement semantics instead
+  of the normal reveal path.
 - Fixture-specific path checks must resolve a target from the active fixture or
   real worktree DOM. `Sources/BridgeViewer/NewPanel.ts` belongs to the
   synthetic large DiffsHub fixture, not the real-worktree fixture, and must not
   appear in real-worktree proof as a hardcoded expectation.
-- The browser proof must continue to check added-file full content, markdown
-  rendering, right-rail compact controls, and filter/search behavior before new
-  Swift IPC expansion becomes the critical path.
+- Hidden-default filter menus must not mark every concrete option as checked.
+  Browser proof must keep checking added-file full content, markdown rendering,
+  right-rail compact controls, selected-header reveal, and filter/search
+  behavior before new Swift IPC expansion becomes the critical path.
 
 Parallel IPC checkpoint:
 

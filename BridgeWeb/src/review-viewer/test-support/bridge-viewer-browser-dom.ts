@@ -104,6 +104,38 @@ export function bridgeViewerVisibleTreeItemPaths(scrollOwner: HTMLElement): read
 		.filter((path: string | undefined): path is string => path !== undefined);
 }
 
+export async function waitForBridgeViewerVisibleTreeItemPathAbsent(
+	scrollOwner: HTMLElement,
+	path: string,
+	remainingAttempts = 180,
+): Promise<void> {
+	if (!bridgeViewerVisibleTreeItemPaths(scrollOwner).includes(path)) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(`expected visible Bridge viewer tree item path to be absent for ${path}`);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgeViewerVisibleTreeItemPathAbsent(scrollOwner, path, remainingAttempts - 1);
+}
+
+export async function waitForBridgeViewerVisibleTreeItemPath(
+	scrollOwner: HTMLElement,
+	path: string,
+	remainingAttempts = 180,
+): Promise<void> {
+	if (bridgeViewerVisibleTreeItemPaths(scrollOwner).includes(path)) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(`expected visible Bridge viewer tree item path for ${path}`);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgeViewerVisibleTreeItemPath(scrollOwner, path, remainingAttempts - 1);
+}
+
 export function requireBridgeViewerHTMLElement(element: Element | null): HTMLElement {
 	if (!(element instanceof HTMLElement)) {
 		throw new Error('expected HTML element');
