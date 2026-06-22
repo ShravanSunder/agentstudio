@@ -154,6 +154,7 @@ async function verifyDirectMarkdownInitialSelection(): Promise<DirectMarkdownSel
 		const scrollMotion = await clickFileTreePathAndMeasureScrollMotion(page, targetMarkdownPath);
 		await waitForSelectedPath(page, targetMarkdownPath);
 		await waitForCodeViewText(page, targetMarkdownHeading);
+		await waitForSelectedHeaderAligned(page);
 		const selectedResult = {
 			...(await readVerificationResult(page)),
 			markdownSelectionScrollMotion: scrollMotion,
@@ -527,30 +528,36 @@ function assertSelectedScrollMotion(scrollMotion: ScrollMotionProbe | null): voi
 function assertGitStatusFilterMenu(menuState: GitStatusFilterMenuState): void {
 	if (menuState.ariaExpanded !== 'true') {
 		throw new Error(
-			`Expected Git-status filter trigger aria-expanded=true while menu is open, got ${
+			`Expected facet filter trigger aria-expanded=true while menu is open, got ${
 				menuState.ariaExpanded ?? 'null'
 			}`,
 		);
 	}
 	if (menuState.hasAllStatusesMenuItem) {
 		throw new Error(
-			'Expected Git-status filter menu to use Clear filter instead of All statuses row',
+			'Expected facet filter menu to use Clear filters instead of an All statuses row',
 		);
 	}
-	if (menuState.checkboxItemCount < 4 || menuState.checkboxItemCount > 5) {
+	if (menuState.checkboxItemCount < 8 || menuState.checkboxItemCount > 16) {
 		throw new Error(
-			`Expected Git-status filter menu to show 4-5 status checkbox rows, got ${menuState.checkboxItemCount}`,
+			`Expected facet filter menu to show combined Git-status and file-type checkbox rows, got ${menuState.checkboxItemCount}`,
 		);
 	}
-	if (menuState.width < 220 || menuState.width > 272) {
-		throw new Error(`Expected compact Git-status filter menu width, got ${menuState.width}`);
+	if (!menuState.optionLabels.some((label: string): boolean => label.includes('Added'))) {
+		throw new Error('Expected facet filter menu to include Git status options');
 	}
-	if (menuState.height < 220 || menuState.height > 300) {
-		throw new Error(`Expected compact Git-status filter menu height, got ${menuState.height}`);
+	if (!menuState.optionLabels.some((label: string): boolean => label.includes('Docs'))) {
+		throw new Error('Expected facet filter menu to include file type options');
+	}
+	if (menuState.width < 360 || menuState.width > 560) {
+		throw new Error(`Expected combined facet filter menu width, got ${menuState.width}`);
+	}
+	if (menuState.height < 300 || menuState.height > 760) {
+		throw new Error(`Expected combined facet filter menu height, got ${menuState.height}`);
 	}
 	for (const rowHeight of menuState.rowHeights) {
-		if (rowHeight < 28 || rowHeight > 36) {
-			throw new Error(`Expected Git-status filter menu row height near 32px, got ${rowHeight}`);
+		if (rowHeight < 36 || rowHeight > 60) {
+			throw new Error(`Expected facet filter menu row height near 40px, got ${rowHeight}`);
 		}
 	}
 }
@@ -934,18 +941,18 @@ async function fillBridgeViewerFileTreeSearch(page: Page, searchText: string): P
 }
 
 async function inspectGitStatusFilterMenu(page: Page): Promise<GitStatusFilterMenuState> {
-	await page.locator('[data-testid="bridge-review-git-status-menu-control"]').click();
-	await page.waitForSelector('[data-testid="bridge-review-filter-popover"]', {
+	await page.locator('[data-testid="bridge-review-facet-menu-control"]').click();
+	await page.waitForSelector('[data-testid="bridge-review-facet-popover"]', {
 		state: 'visible',
 		timeout: 10_000,
 	});
 	const menuState = await page.evaluate((): GitStatusFilterMenuState => {
-		const trigger = document.querySelector('[data-testid="bridge-review-git-status-menu-control"]');
-		const popover = document.querySelector('[data-testid="bridge-review-filter-popover"]');
+		const trigger = document.querySelector('[data-testid="bridge-review-facet-menu-control"]');
+		const popover = document.querySelector('[data-testid="bridge-review-facet-popover"]');
 		const bounds = popover instanceof HTMLElement ? popover.getBoundingClientRect() : null;
 		const checkboxItems = Array.from(document.querySelectorAll('[role="menuitemcheckbox"]'));
 		const optionLabels = checkboxItems.map((item: Element): string => {
-			const label = item.querySelector('[data-testid="bridge-review-filter-option-label"]');
+			const label = item.querySelector('[data-testid="bridge-review-facet-option-label"]');
 			return (label?.textContent ?? item.textContent ?? '').replace(/\s+/g, ' ').trim();
 		});
 		return {
@@ -963,7 +970,7 @@ async function inspectGitStatusFilterMenu(page: Page): Promise<GitStatusFilterMe
 		};
 	});
 	await page.keyboard.press('Escape');
-	await page.waitForSelector('[data-testid="bridge-review-filter-popover"]', {
+	await page.waitForSelector('[data-testid="bridge-review-facet-popover"]', {
 		state: 'detached',
 		timeout: 10_000,
 	});
@@ -977,7 +984,7 @@ async function verifyFilterBehavior(
 	await clickBridgeReviewFilterMenuOption({
 		label: 'Docs',
 		page,
-		triggerTestId: 'bridge-review-file-class-menu-control',
+		triggerTestId: 'bridge-review-facet-menu-control',
 	});
 	await waitForSelectedPath(page, targetMarkdownPath);
 	await waitForCodeViewProjectionItemCountBelow(
@@ -1009,9 +1016,9 @@ async function verifyFilterBehavior(
 	}
 
 	await clickBridgeReviewFilterMenuOption({
-		label: 'All classes',
+		label: 'Clear filters',
 		page,
-		triggerTestId: 'bridge-review-file-class-menu-control',
+		triggerTestId: 'bridge-review-facet-menu-control',
 	});
 	await waitForCodeViewProjectionItemCount(
 		page,
@@ -1031,7 +1038,7 @@ async function clickBridgeReviewFilterMenuOption(props: {
 	readonly triggerTestId: string;
 }): Promise<void> {
 	await props.page.locator(`[data-testid="${props.triggerTestId}"]`).click();
-	await props.page.waitForSelector('[data-testid="bridge-review-filter-popover"]', {
+	await props.page.waitForSelector('[data-testid="bridge-review-facet-popover"]', {
 		state: 'visible',
 		timeout: 10_000,
 	});
@@ -1052,7 +1059,7 @@ async function clickBridgeReviewFilterMenuOption(props: {
 		throw new Error(`Expected Bridge review filter option ${props.label}`);
 	}
 	await props.page.keyboard.press('Escape');
-	await props.page.waitForSelector('[data-testid="bridge-review-filter-popover"]', {
+	await props.page.waitForSelector('[data-testid="bridge-review-facet-popover"]', {
 		state: 'detached',
 		timeout: 10_000,
 	});

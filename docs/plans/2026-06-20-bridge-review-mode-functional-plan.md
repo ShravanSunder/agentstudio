@@ -117,12 +117,15 @@ Observed current state before implementation:
 - Markdown-click root-cause checkpoint: source review and browser proof showed
   normal file/tree selection does not enter markdown preview on its own; only
   the explicit `bridge.fileView.showMarkdownPreview` command flips render mode.
-  The observed docs-click bug was a reveal/anchor bug. The app-level pre-scroll
-  has been removed from semantic selection, and `smooth-auto` reveals no longer
-  schedule Bridge's repeated header top-snap correction. Live dev-server proof
-  after the fix measured selected docs header offset at `+4px` and deep selected
-  header offset at `-4px` on the large DiffHub fixture. Far-distance reveal
-  motion still has large scroll deltas and remains an open DiffsHub-parity task.
+  The observed docs-click bug was a reveal/anchor bug. Current implementation
+  keeps app-owned reveal for normal file selection, but narrows it to one
+  CodeView control call using Pierre's `smooth-auto` behavior. Explicit markdown
+  preview selection suppresses CodeView reveal so the preview mode does not race
+  a stale CodeView scroll. Live dev-server proof after the fix measured selected
+  source tree-click offset at `-4px`, source command-reveal offset at `-4px`,
+  and docs command-reveal offset at `+4px` on the large DiffHub fixture, with no
+  markdown preview flip and no CodeView unknown-item warnings. DiffsHub motion
+  polish and full visual comparison remain open until the visual proof gate.
 - Loading skeleton correction checkpoint: manual video proof showed detached
   skeletons floating outside CodeView row geometry during scroll/hydration. The
   active direction is now row-owned loading materialization only: loading content

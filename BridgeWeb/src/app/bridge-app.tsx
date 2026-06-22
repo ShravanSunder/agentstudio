@@ -38,7 +38,10 @@ import {
 	type BridgeTraceContext,
 } from '../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
-import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
+import type {
+	BridgeCodeViewControlHandle,
+	BridgeCodeViewScrollToItemOptions,
+} from '../review-viewer/code-view/bridge-code-view-panel.js';
 import { loadSelectedReviewItemContentResources } from '../review-viewer/content/review-content-loader.js';
 import {
 	createBridgeReviewContentRegistry,
@@ -109,6 +112,11 @@ interface BridgeDiffStatusState {
 	readonly status: 'idle' | 'loading' | 'ready' | 'error';
 	readonly error: string | null;
 	readonly epoch: number;
+}
+
+interface SelectReviewItemOptions {
+	readonly revealBehavior?: BridgeCodeViewScrollToItemOptions['behavior'];
+	readonly revealInCodeView?: boolean;
 }
 
 interface SelectedContentResourcesState {
@@ -239,7 +247,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		telemetryRecorderRef.current.flush();
 	}, []);
 	const selectReviewItem = useCallback(
-		(itemId: string): boolean => {
+		(itemId: string, options: SelectReviewItemOptions = {}): boolean => {
 			const currentReviewPackage = reviewPackageRef.current;
 			if (currentReviewPackage === null || !(itemId in currentReviewPackage.itemsById)) {
 				return false;
@@ -253,6 +261,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			viewerActions.setRenderMode({ kind: 'codeView' });
 			if (isSelectionChange) {
 				setSelectedContentResourcesState(null);
+			}
+			if (options.revealInCodeView !== false) {
+				codeViewControlHandleRef.current?.scrollToItem(itemId, {
+					behavior: options.revealBehavior ?? 'smooth-auto',
+				});
 			}
 			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
 			rpcClient.sendCommand({
@@ -850,7 +863,7 @@ interface ApplyBridgeAppControlCommandProps {
 	readonly projection: BridgeReviewProjectionResult | null;
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
 	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly selectReviewItem: (itemId: string) => boolean;
+	readonly selectReviewItem: (itemId: string, options?: SelectReviewItemOptions) => boolean;
 	readonly selectedContentResources: BridgeCodeViewContentResources | null;
 	readonly selectedMarkdownPreviewState: SelectedMarkdownPreviewState | null;
 	readonly setTreeSearchOpen: (isOpen: boolean) => void;
@@ -895,7 +908,7 @@ function applyBridgeAppControlCommand(
 			if (!codeViewControlHandle.scrollToItem(command.itemId, { behavior: 'instant' })) {
 				return { status: 'rejected', reason: 'item_not_rendered' };
 			}
-			return selectReviewItem(command.itemId)
+			return selectReviewItem(command.itemId, { revealInCodeView: false })
 				? { status: 'accepted', reason: null }
 				: { status: 'rejected', reason: 'item_not_found' };
 		case 'bridge.diff.expandFile':
@@ -938,7 +951,7 @@ function applyBridgeAppControlCommand(
 				return { status: 'rejected', reason: 'item_not_found' };
 			}
 			if (itemId !== props.rootSnapshot.selectedItemId) {
-				return selectReviewItem(itemId)
+				return selectReviewItem(itemId, { revealInCodeView: false })
 					? { status: 'pending', reason: 'preview_selection_pending' }
 					: { status: 'rejected', reason: 'item_not_found' };
 			}

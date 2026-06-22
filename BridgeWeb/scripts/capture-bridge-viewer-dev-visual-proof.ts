@@ -118,7 +118,7 @@ try {
 			'git-status-filter-popover-crop.png',
 		);
 		await page
-			.locator('[data-testid="bridge-review-filter-popover"]')
+			.locator('[data-testid="bridge-review-facet-popover"]')
 			.screenshot({ path: gitStatusFilterPopoverCropPath });
 
 		const pageTheme = await readPageTheme(page);
@@ -300,7 +300,7 @@ async function searchForFile(page: Page, targetDisplayPath: string): Promise<voi
 async function clearRailSearch(page: Page): Promise<void> {
 	await fillBridgeViewerFileTreeSearch(page, '');
 	await page.keyboard.press('Escape');
-	await page.locator('[data-testid="bridge-review-git-status-menu-control"]').focus();
+	await page.locator('[data-testid="bridge-review-facet-menu-control"]').focus();
 	await page.waitForFunction(
 		(): boolean => {
 			const input = document
@@ -354,18 +354,18 @@ async function clickFileTreePath(page: Page, path: string): Promise<void> {
 async function openGitStatusFilterMenu(
 	page: Page,
 ): Promise<BridgeViewerVisualProof['gitStatusFilterMenu']> {
-	await page.locator('[data-testid="bridge-review-git-status-menu-control"]').click();
-	await page.waitForSelector('[data-testid="bridge-review-filter-popover"]', {
+	await page.locator('[data-testid="bridge-review-facet-menu-control"]').click();
+	await page.waitForSelector('[data-testid="bridge-review-facet-popover"]', {
 		state: 'visible',
 		timeout: 10_000,
 	});
 	return await page.evaluate((): BridgeViewerVisualProof['gitStatusFilterMenu'] => {
-		const trigger = document.querySelector('[data-testid="bridge-review-git-status-menu-control"]');
-		const popover = document.querySelector('[data-testid="bridge-review-filter-popover"]');
+		const trigger = document.querySelector('[data-testid="bridge-review-facet-menu-control"]');
+		const popover = document.querySelector('[data-testid="bridge-review-facet-popover"]');
 		const bounds = popover instanceof HTMLElement ? popover.getBoundingClientRect() : null;
 		const checkboxItems = Array.from(document.querySelectorAll('[role="menuitemcheckbox"]'));
 		const optionLabels = checkboxItems.map((item: Element): string => {
-			const label = item.querySelector('[data-testid="bridge-review-filter-option-label"]');
+			const label = item.querySelector('[data-testid="bridge-review-facet-option-label"]');
 			return (label?.textContent ?? item.textContent ?? '').replace(/\s+/g, ' ').trim();
 		});
 		return {
@@ -387,7 +387,7 @@ async function openGitStatusFilterMenu(
 async function waitForFilterPopoverSettled(page: Page): Promise<void> {
 	await page.waitForFunction(
 		(): boolean => {
-			const popover = document.querySelector('[data-testid="bridge-review-filter-popover"]');
+			const popover = document.querySelector('[data-testid="bridge-review-facet-popover"]');
 			if (!(popover instanceof HTMLElement)) {
 				return false;
 			}
