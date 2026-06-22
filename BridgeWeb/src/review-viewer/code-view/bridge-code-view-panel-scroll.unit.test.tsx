@@ -810,7 +810,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
 	});
 
-	test('does not issue a second selected-item scroll when explicitly revealed placeholder hydrates', async () => {
+	test('smoothly re-reveals an explicitly revealed placeholder when it hydrates', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -881,7 +881,12 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'docs-plan' }),
 		);
-		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: 'docs-plan',
+			align: 'start',
+			behavior: 'smooth',
+		} satisfies CodeViewScrollTarget);
 	});
 
 	test('preserves smooth selected placeholder reveal during hydration without top-snap correction', async () => {
@@ -990,7 +995,18 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'docs-plan' }),
 		);
-		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: 'docs-plan',
+			align: 'start',
+			behavior: 'smooth',
+		} satisfies CodeViewScrollTarget);
+		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalledWith({
+			type: 'item',
+			id: 'docs-plan',
+			align: 'start',
+			behavior: 'instant',
+		} satisfies CodeViewScrollTarget);
 		expect(scrollOwner.scrollTop).toBe(100);
 	});
 

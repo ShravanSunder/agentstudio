@@ -698,8 +698,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 							if (pendingSelectionScrollFrameRef.current !== null) {
 								cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
 								pendingSelectionScrollFrameRef.current = null;
-								controller.scrollToItem(itemId, 'smooth');
 							}
+							controller.scrollToItem(itemId, 'smooth');
 							pendingPreHydrationSelectionScrollKeyRef.current = null;
 							pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
 						} else {

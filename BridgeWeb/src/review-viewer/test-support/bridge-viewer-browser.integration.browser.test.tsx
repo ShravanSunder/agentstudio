@@ -739,7 +739,9 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			await waitForSelectedBridgeViewerContentState('ready');
 			await waitForBridgeViewerTextWithDiagnostics(deepExpectedText);
 			expect(
-				backend.requestedUrls.some((url: string): boolean => url.includes(`${selectedItemId}-head`)),
+				backend.requestedUrls.some((url: string): boolean =>
+					url.includes(`${selectedItemId}-head`),
+				),
 			).toBe(true);
 			await waitForBridgeViewerVisibleCodeTextWithDiagnostics(codeScroll, deepExpectedText);
 			const selectedHeaderButton =
@@ -749,6 +751,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 				maxOffset: 8,
 				scrollOwner: codeScroll,
 			});
+			await waitForStableBridgeViewerVisibleCodeTextWithDiagnostics(codeScroll, deepExpectedText);
 
 			expect(bridgeViewerVisibleCodeTextContent(codeScroll)).toContain(deepExpectedText);
 			expect(selectedHeaderOffset).toBeGreaterThanOrEqual(-6);
@@ -1015,6 +1018,16 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 		docsButton.click();
 		await waitForBridgeViewerText(fixture.expected.docsMarkdownHeading);
+		const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+		const docsItemId = bridgeReviewFixtureItemIdForPath(fixture, fixture.expected.docsPath);
+		const docsHeaderButton = await waitForBridgeCodeHeaderCollapseButtonForItem(docsItemId);
+		const docsHeaderOffset = await waitForBridgeCodeHeaderOffsetFromScrollOwner({
+			collapseButton: docsHeaderButton,
+			maxOffset: 8,
+			scrollOwner: codeScroll,
+		});
+		expect(docsHeaderOffset).toBeGreaterThanOrEqual(0);
+		expect(docsHeaderOffset).toBeLessThanOrEqual(8);
 		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
 		expect(markdownWorker.requests).toHaveLength(0);
 
@@ -1262,6 +1275,18 @@ async function waitForBridgeViewerVisibleCodeTextWithDiagnostics(
 	await Promise.resolve();
 	await waitForBridgeViewerAnimationFrame();
 	await waitForBridgeViewerVisibleCodeTextWithDiagnostics(scrollOwner, text, remainingAttempts - 1);
+}
+
+async function waitForStableBridgeViewerVisibleCodeTextWithDiagnostics(
+	scrollOwner: HTMLElement,
+	text: string,
+	stableFrameCount = 8,
+): Promise<void> {
+	await waitForBridgeViewerVisibleCodeTextWithDiagnostics(scrollOwner, text);
+	for (let frameIndex = 0; frameIndex < stableFrameCount; frameIndex += 1) {
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerVisibleCodeTextWithDiagnostics(scrollOwner, text);
+	}
 }
 
 async function waitForProjectionAbortCount(
