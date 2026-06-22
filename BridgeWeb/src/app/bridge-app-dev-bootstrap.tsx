@@ -12,6 +12,10 @@ import {
 } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import { createBridgePierrePortableBlobWorkerFactory } from '../review-viewer/workers/pierre/bridge-pierre-dev-worker-factory.js';
 import {
+	createBridgeReviewProjectionModuleWorkerFactory,
+	createBridgeReviewProjectionWebWorkerClient,
+} from '../review-viewer/workers/projection/review-projection-worker-transport.js';
+import {
 	deliveryModeForMockedBackend,
 	fixtureClassForMockedBackend,
 	latencyProfileForMockedBackend,
@@ -36,6 +40,11 @@ if (rootElement !== null) {
 	const markdownWorkerClient = options.workersEnabled
 		? createBridgeMarkdownRenderWebWorkerClient({
 				workerFactory: createBridgeMarkdownRenderModuleWorkerFactory(),
+			})
+		: null;
+	const projectionWorkerClient = options.workersEnabled
+		? createBridgeReviewProjectionWebWorkerClient({
+				workerFactory: createBridgeReviewProjectionModuleWorkerFactory(),
 			})
 		: null;
 	const fixture = fixtureClass === null ? null : makeBridgeViewerBrowserFixture({ fixtureClass });
@@ -63,7 +72,9 @@ if (rootElement !== null) {
 			markdownWorkerClient={markdownWorkerClient}
 			{...(workerFactory === null ? {} : { codeViewWorkerFactory: workerFactory.workerFactory })}
 			{...(backend === null
-				? {}
+				? projectionWorkerClient === null
+					? {}
+					: { projectionWorkerClient }
 				: {
 						fetchContent: backend.fetchContent,
 						projectionWorkerClient: backend.projectionWorkerClient,

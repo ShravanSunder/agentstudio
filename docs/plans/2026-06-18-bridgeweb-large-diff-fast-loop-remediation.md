@@ -1368,6 +1368,32 @@ swift test --filter AgentStudioIPCRegistryAuthorizationTests
 swift test --filter AgentStudioIPCClientCoreTests
 ```
 
+## 2026-06-22 Motion And Hydration Checkpoint
+
+- Programmatic file reveal had a real DiffsHub-parity bug: the
+  `bridge.diff.scrollToFile` control path still called CodeView with
+  `behavior: instant`, producing large jump deltas even after normal tree
+  selection used smoother reveal behavior. The browser gate must keep proving
+  this path with a large fixture and frame-sampled scroll motion.
+- Review-mode browser tests must drive the current segmented shadcn/Base UI
+  control. The removed projection dropdown is historical and tests must not
+  preserve it as a fake contract.
+- FileTree projection resets can expose transitional mounted rows while Pierre
+  settles the virtualized tree. Browser assertions should wait for the intended
+  visible-window state, then fail if the stale path remains after a bounded
+  frame-based settle.
+- Empty expanded CodeView sections are not proven fixed by text-only DOM
+  checks. Hydration diagnostics must count expanded headers with no rendered
+  line rows even when the header itself contributes text.
+- Skeleton/loading proof remains open. Skeletons must be anchored inside the
+  target CodeView item/header space, not floating in the canvas. The video
+  artifact at `/Users/shravansunder/Downloads/[capture]/2026-06-21.0653.Brave Browser.Bridge.mp4`
+  remains the reference failure until a browser screenshot/DOM assertion proves
+  the corrected placement.
+- The current browser integration floor is `pnpm --dir BridgeWeb run
+  test:browser:integration`; the checkpoint is not acceptable unless that full
+  Browser Mode suite passes, not only focused tests.
+
 ## Next Workflow
 
 Run `shravan-dev-workflow:plan-review-swarm` against this reset, then execute

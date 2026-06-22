@@ -320,19 +320,21 @@ export async function clickBridgeViewerProjectionMenuOption(
 	label: string,
 	remainingAttempts = 20,
 ): Promise<void> {
-	const menuTrigger = document.querySelector(
-		'[data-testid="bridge-review-projection-menu-control"]',
+	const modeButtons = [...document.querySelectorAll('[data-testid="bridge-review-mode-segment"]')];
+	const modeButton = modeButtons.find(
+		(candidate): candidate is HTMLButtonElement =>
+			candidate instanceof HTMLButtonElement && candidate.getAttribute('aria-label') === label,
 	);
-	if (!(menuTrigger instanceof HTMLButtonElement)) {
-		throw new Error('expected Bridge viewer projection menu control');
+	if (modeButton !== undefined) {
+		modeButton.focus();
+		modeButton.click();
+		return;
 	}
-	menuTrigger.focus();
-	menuTrigger.click();
-	await clickBridgeViewerFilterMenuOptionWhenReady({
-		label,
-		scope: document,
-		remainingAttempts,
-	});
+	if (remainingAttempts <= 0) {
+		throw new Error(`expected Bridge viewer review mode control ${label}`);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await clickBridgeViewerProjectionMenuOption(label, remainingAttempts - 1);
 }
 
 export function findBridgeViewerTreeItemButton(path: string): HTMLButtonElement | null {

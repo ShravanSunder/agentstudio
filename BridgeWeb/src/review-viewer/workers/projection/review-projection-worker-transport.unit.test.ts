@@ -2,7 +2,10 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { makeBridgeReviewProjectionInput } from '../../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../../test-support/review-viewer-fixtures.js';
-import { createBridgeReviewProjectionWebWorkerClient } from './review-projection-worker-transport.js';
+import {
+	bridgeReviewProjectionDefaultWorkerScriptUrl,
+	createBridgeReviewProjectionWebWorkerClient,
+} from './review-projection-worker-transport.js';
 
 describe('Bridge review projection web worker transport', () => {
 	afterEach(() => {
@@ -10,9 +13,16 @@ describe('Bridge review projection web worker transport', () => {
 		RecordingProjectionWorker.constructedUrls = [];
 	});
 
-	test('creates the default module worker from the Vite-served entrypoint', () => {
+	test('creates the default module worker from the packaged app asset', async () => {
 		vi.stubGlobal('Worker', RecordingProjectionWorker);
-		const client = createBridgeReviewProjectionWebWorkerClient();
+		const fetchMock = vi.fn(async (): Promise<Response> => {
+			return new Response('self.onmessage = () => {};\n');
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		const client = createBridgeReviewProjectionWebWorkerClient({
+			createObjectURL: (): string => 'blob:bridge-review-projection-worker',
+			revokeObjectURL: (): void => {},
+		});
 
 		expect(client).not.toBeNull();
 		expect(RecordingProjectionWorker.constructedUrls).toEqual([]);
@@ -24,9 +34,11 @@ describe('Bridge review projection web worker transport', () => {
 			visibleItemIds: [],
 			workloadId: 'interactive',
 		});
+		await flushProjectionWorkerTransportMicrotasks();
 
-		expect(RecordingProjectionWorker.constructedUrls[0]?.pathname).toMatch(
-			/review-projection-worker-entry\.ts$/u,
+		expect(fetchMock).toHaveBeenCalledWith(bridgeReviewProjectionDefaultWorkerScriptUrl);
+		expect(RecordingProjectionWorker.constructedUrls[0]?.href).toBe(
+			'blob:bridge-review-projection-worker',
 		);
 	});
 
@@ -47,6 +59,7 @@ describe('Bridge review projection web worker transport', () => {
 			visibleItemIds: [],
 			workloadId: 'interactive',
 		});
+		await flushProjectionWorkerTransportMicrotasks();
 
 		fakeWorker.emitMessage({ schemaVersion: 1, ok: true, requestId: task.identity.requestId });
 
@@ -70,6 +83,7 @@ describe('Bridge review projection web worker transport', () => {
 			visibleItemIds: [],
 			workloadId: 'interactive',
 		});
+		await flushProjectionWorkerTransportMicrotasks();
 
 		expect(() => {
 			fakeWorker.emitError(new Event('error'));
@@ -78,6 +92,12 @@ describe('Bridge review projection web worker transport', () => {
 		await expect(task.completed).rejects.toThrow('Projection worker failed');
 	});
 });
+
+async function flushProjectionWorkerTransportMicrotasks(): Promise<void> {
+	await Promise.resolve();
+	await Promise.resolve();
+	await Promise.resolve();
+}
 
 class FakeProjectionWorker extends EventTarget implements Worker {
 	onmessage: ((this: Worker, event: MessageEvent) => void) | null = null;

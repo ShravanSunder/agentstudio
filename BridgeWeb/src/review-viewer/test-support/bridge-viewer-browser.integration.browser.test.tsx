@@ -32,6 +32,7 @@ import {
 	waitForBridgeViewerTreeItemAbsent,
 	waitForBridgeViewerTreeItemButton,
 	waitForBridgeViewerTreeScrollOwner,
+	waitForBridgeViewerVisibleTreeItemPathAbsent,
 } from './bridge-viewer-browser-dom.js';
 import {
 	createDeferredMarkdownWorkerClient,
@@ -770,6 +771,60 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		}
 	});
 
+	test('large fixture programmatic file reveal uses smooth CodeView motion', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
+		const deepPath = 'Sources/AgentStudio/source/module-24/file-292.ts';
+		const selectedItemId = bridgeReviewFixtureItemIdForPath(fixture, deepPath);
+
+		try {
+			render(
+				<BridgeApp
+					codeViewWorkerPoolEnabled={true}
+					codeViewWorkerFactory={workerFactory.workerFactory}
+					fetchContent={backend.fetchContent}
+					markdownWorkerClient={null}
+					projectionWorkerClient={backend.projectionWorkerClient}
+				/>,
+			);
+			await backend.pushPackage(
+				reviewPackageForBridgeAppDevFixtureScenario({
+					fixture,
+					scenario: 'scroll',
+				}),
+			);
+			await waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
+			await waitForSelectedBridgeViewerContentState('ready');
+			await waitForBridgeViewerTextWithDiagnostics(fixture.expected.largeText);
+
+			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+			const motionSamples = await sampleBridgeCodeViewScrollMotion({
+				frameCount: 24,
+				scrollOwner: codeScroll,
+				action: (): void => {
+					window.dispatchEvent(
+						new CustomEvent('__bridge_review_control', {
+							detail: {
+								method: 'bridge.diff.scrollToFile',
+								itemId: selectedItemId,
+							},
+						}),
+					);
+				},
+			});
+
+			await waitForSelectedBridgeViewerDisplayPath(deepPath);
+			await waitForSelectedBridgeViewerContentState('ready');
+
+			expect(isBridgeCodeViewSmoothMotionSample(motionSamples)).toBe(true);
+		} finally {
+			await cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
+			workerFactory.revoke();
+			backend.dispose();
+		}
+	});
+
 	test('custom filter controls route through projection requests and render the first filtered selection', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
@@ -873,6 +928,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		});
 		await waitForBridgeViewerAppliedProjectionMode('plansAndSpecs');
 		const railScroll = await waitForBridgeViewerTreeScrollOwner();
+		await waitForBridgeViewerVisibleTreeItemPathAbsent(railScroll, fixture.expected.initialPath);
 		const visibleTreePaths = bridgeViewerVisibleTreeItemPaths(railScroll);
 		expect(visibleTreePaths).toContain(fixture.expected.docsPath);
 		expect(visibleTreePaths).not.toContain(fixture.expected.initialPath);

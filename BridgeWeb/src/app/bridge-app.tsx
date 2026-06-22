@@ -923,7 +923,7 @@ function applyBridgeAppControlCommand(
 			if (codeViewControlHandle === null) {
 				return { status: 'rejected', reason: 'code_view_unavailable' };
 			}
-			if (!codeViewControlHandle.scrollToItem(command.itemId, { behavior: 'instant' })) {
+			if (!codeViewControlHandle.scrollToItem(command.itemId, { behavior: 'smooth' })) {
 				return { status: 'rejected', reason: 'item_not_rendered' };
 			}
 			return selectReviewItem(command.itemId, { revealInCodeView: false })

@@ -12,7 +12,10 @@ import {
 
 export interface CreateBridgeReviewProjectionWebWorkerClientProps {
 	readonly createRequestId?: () => string;
-	readonly workerFactory?: () => Worker;
+	readonly workerFactory?: () => Worker | Promise<Worker>;
+	readonly workerScriptUrl?: string;
+	readonly createObjectURL?: (blob: Blob) => string;
+	readonly revokeObjectURL?: (url: string) => void;
 }
 
 interface PendingWorkerRequest {
@@ -20,7 +23,8 @@ interface PendingWorkerRequest {
 	readonly reject: (error: Error) => void;
 }
 
-const defaultProjectionWorkerUrl = new URL('./review-projection-worker-entry.ts', import.meta.url);
+export const bridgeReviewProjectionDefaultWorkerScriptUrl =
+	'agentstudio://app/assets/review-projection-worker.js';
 
 export function createBridgeReviewProjectionWebWorkerClient(
 	props: CreateBridgeReviewProjectionWebWorkerClientProps = {},
@@ -30,7 +34,13 @@ export function createBridgeReviewProjectionWebWorkerClient(
 	}
 
 	const transport = createBridgeReviewProjectionWebWorkerTransport({
-		workerFactory: props.workerFactory ?? defaultWorkerFactory,
+		workerFactory:
+			props.workerFactory ??
+			createDefaultBridgeReviewProjectionWorkerFactory({
+				workerScriptUrl: props.workerScriptUrl ?? bridgeReviewProjectionDefaultWorkerScriptUrl,
+				...(props.createObjectURL === undefined ? {} : { createObjectURL: props.createObjectURL }),
+				...(props.revokeObjectURL === undefined ? {} : { revokeObjectURL: props.revokeObjectURL }),
+			}),
 	});
 	return createBridgeReviewProjectionWorkerClient({
 		transport,
@@ -38,51 +48,69 @@ export function createBridgeReviewProjectionWebWorkerClient(
 	});
 }
 
+export function createBridgeReviewProjectionModuleWorkerFactory(): () => Worker {
+	return (): Worker =>
+		new Worker(new URL('./review-projection-worker-entry.ts', import.meta.url), {
+			type: 'module',
+		});
+}
+
 function createBridgeReviewProjectionWebWorkerTransport(props: {
-	readonly workerFactory: () => Worker;
+	readonly workerFactory: () => Worker | Promise<Worker>;
 }): BridgeReviewProjectionWorkerTransport {
 	const pendingByRequestId = new Map<string, PendingWorkerRequest>();
 	let worker: Worker | null = null;
+	let workerPromise: Promise<Worker> | null = null;
 
-	const getWorker = (): Worker => {
+	const getWorker = async (): Promise<Worker> => {
 		if (worker !== null) {
 			return worker;
 		}
+		if (workerPromise !== null) {
+			return await workerPromise;
+		}
 
-		const nextWorker = props.workerFactory();
-		nextWorker.addEventListener('message', (event: MessageEvent<unknown>): void => {
-			const parsed = bridgeReviewProjectionWorkerResponseSchema.safeParse(event.data);
-			if (!parsed.success) {
-				rejectPendingRequests(
-					pendingByRequestId,
-					new Error('Projection worker sent invalid response'),
-				);
-				nextWorker.terminate();
+		workerPromise = Promise.resolve(props.workerFactory()).then((nextWorker: Worker): Worker => {
+			nextWorker.addEventListener('message', (event: MessageEvent<unknown>): void => {
+				const parsed = bridgeReviewProjectionWorkerResponseSchema.safeParse(event.data);
+				if (!parsed.success) {
+					rejectPendingRequests(
+						pendingByRequestId,
+						new Error('Projection worker sent invalid response'),
+					);
+					nextWorker.terminate();
+					worker = null;
+					workerPromise = null;
+					return;
+				}
+				const pending = pendingByRequestId.get(parsed.data.requestId);
+				if (pending === undefined) {
+					return;
+				}
+				pendingByRequestId.delete(parsed.data.requestId);
+				pending.resolve(parsed.data);
+			});
+			nextWorker.addEventListener('error', (event: ErrorEvent): void => {
+				const errorMessage =
+					typeof event.message === 'string' && event.message.length > 0
+						? event.message
+						: 'Projection worker failed';
+				rejectPendingRequests(pendingByRequestId, new Error(errorMessage));
 				worker = null;
-				return;
-			}
-			const pending = pendingByRequestId.get(parsed.data.requestId);
-			if (pending === undefined) {
-				return;
-			}
-			pendingByRequestId.delete(parsed.data.requestId);
-			pending.resolve(parsed.data);
+				workerPromise = null;
+			});
+			worker = nextWorker;
+			return nextWorker;
 		});
-		nextWorker.addEventListener('error', (event: ErrorEvent): void => {
-			const errorMessage =
-				typeof event.message === 'string' && event.message.length > 0
-					? event.message
-					: 'Projection worker failed';
-			rejectPendingRequests(pendingByRequestId, new Error(errorMessage));
-			worker = null;
-		});
-		worker = nextWorker;
-		return nextWorker;
+		return await workerPromise;
 	};
 
 	return {
 		abort: (abortKey: string): void => {
-			getWorker().postMessage({
+			if (worker === null) {
+				return;
+			}
+			worker.postMessage({
 				schemaVersion: 1,
 				method: 'reviewProjection.abort',
 				abortKey,
@@ -91,13 +119,60 @@ function createBridgeReviewProjectionWebWorkerTransport(props: {
 		send: (request: BridgeReviewProjectionWorkerRequest): Promise<unknown> =>
 			new Promise<BridgeReviewProjectionWorkerResponse>((resolve, reject): void => {
 				pendingByRequestId.set(request.requestId, { resolve, reject });
-				try {
-					getWorker().postMessage(request);
-				} catch (error: unknown) {
-					pendingByRequestId.delete(request.requestId);
-					reject(error instanceof Error ? error : new Error('Projection worker post failed'));
-				}
+				void getWorker()
+					.then((activeWorker: Worker): void => {
+						try {
+							activeWorker.postMessage(request);
+						} catch (error: unknown) {
+							pendingByRequestId.delete(request.requestId);
+							reject(error instanceof Error ? error : new Error('Projection worker post failed'));
+						}
+					})
+					.catch((error: unknown): void => {
+						pendingByRequestId.delete(request.requestId);
+						reject(
+							error instanceof Error ? error : new Error('Projection worker construction failed'),
+						);
+					});
 			}),
+	};
+}
+
+interface CreateDefaultBridgeReviewProjectionWorkerFactoryProps {
+	readonly workerScriptUrl: string;
+	readonly createObjectURL?: (blob: Blob) => string;
+	readonly revokeObjectURL?: (url: string) => void;
+}
+
+function createDefaultBridgeReviewProjectionWorkerFactory(
+	props: CreateDefaultBridgeReviewProjectionWorkerFactoryProps,
+): () => Promise<Worker> {
+	const createObjectURL = props.createObjectURL ?? URL.createObjectURL.bind(URL);
+	const revokeObjectURL = props.revokeObjectURL ?? URL.revokeObjectURL.bind(URL);
+	let workerScriptBlobUrl: string | null = null;
+
+	return async (): Promise<Worker> => {
+		if (workerScriptBlobUrl === null) {
+			const response = await fetch(props.workerScriptUrl);
+			if (!response.ok) {
+				throw new Error(`Failed to load projection worker: ${response.status}`);
+			}
+			const workerSource = await response.text();
+			const workerScriptBlob = new Blob([workerSource], { type: 'application/javascript' });
+			workerScriptBlobUrl = createObjectURL(workerScriptBlob);
+		}
+		const worker = new Worker(workerScriptBlobUrl, { type: 'module' });
+		worker.addEventListener(
+			'error',
+			(): void => {
+				if (workerScriptBlobUrl !== null) {
+					revokeObjectURL(workerScriptBlobUrl);
+					workerScriptBlobUrl = null;
+				}
+			},
+			{ once: true },
+		);
+		return worker;
 	};
 }
 
@@ -109,8 +184,4 @@ function rejectPendingRequests(
 		pending.reject(error);
 	}
 	pendingByRequestId.clear();
-}
-
-function defaultWorkerFactory(): Worker {
-	return new Worker(defaultProjectionWorkerUrl, { type: 'module' });
 }

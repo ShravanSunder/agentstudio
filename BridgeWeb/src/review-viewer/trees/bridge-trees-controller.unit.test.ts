@@ -118,6 +118,24 @@ describe('Bridge Trees controller', () => {
 		).toBe('reset');
 	});
 
+	test('treats projection identity changes as whole-tree resets', () => {
+		const source = makeSource({
+			orderedPaths: ['src/a.ts', 'src/b.ts'],
+			gitStatusEntries: [{ path: 'src/a.ts', status: 'modified' }],
+			projectionId: 'package:338:normal',
+		});
+		const filteredSource = makeSource({
+			orderedPaths: ['docs/plan.md'],
+			gitStatusEntries: [{ path: 'docs/plan.md', status: 'modified' }],
+			primaryItemIdByTreePath: { 'docs/plan.md': 'docs-plan' },
+			projectionId: 'package:338:plans',
+		});
+
+		expect(planBridgeTreesUpdate({ previous: source, next: filteredSource })).toEqual({
+			kind: 'reset',
+		});
+	});
+
 	test('plans the medium streaming delta as an append-only tree mutation', () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'medium-agentstudio' });
 		const request = { mode: { kind: 'normalReview' }, facets: [] } as const;
@@ -292,7 +310,9 @@ describe('Bridge Trees controller', () => {
 
 function makeSource(
 	props: Pick<ReturnType<typeof createBridgeTreesSource>, 'orderedPaths' | 'gitStatusEntries'> &
-		Partial<Pick<ReturnType<typeof createBridgeTreesSource>, 'primaryItemIdByTreePath'>>,
+		Partial<
+			Pick<ReturnType<typeof createBridgeTreesSource>, 'primaryItemIdByTreePath' | 'projectionId'>
+		>,
 ): ReturnType<typeof createBridgeTreesSource> {
 	const reviewPackage = makeBridgeViewerProjectionFixture();
 	const projection = buildBridgeReviewProjection({
@@ -304,6 +324,7 @@ function makeSource(
 		orderedPaths: props.orderedPaths,
 		gitStatusEntries: props.gitStatusEntries,
 		primaryItemIdByTreePath: props.primaryItemIdByTreePath ?? {},
+		projectionId: props.projectionId ?? projection.projectionId,
 		gitStatusSignature: props.gitStatusEntries
 			.map((entry): string => `${entry.path}\u0000${entry.status}`)
 			.join('\n'),

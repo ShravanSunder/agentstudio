@@ -53,8 +53,8 @@ const bridgeViewerVisualProofSchema = z.object({
 	shellChrome: z.object({
 		hasTopHeader: z.boolean(),
 		hasTopProjectionScope: z.boolean(),
-		projectionMenuControlHeight: z.number().nonnegative(),
-		projectionMenuControlWidth: z.number().nonnegative(),
+		reviewModeControlHeight: z.number().nonnegative(),
+		reviewModeControlWidth: z.number().nonnegative(),
 		rightRailToolbarHeight: z.number().nonnegative(),
 	}),
 	screenshots: z.object({
@@ -429,14 +429,12 @@ async function readPageTheme(page: Page): Promise<BridgeViewerVisualProof['pageT
 async function readShellChrome(page: Page): Promise<BridgeViewerVisualProof['shellChrome']> {
 	const shellChrome = await page.evaluate((): BridgeViewerVisualProof['shellChrome'] => {
 		const topHeader = document.querySelector('[data-testid="bridge-review-top-header"]');
-		const projectionMenuControl = document.querySelector(
-			'[data-testid="bridge-review-projection-menu-control"]',
+		const reviewModeControl = document.querySelector(
+			'[data-testid="bridge-review-mode-segmented-control"]',
 		);
 		const rightRailToolbar = document.querySelector('[data-testid="bridge-review-rail-toolbar"]');
-		const projectionMenuControlBounds =
-			projectionMenuControl instanceof HTMLElement
-				? projectionMenuControl.getBoundingClientRect()
-				: null;
+		const reviewModeControlBounds =
+			reviewModeControl instanceof HTMLElement ? reviewModeControl.getBoundingClientRect() : null;
 		const rightRailToolbarBounds =
 			rightRailToolbar instanceof HTMLElement ? rightRailToolbar.getBoundingClientRect() : null;
 		return {
@@ -444,8 +442,8 @@ async function readShellChrome(page: Page): Promise<BridgeViewerVisualProof['she
 			hasTopProjectionScope:
 				topHeader !== null &&
 				topHeader.querySelector('[data-testid="bridge-review-projection-scope"]') !== null,
-			projectionMenuControlHeight: projectionMenuControlBounds?.height ?? 0,
-			projectionMenuControlWidth: projectionMenuControlBounds?.width ?? 0,
+			reviewModeControlHeight: reviewModeControlBounds?.height ?? 0,
+			reviewModeControlWidth: reviewModeControlBounds?.width ?? 0,
 			rightRailToolbarHeight: rightRailToolbarBounds?.height ?? 0,
 		};
 	});
@@ -455,11 +453,8 @@ async function readShellChrome(page: Page): Promise<BridgeViewerVisualProof['she
 	if (shellChrome.hasTopProjectionScope) {
 		throw new Error('Bridge visual proof failed: top projection strip is still mounted');
 	}
-	if (
-		shellChrome.projectionMenuControlHeight === 0 ||
-		shellChrome.projectionMenuControlWidth === 0
-	) {
-		throw new Error('Bridge visual proof failed: compact projection menu control is missing');
+	if (shellChrome.reviewModeControlHeight === 0 || shellChrome.reviewModeControlWidth === 0) {
+		throw new Error('Bridge visual proof failed: compact review mode control is missing');
 	}
 	return shellChrome;
 }
