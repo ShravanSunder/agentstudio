@@ -8,6 +8,7 @@ import { BridgeApp } from '../../app/bridge-app.js';
 import type { BridgeMarkdownRenderWorkerClient } from '../workers/markdown/bridge-markdown-render-worker-client.js';
 import {
 	bridgeViewerVisibleCodeTextContent,
+	bridgeViewerVisibleTreeItemPaths,
 	bridgeViewerVisibleTreeTextContent,
 	clickBridgeViewerFilterMenuOption,
 	clickBridgeViewerProjectionMenuOption,
@@ -16,6 +17,7 @@ import {
 	requireBridgeViewerHTMLElement,
 	setBridgeViewerSearchText,
 	waitForBridgeViewerAnimationFrame,
+	waitForBridgeViewerAppliedProjectionMode,
 	waitForBridgeViewerCodeScrollOwner,
 	waitForBridgeViewerElement,
 	waitForBridgeViewerHunkExpandButton,
@@ -417,10 +419,10 @@ async function measureWarmFilterSwitch(): Promise<BridgeViewerBrowserPerformance
 	await clickBridgeViewerFilterMenuOption('bridge-review-file-class-menu-control', 'Test');
 	const testFileButton = await waitForBridgeViewerTreeItemButton(fixture.expected.testFilterPath);
 	const railScroll = await waitForBridgeViewerTreeScrollOwner();
-	const visibleTreeText = bridgeViewerVisibleTreeTextContent(railScroll);
+	const visibleTreePaths = bridgeViewerVisibleTreeItemPaths(railScroll);
 	expect(testFileButton.dataset['itemPath']).toBe(fixture.expected.testFilterPath);
-	expect(visibleTreeText).toContain(fixture.expected.testFilterPath);
-	expect(visibleTreeText).not.toContain(fixture.expected.initialPath);
+	expect(visibleTreePaths).toContain(fixture.expected.testFilterPath);
+	expect(visibleTreePaths).not.toContain(fixture.expected.initialPath);
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(document.body.textContent ?? '').not.toContain('Content unavailable');
 	await waitForBridgeViewerText(fixture.expected.testFilterText);
@@ -436,15 +438,16 @@ async function measureWarmProjectionChipSwitch(): Promise<BridgeViewerBrowserPer
 	const startedAt = performance.now();
 	await clickBridgeViewerProjectionMenuOption('Plans/specs');
 	const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
-	const railScroll = await waitForBridgeViewerTreeScrollOwner();
-	const visibleTreeText = bridgeViewerVisibleTreeTextContent(railScroll);
-	const durationMilliseconds = performance.now() - startedAt;
 	expect(docsButton.dataset['itemPath']).toBe(fixture.expected.docsPath);
-	expect(visibleTreeText).toContain(fixture.expected.docsPath);
-	expect(visibleTreeText).not.toContain(fixture.expected.initialPath);
 	expect(backend.projectionRequests.at(-1)?.projectionRequest.mode).toEqual({
 		kind: 'plansAndSpecs',
 	});
+	await waitForBridgeViewerAppliedProjectionMode('plansAndSpecs');
+	const railScroll = await waitForBridgeViewerTreeScrollOwner();
+	const visibleTreePaths = bridgeViewerVisibleTreeItemPaths(railScroll);
+	const durationMilliseconds = performance.now() - startedAt;
+	expect(visibleTreePaths).toContain(fixture.expected.docsPath);
+	expect(visibleTreePaths).not.toContain(fixture.expected.initialPath);
 	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 

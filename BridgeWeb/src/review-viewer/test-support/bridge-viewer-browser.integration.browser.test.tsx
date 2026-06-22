@@ -12,6 +12,7 @@ import {
 	bridgeViewerCodeGeometry,
 	bridgeViewerRenderedTextContent,
 	bridgeViewerVisibleCodeTextContent,
+	bridgeViewerVisibleTreeItemPaths,
 	bridgeViewerVisibleTreeTextContent,
 	clickBridgeViewerFilterMenuOption,
 	clickBridgeViewerProjectionMenuOption,
@@ -21,6 +22,7 @@ import {
 	requireBridgeViewerHTMLElement,
 	setBridgeViewerSearchText,
 	waitForBridgeViewerAnimationFrame,
+	waitForBridgeViewerAppliedProjectionMode,
 	waitForBridgeViewerCodeHeaderCollapseButton,
 	waitForBridgeViewerCodeScrollOwner,
 	waitForBridgeViewerElement,
@@ -736,6 +738,10 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			await waitForSelectedBridgeViewerDisplayPath(deepPath);
 			await waitForSelectedBridgeViewerContentState('ready');
 			await waitForBridgeViewerTextWithDiagnostics(deepExpectedText);
+			expect(
+				backend.requestedUrls.some((url: string): boolean => url.includes(`${selectedItemId}-head`)),
+			).toBe(true);
+			await waitForBridgeViewerVisibleCodeTextWithDiagnostics(codeScroll, deepExpectedText);
 			const selectedHeaderButton =
 				await waitForBridgeCodeHeaderCollapseButtonForItem(selectedItemId);
 			const selectedHeaderOffset = await waitForBridgeCodeHeaderOffsetFromScrollOwner({
@@ -804,16 +810,17 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 
 		await clickBridgeViewerProjectionMenuOption('Plans/specs');
 		const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
-		const railScroll = await waitForBridgeViewerTreeScrollOwner();
-		const visibleTreeText = bridgeViewerVisibleTreeTextContent(railScroll);
 
 		expect(docsButton.dataset['itemPath']).toBe(fixture.expected.docsPath);
-		expect(visibleTreeText).toContain(fixture.expected.docsPath);
-		expect(visibleTreeText).not.toContain(fixture.expected.initialPath);
 		expect(backend.projectionRequests.length).toBeGreaterThan(initialProjectionRequestCount);
 		expect(backend.projectionRequests.at(-1)?.projectionRequest.mode).toEqual({
 			kind: 'plansAndSpecs',
 		});
+		await waitForBridgeViewerAppliedProjectionMode('plansAndSpecs');
+		const railScroll = await waitForBridgeViewerTreeScrollOwner();
+		const visibleTreePaths = bridgeViewerVisibleTreeItemPaths(railScroll);
+		expect(visibleTreePaths).toContain(fixture.expected.docsPath);
+		expect(visibleTreePaths).not.toContain(fixture.expected.initialPath);
 
 		backend.dispose();
 	});
@@ -1228,6 +1235,33 @@ function selectedBridgeViewerPanelAttribute(attributeName: string): string | nul
 		document.querySelector('[data-testid="bridge-code-view-panel"]')?.getAttribute(attributeName) ??
 		null
 	);
+}
+
+async function waitForBridgeViewerVisibleCodeTextWithDiagnostics(
+	scrollOwner: HTMLElement,
+	text: string,
+	remainingAttempts = 180,
+): Promise<void> {
+	const visibleText = bridgeViewerVisibleCodeTextContent(scrollOwner);
+	if (visibleText.includes(text)) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			[
+				`expected visible Bridge viewer CodeView text to contain ${text}`,
+				`selectedDisplayPath=${selectedBridgeViewerDisplayPath() ?? 'null'}`,
+				`selectedContentState=${selectedBridgeViewerContentState() ?? 'null'}`,
+				`materializedUpdate=${selectedBridgeViewerPanelAttribute('data-selected-materialized-update-result') ?? 'null'}`,
+				`materializedType=${selectedBridgeViewerPanelAttribute('data-selected-materialized-item-type') ?? 'null'}`,
+				`materializedFileLines=${selectedBridgeViewerPanelAttribute('data-selected-materialized-file-line-count') ?? 'null'}`,
+				`visible=${visibleText.slice(0, 800)}`,
+			].join('; '),
+		);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgeViewerVisibleCodeTextWithDiagnostics(scrollOwner, text, remainingAttempts - 1);
 }
 
 async function waitForProjectionAbortCount(

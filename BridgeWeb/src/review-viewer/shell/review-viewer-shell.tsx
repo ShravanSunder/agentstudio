@@ -190,6 +190,8 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			className="flex h-screen min-h-screen w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
 			data-selected-content-state={selectedContentState}
 			data-selected-display-path={selectedDisplayPath ?? undefined}
+			data-projection-id={projection.projectionId}
+			data-projection-mode={projectionMode.kind}
 			data-sidebar-position="right"
 			data-testid="review-viewer-shell"
 		>

@@ -284,6 +284,74 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		} satisfies CodeViewScrollTarget);
 	});
 
+	test('expands a prop-driven selected placeholder before smooth reveal', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
+		});
+		const initialCodeViewItems = createBridgeCodeViewInitialItems({
+			projection,
+			reviewPackage,
+		});
+		const placeholderItem = initialCodeViewItems.find(
+			(item: CodeViewItem): boolean => item.id === 'docs-plan',
+		);
+		if (placeholderItem === undefined) {
+			throw new Error('expected docs-plan placeholder item');
+		}
+		codeViewDoubles.getItem.mockImplementation((id: string): CodeViewItem | undefined =>
+			id === 'docs-plan' ? placeholderItem : undefined,
+		);
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId={null}
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		codeViewDoubles.scrollTo.mockClear();
+		codeViewDoubles.updateItem.mockClear();
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: 'docs-plan',
+				collapsed: false,
+			}),
+		);
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: 'docs-plan',
+			align: 'start',
+			behavior: 'smooth',
+		} satisfies CodeViewScrollTarget);
+	});
+
 	test('smooth control-handle reveal delegates motion to Pierre without top-snap correction', async () => {
 		const requestAnimationFrameSpy = vi
 			.spyOn(window, 'requestAnimationFrame')
@@ -1017,6 +1085,120 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			align: 'start',
 			behavior: 'smooth',
 		} satisfies CodeViewScrollTarget);
+	});
+
+	test('keeps prop-driven smooth selection in flight for collapse anchoring after reveal', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
+		});
+		const initialCodeViewItems = createBridgeCodeViewInitialItems({ reviewPackage, projection });
+		const placeholderItem = initialCodeViewItems.find(
+			(item: CodeViewItem): boolean => item.id === 'docs-plan',
+		);
+		if (placeholderItem === undefined) {
+			throw new Error('expected docs-plan placeholder item');
+		}
+		codeViewDoubles.getItem.mockImplementation((id: string): CodeViewItem | undefined =>
+			id === 'docs-plan' ? placeholderItem : undefined,
+		);
+		const scrollOwner = document.createElement('div');
+		scrollOwner.className = 'bridge-code-view-scroll-owner';
+		scrollOwner.scrollTop = 100;
+		const codeViewContainer = document.createElement('div');
+		const headerAnchor = document.createElement('div');
+		headerAnchor.dataset['bridgeCodeViewItemId'] = 'docs-plan';
+		codeViewContainer.append(headerAnchor);
+		scrollOwner.append(codeViewContainer);
+		document.body.append(scrollOwner);
+		codeViewDoubles.containerElement = codeViewContainer;
+		vi.spyOn(scrollOwner, 'getBoundingClientRect').mockReturnValue({
+			bottom: 600,
+			height: 600,
+			left: 0,
+			right: 800,
+			toJSON: () => ({}),
+			top: 0,
+			width: 800,
+			x: 0,
+			y: 0,
+		} satisfies DOMRect);
+		vi.spyOn(headerAnchor, 'getBoundingClientRect').mockImplementation((): DOMRect => {
+			const top = -4 - (scrollOwner.scrollTop - 100);
+			return {
+				bottom: top + 32,
+				height: 32,
+				left: 0,
+				right: 800,
+				toJSON: () => ({}),
+				top,
+				width: 800,
+				x: 0,
+				y: top,
+			} satisfies DOMRect;
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId={null}
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: 'docs-plan',
+			align: 'start',
+			behavior: 'smooth',
+		} satisfies CodeViewScrollTarget);
+		codeViewDoubles.scrollTo.mockClear();
+
+		const headerContainer = document.createElement('div');
+		document.body.append(headerContainer);
+		const headerRoot = createRoot(headerContainer);
+		await act(async (): Promise<void> => {
+			headerRoot.render(<>{codeViewDoubles.lastProps?.renderHeaderPrefix?.(placeholderItem)}</>);
+			await Promise.resolve();
+		});
+		const renderedCollapseButton = document.querySelector<HTMLButtonElement>(
+			'[data-testid="bridge-code-view-header-collapse-button"]',
+		);
+		await act(async (): Promise<void> => {
+			renderedCollapseButton?.click();
+			await Promise.resolve();
+		});
+
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'position',
+			position: 100,
+			behavior: 'instant',
+		} satisfies CodeViewScrollTarget);
+		expect(scrollOwner.scrollTop).toBe(100);
 	});
 
 	test('materializes selected content without depending on an animation frame', async () => {

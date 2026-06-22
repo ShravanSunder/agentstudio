@@ -85,6 +85,25 @@ export function bridgeViewerVisibleTreeTextContent(scrollOwner: HTMLElement): st
 		.join('\n');
 }
 
+export function bridgeViewerVisibleTreeItemPaths(scrollOwner: HTMLElement): readonly string[] {
+	const viewport = scrollOwner.getBoundingClientRect();
+	const fileTreeContainer = document.querySelector('file-tree-container');
+	const shadowRoot = fileTreeContainer?.shadowRoot;
+	if (shadowRoot === undefined || shadowRoot === null) {
+		return [];
+	}
+	return [...shadowRoot.querySelectorAll('button[data-item-path]')]
+		.filter((button: Element): button is HTMLButtonElement => {
+			if (!(button instanceof HTMLButtonElement)) {
+				return false;
+			}
+			const buttonBox = button.getBoundingClientRect();
+			return buttonBox.bottom >= viewport.top && buttonBox.top <= viewport.bottom;
+		})
+		.map((button: HTMLButtonElement): string | undefined => button.dataset['itemPath'])
+		.filter((path: string | undefined): path is string => path !== undefined);
+}
+
 export function requireBridgeViewerHTMLElement(element: Element | null): HTMLElement {
 	if (!(element instanceof HTMLElement)) {
 		throw new Error('expected HTML element');
@@ -131,6 +150,29 @@ export async function waitForBridgeViewerElement(
 	await Promise.resolve();
 	await waitForBridgeViewerAnimationFrame();
 	return await waitForBridgeViewerElement(selector, remainingAttempts - 1);
+}
+
+export async function waitForBridgeViewerAppliedProjectionMode(
+	projectionMode: string,
+	remainingAttempts = 180,
+): Promise<HTMLElement> {
+	const shell = document.querySelector(
+		`[data-testid="review-viewer-shell"][data-projection-mode="${projectionMode}"]`,
+	);
+	if (shell instanceof HTMLElement) {
+		return shell;
+	}
+	if (remainingAttempts <= 0) {
+		const currentMode = document
+			.querySelector('[data-testid="review-viewer-shell"]')
+			?.getAttribute('data-projection-mode');
+		throw new Error(
+			`expected Bridge viewer applied projection mode ${projectionMode}; current=${currentMode ?? 'missing'}`,
+		);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	return await waitForBridgeViewerAppliedProjectionMode(projectionMode, remainingAttempts - 1);
 }
 
 export async function waitForBridgeViewerTreeItemAbsent(
