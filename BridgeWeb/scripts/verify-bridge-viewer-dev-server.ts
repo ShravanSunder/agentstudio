@@ -35,14 +35,22 @@ interface DevServerVerificationResult {
 	readonly codeViewScrollHeight: number;
 	readonly codeViewScrollTop: number;
 	readonly codeViewVisibleText: string;
+	readonly filterBehaviorState: FilterBehaviorState | null;
 	readonly gitStatusFilterMenuState: GitStatusFilterMenuState | null;
 	readonly hydrationDiagnostics: BridgeViewerHydrationDiagnostics;
+	readonly markdownSelectionScrollMotion: ScrollMotionProbe | null;
 	readonly selectedHeaderCollapseButtonState: HeaderCollapseButtonState | null;
 	readonly selectedScrollMotion: ScrollMotionProbe | null;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
 	readonly topScopeState: TopScopeState | null;
 	readonly workerPoolState: string | null;
+}
+
+interface FilterBehaviorState {
+	readonly docsProjectionItemCount: number;
+	readonly initialProjectionItemCount: number;
+	readonly selectedPathAfterDocsFilter: string | null;
 }
 
 interface ScrollMotionProbe {
@@ -106,9 +114,11 @@ try {
 				devServerUrl,
 				codeViewScrollHeight: result.codeViewScrollHeight,
 				codeViewScrollTop: result.codeViewScrollTop,
+				filterBehavior: result.filterBehaviorState,
 				fixtureClass,
 				gitStatusFilterMenu: result.gitStatusFilterMenuState,
 				hydrationDiagnostics: result.hydrationDiagnostics,
+				markdownSelectionScrollMotion: result.markdownSelectionScrollMotion,
 				selectedScrollMotion: result.selectedScrollMotion,
 				selectedHeaderCollapseButton: result.selectedHeaderCollapseButtonState,
 				markdownDevServerUrl,
@@ -134,6 +144,7 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 		assertTopScopeStateRemoved(initialResult.topScopeState);
 		const gitStatusFilterMenuState = await inspectGitStatusFilterMenu(page);
 		assertGitStatusFilterMenu(gitStatusFilterMenuState);
+		const filterBehaviorState = await verifyFilterBehavior(page, initialResult);
 		await selectFileAndWaitForContent({
 			page,
 			path: targetModifiedPath,
@@ -149,16 +160,65 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 		await waitForCodeViewText(page, targetAddedText);
 		await waitForSelectedHeaderAligned(page);
 
+		const addedResult = {
+			...(await readVerificationResult(page)),
+			filterBehaviorState,
+			gitStatusFilterMenuState,
+			markdownSelectionScrollMotion: null,
+			selectedScrollMotion,
+		};
+		assertSelectedHeaderCollapseButton(addedResult);
+		assertSelectedScrollMotion(addedResult.selectedScrollMotion);
+		if (addedResult.selectedDisplayPath !== targetAddedPath) {
+			throw new Error(
+				`Expected selected display path ${targetAddedPath}, got ${
+					addedResult.selectedDisplayPath ?? 'null'
+				}`,
+			);
+		}
+		if (addedResult.selectedContentState !== 'ready') {
+			throw new Error(
+				`Expected selected content state ready, got ${addedResult.selectedContentState ?? 'null'}`,
+			);
+		}
+		if (addedResult.workerPoolState !== 'ready') {
+			throw new Error(
+				`Expected worker pool state ready, got ${addedResult.workerPoolState ?? 'null'}`,
+			);
+		}
+		if (!addedResult.codeViewVisibleText.includes(targetAddedText)) {
+			throw new Error(
+				[
+					'Expected added file content to be visible in the CodeView scroll owner.',
+					`Missing text: ${targetAddedText}`,
+					`Visible text: ${addedResult.codeViewVisibleText.slice(0, 500)}`,
+				].join('\n'),
+			);
+		}
+		assertNoEmptyExpandedHeaders(addedResult.hydrationDiagnostics, 'selected added file');
+		assertCodeViewScrolledToSelectedItem({ initialResult, result: addedResult });
+		await assertSelectedHeaderCollapseRoundTrip(page);
+
+		await fillBridgeViewerFileTreeSearch(page, searchTextForPath(targetMarkdownPath));
+		await waitForFileTreePath(page, targetMarkdownPath);
+		const markdownSelectionScrollMotion = await clickFileTreePathAndMeasureScrollMotion(
+			page,
+			targetMarkdownPath,
+		);
+		await waitForSelectedPath(page, targetMarkdownPath);
+		await waitForSelectedHeaderAligned(page);
 		const result = {
 			...(await readVerificationResult(page)),
+			filterBehaviorState,
 			gitStatusFilterMenuState,
+			markdownSelectionScrollMotion,
 			selectedScrollMotion,
 		};
 		assertSelectedHeaderCollapseButton(result);
-		assertSelectedScrollMotion(result.selectedScrollMotion);
-		if (result.selectedDisplayPath !== targetAddedPath) {
+		assertSelectedScrollMotion(result.markdownSelectionScrollMotion);
+		if (result.selectedDisplayPath !== targetMarkdownPath) {
 			throw new Error(
-				`Expected selected display path ${targetAddedPath}, got ${
+				`Expected selected display path ${targetMarkdownPath}, got ${
 					result.selectedDisplayPath ?? 'null'
 				}`,
 			);
@@ -171,18 +231,19 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 		if (result.workerPoolState !== 'ready') {
 			throw new Error(`Expected worker pool state ready, got ${result.workerPoolState ?? 'null'}`);
 		}
-		if (!result.codeViewVisibleText.includes(targetAddedText)) {
+		if (!result.codeViewVisibleText.includes(targetMarkdownHeading)) {
 			throw new Error(
 				[
-					'Expected added file content to be visible in the CodeView scroll owner.',
-					`Missing text: ${targetAddedText}`,
+					'Expected selected markdown source to be visible in the CodeView scroll owner before preview command.',
+					`Missing text: ${targetMarkdownHeading}`,
 					`Visible text: ${result.codeViewVisibleText.slice(0, 500)}`,
 				].join('\n'),
 			);
 		}
-		assertNoEmptyExpandedHeaders(result.hydrationDiagnostics, 'selected added file');
+		assertNoEmptyExpandedHeaders(result.hydrationDiagnostics, 'selected markdown file');
 		assertCodeViewScrolledToSelectedItem({ initialResult, result });
-		await assertSelectedHeaderCollapseRoundTrip(page);
+		await dispatchMarkdownPreviewCommand(page);
+		await waitForMarkdownPreview(page);
 		return result;
 	} finally {
 		await page.close();
@@ -199,14 +260,7 @@ async function verifyMarkdownScenario(): Promise<MarkdownScenarioResult> {
 		await page.goto(markdownDevServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
 		await waitForSelectedPath(page, targetMarkdownPath);
 		await dispatchMarkdownPreviewCommand(page);
-		await page.waitForFunction(
-			(heading: string): boolean =>
-				document
-					.querySelector('[data-testid="bridge-markdown-preview"]')
-					?.textContent?.includes(heading) ?? false,
-			targetMarkdownHeading,
-			{ timeout: 10_000 },
-		);
+		await waitForMarkdownPreview(page);
 		const result = await page.evaluate((): MarkdownScenarioResult => {
 			return {
 				displayPath:
@@ -236,6 +290,17 @@ async function dispatchMarkdownPreviewCommand(page: Page): Promise<void> {
 			}),
 		);
 	});
+}
+
+async function waitForMarkdownPreview(page: Page): Promise<void> {
+	await page.waitForFunction(
+		(heading: string): boolean =>
+			document
+				.querySelector('[data-testid="bridge-markdown-preview"]')
+				?.textContent?.includes(heading) ?? false,
+		targetMarkdownHeading,
+		{ timeout: 10_000 },
+	);
 }
 
 async function makeVerificationPage(): Promise<Page> {
@@ -721,6 +786,40 @@ async function waitForCodeViewText(page: Page, expectedText: string): Promise<vo
 	);
 }
 
+async function waitForCodeViewProjectionItemCount(
+	page: Page,
+	expectedItemCount: number,
+): Promise<void> {
+	await page.waitForFunction(
+		(itemCount: number): boolean =>
+			document
+				.querySelector('[data-testid="bridge-code-view-panel"]')
+				?.getAttribute('data-code-view-item-count') === itemCount.toString(),
+		expectedItemCount,
+		{ timeout: 10_000 },
+	);
+}
+
+async function waitForCodeViewProjectionItemCountBelow(
+	page: Page,
+	upperBoundExclusive: number,
+): Promise<void> {
+	await page.waitForFunction(
+		(upperBound: number): boolean => {
+			const itemCountAttribute = document
+				.querySelector('[data-testid="bridge-code-view-panel"]')
+				?.getAttribute('data-code-view-item-count');
+			if (itemCountAttribute === null || itemCountAttribute === undefined) {
+				return false;
+			}
+			const itemCount = Number.parseInt(itemCountAttribute, 10);
+			return Number.isFinite(itemCount) && itemCount > 0 && itemCount < upperBound;
+		},
+		upperBoundExclusive,
+		{ timeout: 10_000 },
+	);
+}
+
 async function waitForSelectedHeaderAligned(page: Page): Promise<void> {
 	await page.waitForFunction(
 		(): boolean => {
@@ -824,6 +923,94 @@ async function inspectGitStatusFilterMenu(page: Page): Promise<GitStatusFilterMe
 		timeout: 10_000,
 	});
 	return menuState;
+}
+
+async function verifyFilterBehavior(
+	page: Page,
+	initialResult: DevServerVerificationResult,
+): Promise<FilterBehaviorState> {
+	await clickBridgeReviewFilterMenuOption({
+		label: 'Docs',
+		page,
+		triggerTestId: 'bridge-review-file-class-menu-control',
+	});
+	await waitForSelectedPath(page, targetMarkdownPath);
+	await waitForCodeViewProjectionItemCountBelow(
+		page,
+		initialResult.hydrationDiagnostics.codeViewItemCount,
+	);
+	const docsResult = await readVerificationResult(page);
+	if (docsResult.selectedDisplayPath !== targetMarkdownPath) {
+		throw new Error(
+			`Expected Docs filter to reconcile selection to ${targetMarkdownPath}, got ${
+				docsResult.selectedDisplayPath ?? 'null'
+			}`,
+		);
+	}
+	if (docsResult.hydrationDiagnostics.codeViewItemCount <= 0) {
+		throw new Error('Expected Docs filter projection to keep at least one visible item');
+	}
+	if (
+		docsResult.hydrationDiagnostics.codeViewItemCount >=
+		initialResult.hydrationDiagnostics.codeViewItemCount
+	) {
+		throw new Error(
+			[
+				'Expected Docs filter to reduce projected CodeView item count.',
+				`Initial count: ${initialResult.hydrationDiagnostics.codeViewItemCount}`,
+				`Docs count: ${docsResult.hydrationDiagnostics.codeViewItemCount}`,
+			].join('\n'),
+		);
+	}
+
+	await clickBridgeReviewFilterMenuOption({
+		label: 'All classes',
+		page,
+		triggerTestId: 'bridge-review-file-class-menu-control',
+	});
+	await waitForCodeViewProjectionItemCount(
+		page,
+		initialResult.hydrationDiagnostics.codeViewItemCount,
+	);
+
+	return {
+		docsProjectionItemCount: docsResult.hydrationDiagnostics.codeViewItemCount,
+		initialProjectionItemCount: initialResult.hydrationDiagnostics.codeViewItemCount,
+		selectedPathAfterDocsFilter: docsResult.selectedDisplayPath,
+	};
+}
+
+async function clickBridgeReviewFilterMenuOption(props: {
+	readonly label: string;
+	readonly page: Page;
+	readonly triggerTestId: string;
+}): Promise<void> {
+	await props.page.locator(`[data-testid="${props.triggerTestId}"]`).click();
+	await props.page.waitForSelector('[data-testid="bridge-review-filter-popover"]', {
+		state: 'visible',
+		timeout: 10_000,
+	});
+	const didClick = await props.page.evaluate((label: string): boolean => {
+		const candidateItems = Array.from(
+			document.querySelectorAll('[role="menuitemcheckbox"], [role="menuitem"]'),
+		);
+		const option = candidateItems.find((element: Element): boolean =>
+			(element.textContent ?? '').replace(/\s+/g, ' ').trim().includes(label),
+		);
+		if (!(option instanceof HTMLElement)) {
+			return false;
+		}
+		option.click();
+		return true;
+	}, props.label);
+	if (!didClick) {
+		throw new Error(`Expected Bridge review filter option ${props.label}`);
+	}
+	await props.page.keyboard.press('Escape');
+	await props.page.waitForSelector('[data-testid="bridge-review-filter-popover"]', {
+		state: 'detached',
+		timeout: 10_000,
+	});
 }
 
 async function clickFileTreePath(page: Page, path: string): Promise<void> {
@@ -988,7 +1175,9 @@ async function readVerificationResult(page: Page): Promise<DevServerVerification
 					.join(' ')
 					.replace(/\s+/g, ' ')
 					.trim(),
+				filterBehaviorState: null,
 				gitStatusFilterMenuState: null,
+				markdownSelectionScrollMotion: null,
 				selectedHeaderCollapseButtonState:
 					selectedHeaderCollapseButton === null || selectedHeaderCollapseButtonBounds === null
 						? null

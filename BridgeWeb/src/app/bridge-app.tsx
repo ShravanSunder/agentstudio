@@ -254,7 +254,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			}
 			if (options.reveal !== false) {
 				codeViewControlHandleRef.current?.scrollToItem(itemId, {
-					behavior: options.revealBehavior ?? 'smooth-auto',
+					behavior: options.revealBehavior ?? 'smooth',
 				});
 			}
 			const isSelectionChange = rootSnapshotRef.current.selectedItemId !== itemId;
@@ -289,6 +289,30 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
 		flushTelemetry,
 	});
+
+	useEffect((): void => {
+		if (reviewPackage === null || projection === null) {
+			return;
+		}
+		if (
+			rootSnapshot.selectedItemId !== null &&
+			projection.orderedItemIds.includes(rootSnapshot.selectedItemId)
+		) {
+			return;
+		}
+
+		const nextSelectedItemId = projection.orderedItemIds[0] ?? null;
+		if (rootSnapshot.selectedItemId === nextSelectedItemId) {
+			return;
+		}
+
+		selectedContentAbortControllerRef.current?.abort();
+		selectedContentAbortControllerRef.current = null;
+		setSelectedContentResourcesState(null);
+		setSelectedMarkdownPreviewState(null);
+		viewerActions.setSelectedItemId(nextSelectedItemId);
+		viewerActions.setRenderMode({ kind: 'codeView' });
+	}, [projection, reviewPackage, rootSnapshot.selectedItemId, viewerActions]);
 
 	useEffect((): void => {
 		contentRegistry.setActiveIdentity(
@@ -577,7 +601,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		}
 
 		if (rootSnapshot.renderMode.kind !== 'markdownPreview') {
-			viewerActions.setRenderMode({ kind: 'markdownPreview' });
 			setSelectedMarkdownPreviewState(null);
 			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
 			return (): void => {

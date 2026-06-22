@@ -754,7 +754,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		}
 	});
 
-	test('custom filter controls route through projection requests and preserve a visible selection', async () => {
+	test('custom filter controls route through projection requests and render the first filtered selection', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
@@ -779,7 +779,8 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			kind: 'fileClass',
 			fileClasses: ['test'],
 		});
-		expect(bridgeViewerRenderedTextContent()).toContain(fixture.expected.initialText);
+		await waitForBridgeViewerText(fixture.expected.testFilterText);
+		expect(bridgeViewerRenderedTextContent()).not.toContain(fixture.expected.initialText);
 
 		backend.dispose();
 	});
@@ -987,7 +988,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
-	test('selecting docs renders the markdown preview through the worker lane', async () => {
+	test('selecting docs renders markdown preview only after the explicit preview command', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 		const markdownWorker = createImmediateMarkdownWorkerClient();
@@ -1004,6 +1005,17 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 		docsButton.click();
 		await waitForBridgeViewerText(fixture.expected.docsMarkdownHeading);
+		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+		expect(markdownWorker.requests).toHaveLength(0);
+
+		document.dispatchEvent(
+			new CustomEvent('__bridge_review_control', {
+				detail: {
+					method: 'bridge.fileView.showMarkdownPreview',
+					itemId: 'browser-docs-plan',
+				},
+			}),
+		);
 
 		await waitForBridgeViewerElement('[data-testid="bridge-markdown-preview"]');
 		await waitForBridgeViewerText('Rendered markdown preview');

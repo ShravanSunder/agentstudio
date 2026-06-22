@@ -117,6 +117,7 @@ export interface BridgeViewerBrowserFixture {
 		readonly searchText: string;
 		readonly searchPath: string;
 		readonly testFilterPath: string;
+		readonly testFilterText: string;
 		readonly largePath: string;
 		readonly largeText: string;
 		readonly largeHeadHandleId: string;
@@ -356,6 +357,7 @@ export function makeBridgeViewerBrowserFixture(
 			searchText: 'Hunked',
 			searchPath: 'Sources/BridgeViewer/HunkedContext.ts',
 			testFilterPath: 'tree/module-00/file-007.ts',
+			testFilterText: "export const fillerbrowser-filler-small-mixed-007 = 'head';",
 			largePath: 'large/browser/huge-diff.ts',
 			largeText: "export const generatedLine0000 = 'head';",
 			largeHeadHandleId: requiredHandleId(largeItem.contentRoles.head, 'large head'),

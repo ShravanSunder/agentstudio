@@ -175,7 +175,8 @@ const browserPerformanceScenarios: readonly BridgeViewerBrowserPerformanceScenar
 		budgetMilliseconds: 1_500,
 		sampleCount: 4,
 		latencyProfile: 'zero',
-		correctnessAssertion: 'docs selection renders sanitized markdown preview through worker client',
+		correctnessAssertion:
+			'explicit docs preview command renders sanitized markdown preview through worker client',
 		markdownWorkerClientMode: 'mocked',
 		run: measureWarmMarkdownPreview,
 	},
@@ -419,7 +420,7 @@ async function measureWarmFilterSwitch(): Promise<BridgeViewerBrowserPerformance
 	await waitForBridgeViewerTreeItemAbsent(fixture.expected.initialPath);
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(document.body.textContent ?? '').not.toContain('Content unavailable');
-	await waitForBridgeViewerText(fixture.expected.initialText);
+	await waitForBridgeViewerText(fixture.expected.testFilterText);
 	expect(backend.projectionRequests.at(-1)?.projectionRequest.facets).toContainEqual({
 		kind: 'fileClass',
 		fileClasses: ['test'],
@@ -567,9 +568,12 @@ async function measureWarmMarkdownPreview(): Promise<BridgeViewerBrowserPerforma
 		markdownWorkerClient: markdownWorker.client,
 	});
 	const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
-	const startedAt = performance.now();
 	docsButton.click();
 	await waitForBridgeViewerText(fixture.expected.docsMarkdownHeading);
+	expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+	expect(markdownWorker.requests).toHaveLength(0);
+	const startedAt = performance.now();
+	dispatchBridgeFileViewShowMarkdownPreview('browser-docs-plan');
 	await waitForBridgeViewerElement('[data-testid="bridge-markdown-preview"]');
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(markdownWorker.requests).toHaveLength(1);
@@ -615,6 +619,8 @@ async function measureStaleGenerationDrop(): Promise<BridgeViewerBrowserPerforma
 	});
 	const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 	docsButton.click();
+	await waitForBridgeViewerText(fixture.expected.docsMarkdownHeading);
+	dispatchBridgeFileViewShowMarkdownPreview('browser-docs-plan');
 	const pendingRequest = await markdownWorker.waitForPendingRequest();
 	const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
 	secondButton.click();
@@ -632,6 +638,17 @@ async function measureStaleGenerationDrop(): Promise<BridgeViewerBrowserPerforma
 		),
 	).toBe(true);
 	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+}
+
+function dispatchBridgeFileViewShowMarkdownPreview(itemId: string): void {
+	document.dispatchEvent(
+		new CustomEvent('__bridge_review_control', {
+			detail: {
+				method: 'bridge.fileView.showMarkdownPreview',
+				itemId,
+			},
+		}),
+	);
 }
 
 async function measureScrollOwnership(): Promise<BridgeViewerBrowserPerformanceSample> {

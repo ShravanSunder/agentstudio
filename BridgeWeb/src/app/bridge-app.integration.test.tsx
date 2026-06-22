@@ -1409,7 +1409,7 @@ describe('BridgeApp', () => {
 		expect(bridgeAppRenderedTextContent()).toContain('second selected text');
 	});
 
-	test('renders selected added markdown through the markdown worker preview lane', async () => {
+	test('renders selected added markdown through the markdown worker preview lane on command', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeAddedFileReviewPackage({
 			itemId: 'item-added-plan',
@@ -1451,6 +1451,13 @@ describe('BridgeApp', () => {
 
 		await pushReviewPackage(reviewPackage);
 		await waitForRequestedUrl(requestedUrls, 'handle-item-added-plan-head');
+		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+		expect(capturedRequests).toHaveLength(0);
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileView.showMarkdownPreview',
+			itemId: 'item-added-plan',
+		});
 		await waitForMarkdownRequest(capturedRequests);
 		const request = capturedRequests[0];
 		if (request === undefined) {
@@ -1525,12 +1532,13 @@ describe('BridgeApp', () => {
 		await pushReviewPackage(reviewPackage);
 		await waitForRequestedUrl(requestedUrls, 'handle-item-control-plan-head');
 		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
-		await waitForMarkdownRequest(capturedRequests);
+		expect(capturedRequests).toHaveLength(0);
 
 		await dispatchBridgeAppControl({
 			method: 'bridge.fileView.showMarkdownPreview',
 			itemId: 'item-control-plan',
 		});
+		await waitForMarkdownRequest(capturedRequests);
 		expect(window.bridgeReviewControlProbe).toMatchObject({
 			method: 'bridge.fileView.showMarkdownPreview',
 			status: 'pending',
@@ -1638,8 +1646,44 @@ describe('BridgeApp', () => {
 			method: 'bridge.diff.collapseFile',
 			status: 'rejected',
 			itemId: 'item-source',
-			reason: 'code_view_unavailable',
+			reason: 'item_not_rendered',
 		});
+	});
+
+	test('filtering to docs reconciles selection to a visible projected file', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeSourceAndDocsReviewPackage();
+		const requestedUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response(url.includes('item-docs') ? '# Plan\n' : 'source text');
+					}}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForRequestedUrl(requestedUrls, 'handle-item-source-head');
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileTree.setFilter',
+			gitStatusFilter: 'all',
+			fileClassFilter: 'docs',
+		});
+		await waitForSelectedItemId('item-docs');
+		await waitForRequestedUrl(requestedUrls, 'handle-item-docs-head');
+
+		expect(selectedBridgeViewerPanelAttribute('data-selected-display-path')).toBe(
+			'docs/plans/review-plan.md',
+		);
+		expect(selectedBridgeViewerPanelAttribute('data-selected-content-state')).toBe('ready');
 	});
 
 	test('page control rejects scrollToFile for package items filtered out of the mounted CodeView', async () => {
@@ -1668,7 +1712,7 @@ describe('BridgeApp', () => {
 			method: 'bridge.diff.scrollToFile',
 			status: 'rejected',
 			itemId: 'item-source',
-			reason: 'code_view_unavailable',
+			reason: 'item_not_rendered',
 		});
 	});
 
@@ -1816,6 +1860,11 @@ describe('BridgeApp', () => {
 		await pushReviewPackage(reviewPackage);
 		await waitForRequestedUrl(requestedUrls, 'handle-item-large-plan-head');
 		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+		expect(capturedRequests).toHaveLength(0);
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileView.showMarkdownPreview',
+			itemId: 'item-large-plan',
+		});
 		await waitForMarkdownRequest(capturedRequests);
 		const request = capturedRequests[0];
 		if (request === undefined) {
@@ -1938,6 +1987,29 @@ async function waitForRequestedUrl(
 	await Promise.resolve();
 	await waitForAnimationFrame();
 	await waitForRequestedUrl(requestedUrls, urlPart, remainingAttempts - 1);
+}
+
+async function waitForSelectedItemId(itemId: string, remainingAttempts = 20): Promise<void> {
+	if (selectedBridgeViewerPanelAttribute('data-selected-item-id') === itemId) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`expected selected item ${itemId}; selected=${
+				selectedBridgeViewerPanelAttribute('data-selected-item-id') ?? 'null'
+			}`,
+		);
+	}
+	await Promise.resolve();
+	await waitForAnimationFrame();
+	await waitForSelectedItemId(itemId, remainingAttempts - 1);
+}
+
+function selectedBridgeViewerPanelAttribute(attributeName: string): string | null {
+	return (
+		document.querySelector('[data-testid="bridge-code-view-panel"]')?.getAttribute(attributeName) ??
+		null
+	);
 }
 
 async function waitForRenderedText(text: string, remainingAttempts = 20): Promise<void> {
@@ -2326,6 +2398,53 @@ function makeTwoItemReviewPackage(): ReturnType<typeof makeBridgeReviewPackage> 
 		itemsById: {
 			...reviewPackage.itemsById,
 			'item-second': secondItem,
+		},
+		summary: {
+			...reviewPackage.summary,
+			filesChanged: 2,
+			visibleFileCount: 2,
+		},
+	};
+}
+
+function makeSourceAndDocsReviewPackage(): BridgeReviewPackage {
+	const reviewPackage = makeBridgeReviewPackage();
+	const docsItem = makeBridgeReviewItem({
+		itemId: 'item-docs',
+		path: 'docs/plans/review-plan.md',
+	});
+	const docsBaseHandle = isMissingContentHandle(docsItem.contentRoles.base)
+		? null
+		: {
+				...docsItem.contentRoles.base,
+				mimeType: 'text/markdown',
+				language: 'markdown',
+			};
+	const docsHeadHandle = isMissingContentHandle(docsItem.contentRoles.head)
+		? null
+		: {
+				...docsItem.contentRoles.head,
+				mimeType: 'text/markdown',
+				language: 'markdown',
+			};
+	const docsReviewItem = {
+		...docsItem,
+		fileClass: 'docs' as const,
+		language: 'markdown',
+		extension: 'md',
+		contentRoles: {
+			...docsItem.contentRoles,
+			base: docsBaseHandle,
+			head: docsHeadHandle,
+		},
+	};
+
+	return {
+		...reviewPackage,
+		orderedItemIds: ['item-source', docsReviewItem.itemId],
+		itemsById: {
+			...reviewPackage.itemsById,
+			[docsReviewItem.itemId]: docsReviewItem,
 		},
 		summary: {
 			...reviewPackage.summary,

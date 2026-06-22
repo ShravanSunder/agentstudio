@@ -227,7 +227,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		} satisfies CodeViewScrollTarget);
 	});
 
-	test('uses Pierre smooth-auto motion when mounted selection props change', async () => {
+	test('uses Pierre smooth motion when mounted selection props change', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -274,7 +274,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			type: 'item',
 			id: 'source-high',
 			align: 'start',
-			behavior: 'smooth-auto',
+			behavior: 'smooth',
 		} satisfies CodeViewScrollTarget);
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalledWith({
 			type: 'item',
@@ -816,7 +816,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
 	});
 
-	test('corrects smooth-auto selected placeholder alignment after hydration', async () => {
+	test('preserves smooth selected placeholder reveal during hydration without top-snap correction', async () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -898,7 +898,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		});
 
 		await act(async (): Promise<void> => {
-			controlHandle?.scrollToItem('docs-plan', { behavior: 'smooth-auto' });
+			controlHandle?.scrollToItem('docs-plan', { behavior: 'smooth' });
 			await Promise.resolve();
 		});
 		codeViewDoubles.scrollTo.mockClear();
@@ -923,7 +923,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			expect.objectContaining({ id: 'docs-plan' }),
 		);
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
-		expect(scrollOwner.scrollTop).toBe(96);
+		expect(scrollOwner.scrollTop).toBe(100);
 	});
 
 	test('materializes selected content without depending on an animation frame', async () => {

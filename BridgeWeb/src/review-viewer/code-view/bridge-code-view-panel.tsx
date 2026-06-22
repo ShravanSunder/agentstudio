@@ -574,7 +574,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				initialSelectedItemByViewerKeyRef.current.selectedItemId === selectedItemId;
 			const scrollBehavior: CodeViewScrollBehavior = shouldUseInitialPlacement
 				? 'instant'
-				: 'smooth-auto';
+				: 'smooth';
 			controller.scrollToItem(selectedItemId, scrollBehavior);
 			if (scrollBehavior === 'instant') {
 				completedSelectionScrollKeyRef.current = selectionScrollKey;
@@ -589,16 +589,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				});
 			} else {
 				pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
-				if (scrollBehavior === 'smooth-auto') {
-					scrollToTopTargetItemIdRef.current = selectedItemId;
-					scrollCodeViewHeaderToScrollTopAcrossLayout({
-						handle: codeViewHandle,
-						itemId: selectedItemId,
-						isCurrent: (): boolean =>
-							codeViewHandleRef.current === codeViewHandle &&
-							scrollToTopTargetItemIdRef.current === selectedItemId,
-					});
-				}
 			}
 		});
 	}, [codeViewMountVersion, props.reviewPackage, props.selectedItemId, viewerKey]);
@@ -696,14 +686,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 							pendingSmoothSelectionScrollKeyRef.current === selectionScrollKey;
 						if (shouldPreserveSmoothReveal) {
 							pendingSmoothSelectionScrollKeyRef.current = null;
-							scrollToTopTargetItemIdRef.current = itemId;
-							scrollCodeViewHeaderToScrollTopAcrossLayout({
-								handle: codeViewHandle,
-								itemId,
-								isCurrent: (): boolean =>
-									codeViewHandleRef.current === codeViewHandle &&
-									scrollToTopTargetItemIdRef.current === itemId,
-							});
 						} else {
 							controller.scrollToItem(itemId, 'instant');
 							scrollToTopTargetItemIdRef.current = itemId;
