@@ -1,7 +1,7 @@
 # Bridge Transport And App Protocol Architecture Spec
 
 Date: 2026-06-22
-Status: Draft for spec-review
+Status: Reviewed by `shravan-dev-workflow:spec-review-swarm` 1.6.29; ready for plan review
 Audience: product/design reviewers, Bridge implementers, Review Viewer maintainers, Worktree/File Surface maintainers, future agents
 
 This is a product and architecture spec. It aligns the design before
@@ -881,6 +881,11 @@ First implementation integrity rule:
 - preview-only ranges cannot anchor final comments, final review facts, or
   provider authority decisions
 
+Comment and agent-comms resources are reserved-disabled in the first
+implementation. The rule above applies only after a later schema slice enables
+those resource kinds; until then they must fail closed and must not become
+fetchable or authoritative.
+
 Future chunk manifests may promote ranged resources to authoritative after the
 manifest contract and tamper fixtures exist.
 
@@ -1106,7 +1111,14 @@ Prior-art evidence used for changeset flexibility:
 
 ## 18. Next Workflow
 
-This draft should go to `spec-review-swarm` before implementation planning.
-Accepted blocker or important findings route back to `spec-creation-swarm`.
-If review passes or only minor non-blockers remain, the next workflow is
-`plan-creation-swarm`.
+This spec has completed `shravan-dev-workflow:spec-review-swarm` 1.6.29. The
+1.6.29 refresh found and fixed one wording contradiction around reserved
+comment/comms resources; no validated spec blocker remains before plan review.
+
+Current workflow route:
+
+- next phase: `shravan-dev-workflow:plan-review-swarm`
+- if plan review finds a spec-boundary blocker: route back to
+  `spec-creation-swarm`
+- if plan review passes or only accepted tiny plan edits remain: route to
+  implementation checkpoint execution under the orchestrator goal

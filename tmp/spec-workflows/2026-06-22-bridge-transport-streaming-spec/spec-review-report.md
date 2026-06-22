@@ -1,7 +1,7 @@
 # Bridge Transport Streaming Spec Review Report
 
 Date: 2026-06-22
-Status: Parent reducer after spec-review-swarm
+Status: Parent reducer after spec-review-swarm; superseded by the 1.6.29 addendum for current route
 
 Reviewed artifacts:
 
@@ -32,8 +32,9 @@ Revised after review. The design spine held, but the first review found
 planning-blocking contract gaps. Parent accepted and patched the blocking/root
 findings in the current artifacts.
 
-Recommended next step: light post-revision review or direct `plan-creation-swarm`
-only if the owner accepts the remaining open decisions as planning inputs.
+Current next step: `shravan-dev-workflow:plan-review-swarm`, per the 1.6.29
+addendum below. The older direct `plan-creation-swarm` recommendation is
+superseded because the implementation plan now exists and has been revised.
 
 ## What Held
 
@@ -266,3 +267,29 @@ Updated verdict:
 The demand-policy / scheduler / executor contract is now planning-ready, subject
 to the existing open decisions already called out in the spec. The next workflow
 can be `plan-creation-swarm` for implementation sequencing and proof gates.
+
+## Addendum: 1.6.29 Spec Review Refresh
+
+Date: 2026-06-22
+Status: ready for plan review after one tiny same-session spec edit
+
+Refreshed review used `shravan-dev-workflow:spec-review-swarm` 1.6.29. Spawned
+review lanes timed out under host file-descriptor pressure and were not used as
+evidence. Parent reducer found one important wording contradiction: generic
+integrity prose could be misread as enabling first-implementation comment/comms
+resources, while OD8 and the Worktree/File protocol reserve those resources as
+disabled/fail-closed.
+
+Accepted edit:
+
+- `spec.md` section 12 now states that comment and agent-comms resources are
+  reserved-disabled in the first implementation, and the integrity rule applies
+  only after a later schema slice enables those resource kinds.
+
+Review artifact:
+
+- [review-1.6.29/spec-review-report.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/review-1.6.29/spec-review-report.md:1)
+
+Result:
+
+- No validated blocker remains before `plan-review-swarm`.

@@ -1,7 +1,7 @@
 # Review Protocol Spec
 
 Date: 2026-06-22
-Status: Draft for spec-review
+Status: Reviewed by `shravan-dev-workflow:spec-review-swarm` 1.6.29; ready for plan review
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
 This file owns the Review application protocol. Review is one app protocol
