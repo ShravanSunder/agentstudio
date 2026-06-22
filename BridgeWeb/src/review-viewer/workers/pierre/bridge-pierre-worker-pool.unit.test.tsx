@@ -478,7 +478,7 @@ describe('Bridge Pierre worker pool', () => {
 		expect(document.querySelector('[data-testid="worker-pool-child"]')).not.toBeNull();
 	});
 
-	test('does not mount CodeView children while the Pierre worker pool is initializing', async () => {
+	test('keeps CodeView children mounted while the Pierre worker pool is initializing', async () => {
 		const workerFactory = createBridgePierreWorkerFactory({
 			workerScriptUrl: 'blob:bridge-pierre-worker',
 			createWorker: (url: string | URL, options?: WorkerOptions): Worker =>
@@ -496,7 +496,7 @@ describe('Bridge Pierre worker pool', () => {
 		expect(
 			document.querySelector('[data-testid="bridge-pierre-worker-pool-loading"]'),
 		).not.toBeNull();
-		expect(document.querySelector('[data-testid="worker-pool-child"]')).toBeNull();
+		expect(document.querySelector('[data-testid="worker-pool-child"]')).not.toBeNull();
 	});
 
 	test('polls live worker stats when Pierre RAF stat broadcasts are delayed', async () => {

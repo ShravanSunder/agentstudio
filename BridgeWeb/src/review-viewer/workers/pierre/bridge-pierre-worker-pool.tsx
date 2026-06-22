@@ -635,11 +635,16 @@ function BridgePierreWorkerPoolReadinessGate(props: {
 	}
 
 	return (
-		<div
-			className="flex h-full min-h-[240px] items-center justify-center bg-[var(--bridge-canvas-bg)] text-xs text-[var(--bridge-text-secondary)]"
-			data-testid="bridge-pierre-worker-pool-loading"
-			role="status"
-		>
+		<Fragment>
+			{props.children}
+			<BridgePierreWorkerPoolLoadingStatus />
+		</Fragment>
+	);
+}
+
+function BridgePierreWorkerPoolLoadingStatus(): ReactElement {
+	return (
+		<div className="sr-only" data-testid="bridge-pierre-worker-pool-loading" role="status">
 			Preparing code viewer
 		</div>
 	);
