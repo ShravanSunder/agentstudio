@@ -8,7 +8,6 @@ import {
 	materializeBridgeCodeViewLoadingItem,
 	materializeBridgeCodeViewItem,
 	type BridgeCodeViewDiffItem,
-	type BridgeCodeViewFileItem,
 	type BridgeCodeViewItem,
 } from './bridge-code-view-materialization.js';
 
@@ -51,7 +50,7 @@ describe('Bridge CodeView materialization', () => {
 		expectTypeOf(firstItem).toMatchTypeOf<BridgeCodeViewItem>();
 	});
 
-	test('creates collapsed placeholder file items so unloaded content does not render as blank body rows', () => {
+	test('creates collapsed one-sided diff placeholders so unloaded content does not render as blank body rows', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -59,19 +58,20 @@ describe('Bridge CodeView materialization', () => {
 		});
 
 		const items = createBridgeCodeViewInitialItems({ reviewPackage, projection });
-		const placeholderFile = items.find(
+		const placeholderDiff = items.find(
 			(item: BridgeCodeViewItem): boolean => item.id === 'deleted-source',
 		);
 
-		if (placeholderFile === undefined || placeholderFile.type !== 'file') {
-			throw new Error('expected deleted-source placeholder file');
+		if (placeholderDiff === undefined || placeholderDiff.type !== 'diff') {
+			throw new Error('expected deleted-source placeholder diff');
 		}
-		expect(placeholderFile.bridgeMetadata.contentState).toBe('placeholder');
-		expect(placeholderFile.file.contents).toBe('');
-		expect(placeholderFile.collapsed).toBe(true);
+		expect(placeholderDiff.bridgeMetadata.contentState).toBe('placeholder');
+		expect(placeholderDiff.fileDiff.deletionLines).toEqual([]);
+		expect(placeholderDiff.fileDiff.additionLines).toEqual([]);
+		expect(placeholderDiff.collapsed).toBe(true);
 	});
 
-	test('materializes a visible loading item with non-empty CodeView body text', () => {
+	test('materializes a visible one-sided loading item with non-empty CodeView body text', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['hidden-binary'];
 		if (item === undefined) {
@@ -80,10 +80,10 @@ describe('Bridge CodeView materialization', () => {
 
 		const loadingItem = materializeBridgeCodeViewLoadingItem(item);
 
-		if (loadingItem.type !== 'file') {
-			throw new Error('expected loading item to use file view');
+		if (loadingItem.type !== 'diff') {
+			throw new Error('expected loading item to use one-sided diff view');
 		}
-		expect(loadingItem.file.contents).toContain('Loading content');
+		expect(loadingItem.fileDiff.additionLines).toContain('Loading content...\n');
 		expect(loadingItem.collapsed).toBeUndefined();
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
@@ -207,7 +207,7 @@ describe('Bridge CodeView materialization', () => {
 		expect(materialized.version).toBeGreaterThan(placeholder.version);
 	});
 
-	test('hydrates an added new file as full CodeView file content', () => {
+	test('hydrates an added new file as a one-sided CodeView diff with full content', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['hidden-binary'];
 		const headHandle = item?.contentRoles.head;
@@ -244,22 +244,27 @@ describe('Bridge CodeView materialization', () => {
 			},
 		});
 
-		if (materialized?.type !== 'file') {
-			throw new Error('expected added file materialization');
+		if (materialized?.type !== 'diff') {
+			throw new Error('expected added diff materialization');
 		}
 
 		expect(materialized).toMatchObject({
-			type: 'file',
-			file: {
+			type: 'diff',
+			fileDiff: {
 				name: 'Sources/NewFeature/AddedFile.ts',
-				contents: sourceText,
+				deletionLines: [],
+				additionLines: expect.arrayContaining([
+					'export function renderAddedFile(): string {\n',
+					"\treturn 'new file content';\n",
+					'}\n',
+				]),
 			},
 			bridgeMetadata: {
 				contentState: 'hydrated',
 				contentRoles: ['head'],
 			},
 		});
-		expectTypeOf(materialized).toMatchTypeOf<BridgeCodeViewFileItem>();
+		expectTypeOf(materialized).toMatchTypeOf<BridgeCodeViewDiffItem>();
 	});
 
 	test('hydrates a modified item as a diff when base and head roles are loaded', () => {

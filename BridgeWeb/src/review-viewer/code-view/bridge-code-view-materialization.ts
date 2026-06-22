@@ -168,7 +168,8 @@ function createPlaceholderItem(item: BridgeReviewItemDescriptor): BridgeCodeView
 function shouldUseDiffPlaceholder(item: BridgeReviewItemDescriptor): boolean {
 	return (
 		item.itemKind === 'diff' &&
-		((hasContentHandle(item.contentRoles.base) && hasContentHandle(item.contentRoles.head)) ||
+		(hasContentHandle(item.contentRoles.base) ||
+			hasContentHandle(item.contentRoles.head) ||
 			hasContentHandle(item.contentRoles.diff))
 	);
 }
