@@ -108,6 +108,41 @@ describe('bridge markdown render mode', () => {
 		});
 	});
 
+	test('uses the base path when a renamed markdown preview is loaded from base content', () => {
+		const renamedMarkdownItem = makeAddedMarkdownItem({
+			basePath: 'docs/plans/old-bridge-plan.md',
+			headPath: 'docs/plans/new-bridge-plan.md',
+			changeKind: 'renamed',
+			contentRoles: {
+				base: makeMarkdownHandle('item-plan', 'base'),
+				head: makeMarkdownHandle('item-plan', 'head'),
+				diff: null,
+				file: null,
+			},
+		});
+		const reviewPackage = makePackageWithItem(renamedMarkdownItem);
+		const base = renamedMarkdownItem.contentRoles.base;
+		if (base === undefined || base === null) {
+			throw new Error('expected markdown base handle');
+		}
+
+		const decision = resolveBridgeMarkdownPreviewDecision({
+			reviewPackage,
+			selectedItemId: renamedMarkdownItem.itemId,
+			resources: { base: { handle: base, text: '# Before rename' } },
+		});
+
+		expect(decision).toMatchObject({
+			kind: 'preview',
+			source: {
+				itemId: 'item-plan',
+				role: 'base',
+				sourcePath: 'docs/plans/old-bridge-plan.md',
+				markdownText: '# Before rename',
+			},
+		});
+	});
+
 	test('previews file markdown content', () => {
 		const fileHandle = makeMarkdownHandle('item-plan', 'head');
 		const fileMarkdownItem = makeAddedMarkdownItem({

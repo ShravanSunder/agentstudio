@@ -816,6 +816,116 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
 	});
 
+	test('corrects smooth-auto selected placeholder alignment after hydration', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
+		});
+		const selectedItem = reviewPackage.itemsById['docs-plan'];
+		const headHandle = selectedItem?.contentRoles.head;
+		if (selectedItem === undefined || headHandle === undefined || headHandle === null) {
+			throw new Error('expected docs-plan head handle');
+		}
+		const selectedContentResource: BridgeContentResource = {
+			handle: headHandle,
+			text: '# Bridge plan\n\nInspect this as source.',
+		};
+		const initialCodeViewItems = createBridgeCodeViewInitialItems({ reviewPackage, projection });
+		const placeholderItem = initialCodeViewItems.find(
+			(item: CodeViewItem): boolean => item.id === 'docs-plan',
+		);
+		if (placeholderItem === undefined) {
+			throw new Error('expected docs-plan placeholder item');
+		}
+		codeViewDoubles.getItem.mockImplementation((id: string): CodeViewItem | undefined =>
+			id === 'docs-plan' ? placeholderItem : undefined,
+		);
+		const scrollOwner = document.createElement('div');
+		scrollOwner.className = 'bridge-code-view-scroll-owner';
+		scrollOwner.scrollTop = 100;
+		const codeViewContainer = document.createElement('div');
+		const headerAnchor = document.createElement('div');
+		headerAnchor.dataset['bridgeCodeViewItemId'] = 'docs-plan';
+		codeViewContainer.append(headerAnchor);
+		scrollOwner.append(codeViewContainer);
+		document.body.append(scrollOwner);
+		codeViewDoubles.containerElement = codeViewContainer;
+		vi.spyOn(scrollOwner, 'getBoundingClientRect').mockReturnValue({
+			bottom: 600,
+			height: 600,
+			left: 0,
+			right: 800,
+			toJSON: () => ({}),
+			top: 0,
+			width: 800,
+			x: 0,
+			y: 0,
+		} satisfies DOMRect);
+		vi.spyOn(headerAnchor, 'getBoundingClientRect').mockImplementation((): DOMRect => {
+			const top = -4 - (scrollOwner.scrollTop - 100);
+			return {
+				bottom: top + 32,
+				height: 32,
+				left: 0,
+				right: 800,
+				toJSON: () => ({}),
+				top,
+				width: 800,
+				x: 0,
+				y: top,
+			} satisfies DOMRect;
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+		let controlHandle: BridgeCodeViewControlHandle | null = null;
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					onControlHandleChange={(handle): void => {
+						controlHandle = handle;
+					}}
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId={null}
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		await act(async (): Promise<void> => {
+			controlHandle?.scrollToItem('docs-plan', { behavior: 'smooth-auto' });
+			await Promise.resolve();
+		});
+		codeViewDoubles.scrollTo.mockClear();
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					onControlHandleChange={(handle): void => {
+						controlHandle = handle;
+					}}
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={{ head: selectedContentResource }}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'docs-plan' }),
+		);
+		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
+		expect(scrollOwner.scrollTop).toBe(96);
+	});
+
 	test('materializes selected content without depending on an animation frame', async () => {
 		const requestAnimationFrameSpy = vi
 			.spyOn(window, 'requestAnimationFrame')

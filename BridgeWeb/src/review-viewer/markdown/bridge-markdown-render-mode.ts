@@ -115,7 +115,7 @@ export function resolveBridgeMarkdownPreviewDecision(
 			itemId: item.itemId,
 			itemVersion: item.itemVersion,
 			role: selectedResource.handle.role,
-			sourcePath: displayPathForMarkdownItem(item),
+			sourcePath: displayPathForMarkdownResource(item, selectedResource),
 			contentCacheKey: selectedResource.handle.cacheKey,
 			contentHash: selectedResource.handle.contentHash,
 			markdownText: selectedResource.text,
@@ -152,6 +152,16 @@ function isMarkdownReviewItem(
 }
 
 function displayPathForMarkdownItem(item: BridgeReviewItemDescriptor): string {
+	return item.headPath ?? item.basePath ?? item.itemId;
+}
+
+function displayPathForMarkdownResource(
+	item: BridgeReviewItemDescriptor,
+	resource: BridgeContentResource,
+): string {
+	if (resource.handle.role === 'base') {
+		return item.basePath ?? item.headPath ?? item.itemId;
+	}
 	return item.headPath ?? item.basePath ?? item.itemId;
 }
 
