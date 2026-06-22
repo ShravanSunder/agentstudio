@@ -45,13 +45,13 @@ import {
 
 describe('Bridge viewer Browser Mode mocked backend', () => {
 	afterEach(async () => {
-		disposeBridgeViewerMockedBackends();
 		cleanup();
+		await Promise.resolve();
+		await waitForBridgeViewerAnimationFrame();
+		disposeBridgeViewerMockedBackends();
 		document.body.replaceChildren();
 		document.documentElement.removeAttribute('data-bridge-nonce');
 		delete window.bridgeReviewControlProbe;
-		await Promise.resolve();
-		await waitForBridgeViewerAnimationFrame();
 	});
 
 	test('mounts the real viewer from a mocked Bridge package push', async () => {
@@ -625,6 +625,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 				),
 			).toBe(true);
 		} finally {
+			await cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
 			workerFactory.revoke();
 			backend.dispose();
 		}
@@ -688,6 +689,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			expect(stableOffsetAfterHydration).toBeGreaterThanOrEqual(0);
 			expect(stableOffsetAfterHydration).toBeLessThanOrEqual(4);
 		} finally {
+			await cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
 			workerFactory.revoke();
 			backend.dispose();
 		}
@@ -761,6 +763,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			expect(codeScroll.scrollTop).not.toBe(scrollTopBeforeClick);
 			expect(isBridgeCodeViewIntentionalRevealMotionSample(motionSamples)).toBe(true);
 		} finally {
+			await cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
 			workerFactory.revoke();
 			backend.dispose();
 		}
@@ -1126,6 +1129,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			expect(docsHeaderOffset).toBeGreaterThanOrEqual(0);
 			expect(docsHeaderOffset).toBeLessThanOrEqual(8);
 		} finally {
+			await cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
 			workerFactory.revoke();
 			backend.dispose();
 		}
@@ -1238,6 +1242,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			expect(selectedHeaderOffset).toBeGreaterThanOrEqual(-6);
 			expect(selectedHeaderOffset).toBeLessThanOrEqual(8);
 		} finally {
+			await cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
 			workerFactory.revoke();
 			backend.dispose();
 		}
@@ -1630,6 +1635,12 @@ function bridgeReviewFixtureItemIdForPath(
 		}
 	}
 	throw new Error(`expected fixture item for path ${path}`);
+}
+
+async function cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke(): Promise<void> {
+	cleanup();
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
 }
 
 async function waitForBridgeCodeHeaderCollapseButtonForItem(
