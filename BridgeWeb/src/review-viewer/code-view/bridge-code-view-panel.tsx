@@ -704,6 +704,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 								pendingSelectionScrollFrameRef.current = null;
 							}
 							controller.scrollToItem(itemId, 'smooth');
+							scrollToTopTargetItemIdRef.current = null;
 							pendingPreHydrationSelectionScrollKeyRef.current = null;
 							pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
 						} else {

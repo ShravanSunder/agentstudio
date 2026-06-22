@@ -395,6 +395,7 @@ async function verifyWorktreeMarkdownPreview(props: {
 	);
 	await clickFileTreePath(props.page, props.markdownTarget.displayPath);
 	await waitForSelectedPath(props.page, props.markdownTarget.displayPath);
+	await waitForSelectedHeaderAnchored(props.page, props.markdownTarget.displayPath, 'selected');
 	await dispatchMarkdownPreviewCommand(props.page);
 	await props.page.waitForFunction(
 		(path: string): boolean =>

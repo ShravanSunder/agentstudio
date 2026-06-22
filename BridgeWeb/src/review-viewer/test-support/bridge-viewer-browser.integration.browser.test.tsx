@@ -44,11 +44,14 @@ import {
 } from './bridge-viewer-mocked-backend.js';
 
 describe('Bridge viewer Browser Mode mocked backend', () => {
-	afterEach(() => {
+	afterEach(async () => {
 		disposeBridgeViewerMockedBackends();
 		cleanup();
 		document.body.replaceChildren();
 		document.documentElement.removeAttribute('data-bridge-nonce');
+		delete window.bridgeReviewControlProbe;
+		await Promise.resolve();
+		await waitForBridgeViewerAnimationFrame();
 	});
 
 	test('mounts the real viewer from a mocked Bridge package push', async () => {
@@ -1077,6 +1080,57 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
+	test('large fixture markdown file selection pins the selected header in CodeView', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
+		const docsItemId = bridgeReviewFixtureItemIdForPath(fixture, fixture.expected.docsPath);
+
+		try {
+			render(
+				<BridgeApp
+					codeViewWorkerPoolEnabled={true}
+					codeViewWorkerFactory={workerFactory.workerFactory}
+					fetchContent={backend.fetchContent}
+					markdownWorkerClient={null}
+					projectionWorkerClient={backend.projectionWorkerClient}
+				/>,
+			);
+			await backend.pushPackage(
+				reviewPackageForBridgeAppDevFixtureScenario({
+					fixture,
+					scenario: 'scroll',
+				}),
+			);
+			await waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
+			await waitForSelectedBridgeViewerContentState('ready');
+			await waitForBridgeViewerTextWithDiagnostics(fixture.expected.largeText);
+
+			const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
+			docsButton.click();
+			await waitForSelectedBridgeViewerDisplayPath(fixture.expected.docsPath);
+			await waitForSelectedBridgeViewerContentState('ready');
+			await waitForBridgeViewerTextWithDiagnostics(fixture.expected.docsMarkdownHeading);
+			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+			const docsHeaderButton = await waitForBridgeCodeHeaderCollapseButtonForItem(docsItemId);
+			const docsHeaderOffset = await waitForBridgeCodeHeaderOffsetFromScrollOwner({
+				collapseButton: docsHeaderButton,
+				maxOffset: 8,
+				scrollOwner: codeScroll,
+			});
+
+			expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+			expect(bridgeViewerVisibleCodeTextContent(codeScroll)).toContain(
+				fixture.expected.docsMarkdownHeading,
+			);
+			expect(docsHeaderOffset).toBeGreaterThanOrEqual(0);
+			expect(docsHeaderOffset).toBeLessThanOrEqual(8);
+		} finally {
+			workerFactory.revoke();
+			backend.dispose();
+		}
+	});
+
 	test('stale markdown worker responses cannot overwrite newer selected content', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
@@ -1118,6 +1172,75 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		expect(bridgeViewerRenderedTextContent()).toContain(fixture.expected.secondText);
 
 		backend.dispose();
+	});
+
+	test('selecting a file from markdown preview restores CodeView and pins the selected header', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+		const markdownWorker = createImmediateMarkdownWorkerClient();
+		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
+		const deepPath = 'Sources/AgentStudio/source/module-24/file-292.ts';
+		const deepExpectedText = "export const fillerbrowser-filler-large-diffshub-292 = 'head';";
+		const deepItemId = bridgeReviewFixtureItemIdForPath(fixture, deepPath);
+
+		try {
+			render(
+				<BridgeApp
+					codeViewWorkerPoolEnabled={true}
+					codeViewWorkerFactory={workerFactory.workerFactory}
+					fetchContent={backend.fetchContent}
+					markdownWorkerClient={markdownWorker.client}
+					projectionWorkerClient={backend.projectionWorkerClient}
+				/>,
+			);
+			await backend.pushPackage(
+				reviewPackageForBridgeAppDevFixtureScenario({
+					fixture,
+					scenario: 'scroll',
+				}),
+			);
+			const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
+			docsButton.click();
+			await waitForBridgeViewerText(fixture.expected.docsMarkdownHeading);
+
+			document.dispatchEvent(
+				new CustomEvent('__bridge_review_control', {
+					detail: {
+						method: 'bridge.fileView.showMarkdownPreview',
+						itemId: 'browser-docs-plan',
+					},
+				}),
+			);
+			await waitForBridgeViewerElement('[data-testid="bridge-markdown-preview"]');
+			await waitForBridgeViewerText('Rendered markdown preview');
+
+			window.dispatchEvent(
+				new CustomEvent('__bridge_review_control', {
+					detail: {
+						method: 'bridge.fileTree.revealPath',
+						path: deepPath,
+					},
+				}),
+			);
+			await waitForSelectedBridgeViewerDisplayPath(deepPath);
+			await waitForSelectedBridgeViewerContentState('ready');
+			await waitForBridgeViewerTextWithDiagnostics(deepExpectedText);
+			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+			const selectedHeaderButton = await waitForBridgeCodeHeaderCollapseButtonForItem(deepItemId);
+			const selectedHeaderOffset = await waitForBridgeCodeHeaderOffsetFromScrollOwner({
+				collapseButton: selectedHeaderButton,
+				maxOffset: 8,
+				scrollOwner: codeScroll,
+			});
+
+			expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
+			expect(bridgeViewerVisibleCodeTextContent(codeScroll)).toContain(deepExpectedText);
+			expect(selectedHeaderOffset).toBeGreaterThanOrEqual(-6);
+			expect(selectedHeaderOffset).toBeLessThanOrEqual(8);
+		} finally {
+			workerFactory.revoke();
+			backend.dispose();
+		}
 	});
 });
 
@@ -1313,7 +1436,9 @@ async function waitForStableBridgeViewerVisibleCodeTextWithDiagnostics(
 ): Promise<void> {
 	await waitForBridgeViewerVisibleCodeTextWithDiagnostics(scrollOwner, text);
 	for (let frameIndex = 0; frameIndex < stableFrameCount; frameIndex += 1) {
+		// oxlint-disable-next-line no-await-in-loop -- Stable visible text proof must observe sequential animation frames.
 		await waitForBridgeViewerAnimationFrame();
+		// oxlint-disable-next-line no-await-in-loop -- Stable visible text proof must re-check each observed frame.
 		await waitForBridgeViewerVisibleCodeTextWithDiagnostics(scrollOwner, text);
 	}
 }
@@ -1446,6 +1571,7 @@ async function sampleBridgeCodeViewScrollMotion(props: {
 	const samples: number[] = [props.scrollOwner.scrollTop];
 	props.action();
 	for (let index = 0; index < props.frameCount; index += 1) {
+		// oxlint-disable-next-line no-await-in-loop -- Smooth-scroll proof must sample sequential animation frames.
 		await waitForBridgeViewerAnimationFrame();
 		samples.push(props.scrollOwner.scrollTop);
 	}
@@ -1556,7 +1682,9 @@ async function waitForStableBridgeCodeHeaderOffsetFromScrollOwner(props: {
 }): Promise<number> {
 	let stableOffset = await waitForBridgeCodeHeaderOffsetFromScrollOwner(props);
 	for (let frameIndex = 0; frameIndex < 8; frameIndex += 1) {
+		// oxlint-disable-next-line no-await-in-loop -- Sticky header proof must observe sequential animation frames.
 		await waitForBridgeViewerAnimationFrame();
+		// oxlint-disable-next-line no-await-in-loop -- Sticky header proof must re-check each observed frame.
 		stableOffset = await waitForBridgeCodeHeaderOffsetFromScrollOwner(props);
 	}
 	return stableOffset;

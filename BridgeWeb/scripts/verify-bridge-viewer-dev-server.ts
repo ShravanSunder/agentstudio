@@ -47,6 +47,14 @@ interface DevServerVerificationResult {
 	readonly workerPoolState: string | null;
 }
 
+interface DirectMarkdownSelectionState {
+	readonly initialScrollTop: number;
+	readonly selectedDisplayPath: string | null;
+	readonly selectedHeaderCollapseButtonState: HeaderCollapseButtonState | null;
+	readonly selectedScrollTop: number;
+	readonly scrollMotion: ScrollMotionProbe;
+}
+
 interface FilterBehaviorState {
 	readonly docsProjectionItemCount: number;
 	readonly initialProjectionItemCount: number;
@@ -104,6 +112,7 @@ const markdownDevServerUrl = devServerUrlWithScenario(devServerUrl, 'markdown');
 const browser = await chromium.launch({ headless: true });
 
 try {
+	const directMarkdownSelection = await verifyDirectMarkdownInitialSelection();
 	const result = await verifyScrollScenario();
 	const markdownResult = await verifyMarkdownScenario();
 
@@ -114,6 +123,7 @@ try {
 				devServerUrl,
 				codeViewScrollHeight: result.codeViewScrollHeight,
 				codeViewScrollTop: result.codeViewScrollTop,
+				directMarkdownSelection,
 				filterBehavior: result.filterBehaviorState,
 				fixtureClass,
 				gitStatusFilterMenu: result.gitStatusFilterMenuState,
@@ -133,6 +143,41 @@ try {
 	);
 } finally {
 	await browser.close();
+}
+
+async function verifyDirectMarkdownInitialSelection(): Promise<DirectMarkdownSelectionState> {
+	const page = await makeVerificationPage();
+	try {
+		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+		await waitForReviewViewerReady(page);
+		const initialResult = await readVerificationResult(page);
+		const scrollMotion = await clickFileTreePathAndMeasureScrollMotion(page, targetMarkdownPath);
+		await waitForSelectedPath(page, targetMarkdownPath);
+		await waitForCodeViewText(page, targetMarkdownHeading);
+		const selectedResult = {
+			...(await readVerificationResult(page)),
+			markdownSelectionScrollMotion: scrollMotion,
+		};
+		assertSelectedHeaderCollapseButton(selectedResult);
+		if (!selectedResult.codeViewVisibleText.includes(targetMarkdownHeading)) {
+			throw new Error(
+				[
+					'Expected direct markdown selection to make the markdown source visible.',
+					`Missing text: ${targetMarkdownHeading}`,
+					`Visible text: ${selectedResult.codeViewVisibleText.slice(0, 500)}`,
+				].join('\n'),
+			);
+		}
+		return {
+			initialScrollTop: initialResult.codeViewScrollTop,
+			selectedDisplayPath: selectedResult.selectedDisplayPath,
+			selectedHeaderCollapseButtonState: selectedResult.selectedHeaderCollapseButtonState,
+			selectedScrollTop: selectedResult.codeViewScrollTop,
+			scrollMotion,
+		};
+	} finally {
+		await page.close();
+	}
 }
 
 async function verifyScrollScenario(): Promise<DevServerVerificationResult> {

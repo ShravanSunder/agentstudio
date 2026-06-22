@@ -23,6 +23,7 @@ export interface DeferredMarkdownWorkerPendingRequest {
 export interface DeferredMarkdownWorkerClient {
 	readonly client: BridgeMarkdownRenderWorkerClient;
 	readonly abortedRequests: readonly BridgeMarkdownRenderWorkerAbortRequest[];
+	readonly hasPendingRequest: () => boolean;
 	readonly waitForPendingRequest: () => Promise<DeferredMarkdownWorkerPendingRequest>;
 }
 
@@ -81,6 +82,7 @@ export function createDeferredMarkdownWorkerClient(props: {
 			transport,
 		}),
 		abortedRequests,
+		hasPendingRequest: (): boolean => pendingRequests.length > 0,
 		waitForPendingRequest: async (): Promise<DeferredMarkdownWorkerPendingRequest> =>
 			await waitForPendingRequest(0),
 	};

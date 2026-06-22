@@ -4,6 +4,7 @@ import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../../app/bridge-app.css';
+import type { BridgeAppControlProbe } from '../../app/bridge-app-control.js';
 import { BridgeApp } from '../../app/bridge-app.js';
 import type { BridgeMarkdownRenderWorkerClient } from '../workers/markdown/bridge-markdown-render-worker-client.js';
 import {
@@ -31,6 +32,7 @@ import {
 import {
 	createDeferredMarkdownWorkerClient,
 	createImmediateMarkdownWorkerClient,
+	type DeferredMarkdownWorkerPendingRequest,
 	markdownResponseForRequest,
 } from './bridge-viewer-markdown-worker-test-client.js';
 import {
@@ -220,6 +222,7 @@ afterEach(() => {
 	cleanup();
 	document.body.replaceChildren();
 	document.documentElement.removeAttribute('data-bridge-nonce');
+	delete window.bridgeReviewControlProbe;
 });
 
 test(
@@ -586,7 +589,7 @@ async function measureWarmMarkdownPreview(): Promise<BridgeViewerBrowserPerforma
 	expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
 	expect(markdownWorker.requests).toHaveLength(0);
 	const startedAt = performance.now();
-	dispatchBridgeFileViewShowMarkdownPreview('browser-docs-plan');
+	await showBridgeMarkdownPreview('browser-docs-plan');
 	await waitForBridgeViewerElement('[data-testid="bridge-markdown-preview"]');
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(markdownWorker.requests).toHaveLength(1);
@@ -633,8 +636,11 @@ async function measureStaleGenerationDrop(): Promise<BridgeViewerBrowserPerforma
 	const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 	docsButton.click();
 	await waitForBridgeViewerText(fixture.expected.docsMarkdownHeading);
-	dispatchBridgeFileViewShowMarkdownPreview('browser-docs-plan');
-	const pendingRequest = await markdownWorker.waitForPendingRequest();
+	const pendingRequest = await startBridgeMarkdownPreviewRender({
+		hasPendingRequest: markdownWorker.hasPendingRequest,
+		itemId: 'browser-docs-plan',
+		waitForPendingRequest: markdownWorker.waitForPendingRequest,
+	});
 	const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
 	secondButton.click();
 	await waitForBridgeViewerText(fixture.expected.secondText);
@@ -653,8 +659,65 @@ async function measureStaleGenerationDrop(): Promise<BridgeViewerBrowserPerforma
 	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
+async function startBridgeMarkdownPreviewRender(props: {
+	readonly hasPendingRequest: () => boolean;
+	readonly itemId: string;
+	readonly waitForPendingRequest: () => Promise<DeferredMarkdownWorkerPendingRequest>;
+}): Promise<DeferredMarkdownWorkerPendingRequest> {
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		if (props.hasPendingRequest()) {
+			// oxlint-disable-next-line no-await-in-loop -- Preview startup is a sequential UI state machine.
+			return await props.waitForPendingRequest();
+		}
+		const previousSequence = window.bridgeReviewControlProbe?.sequence ?? -1;
+		dispatchBridgeFileViewShowMarkdownPreview(props.itemId);
+		// oxlint-disable-next-line no-await-in-loop -- Each command must settle before the next preview command.
+		const probe = await waitForBridgeReviewControlProbeAfter(previousSequence);
+		if (props.hasPendingRequest()) {
+			// oxlint-disable-next-line no-await-in-loop -- Preview startup is a sequential UI state machine.
+			return await props.waitForPendingRequest();
+		}
+		if (
+			probe.status === 'pending' &&
+			(probe.reason === 'preview_selection_pending' ||
+				probe.reason === 'preview_content_pending' ||
+				probe.reason === 'preview_render_pending')
+		) {
+			// oxlint-disable-next-line no-await-in-loop -- Browser preview readiness is observed one animation frame at a time.
+			await waitForBridgeViewerAnimationFrame();
+			continue;
+		}
+		throw new Error(`unexpected markdown preview control probe ${JSON.stringify(probe)}`);
+	}
+	throw new Error('expected markdown preview control to start a worker render');
+}
+
+async function showBridgeMarkdownPreview(itemId: string): Promise<BridgeAppControlProbe> {
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		const previousSequence = window.bridgeReviewControlProbe?.sequence ?? -1;
+		dispatchBridgeFileViewShowMarkdownPreview(itemId);
+		// oxlint-disable-next-line no-await-in-loop -- Each command must settle before the next preview command.
+		const probe = await waitForBridgeReviewControlProbeAfter(previousSequence);
+		if (probe.status === 'accepted') {
+			return probe;
+		}
+		if (
+			probe.status === 'pending' &&
+			(probe.reason === 'preview_selection_pending' ||
+				probe.reason === 'preview_content_pending' ||
+				probe.reason === 'preview_render_pending')
+		) {
+			// oxlint-disable-next-line no-await-in-loop -- Browser preview readiness is observed one animation frame at a time.
+			await waitForBridgeViewerAnimationFrame();
+			continue;
+		}
+		throw new Error(`unexpected markdown preview control probe ${JSON.stringify(probe)}`);
+	}
+	throw new Error('expected markdown preview control to become accepted');
+}
+
 function dispatchBridgeFileViewShowMarkdownPreview(itemId: string): void {
-	document.dispatchEvent(
+	window.dispatchEvent(
 		new CustomEvent('__bridge_review_control', {
 			detail: {
 				method: 'bridge.fileView.showMarkdownPreview',
@@ -662,6 +725,22 @@ function dispatchBridgeFileViewShowMarkdownPreview(itemId: string): void {
 			},
 		}),
 	);
+}
+
+async function waitForBridgeReviewControlProbeAfter(
+	previousSequence: number,
+	remainingAttempts = 60,
+): Promise<BridgeAppControlProbe> {
+	const probe = window.bridgeReviewControlProbe;
+	if (probe !== undefined && probe.sequence > previousSequence) {
+		return probe;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error('expected Bridge review control probe');
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	return await waitForBridgeReviewControlProbeAfter(previousSequence, remainingAttempts - 1);
 }
 
 async function measureScrollOwnership(): Promise<BridgeViewerBrowserPerformanceSample> {
@@ -801,6 +880,7 @@ function finishPerformanceSample(props: {
 	cleanup();
 	document.body.replaceChildren();
 	document.documentElement.removeAttribute('data-bridge-nonce');
+	delete window.bridgeReviewControlProbe;
 	return {
 		durationMilliseconds: props.durationMilliseconds,
 		fixture: props.fixture,
