@@ -901,7 +901,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_openBridgeReview_registered() {
         let def = AppCommandDispatcher.shared.definition(for: .openBridgeReview)
-        #expect(def.label == "Open Bridge Review")
+        #expect(def.label == "Review")
         #expect(def.icon == .system(.rectangleSplit2x1))
         #expect(def.commandBarGroupName == "Bridge")
     }
@@ -912,6 +912,15 @@ final class AppCommandTests {
     func test_dispatcher_openBridgeReview_noKeyBinding() {
         let def = AppCommandDispatcher.shared.definition(for: .openBridgeReview)
         #expect(def.keyBinding == nil)
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_openBridgeReview_appliesToWorktree() {
+        let def = AppCommandDispatcher.shared.definition(for: .openBridgeReview)
+
+        #expect(def.appliesTo.contains(.worktree))
     }
 
     @MainActor

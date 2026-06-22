@@ -107,6 +107,46 @@ public struct AppIPCCommandError: Error, Equatable, Sendable {
     }
 }
 
+public struct AppIPCBridgeError: Error, Equatable, Sendable {
+    public enum Reason: String, Equatable, Sendable {
+        case noActiveWindow
+        case targetNotFound
+        case unsupportedTarget
+        case packageUnavailable
+        case itemNotFound
+        case contentUnavailable
+        case payloadTooLarge
+        case validationRejected
+    }
+
+    public let reason: Reason
+
+    public init(reason: Reason) {
+        self.reason = reason
+    }
+}
+
+@MainActor
+public protocol AppIPCBridgePort: Sendable {
+    func openReview(_ params: IPCBridgeReviewOpenParams) throws -> IPCBridgeReviewOpenResult
+    func refreshReview(_ params: IPCBridgeReviewRefreshParams) async throws -> IPCBridgeReviewRefreshResult
+    func getPackage(_ handle: IPCHandle) throws -> IPCBridgeReviewPackageResult
+    func renderState(_ handle: IPCHandle) async throws -> IPCBridgeRenderStateResult
+    func selectFile(_ params: IPCBridgeReviewSelectFileParams) async throws -> IPCBridgeReviewSelectFileResult
+    func scrollToFile(_ params: IPCBridgeDiffScrollToFileParams) async throws -> IPCBridgePageControlResult
+    func expandFile(_ params: IPCBridgeDiffExpandFileParams) async throws -> IPCBridgePageControlResult
+    func collapseFile(_ params: IPCBridgeDiffCollapseFileParams) async throws -> IPCBridgePageControlResult
+    func searchFileTree(_ params: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult
+    func setFileTreeFilter(_ params: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult
+    func revealFileTreePath(_ params: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult
+    func showMarkdownPreview(
+        _ params: IPCBridgeFileViewShowMarkdownPreviewParams
+    ) async throws -> IPCBridgePageControlResult
+    func getContent(_ params: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult
+    func telemetrySnapshot(_ handle: IPCHandle) throws -> IPCBridgeTelemetrySnapshotResult
+    func flushTelemetry(_ handle: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult
+}
+
 @MainActor
 public protocol AppIPCCommandPort: Sendable {
     func listCommands() throws -> IPCCommandListResult
@@ -139,6 +179,7 @@ public struct AgentStudioAppIPCPorts: Sendable {
     public let queryPort: any AppIPCQueryPort
     public let layoutPort: any AppIPCLayoutPort
     public let runtimePort: any AppIPCRuntimePort
+    public let bridgePort: any AppIPCBridgePort
     public let commandPort: any AppIPCCommandPort
     public let uiPresentationPort: any AppIPCUIPresentationPort
     public let permissionApprovalPort: any AppIPCPermissionApprovalPort
@@ -147,6 +188,7 @@ public struct AgentStudioAppIPCPorts: Sendable {
         queryPort: any AppIPCQueryPort,
         layoutPort: any AppIPCLayoutPort,
         runtimePort: any AppIPCRuntimePort,
+        bridgePort: any AppIPCBridgePort,
         commandPort: any AppIPCCommandPort,
         uiPresentationPort: any AppIPCUIPresentationPort,
         permissionApprovalPort: any AppIPCPermissionApprovalPort
@@ -154,6 +196,7 @@ public struct AgentStudioAppIPCPorts: Sendable {
         self.queryPort = queryPort
         self.layoutPort = layoutPort
         self.runtimePort = runtimePort
+        self.bridgePort = bridgePort
         self.commandPort = commandPort
         self.uiPresentationPort = uiPresentationPort
         self.permissionApprovalPort = permissionApprovalPort

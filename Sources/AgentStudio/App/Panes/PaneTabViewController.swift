@@ -1044,6 +1044,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func scheduleVisibleViewRestoreAfterLayout(reason: StaticString) {
+        if AgentStudioStartupDiagnosticAction.fromEnvironment()?.suppressesAutomaticLaunchPaneRestore == true {
+            RestoreTrace.log(
+                "PaneTabViewController skipped visible view restore for startup diagnostic reason=\(reason)")
+            return
+        }
         pendingVisibleViewRestoreTask?.cancel()
         pendingVisibleViewRestoreTask = Task { @MainActor [weak self] in
             await Task.yield()
@@ -2618,6 +2623,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
+        if executeTargetedReviewCommand(command: command, target: target, targetType: targetType) {
+            return
+        }
+
         if let action = targetedAction(command: command, target: target, targetType: targetType) {
             dispatchAction(action)
             return
@@ -2966,6 +2975,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
+    private func executeTargetedReviewCommand(
+        command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> Bool {
+        guard command == .openBridgeReview, targetType == .worktree else {
+            return false
+        }
+        guard store.repositoryTopologyAtom.worktree(target) != nil else {
+            return false
+        }
+        _ = executor.openBridgeReview(worktreeId: target)
+        return true
+    }
+
     func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
         handleExtractPaneRequested(tabId: tabId, paneId: paneId, targetTabIndex: targetTabIndex)
     }
@@ -2987,6 +3011,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             isPaneTargetType(targetType)
         {
             return true
+        }
+
+        if command == .openBridgeReview, targetType == .worktree {
+            return store.repositoryTopologyAtom.worktree(target) != nil
         }
 
         if let action = targetedAction(command: command, target: target, targetType: targetType) {

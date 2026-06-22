@@ -4,21 +4,27 @@ import { bridgeTelemetryScopeSchema } from './bridge-telemetry-scope.js';
 import type { BridgeTraceContext } from './bridge-trace-context.js';
 import { decodeBridgeTraceContext } from './bridge-trace-context.js';
 
-export interface BridgeTelemetrySample {
-	readonly scope: z.infer<typeof bridgeTelemetryScopeSchema>;
-	readonly name: string;
-	readonly durationMilliseconds: number | null;
-	readonly traceContext: BridgeTraceContext | null;
-	readonly stringAttributes: Readonly<Record<string, string>>;
-	readonly numericAttributes: Readonly<Record<string, number>>;
-	readonly booleanAttributes: Readonly<Record<string, boolean>>;
-}
+export const bridgeTelemetrySampleSchema = z.object({
+	scope: bridgeTelemetryScopeSchema,
+	name: z.string().min(1),
+	durationMilliseconds: z.number().nonnegative().nullable(),
+	traceContext: z.custom<BridgeTraceContext | null>(
+		(value): boolean => value === null || decodeBridgeTraceContext(value) !== null,
+	),
+	stringAttributes: z.record(z.string(), z.string()),
+	numericAttributes: z.record(z.string(), z.number()),
+	booleanAttributes: z.record(z.string(), z.boolean()),
+});
 
-export interface BridgeTelemetryBatch {
-	readonly schemaVersion: 1;
-	readonly scenario: string;
-	readonly samples: readonly BridgeTelemetrySample[];
-}
+export type BridgeTelemetrySample = z.infer<typeof bridgeTelemetrySampleSchema>;
+
+export const bridgeTelemetryBatchSchema = z.object({
+	schemaVersion: z.literal(1),
+	scenario: z.string().min(1),
+	samples: z.array(bridgeTelemetrySampleSchema).readonly(),
+});
+
+export type BridgeTelemetryBatch = z.infer<typeof bridgeTelemetryBatchSchema>;
 
 export function makeBridgeTelemetryBatch(
 	scenario: string,

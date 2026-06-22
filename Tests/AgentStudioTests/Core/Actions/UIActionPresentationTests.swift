@@ -131,4 +131,11 @@ struct UIActionPresentationTests {
         #expect(LocalActionSpec.refreshWorktrees.actionSpec.icon == .system(.arrowClockwise))
         #expect(LocalActionSpec.browserReload.actionSpec.icon == .system(.arrowClockwise))
     }
+
+    @Test
+    func worktreeTabActionsUseTerminalAndReviewLabels() {
+        #expect(LocalActionSpec.openInNewTab.actionSpec.label == "Open Terminal in New Tab")
+        #expect(LocalActionSpec.openInPaneSplit.actionSpec.label == "Open Terminal in Pane (Split)")
+        #expect(AppCommand.openBridgeReview.definition.actionSpec.label == "Review")
+    }
 }

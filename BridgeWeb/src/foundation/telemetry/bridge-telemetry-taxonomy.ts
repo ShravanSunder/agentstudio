@@ -13,6 +13,13 @@ export const bridgeTelemetrySliceSchema = z.enum([
 	'command_acks',
 	'review_rpc',
 	'content_fetch',
+	'review_projection',
+	'tree_prepare_input',
+	'code_view_item',
+	'code_view_scroll',
+	'code_view_virtual_range',
+	'shiki_highlight',
+	'worker_task',
 	'telemetry_batch',
 	'telemetry_ingest',
 	'telemetry_drop',
@@ -33,6 +40,8 @@ export function planeForBridgeTelemetrySlice(slice: BridgeTelemetrySlice): Bridg
 		case 'telemetry_ingest':
 		case 'telemetry_drop':
 			return 'observability';
+		case 'code_view_scroll':
+			return 'control';
 		case 'diff_status':
 		case 'diff_package_metadata':
 		case 'diff_package_delta':
@@ -40,6 +49,12 @@ export function planeForBridgeTelemetrySlice(slice: BridgeTelemetrySlice): Bridg
 		case 'review_threads':
 		case 'review_viewed_files':
 		case 'content_fetch':
+		case 'review_projection':
+		case 'tree_prepare_input':
+		case 'code_view_item':
+		case 'code_view_virtual_range':
+		case 'shiki_highlight':
+		case 'worker_task':
 		case 'unknown':
 			return 'data';
 	}
@@ -59,7 +74,15 @@ export function priorityForBridgeTelemetrySlice(
 		case 'review_viewed_files':
 		case 'command_acks':
 		case 'review_rpc':
+		case 'review_projection':
+		case 'tree_prepare_input':
+		case 'worker_task':
 			return 'warm';
+		case 'code_view_item':
+		case 'code_view_scroll':
+		case 'code_view_virtual_range':
+		case 'shiki_highlight':
+			return 'hot';
 		case 'telemetry_batch':
 		case 'telemetry_ingest':
 		case 'telemetry_drop':

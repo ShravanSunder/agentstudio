@@ -551,7 +551,13 @@ extension WebKitSerializedTests {
 
         @Test("pushJSON transport failure marks connection health as error")
         func pushJSON_transport_failure_marks_connection_error() async throws {
-            let controller = makeController()
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                pushEnvelopeSink: { _, _, _ in
+                    throw NSError(domain: "BridgePaneControllerTests", code: 902)
+                }
+            )
             defer { controller.teardown() }
             controller.paneState.connection.setHealth(.connected)
 
@@ -566,7 +572,13 @@ extension WebKitSerializedTests {
 
         @Test("failed transport does not poison content dedup cache")
         func pushJSON_failed_transport_does_not_poison_dedup_cache() async throws {
-            let controller = makeController()
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                pushEnvelopeSink: { _, _, _ in
+                    throw NSError(domain: "BridgePaneControllerTests", code: 903)
+                }
+            )
             defer { controller.teardown() }
             let validPayload = try JSONEncoder().encode(["ok": true])
 

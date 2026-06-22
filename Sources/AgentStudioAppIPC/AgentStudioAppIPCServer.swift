@@ -324,7 +324,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             return try await processAuthenticated(
                 context.request,
                 principal: principal,
-                socketSubscriber: socketSubscriber
+                socketSubscriber: socketSubscriber,
+                authorizedTarget: context.target
             )
         }
     }
@@ -337,6 +338,9 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 try await canonicalHandle(fromRawHandle: rawHandle)
             }
             let context = try await contribution.authorizationContext(request, principal, tools)
+            guard contribution.securityContract.allowsTarget(context.target) else {
+                throw AppIPCContributionRequestError.targetOutsideSecurityContract
+            }
             return AuthorizedRequestContext(request: context.request, target: context.target)
         }
 
@@ -350,6 +354,12 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
                 request: request.replacingHandle(canonicalHandle.rawIPCHandleString),
                 target: targetScope(fromCanonicalHandle: canonicalHandle)
             )
+        case "bridge.diff.getPackage", "bridge.diff.renderState", "bridge.diff.refresh",
+            "bridge.diff.selectFile", "bridge.diff.scrollToFile", "bridge.diff.expandFile",
+            "bridge.diff.collapseFile", "bridge.fileTree.search", "bridge.fileTree.setFilter",
+            "bridge.fileTree.revealPath", "bridge.fileView.getContent", "bridge.fileView.showMarkdownPreview",
+            "bridge.telemetry.snapshot", "bridge.telemetry.flush":
+            return try await bridgeAuthorizationContext(for: request)
         case "pane.split":
             let params = try decodeParams(IPCPaneSplitParams.self, from: request.params)
             let canonicalHandle = try await canonicalHandle(fromRawHandle: params.handle)
@@ -395,6 +405,8 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             )
         case "permission.request":
             return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
+        case "bridge.diff.load":
+            return AuthorizedRequestContext(request: request, target: .app)
         case "ui.commandBar.open":
             return AuthorizedRequestContext(request: request, target: .app)
         case "permission.requestStatus", "permission.grantStatus", "permission.pendingApprovals",
@@ -639,7 +651,7 @@ private struct AgentStudioAppIPCConnectionState {
     var authenticationFailed = false
 }
 
-private struct AuthorizedRequestContext {
+struct AuthorizedRequestContext {
     let request: JSONRPCRequest
     let target: IPCTargetScope
 }
@@ -791,6 +803,8 @@ extension AgentStudioAppIPCRequestError {
             self.init(runtimeError.reason)
         case let commandError as AppIPCCommandError:
             self.init(commandError.reason)
+        case let bridgeError as AppIPCBridgeError:
+            self.init(bridgeError.reason)
         case let uiPresentationError as AppIPCUIPresentationError:
             self.init(uiPresentationError.reason)
         case let authError as AgentStudioIPCAuthenticationError:
@@ -819,6 +833,8 @@ extension AgentStudioAppIPCRequestError {
         switch error {
         case .invalidParams:
             self = .invalidParams
+        case .targetOutsideSecurityContract:
+            self = .unauthorized
         }
     }
 
@@ -875,6 +891,27 @@ extension AgentStudioAppIPCRequestError {
             self = Self(code: -32_004, message: "target required")
         case .requiresParameters:
             self = Self(code: -32_007, message: "parameters required")
+        case .validationRejected:
+            self = Self(code: -32_007, message: "validation rejected")
+        }
+    }
+
+    private init(_ reason: AppIPCBridgeError.Reason) {
+        switch reason {
+        case .noActiveWindow:
+            self = Self(code: -32_006, message: "no active window")
+        case .targetNotFound:
+            self = Self(code: -32_004, message: "target not found")
+        case .unsupportedTarget:
+            self = Self(code: -32_003, message: "unsupported target")
+        case .packageUnavailable:
+            self = Self(code: -32_005, message: "package unavailable")
+        case .itemNotFound:
+            self = Self(code: -32_004, message: "item not found")
+        case .contentUnavailable:
+            self = Self(code: -32_005, message: "content unavailable")
+        case .payloadTooLarge:
+            self = Self(code: -32_008, message: "payload too large")
         case .validationRejected:
             self = Self(code: -32_007, message: "validation rejected")
         }

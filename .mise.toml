@@ -115,9 +115,25 @@ echo "--- release script checks ---"
 
 [tasks.bridge-web-check]
 description = "Run BridgeWeb lint, format check, and TypeScript check"
-depends = ["bridge-web-sync-fixtures"]
+depends = ["bridge-web-install", "bridge-web-sync-fixtures"]
 dir = "BridgeWeb"
 run = "pnpm run check"
+
+[tasks.bridge-web-install]
+description = "Install BridgeWeb pnpm dependencies"
+dir = "BridgeWeb"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+if command -v corepack >/dev/null 2>&1; then
+  corepack enable
+  corepack prepare pnpm@10.33.0 --activate
+elif ! command -v pnpm >/dev/null 2>&1; then
+  echo "BridgeWeb install requires corepack or pnpm on PATH" >&2
+  exit 127
+fi
+pnpm install --frozen-lockfile
+"""
 
 [tasks.bridge-web-sync-fixtures]
 description = "Verify BridgeWeb JSON contract fixtures match Swift source fixtures"
@@ -125,13 +141,39 @@ run = "bash scripts/bridge-web-sync-fixtures.sh"
 
 [tasks.bridge-web-test]
 description = "Run BridgeWeb Vitest suites"
+depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test"
 
+[tasks.bridge-web-browser-test]
+description = "Run BridgeWeb Vitest Browser Mode integration tests"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:browser"
+
+[tasks.bridge-web-browser-benchmark]
+description = "Run BridgeWeb browser performance proof"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run test:benchmark:browser"
+
 [tasks.bridge-web-build]
 description = "Build BridgeWeb into the SwiftPM resource bundle"
+depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run build"
+
+[tasks.bridge-web-audit]
+description = "Audit BridgeWeb packaged dependencies and app assets"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run audit:assets"
+
+[tasks.bridge-viewer-benchmark]
+description = "Run Bridge viewer large-tree and large-diff benchmark proof"
+depends = ["bridge-web-install"]
+dir = "BridgeWeb"
+run = "pnpm run benchmark:viewer && /bin/bash ../scripts/verify-bridge-viewer-benchmark.sh"
 
 [tasks.verify-bridge-observability]
 description = "Verify Bridge debug observability events in the shared Victoria stack"
@@ -149,7 +191,7 @@ bash scripts/doctor-mac.sh
 
 [tasks.setup]
 description = "First-time setup: build zig deps, copy frameworks and resources"
-depends = ["copy-xcframework", "setup-dev-resources", "build-zmx", "install-hooks"]
+depends = ["copy-xcframework", "setup-dev-resources", "build-zmx", "bridge-web-install", "install-hooks"]
 run = "echo 'Setup complete. Run mise run build or mise run test.'"
 
 [tasks.install-hooks]
@@ -168,6 +210,7 @@ echo "Installed pre-push hook: .githooks/pre-push"
 
 [tasks.build]
 description = "Debug build (run mise run setup first time)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -181,6 +224,7 @@ swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.build-release]
 description = "Release build (run mise run setup first time)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -194,26 +238,32 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 
 [tasks.test]
 description = "Run default test suite (excludes E2E + ZmxE2E by default)"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test"
 
 [tasks.test-fast]
 description = "Run fast lane: fast non-WebKit tests, excluding large script/smoke/integration/benchmark proof"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
 
 [tasks.test-large]
 description = "Run large non-WebKit script, smoke, and integration tests"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-large"
 
 [tasks.test-prebuild]
 description = "Prebuild Swift test bundles for cached CI test lanes"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-prebuild"
 
 [tasks.test-webkit]
 description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
+depends = ["bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"
 
 [tasks.test-coverage]
 description = "Run test suite with code coverage and print coverage JSON path"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -270,6 +320,7 @@ fi
 
 [tasks.test-e2e]
 description = "Run E2E serialized tests only (opt-in; zmx E2E currently unstable)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
@@ -283,6 +334,7 @@ AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTe
 
 [tasks.test-zmx-e2e]
 description = "Run zmx E2E tests only (opt-in; may stall)"
+depends = ["bridge-web-build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail

@@ -139,12 +139,18 @@ function isReviewItemVisible(
 	if (!isIncludedBySet(filter.reviewStates, item.reviewState)) {
 		return false;
 	}
-	if (item.extension !== null && filter.excludedExtensions.includes(item.extension)) {
+	if (
+		item.extension !== null &&
+		item.extension !== undefined &&
+		filter.excludedExtensions.includes(item.extension)
+	) {
 		return false;
 	}
 	if (
 		filter.includedExtensions.length > 0 &&
-		(item.extension === null || !filter.includedExtensions.includes(item.extension))
+		(item.extension === null ||
+			item.extension === undefined ||
+			!filter.includedExtensions.includes(item.extension))
 	) {
 		return false;
 	}
@@ -196,7 +202,7 @@ function isExcludedByPathGlobs(
 
 function reviewItemCandidatePaths(item: BridgeReviewItemDescriptor): readonly string[] {
 	return [item.headPath, item.basePath].filter(
-		(path: string | null): path is string => path !== null,
+		(path: string | null | undefined): path is string => path !== null && path !== undefined,
 	);
 }
 

@@ -8,123 +8,6 @@ import Testing
     import Darwin
 #endif
 
-struct FakeQueryPort: AppIPCQueryPort {
-    let runtimeId: UUID
-    let panes: [IPCPaneSummary]
-
-    nonisolated init(runtimeId: UUID = UUID(), panes: [IPCPaneSummary] = []) {
-        self.runtimeId = runtimeId
-        self.panes = panes
-    }
-
-    func systemIdentify() throws -> IPCSystemIdentifyResult {
-        IPCSystemIdentifyResult(runtimeId: runtimeId, accessMode: .agentStudioOnly, appVersion: "test")
-    }
-
-    func systemVersion() throws -> IPCSystemVersionResult {
-        IPCSystemVersionResult(appVersion: "test")
-    }
-
-    func systemCapabilities() throws -> IPCSystemCapabilitiesResult {
-        IPCSystemCapabilitiesResult(methods: [])
-    }
-
-    func listWindows() throws -> IPCWindowListResult {
-        IPCWindowListResult(windows: [])
-    }
-
-    func currentWindow() throws -> IPCCurrentWindowResult {
-        throw AppIPCQueryError(reason: .noActiveWindow)
-    }
-
-    func listWorkspaces() throws -> IPCWorkspaceListResult {
-        IPCWorkspaceListResult(workspaces: [])
-    }
-
-    func currentWorkspace() throws -> IPCCurrentWorkspaceResult {
-        throw AppIPCQueryError(reason: .noActiveWindow)
-    }
-
-    func listPanes() throws -> IPCPaneListResult {
-        IPCPaneListResult(panes: panes)
-    }
-
-    func currentPane() throws -> IPCPaneSnapshotResult {
-        throw AppIPCQueryError(reason: .noActiveWindow)
-    }
-
-    func snapshotPane(_: UUID) throws -> IPCPaneSnapshotResult {
-        throw AppIPCQueryError(reason: .targetNotFound)
-    }
-}
-
-final class RecordingSnapshotQueryPort: AppIPCQueryPort, @unchecked Sendable {
-    let runtimeId: UUID
-    let panes: [IPCPaneSummary]
-    private let lock = NSLock()
-    nonisolated(unsafe) private var snapshotPaneIdsStorage: [UUID] = []
-
-    nonisolated init(runtimeId: UUID = UUID(), panes: [IPCPaneSummary]) {
-        self.runtimeId = runtimeId
-        self.panes = panes
-    }
-
-    nonisolated var snapshotPaneIds: [UUID] {
-        lock.withLock {
-            snapshotPaneIdsStorage
-        }
-    }
-
-    func systemIdentify() throws -> IPCSystemIdentifyResult {
-        IPCSystemIdentifyResult(runtimeId: runtimeId, accessMode: .agentStudioOnly, appVersion: "test")
-    }
-
-    func systemVersion() throws -> IPCSystemVersionResult {
-        IPCSystemVersionResult(appVersion: "test")
-    }
-
-    func systemCapabilities() throws -> IPCSystemCapabilitiesResult {
-        IPCSystemCapabilitiesResult(methods: [])
-    }
-
-    func listWindows() throws -> IPCWindowListResult {
-        IPCWindowListResult(windows: [])
-    }
-
-    func currentWindow() throws -> IPCCurrentWindowResult {
-        throw AppIPCQueryError(reason: .noActiveWindow)
-    }
-
-    func listWorkspaces() throws -> IPCWorkspaceListResult {
-        IPCWorkspaceListResult(workspaces: [])
-    }
-
-    func currentWorkspace() throws -> IPCCurrentWorkspaceResult {
-        throw AppIPCQueryError(reason: .noActiveWindow)
-    }
-
-    func listPanes() throws -> IPCPaneListResult {
-        IPCPaneListResult(panes: panes)
-    }
-
-    func currentPane() throws -> IPCPaneSnapshotResult {
-        guard let pane = panes.first else {
-            throw AppIPCQueryError(reason: .targetNotFound)
-        }
-        return makePaneSnapshotResult(pane: pane, paneCount: panes.count)
-    }
-
-    func snapshotPane(_ paneId: UUID) throws -> IPCPaneSnapshotResult {
-        lock.withLock {
-            snapshotPaneIdsStorage.append(paneId)
-        }
-        guard let pane = panes.first(where: { $0.id == paneId }) else {
-            throw AppIPCQueryError(reason: .targetNotFound)
-        }
-        return makePaneSnapshotResult(pane: pane, paneCount: panes.count)
-    }
-}
-
 struct FakeLayoutPort: AppIPCLayoutPort {
     func focusPane(_: IPCHandle) throws -> IPCPaneFocusResult {
         throw AppIPCLayoutError(reason: .targetNotFound)
@@ -228,13 +111,274 @@ struct FakeRuntimePort: AppIPCRuntimePort {
     }
 }
 
+struct FakeBridgePort: AppIPCBridgePort {
+    let paneId: UUID
+    let itemId: String
+    let contentHandleId: String
+    let pageControlStatus: String
+    let pageControlReason: String?
+
+    nonisolated init(
+        paneId: UUID = UUID(),
+        itemId: String = "item-source",
+        contentHandleId: String = "handle-head",
+        pageControlStatus: String = "accepted",
+        pageControlReason: String? = nil
+    ) {
+        self.paneId = paneId
+        self.itemId = itemId
+        self.contentHandleId = contentHandleId
+        self.pageControlStatus = pageControlStatus
+        self.pageControlReason = pageControlReason
+    }
+
+    func openReview(_ params: IPCBridgeReviewOpenParams) throws -> IPCBridgeReviewOpenResult {
+        IPCBridgeReviewOpenResult(
+            paneId: paneId,
+            handle: "pane:\(paneId.uuidString)",
+            correlationId: params.correlationId
+        )
+    }
+
+    func refreshReview(_ params: IPCBridgeReviewRefreshParams) async throws -> IPCBridgeReviewRefreshResult {
+        IPCBridgeReviewRefreshResult(
+            paneId: paneId,
+            refreshed: true,
+            status: "ready",
+            packageId: "package-test",
+            reviewGeneration: 1,
+            correlationId: params.correlationId
+        )
+    }
+
+    func getPackage(_: IPCHandle) throws -> IPCBridgeReviewPackageResult {
+        IPCBridgeReviewPackageResult(
+            paneId: paneId,
+            status: "ready",
+            selectedItemId: nil,
+            package: IPCBridgeReviewPackage(
+                packageId: "package-test",
+                reviewGeneration: 1,
+                revision: 1,
+                orderedItemIds: [itemId],
+                summary: IPCBridgeReviewPackageSummary(
+                    filesChanged: 1,
+                    additions: 2,
+                    deletions: 1,
+                    visibleFileCount: 1,
+                    hiddenFileCount: 0
+                ),
+                items: [
+                    IPCBridgeReviewItem(
+                        identity: IPCBridgeReviewItemIdentity(itemId: itemId, itemKind: "diff"),
+                        paths: IPCBridgeReviewItemPaths(
+                            basePath: "Sources/App/View.swift",
+                            headPath: "Sources/App/View.swift",
+                            language: "swift"
+                        ),
+                        classification: IPCBridgeReviewItemClassification(
+                            changeKind: "modified",
+                            fileClass: "source",
+                            isHiddenByDefault: false,
+                            reviewPriority: "normal"
+                        ),
+                        stats: IPCBridgeReviewItemStats(additions: 2, deletions: 1),
+                        contentRoles: IPCBridgeContentRoles(
+                            base: nil,
+                            head: bridgeContentHandleSummary,
+                            diff: nil,
+                            file: nil
+                        )
+                    )
+                ]
+            )
+        )
+    }
+
+    func renderState(_: IPCHandle) async throws -> IPCBridgeRenderStateResult {
+        IPCBridgeRenderStateResult(
+            paneId: paneId,
+            summary: IPCBridgeRenderSummary(
+                pageTitle: "AgentStudio Bridge",
+                hasAppRoot: true,
+                hasEmptyShell: false,
+                hasReviewShell: true,
+                sidebarPosition: "right"
+            ),
+            diagnostics: IPCBridgeRenderDiagnostics(
+                evaluateSucceeded: true,
+                pageErrorCount: 0,
+                pageErrorKinds: [],
+                pageErrorMessages: []
+            )
+        )
+    }
+
+    func selectFile(_ params: IPCBridgeReviewSelectFileParams) async throws -> IPCBridgeReviewSelectFileResult {
+        IPCBridgeReviewSelectFileResult(
+            paneId: paneId,
+            itemId: params.itemId,
+            selected: true,
+            correlationId: params.correlationId
+        )
+    }
+
+    func scrollToFile(_ params: IPCBridgeDiffScrollToFileParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.diff.scrollToFile",
+            itemId: params.itemId,
+            path: nil,
+            correlationId: params.correlationId
+        )
+    }
+
+    func expandFile(_ params: IPCBridgeDiffExpandFileParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.diff.expandFile",
+            itemId: params.itemId,
+            path: nil,
+            correlationId: params.correlationId
+        )
+    }
+
+    func collapseFile(_ params: IPCBridgeDiffCollapseFileParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.diff.collapseFile",
+            itemId: params.itemId,
+            path: nil,
+            correlationId: params.correlationId
+        )
+    }
+
+    func searchFileTree(_ params: IPCBridgeFileTreeSearchParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.fileTree.search",
+            itemId: nil,
+            path: nil,
+            treeSearchText: params.searchText,
+            correlationId: params.correlationId
+        )
+    }
+
+    func setFileTreeFilter(_ params: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.fileTree.setFilter",
+            itemId: nil,
+            path: nil,
+            gitStatusFilter: params.gitStatusFilter,
+            fileClassFilter: params.fileClassFilter,
+            correlationId: params.correlationId
+        )
+    }
+
+    func revealFileTreePath(_ params: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.fileTree.revealPath",
+            itemId: itemId,
+            path: params.path,
+            correlationId: params.correlationId
+        )
+    }
+
+    func showMarkdownPreview(
+        _ params: IPCBridgeFileViewShowMarkdownPreviewParams
+    ) async throws -> IPCBridgePageControlResult {
+        bridgePageControlResult(
+            method: "bridge.fileView.showMarkdownPreview",
+            itemId: params.itemId ?? itemId,
+            path: nil,
+            renderMode: "markdownPreview",
+            correlationId: params.correlationId
+        )
+    }
+
+    func getContent(_: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult {
+        let data = Data("let value = 1\n".utf8)
+        return IPCBridgeContentGetResult(
+            paneId: paneId,
+            handle: bridgeContentHandleSummary,
+            mimeType: "text/x-swift",
+            body: IPCBridgeContentBody(
+                byteCount: data.count,
+                isUtf8: true,
+                contentText: String(data: data, encoding: .utf8),
+                contentBase64: nil
+            )
+        )
+    }
+
+    func telemetrySnapshot(_: IPCHandle) throws -> IPCBridgeTelemetrySnapshotResult {
+        IPCBridgeTelemetrySnapshotResult(
+            paneId: paneId,
+            recorderAttached: true,
+            traceExportEnabled: true,
+            status: "ready",
+            packageId: "package-test",
+            reviewGeneration: 1,
+            selectedItemId: itemId
+        )
+    }
+
+    func flushTelemetry(_: IPCHandle) async throws -> IPCBridgeTelemetryFlushResult {
+        IPCBridgeTelemetryFlushResult(paneId: paneId, flushed: true)
+    }
+
+    private func bridgePageControlResult(
+        method: String,
+        itemId: String?,
+        path: String?,
+        treeSearchText: String = "",
+        gitStatusFilter: String = "all",
+        fileClassFilter: String = "all",
+        renderMode: String = "codeView",
+        correlationId: UUID?
+    ) -> IPCBridgePageControlResult {
+        IPCBridgePageControlResult(
+            paneId: paneId,
+            method: method,
+            status: pageControlStatus,
+            itemId: itemId,
+            path: path,
+            treeSearchText: treeSearchText,
+            gitStatusFilter: gitStatusFilter,
+            fileClassFilter: fileClassFilter,
+            renderMode: renderMode,
+            reason: pageControlReason,
+            correlationId: correlationId
+        )
+    }
+
+    private var bridgeContentHandleSummary: IPCBridgeContentHandleSummary {
+        IPCBridgeContentHandleSummary(
+            identity: IPCBridgeContentHandleIdentity(
+                handleId: contentHandleId,
+                itemId: itemId,
+                role: "head",
+                reviewGeneration: 1
+            ),
+            presentation: IPCBridgeContentHandlePresentation(
+                resourceUrl: "agentstudio://resource/content/\(contentHandleId)?generation=1",
+                mimeType: "text/x-swift",
+                language: "swift"
+            ),
+            size: IPCBridgeContentHandleSize(sizeBytes: 14, isBinary: false)
+        )
+    }
+}
+
 struct FakeCommandPort: AppIPCCommandPort {
     let workspaceWindowId: UUID?
     let activeScope: IPCCommandBarScope?
+    let supportedCommandIds: Set<IPCCommandIdentifier>
 
-    nonisolated init(workspaceWindowId: UUID? = nil, activeScope: IPCCommandBarScope? = nil) {
+    nonisolated init(
+        workspaceWindowId: UUID? = nil,
+        activeScope: IPCCommandBarScope? = nil,
+        supportedCommandIds: Set<IPCCommandIdentifier> = [IPCCommandIdentifier(rawValue: "showCommandBarCommands")]
+    ) {
         self.workspaceWindowId = workspaceWindowId
         self.activeScope = activeScope
+        self.supportedCommandIds = supportedCommandIds
     }
 
     func listCommands() throws -> IPCCommandListResult {
@@ -245,7 +389,7 @@ struct FakeCommandPort: AppIPCCommandPort {
         if params.targetHandle != nil {
             throw AppIPCCommandError(reason: .targetNotFound)
         }
-        guard params.commandId.rawValue != "futureCommand" else {
+        guard supportedCommandIds.contains(params.commandId) else {
             throw AppIPCCommandError(reason: .unsupportedCommand)
         }
         guard workspaceWindowId != nil, activeScope != nil else {
@@ -301,6 +445,7 @@ struct LiveServerFixture {
         panes: [IPCPaneSummary] = [],
         queryPort: (any AppIPCQueryPort)? = nil,
         runtimePort: any AppIPCRuntimePort = FakeRuntimePort(),
+        bridgePort: (any AppIPCBridgePort)? = nil,
         commandPort: any AppIPCCommandPort = FakeCommandPort(),
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         debugTokenEscrowEnabled: Bool = false,
@@ -316,13 +461,25 @@ struct LiveServerFixture {
         #endif
         paths = AgentStudioIPCPathResolver().paths(rootDirectory: rootURL)
         let methodRegistry = try AppIPCMethodRegistry.phaseOne()
-        let contributedMethodNames = Set(methodContributions.map(\.definition.name))
-        let baseDefinitions = methodRegistry.definitions
-            .filter { !contributedMethodNames.contains($0.name) }
+        let mergedMethodRegistry = try AppIPCMethodRegistry(
+            baseDefinitions: methodRegistry.definitions,
+            contributions: methodContributions
+        )
         let ports = AgentStudioAppIPCPorts(
-            queryPort: queryPort ?? FakeQueryPort(runtimeId: runtimeId, panes: panes),
+            queryPort: queryPort.map {
+                MethodCapabilitiesQueryPort(
+                    base: $0,
+                    methodDefinitions: mergedMethodRegistry.definitions
+                )
+            }
+                ?? FakeQueryPort(
+                    runtimeId: runtimeId,
+                    panes: panes,
+                    methodDefinitions: mergedMethodRegistry.definitions
+                ),
             layoutPort: FakeLayoutPort(),
             runtimePort: runtimePort,
+            bridgePort: bridgePort ?? FakeBridgePort(paneId: panes.first?.id ?? boundPaneId),
             commandPort: commandPort,
             uiPresentationPort: uiPresentationPort,
             permissionApprovalPort: FakePermissionApprovalPort()
@@ -331,7 +488,7 @@ struct LiveServerFixture {
             configuration: AgentStudioAppIPCConfiguration(
                 runtimeId: runtimeId,
                 accessMode: accessMode,
-                methodDefinitions: baseDefinitions,
+                methodDefinitions: methodRegistry.definitions,
                 debugTokenEscrowEnabled: debugTokenEscrowEnabled
             ),
             ports: ports,
@@ -346,11 +503,15 @@ struct LiveServerFixture {
     }
 }
 
-func makePaneSummary(id: UUID, ordinal: Int) -> IPCPaneSummary {
+func makePaneSummary(
+    id: UUID,
+    ordinal: Int,
+    contentKind: IPCPaneContentKind = .terminal
+) -> IPCPaneSummary {
     IPCPaneSummary(
         id: id,
         ordinal: ordinal,
-        contentKind: .terminal,
+        contentKind: contentKind,
         residency: .active,
         tabId: nil,
         repoId: nil,
@@ -403,7 +564,7 @@ func makePaneSnapshotTestContribution() throws -> AppIPCMethodContribution {
     )
 }
 
-private struct ContributionHandleParams: Decodable {
+struct ContributionHandleParams: Decodable {
     let handle: String
 }
 
@@ -413,7 +574,7 @@ private func decodeContributionHandleParams(from params: JSONValue?) throws -> C
     return try JSONDecoder().decode(ContributionHandleParams.self, from: data)
 }
 
-private func makePaneSnapshotResult(pane: IPCPaneSummary, paneCount: Int) -> IPCPaneSnapshotResult {
+func makePaneSnapshotResult(pane: IPCPaneSummary, paneCount: Int) -> IPCPaneSnapshotResult {
     IPCPaneSnapshotResult(
         pane: pane,
         tab: nil,
@@ -719,16 +880,24 @@ struct TestFrameReader {
     var queuedFrames: [String] = []
 
     mutating func receiveResponse(connection: UnixSocketConnection) throws -> JSONRPCResponseMessage {
+        try JSONRPCCodec.decodeResponse(receiveFrame(connection: connection))
+    }
+
+    mutating func receiveFrame(connection: UnixSocketConnection) throws -> String {
         if !queuedFrames.isEmpty {
-            return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
+            return queuedFrames.removeFirst()
         }
         while true {
             let data = try connection.receive(maxBytes: 4096)
             queuedFrames.append(contentsOf: try decoder.append(data))
             if !queuedFrames.isEmpty {
-                return try JSONRPCCodec.decodeResponse(queuedFrames.removeFirst())
+                return queuedFrames.removeFirst()
             }
         }
+    }
+
+    func hasBufferedFrame(containing text: String) -> Bool {
+        queuedFrames.contains { $0.contains(text) }
     }
 
     mutating func receiveResponseWithoutBlockingMainActor(connection: UnixSocketConnection) async throws

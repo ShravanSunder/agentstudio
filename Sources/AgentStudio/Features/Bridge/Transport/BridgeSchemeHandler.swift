@@ -42,11 +42,10 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                         try Task.checkCancellation()
                         continuation.yield(
                             .response(
-                                URLResponse(
+                                Self.response(
                                     url: url,
                                     mimeType: asset.mimeType,
-                                    expectedContentLength: asset.data.count,
-                                    textEncodingName: Self.textEncodingName(for: asset.mimeType)
+                                    expectedContentLength: asset.data.count
                                 )))
                         try Task.checkCancellation()
                         continuation.yield(.data(asset.data))
@@ -80,11 +79,10 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                         try Task.checkCancellation()
                         continuation.yield(
                             .response(
-                                URLResponse(
+                                Self.response(
                                     url: url,
                                     mimeType: result.mimeType,
-                                    expectedContentLength: result.data.count,
-                                    textEncodingName: Self.textEncodingName(for: result.mimeType)
+                                    expectedContentLength: result.data.count
                                 )))
                         try Task.checkCancellation()
                         continuation.yield(.data(result.data))
@@ -274,6 +272,35 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             return "utf-8"
         }
         return nil
+    }
+
+    static func response(
+        url: URL,
+        mimeType: String,
+        expectedContentLength: Int
+    ) -> URLResponse {
+        var headers = [
+            "Access-Control-Allow-Headers": "traceparent",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Origin": "*",
+            "Content-Length": String(expectedContentLength),
+            "Content-Type": mimeType,
+        ]
+        if let textEncodingName = textEncodingName(for: mimeType) {
+            headers["Content-Type"] = "\(mimeType); charset=\(textEncodingName)"
+        }
+        return HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: headers
+        )
+            ?? URLResponse(
+                url: url,
+                mimeType: mimeType,
+                expectedContentLength: expectedContentLength,
+                textEncodingName: textEncodingName(for: mimeType)
+            )
     }
 }
 

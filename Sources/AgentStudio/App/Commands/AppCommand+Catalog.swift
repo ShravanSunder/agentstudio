@@ -854,9 +854,10 @@ extension AppCommand {
         case .openBridgeReview:
             return AppCommandSpec(
                 command: self,
-                label: "Open Bridge Review",
+                label: "Review",
                 icon: .system(.rectangleSplit2x1),
-                helpText: "Open the read-only Bridge review pane",
+                helpText: "Open the read-only review in a tab",
+                appliesTo: [.worktree],
                 commandBarGroupName: "Bridge",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )

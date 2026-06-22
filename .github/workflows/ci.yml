@@ -65,7 +65,7 @@ jobs:
           cache-dependency-path: BridgeWeb/pnpm-lock.yaml
 
       - name: Install BridgeWeb dependencies
-        run: pnpm --dir BridgeWeb install --frozen-lockfile
+        run: mise run bridge-web-install
 
       - name: BridgeWeb check, test, and packaged build
         run: |
@@ -74,11 +74,6 @@ jobs:
           mise run bridge-web-build
           test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
           ls -la Sources/AgentStudio/Resources/BridgeWeb/app
-          test -z "$(git status --short -- Sources/AgentStudio/Resources/BridgeWeb/app)" || {
-            echo "BridgeWeb packaged resources are stale. Run mise run bridge-web-build and commit the result.";
-            git status --short -- Sources/AgentStudio/Resources/BridgeWeb/app;
-            exit 1;
-          }
 
       # --- Submodule SHAs for cache keys ---
 

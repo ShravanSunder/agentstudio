@@ -194,6 +194,51 @@ wait_for_metric_count() {
   return 1
 }
 
+json_truthy_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  grep -q "\"$field\":true" <<<"$payload" ||
+    grep -q "\"$field\":\"true\"" <<<"$payload"
+}
+
+json_exact_string_field() {
+  local field="${1:?missing JSON field}"
+  local expected="${2:?missing expected value}"
+  local payload="${3:-}"
+  grep -q "\"$field\":\"$expected\"" <<<"$payload"
+}
+
+json_zero_int_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  grep -Eq "\"$field\":(\"?0\"?)([,}[:space:]]|$)" <<<"$payload"
+}
+
+json_positive_int_field() {
+  local field="${1:?missing JSON field}"
+  local payload="${2:-}"
+  /usr/bin/python3 - "$field" "$payload" <<'PY'
+import json
+import sys
+
+field, payload = sys.argv[1], sys.argv[2]
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    try:
+        value = int(record[field])
+    except (KeyError, TypeError, ValueError):
+        continue
+    if value > 0:
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
 marker_filter="$(logsql_exact_value_filter agent.proof.marker "$MARKER")"
 scenario_filter="$(logsql_exact_value_filter agentstudio.bridge.test.scenario "$BRIDGE_OBSERVABILITY_SCENARIO")"
 trace_marker_filter="$(logsql_quoted_exact_value_filter span_attr:agent.proof.marker "$MARKER")"
@@ -201,6 +246,84 @@ trace_scenario_filter="$(
   logsql_quoted_exact_value_filter span_attr:agentstudio.bridge.test.scenario "$BRIDGE_OBSERVABILITY_SCENARIO"
 )"
 base_log_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter $scenario_filter"
+diagnostic_action_filter="$(logsql_exact_value_filter agentstudio.startup_diagnostic.action "$STARTUP_DIAGNOSTIC_ACTION")"
+diagnostic_log_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter $diagnostic_action_filter"
+diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.bridge.review_shell.visible,agentstudio.startup_diagnostic.bridge.code_view.visible,agentstudio.startup_diagnostic.bridge.selected_item.visible,agentstudio.startup_diagnostic.bridge.selected_path.visible,agentstudio.startup_diagnostic.bridge.selected_content.visible,agentstudio.startup_diagnostic.bridge.selected_content.state,agentstudio.startup_diagnostic.bridge.selected_content_role.count,agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count,agentstudio.startup_diagnostic.bridge.selected_content_character.count,agentstudio.startup_diagnostic.bridge.selected_content_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.update_result,agentstudio.startup_diagnostic.bridge.selected_materialized.item_type,agentstudio.startup_diagnostic.bridge.selected_materialized.item_version,agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count,agentstudio.startup_diagnostic.bridge.page_issue.count,agentstudio.startup_diagnostic.bridge.diff_container.count,agentstudio.startup_diagnostic.bridge.code_line.count,agentstudio.startup_diagnostic.bridge.code_view_panel.width_px,agentstudio.startup_diagnostic.bridge.code_view_panel.height_px,agentstudio.startup_diagnostic.bridge.diff_container.width_px,agentstudio.startup_diagnostic.bridge.diff_container.height_px,agentstudio.startup_diagnostic.bridge.diff_container.pre_text.length,agentstudio.startup_diagnostic.bridge.code_text.length,agentstudio.startup_diagnostic.bridge.worker_pool.state,agentstudio.startup_diagnostic.render_proof.succeeded"
+
+diagnostic_completed_response="$(
+  wait_for_log_query \
+    "missing Bridge startup diagnostic completed record for marker $MARKER" \
+    "$diagnostic_log_query _msg:app.startup_diagnostic_action.completed | fields $diagnostic_fields | limit 5"
+)"
+
+required_truthy_diagnostic_fields=(
+  agentstudio.startup_diagnostic.render_proof.succeeded
+  agentstudio.startup_diagnostic.bridge.review_shell.visible
+  agentstudio.startup_diagnostic.bridge.code_view.visible
+  agentstudio.startup_diagnostic.bridge.selected_item.visible
+  agentstudio.startup_diagnostic.bridge.selected_path.visible
+  agentstudio.startup_diagnostic.bridge.selected_content.visible
+)
+
+for field in "${required_truthy_diagnostic_fields[@]}"; do
+  if ! json_truthy_field "$field" "$diagnostic_completed_response"; then
+    echo "Bridge startup diagnostic completed with false or missing field: $field" >&2
+    echo "$diagnostic_completed_response" >&2
+    exit 1
+  fi
+done
+
+if ! json_exact_string_field \
+  agentstudio.startup_diagnostic.bridge.selected_content.state \
+  ready \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic selected content is not ready" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_exact_string_field \
+  agentstudio.startup_diagnostic.bridge.selected_materialized.update_result \
+  updated \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic did not materialize selected content" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+required_positive_diagnostic_fields=(
+  agentstudio.startup_diagnostic.expected_visible_pane.count
+  agentstudio.startup_diagnostic.bridge.selected_content_role.count
+  agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count
+  agentstudio.startup_diagnostic.bridge.selected_content_character.count
+  agentstudio.startup_diagnostic.bridge.selected_content_line.count
+  agentstudio.startup_diagnostic.bridge.selected_materialized.item_version
+  agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count
+  agentstudio.startup_diagnostic.bridge.diff_container.count
+  agentstudio.startup_diagnostic.bridge.code_line.count
+  agentstudio.startup_diagnostic.bridge.code_view_panel.width_px
+  agentstudio.startup_diagnostic.bridge.code_view_panel.height_px
+  agentstudio.startup_diagnostic.bridge.diff_container.width_px
+  agentstudio.startup_diagnostic.bridge.diff_container.height_px
+  agentstudio.startup_diagnostic.bridge.diff_container.pre_text.length
+  agentstudio.startup_diagnostic.bridge.code_text.length
+)
+
+for field in "${required_positive_diagnostic_fields[@]}"; do
+  if ! json_positive_int_field "$field" "$diagnostic_completed_response"; then
+    echo "Bridge startup diagnostic completed with non-positive or missing field: $field" >&2
+    echo "$diagnostic_completed_response" >&2
+    exit 1
+  fi
+done
+
+if ! json_zero_int_field \
+  agentstudio.startup_diagnostic.bridge.page_issue.count \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic reported page issues" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
 
 required_log_event_contracts=(
   "performance.bridge.swift.package_build|package_build|data|cold|diff_package_metadata|swift"
@@ -220,6 +343,11 @@ required_log_event_contracts=(
   "performance.bridge.web.rpc_send|send|control|warm|review_rpc|rpc"
   "performance.bridge.web.content_fetch|fetch|data|hot|content_fetch|content"
   "performance.bridge.web.first_render|render|data|hot|diff_package_metadata|push"
+  "performance.bridge.trees.projection_build|projection_build|data|warm|review_projection|worker"
+  "performance.bridge.viewer.content_queue|content_queue|data|hot|content_fetch|content"
+  "performance.bridge.pierre.item_update|item_update|data|hot|code_view_item|swift"
+  "performance.bridge.shiki.highlight|highlight|data|hot|shiki_highlight|worker"
+  "performance.bridge.worker.task|worker_task|data|warm|worker_task|worker"
 )
 
 historical_bridge_lane_field="agentstudio.bridge.${BRIDGE_HISTORICAL_LANE_SUFFIX:-lane}"
@@ -244,6 +372,11 @@ required_metric_event_contracts=(
   "performance.bridge.web.package_apply|apply|data|hot|diff_status"
   "performance.bridge.web.content_fetch|fetch|data|hot|content_fetch"
   "performance.bridge.web.first_render|render|data|hot|diff_package_metadata"
+  "performance.bridge.trees.projection_build|projection_build|data|warm|review_projection"
+  "performance.bridge.viewer.content_queue|content_queue|data|hot|content_fetch"
+  "performance.bridge.pierre.item_update|item_update|data|hot|code_view_item"
+  "performance.bridge.shiki.highlight|highlight|data|hot|shiki_highlight"
+  "performance.bridge.worker.task|worker_task|data|warm|worker_task"
 )
 
 for contract in "${required_metric_event_contracts[@]}"; do

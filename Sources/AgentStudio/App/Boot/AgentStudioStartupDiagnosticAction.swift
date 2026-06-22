@@ -17,6 +17,14 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
 
     let kind: Kind
 
+    var suppressesAutomaticLaunchPaneRestore: Bool {
+        #if DEBUG
+            kind == .bridgeReviewObservabilitySmoke
+        #else
+            false
+        #endif
+    }
+
     var commandName: String {
         switch kind {
         case .newTab:

@@ -27,6 +27,7 @@ export function installBridgePageHandshakeSession(
 	props: InstallBridgePageHandshakeSessionProps = {},
 ): BridgePageHandshakeSession {
 	let didSendReady = false;
+	let isInstalled = true;
 	let pushNonce: string | null = null;
 	let telemetryConfig: BridgeTelemetryBootstrapConfig | null = null;
 
@@ -46,7 +47,11 @@ export function installBridgePageHandshakeSession(
 		}
 
 		didSendReady = true;
-		target.dispatchEvent(new CustomEvent('__bridge_ready'));
+		queueMicrotask((): void => {
+			if (isInstalled) {
+				target.dispatchEvent(new CustomEvent('__bridge_ready'));
+			}
+		});
 	};
 
 	target.addEventListener('__bridge_handshake', handleHandshake);
@@ -56,6 +61,7 @@ export function installBridgePageHandshakeSession(
 		getPushNonce: (): string | null => pushNonce,
 		getTelemetryConfig: (): BridgeTelemetryBootstrapConfig | null => telemetryConfig,
 		uninstall: (): void => {
+			isInstalled = false;
 			target.removeEventListener('__bridge_handshake', handleHandshake);
 		},
 	};

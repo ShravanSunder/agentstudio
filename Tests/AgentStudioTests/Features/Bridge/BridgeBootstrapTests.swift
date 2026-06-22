@@ -148,4 +148,12 @@ final class BridgeBootstrapTests {
         #expect(script.contains("merge: function(store, data, revision, epoch, slice, traceContext)"))
         #expect(script.contains("replace: function(store, data, revision, epoch, slice, traceContext)"))
     }
+
+    @Test
+    func test_applyEnvelopeJSON_dispatches_string_payload_with_push_nonce() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(script.contains("applyEnvelopeJSON: function(envelopeJSON)"))
+        #expect(script.contains("__bridge_push_json"))
+        #expect(script.contains("detail: { json: envelopeJSON, nonce: PUSH_NONCE }"))
+    }
 }
