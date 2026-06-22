@@ -126,7 +126,9 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 							>
 								{option.icon ?? option.label.slice(0, 1)}
 							</span>
-							<span className="min-w-0 truncate">{option.label}</span>
+							<span className="min-w-0 truncate" data-testid="bridge-review-filter-option-label">
+								{option.label}
+							</span>
 						</DropdownMenuCheckboxItem>
 					),
 				)}

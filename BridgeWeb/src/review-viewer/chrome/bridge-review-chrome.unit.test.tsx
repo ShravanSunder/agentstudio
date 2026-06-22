@@ -258,10 +258,14 @@ describe('Bridge review chrome controls', () => {
 			document.querySelector<HTMLElement>('[data-testid="bridge-review-filter-clear"]'),
 		);
 
-		expect(checkboxItems.map((item: Element): string => item.textContent ?? '')).toEqual([
-			'AAdded',
-			'MModified',
-		]);
+		expect(
+			checkboxItems.map(
+				(item: Element): string =>
+					requireElement(
+						item.querySelector<HTMLElement>('[data-testid="bridge-review-filter-option-label"]'),
+					).textContent ?? '',
+			),
+		).toEqual(['Added', 'Modified']);
 		expect(
 			checkboxItems.map((item: Element): string | null => item.getAttribute('aria-checked')),
 		).toEqual(['true', 'true']);

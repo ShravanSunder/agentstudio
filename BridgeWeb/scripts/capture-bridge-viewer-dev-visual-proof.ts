@@ -364,9 +364,10 @@ async function openGitStatusFilterMenu(
 		const popover = document.querySelector('[data-testid="bridge-review-filter-popover"]');
 		const bounds = popover instanceof HTMLElement ? popover.getBoundingClientRect() : null;
 		const checkboxItems = Array.from(document.querySelectorAll('[role="menuitemcheckbox"]'));
-		const optionLabels = checkboxItems.map((item: Element): string =>
-			(item.textContent ?? '').replace(/\s+/g, ' ').trim(),
-		);
+		const optionLabels = checkboxItems.map((item: Element): string => {
+			const label = item.querySelector('[data-testid="bridge-review-filter-option-label"]');
+			return (label?.textContent ?? item.textContent ?? '').replace(/\s+/g, ' ').trim();
+		});
 		return {
 			ariaExpanded: trigger?.getAttribute('aria-expanded') ?? null,
 			checkboxItemCount: checkboxItems.length,
