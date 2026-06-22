@@ -106,6 +106,7 @@ export function materializeBridgeCodeViewLoadingItem(
 		name: displayPathForItem(item),
 		contents: 'Loading content...\nLoading syntax view...\n',
 		cacheKey: `${item.cacheKey}:loading`,
+		lang: 'text',
 	};
 	return {
 		id: item.itemId,
@@ -129,11 +130,13 @@ function createLoadingDiffItem(item: BridgeReviewItemDescriptor): BridgeCodeView
 		name: item.basePath ?? displayPathForItem(item),
 		contents: '',
 		cacheKey: `${item.cacheKey}:loading:base`,
+		lang: 'text',
 	};
 	const newFile: FileContents = {
 		name: item.headPath ?? displayPathForItem(item),
 		contents: 'Loading content...\nLoading syntax view...\n',
 		cacheKey: `${item.cacheKey}:loading:head`,
+		lang: 'text',
 	};
 	const fileDiff = parseDiffFromFile(oldFile, newFile);
 	return {

@@ -84,6 +84,7 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected loading item to use one-sided diff view');
 		}
 		expect(loadingItem.fileDiff.additionLines).toContain('Loading content...\n');
+		expect(loadingItem.fileDiff.lang).toBe('text');
 		expect(loadingItem.collapsed).toBeUndefined();
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
@@ -105,6 +106,7 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected loading item to keep diff view');
 		}
 		expect(loadingItem.fileDiff.additionLines).toContain('Loading content...\n');
+		expect(loadingItem.fileDiff.lang).toBe('text');
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
 			contentRoles: [],
