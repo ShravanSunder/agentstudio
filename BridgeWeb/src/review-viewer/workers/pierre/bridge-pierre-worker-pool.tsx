@@ -1,5 +1,6 @@
 import type { WorkerInitializationRenderOptions, WorkerPoolOptions } from '@pierre/diffs/react';
 import { WorkerPoolContextProvider, useWorkerPool } from '@pierre/diffs/react';
+import { terminateWorkerPoolSingleton } from '@pierre/diffs/worker';
 import type { ReactElement, ReactNode } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -163,6 +164,10 @@ export function createBridgePierreWorkerPoolOptions(
 		poolSize: props.poolSize ?? defaultPoolSize,
 		totalASTLRUCacheSize: props.totalASTLRUCacheSize ?? defaultTotalASTLRUCacheSize,
 	};
+}
+
+export function terminateBridgePierreWorkerPoolSingletonForTest(): void {
+	terminateWorkerPoolSingleton();
 }
 
 export function createBridgePierreBlobWorkerFactory(

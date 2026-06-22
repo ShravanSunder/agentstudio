@@ -7,6 +7,7 @@ import '../../app/bridge-app.css';
 import { reviewPackageForBridgeAppDevFixtureScenario } from '../../app/bridge-app-dev-fixture.js';
 import { BridgeApp } from '../../app/bridge-app.js';
 import { createBridgePierrePortableBlobWorkerFactory } from '../workers/pierre/bridge-pierre-dev-worker-factory.js';
+import { terminateBridgePierreWorkerPoolSingletonForTest } from '../workers/pierre/bridge-pierre-worker-pool.js';
 import {
 	bridgeViewerCodeTextContent,
 	bridgeViewerCodeGeometry,
@@ -1712,6 +1713,38 @@ async function cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke(): Promise
 	cleanup();
 	await Promise.resolve();
 	await waitForBridgeViewerAnimationFrame();
+	terminateBridgePierreWorkerPoolSingletonForTest();
+	await waitForBridgePierreWorkerPoolDiagnosticsCleared();
+}
+
+async function waitForBridgePierreWorkerPoolDiagnosticsCleared(
+	remainingAttempts = 30,
+): Promise<void> {
+	if (bridgePierreWorkerPoolDiagnosticsAreCleared()) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`expected Bridge Pierre worker pool diagnostics to clear before worker revoke, got ${JSON.stringify(
+				bridgeViewerWorkerPoolSnapshot(),
+			)}`,
+		);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgePierreWorkerPoolDiagnosticsCleared(remainingAttempts - 1);
+}
+
+function bridgePierreWorkerPoolDiagnosticsAreCleared(): boolean {
+	const dataset = document.documentElement.dataset;
+	return (
+		dataset['bridgePierreWorkerPoolActiveTasks'] === undefined &&
+		dataset['bridgePierreWorkerPoolBusyWorkers'] === undefined &&
+		dataset['bridgePierreWorkerPoolManagerState'] === undefined &&
+		dataset['bridgePierreWorkerPoolQueuedTasks'] === undefined &&
+		dataset['bridgePierreWorkerPoolState'] === undefined &&
+		dataset['bridgePierreWorkerPoolWorkersFailed'] === undefined
+	);
 }
 
 async function waitForBridgeCodeHeaderCollapseButtonForItem(

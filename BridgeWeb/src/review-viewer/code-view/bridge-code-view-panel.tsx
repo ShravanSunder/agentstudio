@@ -412,16 +412,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			} else {
 				pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
 				scrollToTopTargetItemIdRef.current = null;
-				if (scrollBehavior === 'smooth-auto') {
-					scrollToTopTargetItemIdRef.current = itemId;
-					scrollCodeViewHeaderToScrollTopAcrossLayout({
-						handle: codeViewHandle,
-						itemId,
-						isCurrent: (): boolean =>
-							codeViewHandleRef.current === codeViewHandle &&
-							scrollToTopTargetItemIdRef.current === itemId,
-					});
-				}
 			}
 			lastSelectionScrollKeyRef.current = selectionScrollKey;
 			return true;
