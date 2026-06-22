@@ -56,6 +56,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         window.backgroundColor = AppStyles.Shell.TabBar.titlebarBackground
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            window.standardWindowButton(buttonType)?.isHidden = false
+            window.standardWindowButton(buttonType)?.isEnabled = true
+        }
+        window.collectionBehavior.remove(.fullScreenPrimary)
+        window.collectionBehavior.remove(.fullScreenAuxiliary)
+        window.collectionBehavior.insert(.fullScreenNone)
+        window.collectionBehavior.insert(.fullScreenDisallowsTiling)
         window.minSize = NSSize(width: 720, height: 600)
         window.isRestorable = false
 
