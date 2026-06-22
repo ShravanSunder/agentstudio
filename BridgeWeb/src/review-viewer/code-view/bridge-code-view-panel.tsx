@@ -162,6 +162,8 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	`,
 };
 const codeViewHeaderAnchorRestoreFrameBudget = 30;
+const codeViewMaterializationRetryFrameBudget = 30;
+const codeViewSelectionScrollRetryFrameBudget = 30;
 
 export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactElement {
 	const viewerKey = makeViewerKey(props);
@@ -189,6 +191,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const lastSelectionScrollKeyRef = useRef<string | null>(null);
 	const mountedHandleViewerKeyRef = useRef<string | null>(null);
 	const materializationTaskGenerationRef = useRef(0);
+	const pendingMaterializationFrameRef = useRef<number | null>(null);
 	const pendingRecoveryRenderFrameRef = useRef<number | null>(null);
 	const pendingRenderedItemsPublishFrameRef = useRef<number | null>(null);
 	const pendingPreHydrationSelectionScrollKeyRef = useRef<string | null>(null);
@@ -301,6 +304,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			if (codeViewHandle === null) {
 				return false;
 			}
+			if (!codeViewHandleHasInstance(codeViewHandle)) {
+				return false;
+			}
 			const currentItem = codeViewHandle.getItem(itemId);
 			if (currentItem === undefined || !isBridgeCodeViewItem(currentItem)) {
 				return false;
@@ -357,6 +363,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		(itemId: string, options: BridgeCodeViewScrollToItemOptions = {}): boolean => {
 			const codeViewHandle = codeViewHandleRef.current;
 			if (codeViewHandle === null) {
+				return false;
+			}
+			if (!codeViewHandleHasInstance(codeViewHandle)) {
 				return false;
 			}
 			const currentItem = codeViewHandle.getItem(itemId);
@@ -421,6 +430,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const toggleItemCollapse = useCallback(
 		(itemId: string): void => {
 			const codeViewHandle = codeViewHandleRef.current;
+			if (codeViewHandle !== null && !codeViewHandleHasInstance(codeViewHandle)) {
+				return;
+			}
 			const currentItem = codeViewHandle?.getItem(itemId);
 			if (currentItem === undefined || !isBridgeCodeViewItem(currentItem)) {
 				return;
@@ -518,6 +530,10 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				cancelAnimationFrame(pendingRecoveryRenderFrameRef.current);
 				pendingRecoveryRenderFrameRef.current = null;
 			}
+			if (pendingMaterializationFrameRef.current !== null) {
+				cancelAnimationFrame(pendingMaterializationFrameRef.current);
+				pendingMaterializationFrameRef.current = null;
+			}
 			if (pendingRenderedItemsPublishFrameRef.current !== null) {
 				cancelAnimationFrame(pendingRenderedItemsPublishFrameRef.current);
 				pendingRenderedItemsPublishFrameRef.current = null;
@@ -569,33 +585,47 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		if (pendingSelectionScrollFrameRef.current !== null) {
 			cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
 		}
-		pendingSelectionScrollFrameRef.current = requestAnimationFrame((): void => {
-			pendingSelectionScrollFrameRef.current = null;
-			if (
-				codeViewHandleRef.current !== codeViewHandle ||
-				props.reviewPackage.itemsById[selectedItemId] === undefined
-			) {
-				return;
-			}
-			if (completedSelectionScrollKeyRef.current === selectionScrollKey) {
-				return;
-			}
-			const scrollBehavior: CodeViewScrollBehavior = shouldUseInitialPlacement
-				? 'instant'
-				: 'smooth';
-			const didScroll = scrollToItem(selectedItemId, { behavior: scrollBehavior });
-			if (!didScroll) {
-				return;
-			}
-			if (scrollBehavior === 'instant') {
-				completedSelectionScrollKeyRef.current = selectionScrollKey;
-				pendingPreHydrationSelectionScrollKeyRef.current = null;
-				pendingSmoothSelectionScrollKeyRef.current = null;
-			} else {
-				pendingPreHydrationSelectionScrollKeyRef.current = null;
-				pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
-			}
-		});
+		const scheduleSelectionScrollAttempt = (remainingFrameBudget: number): void => {
+			pendingSelectionScrollFrameRef.current = requestAnimationFrame((): void => {
+				pendingSelectionScrollFrameRef.current = null;
+				if (
+					codeViewHandleRef.current !== codeViewHandle ||
+					props.reviewPackage.itemsById[selectedItemId] === undefined
+				) {
+					return;
+				}
+				if (completedSelectionScrollKeyRef.current === selectionScrollKey) {
+					return;
+				}
+				if (!codeViewHandleHasInstance(codeViewHandle)) {
+					if (remainingFrameBudget > 0) {
+						scheduleSelectionScrollAttempt(remainingFrameBudget - 1);
+					} else if (lastSelectionScrollKeyRef.current === selectionScrollKey) {
+						lastSelectionScrollKeyRef.current = null;
+					}
+					return;
+				}
+				const scrollBehavior: CodeViewScrollBehavior = shouldUseInitialPlacement
+					? 'instant'
+					: 'smooth';
+				const didScroll = scrollToItem(selectedItemId, { behavior: scrollBehavior });
+				if (!didScroll) {
+					if (lastSelectionScrollKeyRef.current === selectionScrollKey) {
+						lastSelectionScrollKeyRef.current = null;
+					}
+					return;
+				}
+				if (scrollBehavior === 'instant') {
+					completedSelectionScrollKeyRef.current = selectionScrollKey;
+					pendingPreHydrationSelectionScrollKeyRef.current = null;
+					pendingSmoothSelectionScrollKeyRef.current = null;
+				} else {
+					pendingPreHydrationSelectionScrollKeyRef.current = null;
+					pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
+				}
+			});
+		};
+		scheduleSelectionScrollAttempt(codeViewSelectionScrollRetryFrameBudget);
 	}, [codeViewMountVersion, props.reviewPackage, props.selectedItemId, scrollToItem, viewerKey]);
 
 	useEffect((): (() => void) | undefined => {
@@ -622,12 +652,22 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		}
 		const taskGeneration = materializationTaskGenerationRef.current + 1;
 		materializationTaskGenerationRef.current = taskGeneration;
-		queueMicrotask((): void => {
+		if (pendingMaterializationFrameRef.current !== null) {
+			cancelAnimationFrame(pendingMaterializationFrameRef.current);
+			pendingMaterializationFrameRef.current = null;
+		}
+		const runMaterialization = (remainingFrameBudget: number): void => {
 			if (materializationTaskGenerationRef.current !== taskGeneration) {
 				return;
 			}
 			const codeViewHandle = codeViewHandleRef.current;
-			if (codeViewHandle === null) {
+			if (codeViewHandle === null || !codeViewHandleHasInstance(codeViewHandle)) {
+				if (remainingFrameBudget > 0) {
+					pendingMaterializationFrameRef.current = requestAnimationFrame((): void => {
+						pendingMaterializationFrameRef.current = null;
+						runMaterialization(remainingFrameBudget - 1);
+					});
+				}
 				return;
 			}
 			const controller = controllerForHandle({
@@ -737,6 +777,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				return;
 			}
 			scheduleCodeViewRecoveryRender();
+		};
+		queueMicrotask((): void => {
+			runMaterialization(codeViewMaterializationRetryFrameBudget);
 		});
 	}, [
 		collapsedItemIds,
@@ -1312,14 +1355,31 @@ function controllerForHandle(props: ControllerForHandleProps): BridgeCodeViewCon
 
 function modelForHandle(handle: CodeViewHandle<undefined>): BridgeCodeViewModel {
 	return {
-		addItems: (items) => handle.addItems(items),
-		getItem: (id) => handle.getItem(id),
-		updateItem: (item) => handle.updateItem(item),
-		updateItemId: (oldId, newId) => handle.updateItemId(oldId, newId),
-		scrollTo: (target) => handle.scrollTo(target),
-		setSelectedLines: (selection) => handle.setSelectedLines(selection),
+		addItems: (items) => {
+			if (codeViewHandleHasInstance(handle)) {
+				handle.addItems(items);
+			}
+		},
+		getItem: (id) => (codeViewHandleHasInstance(handle) ? handle.getItem(id) : undefined),
+		updateItem: (item) => (codeViewHandleHasInstance(handle) ? handle.updateItem(item) : false),
+		updateItemId: (oldId, newId) =>
+			codeViewHandleHasInstance(handle) ? handle.updateItemId(oldId, newId) : false,
+		scrollTo: (target) => {
+			if (codeViewHandleHasInstance(handle)) {
+				handle.scrollTo(target);
+			}
+		},
+		setSelectedLines: (selection) => {
+			if (codeViewHandleHasInstance(handle)) {
+				handle.setSelectedLines(selection);
+			}
+		},
 		renderImmediately: () => handle.getInstance()?.render(true),
 	};
+}
+
+function codeViewHandleHasInstance(handle: CodeViewHandle<undefined>): boolean {
+	return handle.getInstance() !== undefined;
 }
 
 function makeViewerKey(props: BridgeCodeViewPanelProps): string {

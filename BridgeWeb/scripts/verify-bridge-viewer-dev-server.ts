@@ -160,6 +160,7 @@ async function verifyDirectMarkdownInitialSelection(): Promise<DirectMarkdownSel
 			markdownSelectionScrollMotion: scrollMotion,
 		};
 		assertSelectedHeaderCollapseButton(selectedResult);
+		assertSelectedScrollMotion(selectedResult.markdownSelectionScrollMotion);
 		if (!selectedResult.codeViewVisibleText.includes(targetMarkdownHeading)) {
 			throw new Error(
 				[

@@ -1575,6 +1575,87 @@ describe('BridgeApp', () => {
 		});
 	});
 
+	test('page control starts markdown preview after selecting an off-selection docs item', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeSourceAndDocsReviewPackage();
+		const requestedUrls: string[] = [];
+		const capturedRequests: BridgeMarkdownRenderWorkerRequest[] = [];
+		const deferredResponse = createDeferred<BridgeMarkdownRenderWorkerResponse>();
+		const transport: BridgeMarkdownRenderWorkerTransport = {
+			send: (request: BridgeMarkdownRenderWorkerRequest): Promise<unknown> => {
+				capturedRequests.push(request);
+				return deferredResponse.promise;
+			},
+			abort: () => undefined,
+		};
+		const markdownWorkerClient = createBridgeMarkdownRenderWorkerClient({
+			transport,
+			createRequestId: (): string => 'markdown-off-selection-request',
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response(
+							url.includes('item-docs')
+								? '# Review Plan\n\nOpen from one command.'
+								: "export const source = 'selected';\n",
+						);
+					}}
+					markdownWorkerClient={markdownWorkerClient}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForSelectedItemId('item-source');
+
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileView.showMarkdownPreview',
+			itemId: 'item-docs',
+		});
+
+		await waitForSelectedItemId('item-docs');
+		await waitForRequestedUrl(requestedUrls, 'item-docs');
+		await waitForMarkdownRequest(capturedRequests);
+		const request = capturedRequests[0];
+		if (request === undefined) {
+			throw new Error('expected markdown render request');
+		}
+		expect(request).toMatchObject({
+			method: 'markdown.render',
+			packageId: reviewPackage.packageId,
+			itemId: 'item-docs',
+			markdownText: '# Review Plan\n\nOpen from one command.',
+			sourcePath: 'docs/plans/review-plan.md',
+		});
+
+		deferredResponse.resolve(
+			await buildBridgeMarkdownRenderWorkerSuccessResponse({
+				request,
+				renderMarkdown: async (): Promise<string> => '<h1>Review Plan</h1>',
+			}),
+		);
+		await act(async (): Promise<void> => {
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+
+		expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).not.toBeNull();
+		expect(window.bridgeReviewControlProbe).toMatchObject({
+			method: 'bridge.fileView.showMarkdownPreview',
+			status: 'pending',
+			itemId: 'item-docs',
+			reason: 'preview_selection_pending',
+			renderMode: { kind: 'markdownPreview' },
+		});
+	});
+
 	test('page control only accepts diff collapse when the mounted CodeView owns the item', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeBridgeReviewPackage();

@@ -148,6 +148,19 @@ Observed current state before implementation:
   the item layout update, then restores the header anchor across layout frames.
   The large dev-server verifier must keep the selected header within the pinned
   top band after both collapsed and expanded states.
+- 2026-06-22 reveal/markdown checkpoint: the current patch changes normal
+  Review file selection to use one Pierre CodeView `smooth` item reveal instead
+  of Bridge-owned top-snap correction, adds a dev-server verifier gate for
+  direct markdown selection motion, and fixes explicit
+  `bridge.fileView.showMarkdownPreview` so one command can select an
+  off-selection docs item and keep the pending render mode as markdown preview
+  while content/worker output arrives. Focused unit/integration/browser proof is
+  green for this slice, but this is not final Review completion.
+- 2026-06-22 filter/mode gap: production still has the old facet/menu shape and
+  does not yet implement the accepted compact review-mode segmented control,
+  unified Git/file/scope/search/regex filter popover, or semantic control
+  command coverage for those facets. This remains Task 3/4 work and must not be
+  counted as done because the dev-server UI happens to render.
 - Current Victoria verifier coverage is strong for the existing Bridge telemetry
   taxonomy, but the new resource data-plane names
   `performance.bridge.resource.fetch/cache/range`,

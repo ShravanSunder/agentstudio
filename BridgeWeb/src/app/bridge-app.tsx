@@ -264,7 +264,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			}
 			if (options.revealInCodeView !== false) {
 				codeViewControlHandleRef.current?.scrollToItem(itemId, {
-					behavior: options.revealBehavior ?? 'smooth-auto',
+					behavior: options.revealBehavior ?? 'smooth',
 				});
 			}
 			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
@@ -572,6 +572,15 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		const selectedMarkdownPreviewSnapshot = selectedMarkdownPreviewStateRef.current;
 
 		if (decision.kind === 'codeView') {
+			if (
+				decision.reason === 'contentPending' &&
+				rootSnapshot.renderMode.kind === 'markdownPreview'
+			) {
+				setSelectedMarkdownPreviewState(null);
+				return (): void => {
+					didCancel = true;
+				};
+			}
 			viewerActions.setRenderMode({ kind: 'codeView' });
 			setSelectedMarkdownPreviewState(null);
 			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
@@ -951,9 +960,11 @@ function applyBridgeAppControlCommand(
 				return { status: 'rejected', reason: 'item_not_found' };
 			}
 			if (itemId !== props.rootSnapshot.selectedItemId) {
-				return selectReviewItem(itemId, { revealInCodeView: false })
-					? { status: 'pending', reason: 'preview_selection_pending' }
-					: { status: 'rejected', reason: 'item_not_found' };
+				if (!selectReviewItem(itemId, { revealInCodeView: false })) {
+					return { status: 'rejected', reason: 'item_not_found' };
+				}
+				viewerActions.setRenderMode({ kind: 'markdownPreview' });
+				return { status: 'pending', reason: 'preview_selection_pending' };
 			}
 			const decision = resolveBridgeMarkdownPreviewDecision({
 				reviewPackage,
@@ -961,9 +972,11 @@ function applyBridgeAppControlCommand(
 				resources: selectedContentResources,
 			});
 			if (decision.kind === 'codeView') {
-				return decision.reason === 'contentPending'
-					? { status: 'pending', reason: 'preview_content_pending' }
-					: { status: 'rejected', reason: decision.reason };
+				if (decision.reason === 'contentPending') {
+					viewerActions.setRenderMode({ kind: 'markdownPreview' });
+					return { status: 'pending', reason: 'preview_content_pending' };
+				}
+				return { status: 'rejected', reason: decision.reason };
 			}
 			if (markdownWorkerClient === null) {
 				return { status: 'rejected', reason: 'worker_unavailable' };

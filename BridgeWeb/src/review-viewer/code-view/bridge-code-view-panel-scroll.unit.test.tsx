@@ -28,6 +28,7 @@ const codeViewDoubles = vi.hoisted(() => ({
 	addItems: vi.fn(),
 	containerElement: null as HTMLElement | null,
 	getInstanceRender: vi.fn(),
+	instanceAvailable: true,
 	getItem: vi.fn((id: string): unknown => ({ id })),
 	lastProps: null as MockCodeViewProps | null,
 	renderedItems: [] as { readonly id: string }[],
@@ -46,16 +47,22 @@ vi.mock('@pierre/diffs/react', async () => {
 		codeViewDoubles.lastProps = props;
 		React.useImperativeHandle(ref, () => ({
 			addItems: codeViewDoubles.addItems,
-			getInstance: (): {
-				readonly getContainerElement: () => HTMLElement | undefined;
-				readonly getRenderedItems: () => readonly { readonly id: string }[];
-				readonly render: () => void;
-			} => ({
-				getContainerElement: (): HTMLElement | undefined =>
-					codeViewDoubles.containerElement ?? undefined,
-				getRenderedItems: (): readonly { readonly id: string }[] => codeViewDoubles.renderedItems,
-				render: codeViewDoubles.getInstanceRender,
-			}),
+			getInstance: ():
+				| {
+						readonly getContainerElement: () => HTMLElement | undefined;
+						readonly getRenderedItems: () => readonly { readonly id: string }[];
+						readonly render: () => void;
+				  }
+				| undefined =>
+				codeViewDoubles.instanceAvailable
+					? {
+							getContainerElement: (): HTMLElement | undefined =>
+								codeViewDoubles.containerElement ?? undefined,
+							getRenderedItems: (): readonly { readonly id: string }[] =>
+								codeViewDoubles.renderedItems,
+							render: codeViewDoubles.getInstanceRender,
+						}
+					: undefined,
 			getItem: codeViewDoubles.getItem,
 			scrollTo: codeViewDoubles.scrollTo,
 			setSelectedLines: codeViewDoubles.setSelectedLines,
@@ -81,6 +88,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		codeViewDoubles.containerElement = null;
+		codeViewDoubles.instanceAvailable = true;
 		codeViewDoubles.getItem.mockImplementation((id: string): unknown => ({ id }));
 		codeViewDoubles.lastProps = null;
 		codeViewDoubles.renderedItems = [];
@@ -281,6 +289,63 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			id: 'source-high',
 			align: 'start',
 			behavior: 'instant',
+		} satisfies CodeViewScrollTarget);
+	});
+
+	test('retries deferred selection when Pierre handle temporarily outlives its instance', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId={null}
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		codeViewDoubles.getItem.mockClear();
+		codeViewDoubles.instanceAvailable = false;
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={null}
+					selectedItemId="source-high"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(codeViewDoubles.getItem).not.toHaveBeenCalled();
+		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
+
+		codeViewDoubles.instanceAvailable = true;
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
+			type: 'item',
+			id: 'source-high',
+			align: 'start',
+			behavior: 'smooth',
 		} satisfies CodeViewScrollTarget);
 	});
 
@@ -1360,6 +1425,51 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		);
 		const codeViewPanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
 		expect(codeViewPanel?.getAttribute('data-selected-materialized-update-result')).toBe('updated');
+	});
+
+	test('retries selected content materialization when Pierre instance recovers', async () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'plansAndSpecs' }, facets: [] },
+		});
+		const selectedItem = reviewPackage.itemsById['docs-plan'];
+		const headHandle = selectedItem?.contentRoles.head;
+		if (selectedItem === undefined || headHandle === undefined || headHandle === null) {
+			throw new Error('expected docs-plan head handle');
+		}
+		const selectedContentResource: BridgeContentResource = {
+			handle: headHandle,
+			text: '# Bridge plan\n\nInspect this as source.',
+		};
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+		codeViewDoubles.instanceAvailable = false;
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeCodeViewPanel
+					projection={projection}
+					reviewPackage={reviewPackage}
+					selectedContentResources={{ head: selectedContentResource }}
+					selectedItemId="docs-plan"
+					workerPoolEnabled={false}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(codeViewDoubles.updateItem).not.toHaveBeenCalled();
+
+		codeViewDoubles.instanceAvailable = true;
+		await act(async (): Promise<void> => {
+			await waitForAnimationFrame();
+		});
+
+		expect(codeViewDoubles.updateItem).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'docs-plan' }),
+		);
 	});
 
 	test('publishes the current Pierre rendered window for visible content hydration', async () => {
