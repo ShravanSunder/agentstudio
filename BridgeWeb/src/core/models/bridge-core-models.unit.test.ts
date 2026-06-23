@@ -10,7 +10,9 @@ import {
 describe('bridge core transport models', () => {
 	test('parses protocol ids, resource kinds, stream identities, and bounded windows', () => {
 		expect(bridgeProtocolIdSchema.parse('review')).toBe('review');
+		expect(bridgeProtocolIdSchema.parse('worktree-file')).toBe('worktree-file');
 		expect(bridgeResourceKindSchema.parse('content')).toBe('content');
+		expect(bridgeResourceKindSchema.parse('review-package')).toBe('review-package');
 		expect(
 			bridgeStreamIdentitySchema.parse({
 				protocol: 'review',
@@ -41,7 +43,10 @@ describe('bridge core transport models', () => {
 
 	test('rejects empty ids, negative revisions, and unbounded request windows', () => {
 		expect(bridgeProtocolIdSchema.safeParse('').success).toBe(false);
+		expect(bridgeProtocolIdSchema.safeParse('review/open').success).toBe(false);
+		expect(bridgeProtocolIdSchema.safeParse('review open').success).toBe(false);
 		expect(bridgeResourceKindSchema.safeParse('').success).toBe(false);
+		expect(bridgeResourceKindSchema.safeParse('content/open').success).toBe(false);
 		expect(
 			bridgeStreamIdentitySchema.safeParse({
 				protocol: 'review',

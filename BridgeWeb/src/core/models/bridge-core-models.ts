@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
-export const bridgeProtocolIdSchema = z.string().min(1);
-export const bridgeResourceKindSchema = z.string().min(1);
+const bridgeProtocolOrResourceNamePattern = /^[a-z][a-zA-Z0-9]*(?:[.-][a-z][a-zA-Z0-9]*)*$/u;
+
+export const bridgeProtocolIdSchema = z.string().regex(bridgeProtocolOrResourceNamePattern);
+export const bridgeResourceKindSchema = z.string().regex(bridgeProtocolOrResourceNamePattern);
 export const bridgeStreamIdSchema = z.string().min(1);
 
 export const bridgeStreamIdentitySchema = z

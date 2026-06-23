@@ -40,6 +40,22 @@ describe('bridge resource descriptor registry', () => {
 		expect(registry.lookup(attachedDescriptor.ref)).toBeNull();
 	});
 
+	test('rejects descriptor resource URLs that do not match the attached ref identity', () => {
+		const registry = createBridgeResourceDescriptorRegistry({ allowedResourceKindsByProtocol });
+		const attachedDescriptor = makeAttachedDescriptor({
+			resourceUrl:
+				'agentstudio://resource/review/content/content-123?generation=2&revision=5&cursor=cursor_abc-1',
+		});
+
+		const registerResult = registry.register(attachedDescriptor);
+
+		expect(registerResult).toEqual({
+			ok: false,
+			reason: 'descriptor_resource_url_mismatch',
+		});
+		expect(registry.lookup(attachedDescriptor.ref)).toBeNull();
+	});
+
 	test('rejects lookup refs whose identity does not match the registered descriptor', () => {
 		const registry = createBridgeResourceDescriptorRegistry({ allowedResourceKindsByProtocol });
 		const attachedDescriptor = makeAttachedDescriptor();
@@ -55,11 +71,38 @@ describe('bridge resource descriptor registry', () => {
 
 		expect(lookupResult).toBeNull();
 	});
+
+	test('revokes descriptor refs after explicit cancellation', () => {
+		const registry = createBridgeResourceDescriptorRegistry({ allowedResourceKindsByProtocol });
+		const attachedDescriptor = makeAttachedDescriptor();
+		expect(registry.register(attachedDescriptor)).toEqual({ ok: true });
+
+		registry.revoke(attachedDescriptor.ref);
+
+		expect(registry.lookup(attachedDescriptor.ref)).toBeNull();
+	});
+
+	test('resets descriptors for a stale stream lineage', () => {
+		const registry = createBridgeResourceDescriptorRegistry({ allowedResourceKindsByProtocol });
+		const attachedDescriptor = makeAttachedDescriptor();
+		expect(registry.register(attachedDescriptor)).toEqual({ ok: true });
+
+		registry.resetIdentity({
+			paneId: 'pane-1',
+			protocol: 'review',
+			sourceId: 'source-1',
+			packageId: 'package-1',
+			streamId: 'stream-1',
+		});
+
+		expect(registry.lookup(attachedDescriptor.ref)).toBeNull();
+	});
 });
 
 interface MakeAttachedDescriptorProps {
 	readonly protocol?: string;
 	readonly resourceKind?: string;
+	readonly resourceUrl?: string;
 }
 
 function makeAttachedDescriptor(
@@ -82,6 +125,7 @@ function makeAttachedDescriptor(
 		protocol,
 		resourceKind,
 		resourceUrl:
+			props.resourceUrl ??
 			'agentstudio://resource/review/content/content-123?generation=2&revision=4&cursor=cursor_abc-1',
 		identity,
 		content: {

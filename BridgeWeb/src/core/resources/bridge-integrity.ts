@@ -6,18 +6,27 @@ export interface VerifyBridgeResourceIntegrityProps {
 }
 
 export type BridgeResourceIntegrityResult =
-	| { readonly ok: true }
+	| {
+			readonly ok: true;
+			readonly authoritative: boolean;
+	  }
 	| {
 			readonly ok: false;
-			readonly reason: 'integrity_mismatch';
-			readonly actual: string;
+			readonly reason: 'chunk_manifest_unsupported' | 'integrity_mismatch';
+			readonly actual?: string;
 	  };
 
 export async function verifyBridgeResourceIntegrity(
 	props: VerifyBridgeResourceIntegrityProps,
 ): Promise<BridgeResourceIntegrityResult> {
 	if (props.integrity === undefined) {
-		return { ok: true };
+		return { ok: true, authoritative: true };
+	}
+	if (props.integrity.kind === 'previewOnly') {
+		return { ok: true, authoritative: false };
+	}
+	if (props.integrity.kind === 'chunkManifest') {
+		return { ok: false, reason: 'chunk_manifest_unsupported' };
 	}
 	const actual = await sha256IntegrityValue(props.data);
 	if (actual !== props.integrity.value) {
@@ -27,7 +36,7 @@ export async function verifyBridgeResourceIntegrity(
 			actual,
 		};
 	}
-	return { ok: true };
+	return { ok: true, authoritative: true };
 }
 
 async function sha256IntegrityValue(data: Uint8Array): Promise<string> {

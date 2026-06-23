@@ -219,10 +219,10 @@ import { z } from 'zod';
 
 export const BridgeProtocolId = z.enum([
   'bridge.system',
-]).or(z.string().regex(/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$/));
+]).or(z.string().regex(/^[a-z][a-zA-Z0-9]*([.-][a-z][a-zA-Z0-9]*)*$/));
 
 export const BridgeResourceKind = z.string().regex(
-  /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$/,
+  /^[a-z][a-zA-Z0-9]*([.-][a-z][a-zA-Z0-9]*)*$/,
 );
 
 export const BridgeIntegrityDescriptor = z.discriminatedUnion('kind', [

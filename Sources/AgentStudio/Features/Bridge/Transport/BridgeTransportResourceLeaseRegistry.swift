@@ -1,17 +1,54 @@
 import Foundation
 
-actor BridgeTransportResourceLeaseRegistry {
-    private var leasedCanonicalURLs: Set<String> = []
+struct BridgeTransportResourceLease: Equatable, Sendable {
+    let paneId: UUID
+    let descriptorId: String
+    let resource: BridgeTransportResourceURL
+    let maxBytes: Int?
 
-    func register(_ resource: BridgeTransportResourceURL) {
-        leasedCanonicalURLs.insert(resource.canonicalURL)
+    init(
+        paneId: UUID,
+        descriptorId: String,
+        resource: BridgeTransportResourceURL,
+        maxBytes: Int? = nil
+    ) {
+        self.paneId = paneId
+        self.descriptorId = descriptorId
+        self.resource = resource
+        self.maxBytes = maxBytes
+    }
+}
+
+actor BridgeTransportResourceLeaseRegistry {
+    private var leasesByCanonicalURL: [String: BridgeTransportResourceLease] = [:]
+
+    func register(
+        _ resource: BridgeTransportResourceURL,
+        paneId: UUID,
+        descriptorId: String? = nil,
+        maxBytes: Int? = nil
+    ) {
+        register(
+            BridgeTransportResourceLease(
+                paneId: paneId,
+                descriptorId: descriptorId ?? resource.opaqueId,
+                resource: resource,
+                maxBytes: maxBytes
+            ))
+    }
+
+    func register(_ lease: BridgeTransportResourceLease) {
+        leasesByCanonicalURL[lease.resource.canonicalURL] = lease
     }
 
     func revoke(_ resource: BridgeTransportResourceURL) {
-        leasedCanonicalURLs.remove(resource.canonicalURL)
+        leasesByCanonicalURL.removeValue(forKey: resource.canonicalURL)
     }
 
-    func contains(_ resource: BridgeTransportResourceURL) -> Bool {
-        leasedCanonicalURLs.contains(resource.canonicalURL)
+    func contains(_ resource: BridgeTransportResourceURL, paneId: UUID) -> Bool {
+        guard let lease = leasesByCanonicalURL[resource.canonicalURL] else {
+            return false
+        }
+        return lease.paneId == paneId && lease.resource == resource
     }
 }

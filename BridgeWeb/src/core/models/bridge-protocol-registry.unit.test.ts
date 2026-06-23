@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import {
-	bridgeDefaultProtocolRegistry,
-	createBridgeProtocolRegistry,
-} from './bridge-protocol-registry.js';
+import { createBridgeProtocolRegistry } from './bridge-protocol-registry.js';
 
 describe('bridge protocol registry', () => {
 	test('registers protocol-owned resource kinds and privileged methods', () => {
@@ -44,13 +41,24 @@ describe('bridge protocol registry', () => {
 	});
 
 	test('keeps disabled comments and comms resource kinds unregistered by default', () => {
-		expect(bridgeDefaultProtocolRegistry.isResourceKindAllowed('review', 'comment-thread')).toBe(
-			false,
-		);
-		expect(bridgeDefaultProtocolRegistry.isResourceKindAllowed('comments', 'thread')).toBe(false);
-		expect(bridgeDefaultProtocolRegistry.isResourceKindAllowed('comms', 'message')).toBe(false);
-		expect(
-			bridgeDefaultProtocolRegistry.isPrivilegedMethodAllowed('comments', 'comments.openStream'),
-		).toBe(false);
+		const registry = createBridgeProtocolRegistry({
+			protocols: [
+				{
+					protocol: 'review',
+					resourceKinds: ['content', 'review-package'],
+					privilegedMethods: ['review.openStream'],
+				},
+				{
+					protocol: 'worktree-file',
+					resourceKinds: ['tree', 'file-content'],
+					privilegedMethods: ['worktree-file.openStream'],
+				},
+			],
+		});
+
+		expect(registry.isResourceKindAllowed('review', 'comment-thread')).toBe(false);
+		expect(registry.isResourceKindAllowed('comments', 'thread')).toBe(false);
+		expect(registry.isResourceKindAllowed('comms', 'message')).toBe(false);
+		expect(registry.isPrivilegedMethodAllowed('comments', 'comments.openStream')).toBe(false);
 	});
 });

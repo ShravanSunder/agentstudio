@@ -7,12 +7,27 @@ import {
 	type BridgeResourceKind,
 } from './bridge-core-models.js';
 
-export const bridgeIntegrityDescriptorSchema = z
-	.object({
-		algorithm: z.enum(['sha256']),
-		value: z.string().min(1),
-	})
-	.strict();
+export const bridgeIntegrityDescriptorSchema = z.discriminatedUnion('kind', [
+	z
+		.object({
+			kind: z.literal('wholeHash'),
+			algorithm: z.enum(['sha256']),
+			value: z.string().min(1),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('chunkManifest'),
+			algorithm: z.enum(['sha256']),
+			manifestResourceId: z.string().min(1),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('previewOnly'),
+		})
+		.strict(),
+]);
 
 export const bridgeIdentitySchema = z
 	.object({

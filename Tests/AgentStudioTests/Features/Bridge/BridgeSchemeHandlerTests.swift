@@ -405,15 +405,16 @@ final class BridgeSchemeHandlerTests {
         let contentStore = BridgeContentStore(provider: provider)
         await contentStore.activate(handles: [handle], reviewGeneration: 7)
         let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let paneId = UUID()
         let resourceURL = "agentstudio://resource/review/content/\(handle.handleId)?generation=7&revision=1"
         let resource = try #require(
             BridgeTransportResourceURL.parse(
                 resourceURL,
                 allowedResourceKindsByProtocol: ["review": Set(["content"])]
             ))
-        await resourceLeaseRegistry.register(resource)
+        await resourceLeaseRegistry.register(resource, paneId: paneId)
         let handler = BridgeSchemeHandler(
-            paneId: UUID(),
+            paneId: paneId,
             contentStore: contentStore,
             resourceLeaseRegistry: resourceLeaseRegistry
         )
@@ -428,6 +429,107 @@ final class BridgeSchemeHandlerTests {
 
         #expect(data == Data("hello bridge".utf8))
         #expect(await provider.recordedContentRequestsCount() == 1)
+    }
+
+    @Test
+    func test_contentRouteRejectsNonReadMethod() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("hello bridge")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "hello bridge")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let handler = BridgeSchemeHandler(paneId: UUID(), contentStore: contentStore)
+        var request = URLRequest(url: URL(string: handle.resourceUrl)!)
+        request.httpMethod = "POST"
+
+        do {
+            for try await _ in handler.reply(for: request) {}
+            Issue.record("Expected non-read content request to fail")
+        } catch BridgeSchemeError.invalidRequest {
+        } catch {
+            Issue.record("Expected invalidRequest, got \(error)")
+        }
+
+        #expect(await provider.recordedContentRequestsCount() == 0)
+    }
+
+    @Test
+    func test_protocolScopedContentRouteDropsRevokedLeaseBeforeEmittingBytes() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("slow")
+        )
+        let gate = BridgeContentLoadGate()
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "slow")
+            ],
+            contentLoadGate: gate
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let paneId = UUID()
+        let resourceURL = "agentstudio://resource/review/content/\(handle.handleId)?generation=7&revision=1"
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                resourceURL,
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        await resourceLeaseRegistry.register(resource, paneId: paneId)
+        let handler = BridgeSchemeHandler(
+            paneId: paneId,
+            contentStore: contentStore,
+            resourceLeaseRegistry: resourceLeaseRegistry
+        )
+        let request = URLRequest(url: URL(string: resourceURL)!)
+        let eventRecorder = BridgeSchemeHandlerEventRecorder()
+        let stream = handler.reply(for: request)
+
+        let consumerTask = Task {
+            do {
+                for try await result in stream {
+                    switch result {
+                    case .response:
+                        await eventRecorder.recordEvent()
+                    case .data:
+                        await eventRecorder.recordEvent()
+                    @unknown default:
+                        await eventRecorder.recordEvent()
+                    }
+                }
+            } catch {
+                await eventRecorder.recordError()
+            }
+        }
+        await gate.waitForStartedLoadCount(1)
+        await resourceLeaseRegistry.revoke(resource)
+        await gate.releaseAll()
+        await provider.waitForFinishedContentLoadCount(1)
+        _ = await consumerTask.result
+
+        #expect(await eventRecorder.recordedEventCount() == 0)
+        #expect(await eventRecorder.recordedErrorCount() == 1)
     }
 
     @Test

@@ -1,9 +1,24 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { bridgeDefaultProtocolRegistry } from '../models/bridge-protocol-registry.js';
+import { createBridgeProtocolRegistry } from '../models/bridge-protocol-registry.js';
 import { sendBridgeContentWorldRPC } from './bridge-content-world-rpc.js';
 
 describe('bridge content-world RPC host', () => {
+	const protocolRegistry = createBridgeProtocolRegistry({
+		protocols: [
+			{
+				protocol: 'review',
+				resourceKinds: ['content', 'review-package'],
+				privilegedMethods: ['review.openStream'],
+			},
+			{
+				protocol: 'worktree-file',
+				resourceKinds: ['tree', 'file-content'],
+				privilegedMethods: ['worktree-file.openStream'],
+			},
+		],
+	});
+
 	test('sends allowlisted protocol RPC through bridge-world internal sender only', () => {
 		const postedCommandJSON: string[] = [];
 		const pageWorldCommand = vi.fn();
@@ -26,7 +41,7 @@ describe('bridge content-world RPC host', () => {
 				},
 			},
 			host,
-			protocolRegistry: bridgeDefaultProtocolRegistry,
+			protocolRegistry,
 		});
 
 		expect(result).toEqual({ ok: true });
@@ -61,7 +76,7 @@ describe('bridge content-world RPC host', () => {
 				params: {},
 			},
 			host,
-			protocolRegistry: bridgeDefaultProtocolRegistry,
+			protocolRegistry,
 		});
 
 		expect(result).toEqual({ ok: false, reason: 'unregistered_protocol_method' });

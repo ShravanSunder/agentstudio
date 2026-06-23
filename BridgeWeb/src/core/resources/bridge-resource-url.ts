@@ -109,6 +109,7 @@ function parseResourcePathSegments(parsedUrl: URL): readonly string[] | null {
 		if (
 			decodedSegment === null ||
 			decodedSegment.length === 0 ||
+			decodedSegment.includes('/') ||
 			traversalPathPattern.test(decodedSegment)
 		) {
 			return null;

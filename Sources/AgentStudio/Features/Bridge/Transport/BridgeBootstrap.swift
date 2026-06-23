@@ -34,6 +34,10 @@ enum BridgeBootstrap {
                 const BRIDGE_NONCE = '\(bridgeNonce)';
                 const PUSH_NONCE = '\(pushNonce)';
                 const TELEMETRY_CONFIG = \(telemetryConfigJSON);
+                const PAGE_WORLD_ALLOWED_COMMAND_METHODS = new Set([
+                    'review.markFileViewed',
+                    'system.bridgeTelemetry'
+                ]);
 
                 // Install bridge internal API in bridge world only.
                 // Page world cannot access this (content world isolation).
@@ -140,6 +144,11 @@ enum BridgeBootstrap {
                         console.warn('[BridgeBootstrap] Rejected __bridge_command: protocol RPC must use bridge world');
                         return;
                     }
+                    if (typeof payload.method !== 'string' || !PAGE_WORLD_ALLOWED_COMMAND_METHODS.has(payload.method)) {
+                        console.warn('[BridgeBootstrap] Rejected __bridge_command: method is not allowed from page world');
+                        return;
+                    }
+                    payload.__bridgeOrigin = 'pageWorldLegacy';
                     window.webkit.messageHandlers.rpc.postMessage(JSON.stringify(payload));
                 });
 

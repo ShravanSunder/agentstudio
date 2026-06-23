@@ -75,6 +75,22 @@ extension WebKitSerializedTests {
 
                 _ = try await page.callJavaScript(
                     """
+                    document.dispatchEvent(new CustomEvent('__bridge_command', {
+                      detail: {
+                        jsonrpc: '2.0',
+                        id: 'page-method-only-open-stream',
+                        method: 'review.openStream',
+                        params: {},
+                        __nonce: 'bridge-nonce'
+                      }
+                    }));
+                    """
+                )
+                await settleAsyncCallbacks(turns: 20)
+                #expect(rpcRecorder.receivedMessages.isEmpty)
+
+                _ = try await page.callJavaScript(
+                    """
                     window.__bridgeInternal.sendCommandJSON(JSON.stringify({
                       jsonrpc: '2.0',
                       id: 'bridge-protocol-rpc',

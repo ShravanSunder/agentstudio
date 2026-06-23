@@ -7,6 +7,15 @@ import WebKit
 /// - `agentstudio://app/*` — bundled React app assets (HTML, JS, CSS)
 /// - `agentstudio://resource/content/<handleId>?generation=<n>` — file contents on demand
 struct BridgeSchemeHandler: URLSchemeHandler {
+    private struct BridgeSchemeContentEmissionRequest {
+        let handleId: String
+        let generation: BridgeReviewGeneration
+        let url: URL
+        let request: URLRequest
+        let readMethod: BridgeSchemeReadMethod
+        let leasedResource: BridgeTransportResourceURL?
+    }
+
     let paneId: UUID
     let contentStore: BridgeContentStore
     let appAssetStore: BridgeAppAssetStore
@@ -35,6 +44,10 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 continuation.finish(throwing: BridgeSchemeError.invalidRequest("Missing URL"))
                 return
             }
+            guard let readMethod = Self.readMethod(from: request.httpMethod) else {
+                continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported method"))
+                return
+            }
 
             let classification = Self.classifyPath(url.absoluteString)
             switch classification {
@@ -50,8 +63,10 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                                     mimeType: asset.mimeType,
                                     expectedContentLength: asset.data.count
                                 )))
-                        try Task.checkCancellation()
-                        continuation.yield(.data(asset.data))
+                        if readMethod == .get {
+                            try Task.checkCancellation()
+                            continuation.yield(.data(asset.data))
+                        }
                         continuation.finish()
                     } catch {
                         continuation.finish(throwing: error)
@@ -64,10 +79,14 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             case .content(let handleId, let generation):
                 let task = Task {
                     await emitContent(
-                        handleId: handleId,
-                        generation: generation,
-                        url: url,
-                        request: request,
+                        emissionRequest: BridgeSchemeContentEmissionRequest(
+                            handleId: handleId,
+                            generation: generation,
+                            url: url,
+                            request: request,
+                            readMethod: readMethod,
+                            leasedResource: nil
+                        ),
                         continuation: continuation
                     )
                 }
@@ -80,16 +99,20 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     guard resource.protocolId == "review",
                         resource.resourceKind == "content",
                         let generation = resource.generation,
-                        await resourceLeaseRegistry.contains(resource)
+                        await resourceLeaseRegistry.contains(resource, paneId: paneId)
                     else {
                         continuation.finish(throwing: BridgeSchemeError.invalidRoute(url.absoluteString))
                         return
                     }
                     await emitContent(
-                        handleId: resource.opaqueId,
-                        generation: BridgeReviewGeneration(generation),
-                        url: url,
-                        request: request,
+                        emissionRequest: BridgeSchemeContentEmissionRequest(
+                            handleId: resource.opaqueId,
+                            generation: BridgeReviewGeneration(generation),
+                            url: url,
+                            request: request,
+                            readMethod: readMethod,
+                            leasedResource: resource
+                        ),
                         continuation: continuation
                     )
                 }
@@ -182,9 +205,25 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         "worktree-file": Set(["tree", "file-content"]),
     ]
 
+    private enum BridgeSchemeReadMethod {
+        case get
+        case head
+    }
+
+    private static func readMethod(from httpMethod: String?) -> BridgeSchemeReadMethod? {
+        switch httpMethod?.uppercased() ?? "GET" {
+        case "GET": .get
+        case "HEAD": .head
+        default: nil
+        }
+    }
+
     private static func generationValue(from url: URL) -> Int? {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-            let value = components.queryItems?.first(where: { $0.name == "generation" })?.value,
+            let queryItems = components.queryItems,
+            queryItems.allSatisfy({ $0.name == "generation" }),
+            queryItems.filter({ $0.name == "generation" }).count == 1,
+            let value = queryItems.first?.value,
             let generation = Int(value),
             generation >= 0
         else {
@@ -205,19 +244,16 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     }
 
     private func emitContent(
-        handleId: String,
-        generation: BridgeReviewGeneration,
-        url: URL,
-        request: URLRequest,
+        emissionRequest: BridgeSchemeContentEmissionRequest,
         continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
     ) async {
-        let traceContext = Self.traceContext(from: request)
-        let hasTraceparentHeader = Self.traceparentHeader(from: request) != nil
+        let traceContext = Self.traceContext(from: emissionRequest.request)
+        let hasTraceparentHeader = Self.traceparentHeader(from: emissionRequest.request) != nil
         let loadStart = ContinuousClock.now
         do {
             let observed = try await contentStore.loadObserved(
-                handleId: handleId,
-                requestedGeneration: generation
+                handleId: emissionRequest.handleId,
+                requestedGeneration: emissionRequest.generation
             )
             let result = observed.result
             await recordContentLoadTelemetry(
@@ -227,16 +263,31 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 phase: "success",
                 durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
             )
+            if let leasedResource = emissionRequest.leasedResource {
+                guard await resourceLeaseRegistry.contains(leasedResource, paneId: paneId) else {
+                    continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                    return
+                }
+            }
             try Task.checkCancellation()
             continuation.yield(
                 .response(
                     Self.response(
-                        url: url,
+                        url: emissionRequest.url,
                         mimeType: result.mimeType,
                         expectedContentLength: result.data.count
                     )))
-            try Task.checkCancellation()
-            continuation.yield(.data(result.data))
+            if emissionRequest.readMethod == .get {
+                if let leasedResource = emissionRequest.leasedResource {
+                    guard await resourceLeaseRegistry.contains(leasedResource, paneId: paneId) else {
+                        continuation.finish(
+                            throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                        return
+                    }
+                }
+                try Task.checkCancellation()
+                continuation.yield(.data(result.data))
+            }
             continuation.finish()
         } catch let failure as BridgeContentLoadObservedFailure {
             await recordContentLoadTelemetry(

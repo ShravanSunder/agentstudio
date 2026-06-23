@@ -116,6 +116,12 @@ final class RPCRouter {
             return
         }
 
+        guard !Self.isRejectedPageWorldPrivilegedMethod(request) else {
+            await reportError(
+                .invalidRequest, "Invalid request: privileged method requires bridge world", id: request.requestId)
+            return
+        }
+
         if request.method == SystemMethods.BridgeTelemetryMethod.method {
             await dispatchBridgeTelemetryBatch(request)
             return
@@ -204,6 +210,7 @@ final class RPCRouter {
         let requestId: RPCIdentifier?
         let method: String
         let commandId: String?
+        let bridgeOrigin: String?
         let traceContext: BridgeTraceContext?
         let params: JSONRPCValue?
     }
@@ -275,15 +282,36 @@ final class RPCRouter {
         } else {
             commandId = nil
         }
+        let bridgeOrigin: String?
+        if case .string(let rawBridgeOrigin)? = dict["__bridgeOrigin"] {
+            bridgeOrigin = rawBridgeOrigin
+        } else {
+            bridgeOrigin = nil
+        }
         let traceContext = parseTraceContext(dict["__traceContext"])
 
         return ParsedRPCRequest(
             requestId: requestId,
             method: method,
             commandId: commandId,
+            bridgeOrigin: bridgeOrigin,
             traceContext: traceContext,
             params: dict["params"]
         )
+    }
+
+    private nonisolated static func isRejectedPageWorldPrivilegedMethod(_ request: ParsedRPCRequest) -> Bool {
+        guard request.bridgeOrigin == "pageWorldLegacy" else {
+            return false
+        }
+        return isPrivilegedProtocolMethod(request.method)
+    }
+
+    private nonisolated static func isPrivilegedProtocolMethod(_ method: String) -> Bool {
+        method.hasSuffix(".openStream")
+            || method.hasSuffix(".refreshStream")
+            || method.hasSuffix(".cancelStream")
+            || method.hasSuffix(".resetStream")
     }
 
     private func dispatchBridgeTelemetryBatch(_ request: ParsedRPCRequest) async {

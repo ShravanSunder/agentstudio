@@ -50,18 +50,3 @@ export function createBridgeProtocolRegistry(
 		},
 	};
 }
-
-export const bridgeDefaultProtocolRegistry = createBridgeProtocolRegistry({
-	protocols: [
-		{
-			protocol: 'review',
-			resourceKinds: ['content', 'review-package'],
-			privilegedMethods: ['review.openStream'],
-		},
-		{
-			protocol: 'worktree-file',
-			resourceKinds: ['tree', 'file-content'],
-			privilegedMethods: ['worktree-file.openStream'],
-		},
-	],
-});

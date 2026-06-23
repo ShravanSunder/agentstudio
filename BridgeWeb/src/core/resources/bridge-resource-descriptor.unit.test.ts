@@ -22,8 +22,38 @@ describe('bridge resource descriptor models', () => {
 
 		expect(attachedDescriptor.ref.descriptorId).toBe('descriptor-1');
 		expect(attachedDescriptor.descriptor.content.integrity).toEqual({
+			kind: 'wholeHash',
 			algorithm: 'sha256',
 			value: 'sha256:abc123',
+		});
+	});
+
+	test('parses preview-only and reserved chunk-manifest integrity variants', () => {
+		expect(
+			bridgeResourceDescriptorSchema.parse(
+				makeDescriptor({
+					integrity: {
+						kind: 'previewOnly',
+					},
+				}),
+			).content.integrity,
+		).toEqual({
+			kind: 'previewOnly',
+		});
+		expect(
+			bridgeResourceDescriptorSchema.parse(
+				makeDescriptor({
+					integrity: {
+						kind: 'chunkManifest',
+						algorithm: 'sha256',
+						manifestResourceId: 'manifest-1',
+					},
+				}),
+			).content.integrity,
+		).toEqual({
+			kind: 'chunkManifest',
+			algorithm: 'sha256',
+			manifestResourceId: 'manifest-1',
 		});
 	});
 
@@ -40,9 +70,13 @@ describe('bridge resource descriptor models', () => {
 	});
 });
 
+interface MakeDescriptorProps {
+	readonly integrity?: unknown;
+}
+
 type JsonRecord = Readonly<Record<string, unknown>>;
 
-function makeDescriptor(): JsonRecord {
+function makeDescriptor(props: MakeDescriptorProps = {}): JsonRecord {
 	return {
 		descriptorId: 'descriptor-1',
 		protocol: 'review',
@@ -65,9 +99,11 @@ function makeDescriptor(): JsonRecord {
 			expectedBytes: 128,
 			maxBytes: 1024,
 			integrity: {
+				kind: 'wholeHash',
 				algorithm: 'sha256',
 				value: 'sha256:abc123',
 			},
+			...(props.integrity === undefined ? {} : { integrity: props.integrity }),
 		},
 		window: {
 			start: 0,

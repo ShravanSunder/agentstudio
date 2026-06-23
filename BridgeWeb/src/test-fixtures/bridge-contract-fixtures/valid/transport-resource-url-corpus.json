@@ -48,6 +48,14 @@
       "url": "agentstudio://resource/review/content/%E0%A4%A?generation=2&revision=4&cursor=cursor_abc-1"
     },
     {
+      "name": "encoded slash segment",
+      "url": "agentstudio://resource/review/content/content%2F123?generation=2&revision=4&cursor=cursor_abc-1"
+    },
+    {
+      "name": "double encoded slash segment",
+      "url": "agentstudio://resource/review/content/content%252F123?generation=2&revision=4&cursor=cursor_abc-1"
+    },
+    {
       "name": "invalid generation",
       "url": "agentstudio://resource/review/content/content-123?generation=-1&revision=4&cursor=cursor_abc-1"
     },
