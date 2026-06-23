@@ -650,3 +650,49 @@ recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 second-review findings are addressed
 with fresh scoped proof; the Bridge trust/transport boundary needs review again
 before ticket 02 begins.
+
+## Ticket 01 Third Review Follow-Up Fix
+
+Review verdict:
+
+- The third ticket-01 review-fix review returned `not_ready`.
+- Accepted findings were fixed in the same follow-up pass.
+
+Accepted findings addressed:
+
+- Content-handle activation used the broader review-viewer allowlist and ignored
+  `replace(false)`.
+- `BridgeContentStore.deactivate()` did not invalidate in-flight provider loads
+  when the provider ignored cancellation.
+- The review-viewer worktree-file allowlist narrowing lacked a permanent
+  negative test.
+- `BridgePaneController.teardown()` returned before review/content lease
+  authority was synchronously closed.
+- Refresh-failure proof initially encoded old metadata with revoked old leases;
+  the invariant is now old metadata and old leases stay live together when new
+  metadata validation fails before authority installation.
+
+Fresh proof:
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter 'BridgeContentStoreTests|BridgeSchemeHandlerTests'
+```
+
+Result: exit 0, 70 tests in 2 suites passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-webkit
+```
+
+Result: exit 0, WebKit serialized lane passed in 90.70s and explicitly ran 3
+`BridgePaneControllerContentAuthorityTests`.
+
+phase_result: complete
+evidence:
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-third-review-fix/report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 third-review findings are fixed with
+fresh scoped proof; the Bridge trust/transport boundary needs another review
+before ticket 02 begins.

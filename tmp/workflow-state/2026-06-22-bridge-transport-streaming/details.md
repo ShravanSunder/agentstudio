@@ -58,7 +58,18 @@ Reason:
   controller-owned lease registration proof, failed-reload authority revocation,
   teardown cleanup, active-source stale URL sweeps, and WebKit lane inclusion
   for the new controller authority suite.
-- Next step is to route the third ticket 01 review-fix pass back to
+- Review of the third ticket 01 review-fix pass returned `not_ready`. Accepted
+  findings covered content-handle activation using too broad an allowlist and
+  ignoring `replace(false)`, in-flight content loads surviving deactivation,
+  missing review-viewer allowlist negative proof, teardown post-return lease
+  authority, and a refresh-failure proof that revoked old authority while
+  keeping old metadata visible.
+- A follow-up implementation pass now fixes those accepted findings: content
+  activation is content-only and all-or-nothing, store deactivation uses an
+  authority revision to reject stale in-flight loads, teardown synchronously
+  closes the review/content lease gate, and invalid refresh metadata preserves
+  old package plus old leases together.
+- Next step is to route the fixed ticket 01 authority follow-up back to
   implementation-review-swarm before ticket 02 begins.
 
 ## Key Artifacts
@@ -167,7 +178,8 @@ Checkpoint 1: intake carrier and core transport contracts
 
 Status: ticket 00 committed; ticket 01 original checkpoint committed; first
 ticket 01 review-fix checkpoint committed but review returned `not_ready`;
-second ticket 01 review-fix pass is committed and proven.
+second ticket 01 review-fix pass is committed and proven; third ticket 01
+review-fix pass returned `not_ready` and has a proven follow-up fix.
 
 Evidence:
 
@@ -183,12 +195,15 @@ Evidence:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-review-fix-report.md`
 - ticket 01 second-review-fix response report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-second-review-fix/report.md`
+- ticket 01 third-review follow-up report:
+  `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-third-review-fix/report.md`
 - execution proof ledger:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-execute-plan-brief.md`
 
 Open before ticket 02:
 
-- re-review the fixed ticket-01 trust/transport boundary
+- re-review the fixed ticket-01 trust/transport boundary after the third-review
+  follow-up fix
 - keep broad Swift health open until the unrelated CommandBar title mismatch is
   fixed in a separate scope or final milestone proof passes
 

@@ -479,6 +479,44 @@ struct BridgeContentStoreTests {
         }
     }
 
+    @Test("content store rejects in-flight loads after deactivation")
+    func contentStoreRejectsInFlightLoadsAfterDeactivation() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("revoked")
+        )
+        let gate = BridgeContentLoadGate()
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "revoked")
+            ],
+            contentLoadGate: gate
+        )
+        let store = BridgeContentStore(provider: provider)
+        await store.activate(handles: [handle], reviewGeneration: 7)
+
+        async let revokedLoad = try store.load(handleId: handle.handleId, requestedGeneration: 7)
+        await gate.waitForStartedLoadCount(1)
+        await store.deactivate()
+        await gate.releaseAll()
+
+        do {
+            _ = try await revokedLoad
+            Issue.record("Expected revoked content authority failure")
+        } catch let failure as BridgeProviderFailure {
+            #expect(failure == .missingContent(handleId: handle.handleId))
+        } catch {
+            Issue.record("Expected BridgeProviderFailure, got \(error)")
+        }
+    }
+
     @Test("content store rejects invalid direct registrations")
     func contentStoreRejectsInvalidDirectRegistrations() async throws {
         let handle = makeBridgeContentHandle(

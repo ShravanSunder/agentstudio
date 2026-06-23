@@ -73,7 +73,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     )
                 )
                 let contentRegisterStart = ContinuousClock.now
-                await activateReviewContentHandles(
+                try await activateReviewContentHandles(
                     handles: result.registeredContentHandles,
                     reviewGeneration: reviewGeneration
                 )
@@ -113,19 +113,42 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     private func activateReviewContentHandles(
         handles: [BridgeContentHandle],
         reviewGeneration: BridgeReviewGeneration
-    ) async {
+    ) async throws {
+        let leases: [BridgeTransportResourceLease]
+        do {
+            leases = try makeReviewContentLeases(handles: handles, reviewGeneration: reviewGeneration)
+        } catch {
+            throw error
+        }
         await reviewContentStore.activate(handles: handles, reviewGeneration: reviewGeneration)
+        let replaced = await resourceLeaseRegistry.replace(
+            paneId: paneId,
+            protocolId: "review",
+            resourceKind: "content",
+            leases: leases
+        )
+        guard replaced else {
+            await clearReviewContentAuthority()
+            throw BridgeProviderFailure.providerFailed(message: "Invalid bridge review content lease set")
+        }
+    }
+
+    private func makeReviewContentLeases(
+        handles: [BridgeContentHandle],
+        reviewGeneration: BridgeReviewGeneration
+    ) throws -> [BridgeTransportResourceLease] {
         var leases: [BridgeTransportResourceLease] = []
         for handle in handles where handle.reviewGeneration == reviewGeneration {
             guard
                 let resource = BridgeTransportResourceURL.parse(
                     handle.resourceUrl,
-                    allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+                    allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewContentResourceKinds
                 ),
                 resource.opaqueId == handle.handleId,
-                resource.generation == reviewGeneration.rawValue
+                resource.generation == reviewGeneration.rawValue,
+                handle.sizeBytes >= 0
             else {
-                continue
+                throw BridgeProviderFailure.providerFailed(message: "Invalid bridge review content handle")
             }
             leases.append(
                 BridgeTransportResourceLease(
@@ -135,12 +158,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     maxBytes: handle.sizeBytes
                 ))
         }
-        await resourceLeaseRegistry.replace(
-            paneId: paneId,
-            protocolId: "review",
-            resourceKind: "content",
-            leases: leases
-        )
+        return leases
     }
 
     func clearReviewContentAuthority() async {
@@ -233,7 +251,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 )
             )
             let contentRegisterStart = ContinuousClock.now
-            await activateReviewContentHandles(
+            try await activateReviewContentHandles(
                 handles: result.registeredContentHandles,
                 reviewGeneration: result.package.reviewGeneration
             )

@@ -126,6 +126,96 @@ extension WebKitSerializedTests {
             #expect(await controller.resourceLeaseRegistry.contains(headResource, paneId: controller.paneId) == false)
         }
 
+        @Test("refresh preserves previous content authority when new metadata is invalid")
+        func refresh_preserves_previous_content_authority_when_new_metadata_is_invalid() async throws {
+            let fixture = makeRefreshRevisionFixture()
+            defer { fixture.controller.teardown() }
+            let initialHandle = BridgeReviewPackageBuilder.contentHandle(
+                for: makeBridgeEndpointChangedFile(
+                    fileId: "old",
+                    path: "Sources/App/Old.swift",
+                    sizeBytes: 100
+                ),
+                endpoint: fixture.headEndpoint,
+                role: .head,
+                reviewGeneration: 1
+            )
+            let initialResource = try #require(
+                BridgeTransportResourceURL.parse(
+                    initialHandle.resourceUrl,
+                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
+                ))
+            let loadResult = await fixture.controller.handleDiffCommand(
+                .loadDiff(
+                    DiffArtifact(
+                        diffId: UUIDv7.generate(),
+                        worktreeId: fixture.headEndpoint.worktreeId,
+                        patchData: Data()
+                    )
+                ),
+                commandId: fixture.commandId,
+                correlationId: nil
+            )
+            #expect(loadResult == .success(commandId: fixture.commandId))
+            #expect(
+                await fixture.controller.resourceLeaseRegistry.contains(
+                    initialResource, paneId: fixture.controller.paneId))
+
+            let invalidRefreshFile = makeBridgeEndpointChangedFile(
+                fileId: "bad-size",
+                path: "Sources/App/BadSize.swift",
+                sizeBytes: -1
+            )
+            await setRefreshComparison(fixture, changedFile: invalidRefreshFile)
+            await postRefreshEvent(fixture, path: "Sources/App/BadSize.swift", batchSeq: 50)
+
+            #expect(
+                await fixture.controller.resourceLeaseRegistry.contains(
+                    initialResource, paneId: fixture.controller.paneId))
+            #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-old"])
+        }
+
+        @Test("teardown synchronously revokes review content leases")
+        func teardown_synchronously_revokes_review_content_leases() async throws {
+            let fixture = makeRefreshRevisionFixture()
+            let initialHandle = BridgeReviewPackageBuilder.contentHandle(
+                for: makeBridgeEndpointChangedFile(
+                    fileId: "old",
+                    path: "Sources/App/Old.swift",
+                    sizeBytes: 100
+                ),
+                endpoint: fixture.headEndpoint,
+                role: .head,
+                reviewGeneration: 1
+            )
+            let initialResource = try #require(
+                BridgeTransportResourceURL.parse(
+                    initialHandle.resourceUrl,
+                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
+                ))
+            let loadResult = await fixture.controller.handleDiffCommand(
+                .loadDiff(
+                    DiffArtifact(
+                        diffId: UUIDv7.generate(),
+                        worktreeId: fixture.headEndpoint.worktreeId,
+                        patchData: Data()
+                    )
+                ),
+                commandId: fixture.commandId,
+                correlationId: nil
+            )
+            #expect(loadResult == .success(commandId: fixture.commandId))
+            #expect(
+                await fixture.controller.resourceLeaseRegistry.contains(
+                    initialResource, paneId: fixture.controller.paneId))
+
+            fixture.controller.teardown()
+
+            #expect(
+                await fixture.controller.resourceLeaseRegistry.contains(
+                    initialResource, paneId: fixture.controller.paneId) == false)
+        }
+
         private func makeController(
             state: BridgePaneState,
             reviewSourceProvider: any BridgeReviewSourceProvider

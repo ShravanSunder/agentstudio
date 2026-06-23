@@ -188,6 +188,20 @@ final class BridgeSchemeHandlerTests {
         }
     }
 
+    @Test
+    func test_reviewViewerResourceAllowlistRejectsWorktreeFileContent() {
+        let resourceURL = "agentstudio://resource/worktree-file/file-content/file-abc?generation=42"
+
+        let parsed = BridgeTransportResourceURL.parse(
+            resourceURL,
+            allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+        )
+        let classified = BridgeSchemeHandler.classifyPath(resourceURL)
+
+        #expect(parsed == nil)
+        #expect(classified == .invalid)
+    }
+
     // MARK: - Path classification — invalid routes
 
     @Test

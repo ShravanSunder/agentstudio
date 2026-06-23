@@ -516,6 +516,7 @@ final class BridgePaneController {
         let reviewContentStore = reviewContentStore
         let resourceLeaseRegistry = resourceLeaseRegistry
         let paneId = paneId
+        resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "review", resourceKind: "content")
         Task {
             await reviewContentStore.deactivate()
             await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
