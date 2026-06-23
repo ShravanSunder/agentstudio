@@ -215,6 +215,8 @@ Evidence:
   `60fb99d7 fix: harden bridge content authority revocation`
 - ticket 01 fourth-review follow-up commit:
   `e076fc4b fix: fence bridge content authority after teardown`
+- ticket 01 fifth-review follow-up commit:
+  `57601c5b fix: close bridge content authority race`
 - ticket 01 fourth-review follow-up report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
 - ticket 01 fifth-review follow-up report:
