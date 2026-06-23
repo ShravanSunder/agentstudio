@@ -198,6 +198,27 @@ Surface runtime proof captured 2026-06-23:
   `rg -n "\\bas\\s+(const|[A-Z][A-Za-z0-9_]*|Readonly|Record|unknown|any|\\{)|\\bany\\b|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/src/features/worktree-file BridgeWeb/src/worktree-file-surface`
   found no matches
 
+App routing proof captured 2026-06-23:
+
+- added `BridgeAppProtocolRouter` with Zod-validated app protocol metadata:
+  `review` or `worktree-file`
+- added the first minimal `WorktreeFileApp` mount point under
+  `BridgeWeb/src/worktree-file-surface`
+- updated packaged bootstrap to route through the protocol router while
+  retaining Review as the default and invalid-protocol fallback
+- red:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
+  exited 1 before implementation because
+  `bridge-app-protocol-router.js` did not exist
+- green:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx src/features/worktree-file/models/worktree-file-protocol-models.unit.test.ts src/features/worktree-file/materialization/worktree-file-materializer.unit.test.ts src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts src/features/worktree-file/state/worktree-file-state.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  exited 0 with 6 files passed and 23 tests passed
+- quality:
+  `pnpm --dir BridgeWeb run check` exited 0 after formatting
+- hygiene:
+  `rg -n "\\bas\\s+(const|[A-Z][A-Za-z0-9_]*|Readonly|Record|unknown|any|\\{)|\\bany\\b|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/src/app/bridge-app-protocol-router.tsx BridgeWeb/src/app/bridge-app-protocol-router.unit.test.tsx BridgeWeb/src/worktree-file-surface BridgeWeb/src/features/worktree-file`
+  found no matches
+
 Surface integration:
 
 ```bash

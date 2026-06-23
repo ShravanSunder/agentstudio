@@ -1071,6 +1071,22 @@ Checkpoint 4: Worktree/File browser surface
 - Current hygiene proof:
   `rg -n "\\bas\\s+(const|[A-Z][A-Za-z0-9_]*|Readonly|Record|unknown|any|\\{)|\\bany\\b|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/src/features/worktree-file BridgeWeb/src/worktree-file-surface`:
   exit 1 with no matches.
+- Current app routing progress:
+  `BridgeAppProtocolRouter` now Zod-validates the app protocol, defaults to
+  Review, fails invalid protocol metadata back to Review, and routes
+  `worktree-file` to the first `WorktreeFileApp` mount point. Packaged
+  bootstrap now renders the protocol router instead of the Review-only root.
+- Current app routing proof:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/app/bridge-app-protocol-router.unit.test.tsx
+  src/features/worktree-file/models/worktree-file-protocol-models.unit.test.ts
+  src/features/worktree-file/materialization/worktree-file-materializer.unit.test.ts
+  src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts
+  src/features/worktree-file/state/worktree-file-state.unit.test.ts
+  src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts
+  --reporter verbose`: exit 0, 6 files passed, 23 tests passed.
+- Current app routing quality proof:
+  `pnpm --dir BridgeWeb run check`: exit 0.
 - Prove dev-server worktree URL works without Review package scaffolding.
 - Commit only after proof gates pass.
 - Review before cleanup.
