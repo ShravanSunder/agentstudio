@@ -69,6 +69,14 @@ Reason:
   authority revision to reject stale in-flight loads, teardown synchronously
   closes the review/content lease gate, and invalid refresh metadata preserves
   old package plus old leases together.
+- Review of `60fb99d7` returned `not_ready`. Accepted findings covered an
+  in-flight `loadDiff` re-authorizing after teardown, same-generation refresh
+  invalidating preserved in-flight content, filtered reset semantics, weak
+  invalid-refresh/teardown proof, and workflow-state transition drift.
+- The fourth follow-up pass now fixes those findings with a revocation-revision
+  fence for content activation, key/handle-based in-flight content validation,
+  filter-accurate lease resets, stronger controller/store/registry tests, and
+  corrected workflow event direction.
 - Next step is to route the fixed ticket 01 authority follow-up back to
   implementation-review-swarm before ticket 02 begins.
 
@@ -193,6 +201,8 @@ Evidence:
   `acb4bd3f fix: close bridge content authority gaps`
 - ticket 01 third-review follow-up commit:
   `60fb99d7 fix: harden bridge content authority revocation`
+- ticket 01 fourth-review follow-up report:
+  `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
 - ticket 01 review-fix report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-review-fix-report.md`
 - ticket 01 second-review-fix response report:

@@ -113,7 +113,6 @@ actor BridgeContentStore {
         )
         let key = lookup.key
         let handle = lookup.handle
-        let requestedAuthorityRevision = lookup.authorityRevision
 
         if let result = contentByKey[key] {
             touchCachedContent(for: key)
@@ -123,19 +122,14 @@ actor BridgeContentStore {
         if let task = inFlightLoadByKey[key] {
             do {
                 let result = try await task.value
-                try validateActiveGeneration(
-                    requestedGeneration,
-                    authorityRevision: requestedAuthorityRevision,
-                    missingHandleId: handleId
-                )
+                try validateActiveContentHandle(lookup, requestedGeneration: requestedGeneration)
                 try validateResult(result, for: handle)
                 return observedResult(result, cacheResult: .inFlightCoalesced)
             } catch {
                 try throwObservedStaleGenerationIfInvalidated(
                     error,
-                    handle: handle,
+                    lookup: lookup,
                     requestedGeneration: requestedGeneration,
-                    authorityRevision: requestedAuthorityRevision,
                     cacheResult: .inFlightCoalesced
                 )
             }
@@ -162,11 +156,7 @@ actor BridgeContentStore {
                 task.cancel()
             }
             inFlightLoadByKey[key] = nil
-            try validateActiveGeneration(
-                requestedGeneration,
-                authorityRevision: requestedAuthorityRevision,
-                missingHandleId: handleId
-            )
+            try validateActiveContentHandle(lookup, requestedGeneration: requestedGeneration)
             try validateResult(result, for: handle)
             cache(result, for: key)
             return observedResult(result, cacheResult: .providerLoad)
@@ -174,9 +164,8 @@ actor BridgeContentStore {
             inFlightLoadByKey[key] = nil
             try throwObservedStaleGenerationIfInvalidated(
                 error,
-                handle: handle,
+                lookup: lookup,
                 requestedGeneration: requestedGeneration,
-                authorityRevision: requestedAuthorityRevision,
                 cacheResult: .providerLoad
             )
         }
@@ -247,25 +236,25 @@ actor BridgeContentStore {
         return handle
     }
 
-    private func validateActiveGeneration(
-        _ requestedGeneration: BridgeReviewGeneration,
-        authorityRevision: Int? = nil,
-        missingHandleId: String? = nil
-    ) throws {
-        if let authorityRevision, authorityRevision != activeAuthorityRevision {
-            guard let activeReviewGeneration else {
-                throw BridgeProviderFailure.missingContent(handleId: missingHandleId ?? "revoked")
-            }
-            throw BridgeProviderFailure.staleReviewGeneration(
-                storedGeneration: activeReviewGeneration,
-                requestedGeneration: requestedGeneration
-            )
-        }
+    private func validateActiveGeneration(_ requestedGeneration: BridgeReviewGeneration) throws {
         guard let activeReviewGeneration, activeReviewGeneration != requestedGeneration else { return }
         throw BridgeProviderFailure.staleReviewGeneration(
             storedGeneration: activeReviewGeneration,
             requestedGeneration: requestedGeneration
         )
+    }
+
+    private func validateActiveContentHandle(
+        _ lookup: ActiveContentHandleLookup,
+        requestedGeneration: BridgeReviewGeneration
+    ) throws {
+        try validateActiveGeneration(requestedGeneration)
+        guard lookup.authorityRevision != activeAuthorityRevision else { return }
+        guard handleByKey[lookup.key] == lookup.handle,
+            keyByHandleId[lookup.handle.handleId] == lookup.key
+        else {
+            throw BridgeProviderFailure.missingContent(handleId: lookup.handle.handleId)
+        }
     }
 
     private func validateResult(
@@ -333,28 +322,23 @@ actor BridgeContentStore {
 
     private func throwObservedStaleGenerationIfInvalidated(
         _ error: any Error,
-        handle: BridgeContentHandle?,
+        lookup: ActiveContentHandleLookup,
         requestedGeneration: BridgeReviewGeneration,
-        authorityRevision: Int,
         cacheResult: BridgeContentLoadObservation.CacheResult
     ) throws -> Never {
         do {
-            try validateActiveGeneration(
-                requestedGeneration,
-                authorityRevision: authorityRevision,
-                missingHandleId: handle?.handleId
-            )
-        } catch {
+            try validateActiveContentHandle(lookup, requestedGeneration: requestedGeneration)
+        } catch let invalidationError {
             throw observedFailure(
-                error,
-                handle: handle,
+                invalidationError,
+                handle: lookup.handle,
                 requestedGeneration: requestedGeneration,
                 cacheResult: .rejected
             )
         }
         throw observedFailure(
             error,
-            handle: handle,
+            handle: lookup.handle,
             requestedGeneration: requestedGeneration,
             cacheResult: cacheResult
         )

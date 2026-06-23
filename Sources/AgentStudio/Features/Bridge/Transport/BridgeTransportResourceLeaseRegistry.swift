@@ -16,21 +16,36 @@ private final class BridgeTransportResourceLeaseAuthorityGate: @unchecked Sendab
 
     private let lock = NSLock()
     private var revokedKeys: Set<RevocationKey> = []
+    private var revocationRevisionByKey: [RevocationKey: UInt64] = [:]
 
     func revoke(paneId: UUID, protocolId: String?, resourceKind: String?) {
         lock.withLock {
-            _ = revokedKeys.insert(RevocationKey(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind))
+            let key = RevocationKey(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
+            _ = revokedKeys.insert(key)
+            revocationRevisionByKey[key, default: 0] += 1
         }
     }
 
-    func authorize(paneId: UUID, protocolId: String, resourceKind: String) {
+    func authorize(
+        paneId: UUID,
+        protocolId: String,
+        resourceKind: String,
+        expectedRevocationRevision: UInt64? = nil
+    ) -> Bool {
         lock.withLock {
+            if let expectedRevocationRevision,
+                revocationRevisionLocked(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
+                    != expectedRevocationRevision
+            {
+                return false
+            }
             revokedKeys = revokedKeys.filter { key in
                 guard key.paneId == paneId else { return true }
                 guard key.protocolId.map({ $0 == protocolId }) ?? true else { return true }
                 guard key.resourceKind.map({ $0 == resourceKind }) ?? true else { return true }
                 return false
             }
+            return true
         }
     }
 
@@ -39,6 +54,33 @@ private final class BridgeTransportResourceLeaseAuthorityGate: @unchecked Sendab
             revokedKeys.contains { key in
                 key.matches(resource: resource, paneId: paneId)
             }
+        }
+    }
+
+    func isRevoked(paneId: UUID, protocolId: String, resourceKind: String) -> Bool {
+        lock.withLock {
+            revokedKeys.contains { key in
+                guard key.paneId == paneId else { return false }
+                guard key.protocolId.map({ $0 == protocolId }) ?? true else { return false }
+                guard key.resourceKind.map({ $0 == resourceKind }) ?? true else { return false }
+                return true
+            }
+        }
+    }
+
+    func revocationRevision(paneId: UUID, protocolId: String, resourceKind: String) -> UInt64 {
+        lock.withLock {
+            revocationRevisionLocked(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
+        }
+    }
+
+    private func revocationRevisionLocked(paneId: UUID, protocolId: String, resourceKind: String) -> UInt64 {
+        revocationRevisionByKey.reduce(0) { partialResult, element in
+            let key = element.key
+            guard key.paneId == paneId else { return partialResult }
+            guard key.protocolId.map({ $0 == protocolId }) ?? true else { return partialResult }
+            guard key.resourceKind.map({ $0 == resourceKind }) ?? true else { return partialResult }
+            return partialResult &+ element.value
         }
     }
 }
@@ -70,6 +112,22 @@ actor BridgeTransportResourceLeaseRegistry {
         authorityGate.revoke(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
     }
 
+    nonisolated func isRevokedSynchronously(
+        paneId: UUID,
+        protocolId: String,
+        resourceKind: String
+    ) -> Bool {
+        authorityGate.isRevoked(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
+    }
+
+    nonisolated func revocationRevision(
+        paneId: UUID,
+        protocolId: String,
+        resourceKind: String
+    ) -> UInt64 {
+        authorityGate.revocationRevision(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
+    }
+
     @discardableResult
     func register(
         _ resource: BridgeTransportResourceURL,
@@ -93,11 +151,15 @@ actor BridgeTransportResourceLeaseRegistry {
         else {
             return false
         }
-        authorityGate.authorize(
-            paneId: lease.paneId,
-            protocolId: lease.resource.protocolId,
-            resourceKind: lease.resource.resourceKind
-        )
+        guard
+            authorityGate.authorize(
+                paneId: lease.paneId,
+                protocolId: lease.resource.protocolId,
+                resourceKind: lease.resource.resourceKind
+            )
+        else {
+            return false
+        }
         leasesByCanonicalURL[lease.resource.canonicalURL] = lease
         return true
     }
@@ -114,7 +176,9 @@ actor BridgeTransportResourceLeaseRegistry {
         revision: Int? = nil,
         cursor: String? = nil
     ) {
-        authorityGate.revoke(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
+        if generation == nil, revision == nil, cursor == nil {
+            authorityGate.revoke(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
+        }
         leasesByCanonicalURL = leasesByCanonicalURL.filter { _, lease in
             guard lease.paneId == paneId else { return true }
             guard protocolId.map({ lease.resource.protocolId == $0 }) ?? true else { return true }
@@ -131,7 +195,8 @@ actor BridgeTransportResourceLeaseRegistry {
         paneId: UUID,
         protocolId: String,
         resourceKind: String,
-        leases: [BridgeTransportResourceLease]
+        leases: [BridgeTransportResourceLease],
+        expectedRevocationRevision: UInt64? = nil
     ) -> Bool {
         for lease in leases {
             guard lease.paneId == paneId,
@@ -143,7 +208,16 @@ actor BridgeTransportResourceLeaseRegistry {
                 return false
             }
         }
-        authorityGate.authorize(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
+        guard
+            authorityGate.authorize(
+                paneId: paneId,
+                protocolId: protocolId,
+                resourceKind: resourceKind,
+                expectedRevocationRevision: expectedRevocationRevision
+            )
+        else {
+            return false
+        }
         leasesByCanonicalURL = leasesByCanonicalURL.filter { _, lease in
             !(lease.paneId == paneId
                 && lease.resource.protocolId == protocolId

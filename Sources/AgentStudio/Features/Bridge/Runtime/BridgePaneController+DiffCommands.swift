@@ -40,6 +40,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             let reviewGeneration = nextReviewGeneration.next()
             nextReviewGeneration = reviewGeneration
             await clearReviewContentAuthority()
+            let expectedRevocationRevision = reviewContentRevocationRevision()
             do {
                 let request = makeReviewPipelineRequest(
                     artifact: artifact,
@@ -75,7 +76,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 let contentRegisterStart = ContinuousClock.now
                 try await activateReviewContentHandles(
                     handles: result.registeredContentHandles,
-                    reviewGeneration: reviewGeneration
+                    reviewGeneration: reviewGeneration,
+                    expectedRevocationRevision: expectedRevocationRevision
                 )
                 await recordSwiftTelemetry(
                     name: "performance.bridge.swift.content_register",
@@ -112,7 +114,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func activateReviewContentHandles(
         handles: [BridgeContentHandle],
-        reviewGeneration: BridgeReviewGeneration
+        reviewGeneration: BridgeReviewGeneration,
+        expectedRevocationRevision: UInt64
     ) async throws {
         let leases: [BridgeTransportResourceLease]
         do {
@@ -125,7 +128,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             paneId: paneId,
             protocolId: "review",
             resourceKind: "content",
-            leases: leases
+            leases: leases,
+            expectedRevocationRevision: expectedRevocationRevision
         )
         guard replaced else {
             await clearReviewContentAuthority()
@@ -164,6 +168,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     func clearReviewContentAuthority() async {
         await reviewContentStore.deactivate()
         await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
+    }
+
+    private func reviewContentRevocationRevision() -> UInt64 {
+        resourceLeaseRegistry.revocationRevision(paneId: paneId, protocolId: "review", resourceKind: "content")
     }
 
     private func loadReviewPackage(worktreeId: UUID, correlationId: UUID?) async -> ActionResult {
@@ -208,6 +216,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func refreshCurrentReviewPackage() async {
         guard let currentPackage = paneState.diff.packageMetadata else { return }
+        let expectedRevocationRevision = reviewContentRevocationRevision()
         do {
             let packageTraceContext = makeRootTraceContext()
             let packageBuildStart = ContinuousClock.now
@@ -253,7 +262,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             let contentRegisterStart = ContinuousClock.now
             try await activateReviewContentHandles(
                 handles: result.registeredContentHandles,
-                reviewGeneration: result.package.reviewGeneration
+                reviewGeneration: result.package.reviewGeneration,
+                expectedRevocationRevision: expectedRevocationRevision
             )
             await recordSwiftTelemetry(
                 name: "performance.bridge.swift.content_register",

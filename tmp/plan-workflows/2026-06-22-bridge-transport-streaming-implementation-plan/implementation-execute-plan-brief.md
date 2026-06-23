@@ -697,3 +697,57 @@ recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 third-review findings are fixed with
 fresh scoped proof; the Bridge trust/transport boundary needs another review
 before ticket 02 begins.
+
+## Ticket 01 Fourth Review Follow-Up Fix
+
+Review verdict:
+
+- The review of `60fb99d7` returned `not_ready`.
+- Accepted findings were fixed in this follow-up pass.
+
+Accepted findings addressed:
+
+- Teardown could synchronously revoke current review/content authority, then an
+  already-running `loadDiff` could finish later and re-authorize leases.
+- Same-generation refreshes rejected otherwise-valid in-flight content loads
+  when the refreshed package preserved the same handle.
+- Filtered lease resets widened beyond their API contract because the
+  synchronous gate ignored generation/revision/cursor filters.
+- Invalid-refresh and teardown tests under-proved the intended authority
+  contracts.
+- Workflow-state history recorded the previous code-bearing checkpoint as
+  review-to-review instead of execute-to-review.
+
+Fresh proof:
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests'
+```
+
+Result: exit 0, 73 tests in 3 suites passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-webkit
+```
+
+Result: exit 0, WebKit serialized lane passed in 85.70s and explicitly ran 5
+`BridgePaneControllerContentAuthorityTests`.
+
+```bash
+mise run format
+mise run lint
+```
+
+Result: both exit 0; SwiftLint reported 0 violations in 1307 files,
+architecture lint passed, and release script verification passed.
+
+phase_result: complete
+evidence:
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 fourth-review findings are fixed with
+fresh scoped proof; the Bridge trust/transport boundary needs another review
+before ticket 02 begins.

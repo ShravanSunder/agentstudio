@@ -162,6 +162,39 @@ struct BridgeContentStoreTests {
         #expect(await provider.recordedContentRequestsCount() == 1)
     }
 
+    @Test("content store preserves unchanged in-flight loads across same-generation refresh")
+    func contentStorePreservesUnchangedInFlightLoadsAcrossSameGenerationRefresh() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("preserved")
+        )
+        let gate = BridgeContentLoadGate()
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "preserved")
+            ],
+            contentLoadGate: gate
+        )
+        let store = BridgeContentStore(provider: provider)
+        await store.activate(handles: [handle], reviewGeneration: 7)
+
+        async let preservedLoad = try store.load(handleId: handle.handleId, requestedGeneration: 7)
+        await gate.waitForStartedLoadCount(1)
+        await store.activate(handles: [handle], reviewGeneration: 7)
+        await gate.releaseAll()
+        let loaded = try await preservedLoad
+
+        #expect(loaded.data == Data("preserved".utf8))
+        #expect(await provider.recordedContentRequestsCount() == 1)
+    }
+
     @Test("content store observations identify in-flight coalesced loads")
     func contentStoreObservationsIdentifyInFlightCoalescedLoads() async throws {
         let handle = makeBridgeContentHandle(
