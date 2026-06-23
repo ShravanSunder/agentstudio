@@ -529,7 +529,7 @@ final class BridgeSchemeHandlerTests {
         }
 
         #expect(eventOrder == ["response"])
-        #expect(await provider.recordedContentRequestsCount() == 1)
+        #expect(await provider.recordedContentRequestsCount() == 0)
     }
 
     @Test

@@ -157,6 +157,22 @@ describe('bridge resource URL', () => {
 		expect(parsed).toBeNull();
 	});
 
+	test('rejects double-encoded traversal resource identifiers', () => {
+		const parsed = parseBridgeResourceUrl(
+			'agentstudio://resource/review/content/%252e%252e?generation=7',
+		);
+
+		expect(parsed).toBeNull();
+	});
+
+	test('rejects double-encoded slash resource identifiers', () => {
+		const parsed = parseBridgeResourceUrl(
+			'agentstudio://resource/review/content/content%252F123?generation=7',
+		);
+
+		expect(parsed).toBeNull();
+	});
+
 	test('rejects malformed percent encoded resource paths without throwing', () => {
 		const parsed = parseBridgeResourceUrl(
 			'agentstudio://resource/review/content/%E0%A4%A?generation=7',

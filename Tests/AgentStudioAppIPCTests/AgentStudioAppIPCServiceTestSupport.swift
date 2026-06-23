@@ -357,7 +357,7 @@ struct FakeBridgePort: AppIPCBridgePort {
                 reviewGeneration: 1
             ),
             presentation: IPCBridgeContentHandlePresentation(
-                resourceUrl: "agentstudio://resource/content/\(contentHandleId)?generation=1",
+                resourceUrl: "agentstudio://resource/review/content/\(contentHandleId)?generation=1",
                 mimeType: "text/x-swift",
                 language: "swift"
             ),

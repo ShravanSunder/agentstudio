@@ -72,6 +72,34 @@ actor BridgeTransportResourceLeaseRegistry {
         }
     }
 
+    @discardableResult
+    func replace(
+        paneId: UUID,
+        protocolId: String,
+        resourceKind: String,
+        leases: [BridgeTransportResourceLease]
+    ) -> Bool {
+        for lease in leases {
+            guard lease.paneId == paneId,
+                lease.resource.protocolId == protocolId,
+                lease.resource.resourceKind == resourceKind,
+                lease.descriptorId == lease.resource.opaqueId,
+                lease.maxBytes.map({ $0 >= 0 }) ?? true
+            else {
+                return false
+            }
+        }
+        leasesByCanonicalURL = leasesByCanonicalURL.filter { _, lease in
+            !(lease.paneId == paneId
+                && lease.resource.protocolId == protocolId
+                && lease.resource.resourceKind == resourceKind)
+        }
+        for lease in leases {
+            leasesByCanonicalURL[lease.resource.canonicalURL] = lease
+        }
+        return true
+    }
+
     func contains(_ resource: BridgeTransportResourceURL, paneId: UUID, contentLength: Int? = nil) -> Bool {
         guard let lease = leasesByCanonicalURL[resource.canonicalURL] else {
             return false

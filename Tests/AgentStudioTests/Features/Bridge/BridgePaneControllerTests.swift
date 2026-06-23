@@ -677,6 +677,12 @@ extension WebKitSerializedTests {
                 requestedGeneration: 1
             )
             #expect(registered.handle == headHandle)
+            let headResource = try #require(
+                BridgeTransportResourceURL.parse(
+                    headHandle.resourceUrl,
+                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
+                ))
+            #expect(await controller.resourceLeaseRegistry.contains(headResource, paneId: controller.paneId) == true)
         }
 
         @Test("filesystem context refresh preserves revisions across changed and no-op packages")

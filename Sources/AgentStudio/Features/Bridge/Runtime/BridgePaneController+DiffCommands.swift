@@ -39,6 +39,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             paneState.diff.setPackageDelta(nil)
             let reviewGeneration = nextReviewGeneration.next()
             nextReviewGeneration = reviewGeneration
+            await clearReviewContentAuthority()
             do {
                 let request = makeReviewPipelineRequest(
                     artifact: artifact,
@@ -114,25 +115,37 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         reviewGeneration: BridgeReviewGeneration
     ) async {
         await reviewContentStore.activate(handles: handles, reviewGeneration: reviewGeneration)
-        await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
+        var leases: [BridgeTransportResourceLease] = []
         for handle in handles where handle.reviewGeneration == reviewGeneration {
             guard
                 let resource = BridgeTransportResourceURL.parse(
                     handle.resourceUrl,
-                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
+                    allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
                 ),
                 resource.opaqueId == handle.handleId,
                 resource.generation == reviewGeneration.rawValue
             else {
                 continue
             }
-            await resourceLeaseRegistry.register(
-                resource,
-                paneId: paneId,
-                descriptorId: resource.opaqueId,
-                maxBytes: handle.sizeBytes
-            )
+            leases.append(
+                BridgeTransportResourceLease(
+                    paneId: paneId,
+                    descriptorId: resource.opaqueId,
+                    resource: resource,
+                    maxBytes: handle.sizeBytes
+                ))
         }
+        await resourceLeaseRegistry.replace(
+            paneId: paneId,
+            protocolId: "review",
+            resourceKind: "content",
+            leases: leases
+        )
+    }
+
+    func clearReviewContentAuthority() async {
+        await reviewContentStore.deactivate()
+        await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
     }
 
     private func loadReviewPackage(worktreeId: UUID, correlationId: UUID?) async -> ActionResult {

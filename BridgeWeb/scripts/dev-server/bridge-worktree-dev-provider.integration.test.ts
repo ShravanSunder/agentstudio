@@ -43,8 +43,8 @@ describe('Bridge worktree dev provider', () => {
 			expect(modifiedSourceItem.language).toBe('typescript');
 			expect(packageJson).not.toContain('new docs body');
 			expect(packageJson).not.toContain('export const value = 2');
-			expect(docsHeadHandle?.resourceUrl).toContain('agentstudio://resource/content/');
-			expect(sourceHeadHandle?.resourceUrl).toContain('agentstudio://resource/content/');
+			expect(docsHeadHandle?.resourceUrl).toContain('agentstudio://resource/review/content/');
+			expect(sourceHeadHandle?.resourceUrl).toContain('agentstudio://resource/review/content/');
 			expect(docsHeadHandle?.sizeBytes).toBeGreaterThan(0);
 
 			const docsContent = await provider.loadContent(contentRequestForHandle(docsHeadHandle));

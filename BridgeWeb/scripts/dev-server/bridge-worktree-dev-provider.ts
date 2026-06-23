@@ -429,7 +429,7 @@ function makeHandleForContent(props: {
 		role: props.role,
 		endpointId: props.endpointId,
 		reviewGeneration,
-		resourceUrl: `agentstudio://resource/content/${handleId}?generation=${reviewGeneration}&revision=${props.revision}`,
+		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${reviewGeneration}&revision=${props.revision}`,
 		contentHash,
 		contentHashAlgorithm: 'sha256',
 		cacheKey: `${props.itemId}:${props.role}:${contentHash}`,

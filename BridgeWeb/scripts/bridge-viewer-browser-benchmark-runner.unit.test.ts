@@ -102,7 +102,7 @@ describe('bridge viewer browser benchmark runner', () => {
 							...(scenarioId === 'warm-added-file'
 								? {
 										contentUrls: [
-											'agentstudio://resource/content/handle-browser-added-source-head?generation=1',
+											'agentstudio://resource/review/content/handle-browser-added-source-head?generation=1',
 											'https://example.test/not-bridge',
 										],
 										contentUrlsScopedToBridgeResource: false,
@@ -168,7 +168,7 @@ function makeMetric(props: {
 			Array.from(
 				{ length: scenarioContract.minimumContentUrlCount },
 				(_value, index): string =>
-					`agentstudio://resource/content/handle-browser-source-${index}-head?generation=1`,
+					`agentstudio://resource/review/content/handle-browser-source-${index}-head?generation=1`,
 			)),
 	];
 	const samples = [...(props.samples ?? [10, 12])];

@@ -172,7 +172,7 @@ function parseUrl(resourceUrl: string): URL | null {
 }
 
 function resourcePathSegments(parsedUrl: URL): readonly string[] | null {
-	const decodedPath = decodePathComponentOrNull(parsedUrl.pathname);
+	const decodedPath = stableDecodePathComponentOrNull(parsedUrl.pathname);
 	if (decodedPath === null) {
 		return null;
 	}
@@ -183,8 +183,8 @@ function resourcePathSegments(parsedUrl: URL): readonly string[] | null {
 	for (const segment of parsedUrl.pathname
 		.split('/')
 		.filter((pathSegment: string): boolean => pathSegment.length > 0)) {
-		const decodedSegment = decodePathComponentOrNull(segment);
-		if (decodedSegment === null) {
+		const decodedSegment = stableDecodePathComponentOrNull(segment);
+		if (decodedSegment === null || decodedSegment.includes('/')) {
 			return null;
 		}
 		decodedSegments.push(decodedSegment);
@@ -198,6 +198,20 @@ function decodePathComponentOrNull(value: string): string | null {
 	} catch {
 		return null;
 	}
+}
+
+function stableDecodePathComponentOrNull(value: string): string | null {
+	let decodedValue = value;
+	let previousValue: string | null = null;
+	while (decodedValue !== previousValue) {
+		previousValue = decodedValue;
+		const nextValue = decodePathComponentOrNull(decodedValue);
+		if (nextValue === null) {
+			return null;
+		}
+		decodedValue = nextValue;
+	}
+	return decodedValue;
 }
 
 function queryEntriesFor(parsedUrl: URL): QueryEntries {

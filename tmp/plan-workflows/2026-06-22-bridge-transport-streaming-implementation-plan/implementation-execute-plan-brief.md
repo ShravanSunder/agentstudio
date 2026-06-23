@@ -529,3 +529,124 @@ recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 second review-fix findings are
 addressed with fresh scoped proof; the fixed trust/transport boundary needs
 review again before ticket 02 begins.
+
+## Ticket 01 Third Review-Fix Checkpoint
+
+Commit:
+
+- pending
+
+Review findings addressed:
+
+- Dev-server, contract fixture, IPC fixture, and benchmark fixture resource URLs
+  now use protocol-scoped review content URLs.
+- Browser content URL parsing now stable-decodes path segments to a fixed point
+  and rejects decoded slash separators inside opaque id segments.
+- `HEAD` content requests now emit metadata-only responses through
+  `BridgeContentStore.metadata` without provider materialization.
+- Controller-owned content lease registration is directly asserted after
+  `loadDiff` publishes package metadata.
+- Failed reloads clear prior review content authority before the new generation
+  can fail, with a dedicated WebKit-serialized controller test.
+- Lease replacement is batch-validated and swapped by pane/protocol/kind through
+  `BridgeTransportResourceLeaseRegistry.replace`.
+- The Swift worktree-file registry no longer advertises the unimplemented
+  `file-content` kind.
+- Bridge pane teardown now deactivates review content store state and resets
+  review/content leases.
+- The new controller content-authority suite is included in the WebKit
+  serialized lane and guarded by a script test.
+
+Fresh proof after third review-fix patch:
+
+```bash
+pnpm --dir BridgeWeb run check
+```
+
+Result: exit 0, oxlint, BridgeWeb architecture check, oxfmt, and TypeScript
+passed.
+
+```bash
+pnpm --dir BridgeWeb exec vitest run \
+  src/core/resources/bridge-resource-registry.unit.test.ts \
+  src/bridge/bridge-resource-url.unit.test.ts \
+  src/review-viewer/content/review-content-registry.unit.test.ts \
+  src/review-viewer/content/review-content-loader.unit.test.ts \
+  src/review-viewer/projections/review-item-window-registry.unit.test.ts \
+  src/review-viewer/test-support/bridge-viewer-mocked-backend.unit.test.ts \
+  scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts \
+  src/foundation/review-package/bridge-contract-fixtures.unit.test.ts
+```
+
+Result: exit 0, 8 files passed, 68 tests passed.
+
+```bash
+pnpm --dir BridgeWeb exec vitest run \
+  scripts/bridge-viewer-browser-benchmark-runner.unit.test.ts
+```
+
+Result: exit 0, 1 file passed, 8 tests passed.
+
+```bash
+bash scripts/bridge-web-sync-fixtures.sh --check
+```
+
+Result: exit 0, BridgeWeb fixtures in sync, 17 files.
+
+```bash
+SWIFT_TEST_SKIP_PREBUILD=1 SWIFT_TEST_TIMEOUT_SECONDS=60 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter \
+  'BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests|BridgeGitReviewSourceProviderTests|BridgeReviewDeltaBuilderTests|BridgePushEnvelopeEncoderTests|BridgeReviewFoundationContractTests'
+```
+
+Result: exit 0, 74 tests in 6 suites passed.
+
+```bash
+SWIFT_TEST_SKIP_PREBUILD=1 SWIFT_TEST_TIMEOUT_SECONDS=60 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter \
+  'AgentStudioIPCBridgeServiceTests|AgentStudioAppIPCServiceTests'
+```
+
+Result: exit 0, 31 tests in 2 suites passed.
+
+```bash
+SWIFT_TEST_SKIP_PREBUILD=1 SWIFT_TEST_TIMEOUT_SECONDS=60 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-webkit
+```
+
+Result: exit 0, WebKit serialized lane passed in 62.52s and explicitly ran
+`WebKitSerializedTests/BridgePaneControllerContentAuthorityTests`.
+
+```bash
+mise run format && mise run lint
+```
+
+Result: exit 0, swift-format OK, SwiftLint 0 violations / 0 serious across
+1307 files, AgentStudio architecture lint OK, release script verification
+passed.
+
+```bash
+rg -n "agentstudio://resource/content/" BridgeWeb Sources Tests scripts \
+  --glob '!BridgeWeb/scripts/check-bridgeweb-architecture.unit.test.ts' \
+  --glob '!Tests/AgentStudioTests/Features/Bridge/BridgeSchemeHandlerTests.swift'
+```
+
+Result: exit 1, no active-source legacy content URL matches outside intentional
+negative fixtures.
+
+Broad Swift health:
+
+- Not claimed as green for ticket 01.
+- Existing external blocker remains `CommandBarDataSourceTests/
+  test_commandsScope_includesOpenBridgeReview`, expected `Open Bridge Review`
+  versus actual `Review`.
+- This remains outside the ticket-01 transport/security write scope and should
+  not be fixed as part of the ticket-01 review-finding patch.
+
+phase_result: complete
+evidence: current worktree patch, the commands above, and
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-second-review-fix/report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 second-review findings are addressed
+with fresh scoped proof; the Bridge trust/transport boundary needs review again
+before ticket 02 begins.

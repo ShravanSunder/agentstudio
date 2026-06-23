@@ -56,6 +56,19 @@ actor BridgeContentStore {
         }
     }
 
+    func deactivate() {
+        activeReviewGeneration = nil
+        handleByKey.removeAll(keepingCapacity: true)
+        keyByHandleId.removeAll(keepingCapacity: true)
+        for key in contentByKey.keys {
+            removeCachedContent(for: key)
+        }
+        for (_, task) in inFlightLoadByKey {
+            task.cancel()
+        }
+        inFlightLoadByKey.removeAll(keepingCapacity: true)
+    }
+
     func register(_ handle: BridgeContentHandle) {
         activeReviewGeneration = activeReviewGeneration ?? handle.reviewGeneration
         let key = contentKey(for: handle)
@@ -180,6 +193,21 @@ actor BridgeContentStore {
                 cacheResult: .providerLoad
             )
         }
+    }
+
+    func metadata(handleId: String, requestedGeneration: BridgeReviewGeneration) throws -> BridgeContentHandle {
+        try validateActiveGeneration(requestedGeneration)
+        guard let key = keyByHandleId[handleId], let handle = handleByKey[key] else {
+            throw BridgeProviderFailure.missingContent(handleId: handleId)
+        }
+        try validateHandleCanLoad(handle)
+        guard key.reviewGeneration == requestedGeneration else {
+            throw BridgeProviderFailure.staleReviewGeneration(
+                storedGeneration: key.reviewGeneration,
+                requestedGeneration: requestedGeneration
+            )
+        }
+        return handle
     }
 
     private func validateActiveGeneration(_ requestedGeneration: BridgeReviewGeneration) throws {

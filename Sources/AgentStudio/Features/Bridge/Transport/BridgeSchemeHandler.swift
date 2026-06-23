@@ -228,6 +228,10 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         emissionRequest: BridgeSchemeContentEmissionRequest,
         continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
     ) async {
+        if emissionRequest.readMethod == .head {
+            await emitContentHead(emissionRequest: emissionRequest, continuation: continuation)
+            return
+        }
         let traceContext = Self.traceContext(from: emissionRequest.request)
         let hasTraceparentHeader = Self.traceparentHeader(from: emissionRequest.request) != nil
         let loadStart = ContinuousClock.now
@@ -287,6 +291,38 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
             )
             continuation.finish(throwing: failure.underlyingError)
+        } catch {
+            continuation.finish(throwing: error)
+        }
+    }
+
+    private func emitContentHead(
+        emissionRequest: BridgeSchemeContentEmissionRequest,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) async {
+        do {
+            let handle = try await contentStore.metadata(
+                handleId: emissionRequest.handleId,
+                requestedGeneration: emissionRequest.generation
+            )
+            guard
+                await resourceLeaseRegistry.contains(
+                    emissionRequest.leasedResource,
+                    paneId: paneId,
+                    contentLength: handle.sizeBytes
+                )
+            else {
+                continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                return
+            }
+            continuation.yield(
+                .response(
+                    Self.response(
+                        url: emissionRequest.url,
+                        mimeType: handle.mimeType,
+                        expectedContentLength: handle.sizeBytes
+                    )))
+            continuation.finish()
         } catch {
             continuation.finish(throwing: error)
         }

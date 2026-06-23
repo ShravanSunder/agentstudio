@@ -513,6 +513,13 @@ final class BridgePaneController {
         agentPushPlan = nil
         activeReviewRefreshTask = nil
         hasPendingReviewRefresh = false
+        let reviewContentStore = reviewContentStore
+        let resourceLeaseRegistry = resourceLeaseRegistry
+        let paneId = paneId
+        Task {
+            await reviewContentStore.deactivate()
+            await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
+        }
         runtime.resetForControllerTeardown()
         lastPushed.removeAll()
         isBridgeReady = false

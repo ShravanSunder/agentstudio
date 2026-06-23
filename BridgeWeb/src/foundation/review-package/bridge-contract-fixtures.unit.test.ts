@@ -18,6 +18,15 @@ describe('bridge review contract fixtures', () => {
 
 		expect(reviewPackage.reviewGeneration).toBe(42);
 		expect(reviewPackage.revision).toBe(1);
+		expect(reviewPackage.itemsById['item-file-source-1']?.contentRoles.base?.resourceUrl).toBe(
+			'agentstudio://resource/review/content/handle-source-base?generation=42',
+		);
+		expect(reviewPackage.itemsById['item-file-source-1']?.contentRoles.head?.resourceUrl).toBe(
+			'agentstudio://resource/review/content/handle-source-head?generation=42',
+		);
+		expect(reviewPackage.itemsById['item-file-generated-1']?.contentRoles.head?.resourceUrl).toBe(
+			'agentstudio://resource/review/content/handle-generated-head?generation=42',
+		);
 		expect(checkpoint.checkpointKind).toBe('prompt');
 		expect(delta.operations.invalidateContent).toEqual(['handle-generated-head']);
 		expect(delta.operations.updateGroups).toBeNull();

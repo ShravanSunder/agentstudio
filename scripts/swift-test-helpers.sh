@@ -97,6 +97,7 @@ run_large_non_webkit_swift_tests() {
 webkit_suite_filters() {
   cat <<'EOF'
 WebKitSerializedTests/BridgePaneControllerTests
+WebKitSerializedTests/BridgePaneControllerContentAuthorityTests
 WebKitSerializedTests/BridgeSchemeHandlerSpikeTests
 WebKitSerializedTests/BridgeContentWorldIsolationTests
 WebKitSerializedTests/BridgePaneControllerIPCProjectionTests
