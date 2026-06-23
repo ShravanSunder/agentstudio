@@ -58,6 +58,7 @@ final class BridgePaneController {
     let reviewChangeIndex = BridgeChangeIndex()
     let bridgePaneState: BridgePaneState
     var nextReviewGeneration: BridgeReviewGeneration = 0
+    var nextWorktreeFileSurfaceGeneration = 0
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
@@ -397,6 +398,11 @@ final class BridgePaneController {
         router.register(method: DiffMethods.LoadDiffMethod.self) { @MainActor [weak self] params in
             try await self?.handleLoadDiffRPC(params)
             return nil
+        }
+        typealias OpenWorktreeFileSurface = WorktreeFileSurfaceMethods.OpenSourceStreamMethod
+        router.register(method: OpenWorktreeFileSurface.self) { @MainActor [weak self] params in
+            guard let self else { return nil }
+            return try await self.handleWorktreeFileSurfaceOpenSourceStream(params)
         }
 
         // review namespace

@@ -120,6 +120,37 @@ SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
 mise run test-fast -- --filter 'BridgeWorktreeFileSurfaceTests|BridgeWorktreeFileSourceProviderTests|BridgeWorktreeFileSurfaceNativeTests|BridgeReviewPipelineTests|BridgeSchemeHandlerTests|BridgeTransportIntegrationTests'
 ```
 
+Current native transport entry proof adds:
+
+- `BridgeWorktreeFileSurfaceTransportTests`
+- `WorktreeFileSurfaceMethods.OpenSourceStreamMethod`
+- `BridgePaneController+WorktreeFileSurface`
+
+The focused Ticket 03 Swift gate should include the transport test:
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=120 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+mise run test-fast -- --filter 'BridgeWorktreeFileSurfaceTests|BridgeWorktreeFileSourceProviderTests|BridgeWorktreeFileSurfaceNativeTests|BridgeWorktreeFileSurfaceTransportTests|BridgeReviewPipelineTests|BridgeSchemeHandlerTests|BridgeTransportIntegrationTests'
+```
+
+Proof captured 2026-06-23:
+
+- red: `BridgeWorktreeFileSurfaceTransportTests` failed because the
+  `worktreeFileSurface.openSourceStream` RPC response had no `result`
+- green: same focused test passed with 1 selected test after native method
+  registration, host-owned worktree authority resolution, descriptor lease
+  registration, and off-main exact tree path count
+- gate: focused Ticket 03 Swift command above passed with 83 selected tests in
+  6 suites
+- quality: `mise run lint` passed; swift-format OK, SwiftLint 0 violations,
+  architecture lint OK, release script checks passed
+- browser quality: `pnpm --dir BridgeWeb run check` passed; oxlint
+  type-aware, BridgeWeb architecture check, oxfmt, and `tsc --noEmit` all
+  passed
+- fixtures: `bash scripts/bridge-web-sync-fixtures.sh --check` passed with 17
+  files in sync
+
 Focused suites should include or add:
 
 - `BridgeWorktreeFileSurfaceTests`
