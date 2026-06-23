@@ -292,7 +292,7 @@ function makeContentHandle(
 		role,
 		endpointId: role === 'base' ? 'endpoint-base' : 'endpoint-head',
 		reviewGeneration: props.reviewGeneration,
-		resourceUrl: `agentstudio://resource/content/${handleId}?generation=${props.reviewGeneration}`,
+		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${props.reviewGeneration}`,
 		contentHash: createHash('sha256').update(`${props.path}:${role}`).digest('hex'),
 		contentHashAlgorithm: 'sha256',
 		cacheKey: `${props.itemId}:${role}`,

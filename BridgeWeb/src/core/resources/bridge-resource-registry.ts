@@ -126,6 +126,7 @@ function descriptorResourceURLMatches(
 	return (
 		parsedResourceURL.protocol === descriptor.protocol &&
 		parsedResourceURL.resourceKind === descriptor.resourceKind &&
+		parsedResourceURL.opaqueId === descriptor.descriptorId &&
 		parsedResourceURL.generation === descriptor.identity.generation &&
 		parsedResourceURL.revision === descriptor.identity.revision &&
 		parsedResourceURL.cursor === descriptor.identity.cursor

@@ -33,7 +33,7 @@ describe('review content registry', () => {
 		expect(first.text).toBe('loaded once');
 		expect(second.text).toBe('loaded once');
 		expect(requestedUrls).toEqual([
-			'agentstudio://resource/content/handle-item-source-head?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
 		]);
 		expect(registry.snapshot()).toMatchObject({
 			cachedResourceCount: 1,
@@ -71,9 +71,9 @@ describe('review content registry', () => {
 
 		expect(reloadedFirst.text).toBe('first body reloaded');
 		expect(requestedUrls).toEqual([
-			'agentstudio://resource/content/handle-item-source-head?generation=1',
-			'agentstudio://resource/content/handle-item-renamed-head?generation=1',
-			'agentstudio://resource/content/handle-item-source-head?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+			'agentstudio://resource/review/content/handle-item-renamed-head?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
 		]);
 		expect(registry.snapshot()).toMatchObject({
 			cachedResourceCount: 1,
@@ -207,7 +207,8 @@ describe('review content registry', () => {
 		const secondHandle: BridgeContentHandle = {
 			...firstHandle,
 			reviewGeneration: 2,
-			resourceUrl: 'agentstudio://resource/content/handle-item-source-head?generation=2&revision=1',
+			resourceUrl:
+				'agentstudio://resource/review/content/handle-item-source-head?generation=2&revision=1',
 		};
 		const requestedUrls: string[] = [];
 
@@ -237,8 +238,8 @@ describe('review content registry', () => {
 		});
 
 		expect(requestedUrls).toEqual([
-			'agentstudio://resource/content/handle-item-source-head?generation=1',
-			'agentstudio://resource/content/handle-item-source-head?generation=2&revision=1',
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-head?generation=2&revision=1',
 		]);
 		expect(registry.snapshot().cachedResourceCount).toBe(1);
 	});
@@ -268,11 +269,12 @@ describe('review content registry', () => {
 	test('canonicalizes resource keys through the shared parser', () => {
 		const handle: BridgeContentHandle = {
 			...makeBridgeContentHandle('item-source', 'head'),
-			resourceUrl: 'agentstudio://resource/content/handle-item-source-head?revision=4&generation=1',
+			resourceUrl:
+				'agentstudio://resource/review/content/handle-item-source-head?revision=4&generation=1',
 		};
 
 		expect(canonicalContentResourceKey(handle)).toBe(
-			'agentstudio://resource/content/handle-item-source-head?generation=1&revision=4',
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1&revision=4',
 		);
 	});
 });

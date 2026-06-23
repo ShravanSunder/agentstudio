@@ -52,6 +52,7 @@ final class BridgePaneController {
     // MARK: - Domain State
 
     let revisionClock = RevisionClock()
+    let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
     let reviewContentStore: BridgeContentStore
     let reviewPipeline: BridgeReviewPipeline
     let reviewChangeIndex = BridgeChangeIndex()
@@ -202,6 +203,8 @@ final class BridgePaneController {
             config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
                 paneId: paneId,
                 contentStore: reviewContentStore,
+                resourceLeaseRegistry: resourceLeaseRegistry,
+                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
                 telemetryRecorder: resolvedTelemetryRecorder
             )
         }

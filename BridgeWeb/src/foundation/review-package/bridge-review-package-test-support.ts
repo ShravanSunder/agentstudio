@@ -20,7 +20,7 @@ export function makeBridgeContentHandle(
 		role,
 		endpointId: role === 'base' ? 'endpoint-base' : 'endpoint-head',
 		reviewGeneration: 1,
-		resourceUrl: `agentstudio://resource/content/${handleId}?generation=1`,
+		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=1`,
 		contentHash: `sha256:${itemId}:${role}`,
 		contentHashAlgorithm: 'sha256',
 		cacheKey: `${itemId}:${role}`,

@@ -39,7 +39,7 @@ describe('review item window registry', () => {
 		expect(window.itemIds).toEqual(['source-high', 'source-normal']);
 		expect(window.items[0]?.itemId).toBe('source-high');
 		expect(window.items[0]?.contentRoles.head?.resourceUrl).toContain(
-			'agentstudio://resource/content/',
+			'agentstudio://resource/review/content/',
 		);
 		expect(registry.snapshot()).toMatchObject({
 			cachedWindowCount: 1,
@@ -195,7 +195,7 @@ describe('review item window registry', () => {
 				range: { kind: 'list', itemIds: ['item-b', 'item-a'] },
 			}),
 		).toBe(
-			'agentstudio://resource/review-items/package-1?generation=7&itemIds=item-b%2Citem-a&rangeKind=list&revision=3',
+			'agentstudio://resource/review/review-items/package-1?generation=7&itemIds=item-b%2Citem-a&rangeKind=list&revision=3',
 		);
 		expect(
 			makeBridgeReviewItemsResourceUrl({
@@ -205,7 +205,7 @@ describe('review item window registry', () => {
 				range: { kind: 'itemWindow', cursor: 'cursor-1', start: 4, end: 9 },
 			}),
 		).toBe(
-			'agentstudio://resource/review-items/package-1?cursor=cursor-1&end=9&generation=7&rangeKind=itemWindow&revision=3&start=4',
+			'agentstudio://resource/review/review-items/package-1?cursor=cursor-1&end=9&generation=7&rangeKind=itemWindow&revision=3&start=4',
 		);
 	});
 });

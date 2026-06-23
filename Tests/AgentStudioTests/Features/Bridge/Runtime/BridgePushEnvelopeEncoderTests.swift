@@ -114,7 +114,7 @@ struct BridgePushEnvelopeEncoderTests {
                 sequence: 9
             ),
             payload: Data(
-                #"{"resourceUrl":"agentstudio://resource/content/leak","path":"/private/tmp/leak.swift"}"#.utf8),
+                #"{"resourceUrl":"agentstudio://resource/review/content/leak","path":"/private/tmp/leak.swift"}"#.utf8),
             traceContext: traceContext
         )
 
@@ -132,7 +132,7 @@ struct BridgePushEnvelopeEncoderTests {
         let decodedTraceContext = try #require(object["__traceContext"] as? [String: Any])
         let decodedPayload = try #require(object["payload"] as? [String: Any])
         #expect(decodedTraceContext["traceId"] as? String == traceContext.traceId)
-        #expect(decodedPayload["resourceUrl"] as? String == "agentstudio://resource/content/leak")
+        #expect(decodedPayload["resourceUrl"] as? String == "agentstudio://resource/review/content/leak")
         #expect(decodedPayload["path"] as? String == "/private/tmp/leak.swift")
     }
 

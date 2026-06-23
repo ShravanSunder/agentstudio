@@ -710,7 +710,7 @@ function makeBrowserContentHandle(
 	return {
 		...handle,
 		reviewGeneration: 338,
-		resourceUrl: `agentstudio://resource/content/${handle.handleId}?generation=338`,
+		resourceUrl: `agentstudio://resource/review/content/${handle.handleId}?generation=338`,
 		mimeType: extension === 'md' ? 'text/markdown' : 'text/typescript',
 		language,
 		sizeBytes: 512,
@@ -785,10 +785,11 @@ function hunkedBrowserDiffText(label: 'base' | 'head'): string {
 
 function handleIdFromResourceUrl(url: string): string | null {
 	const parsedUrl = new URL(url);
-	const [, resourceKind, handleId] = parsedUrl.pathname.split('/');
+	const [, protocolId, resourceKind, handleId] = parsedUrl.pathname.split('/');
 	if (
 		parsedUrl.protocol !== 'agentstudio:' ||
 		parsedUrl.hostname !== 'resource' ||
+		protocolId !== 'review' ||
 		resourceKind !== 'content'
 	) {
 		return null;

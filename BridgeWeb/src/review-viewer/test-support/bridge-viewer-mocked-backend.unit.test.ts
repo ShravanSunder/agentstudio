@@ -123,11 +123,11 @@ describe('bridge viewer mocked backend', () => {
 			contentFailures: [fixture.expected.secondHeadHandleId],
 		});
 		const failedResponse = await failedBackend.fetchContent(
-			`agentstudio://resource/content/${fixture.expected.secondHeadHandleId}?generation=338`,
+			`agentstudio://resource/review/content/${fixture.expected.secondHeadHandleId}?generation=338`,
 		);
 		expect(failedResponse.status).toBe(503);
 		expect(failedBackend.requestedUrls).toEqual([
-			`agentstudio://resource/content/${fixture.expected.secondHeadHandleId}?generation=338`,
+			`agentstudio://resource/review/content/${fixture.expected.secondHeadHandleId}?generation=338`,
 		]);
 		failedBackend.dispose();
 
@@ -135,7 +135,7 @@ describe('bridge viewer mocked backend', () => {
 			deferContentHandleIds: [fixture.expected.secondHeadHandleId],
 		});
 		const deferredResponsePromise = deferredBackend.fetchContent(
-			`agentstudio://resource/content/${fixture.expected.secondHeadHandleId}?generation=338`,
+			`agentstudio://resource/review/content/${fixture.expected.secondHeadHandleId}?generation=338`,
 		);
 		await flushMockedBackendMicrotasks();
 		expect(deferredBackend.pendingContentResponses).toHaveLength(1);

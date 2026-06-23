@@ -5,7 +5,7 @@ import { parseBridgeContentResourceUrl, parseBridgeResourceUrl } from './bridge-
 describe('bridge resource URL', () => {
 	test('parses content handle and generation', () => {
 		const parsed = parseBridgeContentResourceUrl(
-			'agentstudio://resource/content/handle-1?generation=7',
+			'agentstudio://resource/review/content/handle-1?generation=7',
 		);
 
 		expect(parsed).toEqual({ handleId: 'handle-1', generation: 7 });
@@ -13,7 +13,7 @@ describe('bridge resource URL', () => {
 
 	test('parses content handle with optional revision for worktree dev resources', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/content/handle-1?generation=7&revision=3',
+			'agentstudio://resource/review/content/handle-1?generation=7&revision=3',
 		);
 
 		expect(parsed).toEqual({
@@ -22,7 +22,7 @@ describe('bridge resource URL', () => {
 			generation: 7,
 			revision: 3,
 			range: { kind: 'whole' },
-			canonicalUrl: 'agentstudio://resource/content/handle-1?generation=7&revision=3',
+			canonicalUrl: 'agentstudio://resource/review/content/handle-1?generation=7&revision=3',
 		});
 	});
 
@@ -34,7 +34,7 @@ describe('bridge resource URL', () => {
 
 	test('parses canonical review package resources', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/review-package/package-1?generation=7&revision=3',
+			'agentstudio://resource/review/review-package/package-1?generation=7&revision=3',
 		);
 
 		expect(parsed).toEqual({
@@ -42,13 +42,14 @@ describe('bridge resource URL', () => {
 			packageId: 'package-1',
 			generation: 7,
 			revision: 3,
-			canonicalUrl: 'agentstudio://resource/review-package/package-1?generation=7&revision=3',
+			canonicalUrl:
+				'agentstudio://resource/review/review-package/package-1?generation=7&revision=3',
 		});
 	});
 
 	test('parses review item cursor windows', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/review-items/package-1?generation=7&revision=3&rangeKind=itemWindow&cursor=cursor-1&start=10&end=18',
+			'agentstudio://resource/review/review-items/package-1?generation=7&revision=3&rangeKind=itemWindow&cursor=cursor-1&start=10&end=18',
 		);
 
 		expect(parsed).toEqual({
@@ -63,13 +64,13 @@ describe('bridge resource URL', () => {
 				end: 18,
 			},
 			canonicalUrl:
-				'agentstudio://resource/review-items/package-1?cursor=cursor-1&end=18&generation=7&rangeKind=itemWindow&revision=3&start=10',
+				'agentstudio://resource/review/review-items/package-1?cursor=cursor-1&end=18&generation=7&rangeKind=itemWindow&revision=3&start=10',
 		});
 	});
 
 	test('parses explicit review item lists without sorting item ids', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/review-items/package-1?revision=3&generation=7&rangeKind=list&itemIds=item-b,item-a',
+			'agentstudio://resource/review/review-items/package-1?revision=3&generation=7&rangeKind=list&itemIds=item-b,item-a',
 		);
 
 		expect(parsed).toEqual({
@@ -82,13 +83,13 @@ describe('bridge resource URL', () => {
 				itemIds: ['item-b', 'item-a'],
 			},
 			canonicalUrl:
-				'agentstudio://resource/review-items/package-1?generation=7&itemIds=item-b%2Citem-a&rangeKind=list&revision=3',
+				'agentstudio://resource/review/review-items/package-1?generation=7&itemIds=item-b%2Citem-a&rangeKind=list&revision=3',
 		});
 	});
 
 	test('rejects review item lists that exceed the explicit item budget', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/review-items/package-1?revision=3&generation=7&rangeKind=list&itemIds=item-a,item-b,item-c',
+			'agentstudio://resource/review/review-items/package-1?revision=3&generation=7&rangeKind=list&itemIds=item-a,item-b,item-c',
 			{ reviewItemsBudget: { maxExplicitItemIds: 2, maxCursorWindowItems: 8 } },
 		);
 
@@ -97,7 +98,7 @@ describe('bridge resource URL', () => {
 
 	test('rejects review item cursor windows that exceed the cursor budget', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/review-items/package-1?generation=7&revision=3&rangeKind=itemWindow&cursor=cursor-1&start=10&end=19',
+			'agentstudio://resource/review/review-items/package-1?generation=7&revision=3&rangeKind=itemWindow&cursor=cursor-1&start=10&end=19',
 			{ reviewItemsBudget: { maxExplicitItemIds: 2, maxCursorWindowItems: 8 } },
 		);
 
@@ -106,7 +107,7 @@ describe('bridge resource URL', () => {
 
 	test('parses tree cursor resources', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/tree/tree-1?generation=7&revision=3&cursor=cursor-1&depth=2',
+			'agentstudio://resource/worktree-file/tree/tree-1?generation=7&revision=3&cursor=cursor-1&depth=2',
 		);
 
 		expect(parsed).toEqual({
@@ -120,13 +121,13 @@ describe('bridge resource URL', () => {
 				depth: 2,
 			},
 			canonicalUrl:
-				'agentstudio://resource/tree/tree-1?cursor=cursor-1&depth=2&generation=7&revision=3',
+				'agentstudio://resource/worktree-file/tree/tree-1?cursor=cursor-1&depth=2&generation=7&revision=3',
 		});
 	});
 
 	test('rejects duplicate singleton query keys', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/review-package/package-1?generation=7&generation=8&revision=3',
+			'agentstudio://resource/review/review-package/package-1?generation=7&generation=8&revision=3',
 		);
 
 		expect(parsed).toBeNull();
@@ -134,7 +135,7 @@ describe('bridge resource URL', () => {
 
 	test('rejects unknown query keys', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/content/handle-1?generation=7&path=../../secret',
+			'agentstudio://resource/review/content/handle-1?generation=7&path=../../secret',
 		);
 
 		expect(parsed).toBeNull();
@@ -142,7 +143,7 @@ describe('bridge resource URL', () => {
 
 	test('rejects mixed selector families', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/review-items/package-1?generation=7&revision=3&rangeKind=itemWindow&cursor=cursor-1&start=0&end=10&itemIds=item-a',
+			'agentstudio://resource/review/review-items/package-1?generation=7&revision=3&rangeKind=itemWindow&cursor=cursor-1&start=0&end=10&itemIds=item-a',
 		);
 
 		expect(parsed).toBeNull();
@@ -150,14 +151,16 @@ describe('bridge resource URL', () => {
 
 	test('rejects non-canonical path-like resource identifiers', () => {
 		const parsed = parseBridgeResourceUrl(
-			'agentstudio://resource/content/%2E%2E%2Fsecret?generation=7',
+			'agentstudio://resource/review/content/%2E%2E%2Fsecret?generation=7',
 		);
 
 		expect(parsed).toBeNull();
 	});
 
 	test('rejects malformed percent encoded resource paths without throwing', () => {
-		const parsed = parseBridgeResourceUrl('agentstudio://resource/content/%E0%A4%A?generation=7');
+		const parsed = parseBridgeResourceUrl(
+			'agentstudio://resource/review/content/%E0%A4%A?generation=7',
+		);
 
 		expect(parsed).toBeNull();
 	});

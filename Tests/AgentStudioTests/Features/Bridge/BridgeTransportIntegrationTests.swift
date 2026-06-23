@@ -72,7 +72,7 @@ extension WebKitSerializedTests {
                           <head><title>Traceparent Fetch</title></head>
                           <body>
                             <script>
-                              fetch('agentstudio://resource/content/handle?generation=1', {
+                              fetch('agentstudio://resource/review/content/handle?generation=1', {
                                 headers: {
                                   traceparent: '00-11111111111111111111111111111111-2222222222222222-01'
                                 }
@@ -332,6 +332,11 @@ extension WebKitSerializedTests {
                 makeContentResult(handle: baseHandle, data: "base content"))
             try await controller.reviewContentStore.register(
                 makeContentResult(handle: headHandle, data: "head content"))
+            try await registerContentHandleLeases(
+                controller: controller,
+                paneId: paneId,
+                handles: [baseHandle, headHandle]
+            )
             let payload = try JSONEncoder().encode(DiffPackageMetadataSlice(package: package))
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
@@ -508,7 +513,7 @@ extension WebKitSerializedTests {
                 #expect(
                     await capture.traceparent()
                         == "00-11111111111111111111111111111111-2222222222222222-01",
-                    "WebKit should preserve traceparent on agentstudio://resource/content fetches")
+                    "WebKit should preserve traceparent on agentstudio://resource/review/content fetches")
             }
         }
 
@@ -519,22 +524,7 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(paneId: paneId, state: state)
             defer { controller.teardown() }
 
-            let baseHandle = makeBridgeContentHandle(
-                itemId: "item-real-diff",
-                role: .base,
-                endpointId: "transport-base",
-                reviewGeneration: BridgeReviewGeneration(7),
-                contentHash: bridgeSHA256ContentHash("base content"),
-                sizeBytes: 12
-            )
-            let headHandle = makeBridgeContentHandle(
-                itemId: "item-real-diff",
-                role: .head,
-                endpointId: "transport-head",
-                reviewGeneration: BridgeReviewGeneration(7),
-                contentHash: bridgeSHA256ContentHash("head content"),
-                sizeBytes: 12
-            )
+            let (baseHandle, headHandle) = makeRealDiffContentHandles()
             let package = makeTransportContentPackage(
                 baseHandle: baseHandle,
                 headHandle: headHandle,
@@ -544,6 +534,11 @@ extension WebKitSerializedTests {
                 makeContentResult(handle: baseHandle, data: "base content"))
             try await controller.reviewContentStore.register(
                 makeContentResult(handle: headHandle, data: "head content"))
+            try await registerContentHandleLeases(
+                controller: controller,
+                paneId: paneId,
+                handles: [baseHandle, headHandle]
+            )
             let payload = try JSONEncoder().encode(DiffPackageMetadataSlice(package: package))
             let baseResourceURLJSON = try #require(
                 String(data: JSONEncoder().encode(baseHandle.resourceUrl), encoding: .utf8))
@@ -893,6 +888,50 @@ extension WebKitSerializedTests {
             } catch {
                 return "page-state-error=\(String(describing: error))"
             }
+        }
+
+        private func registerContentHandleLeases(
+            controller: BridgePaneController,
+            paneId: UUID,
+            handles: [BridgeContentHandle]
+        ) async throws {
+            for handle in handles {
+                let resource = try #require(
+                    BridgeTransportResourceURL.parse(
+                        handle.resourceUrl,
+                        allowedResourceKindsByProtocol: ["review": Set(["content"])]
+                    ))
+                await controller.resourceLeaseRegistry.register(
+                    resource,
+                    paneId: paneId,
+                    descriptorId: resource.opaqueId,
+                    maxBytes: handle.sizeBytes
+                )
+            }
+        }
+
+        private func makeRealDiffContentHandles() -> (
+            base: BridgeContentHandle,
+            head: BridgeContentHandle
+        ) {
+            (
+                base: makeBridgeContentHandle(
+                    itemId: "item-real-diff",
+                    role: .base,
+                    endpointId: "transport-base",
+                    reviewGeneration: BridgeReviewGeneration(7),
+                    contentHash: bridgeSHA256ContentHash("base content"),
+                    sizeBytes: 12
+                ),
+                head: makeBridgeContentHandle(
+                    itemId: "item-real-diff",
+                    role: .head,
+                    endpointId: "transport-head",
+                    reviewGeneration: BridgeReviewGeneration(7),
+                    contentHash: bridgeSHA256ContentHash("head content"),
+                    sizeBytes: 12
+                )
+            )
         }
     }
 

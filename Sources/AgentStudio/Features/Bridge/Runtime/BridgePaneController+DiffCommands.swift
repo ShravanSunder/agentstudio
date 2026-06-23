@@ -72,7 +72,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     )
                 )
                 let contentRegisterStart = ContinuousClock.now
-                await reviewContentStore.activate(
+                await activateReviewContentHandles(
                     handles: result.registeredContentHandles,
                     reviewGeneration: reviewGeneration
                 )
@@ -106,6 +106,32 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 paneState.diff.setStatus(.error, error: "loadFailed")
                 return .failure(.invalidPayload(description: "Failed to load bridge review package"))
             }
+        }
+    }
+
+    private func activateReviewContentHandles(
+        handles: [BridgeContentHandle],
+        reviewGeneration: BridgeReviewGeneration
+    ) async {
+        await reviewContentStore.activate(handles: handles, reviewGeneration: reviewGeneration)
+        await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
+        for handle in handles where handle.reviewGeneration == reviewGeneration {
+            guard
+                let resource = BridgeTransportResourceURL.parse(
+                    handle.resourceUrl,
+                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
+                ),
+                resource.opaqueId == handle.handleId,
+                resource.generation == reviewGeneration.rawValue
+            else {
+                continue
+            }
+            await resourceLeaseRegistry.register(
+                resource,
+                paneId: paneId,
+                descriptorId: resource.opaqueId,
+                maxBytes: handle.sizeBytes
+            )
         }
     }
 
@@ -194,7 +220,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 )
             )
             let contentRegisterStart = ContinuousClock.now
-            await reviewContentStore.activate(
+            await activateReviewContentHandles(
                 handles: result.registeredContentHandles,
                 reviewGeneration: result.package.reviewGeneration
             )

@@ -2188,7 +2188,7 @@ function makeDeletedFileReviewPackageWithOmittedHeadPath(): BridgeReviewPackage 
 		...baseHandle,
 		handleId: 'handle-deleted-source-base',
 		itemId: 'deleted-source',
-		resourceUrl: 'agentstudio://resource/content/handle-deleted-source-base?generation=1',
+		resourceUrl: 'agentstudio://resource/review/content/handle-deleted-source-base?generation=1',
 		contentHash: 'sha256:deleted-source:base',
 		cacheKey: 'deleted-source:base',
 		mimeType: 'text/x-swift',
@@ -2256,7 +2256,7 @@ function makeAddedFileReviewPackage(props: MakeAddedFileReviewPackageProps): Bri
 		...sourceHead,
 		handleId: `handle-${props.itemId}-head`,
 		itemId: props.itemId,
-		resourceUrl: `agentstudio://resource/content/handle-${props.itemId}-head?generation=1`,
+		resourceUrl: `agentstudio://resource/review/content/handle-${props.itemId}-head?generation=1`,
 		contentHash: `sha256:${props.itemId}:head`,
 		cacheKey: `${props.itemId}:head`,
 		mimeType: props.mimeType,
@@ -2438,7 +2438,7 @@ function makeTwoItemReviewPackage(): ReturnType<typeof makeBridgeReviewPackage> 
 				...sourceItem.contentRoles.base,
 				handleId: 'handle-item-second-base',
 				itemId: 'item-second',
-				resourceUrl: 'agentstudio://resource/content/handle-item-second-base?generation=1',
+				resourceUrl: 'agentstudio://resource/review/content/handle-item-second-base?generation=1',
 				cacheKey: 'item-second:base',
 			};
 	const secondHeadHandle: BridgeContentHandle | null = isMissingContentHandle(
@@ -2449,7 +2449,7 @@ function makeTwoItemReviewPackage(): ReturnType<typeof makeBridgeReviewPackage> 
 				...sourceItem.contentRoles.head,
 				handleId: 'handle-item-second-head',
 				itemId: 'item-second',
-				resourceUrl: 'agentstudio://resource/content/handle-item-second-head?generation=1',
+				resourceUrl: 'agentstudio://resource/review/content/handle-item-second-head?generation=1',
 				cacheKey: 'item-second:head',
 			};
 	const secondItem = {
@@ -2543,7 +2543,7 @@ function makeUpdatedSelectedContentPackage(
 				...sourceItem.contentRoles.base,
 				handleId: 'handle-item-source-base-revision-2',
 				resourceUrl:
-					'agentstudio://resource/content/handle-item-source-base-revision-2?generation=1',
+					'agentstudio://resource/review/content/handle-item-source-base-revision-2?generation=1',
 				contentHash: 'sha256:item-source:base:revision-2',
 				cacheKey: 'item-source:base:revision-2',
 			};
@@ -2555,7 +2555,7 @@ function makeUpdatedSelectedContentPackage(
 				...sourceItem.contentRoles.head,
 				handleId: 'handle-item-source-head-revision-2',
 				resourceUrl:
-					'agentstudio://resource/content/handle-item-source-head-revision-2?generation=1',
+					'agentstudio://resource/review/content/handle-item-source-head-revision-2?generation=1',
 				contentHash: 'sha256:item-source:head:revision-2',
 				cacheKey: 'item-source:head:revision-2',
 			};

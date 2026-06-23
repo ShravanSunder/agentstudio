@@ -5,7 +5,7 @@ import WebKit
 ///
 /// Routes:
 /// - `agentstudio://app/*` — bundled React app assets (HTML, JS, CSS)
-/// - `agentstudio://resource/content/<handleId>?generation=<n>` — file contents on demand
+/// - `agentstudio://resource/<protocol>/<kind>/<opaqueId>?generation=<n>` — leased resources on demand
 struct BridgeSchemeHandler: URLSchemeHandler {
     private struct BridgeSchemeContentEmissionRequest {
         let handleId: String
@@ -13,13 +13,14 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         let url: URL
         let request: URLRequest
         let readMethod: BridgeSchemeReadMethod
-        let leasedResource: BridgeTransportResourceURL?
+        let leasedResource: BridgeTransportResourceURL
     }
 
     let paneId: UUID
     let contentStore: BridgeContentStore
     let appAssetStore: BridgeAppAssetStore
     let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
+    let allowedResourceKindsByProtocol: [String: Set<String>]
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
 
     init(
@@ -27,12 +28,15 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         contentStore: BridgeContentStore = BridgeContentStore(),
         appAssetStore: BridgeAppAssetStore = BridgeAppAssetStore(),
         resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry = BridgeTransportResourceLeaseRegistry(),
+        allowedResourceKindsByProtocol: [String: Set<String>] =
+            BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) {
         self.paneId = paneId
         self.contentStore = contentStore
         self.appAssetStore = appAssetStore
         self.resourceLeaseRegistry = resourceLeaseRegistry
+        self.allowedResourceKindsByProtocol = allowedResourceKindsByProtocol
         self.telemetryRecorder = telemetryRecorder
     }
 
@@ -49,7 +53,25 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 return
             }
 
-            let classification = Self.classifyPath(url.absoluteString)
+            let classification = Self.classifyPath(
+                url.absoluteString,
+                allowedResourceKindsByProtocol: allowedResourceKindsByProtocol
+            )
+            if readMethod == .options {
+                guard classification != .invalid else {
+                    continuation.finish(throwing: BridgeSchemeError.invalidRoute(url.absoluteString))
+                    return
+                }
+                continuation.yield(
+                    .response(
+                        Self.response(
+                            url: url,
+                            mimeType: "text/plain",
+                            expectedContentLength: 0
+                        )))
+                continuation.finish()
+                return
+            }
             switch classification {
             case .app(let relativePath):
                 let task = Task {
@@ -71,24 +93,6 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     } catch {
                         continuation.finish(throwing: error)
                     }
-                }
-                continuation.onTermination = { _ in
-                    task.cancel()
-                }
-
-            case .content(let handleId, let generation):
-                let task = Task {
-                    await emitContent(
-                        emissionRequest: BridgeSchemeContentEmissionRequest(
-                            handleId: handleId,
-                            generation: generation,
-                            url: url,
-                            request: request,
-                            readMethod: readMethod,
-                            leasedResource: nil
-                        ),
-                        continuation: continuation
-                    )
                 }
                 continuation.onTermination = { _ in
                     task.cancel()
@@ -132,8 +136,6 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     enum PathType: Equatable {
         /// Bundled React app asset at the given relative path (e.g. "index.html", "assets/main.js").
         case app(String)
-        /// Content resource request with a scoped handle and package generation guard.
-        case content(handleId: String, generation: BridgeReviewGeneration)
         /// Protocol-scoped content request that must match an active transport lease.
         case leasedContent(BridgeTransportResourceURL)
         /// Unrecognized or malicious route (e.g. path traversal, wrong host).
@@ -146,7 +148,11 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     /// for ".." components. Uses `URL.path()` which percent-decodes, so encoded
     /// traversal like `%2e%2e` is caught after decoding. Segment-based checking
     /// avoids false-rejecting benign paths containing dots (e.g. `my.file.txt`).
-    static func classifyPath(_ urlString: String) -> PathType {
+    static func classifyPath(
+        _ urlString: String,
+        allowedResourceKindsByProtocol: [String: Set<String>] =
+            BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+    ) -> PathType {
         guard let url = URL(string: urlString),
             url.scheme == "agentstudio"
         else {
@@ -177,59 +183,34 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             return .app(relativePath)
 
         case "resource":
-            if let resource = BridgeTransportResourceURL.parse(
-                urlString,
-                allowedResourceKindsByProtocol: allowedResourceKindsByProtocol
-            ) {
-                return .leasedContent(resource)
-            }
-
-            // Legacy review route. Expected: /content/<handleId>?generation=<n>
-            let components = path.split(separator: "/")
-            guard components.count == 2,
-                components[0] == "content",
-                !components[1].isEmpty,
-                let generation = generationValue(from: url)
+            guard
+                let resource = BridgeTransportResourceURL.parse(
+                    urlString,
+                    allowedResourceKindsByProtocol: allowedResourceKindsByProtocol
+                )
             else {
                 return .invalid
             }
-            return .content(handleId: String(components[1]), generation: BridgeReviewGeneration(generation))
+            return .leasedContent(resource)
 
         default:
             return .invalid
         }
     }
 
-    private static let allowedResourceKindsByProtocol: [String: Set<String>] = [
-        "review": Set(["content", "review-package"]),
-        "worktree-file": Set(["tree", "file-content"]),
-    ]
-
     private enum BridgeSchemeReadMethod {
         case get
         case head
+        case options
     }
 
     private static func readMethod(from httpMethod: String?) -> BridgeSchemeReadMethod? {
         switch httpMethod?.uppercased() ?? "GET" {
         case "GET": .get
         case "HEAD": .head
+        case "OPTIONS": .options
         default: nil
         }
-    }
-
-    private static func generationValue(from url: URL) -> Int? {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-            let queryItems = components.queryItems,
-            queryItems.allSatisfy({ $0.name == "generation" }),
-            queryItems.filter({ $0.name == "generation" }).count == 1,
-            let value = queryItems.first?.value,
-            let generation = Int(value),
-            generation >= 0
-        else {
-            return nil
-        }
-        return generation
     }
 
     private static func traceContext(from request: URLRequest) -> BridgeTraceContext? {
@@ -263,11 +244,15 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 phase: "success",
                 durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
             )
-            if let leasedResource = emissionRequest.leasedResource {
-                guard await resourceLeaseRegistry.contains(leasedResource, paneId: paneId) else {
-                    continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
-                    return
-                }
+            guard
+                await resourceLeaseRegistry.contains(
+                    emissionRequest.leasedResource,
+                    paneId: paneId,
+                    contentLength: result.data.count
+                )
+            else {
+                continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                return
             }
             try Task.checkCancellation()
             continuation.yield(
@@ -278,12 +263,16 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                         expectedContentLength: result.data.count
                     )))
             if emissionRequest.readMethod == .get {
-                if let leasedResource = emissionRequest.leasedResource {
-                    guard await resourceLeaseRegistry.contains(leasedResource, paneId: paneId) else {
-                        continuation.finish(
-                            throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
-                        return
-                    }
+                guard
+                    await resourceLeaseRegistry.contains(
+                        emissionRequest.leasedResource,
+                        paneId: paneId,
+                        contentLength: result.data.count
+                    )
+                else {
+                    continuation.finish(
+                        throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                    return
                 }
                 try Task.checkCancellation()
                 continuation.yield(.data(result.data))
@@ -387,7 +376,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     ) -> URLResponse {
         var headers = [
             "Access-Control-Allow-Headers": "traceparent",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
             "Access-Control-Allow-Origin": "*",
             "Content-Length": String(expectedContentLength),
             "Content-Type": mimeType,

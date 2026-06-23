@@ -34,7 +34,7 @@ describe('Bridge markdown preview', () => {
 				'<a href="file:///Users/example/.ssh/id_rsa">file</a>',
 				'<a href="data:text/html;base64,PHNjcmlwdD4=">data</a>',
 				'<a href="javascript:alert(1)">javascript</a>',
-				'<img src="agentstudio://resource/content/secret?generation=1">',
+				'<img src="agentstudio://resource/review/content/secret?generation=1">',
 				'<source srcset="bridge://private">',
 				'<table background="https://example.com/tracker.png"><tr><td>legacy</td></tr></table>',
 				'<blockquote cite="https://example.com/quote">quote</blockquote>',

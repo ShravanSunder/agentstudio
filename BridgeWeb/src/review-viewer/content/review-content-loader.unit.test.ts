@@ -31,7 +31,7 @@ describe('review content loader', () => {
 		expect(resource?.text).toBe('loaded head text');
 		expect(resource?.handle.role).toBe('head');
 		expect(requestedUrls).toEqual([
-			'agentstudio://resource/content/handle-item-source-head?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
 		]);
 	});
 
@@ -50,8 +50,8 @@ describe('review content loader', () => {
 		expect(resources?.base?.text).toBe('base text');
 		expect(resources?.head?.text).toBe('head text');
 		expect(requestedUrls).toEqual([
-			'agentstudio://resource/content/handle-item-source-base?generation=1',
-			'agentstudio://resource/content/handle-item-source-head?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-base?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
 		]);
 	});
 
@@ -83,8 +83,8 @@ describe('review content loader', () => {
 		expect(second?.base?.text).toBe('base cached');
 		expect(second?.head?.text).toBe('head cached');
 		expect(requestedUrls).toEqual([
-			'agentstudio://resource/content/handle-item-source-base?generation=1',
-			'agentstudio://resource/content/handle-item-source-head?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-base?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
 		]);
 	});
 
@@ -183,7 +183,7 @@ describe('review content loader', () => {
 			head: {
 				...makeBridgeContentHandle('item-source', 'head'),
 				reviewGeneration: 0,
-				resourceUrl: 'agentstudio://resource/content/handle-item-source-head?generation=0',
+				resourceUrl: 'agentstudio://resource/review/content/handle-item-source-head?generation=0',
 			},
 			diff: null,
 			file: null,
@@ -208,7 +208,7 @@ describe('review content loader', () => {
 			...makeBridgeContentHandle('item-source', 'head'),
 			handleId: 'handle-item-source-file',
 			role: 'file',
-			resourceUrl: 'agentstudio://resource/content/handle-item-source-file?generation=1',
+			resourceUrl: 'agentstudio://resource/review/content/handle-item-source-file?generation=1',
 			cacheKey: 'item-source:file',
 		};
 		const reviewPackage = packageWithSelectedItemContentRoles({
@@ -230,7 +230,7 @@ describe('review content loader', () => {
 
 		expect(resources?.file?.text).toBe('added file text');
 		expect(requestedUrls).toEqual([
-			'agentstudio://resource/content/handle-item-source-file?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-file?generation=1',
 		]);
 	});
 });

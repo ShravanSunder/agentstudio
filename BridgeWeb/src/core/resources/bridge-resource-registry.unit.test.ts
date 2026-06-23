@@ -44,7 +44,23 @@ describe('bridge resource descriptor registry', () => {
 		const registry = createBridgeResourceDescriptorRegistry({ allowedResourceKindsByProtocol });
 		const attachedDescriptor = makeAttachedDescriptor({
 			resourceUrl:
-				'agentstudio://resource/review/content/content-123?generation=2&revision=5&cursor=cursor_abc-1',
+				'agentstudio://resource/review/content/descriptor-1?generation=2&revision=5&cursor=cursor_abc-1',
+		});
+
+		const registerResult = registry.register(attachedDescriptor);
+
+		expect(registerResult).toEqual({
+			ok: false,
+			reason: 'descriptor_resource_url_mismatch',
+		});
+		expect(registry.lookup(attachedDescriptor.ref)).toBeNull();
+	});
+
+	test('rejects descriptor resource URLs that use a different opaque resource id', () => {
+		const registry = createBridgeResourceDescriptorRegistry({ allowedResourceKindsByProtocol });
+		const attachedDescriptor = makeAttachedDescriptor({
+			resourceUrl:
+				'agentstudio://resource/review/content/content-123?generation=2&revision=4&cursor=cursor_abc-1',
 		});
 
 		const registerResult = registry.register(attachedDescriptor);
@@ -126,7 +142,7 @@ function makeAttachedDescriptor(
 		resourceKind,
 		resourceUrl:
 			props.resourceUrl ??
-			'agentstudio://resource/review/content/content-123?generation=2&revision=4&cursor=cursor_abc-1',
+			'agentstudio://resource/review/content/descriptor-1?generation=2&revision=4&cursor=cursor_abc-1',
 		identity,
 		content: {
 			mediaType: 'text/plain',

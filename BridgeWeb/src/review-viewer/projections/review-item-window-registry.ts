@@ -213,7 +213,7 @@ export function makeBridgeReviewItemsResourceUrl(
 	)) {
 		query.append(key, value);
 	}
-	return `agentstudio://resource/review-items/${encodeURIComponent(props.packageId)}?${query.toString()}`;
+	return `agentstudio://resource/review/review-items/${encodeURIComponent(props.packageId)}?${query.toString()}`;
 }
 
 function itemIdsForRange(props: {

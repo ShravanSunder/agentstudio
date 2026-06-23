@@ -115,11 +115,17 @@ export function parseBridgeResourceUrl(
 		return null;
 	}
 	const pathSegments = resourcePathSegments(parsedUrl);
-	if (pathSegments === null || pathSegments.length !== 2) {
+	if (pathSegments === null || pathSegments.length !== 3) {
 		return null;
 	}
-	const [resourceKind, resourceId] = pathSegments;
-	if (resourceKind === undefined || resourceId === undefined || !isOpaqueResourceId(resourceId)) {
+	const [protocolId, resourceKind, resourceId] = pathSegments;
+	if (
+		protocolId === undefined ||
+		resourceKind === undefined ||
+		resourceId === undefined ||
+		!isAllowedResourceRoute(protocolId, resourceKind) ||
+		!isOpaqueResourceId(resourceId)
+	) {
 		return null;
 	}
 	const queryEntries = queryEntriesFor(parsedUrl);
@@ -226,6 +232,7 @@ function parseReviewPackageResource(
 		revision,
 		canonicalUrl: canonicalResourceUrl({
 			resourceKind: 'review-package',
+			protocolId: 'review',
 			resourceId: packageId,
 			queryPairs: [
 				['generation', String(generation)],
@@ -295,6 +302,7 @@ function parseReviewItemsResource(
 			range,
 			canonicalUrl: canonicalResourceUrl({
 				resourceKind: 'review-items',
+				protocolId: 'review',
 				resourceId: packageId,
 				queryPairs: [
 					['generation', String(generation)],
@@ -339,6 +347,7 @@ function parseReviewItemsResource(
 			range,
 			canonicalUrl: canonicalResourceUrl({
 				resourceKind: 'review-items',
+				protocolId: 'review',
 				resourceId: packageId,
 				queryPairs: [
 					['generation', String(generation)],
@@ -388,6 +397,7 @@ function parseContentResource(
 		range: { kind: 'whole' },
 		canonicalUrl: canonicalResourceUrl({
 			resourceKind: 'content',
+			protocolId: 'review',
 			resourceId: handleId,
 			queryPairs,
 		}),
@@ -427,6 +437,7 @@ function parseTreeResource(
 		range,
 		canonicalUrl: canonicalResourceUrl({
 			resourceKind: 'tree',
+			protocolId: 'worktree-file',
 			resourceId: treeId,
 			queryPairs: [
 				['generation', String(generation)],
@@ -475,7 +486,22 @@ function isOpaqueResourceId(value: string): boolean {
 	return value.length > 0 && !value.includes('/') && !traversalPattern.test(value);
 }
 
+function isAllowedResourceRoute(protocolId: string, resourceKind: string): boolean {
+	if (protocolId === 'review') {
+		return (
+			resourceKind === 'review-package' ||
+			resourceKind === 'review-items' ||
+			resourceKind === 'content'
+		);
+	}
+	if (protocolId === 'worktree-file') {
+		return resourceKind === 'tree';
+	}
+	return false;
+}
+
 interface CanonicalResourceUrlProps {
+	readonly protocolId: string;
 	readonly resourceKind: string;
 	readonly resourceId: string;
 	readonly queryPairs: readonly (readonly [string, string])[];
@@ -488,7 +514,7 @@ function canonicalResourceUrl(props: CanonicalResourceUrlProps): string {
 	)) {
 		query.append(key, value);
 	}
-	return `agentstudio://resource/${props.resourceKind}/${encodeURIComponent(
+	return `agentstudio://resource/${props.protocolId}/${props.resourceKind}/${encodeURIComponent(
 		props.resourceId,
 	)}?${query.toString()}`;
 }
