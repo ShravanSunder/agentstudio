@@ -203,7 +203,7 @@ actor BridgeTransportResourceLeaseRegistry {
         protocolId: String,
         resourceKind: String,
         leases: [BridgeTransportResourceLease],
-        expectedRevocationRevision: UInt64? = nil
+        expectedRevocationRevision: UInt64
     ) -> Bool {
         for lease in leases {
             guard lease.paneId == paneId,

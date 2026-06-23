@@ -131,6 +131,114 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
+        @Test("IPC content body rejects in-flight content after teardown revokes review authority")
+        func ipcContentBody_rejectsInFlightContentAfterTeardownRevokesReviewAuthority() async throws {
+            let handle = makeBridgeContentHandle(
+                itemId: "item-source",
+                role: .head,
+                reviewGeneration: 7,
+                contentHash: bridgeSHA256ContentHash("let value = 1\n"),
+                sizeBytes: 14
+            )
+            let gate = BridgeContentLoadGate()
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [
+                    handle.handleId: makeContentResult(handle: handle, data: "let value = 1\n")
+                ],
+                contentLoadGate: gate
+            )
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                reviewSourceProvider: provider
+            )
+            await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
+
+            let loadTask = Task { @MainActor in
+                try await controller.loadContentForIPC(
+                    contentHandleId: handle.handleId,
+                    reviewGeneration: 7
+                )
+            }
+            await gate.waitForStartedLoadCount(1)
+            controller.teardown()
+            await gate.releaseAll()
+
+            do {
+                _ = try await loadTask.value
+                Issue.record("Expected content unavailable after teardown")
+            } catch let failure as BridgeIPCProjectionError {
+                #expect(failure.reason == .contentUnavailable)
+            } catch {
+                Issue.record("Expected BridgeIPCProjectionError, got \(error)")
+            }
+            #expect(await provider.recordedContentRequestsCount() == 1)
+        }
+
+        @Test("IPC content body rejects cached content after active handle tightens byte cap")
+        func ipcContentBody_rejectsCachedContentAfterActiveHandleTightensByteCap() async throws {
+            let handle = makeBridgeContentHandle(
+                itemId: "item-source",
+                role: .head,
+                reviewGeneration: 7,
+                contentHash: bridgeSHA256ContentHash("preserved"),
+                sizeBytes: 9
+            )
+            let tightenedHandle = BridgeContentHandle(
+                handleId: handle.handleId,
+                itemId: handle.itemId,
+                role: handle.role,
+                endpointId: handle.endpointId,
+                reviewGeneration: handle.reviewGeneration,
+                resourceUrl: handle.resourceUrl,
+                contentHash: handle.contentHash,
+                contentHashAlgorithm: handle.contentHashAlgorithm,
+                cacheKey: handle.cacheKey,
+                mimeType: handle.mimeType,
+                language: handle.language,
+                sizeBytes: 4,
+                isBinary: handle.isBinary
+            )
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [
+                    handle.handleId: makeContentResult(handle: handle, data: "preserved")
+                ]
+            )
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                reviewSourceProvider: provider
+            )
+            defer { controller.teardown() }
+            await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
+            _ = try await controller.loadContentForIPC(contentHandleId: handle.handleId, reviewGeneration: 7)
+
+            await controller.reviewContentStore.activate(handles: [tightenedHandle], reviewGeneration: 7)
+
+            do {
+                _ = try await controller.loadContentForIPC(
+                    contentHandleId: handle.handleId,
+                    reviewGeneration: 7
+                )
+                Issue.record("Expected content unavailable after byte cap tightened")
+            } catch let failure as BridgeIPCProjectionError {
+                #expect(failure.reason == .contentUnavailable)
+            } catch {
+                Issue.record("Expected BridgeIPCProjectionError, got \(error)")
+            }
+            #expect(await provider.recordedContentRequestsCount() == 1)
+        }
+
         @Test("IPC content body rejects payloads that exceed the IPC response budget")
         func ipcContentBody_rejectsPayloadsThatExceedIPCResponseBudget() async throws {
             let oversizedText = String(repeating: "a", count: 1_000_000)

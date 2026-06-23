@@ -215,7 +215,7 @@ struct BridgeContentStoreTests {
             cacheKey: "refreshed-cache-key",
             mimeType: "text/x-swift",
             language: "swift",
-            sizeBytes: handle.sizeBytes + 10,
+            sizeBytes: handle.sizeBytes,
             isBinary: handle.isBinary
         )
         let gate = BridgeContentLoadGate()
@@ -240,7 +240,113 @@ struct BridgeContentStoreTests {
         let loaded = try await preservedLoad
 
         #expect(loaded.data == Data("preserved".utf8))
+        #expect(loaded.handle.mimeType == "text/x-swift")
+        #expect(loaded.mimeType == "text/x-swift")
         #expect(await provider.recordedContentRequestsCount() == 1)
+    }
+
+    @Test("content store rejects cached bytes when same-authority refresh tightens byte cap")
+    func contentStoreRejectsCachedBytesWhenSameAuthorityRefreshTightensByteCap() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("preserved"),
+            sizeBytes: 9
+        )
+        let tightenedHandle = BridgeContentHandle(
+            handleId: handle.handleId,
+            itemId: handle.itemId,
+            role: handle.role,
+            endpointId: handle.endpointId,
+            reviewGeneration: handle.reviewGeneration,
+            resourceUrl: handle.resourceUrl,
+            contentHash: handle.contentHash,
+            contentHashAlgorithm: handle.contentHashAlgorithm,
+            cacheKey: handle.cacheKey,
+            mimeType: handle.mimeType,
+            language: handle.language,
+            sizeBytes: 4,
+            isBinary: handle.isBinary
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "preserved")
+            ]
+        )
+        let store = BridgeContentStore(provider: provider)
+        await store.activate(handles: [handle], reviewGeneration: 7)
+        _ = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
+
+        await store.activate(handles: [tightenedHandle], reviewGeneration: 7)
+
+        do {
+            _ = try await store.load(handleId: handle.handleId, requestedGeneration: 7)
+            Issue.record("Expected oversized content failure")
+        } catch let failure as BridgeProviderFailure {
+            #expect(failure == .oversizedContent(handleId: handle.handleId, sizeBytes: 9))
+        } catch {
+            Issue.record("Expected BridgeProviderFailure, got \(error)")
+        }
+        #expect(await provider.recordedContentRequestsCount() == 1)
+    }
+
+    @Test("content store rejects in-flight bytes when same-authority refresh flips binary policy")
+    func contentStoreRejectsInFlightBytesWhenSameAuthorityRefreshFlipsBinaryPolicy() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("preserved")
+        )
+        let binaryHandle = BridgeContentHandle(
+            handleId: handle.handleId,
+            itemId: handle.itemId,
+            role: handle.role,
+            endpointId: handle.endpointId,
+            reviewGeneration: handle.reviewGeneration,
+            resourceUrl: handle.resourceUrl,
+            contentHash: handle.contentHash,
+            contentHashAlgorithm: handle.contentHashAlgorithm,
+            cacheKey: handle.cacheKey,
+            mimeType: handle.mimeType,
+            language: handle.language,
+            sizeBytes: handle.sizeBytes,
+            isBinary: true
+        )
+        let gate = BridgeContentLoadGate()
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "preserved")
+            ],
+            contentLoadGate: gate
+        )
+        let store = BridgeContentStore(provider: provider)
+        await store.activate(handles: [handle], reviewGeneration: 7)
+
+        async let staleLoad = try store.load(handleId: handle.handleId, requestedGeneration: 7)
+        await gate.waitForStartedLoadCount(1)
+        await store.activate(handles: [binaryHandle], reviewGeneration: 7)
+        await gate.releaseAll()
+
+        do {
+            _ = try await staleLoad
+            Issue.record("Expected binary content failure")
+        } catch let failure as BridgeProviderFailure {
+            #expect(failure == .missingContent(handleId: handle.handleId))
+        } catch {
+            Issue.record("Expected BridgeProviderFailure, got \(error)")
+        }
     }
 
     @Test("content store observations identify in-flight coalesced loads")

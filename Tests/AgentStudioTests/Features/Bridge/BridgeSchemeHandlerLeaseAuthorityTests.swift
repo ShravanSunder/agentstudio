@@ -46,7 +46,8 @@ final class BridgeSchemeHandlerLeaseAuthorityTests {
                     descriptorId: newResource.opaqueId,
                     resource: newResource
                 )
-            ]
+            ],
+            expectedRevocationRevision: 0
         )
 
         #expect(replaced == true)
@@ -126,5 +127,39 @@ final class BridgeSchemeHandlerLeaseAuthorityTests {
         #expect(staleRegistered == false)
         #expect(currentRegistered == true)
         #expect(await resourceLeaseRegistry.contains(resource, paneId: paneId) == true)
+    }
+
+    @Test
+    func test_transportResourceLeaseReplaceRejectsStaleRevocationRevision() async throws {
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                "agentstudio://resource/review/content/handle-new?generation=7",
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        let paneId = UUID()
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let initialRevision = resourceLeaseRegistry.revocationRevision(
+            paneId: paneId,
+            protocolId: "review",
+            resourceKind: "content"
+        )
+
+        await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
+        let staleReplaced = await resourceLeaseRegistry.replace(
+            paneId: paneId,
+            protocolId: "review",
+            resourceKind: "content",
+            leases: [
+                BridgeTransportResourceLease(
+                    paneId: paneId,
+                    descriptorId: resource.opaqueId,
+                    resource: resource
+                )
+            ],
+            expectedRevocationRevision: initialRevision
+        )
+
+        #expect(staleReplaced == false)
+        #expect(await resourceLeaseRegistry.contains(resource, paneId: paneId) == false)
     }
 }

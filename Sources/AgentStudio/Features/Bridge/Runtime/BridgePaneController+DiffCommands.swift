@@ -39,6 +39,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             paneState.diff.setPackageDelta(nil)
             let reviewGeneration = nextReviewGeneration.next()
             nextReviewGeneration = reviewGeneration
+            let contentAuthorityLifetime = reviewContentAuthorityLifetime
             await clearReviewContentAuthority()
             let expectedRevocationRevision = reviewContentRevocationRevision()
             do {
@@ -77,7 +78,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 try await activateReviewContentHandles(
                     handles: result.registeredContentHandles,
                     reviewGeneration: reviewGeneration,
-                    expectedRevocationRevision: expectedRevocationRevision
+                    expectedRevocationRevision: expectedRevocationRevision,
+                    expectedAuthorityLifetime: contentAuthorityLifetime
                 )
                 await recordSwiftTelemetry(
                     name: "performance.bridge.swift.content_register",
@@ -115,8 +117,12 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     private func activateReviewContentHandles(
         handles: [BridgeContentHandle],
         reviewGeneration: BridgeReviewGeneration,
-        expectedRevocationRevision: UInt64
+        expectedRevocationRevision: UInt64,
+        expectedAuthorityLifetime: Int
     ) async throws {
+        guard reviewContentAuthorityLifetime == expectedAuthorityLifetime else {
+            throw BridgeProviderFailure.providerFailed(message: "Stale bridge review content lifetime")
+        }
         let leases: [BridgeTransportResourceLease]
         do {
             leases = try makeReviewContentLeases(handles: handles, reviewGeneration: reviewGeneration)
@@ -133,6 +139,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         guard replaced else {
             await clearReviewContentAuthority()
             throw BridgeProviderFailure.providerFailed(message: "Invalid bridge review content lease set")
+        }
+        guard reviewContentAuthorityLifetime == expectedAuthorityLifetime else {
+            await clearReviewContentAuthority()
+            throw BridgeProviderFailure.providerFailed(message: "Stale bridge review content lifetime")
         }
         await reviewContentStore.activate(handles: handles, reviewGeneration: reviewGeneration)
     }
@@ -216,6 +226,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func refreshCurrentReviewPackage() async {
         guard let currentPackage = paneState.diff.packageMetadata else { return }
+        let contentAuthorityLifetime = reviewContentAuthorityLifetime
         let expectedRevocationRevision = reviewContentRevocationRevision()
         do {
             let packageTraceContext = makeRootTraceContext()
@@ -263,7 +274,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             try await activateReviewContentHandles(
                 handles: result.registeredContentHandles,
                 reviewGeneration: result.package.reviewGeneration,
-                expectedRevocationRevision: expectedRevocationRevision
+                expectedRevocationRevision: expectedRevocationRevision,
+                expectedAuthorityLifetime: contentAuthorityLifetime
             )
             await recordSwiftTelemetry(
                 name: "performance.bridge.swift.content_register",

@@ -61,6 +61,7 @@ final class BridgePaneController {
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
+    var reviewContentAuthorityLifetime = 0
 
     // MARK: - Push Plans
 
@@ -513,6 +514,7 @@ final class BridgePaneController {
         agentPushPlan = nil
         activeReviewRefreshTask = nil
         hasPendingReviewRefresh = false
+        reviewContentAuthorityLifetime += 1
         let reviewContentStore = reviewContentStore
         let resourceLeaseRegistry = resourceLeaseRegistry
         let paneId = paneId

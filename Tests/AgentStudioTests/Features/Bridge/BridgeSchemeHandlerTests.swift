@@ -590,7 +590,7 @@ final class BridgeSchemeHandlerTests {
     }
 
     @Test
-    func test_protocolScopedContentRouteRejectsOversizedLeaseBeforeEmittingBytes() async throws {
+    func test_protocolScopedContentRouteRejectsOversizedContentBeforeEmittingBytes() async throws {
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
             role: .head,
@@ -616,10 +616,11 @@ final class BridgeSchemeHandlerTests {
         do {
             for try await _ in handler.reply(for: request) {}
             Issue.record("Expected oversized leased content to fail")
-        } catch BridgeSchemeError.invalidRoute(let route) {
-            #expect(route == handle.resourceUrl)
+        } catch BridgeProviderFailure.oversizedContent(let handleId, let sizeBytes) {
+            #expect(handleId == handle.handleId)
+            #expect(sizeBytes == 12)
         } catch {
-            Issue.record("Expected invalidRoute, got \(error)")
+            Issue.record("Expected oversizedContent, got \(error)")
         }
     }
 

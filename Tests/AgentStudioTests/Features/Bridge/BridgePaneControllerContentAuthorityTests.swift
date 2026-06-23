@@ -300,6 +300,12 @@ extension WebKitSerializedTests {
             #expect(result == .failure(.invalidPayload(description: "Failed to load bridge review package")))
             #expect(
                 await controller.resourceLeaseRegistry.contains(headResource, paneId: controller.paneId) == false)
+            await #expect(throws: BridgeIPCProjectionError.self) {
+                _ = try await controller.loadContentForIPC(
+                    contentHandleId: headHandle.handleId,
+                    reviewGeneration: 1
+                )
+            }
             #expect(controller.paneState.diff.status == .error)
         }
 
