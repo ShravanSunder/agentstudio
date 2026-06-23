@@ -40,6 +40,17 @@ Additional accepted findings from review of `b68c70ea`:
 - P2: the oversized-content scheme-handler proof asserted the final thrown
   error, but did not prove that zero response/data events were emitted first.
 
+Additional accepted findings from review of `4c4c7773` / `aa6fd8da`:
+
+- P1: the scheme-handler final emission gate still checked revocation state
+  without proving that the exact requested lease was still the active lease at
+  the moment of response/body emission.
+- P1: targeted resource revocation and filtered reset removed leases without
+  leaving exact resource tombstones, so a stale expected revision could re-add
+  removed authority after the old request had already crossed an earlier check.
+- P2: the HEAD path had no no-emission proof for authority loss between
+  metadata lookup and response emission.
+
 Non-blocking follow-up from review of `b68c70ea`:
 
 - Cache hits and coalesced content reads now rehash full payloads when active
@@ -93,6 +104,23 @@ Follow-up implementation in `4c4c7773`:
 - A controller regression proves a second `loadDiff` revokes the previous
   content authority while the reload is still blocked inside provider
   comparison.
+
+Follow-up implementation in `55c2689c`:
+
+- `BridgeTransportResourceLeaseRegistry` now records exact resource tombstones
+  for targeted revokes and filtered resets, and direct registration must clear
+  the matching tombstone with the current revocation revision before authority
+  can be reinstalled.
+- Scheme-handler response, body, and HEAD response emission now use the
+  actor-isolated `performWhileLeased` boundary. That boundary checks both the
+  exact active lease and byte cap while holding the authority gate for the
+  emission closure.
+- The old nonisolated `performWhileNotRevokedSynchronously` helper was removed
+  so the live emission contract has one owner.
+- Content authority tests were split into
+  `BridgeSchemeHandlerContentAuthorityTests` and now cover targeted stale
+  re-registration, replaced-lease no-emission, revoked-lease no-emission,
+  oversized GET no-emission, and oversized HEAD no-emission.
 
 ## Red / Green Notes
 
@@ -180,7 +208,28 @@ Post-review follow-up proof for `4c4c7773`:
   - Included `BridgePaneControllerContentAuthorityTests` with 6 tests,
     including the new in-flight reload synchronous revocation regression.
 
+Post-review follow-up proof for `55c2689c`:
+
+- `mise run format`
+  - exit 0
+  - Swift sources formatted.
+- `SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests|BridgeSchemeHandlerContentAuthorityTests'`
+  - exit 0
+  - 81 tests in 4 suites passed.
+- `mise run lint`
+  - exit 0
+  - swift-format: OK.
+  - SwiftLint: 0 violations in 1308 files.
+  - AgentStudio architecture lint: OK.
+  - release script verification: passed.
+- `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=240 mise run test-webkit`
+  - exit 0
+  - WebKit serialized lane passed in 102.80s.
+  - Included `BridgePaneControllerContentAuthorityTests`,
+    `BridgePaneControllerIPCProjectionTests`, real diff content fetches, and
+    `WebviewPaneControllerTests`.
+
 ## Next Step
 
-Route `4c4c7773` back to `shravan-dev-workflow:implementation-review-swarm`
+Route `55c2689c` back to `shravan-dev-workflow:implementation-review-swarm`
 before starting ticket 02.

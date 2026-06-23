@@ -980,3 +980,78 @@ recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 fifth-review second post-review
 findings are fixed with fresh scoped proof; the Bridge trust/transport boundary
 needs another review before ticket 02 begins.
+
+## Ticket 01 Fifth Review Third Post-Review Follow-Up Fix
+
+Review verdict:
+
+- The review of `4c4c7773` / `aa6fd8da` returned `not_ready`.
+- Accepted findings were fixed in `55c2689c`.
+
+Accepted findings addressed:
+
+- Scheme-handler response/body emission still checked revocation state without
+  proving that the exact requested resource lease remained active at the moment
+  of emission.
+- Targeted revocation and filtered reset removed lease rows without keeping an
+  exact resource tombstone, which left a stale expected revision path for
+  re-registering removed authority.
+- The HEAD content route lacked proof that authority loss before response
+  emission produces zero scheme events.
+
+Implementation:
+
+- `BridgeTransportResourceLeaseRegistry` now records exact resource tombstones
+  for targeted revokes and filtered resets.
+- Direct registration now authorizes against both the aggregate revocation
+  revision and the exact resource tombstone.
+- Scheme-handler GET response, GET body, and HEAD response emission now call
+  actor-isolated `performWhileLeased`, which checks exact active lease identity
+  and byte cap while holding the authority gate around the emission closure.
+- The old nonisolated synchronous emission helper was removed so emission has a
+  single authority boundary.
+- `BridgeSchemeHandlerContentAuthorityTests` owns the content-emission
+  authority regressions after splitting them out of the general scheme-handler
+  suite.
+
+Fresh proof:
+
+```bash
+mise run format
+```
+
+Result: exit 0, Swift sources formatted.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests|BridgeSchemeHandlerContentAuthorityTests'
+```
+
+Result: exit 0, 81 tests in 4 suites passed.
+
+```bash
+mise run lint
+```
+
+Result: exit 0; swift-format OK, SwiftLint reported 0 violations in 1308 files,
+architecture lint passed, and release script verification passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=240 \
+  mise run test-webkit
+```
+
+Result: exit 0, WebKit serialized lane passed in 102.80s and included
+`BridgePaneControllerContentAuthorityTests`,
+`BridgePaneControllerIPCProjectionTests`, real diff content fetches, and
+`WebviewPaneControllerTests`.
+
+phase_result: complete
+evidence:
+`55c2689c fix: harden bridge lease emission authority`
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fifth-review-fix/report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 fifth-review third post-review
+findings are fixed with fresh scoped proof; the Bridge trust/transport boundary
+needs another review before ticket 02 begins.

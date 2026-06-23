@@ -5,7 +5,7 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: ticket-01-fifth-review-second-post-review-fix-complete
+Current workflow: ticket-01-fifth-review-third-post-review-fix-complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Reason:
@@ -109,7 +109,19 @@ Reason:
   scheme-handler response/body yields under the same synchronous authority lock
   used by revocation, and proves zero scheme events before oversized-content
   rejection plus in-flight reload revocation.
-- Next step is to route `4c4c7773` back to implementation-review-swarm before
+- Review of `4c4c7773` / `aa6fd8da` returned `not_ready`. Accepted findings
+  covered the scheme-handler final emission gate checking revocation without
+  proving the exact active lease still matched, targeted revoke / filtered reset
+  missing exact resource tombstones and revocation revision protection, and a
+  missing HEAD no-emission proof.
+- The third post-review follow-up is committed at
+  `55c2689c fix: harden bridge lease emission authority`. It adds exact
+  resource tombstones for targeted revokes and filtered resets, requires direct
+  registration to clear the matching tombstone with the current revocation
+  revision, gates response/body/HEAD emission through actor-isolated
+  `performWhileLeased`, removes the superseded sync helper, and splits
+  scheme-handler content authority tests.
+- Next step is to route `55c2689c` back to implementation-review-swarm before
   ticket 02 begins.
 
 ## Key Artifacts
@@ -220,8 +232,8 @@ Status: ticket 00 committed; ticket 01 original checkpoint committed; first
 ticket 01 review-fix checkpoint committed but review returned `not_ready`;
 second ticket 01 review-fix pass is committed and proven; third ticket 01
 review-fix pass returned `not_ready`; fourth and fifth follow-up fixes are
-committed; the fifth-review second post-review follow-up is proven and ready
-for re-review.
+committed; the fifth-review third post-review follow-up is proven and ready for
+re-review.
 
 Evidence:
 
@@ -243,6 +255,8 @@ Evidence:
   `b68c70ea fix: harden bridge content authority after review`
 - ticket 01 fifth-review second post-review follow-up commit:
   `4c4c7773 fix: close bridge authority races`
+- ticket 01 fifth-review third post-review follow-up commit:
+  `55c2689c fix: harden bridge lease emission authority`
 - ticket 01 fourth-review follow-up report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
 - ticket 01 fifth-review follow-up report:
@@ -259,7 +273,7 @@ Evidence:
 Open before ticket 02:
 
 - re-review the fixed ticket-01 trust/transport boundary after the
-  fifth-review second post-review follow-up fix
+  fifth-review third post-review follow-up fix
 - keep broad Swift health open until the unrelated CommandBar title mismatch is
   fixed in a separate scope or final milestone proof passes
 
