@@ -5,8 +5,8 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: implementation-plan-accepted
-Next workflow: `shravan-dev-workflow:implementation-execute-plan`
+Current workflow: ticket-01-implementation-committed
+Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Reason:
 
@@ -22,9 +22,16 @@ Reason:
   1.6.29 after accepted plan edits for carrier proof, containment, raw URL
   authority, markdown security, renderer boundary, Worktree/File telemetry, and
   final browser proof.
-- Implementation may begin at ticket 00 under the checkpoint gates. Ticket 01
-  must not start until ticket 00 proves the real WKWebView carrier or the design
-  reconverges.
+- Ticket 00 carrier proof is committed at `bbf9e51c`.
+- Ticket 01 core transport contracts are committed at `00d22ce0` after scoped
+  BridgeWeb, fixture sync, Swift/WebKit, and lint proof.
+- Broad Swift health remains open because `CommandBarDataSourceTests/
+  test_commandsScope_includesOpenBridgeReview` expects `Open Bridge Review`
+  while current command catalog title is `Review`. That failure is outside the
+  ticket 01 transport/security write scope and is recorded in the execution
+  brief.
+- Next step is implementation review for ticket 01 before ticket 02 begins,
+  because ticket 01 changes the Bridge trust and transport boundary.
 
 ## Key Artifacts
 
@@ -128,6 +135,21 @@ Checkpoint 1: intake carrier and core transport contracts
   descriptor/lease authority, fixture sync, integrity, and preview-only rules.
 - Commit only after proof gates pass.
 - Review if the slice changes trust/transport boundaries substantially.
+
+Status: ticket 00 and ticket 01 committed.
+
+Evidence:
+
+- ticket 00 commit: `bbf9e51c feat: prove bridge intake carrier`
+- ticket 01 commit: `00d22ce0 feat: add bridge transport contracts`
+- execution proof ledger:
+  `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-execute-plan-brief.md`
+
+Open before ticket 02:
+
+- run `shravan-dev-workflow:implementation-review-swarm` for ticket 01
+- keep broad Swift health open until the unrelated CommandBar title mismatch is
+  fixed in a separate scope or final milestone proof passes
 
 Checkpoint 2: Review vertical with descriptor-backed demand
 
