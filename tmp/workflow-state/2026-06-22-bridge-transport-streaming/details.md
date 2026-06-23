@@ -5,7 +5,7 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: ticket-01-third-review-fix-complete
+Current workflow: ticket-01-fifth-review-fix-complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Reason:
@@ -77,6 +77,17 @@ Reason:
   fence for content activation, key/handle-based in-flight content validation,
   filter-accurate lease resets, stronger controller/store/registry tests, and
   corrected workflow event direction.
+- Review of `e076fc4b` returned `not_ready`. Accepted findings covered an IPC
+  stale-content window after teardown, direct lease registration bypassing the
+  revocation-revision contract, same-generation content validation using full
+  handle equality instead of authority identity, stale workflow-state text, and
+  a green-only fourth-review proof packet.
+- The fifth follow-up pass now fixes those findings with lease-first content
+  activation, IPC review/content revocation checks, revocation-revision-fenced
+  direct registration, explicit content-handle authority identity, and updated
+  checkpoint proof notes. A red-proof attempt against `e076fc4b` was blocked by
+  the scratch checkout missing `Frameworks/GhosttyKit.xcframework`; that blocker
+  is recorded instead of overclaiming red proof.
 - Next step is to route the fixed ticket 01 authority follow-up back to
   implementation-review-swarm before ticket 02 begins.
 
@@ -187,7 +198,8 @@ Checkpoint 1: intake carrier and core transport contracts
 Status: ticket 00 committed; ticket 01 original checkpoint committed; first
 ticket 01 review-fix checkpoint committed but review returned `not_ready`;
 second ticket 01 review-fix pass is committed and proven; third ticket 01
-review-fix pass returned `not_ready` and has a proven follow-up fix.
+review-fix pass returned `not_ready`; fourth and fifth follow-up fixes are
+proven and ready for re-review.
 
 Evidence:
 
@@ -205,6 +217,8 @@ Evidence:
   `e076fc4b fix: fence bridge content authority after teardown`
 - ticket 01 fourth-review follow-up report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
+- ticket 01 fifth-review follow-up report:
+  `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fifth-review-fix/report.md`
 - ticket 01 review-fix report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-review-fix-report.md`
 - ticket 01 second-review-fix response report:
@@ -216,7 +230,7 @@ Evidence:
 
 Open before ticket 02:
 
-- re-review the fixed ticket-01 trust/transport boundary after the third-review
+- re-review the fixed ticket-01 trust/transport boundary after the fifth-review
   follow-up fix
 - keep broad Swift health open until the unrelated CommandBar title mismatch is
   fixed in a separate scope or final milestone proof passes

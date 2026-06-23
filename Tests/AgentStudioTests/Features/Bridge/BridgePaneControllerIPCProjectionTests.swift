@@ -94,6 +94,43 @@ extension WebKitSerializedTests {
             #expect(result.contentBase64 == nil)
         }
 
+        @Test("IPC content body rejects content after teardown revokes review authority")
+        func ipcContentBody_rejectsContentAfterTeardownRevokesReviewAuthority() async throws {
+            let handle = makeBridgeContentHandle(
+                itemId: "item-source",
+                role: .head,
+                reviewGeneration: 7,
+                contentHash: bridgeSHA256ContentHash("let value = 1\n"),
+                sizeBytes: 14
+            )
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [
+                    handle.handleId: makeContentResult(handle: handle, data: "let value = 1\n")
+                ]
+            )
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                reviewSourceProvider: provider
+            )
+            await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
+
+            controller.teardown()
+
+            await #expect(throws: BridgeIPCProjectionError.self) {
+                _ = try await controller.loadContentForIPC(
+                    contentHandleId: handle.handleId,
+                    reviewGeneration: 7
+                )
+            }
+            #expect(await provider.recordedContentRequestsCount() == 0)
+        }
+
         @Test("IPC content body rejects payloads that exceed the IPC response budget")
         func ipcContentBody_rejectsPayloadsThatExceedIPCResponseBudget() async throws {
             let oversizedText = String(repeating: "a", count: 1_000_000)

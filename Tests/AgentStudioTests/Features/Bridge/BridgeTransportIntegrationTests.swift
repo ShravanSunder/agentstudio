@@ -905,7 +905,8 @@ extension WebKitSerializedTests {
                     resource,
                     paneId: paneId,
                     descriptorId: resource.opaqueId,
-                    maxBytes: handle.sizeBytes
+                    maxBytes: handle.sizeBytes,
+                    expectedRevocationRevision: 0
                 )
             }
         }

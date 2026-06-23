@@ -133,7 +133,8 @@ actor BridgeTransportResourceLeaseRegistry {
         _ resource: BridgeTransportResourceURL,
         paneId: UUID,
         descriptorId: String? = nil,
-        maxBytes: Int? = nil
+        maxBytes: Int? = nil,
+        expectedRevocationRevision: UInt64
     ) -> Bool {
         register(
             BridgeTransportResourceLease(
@@ -141,11 +142,16 @@ actor BridgeTransportResourceLeaseRegistry {
                 descriptorId: descriptorId ?? resource.opaqueId,
                 resource: resource,
                 maxBytes: maxBytes
-            ))
+            ),
+            expectedRevocationRevision: expectedRevocationRevision
+        )
     }
 
     @discardableResult
-    func register(_ lease: BridgeTransportResourceLease) -> Bool {
+    func register(
+        _ lease: BridgeTransportResourceLease,
+        expectedRevocationRevision: UInt64
+    ) -> Bool {
         guard lease.descriptorId == lease.resource.opaqueId,
             lease.maxBytes.map({ $0 >= 0 }) ?? true
         else {
@@ -155,7 +161,8 @@ actor BridgeTransportResourceLeaseRegistry {
             authorityGate.authorize(
                 paneId: lease.paneId,
                 protocolId: lease.resource.protocolId,
-                resourceKind: lease.resource.resourceKind
+                resourceKind: lease.resource.resourceKind,
+                expectedRevocationRevision: expectedRevocationRevision
             )
         else {
             return false

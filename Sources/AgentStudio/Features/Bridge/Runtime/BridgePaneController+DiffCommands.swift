@@ -123,7 +123,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         } catch {
             throw error
         }
-        await reviewContentStore.activate(handles: handles, reviewGeneration: reviewGeneration)
         let replaced = await resourceLeaseRegistry.replace(
             paneId: paneId,
             protocolId: "review",
@@ -135,6 +134,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             await clearReviewContentAuthority()
             throw BridgeProviderFailure.providerFailed(message: "Invalid bridge review content lease set")
         }
+        await reviewContentStore.activate(handles: handles, reviewGeneration: reviewGeneration)
     }
 
     private func makeReviewContentLeases(

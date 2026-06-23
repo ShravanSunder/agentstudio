@@ -752,3 +752,77 @@ recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 fourth-review findings are fixed with
 fresh scoped proof; the Bridge trust/transport boundary needs another review
 before ticket 02 begins.
+
+## Ticket 01 Fifth Review Follow-Up Fix
+
+Review verdict:
+
+- The review of `e076fc4b` returned `not_ready`.
+- Accepted findings were fixed in this follow-up pass.
+
+Accepted findings addressed:
+
+- Content-store activation could become visible before the
+  revocation-revision-checked lease replacement succeeded.
+- IPC content loads read directly from `BridgeContentStore` after teardown
+  without consulting the synchronous review/content authority gate.
+- Direct lease registration could bypass the revocation-revision contract.
+- Same-generation content preservation used full `BridgeContentHandle` equality
+  instead of the explicit content authority identity.
+- Workflow-state/checkpoint text still pointed at the third-review pass.
+- The previous fourth-review proof packet overclaimed green-only proof.
+
+Fresh proof:
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeContentStoreTests|BridgeSchemeHandlerLeaseAuthorityTests'
+```
+
+Result: exit 0, 24 tests in 2 suites passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-webkit
+```
+
+Result: exit 0, WebKit serialized lane passed in 96.77s and included
+`BridgePaneControllerIPCProjectionTests` with 6 tests.
+
+```bash
+mise run lint
+```
+
+Result: exit 0; swift-format OK, SwiftLint reported 0 violations in 1307 files,
+architecture lint passed, and release script verification passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests'
+```
+
+Result: exit 0, 75 tests in 3 suites passed.
+
+Red-proof attempt:
+
+```bash
+MISE_TRUSTED_CONFIG_PATHS=.../tmp/red-proof-e076fc4b/.mise.toml \
+SWIFT_TEST_TIMEOUT_SECONDS=60 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeContentStoreTests/contentStorePreservesSameAuthorityInFlightLoadsWhenNonKeyMetadataChanges'
+```
+
+Result: exit 1 before test execution. The detached scratch checkout at
+`tmp/red-proof-e076fc4b` is pinned to `e076fc4b`, but it lacks the vendored
+`Frameworks/GhosttyKit.xcframework` artifact required by package prebuild.
+
+phase_result: complete
+evidence:
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fifth-review-fix/report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 fifth-review findings are fixed with
+fresh scoped proof; the Bridge trust/transport boundary needs another review
+before ticket 02 begins.

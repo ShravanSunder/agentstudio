@@ -452,7 +452,7 @@ final class BridgeSchemeHandlerTests {
                 resourceURL,
                 allowedResourceKindsByProtocol: ["review": Set(["content"])]
             ))
-        await resourceLeaseRegistry.register(resource, paneId: paneId)
+        await resourceLeaseRegistry.register(resource, paneId: paneId, expectedRevocationRevision: 0)
         let handler = BridgeSchemeHandler(
             paneId: paneId,
             contentStore: contentStore,
@@ -634,10 +634,7 @@ final class BridgeSchemeHandlerTests {
         let paneId = UUID()
 
         let registered = await resourceLeaseRegistry.register(
-            resource,
-            paneId: paneId,
-            descriptorId: "different-descriptor"
-        )
+            resource, paneId: paneId, descriptorId: "different-descriptor", expectedRevocationRevision: 0)
 
         #expect(registered == false)
         #expect(await resourceLeaseRegistry.contains(resource, paneId: paneId) == false)
@@ -673,7 +670,7 @@ final class BridgeSchemeHandlerTests {
                 resourceURL,
                 allowedResourceKindsByProtocol: ["review": Set(["content"])]
             ))
-        await resourceLeaseRegistry.register(resource, paneId: paneId)
+        await resourceLeaseRegistry.register(resource, paneId: paneId, expectedRevocationRevision: 0)
         let handler = BridgeSchemeHandler(
             paneId: paneId,
             contentStore: contentStore,
@@ -806,7 +803,7 @@ final class BridgeSchemeHandlerTests {
                 resourceURL,
                 allowedResourceKindsByProtocol: ["review": Set(["content"])]
             ))
-        await resourceLeaseRegistry.register(resource, paneId: paneId)
+        await resourceLeaseRegistry.register(resource, paneId: paneId, expectedRevocationRevision: 0)
         let handler = BridgeSchemeHandler(
             paneId: paneId,
             contentStore: contentStore,
@@ -899,7 +896,8 @@ final class BridgeSchemeHandlerTests {
                 resource,
                 paneId: paneId,
                 descriptorId: resource.opaqueId,
-                maxBytes: handle.sizeBytes
+                maxBytes: handle.sizeBytes,
+                expectedRevocationRevision: 0
             )
         }
         return BridgeSchemeHandler(

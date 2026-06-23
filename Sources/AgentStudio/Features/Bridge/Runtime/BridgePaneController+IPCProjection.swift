@@ -195,6 +195,15 @@ extension BridgePaneController {
         contentHandleId: String,
         reviewGeneration: Int
     ) async throws -> IPCBridgeContentGetResult {
+        guard
+            !resourceLeaseRegistry.isRevokedSynchronously(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "content"
+            )
+        else {
+            throw BridgeIPCProjectionError(reason: .contentUnavailable)
+        }
         let result: BridgeContentLoadResult
         do {
             result = try await reviewContentStore.load(
@@ -202,6 +211,15 @@ extension BridgePaneController {
                 requestedGeneration: BridgeReviewGeneration(reviewGeneration)
             )
         } catch {
+            throw BridgeIPCProjectionError(reason: .contentUnavailable)
+        }
+        guard
+            !resourceLeaseRegistry.isRevokedSynchronously(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "content"
+            )
+        else {
             throw BridgeIPCProjectionError(reason: .contentUnavailable)
         }
 

@@ -11,9 +11,19 @@ actor BridgeContentStore {
         let contentHash: String
     }
 
+    private struct ContentHandleAuthority: Equatable {
+        let handleId: String
+        let reviewGeneration: BridgeReviewGeneration
+        let itemId: String
+        let role: BridgeContentHandle.Role
+        let endpointId: String
+        let contentHash: String
+    }
+
     private struct ActiveContentHandleLookup {
         let key: ContentKey
         let handle: BridgeContentHandle
+        let handleAuthority: ContentHandleAuthority
         let authorityRevision: Int
     }
 
@@ -217,6 +227,7 @@ actor BridgeContentStore {
         return ActiveContentHandleLookup(
             key: key,
             handle: handle,
+            handleAuthority: contentHandleAuthority(for: handle),
             authorityRevision: activeAuthorityRevision
         )
     }
@@ -250,7 +261,8 @@ actor BridgeContentStore {
     ) throws {
         try validateActiveGeneration(requestedGeneration)
         guard lookup.authorityRevision != activeAuthorityRevision else { return }
-        guard handleByKey[lookup.key] == lookup.handle,
+        guard let activeHandle = handleByKey[lookup.key],
+            contentHandleAuthority(for: activeHandle) == lookup.handleAuthority,
             keyByHandleId[lookup.handle.handleId] == lookup.key
         else {
             throw BridgeProviderFailure.missingContent(handleId: lookup.handle.handleId)
@@ -499,6 +511,17 @@ actor BridgeContentStore {
 
     private func contentKey(for handle: BridgeContentHandle) -> ContentKey {
         ContentKey(
+            handleId: handle.handleId,
+            reviewGeneration: handle.reviewGeneration,
+            itemId: handle.itemId,
+            role: handle.role,
+            endpointId: handle.endpointId,
+            contentHash: handle.contentHash
+        )
+    }
+
+    private func contentHandleAuthority(for handle: BridgeContentHandle) -> ContentHandleAuthority {
+        ContentHandleAuthority(
             handleId: handle.handleId,
             reviewGeneration: handle.reviewGeneration,
             itemId: handle.itemId,

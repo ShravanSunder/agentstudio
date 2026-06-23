@@ -25,8 +25,16 @@ final class BridgeSchemeHandlerLeaseAuthorityTests {
         let paneId = UUID()
         let otherPaneId = UUID()
         let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
-        await resourceLeaseRegistry.register(oldResource, paneId: paneId)
-        await resourceLeaseRegistry.register(otherPaneResource, paneId: otherPaneId)
+        await resourceLeaseRegistry.register(
+            oldResource,
+            paneId: paneId,
+            expectedRevocationRevision: 0
+        )
+        await resourceLeaseRegistry.register(
+            otherPaneResource,
+            paneId: otherPaneId,
+            expectedRevocationRevision: 0
+        )
 
         let replaced = await resourceLeaseRegistry.replace(
             paneId: paneId,
@@ -61,8 +69,16 @@ final class BridgeSchemeHandlerLeaseAuthorityTests {
             ))
         let paneId = UUID()
         let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
-        await resourceLeaseRegistry.register(oldResource, paneId: paneId)
-        await resourceLeaseRegistry.register(newResource, paneId: paneId)
+        await resourceLeaseRegistry.register(
+            oldResource,
+            paneId: paneId,
+            expectedRevocationRevision: 0
+        )
+        await resourceLeaseRegistry.register(
+            newResource,
+            paneId: paneId,
+            expectedRevocationRevision: 0
+        )
 
         await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content", generation: 7)
 
@@ -74,5 +90,41 @@ final class BridgeSchemeHandlerLeaseAuthorityTests {
                 protocolId: "review",
                 resourceKind: "content"
             ) == false)
+    }
+
+    @Test
+    func test_transportResourceLeaseRegisterRejectsStaleRevocationRevision() async throws {
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                "agentstudio://resource/review/content/handle-old?generation=7",
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        let paneId = UUID()
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let initialRevision = resourceLeaseRegistry.revocationRevision(
+            paneId: paneId,
+            protocolId: "review",
+            resourceKind: "content"
+        )
+
+        await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
+        let staleRegistered = await resourceLeaseRegistry.register(
+            resource,
+            paneId: paneId,
+            expectedRevocationRevision: initialRevision
+        )
+        let currentRegistered = await resourceLeaseRegistry.register(
+            resource,
+            paneId: paneId,
+            expectedRevocationRevision: resourceLeaseRegistry.revocationRevision(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "content"
+            )
+        )
+
+        #expect(staleRegistered == false)
+        #expect(currentRegistered == true)
+        #expect(await resourceLeaseRegistry.contains(resource, paneId: paneId) == true)
     }
 }
