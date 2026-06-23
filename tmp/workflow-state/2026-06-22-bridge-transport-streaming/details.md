@@ -5,7 +5,7 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: ticket-01-second-review-fix-complete
+Current workflow: ticket-01-third-review-fix-complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Reason:
@@ -51,7 +51,14 @@ Reason:
   descriptor ids to URL opaque ids, checks leases against descriptor authority
   and byte limits, injects the Swift protocol/kind registry, and proves HEAD /
   OPTIONS behavior.
-- Next step is to route the second ticket 01 review-fix pass back to
+- A third ticket 01 review-fix implementation pass is committed at
+  `acb4bd3f fix: close bridge content authority gaps`. It closes the accepted
+  second-review residuals: dev-server/fixture URL cutover, stable-decoded URL
+  rejection parity, metadata-only HEAD responses, atomic lease replacement,
+  controller-owned lease registration proof, failed-reload authority revocation,
+  teardown cleanup, active-source stale URL sweeps, and WebKit lane inclusion
+  for the new controller authority suite.
+- Next step is to route the third ticket 01 review-fix pass back to
   implementation-review-swarm before ticket 02 begins.
 
 ## Key Artifacts
@@ -170,8 +177,12 @@ Evidence:
   `f09d768a fix: close bridge transport review findings`
 - ticket 01 second review-fix commit:
   `10d2b075 fix: bind bridge resource leases to descriptors`
+- ticket 01 third review-fix commit:
+  `acb4bd3f fix: close bridge content authority gaps`
 - ticket 01 review-fix report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-review-fix-report.md`
+- ticket 01 second-review-fix response report:
+  `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-second-review-fix/report.md`
 - execution proof ledger:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-execute-plan-brief.md`
 

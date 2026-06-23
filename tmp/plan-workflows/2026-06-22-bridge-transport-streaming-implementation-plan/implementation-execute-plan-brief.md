@@ -534,7 +534,7 @@ review again before ticket 02 begins.
 
 Commit:
 
-- pending
+- `acb4bd3f fix: close bridge content authority gaps`
 
 Review findings addressed:
 
@@ -644,7 +644,7 @@ Broad Swift health:
   not be fixed as part of the ticket-01 review-finding patch.
 
 phase_result: complete
-evidence: current worktree patch, the commands above, and
+evidence: `acb4bd3f`, the commands above, and
 `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-second-review-fix/report.md`
 recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 second-review findings are addressed
