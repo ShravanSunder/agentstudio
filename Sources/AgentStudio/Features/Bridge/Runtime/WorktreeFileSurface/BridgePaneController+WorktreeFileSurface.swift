@@ -42,6 +42,7 @@ extension BridgePaneController {
             throw RPCMethodDispatchError.handlerFailure("Stale Worktree/File source generation")
         }
         await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "worktree-file")
+        await worktreeFileResourceStore.reset(protocolId: "worktree-file")
         let snapshotFrame = BridgeWorktreeFileSurfaceFrameBuilder.snapshot(
             request: BridgeWorktreeFileSnapshotBuildRequest(
                 paneId: paneId.uuidString,
@@ -57,7 +58,11 @@ extension BridgePaneController {
                 includeStatusDescriptor: openedSource.includeStatuses
             )
         )
+        let resourceBodies = try Self.makeSnapshotResourceBodies(snapshotFrame)
         try await activateWorktreeFileSurfaceLeases(snapshotFrame)
+        for resourceBody in resourceBodies {
+            await worktreeFileResourceStore.register(resourceBody.resource, body: resourceBody.body)
+        }
         return snapshotFrame
     }
 
@@ -157,5 +162,75 @@ extension BridgePaneController {
                 throw RPCMethodDispatchError.handlerFailure("Failed to register Worktree/File descriptor lease")
             }
         }
+    }
+
+    private struct WorktreeFileSurfaceResourceBodyRegistration: Sendable {
+        let resource: BridgeTransportResourceURL
+        let body: BridgeWorktreeFileResourceBody
+    }
+
+    private nonisolated static func makeSnapshotResourceBodies(
+        _ snapshotFrame: BridgeWorktreeSnapshotFrame
+    ) throws -> [WorktreeFileSurfaceResourceBodyRegistration] {
+        let encoder = JSONEncoder()
+        let treeResource = try parsedWorktreeFileResource(
+            descriptor: snapshotFrame.treeDescriptor.descriptor
+        )
+        let treeBody = BridgeWorktreeTreeWindowResourceBody(
+            source: snapshotFrame.source,
+            treeSizeFacts: snapshotFrame.treeSizeFacts,
+            rows: []
+        )
+        var registrations = [
+            WorktreeFileSurfaceResourceBodyRegistration(
+                resource: treeResource,
+                body: BridgeWorktreeFileResourceBody(
+                    data: try encoder.encode(treeBody),
+                    mimeType: "application/json"
+                )
+            )
+        ]
+
+        if let statusDescriptor = snapshotFrame.statusDescriptor?.descriptor {
+            let statusResource = try parsedWorktreeFileResource(descriptor: statusDescriptor)
+            let statusBody = BridgeWorktreeStatusResourceBody(
+                source: snapshotFrame.source,
+                patch: BridgeWorktreeStatusPatch(
+                    counts: BridgeWorktreeStatusPatchCounts(
+                        staged: nil,
+                        unstaged: nil,
+                        untracked: nil
+                    ),
+                    branchFacts: BridgeWorktreeStatusPatchBranchFacts(
+                        branchName: nil,
+                        ahead: nil,
+                        behind: nil
+                    )
+                )
+            )
+            registrations.append(
+                WorktreeFileSurfaceResourceBodyRegistration(
+                    resource: statusResource,
+                    body: BridgeWorktreeFileResourceBody(
+                        data: try encoder.encode(statusBody),
+                        mimeType: "application/json"
+                    )
+                ))
+        }
+        return registrations
+    }
+
+    private nonisolated static func parsedWorktreeFileResource(
+        descriptor: BridgeResourceDescriptor
+    ) throws -> BridgeTransportResourceURL {
+        guard
+            let resource = BridgeTransportResourceURL.parse(
+                descriptor.resourceUrl,
+                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+            )
+        else {
+            throw RPCMethodDispatchError.handlerFailure("Invalid Worktree/File descriptor URL")
+        }
+        return resource
     }
 }

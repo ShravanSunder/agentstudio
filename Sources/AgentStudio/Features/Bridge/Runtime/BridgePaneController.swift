@@ -54,6 +54,7 @@ final class BridgePaneController {
     let revisionClock = RevisionClock()
     let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
     let reviewContentStore: BridgeContentStore
+    let worktreeFileResourceStore = BridgeWorktreeFileResourceStore()
     let reviewPipeline: BridgeReviewPipeline
     let reviewChangeIndex = BridgeChangeIndex()
     let bridgePaneState: BridgePaneState
@@ -200,16 +201,14 @@ final class BridgePaneController {
         #endif
         userContentController.addUserScript(initialManagementScript)
 
-        // Register scheme handler for agentstudio:// URLs (bundled React app assets + resources).
-        if let scheme = URLScheme("agentstudio") {
-            config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
-                paneId: paneId,
-                contentStore: reviewContentStore,
-                resourceLeaseRegistry: resourceLeaseRegistry,
-                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
-                telemetryRecorder: resolvedTelemetryRecorder
-            )
-        }
+        Self.registerAgentStudioSchemeHandler(
+            in: &config,
+            paneId: paneId,
+            reviewContentStore: reviewContentStore,
+            worktreeFileResourceStore: worktreeFileResourceStore,
+            resourceLeaseRegistry: resourceLeaseRegistry,
+            telemetryRecorder: resolvedTelemetryRecorder
+        )
 
         // Create WebPage with bridge-specific navigation and dialog policies.
         self.page = WebPage(
@@ -235,6 +234,25 @@ final class BridgePaneController {
         runtime.commandHandler = self
 
         registerNamespaceHandlers()
+    }
+
+    private static func registerAgentStudioSchemeHandler(
+        in config: inout WebPage.Configuration,
+        paneId: UUID,
+        reviewContentStore: BridgeContentStore,
+        worktreeFileResourceStore: BridgeWorktreeFileResourceStore,
+        resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    ) {
+        guard let scheme = URLScheme("agentstudio") else { return }
+        config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
+            paneId: paneId,
+            contentStore: reviewContentStore,
+            worktreeFileResourceStore: worktreeFileResourceStore,
+            resourceLeaseRegistry: resourceLeaseRegistry,
+            allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
+            telemetryRecorder: telemetryRecorder
+        )
     }
 
     private nonisolated static func resolveTelemetryDependencies(
@@ -545,10 +563,12 @@ final class BridgePaneController {
         revokeReviewContentAuthoritySynchronously()
         resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
         let reviewContentStore = reviewContentStore
+        let worktreeFileResourceStore = worktreeFileResourceStore
         let resourceLeaseRegistry = resourceLeaseRegistry
         let paneId = paneId
         Task {
             await reviewContentStore.deactivate()
+            await worktreeFileResourceStore.reset(protocolId: "worktree-file")
             await resourceLeaseRegistry.reset(
                 paneId: paneId,
                 protocolId: "review",

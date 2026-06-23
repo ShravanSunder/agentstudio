@@ -66,6 +66,22 @@ struct BridgeWorktreeFileSurfaceTransportTests {
             )
         )
         #expect(await controller.resourceLeaseRegistry.contains(treeResource, paneId: paneId))
+        let schemeHandler = BridgeSchemeHandler(
+            paneId: paneId,
+            worktreeFileResourceStore: controller.worktreeFileResourceStore,
+            resourceLeaseRegistry: controller.resourceLeaseRegistry
+        )
+        let treeBodyData = try await resourceBody(
+            url: response.result.treeDescriptor.descriptor.resourceUrl,
+            handler: schemeHandler
+        )
+        let treeBody = try JSONDecoder().decode(BridgeWorktreeTreeWindowResourceBody.self, from: treeBodyData)
+        #expect(treeBody.source == response.result.source)
+        #expect(treeBody.treeSizeFacts == response.result.treeSizeFacts)
+        let statusURL = try #require(response.result.statusDescriptor?.descriptor.resourceUrl)
+        let statusBodyData = try await resourceBody(url: statusURL, handler: schemeHandler)
+        let statusBody = try JSONDecoder().decode(BridgeWorktreeStatusResourceBody.self, from: statusBodyData)
+        #expect(statusBody.source == response.result.source)
         #expect(response.result.requestSelector?.pathScope == ["Sources"])
         #expect(response.result.treeSizeFacts.extentKind == .exactPathCount)
         #expect(response.result.treeSizeFacts.pathCount == 0)
@@ -220,6 +236,25 @@ struct BridgeWorktreeFileSurfaceTransportTests {
         let responseJSON = try #require(await capture.get())
         let responseData = try #require(responseJSON.data(using: .utf8))
         return try JSONDecoder().decode(BridgeWorktreeFileSurfaceSuccessResponse.self, from: responseData)
+    }
+
+    private func resourceBody(
+        url: String,
+        handler: BridgeSchemeHandler
+    ) async throws -> Data {
+        let request = URLRequest(url: URL(string: url)!)
+        var body = Data()
+        for try await result in handler.reply(for: request) {
+            switch result {
+            case .response:
+                break
+            case .data(let chunk):
+                body.append(chunk)
+            @unknown default:
+                Issue.record("Unexpected URL scheme task result")
+            }
+        }
+        return body
     }
 }
 

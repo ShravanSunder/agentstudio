@@ -178,6 +178,34 @@ Review-fix proof captured 2026-06-23 after current implementation review:
   architecture lint OK, release script verification passed
 - diff hygiene: `git diff --check` exited 0
 
+Resource body-serving proof captured 2026-06-23:
+
+- accepted/fixed: Worktree/File descriptors were parseable and leased but
+  `BridgeSchemeHandler` rejected every non-Review `agentstudio://resource/...`
+  request before bytes
+- added `BridgeWorktreeFileResourceStore` under
+  `Runtime/WorktreeFileSurface` so Worktree/File resource bodies are
+  app-protocol-owned instead of routed through Review `BridgeContentStore`
+- `BridgeSchemeHandler` now routes leased `worktree-file` resources through the
+  Worktree/File resource store while preserving the same lease, revocation, and
+  max-byte checks around response and body emission
+- `BridgePaneController` now passes the Worktree/File store into its
+  per-pane scheme handler and registers fetchable `worktree.treeWindow` and
+  `worktree.status` JSON bodies for `worktree.snapshot` descriptors
+- lifecycle cleanup resets Worktree/File bodies on source reopen and teardown;
+  stale bodies are not authority without a current native lease
+- red:
+  `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter BridgeSchemeHandlerWorktreeFileResourceTests`
+  exited 1 before implementation because `BridgeWorktreeFileResourceStore` and
+  the scheme-handler injection point did not exist
+- green:
+  `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeWorktreeFileSurfaceTransportTests|BridgeSchemeHandlerWorktreeFileResourceTests|BridgeWorktreeFileSourceProviderTests|BridgeWorktreeFileSurfaceTests'`
+  exited 0 with 29 tests in 4 suites passing
+- changed-file lint:
+  `swiftlint lint --strict <six changed Swift files>` exited 0 with 0
+  violations
+- diff hygiene: `git diff --check` exited 0
+
 Focused suites should include or add:
 
 - `BridgeWorktreeFileSurfaceTests`
@@ -199,7 +227,8 @@ Focused suites should include or add:
 - source-scrubbed extent diagnostics allowlist/leak-negative coverage
 - `BridgeReviewPipelineTests` browseTree/openFile preservation cases when
   transition edits touch the existing ReviewFoundation seams
-- `BridgeSchemeHandlerTests` cases for Worktree/File resource kinds
+- `BridgeSchemeHandlerWorktreeFileResourceTests` cases for leased/revoked
+  Worktree/File resource body serving
 - `BridgeTransportIntegrationTests` cases for Worktree/File frame identity
 
 Legacy dev-route preservation:
