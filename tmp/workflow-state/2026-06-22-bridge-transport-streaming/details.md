@@ -5,8 +5,8 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: ticket-01-review-fix-committed
-Next workflow: `shravan-dev-workflow:implementation-review-swarm`
+Current workflow: ticket-01-review-fix-not-ready
+Next workflow: `shravan-dev-workflow:implementation-execute-plan`
 
 Reason:
 
@@ -36,10 +36,16 @@ Reason:
   and implemented core contracts drifting from the accepted spec. Accepted
   important findings cover the legacy scheme route fail-closed gap, TS/Swift
   encoded-slash URL parity, and descriptor registry lifecycle/reset handling.
-- Ticket 01 accepted review findings are addressed and committed at
+- Ticket 01 accepted review findings were partially addressed and committed at
   `f09d768a fix: close bridge transport review findings`.
-- Next step is to route to implementation-review-swarm for a fresh review of
-  the fixed ticket-01 trust/transport boundary before ticket 02 begins.
+- Fresh implementation-review-swarm on `f09d768a` returned `not_ready`.
+  Accepted blockers are Swift lease authority still being URL/pane-based, the
+  legacy content route bypassing host lease authority, and descriptor registry
+  URL validation not binding opaque resource id. Accepted important findings
+  cover OPTIONS/HEAD route mismatch, legacy-route proof gaps, and a hardcoded
+  Swift protocol/kind registry.
+- Next step is to route back to implementation-execute-plan and address these
+  accepted ticket-01 review-fix findings before ticket 02 begins.
 
 ## Key Artifacts
 
@@ -146,7 +152,7 @@ Checkpoint 1: intake carrier and core transport contracts
 - Review if the slice changes trust/transport boundaries substantially.
 
 Status: ticket 00 committed; ticket 01 original checkpoint committed; ticket 01
-review-fix checkpoint committed and ready for implementation review.
+review-fix checkpoint committed but review returned `not_ready`.
 
 Evidence:
 
@@ -154,12 +160,18 @@ Evidence:
 - ticket 01 commit: `00d22ce0 feat: add bridge transport contracts`
 - ticket 01 review-fix commit:
   `f09d768a fix: close bridge transport review findings`
+- ticket 01 review-fix report:
+  `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-review-fix-report.md`
 - execution proof ledger:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-execute-plan-brief.md`
 
 Open before ticket 02:
 
 - re-review the fixed ticket-01 trust/transport boundary
+- address accepted ticket-01 review-fix findings:
+  descriptor-bound Swift lease authority, legacy content-route lease authority,
+  descriptor opaque-id binding, OPTIONS/HEAD route behavior, legacy route proof,
+  and hardcoded Swift protocol/kind registry
 - keep broad Swift health open until the unrelated CommandBar title mismatch is
   fixed in a separate scope or final milestone proof passes
 
