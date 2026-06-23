@@ -5,8 +5,8 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: ticket-01-implementation-committed
-Next workflow: `shravan-dev-workflow:implementation-review-swarm`
+Current workflow: ticket-01-review-not-ready
+Next workflow: `shravan-dev-workflow:implementation-execute-plan`
 
 Reason:
 
@@ -30,8 +30,14 @@ Reason:
   while current command catalog title is `Review`. That failure is outside the
   ticket 01 transport/security write scope and is recorded in the execution
   brief.
-- Next step is implementation review for ticket 01 before ticket 02 begins,
-  because ticket 01 changes the Bridge trust and transport boundary.
+- Ticket 01 implementation review completed and returned `not_ready`.
+  Accepted blockers are page-world method-only privileged RPC ingress,
+  descriptor/lease authority being URL-string based instead of descriptor-bound,
+  and implemented core contracts drifting from the accepted spec. Accepted
+  important findings cover the legacy scheme route fail-closed gap, TS/Swift
+  encoded-slash URL parity, and descriptor registry lifecycle/reset handling.
+- Next step is to route back to implementation-execute-plan and address the
+  accepted ticket-01 findings before ticket 02 begins.
 
 ## Key Artifacts
 
@@ -44,6 +50,7 @@ Reason:
 - `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/file-organization.md`
 - `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/plan-review-report.md`
 - `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/plan-review-1.6.29-report.md`
+- `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-report.md`
 - `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/orchestrator-goal-draft.md`
 - `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/plan-ledger.md`
 - `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/lanes/codebase-boundary.md`
@@ -136,7 +143,8 @@ Checkpoint 1: intake carrier and core transport contracts
 - Commit only after proof gates pass.
 - Review if the slice changes trust/transport boundaries substantially.
 
-Status: ticket 00 and ticket 01 committed.
+Status: ticket 00 committed; ticket 01 committed but review returned
+`not_ready`.
 
 Evidence:
 
@@ -147,7 +155,12 @@ Evidence:
 
 Open before ticket 02:
 
-- run `shravan-dev-workflow:implementation-review-swarm` for ticket 01
+- address accepted ticket-01 implementation review findings:
+  page-world privileged RPC ingress, descriptor-bound lease authority, contract
+  grammar/integrity parity, legacy route method/query validation, encoded slash
+  URL parity, and descriptor registry lifecycle/reset handling
+- re-run ticket-01 proof gates after fixes
+- re-review the fixed ticket-01 trust/transport boundary
 - keep broad Swift health open until the unrelated CommandBar title mismatch is
   fixed in a separate scope or final milestone proof passes
 
