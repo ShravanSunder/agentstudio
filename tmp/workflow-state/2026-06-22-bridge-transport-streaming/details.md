@@ -1049,6 +1049,28 @@ Checkpoint 3: Worktree/File native provider boundary
 Checkpoint 4: Worktree/File browser surface
 
 - Prove feature models/materializer/demand policy and stale manual refresh UX.
+- Current browser progress:
+  Worktree/File Zod schemas, materializer, demand policy, state primitives, and
+  a non-React surface runtime are implemented and proven. The runtime wires
+  materialized descriptors through the generic scheduler, resource executor, and
+  body registry; selected-file demand fetches descriptor-backed content without
+  putting bodies in state; invalidation marks open files stale without
+  auto-fetching; explicit refresh fetches only the latest descriptor; forged
+  unmaterialized descriptors fail closed before fetch; and source reset prevents
+  stale refresh commits.
+- Current browser proof:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/features/worktree-file/models/worktree-file-protocol-models.unit.test.ts
+  src/features/worktree-file/materialization/worktree-file-materializer.unit.test.ts
+  src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts
+  src/features/worktree-file/state/worktree-file-state.unit.test.ts
+  src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts
+  --reporter verbose`: exit 0, 5 files passed, 20 tests passed.
+- Current quality proof:
+  `pnpm --dir BridgeWeb run check`: exit 0.
+- Current hygiene proof:
+  `rg -n "\\bas\\s+(const|[A-Z][A-Za-z0-9_]*|Readonly|Record|unknown|any|\\{)|\\bany\\b|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/src/features/worktree-file BridgeWeb/src/worktree-file-surface`:
+  exit 1 with no matches.
 - Prove dev-server worktree URL works without Review package scaffolding.
 - Commit only after proof gates pass.
 - Review before cleanup.

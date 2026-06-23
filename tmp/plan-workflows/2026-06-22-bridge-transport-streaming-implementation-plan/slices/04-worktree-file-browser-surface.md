@@ -169,6 +169,35 @@ Materializer descriptor-registration proof captured 2026-06-23:
   `rg -n "\\bas\\s+(const|[A-Z][A-Za-z0-9_]*|Readonly|Record|unknown|any|\\{)|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/src/features/worktree-file`
   found no matches, and `git diff --check` exited 0
 
+Surface runtime proof captured 2026-06-23:
+
+- added non-React Worktree/File browser runtime under
+  `BridgeWeb/src/worktree-file-surface`
+- proved `worktree.fileDescriptor` materialization feeds descriptor-backed
+  selected-file demand through the generic scheduler, resource executor, and
+  body registry
+- proved loaded file bodies stay out of Worktree/File surface state while body
+  bytes are cached in `BridgeBodyRegistry`
+- proved `worktree.fileInvalidated` marks open sessions stale, emits zero
+  automatic content demand, and explicit refresh registers/fetches only the
+  latest descriptor
+- proved forged/unmaterialized descriptors fail closed before fetch
+- proved source reset revokes source descriptors, marks open sessions stale for
+  `sourceReset`, and prevents stale refresh commits
+- red:
+  `pnpm --dir BridgeWeb exec vitest run src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  exited 1 before implementation because
+  `worktree-file-surface-runtime.js` did not exist
+- green:
+  `pnpm --dir BridgeWeb exec vitest run src/features/worktree-file/models/worktree-file-protocol-models.unit.test.ts src/features/worktree-file/materialization/worktree-file-materializer.unit.test.ts src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts src/features/worktree-file/state/worktree-file-state.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  exited 0 with 5 files passed and 20 tests passed
+- quality:
+  `pnpm --dir BridgeWeb run check` exited 0 after exact optional property and
+  formatting fixes
+- hygiene:
+  `rg -n "\\bas\\s+(const|[A-Z][A-Za-z0-9_]*|Readonly|Record|unknown|any|\\{)|\\bany\\b|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/src/features/worktree-file BridgeWeb/src/worktree-file-surface`
+  found no matches
+
 Surface integration:
 
 ```bash
